@@ -209,6 +209,96 @@ module UnificationEngine =
     let instantiateMember (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>) (ty: SemType) : SemType =
         substituteWith (mkNamedTypeSubst typeParams args) ty
 
+    /// Walk a class's inheritance chain for a *non-static* member named
+    /// `memberName`, returning its type instantiated against the receiver's
+    /// `args`. Derived members shadow inherited ones — the derived class's
+    /// `Members` table is searched before recursing into `BaseType`, so an
+    /// `override` wins over the parent's declaration of the same name. The
+    /// parent type stored on `BaseType` is already expressed in the derived
+    /// class's typar scope (NameResolution's `registerInheritedSlots`
+    /// translated it), so substituting the derived class's `TypeParams ↦ args`
+    /// map onto it threads generic instantiation up the chain (`IntBox` ⊳
+    /// `Box<int>` resolves `Box`'s `'a` to `int`). `seen` guards a cyclic
+    /// `inherit` chain. `ValueNone` when no class in the chain declares the
+    /// member, or a parent name isn't a project-local class.
+    let tryClassChainMember
+        (ctx: PassContext)
+        (clsName: string)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : SemType voption =
+        let seen = HashSet<string>()
+
+        let rec walk (clsName: string) (args: EqArray<SemType>) : SemType voption =
+            if not (seen.Add clsName) then
+                ValueNone
+            else
+                match ctx.Types.Class.TryGetValue clsName with
+                | true, info ->
+                    match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
+                    | Some m -> ValueSome(instantiateMember (info.TypeParams, args) m.Type)
+                    | None ->
+                        match info.BaseType with
+                        | ValueSome parentTy ->
+                            match resolveStep (instantiateMember (info.TypeParams, args) parentTy) with
+                            | TyClass(parentName, parentArgs) -> walk parentName parentArgs
+                            | _ -> ValueNone
+                        | ValueNone -> ValueNone
+                | false, _ -> ValueNone
+
+        walk clsName args
+
+    /// The result of the subtyping query `subsumes`: `Equal` when the two
+    /// types are the same nominal type (with invariant args in v1), `Subtype`
+    /// when `src` is a strict descendant of `tgt` along the `inherit` chain,
+    /// `Unrelated` otherwise.
+    [<RequireQualifiedAccess>]
+    type SubsumeOutcome =
+        | Equal
+        | Subtype
+        | Unrelated
+
+    /// Subtyping query distinct from `unify`: does a value of type `src`
+    /// coerce to the statically-known type `tgt`? A **pure read** of
+    /// `ctx.Types.Class` — never mutates `Link` / `Constraints`, so it's safe
+    /// to call from the read-only coercion sites (`:>` / `:?` / `:?>`) without
+    /// an undo trace (inheritance-plan §"Why subsumes being read-only is
+    /// load-bearing"). Reflexivity is `Equal` (callers distinguish a redundant
+    /// upcast from a real one); the parent-chain walk yields `Subtype`. Args
+    /// are invariant in v1 — `List<Circle>` does not subsume `List<Shape>`.
+    let subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
+        // `seen` short-circuits a cyclic `inherit` chain re-entering a class.
+        let rec go (seen: HashSet<string>) (src: SemType) (tgt: SemType) : SubsumeOutcome =
+            match resolveStep src, resolveStep tgt with
+            | TyClass(s, sa), TyClass(t, ta) when s = t ->
+                // Same nominal class. v1 treats args as invariant: every pair
+                // must itself be `Equal` (a fresh chain walk per arg) for the
+                // whole to be `Equal`; any non-`Equal` arg makes them unrelated.
+                if EqArray.forall2 (fun a b -> go (HashSet<string>()) a b = SubsumeOutcome.Equal) sa ta then
+                    SubsumeOutcome.Equal
+                else
+                    SubsumeOutcome.Unrelated
+            | TyClass(s, sa), TyClass _ ->
+                // Different class names → walk `src`'s parent chain toward `tgt`.
+                if not (seen.Add s) then
+                    SubsumeOutcome.Unrelated
+                else
+                    match ctx.Types.Class.TryGetValue s with
+                    | true, info ->
+                        match info.BaseType with
+                        | ValueSome parentTy ->
+                            let parentInstance = instantiateMember (info.TypeParams, sa) parentTy
+
+                            match go seen parentInstance tgt with
+                            | SubsumeOutcome.Unrelated -> SubsumeOutcome.Unrelated
+                            | _ -> SubsumeOutcome.Subtype
+                        | ValueNone -> SubsumeOutcome.Unrelated
+                    | false, _ -> SubsumeOutcome.Unrelated
+            | a, b when a = b -> SubsumeOutcome.Equal
+            | _ -> SubsumeOutcome.Unrelated
+
+        go (HashSet<string>()) src tgt
+
     [<RequireQualifiedAccess>]
     type private NominalKind =
         | Record
@@ -256,6 +346,11 @@ module UnificationEngine =
             memberNoun: string *
             subst: Dictionary<TypeVar, SemType> *
             lookup: (string -> SemType voption)
+        /// A project-local class: member lookup walks the inheritance chain, so
+        /// it can't be expressed as the single `subst` + `lookup` pair the
+        /// `Resolved` shape carries. The drain defers to `tryClassChainMember`,
+        /// which threads the substitution up the chain per parent.
+        | ClassChain of name: string * args: EqArray<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
         match tryResolveNominal linkTarget with
@@ -266,15 +361,10 @@ module UnificationEngine =
                 DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
             | false, _ -> DotSource.UnknownType(name, "record")
         | ValueSome(NominalKind.Class, name, args) ->
-            match ctx.Types.Class.TryGetValue name with
-            | true, info ->
-                DotSource.Resolved(
-                    name,
-                    "instance member",
-                    mkNamedTypeSubst info.TypeParams args,
-                    memberLookup info.Members
-                )
-            | false, _ -> DotSource.UnknownType(name, "class")
+            if ctx.Types.Class.ContainsKey name then
+                DotSource.ClassChain(name, args)
+            else
+                DotSource.UnknownType(name, "class")
         | ValueSome(NominalKind.Union, name, args) ->
             match ctx.Types.Union.TryGetValue name with
             | true, info ->
@@ -412,6 +502,18 @@ module UnificationEngine =
                     match lookup d.MemberName with
                     | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst ty)
                     | ValueNone -> ctx.Error(d.UseKey, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
+            | DotSource.ClassChain(name, args) ->
+                // `tryClassChainMember` already returns the type instantiated
+                // against `args` (and any parent typar substitution), so no
+                // further `substituteWith` is needed here.
+                let pending = root.PendingDotAccess
+                root.PendingDotAccess <- []
+
+                for d in pending do
+                    match tryClassChainMember ctx name args d.MemberName with
+                    | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) ty
+                    | ValueNone ->
+                        ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" name d.MemberName)
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = not in the table, fall through to structural / deferred

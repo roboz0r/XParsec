@@ -664,4 +664,47 @@ let tests =
 
                 Expect.isTrue hasMismatch "string arg vs Box<int>'s int 'a diagnosed"
             }
+
+            // --- Phase 2 / B-4: member-chain lookup + `subsumes` (Step 2.3) ---
+            // `resolveFieldStep` / `drainPendingDotAccess` recurse into the
+            // parent's members on a derived-class miss; override declarations on
+            // the derived class shadow the inherited member of the same name.
+
+            test "inherited member access resolves through parent" {
+                let input =
+                    "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet d = new D()\nlet n = d.X"
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "n = d.X") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "n : int — B.X reached on a D"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "override shadows inherited member of same name" {
+                // Both `B.M` and `D.M` are `unit -> int`; the access must resolve
+                // (derived table searched first) without a chain miss.
+                let ctx =
+                    analyse
+                        "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    override this.M () = 2\nlet r = (new D()).M()"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics — override resolves"
+            }
+
+            test "`base.M()` types through the parent's member" {
+                let ctx =
+                    analyse
+                        "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    override this.M () = base.M() + 1"
+
+                Expect.isEmpty ctx.Diagnostics "base.M : unit -> int reached through B"
+            }
+
+            test "generic inheritance substitutes parent typar from derived args" {
+                let input =
+                    "type Box<'a>(v: 'a) =\n    member this.V = v\ntype IntBox(n: int) =\n    inherit Box<int>(n)\nlet b = new IntBox(1)\nlet r = b.V"
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "r = b.V") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "r : int — Box<int>.V's 'a bound to int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
         ]

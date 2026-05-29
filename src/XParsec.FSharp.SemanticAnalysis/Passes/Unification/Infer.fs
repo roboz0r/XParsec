@@ -817,7 +817,15 @@ module UnificationInfer =
             | false, _ -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" recName)
         | TyClass(clsName, args) ->
             match ctx.Types.Class.TryGetValue clsName with
-            | true, info -> resolveLocalInstanceMember ctx diagKey clsName info.TypeParams args info.Members memberName
+            | true, info ->
+                // Walk the inheritance chain (derived members shadow inherited).
+                // On a total miss, fall back to the single-class diagnostic so
+                // the static-access hint still references the receiver's own
+                // class rather than some ancestor.
+                match tryClassChainMember ctx clsName args memberName with
+                | ValueSome ty -> ty
+                | ValueNone ->
+                    resolveLocalInstanceMember ctx diagKey clsName info.TypeParams args info.Members memberName
             | false, _ ->
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
