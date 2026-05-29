@@ -13,6 +13,10 @@
     <Compile Include="ICodegenProvider.fs" />
     <Compile Include="ClrProvider.fs" />
     <Compile Include="IlIr.fs" />
+    <Compile Include="EmitTypes.fs" />
+    <Compile Include="EmitLower.fs" />
+    <Compile Include="EmitClosures.fs" />
+    <Compile Include="EmitExpr.fs" />
     <Compile Include="Emit.fs" />
     <Compile Include="Codegen.fs" />
     <None Include="docs\codegen-clr-plan.md" Condition="Exists('docs\codegen-clr-plan.md')" />
