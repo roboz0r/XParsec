@@ -23,6 +23,11 @@
     <Compile Include="EmitClosures.fs" />
     <Compile Include="EmitExpr.fs" />
     <Compile Include="Emit.fs" />
+    <Compile Include="CodegenTypes.fs" />
+    <Compile Include="Materialise.fs" />
+    <Compile Include="AssemblerScaffold.fs" />
+    <Compile Include="Assembler.fs" />
+    <Compile Include="NominalEmit.fs" />
     <Compile Include="Codegen.fs" />
     <None Include="docs\codegen-clr-plan.md" Condition="Exists('docs\codegen-clr-plan.md')" />
   </ItemGroup>
