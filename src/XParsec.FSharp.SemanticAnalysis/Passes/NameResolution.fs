@@ -32,6 +32,11 @@ module NameResolution =
         {
             ThisName: string
             ThisKey: NodeKey
+            /// `base` binder key, present only for a class with a resolved
+            /// `inherit` clause (B-4). Enters the *instance* scope alongside
+            /// `this`; statics never see `base`. `ValueNone` for unions and for
+            /// classes without inheritance.
+            BaseKey: NodeKey voption
             CtorParams: ClassCtorParamInfo[]
             /// Class-level `static let` bindings (B-10). Their names enter both the
             /// instance and static member scopes; their initialisers are walked
@@ -61,6 +66,24 @@ module NameResolution =
                 IsMutable = false
             }
         )
+
+        // `base` is visible to instance member bodies of a derived class only.
+        // It resolves to its own synthetic binder key (mirrors `this`); a class
+        // without an `inherit` clause leaves `base` unbound, so a member that
+        // mentions it diagnoses "Unresolved identifier: base".
+        match w.BaseKey with
+        | ValueSome bk ->
+            scopeMap <- Map.add "base" (bk, false) scopeMap
+
+            ctx.Bindings.Binding.Set(
+                bk,
+                {
+                    BindingSite = bk
+                    IsInline = false
+                    IsMutable = false
+                }
+            )
+        | ValueNone -> ()
 
         for p in w.CtorParams do
             scopeMap <- Map.add p.Name (p.DeclKey, false) scopeMap
@@ -201,6 +224,10 @@ module NameResolution =
                             {
                                 ThisName = info.ThisName
                                 ThisKey = info.ThisKey
+                                BaseKey =
+                                    match info.BaseType with
+                                    | ValueSome _ -> ValueSome info.BaseKey
+                                    | ValueNone -> ValueNone
                                 CtorParams = info.CtorParams
                                 StaticLets = info.StaticLets
                                 SecondaryCtors = info.SecondaryCtors
@@ -233,6 +260,7 @@ module NameResolution =
                             {
                                 ThisName = info.ThisName
                                 ThisKey = info.ThisKey
+                                BaseKey = ValueNone
                                 CtorParams = [||]
                                 StaticLets = [||]
                                 SecondaryCtors = [||]
@@ -291,6 +319,14 @@ module NameResolution =
 
         for (m, _) in pairs do
             registerClassTypes ctx m
+
+        // Inheritance (B-4): stamp each class's BaseType / BaseCtorArgs after
+        // every class is registered (so a parent declared later resolves), then
+        // sweep for cycles once the whole graph is populated.
+        for (m, _) in pairs do
+            registerInheritedSlots ctx m
+
+        checkInheritanceCycles ctx
 
         // Union augmentation members (P3d.3) register after the union itself.
         for (m, _) in pairs do

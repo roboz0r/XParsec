@@ -422,4 +422,113 @@ let tests =
                     Expect.isFalse info.AllowNullLiteral "default: no null literal"
                 | false, _ -> failtest "class type C not registered"
             }
+
+            // --- Phase 2 / B-4: inheritance registration (Step 2.1) -------------
+
+            test "inheritance recorded on registry" {
+                let ctx =
+                    analyse "type B(x: int) =\n    member this.X = x\ntype D(y: int) =\n    inherit B(y)"
+
+                match ctx.Types.Class.TryGetValue "D" with
+                | true, info ->
+                    Expect.equal info.BaseType (ValueSome(TyClass("B", EqArray.empty))) "D inherits B"
+                    Expect.isTrue info.BaseCtorArgs.IsSome "base-ctor args captured"
+                | false, _ -> failtest "class type D not registered"
+            }
+
+            test "class without inherit clause has ValueNone BaseType" {
+                let ctx = analyse "type C() =\n    member this.M () = 1"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.equal info.BaseType ValueNone "no base type"
+                    Expect.equal info.BaseCtorArgs ValueNone "no base-ctor args"
+                | false, _ -> failtest "class type C not registered"
+            }
+
+            test "generic inherit clause records translated type args" {
+                let ctx =
+                    analyse
+                        "type Box<'a>(v: 'a) =\n    member this.V = v\ntype IntBox(n: int) =\n    inherit Box<int>(n)"
+
+                match ctx.Types.Class.TryGetValue "IntBox" with
+                | true, info ->
+                    Expect.equal
+                        info.BaseType
+                        (ValueSome(TyClass("Box", EqArray.singleton (TyConst "int"))))
+                        "IntBox inherits Box<int>"
+                | false, _ -> failtest "class type IntBox not registered"
+            }
+
+            test "base in scope inside derived member body" {
+                let ctx =
+                    analyse
+                        "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    member this.N () = base.M()"
+
+                match ctx.Types.Class.TryGetValue "D" with
+                | true, info ->
+                    // The `base` binder gets a self-entry in the instance scope.
+                    match ctx.Bindings.Binding.TryGetValue info.BaseKey with
+                    | ValueSome rb -> Expect.equal rb.BindingSite info.BaseKey "base self-entry"
+                    | ValueNone -> failtest "base not bound in instance scope"
+
+                    // Referencing `base.M()` does not produce an unresolved diagnostic.
+                    let unresolvedBase =
+                        ctx.Diagnostics
+                        |> Seq.exists (fun d -> d.Message.Contains "Unresolved" && d.Message.Contains "base")
+
+                    Expect.isFalse unresolvedBase "base resolves inside derived member"
+                | false, _ -> failtest "class type D not registered"
+            }
+
+            test "base not in scope without inherit clause diagnoses" {
+                let ctx = analyse "type C() =\n    member this.N () = base.M()"
+
+                let unresolvedBase =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Unresolved" && d.Message.Contains "base")
+
+                Expect.isTrue unresolvedBase "base unresolved without inherit"
+            }
+
+            test "override member sets IsOverride on registry" {
+                let ctx =
+                    analyse
+                        "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    override this.M () = 2"
+
+                match ctx.Types.Class.TryGetValue "D" with
+                | true, info ->
+                    Expect.equal info.Members.Length 1 "one member on D"
+                    Expect.isTrue info.Members.[0].IsOverride "override flag set"
+                | false, _ -> failtest "class type D not registered"
+            }
+
+            test "plain member leaves IsOverride false" {
+                let ctx = analyse "type C() =\n    member this.M () = 1"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info -> Expect.isFalse info.Members.[0].IsOverride "plain member is not an override"
+                | false, _ -> failtest "class type C not registered"
+            }
+
+            test "inheriting from a non-class diagnoses" {
+                let ctx = analyse "type R = { X: int }\ntype D() =\n    inherit R()"
+
+                let cannotInherit =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "inherit")
+
+                Expect.isTrue cannotInherit "cannot-inherit-from-non-class diagnostic"
+
+                match ctx.Types.Class.TryGetValue "D" with
+                | true, info -> Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
+                | false, _ -> failtest "class type D not registered"
+            }
+
+            test "cyclic inheritance diagnoses" {
+                let ctx = analyse "type A() =\n    inherit B()\ntype B() =\n    inherit A()"
+
+                let cyclic = ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "cyclic")
+
+                Expect.isTrue cyclic "cyclic-inheritance diagnostic emitted"
+            }
         ]

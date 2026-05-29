@@ -145,18 +145,19 @@ module NameResolutionMemberRegistration =
                     Severity = Error
                 }
 
-        let addMember mName kind isStatic mTok : TypeMemberInfo =
+        let addMember mName kind isStatic isOverride mTok : TypeMemberInfo =
             let tv = TypeVar()
             tv.Level <- 0
             let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
             let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
+            cmi.IsOverride <- isOverride
             memberInfos.Add cmi
             cmi
 
-        let registerNamed (b: Binding<SyntaxToken>) kind isStatic =
+        let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
             match memberNameOf ctx b with
             | ValueSome(mName, mTok) ->
-                let cmi = addMember mName kind isStatic mTok
+                let cmi = addMember mName kind isStatic isOverride mTok
                 // A concrete generic method (`member this.Map<'C> …`, B-12) carries
                 // its own typars on the binding's `typarDefns`. Stamp prototype
                 // TyVars so Unification scopes the signature against them and Freeze
@@ -165,13 +166,15 @@ module NameResolutionMemberRegistration =
                 cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx b.typarDefns)
             | ValueNone -> ()
 
-        let registerAutoProperty id isStatic =
-            addMember (ctx.NameOf id) ClassMemberKind.Property isStatic id |> ignore
+        let registerAutoProperty id isStatic isOverride =
+            addMember (ctx.NameOf id) ClassMemberKind.Property isStatic isOverride id
+            |> ignore
 
         let registerAbstractMethod idOrOp tds isStatic =
             match identOrOpNameTok ctx idOrOp with
             | ValueSome(mName, mTok) ->
-                let cmi = addMember mName ClassMemberKind.Method isStatic mTok
+                // An `abstract` signature is a slot declaration, never an override.
+                let cmi = addMember mName ClassMemberKind.Method isStatic false mTok
                 // The method's own `<'C, …>` typars get prototype TyVars so
                 // Unification scopes the signature against them and Freeze can
                 // surface them as GenericMethodParameters.
@@ -180,13 +183,22 @@ module NameResolutionMemberRegistration =
 
         for el in elements do
             match el with
-            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
                 let isStatic = s.IsSome
 
+                // `override`/`default` members carry the inheritance-plan §Registration
+                // flag; plain `member` and `abstract` stay `false`.
+                let isOverride =
+                    match kw with
+                    | MemberKeyword.Override _
+                    | MemberKeyword.Default _ -> true
+                    | MemberKeyword.Member _
+                    | MemberKeyword.Abstract _ -> false
+
                 match d with
-                | MethodOrPropDefn.Method(defn = b) -> registerNamed b ClassMemberKind.Method isStatic
-                | MethodOrPropDefn.Property(defn = b) -> registerNamed b ClassMemberKind.Property isStatic
-                | MethodOrPropDefn.AutoProperty(ident = id) -> registerAutoProperty id isStatic
+                | MethodOrPropDefn.Method(defn = b) -> registerNamed b ClassMemberKind.Method isStatic isOverride
+                | MethodOrPropDefn.Property(defn = b) -> registerNamed b ClassMemberKind.Property isStatic isOverride
+                | MethodOrPropDefn.AutoProperty(ident = id) -> registerAutoProperty id isStatic isOverride
                 | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; typarDefns = tds)) ->
                     registerAbstractMethod idOrOp tds isStatic
                 | MethodOrPropDefn.PropertyWithGetSet _ ->
@@ -336,6 +348,209 @@ module NameResolutionMemberRegistration =
             for td in defs do
                 registerClassTypeDefn ctx td
         | _ -> ()
+
+    // --- Phase 2 / B-4: inheritance registration (`registerInheritedSlots`) -----
+    // See [`docs/inheritance-plan.md` §Registration]. A post-pass after
+    // `registerClassTypes` so a derived class can name a parent declared later in
+    // the file.
+
+    /// Resolve a named type appearing in an `inherit` clause *argument* position
+    /// (`inherit Box<int>(v)`'s `int`) to a best-effort `SemType`. A
+    /// registration-time mini-`translateType`: NameResolution runs before
+    /// `Unification.translateType` exists, and v1 inherit clauses carry only
+    /// simple arg types (a builtin, a class typar, or another project-local type).
+    /// Abbreviation expansion is deferred to Unification, so an abbrev-named arg
+    /// lands as an opaque `TyConst`.
+    let rec private translateInheritArg
+        (ctx: PassContext)
+        (typarScope: Map<string, TypeVar>)
+        (t: Type<SyntaxToken>)
+        : SemType =
+        let freshTv () =
+            let tv = TypeVar()
+            tv.Level <- 0
+            TyVar tv
+
+        match t with
+        | Type.ParenType(typ = inner) -> translateInheritArg ctx typarScope inner
+        | Type.VarType(Typar.Named(ident = id))
+        | Type.VarType(Typar.Static(ident = id)) ->
+            // A typar in the inherit clause binds to the derived class's prototype
+            // TyVar so generic inheritance substitutes correctly at member-lookup
+            // time (`type Wrapper<'a>(v: 'a) = inherit Box<'a>(v)`).
+            match typarScope.TryFind(ctx.NameOf id) with
+            | Some tv -> TyVar tv
+            | None -> freshTv ()
+        | Type.VarType(Typar.Anon _) -> freshTv ()
+        | Type.NamedType li when li.Idents.Length = 1 ->
+            resolveInheritArgName ctx (ctx.NameOf li.Idents.[0]) EqArray.empty
+        | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
+            let targs =
+                EqArray.ofList
+                    [
+                        for a in args do
+                            match a with
+                            | TypeArg.Type at -> yield translateInheritArg ctx typarScope at
+                            | TypeArg.Measure _ -> ()
+                    ]
+
+            resolveInheritArgName ctx (ctx.NameOf li.Idents.[0]) targs
+        | Type.SuffixedType(baseType = bt; longIdent = li) when li.Idents.Length = 1 ->
+            resolveInheritArgName
+                ctx
+                (ctx.NameOf li.Idents.[0])
+                (EqArray.singleton (translateInheritArg ctx typarScope bt))
+        | Type.TupleType(types = types) ->
+            TyTuple(EqArray.ofList [ for ty in types -> translateInheritArg ctx typarScope ty ])
+        | Type.FunctionType(fromType = f; toType = into) ->
+            TyFun(translateInheritArg ctx typarScope f, translateInheritArg ctx typarScope into)
+        | _ -> freshTv ()
+
+    and private resolveInheritArgName (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType =
+        match name with
+        | "int" -> BuiltinTypes.tyInt
+        | "bool" -> BuiltinTypes.tyBool
+        | "unit" -> BuiltinTypes.tyUnit
+        | "float" -> BuiltinTypes.tyFloat
+        | "string" -> BuiltinTypes.tyString
+        | "int64" -> BuiltinTypes.tyInt64
+        | "byte" -> BuiltinTypes.tyByte
+        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst name
+        | _ when ctx.Types.Record.ContainsKey name -> TyRecord(name, args)
+        | _ when ctx.Types.Union.ContainsKey name -> TyUnion(name, args)
+        | _ when ctx.Types.Class.ContainsKey name -> TyClass(name, args)
+        | _ -> TyConst name
+
+    /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived
+    /// class's typar scope. Diagnoses (and returns `ValueNone`) when the parent is
+    /// a non-class type, an unknown name, or a multi-segment / external name — v1
+    /// routes only single-segment project-local classes (multi-segment / BCL base
+    /// classes land with the provider catalogue; see inheritance-plan §Open
+    /// questions).
+    let private resolveInheritParent
+        (ctx: PassContext)
+        (typarScope: Map<string, TypeVar>)
+        (t: Type<SyntaxToken>)
+        : SemType voption =
+        let rec head (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
+            match t with
+            | Type.ParenType(typ = inner) -> head inner
+            | Type.NamedType li -> ValueSome(li, [])
+            | Type.GenericType(longIdent = li; typeArgs = args) ->
+                let targs =
+                    [
+                        for a in args do
+                            match a with
+                            | TypeArg.Type at -> yield translateInheritArg ctx typarScope at
+                            | TypeArg.Measure _ -> ()
+                    ]
+
+                ValueSome(li, targs)
+            | Type.SuffixedType(baseType = bt; longIdent = li) ->
+                ValueSome(li, [ translateInheritArg ctx typarScope bt ])
+            | _ -> ValueNone
+
+        let diagnose (key: NodeKey) (msg: string) =
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = msg
+                    Code = ""
+                    Severity = Error
+                }
+
+        match head t with
+        | ValueNone -> ValueNone
+        | ValueSome(li, targs) ->
+            let nameTok = li.Idents.[li.Idents.Length - 1]
+            let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
+
+            if li.Idents.Length <> 1 then
+                let qual = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+                diagnose diagKey (sprintf "Inheriting from a qualified base type '%s' is not yet supported" qual)
+                ValueNone
+            else
+                let name = ctx.NameOf nameTok
+
+                match ctx.Types.Class.TryGetValue name with
+                | true, _ -> ValueSome(TyClass(name, EqArray.ofList targs))
+                | false, _ ->
+                    if
+                        ctx.Types.Record.ContainsKey name
+                        || ctx.Types.Union.ContainsKey name
+                        || ctx.Types.Abbreviation.ContainsKey name
+                        || ctx.Types.IntrinsicReprTypes.ContainsKey name
+                    then
+                        diagnose diagKey (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
+                    else
+                        diagnose diagKey (sprintf "Cannot inherit from unknown type '%s'" name)
+
+                    ValueNone
+
+    /// Stamp `BaseType` / `BaseCtorArgs` on each class with an `inherit` clause.
+    /// Runs after `registerClassTypes` so a forward / out-of-order parent
+    /// reference resolves. Cycle detection is a separate sweep
+    /// (`checkInheritanceCycles`) once every class is stamped.
+    let registerInheritedSlots (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match TypeDefnPatterns.tryClassLikeDecl td with
+                | ValueNone -> ()
+                | ValueSome d ->
+                    match d.Body.inherits with
+                    | ValueNone -> ()
+                    | ValueSome(ClassInheritsDecl(typ = parentTyp; expr = exprOpt)) ->
+                        let (TypeName(ident = nameLi)) = d.TypeName
+
+                        if nameLi.Idents.Length = 1 then
+                            match ctx.Types.Class.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
+                            | true, info ->
+                                let typarScope =
+                                    (Map.empty, info.TypeParams)
+                                    ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
+
+                                match resolveInheritParent ctx typarScope parentTyp with
+                                | ValueSome parentTy ->
+                                    info.BaseType <- ValueSome parentTy
+                                    info.BaseCtorArgs <- exprOpt
+                                | ValueNone -> ()
+                            | false, _ -> ()
+        | _ -> ()
+
+    /// Detect inheritance cycles after every class's `BaseType` is stamped. Walks
+    /// each class's parent chain; on re-entry to the starting class emits a
+    /// "cyclic inheritance" diagnostic on its `DeclKey` and clears its `BaseType`
+    /// so later passes treat it as parent-less.
+    let checkInheritanceCycles (ctx: PassContext) : unit =
+        for kv in ctx.Types.Class do
+            let start = kv.Value
+
+            let rec walk (visited: Set<string>) (info: ClassTypeInfo) =
+                match info.BaseType with
+                | ValueSome(TyClass(parentName, _)) ->
+                    if parentName = start.Name then
+                        ctx.Diagnostics.Add
+                            {
+                                Key = start.DeclKey
+                                Message = sprintf "Type '%s' has a cyclic inheritance hierarchy" start.Name
+                                Code = ""
+                                Severity = Error
+                            }
+
+                        start.BaseType <- ValueNone
+                    elif visited.Contains parentName then
+                        // A cycle that doesn't pass back through `start`; it is
+                        // diagnosed when iteration reaches a class on that cycle.
+                        ()
+                    else
+                        match ctx.Types.Class.TryGetValue parentName with
+                        | true, parentInfo -> walk (Set.add parentName visited) parentInfo
+                        | false, _ -> ()
+                | _ -> ()
+
+            walk (Set.singleton start.Name) start
 
     /// Stamp augmentation members onto an already-registered `UnionTypeInfo`
     /// (P3d.3). Must run after registerUnionTypes; reads the union's
