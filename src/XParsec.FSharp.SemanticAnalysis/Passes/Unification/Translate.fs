@@ -38,6 +38,13 @@ module UnificationTranslate =
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
 
+    /// Report an error at `key` and recover with a fresh TyVar — the pervasive
+    /// "diagnose and keep going" shape, so a broken subtree still yields a type
+    /// rather than aborting the walk.
+    let errorTy (ctx: PassContext) (key: NodeKey) (msg: string) : SemType =
+        ctx.Error(key, msg)
+        TyVar(freshTyVar ctx)
+
     /// Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`) and
     /// measure typars (`'u`) are v2 — they produce an empty term plus a
     /// diagnostic so the rest of inference continues without measure noise.

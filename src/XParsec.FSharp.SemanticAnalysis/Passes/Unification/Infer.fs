@@ -7,929 +7,13 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngine
 open UnificationTranslate
+open UnificationInferGeneralize
+open UnificationInferLiterals
+open UnificationInferResolve
+open UnificationInferPat
+open UnificationInferOverload
 
 module UnificationInfer =
-
-    /// Mint fresh TyVars per quantifier, then rewrite `scheme.Body`.
-    /// Non-quantified TyVars are left alone — they're free w.r.t. the
-    /// surrounding scope and must keep their identity. `scheme.Body` is
-    /// already zonked by `generalise`, so we don't follow Links here.
-    let private instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
-        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
-        // freshOf remembers each fresh TyVar so per-quantifier constraints
-        // can be re-stamped onto it below.
-        let freshOf = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
-
-        for q in scheme.Quantified do
-            let qRoot = UnionFind.find q
-            let fresh = TypeVar()
-            fresh.Level <- ctx.CurrentLevel
-            subst.[qRoot] <- TyVar fresh
-            freshOf.[qRoot] <- fresh
-
-        // Re-stamp constraints onto the fresh instance TyVars so each use
-        // site re-evaluates satisfaction against its own substitution; the
-        // original quantified TyVars stay constraint-bearing for the next call.
-        for (qTv, c) in scheme.Constraints do
-            let qRoot = UnionFind.find qTv
-
-            match freshOf.TryGetValue qRoot with
-            | true, fresh ->
-                if not (fresh.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
-                    fresh.Constraints <- c :: fresh.Constraints
-            | false, _ -> ()
-
-        substituteWith subst scheme.Body
-
-    /// True if `t` contains a TyVar whose root carries a deferred
-    /// `PendingDotAccess` constraint. Such a binding cannot be safely
-    /// generalised in v1 — quantifying a TyVar with pending dot accesses
-    /// would freeze the constraint into the scheme, and a use site that
-    /// pins the receiver would only resolve a fresh instantiation, leaving
-    /// the original (still-quantified) constraint dangling. Keeping the
-    /// binding monomorphic lets the first use site unify directly with the
-    /// pre-instantiation TyVar, which drains the constraint normally.
-    let rec private hasPendingDotAccess (t: SemType) : bool =
-        match t with
-        | TyVar tv ->
-            let root = UnionFind.find tv
-
-            if not (List.isEmpty root.PendingDotAccess) then
-                true
-            else
-                match root.Link with
-                | ValueSome target -> hasPendingDotAccess target
-                | ValueNone -> false
-        | TyConst _ -> false
-        | TyFun(a, r) -> hasPendingDotAccess a || hasPendingDotAccess r
-        | TyTuple xs -> EqArray.exists hasPendingDotAccess xs
-        | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
-
-    /// Apply `Defaults` entries on free TyVars whose level exceeds
-    /// `outerLevel`. A default fires when its target resolves to a concrete
-    /// shape. Iterates to fixpoint — a chained default like
-    /// `default ^T3 : ^T1 ; default ^T1 : int` needs two passes.
-    ///
-    /// Defaults walked here are *consumed*: once a fire happens (or once
-    /// all candidates fail), the `Defaults` list is cleared so subsequent
-    /// passes don't re-walk dead targets. A TyVar generalised at a use-site
-    /// instantiation is re-stamped with fresh defaults on the next call to
-    /// its `Instantiate` closure.
-    let private applyDefaults (zonkedTy: SemType) (outerLevel: int) : unit =
-        let visited = HashSet<TypeVar>(HashIdentity.Reference)
-
-        let rec collect (t: SemType) : ResizeArray<TypeVar> =
-            let acc = ResizeArray<TypeVar>()
-
-            let rec go (t: SemType) =
-                match t with
-                | TyVar tv ->
-                    let root = UnionFind.find tv
-
-                    if visited.Add root then
-                        if root.Level > outerLevel && root.Link.IsNone && not (List.isEmpty root.Defaults) then
-                            acc.Add root
-
-                        match root.Link with
-                        | ValueSome target -> go target
-                        | ValueNone -> ()
-                | TyConst _ -> ()
-                | TyFun(a, r) ->
-                    go a
-                    go r
-                | TyTuple xs ->
-                    for x in xs do
-                        go x
-                | TyRecord(_, args) ->
-                    for a in args do
-                        go a
-                | TyUnion(_, args) ->
-                    for a in args do
-                        go a
-                | TyClass(_, args) ->
-                    for a in args do
-                        go a
-
-            go t
-            acc
-
-        let candidates = collect zonkedTy
-
-        // ValueNone if every TyVar in the chain is still free.
-        let rec resolveTarget (t: SemType) : SemType voption =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match root.Link with
-                | ValueSome target -> resolveTarget target
-                | ValueNone -> ValueNone
-            | _ -> ValueSome t
-
-        let tryDefault (tv: TypeVar) : bool =
-            let mutable fired = false
-            let defaults = tv.Defaults
-
-            for target in defaults do
-                if not fired then
-                    match resolveTarget target with
-                    | ValueSome concrete when not (occursAndAdjust tv concrete) ->
-                        // Occurs guard: a chain like `default ^T3 : ^T1`
-                        // with a structural target (`^T1 list`) could build
-                        // a `concrete` transitively containing tv; linking
-                        // through would create an infinite type. Skip on
-                        // occurs — the default is unsatisfiable.
-                        tv.Link <- ValueSome concrete
-                        fired <- true
-                    | _ -> ()
-
-            // Clear regardless — discharged, or not worth chasing further.
-            tv.Defaults <- []
-            fired
-
-        // Iterate to fixpoint: each pass may unblock chained defaults.
-        let mutable changed = true
-
-        while changed do
-            changed <- false
-
-            for tv in candidates do
-                if tv.Link.IsNone && not (List.isEmpty tv.Defaults) then
-                    if tryDefault tv then
-                        changed <- true
-
-    /// Settle the flexible list-literal containers (R3) reachable from a binding's
-    /// type *before* it generalises, so the bare container `TypeVar` is never
-    /// quantified as `∀L. L`:
-    ///   - element still free (`let xs = []`) → link the container to FSharp.Core's
-    ///     `list` now, so the *element* generalises normally (`'a list`);
-    ///   - element already concrete (`let nums = [1;2;3]`) → leave the container
-    ///     free but drop its level to the outer scope so generalisation skips it,
-    ///     deferring the FSharpList-vs-Vesper choice to `resolveListLiterals` (a
-    ///     later consumer like `List.fold` can still flip it to the Vesper list).
-    let private prepareListLiterals (ctx: PassContext) (ty: SemType) (outerLevel: int) : unit =
-        if ctx.ListLiterals.Count = 0 then
-            ()
-        else
-            let flexElem (root: TypeVar) : SemType voption =
-                let mutable result = ValueNone
-
-                for (lv, elem) in ctx.ListLiterals do
-                    if result.IsNone && System.Object.ReferenceEquals(UnionFind.find lv, root) then
-                        result <- ValueSome elem
-
-                result
-
-            let seen = HashSet<TypeVar>(HashIdentity.Reference)
-
-            let rec walk (t: SemType) =
-                match t with
-                | TyVar tv ->
-                    let root = UnionFind.find tv
-
-                    if seen.Add root then
-                        match root.Link with
-                        | ValueSome target -> walk target
-                        | ValueNone ->
-                            match flexElem root with
-                            | ValueSome elemTy when root.Level > outerLevel ->
-                                match zonk elemTy with
-                                | TyVar _ ->
-                                    root.Link <-
-                                        ValueSome(
-                                            TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy)
-                                        )
-                                | _ -> root.Level <- outerLevel
-                            | _ -> ()
-                | TyFun(a, b) ->
-                    walk a
-                    walk b
-                | TyTuple xs
-                | TyRecord(_, xs)
-                | TyUnion(_, xs)
-                | TyClass(_, xs) ->
-                    for x in xs do
-                        walk x
-                | TyConst _ -> ()
-
-            walk ty
-
-    let private generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
-        // Apply defaults before quantifying: a default that resolves links
-        // its source TyVar, which the quantifier walk then skips. Without
-        // this, `let x = 1 + 2` would generalise as `∀'a. 'a` instead of
-        // `int` (the unbound `^T3` from external-symbol Instantiate).
-        applyDefaults zonkedTy outerLevel
-
-        let quantified = ResizeArray<TypeVar>()
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
-
-        let rec walk (t: SemType) : unit =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
-                    quantified.Add(root)
-            | TyConst _ -> ()
-            | TyFun(a, r) ->
-                walk a
-                walk r
-            | TyTuple xs ->
-                for x in xs do
-                    walk x
-            | TyRecord(_, args) ->
-                for a in args do
-                    walk a
-            | TyUnion(_, args) ->
-                for a in args do
-                    walk a
-            | TyClass(_, args) ->
-                for a in args do
-                    walk a
-
-        walk zonkedTy
-
-        // `instantiate` swaps these onto fresh substitutions per use site
-        // so satisfaction is re-evaluated independently.
-        let constraints =
-            [
-                for tv in quantified do
-                    for c in tv.Constraints -> tv, c
-            ]
-
-        TypeScheme(List.ofSeq quantified, zonkedTy, constraints)
-
-    /// Single-name `let` generalises unless the binding is `mutable`.
-    /// Mutable bindings stay monomorphic: every use of the name unifies
-    /// against the binding's own TyVar (no instantiation), so a free TyVar
-    /// in a mutable binding's type can be pinned later by any use or
-    /// assignment — but the binding is never made polymorphic at the
-    /// scheme level, which would re-introduce the classic value-
-    /// restriction soundness hole. Compound destructuring heads and
-    /// bindings whose head is something other than `Pat.NamedSimple`
-    /// don't get schemes either — they bind values, not function
-    /// abstractions, and the scheme table is keyed by a single NodeKey.
-    let private shouldGeneralise (b: Binding<SyntaxToken>) : bool =
-        if b.mutableToken.IsSome then
-            false
-        else
-            match b.headPat with
-            | Pat.NamedSimple _ -> true
-            // An operator-named binding (`let inline (=) …`) is a single-name
-            // head; generalise it like any other function value.
-            | Pat.Op _ -> true
-            | _ -> false
-
-    /// Pulled out of `inferConst` so the measured-literal arm can stamp this
-    /// onto a TyVar's `Link` while the measure rides on `Units`.
-    let private literalCarrier (t: SyntaxToken) : SemType =
-        match t.Token with
-        | Token.KWTrue
-        | Token.KWFalse -> BuiltinTypes.tyBool
-        | Token.NumIEEE64
-        | Token.NumIEEE64Hex
-        | Token.NumIEEE64Octal
-        | Token.NumIEEE64Binary -> BuiltinTypes.tyFloat
-        | Token.NumInt64
-        | Token.NumInt64Hex
-        | Token.NumInt64Octal
-        | Token.NumInt64Binary -> BuiltinTypes.tyInt64
-        | Token.NumByte
-        | Token.NumByteHex
-        | Token.NumByteOctal
-        | Token.NumByteBinary -> BuiltinTypes.tyByte
-        | Token.CharLiteral -> BuiltinTypes.tyChar
-        | Token.NumDecimal
-        | Token.NumDecimalHex
-        | Token.NumDecimalOctal
-        | Token.NumDecimalBinary -> BuiltinTypes.tyDecimal
-        | _ -> BuiltinTypes.tyInt
-
-    let private inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
-        // Unrecognised tokens still type as int (the parser's commonest case)
-        // — extend as new literal kinds become reachable.
-        match c with
-        | Constant.Literal t -> literalCarrier t
-        | Constant.MeasuredLiteral(value = t; measure = m) ->
-            let carrier = literalCarrier t
-            let diagKey = NodeKey.ofToken t NodeKind.ExprConst
-            let mt = translateMeasure ctx diagKey m
-            let tv = freshTyVar ctx
-            tv.Link <- ValueSome carrier
-            tv.Units <- ValueSome mt
-            TyVar tv
-
-    /// Reads `Units` straight off the root — does NOT use `resolveStep`,
-    /// which would follow a measured TyVar through its `Link` to the bare
-    /// carrier and drop the measure.
-    let private unitsOf (t: SemType) : MeasureTerm voption =
-        match t with
-        | TyVar tv -> (UnionFind.find tv).Units
-        | _ -> ValueNone
-
-    /// Underlying numeric carrier of a (possibly measure-wrapped) type. A
-    /// free variable (no Link) is returned as-is so a later unification can
-    /// pin it.
-    let private carrierOf (t: SemType) : SemType =
-        match resolveStep t with
-        | TyVar tv ->
-            let root = UnionFind.find tv
-
-            match root.Link with
-            | ValueSome link -> link
-            | ValueNone -> TyVar root
-        | other -> other
-
-    /// Fresh TyVar pre-stamped with a carrier link and (optionally) a measure.
-    let private freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TypeVar =
-        let tv = freshTyVar ctx
-        tv.Link <- ValueSome carrier
-        tv.Units <- units
-        tv
-
-    let private isComparisonOp (name: string) : bool =
-        match name with
-        | "op_Equality"
-        | "op_Inequality"
-        | "op_LessThan"
-        | "op_GreaterThan"
-        | "op_LessThanOrEqual"
-        | "op_GreaterThanOrEqual" -> true
-        | _ -> false
-
-    /// Fires before the provider lookup in `inferInfix` so measured
-    /// arithmetic / comparison operators get measure-correct result types and
-    /// a dedicated "Measure mismatch" diagnostic rather than a generic
-    /// carrier-type mismatch. Returns `None` for the all-dimensionless case
-    /// (or operators we don't dispatch); the caller falls through to the
-    /// provider path.
-    let private tryMeasuredArith
-        (ctx: PassContext)
-        (key: NodeKey)
-        (name: string)
-        (leftTy: SemType)
-        (rightTy: SemType)
-        : SemType option =
-        let leftUnits = unitsOf leftTy
-        let rightUnits = unitsOf rightTy
-
-        match leftUnits, rightUnits with
-        | ValueNone, ValueNone -> None
-        | _ ->
-            let carrier = carrierOf leftTy
-            // Carriers must agree even between measured operands (no
-            // `float<m> + int<m>`). Surface that as a normal type mismatch.
-            unify ctx key carrier (carrierOf rightTy)
-
-            match name, leftUnits, rightUnits with
-            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
-            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
-                        Code = ""
-                        Severity = Error
-                    }
-
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
-            | ("op_Addition" | "op_Subtraction"), ValueSome m, ValueNone
-            | ("op_Addition" | "op_Subtraction"), ValueNone, ValueSome m ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
-                        Code = ""
-                        Severity = Error
-                    }
-
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | "op_Multiply", ValueSome m1, ValueSome m2 ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.mul m1 m2))))
-            | "op_Multiply", ValueSome m, ValueNone
-            | "op_Multiply", ValueNone, ValueSome m -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | "op_Division", ValueSome m1, ValueSome m2 ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.div m1 m2))))
-            | "op_Division", ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | "op_Division", ValueNone, ValueSome m ->
-                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
-            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some BuiltinTypes.tyBool
-            | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
-                        Code = ""
-                        Severity = Error
-                    }
-
-                Some BuiltinTypes.tyBool
-            | name, ValueSome m, ValueNone
-            | name, ValueNone, ValueSome m when isComparisonOp name ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
-                        Code = ""
-                        Severity = Error
-                    }
-
-                Some BuiltinTypes.tyBool
-            | _ -> None
-
-    /// v1 only supports single-segment (`X`) and two-segment qualified
-    /// (`R.X`) forms. Multi-segment qualifiers (`A.B.X`) fall through as
-    /// ValueNone for the qualifier and the last segment for the field name.
-    let private fieldNameAndQualifier (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string voption * string =
-        let idents = li.Idents
-        let last = ctx.NameOf idents.[idents.Length - 1]
-
-        if idents.Length = 1 then
-            ValueNone, last
-        elif idents.Length = 2 then
-            ValueSome(ctx.NameOf idents.[0]), last
-        else
-            ValueNone, last
-
-    /// Returns the fresh args together with the substitution mapping each
-    /// prototype `TypeVar` onto its fresh stand-in — callers walk declared
-    /// field / case-arg types through this subst so every reference to `'a`
-    /// lines up with the value in `args`.
-    let private freshNamedInstance
-        (ctx: PassContext)
-        (typeParams: EqArray<string * TypeVar>)
-        : EqArray<SemType> * Dictionary<TypeVar, SemType> =
-        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
-        let acc = ResizeArray<SemType>(typeParams.Length)
-
-        for (_, tp) in typeParams do
-            let fresh = TypeVar()
-            fresh.Level <- ctx.CurrentLevel
-            let protoRoot = UnionFind.find tp
-            // Copy prototype constraints onto the fresh instance so
-            // every use site re-evaluates satisfaction independently
-            // (a `Set<int>` and a `Set<int -> int>` each get their own
-            // copy of `'a : comparison`).
-            fresh.Constraints <- protoRoot.Constraints
-            let asTy = TyVar fresh
-            subst.[protoRoot] <- asTy
-            acc.Add asTy
-
-        EqArray.ofResizeArray acc, subst
-
-    /// Function value whose argument shape matches the primary constructor
-    /// and whose result is the constructed `TyClass`. Routes bare
-    /// `Point(3, 4)` calls (no `new`) through the function-application
-    /// machinery. `ValueNone` if `name` isn't in `ctx.Types.Class`.
-    let private tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
-        match ctx.Types.Class.TryGetValue name with
-        | true, info ->
-            let args, subst = freshNamedInstance ctx info.TypeParams
-            let receiverTy = TyClass(info.Name, args)
-
-            let paramTys =
-                info.CtorParams
-                |> Array.map (fun p -> substituteWith subst p.Type)
-                |> Array.toList
-
-            let arg =
-                match paramTys with
-                | [] -> BuiltinTypes.tyUnit
-                | [ t ] -> t
-                | many -> TyTuple(EqArray.ofList many)
-
-            ValueSome(TyFun(arg, receiverTy))
-        | false, _ -> ValueNone
-
-    let private classCtorAsFunction (ctx: PassContext) (name: string) : SemType =
-        match tryClassCtorAsFunction ctx name with
-        | ValueSome t -> t
-        | ValueNone -> TyVar(freshTyVar ctx)
-
-    /// Function-shaped type for a DU ctor reference. Multi-field cases bundle
-    /// the fields into a tuple — F# DUs take a tuple as their single argument.
-    /// The receiver union's typars are instantiated fresh so two independent
-    /// uses of `Some` don't share a `'a`.
-    let private ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
-        let unionInfo = ctx.Types.Union.[info.UnionName]
-        let args, subst = freshNamedInstance ctx unionInfo.TypeParams
-        let unionTy = TyUnion(info.UnionName, args)
-
-        let walkedFields = info.Fields |> Array.map (substituteWith subst)
-
-        match walkedFields.Length with
-        | 0 -> unionTy
-        | 1 -> TyFun(walkedFields.[0], unionTy)
-        | _ -> TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
-
-    /// ValueNone with `count = 0` means "no such ctor"; `count >= 2` means
-    /// ambiguous — the caller emits the appropriate diagnostic.
-    let private resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =
-        match ctx.Types.CtorIndex.TryGetValue name with
-        | false, _ -> ValueNone, 0
-        | true, infos when infos.Length = 1 -> ValueSome infos.[0], 1
-        | true, infos -> ValueNone, infos.Length
-
-    /// Resolve a qualified ctor reference `Type.Case` against the union
-    /// registry.
-    let private resolveQualifiedCtor (ctx: PassContext) (typeName: string) (caseName: string) : UnionCaseInfo voption =
-        match ctx.Types.Union.TryGetValue typeName with
-        | false, _ -> ValueNone
-        | true, info ->
-            match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
-            | Some c -> ValueSome c
-            | None -> ValueNone
-
-    /// Unique record type whose declared field set equals `names`
-    /// (order-insensitive). Returns (info, candidateCount); candidateCount
-    /// disambiguates the "no match" vs "ambiguous" diagnostic paths.
-    let private findUniqueRecordByFieldSet (ctx: PassContext) (names: string list) : RecordTypeInfo voption * int =
-        match names with
-        | [] -> ValueNone, 0
-        | first :: _ ->
-            match ctx.Types.FieldIndex.TryGetValue first with
-            | false, _ -> ValueNone, 0
-            | true, candidates ->
-                let nameSet = Set.ofList names
-                let mutable firstHit = Unchecked.defaultof<RecordTypeInfo>
-                let mutable count = 0
-
-                for info in candidates do
-                    let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
-
-                    if declared = nameSet then
-                        if count = 0 then
-                            firstHit <- info
-
-                        count <- count + 1
-
-                if count = 1 then
-                    ValueSome firstHit, 1
-                else
-                    ValueNone, count
-
-    /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
-    /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the
-    /// tuple-argument form and a bare single arg — both are what the F# DU
-    /// ctor application convention emits.
-    let private unwrapCtorArgPattern (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
-        match p with
-        | Pat.EnclosedBlock(pat = Pat.Tuple(patterns = pats)) -> List.ofSeq pats
-        | Pat.EnclosedBlock(pat = inner) -> [ inner ]
-        | Pat.Tuple(patterns = pats) -> List.ofSeq pats
-        | _ -> [ p ]
-
-    let rec private inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
-        // Each pattern node gets its own TypeVar keyed on its NodeKey; for
-        // compound patterns the outer TypeVar is linked to the underlying
-        // shape so a lookup against any pattern node returns the right type.
-        let key = CstKeys.ofPat p
-
-        match p with
-        | Pat.NamedSimple t when
-            let n = ctx.NameOf t
-            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n
-            ->
-            // Uppercase-leading bare ident matching a known ctor —
-            // reinterpret as a nullary ctor pattern. Multi-candidate names
-            // require a qualifier; diagnose ambiguity, best-effort otherwise.
-            let n = ctx.NameOf t
-            let info, count = resolveCtorName ctx n
-
-            match info with
-            | ValueSome i when i.Fields.Length = 0 ->
-                let unionInfo = ctx.Types.Union.[i.UnionName]
-                let args, _ = freshNamedInstance ctx unionInfo.TypeParams
-                let ty = TyUnion(i.UnionName, args)
-                let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome ty
-                ty
-            | ValueSome i ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf
-                                "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
-                                n
-                                i.Fields.Length
-                        Code = ""
-                        Severity = Error
-                    }
-
-                let unionInfo = ctx.Types.Union.[i.UnionName]
-                let args, _ = freshNamedInstance ctx unionInfo.TypeParams
-                let ty = TyUnion(i.UnionName, args)
-                let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome ty
-                ty
-            | ValueNone when count >= 2 ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
-                        Code = ""
-                        Severity = Error
-                    }
-
-                TyVar(freshTv ctx key)
-            | ValueNone -> TyVar(freshTv ctx key)
-        | Pat.NamedSimple _ ->
-            // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
-            // by a forward reference (or pre-allocated by inferBindingGroup)
-            // is reused, not overwritten.
-            TyVar(tvOf ctx key)
-        | Pat.Op _ ->
-            // An operator-named binding head (`let (=) x y = …`) introduces a
-            // single name, exactly like a `Pat.NamedSimple`; its name is the
-            // operator's compiled name (`op_Equality`), surfaced by Freeze.
-            TyVar(tvOf ctx key)
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                last.Length > 0 && System.Char.IsUpper last.[0])
-            && (li.Idents.Length = 1
-                && ctx.Types.CtorIndex.ContainsKey(ctx.NameOf li.Idents.[0])
-                || li.Idents.Length = 2
-                   && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
-                   && (let info = ctx.Types.Union.[ctx.NameOf li.Idents.[0]]
-                       let caseName = ctx.NameOf li.Idents.[1]
-                       info.Cases |> Array.exists (fun c -> c.Name = caseName)))
-            ->
-            // Ctor pattern: `Circle r`, `Rectangle(w, h)`, `Result1.Ok x`.
-            let info =
-                if li.Idents.Length = 1 then
-                    let name = ctx.NameOf li.Idents.[0]
-
-                    match resolveCtorName ctx name with
-                    | ValueSome i, _ -> ValueSome i
-                    | ValueNone, count when count >= 2 ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message =
-                                    sprintf
-                                        "Ambiguous constructor '%s'; declared in %d union types — add a qualifier"
-                                        name
-                                        count
-                                Code = ""
-                                Severity = Error
-                            }
-
-                        ValueNone
-                    | _ -> ValueNone
-                else
-                    let typeName = ctx.NameOf li.Idents.[0]
-                    let caseName = ctx.NameOf li.Idents.[1]
-                    resolveQualifiedCtor ctx typeName caseName
-
-            match info with
-            | ValueNone ->
-                for sub in args do
-                    inferPat ctx sub |> ignore
-
-                TyVar(freshTv ctx key)
-            | ValueSome i ->
-                // The parser wraps multi-arg ctor patterns in
-                // `EnclosedBlock(Tuple [...])`; flatten to the field list.
-                let subPats =
-                    if args.Length = 1 then
-                        unwrapCtorArgPattern args.[0]
-                    else
-                        List.ofSeq args
-
-                if subPats.Length <> i.Fields.Length then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message =
-                                sprintf
-                                    "Constructor '%s' expects %d argument(s) but got %d"
-                                    i.Name
-                                    i.Fields.Length
-                                    subPats.Length
-                            Code = ""
-                            Severity = Error
-                        }
-
-                let unionInfo = ctx.Types.Union.[i.UnionName]
-                let args, subst = freshNamedInstance ctx unionInfo.TypeParams
-                let m = min subPats.Length i.Fields.Length
-
-                for j = 0 to m - 1 do
-                    let sub = subPats.[j]
-                    let subTy = inferPat ctx sub
-                    unify ctx (CstKeys.ofPat sub) subTy (substituteWith subst i.Fields.[j])
-
-                // Walk any extra sub-patterns so binders still register.
-                for j = m to subPats.Length - 1 do
-                    inferPat ctx subPats.[j] |> ignore
-
-                let ty = TyUnion(i.UnionName, args)
-                let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome ty
-                ty
-        | Pat.Wildcard _ -> TyVar(freshTv ctx key)
-        | Pat.EnclosedBlock(pat = inner) ->
-            let innerTy = inferPat ctx inner
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome innerTy
-            innerTy
-        | Pat.Tuple(patterns = pats) ->
-            let elemTys = EqArray.ofSeq (seq { for p in pats -> inferPat ctx p })
-            let tupleTy = TyTuple elemTys
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome tupleTy
-            tupleTy
-        | Pat.Const c ->
-            let constTy = inferConst ctx c
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome constTy
-            constTy
-        | Pat.As(pat = inner) ->
-            let innerTy = inferPat ctx inner
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome innerTy
-            innerTy
-        | Pat.Typed(pat = inner; typ = t) ->
-            let innerTy = inferPat ctx inner
-            let annTy = translateType ctx t
-            unify ctx key innerTy annTy
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome annTy
-            annTy
-        | Pat.EmptyBlock _ ->
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome BuiltinTypes.tyUnit
-            BuiltinTypes.tyUnit
-        | Pat.Or(left = leftPat; right = rightPat) ->
-            // Validation checks the name set; here we only unify the
-            // patterns' overall types for scrutinee consistency.
-            let leftTy = inferPat ctx leftPat
-            let rightTy = inferPat ctx rightPat
-            unify ctx key leftTy rightTy
-            let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome leftTy
-            leftTy
-        | Pat.Record(fieldPats = fieldPats) ->
-            let pairs =
-                [
-                    for FieldPat(longIdent = li; pat = sub) in fieldPats ->
-                        let q, n = fieldNameAndQualifier ctx li
-                        q, n, sub
-                ]
-
-            let qualifier =
-                pairs
-                |> List.tryPick (fun (q, _, _) ->
-                    match q with
-                    | ValueSome q -> Some q
-                    | _ -> None
-                )
-
-            let names = pairs |> List.map (fun (_, n, _) -> n)
-
-            let candidate =
-                match qualifier with
-                | Some typeName ->
-                    match ctx.Types.Record.TryGetValue typeName with
-                    | true, info -> ValueSome info
-                    | false, _ ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message = sprintf "Unknown record type qualifier: %s" typeName
-                                Code = ""
-                                Severity = Error
-                            }
-
-                        ValueNone
-                | None ->
-                    let cand, count = findUniqueRecordByFieldSet ctx names
-
-                    match cand with
-                    | ValueSome _ -> cand
-                    | ValueNone ->
-                        if count = 0 then
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf "No record type matches the field set: %s" (String.concat ", " names)
-                                    Code = ""
-                                    Severity = Error
-                                }
-                        else
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf
-                                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
-                                            count
-                                    Code = ""
-                                    Severity = Error
-                                }
-
-                        ValueNone
-
-            match candidate with
-            | ValueNone ->
-                // Walk sub-patterns so binders register as free TyVars.
-                for _, _, sub in pairs do
-                    inferPat ctx sub |> ignore
-
-                let nodeTv = freshTv ctx key
-                TyVar nodeTv
-            | ValueSome info ->
-                let args, subst = freshNamedInstance ctx info.TypeParams
-
-                for _, fieldName, sub in pairs do
-                    let subTy = inferPat ctx sub
-
-                    match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some field -> unify ctx (CstKeys.ofPat sub) subTy (substituteWith subst field.Type)
-                    | None ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = CstKeys.ofPat sub
-                                Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
-                                Code = ""
-                                Severity = Error
-                            }
-
-                let recTy = TyRecord(info.Name, args)
-                let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome recTy
-                recTy
-        | _ ->
-            // TODO: Named (DU ctor) / Cons patterns — they need
-            // provider lookups or recursive shape unification.
-            TyVar(freshTv ctx key)
-
-    /// Reuses the lexer's canonical placeholder parser
-    /// (`Lexing.parseFormatSpecifierView`) so no second copy of the format
-    /// grammar lives here. `ValueNone` when the string carries interpolation
-    /// holes or lexer-error parts (not a simple format literal), so the
-    /// printf special-case falls through to standard inference.
-    let private formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatType list voption =
-        match e with
-        | Expr.String(parts = parts) ->
-            let acc = ResizeArray<FormatType>()
-            let mutable ok = true
-
-            for part in parts do
-                match part with
-                | StringPart.Text _
-                | StringPart.EscapeSequence _
-                | StringPart.EscapePercent _
-                | StringPart.VerbatimEscapeQuote _ -> ()
-                | StringPart.FormatSpecifier t ->
-                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
-                    | ValueSome placeholder -> acc.Add placeholder.Type
-                    | ValueNone -> ok <- false
-                | StringPart.Expr _
-                | StringPart.OrphanFormatSpecifier _
-                | StringPart.InvalidText _ -> ok <- false
-
-            if ok then ValueSome(List.ofSeq acc) else ValueNone
-        | _ -> ValueNone
-
-    /// Whether every specifier is one the happy path lowers inline
-    /// (`PrintfSpec.tryHoleFormat`); a `false` keeps the FSharp.Core cold
-    /// path. `%%` escapes are lowerable (P2): Freeze collapses `%%`→`%` in the
-    /// literal segment. Only interpolation holes (`Expr`), orphan specifiers
-    /// and lexer-error parts force the cold path.
-    let private lowerablePlaceholders (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
-        match e with
-        | Expr.String(parts = parts) ->
-            let mutable ok = true
-
-            for part in parts do
-                match part with
-                | StringPart.FormatSpecifier t ->
-                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
-                    | ValueSome p ->
-                        match PrintfSpec.tryHoleFormat p with
-                        | ValueSome _ -> ()
-                        | ValueNone -> ok <- false
-                    | ValueNone -> ok <- false
-                // A `%%` escape arrives as raw `Text` "%%" — still lowerable.
-                | StringPart.Text _
-                | StringPart.EscapeSequence _
-                | StringPart.VerbatimEscapeQuote _
-                | StringPart.EscapePercent _ -> ()
-                | StringPart.Expr _
-                | StringPart.OrphanFormatSpecifier _
-                | StringPart.InvalidText _ -> ok <- false
-
-            ok
-        | _ -> false
 
     let rec infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
         let key = CstKeys.ofExpr e
@@ -983,19 +67,16 @@ module UnificationInfer =
                 TyVar(freshTyVar ctx)
             | Expr.Record(fieldInitializers = inits) -> inferRecord ctx key inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone ctx key src inits
-            // Static member on an *external* type: `EqualityComparer<int>.Default`
-            // — the receiver is a (generic) type name the provider resolves, not a
-            // value. Checked before the field-access arm so the type-name receiver
-            // isn't `infer`d as a value. (Instance access — `value.Member` — falls
-            // through to `inferFieldAccess`/`resolveFieldStep`.)
-            | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when
-                li.Idents.Length = 1 && (tryExternalTypeReceiver ctx recv).IsSome
-                ->
-                let (metaName, typeArgsCst) = (tryExternalTypeReceiver ctx recv).Value
-                let args = [ for t in typeArgsCst -> translateType ctx t ]
-                inferExternalStaticMember ctx key metaName args li.Idents.[0]
-            | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                inferFieldAccess ctx key r li.Idents.[0]
+            | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                // A type-name receiver (`EqualityComparer<int>.Default`) resolves
+                // its static member through the provider — probed once here, ahead
+                // of the field-access fallback so the receiver isn't `infer`d as a
+                // value. Instance access (`value.Member`) takes the fallback.
+                match tryExternalTypeReceiver ctx recv with
+                | ValueSome(metaName, typeArgsCst) ->
+                    let args = [ for t in typeArgsCst -> translateType ctx t ]
+                    inferExternalStaticMember ctx key metaName args li.Idents.[0]
+                | ValueNone -> inferFieldAccess ctx key recv li.Idents.[0]
             | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic ctx args rt
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
@@ -1022,21 +103,11 @@ module UnificationInfer =
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
-                // Operator compiled names (`op_Addition`) resolve through the
-                // open scope: bare name first, then explicit opens, then the
-                // ambient prelude (a contract's `[<AutoOpen>]` operator module).
+                // The ambient prelude leg resolves a contract's `[<AutoOpen>]`
+                // operator module.
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
-                | ValueNone ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message = sprintf "Operator '%s' is not available from the symbol provider" name
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    TyVar(freshTyVar ctx)
+                | ValueNone -> errorTy ctx key (sprintf "Operator '%s' is not available from the symbol provider" name)
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
@@ -1044,8 +115,7 @@ module UnificationInfer =
             ->
             inferLongIdentFieldChain ctx key li
         // Two-segment qualified reference whose head is *not* a local binding:
-        // `Math.Pi` / `Lst.Empty` / `Result2.Ok`. Dispatches on whether the head
-        // names a class or a union (static-member vs union-case lookup).
+        // `Math.Pi` / `Lst.Empty` / `Result2.Ok`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2 && not (ctx.Bindings.Binding.ContainsKey key)
             ->
@@ -1079,33 +149,15 @@ module UnificationInfer =
                         // registry, bypassing the CtorIndex ambiguity check.
                         match resolveQualifiedCtor ctx headName tailName with
                         | ValueSome info -> ctorType ctx info
-                        | ValueNone ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message = sprintf "Union '%s' has no case '%s'" headName tailName
-                                    Code = ""
-                                    Severity = Error
-                                }
-
-                            TyVar(freshTyVar ctx)
+                        | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
                 | false, _ -> inferIdentDefault ctx e key
         | _ -> inferIdentDefault ctx e key
 
-    /// Fallback for `inferIdent`: identifiers that aren't recognised as a
-    /// field-access chain or a qualified class/union reference. Resolves
-    /// through the local binding map, then the provider, then `Class`-name and
-    /// `Union`-case registries (the latter two only for single-segment names).
+    /// Resolution order: local binding map, then provider, then `Class`-name
+    /// and `Union`-case registries (the latter two only for single-segment names).
     and private inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
         match ctx.Bindings.Binding.TryGetValue key with
-        | ValueSome rb ->
-            // Already-generalised binding: instantiate its scheme for
-            // independent use-sites. Otherwise the monomorphic TyVar from
-            // inferPat — including uses inside a sibling's RHS in the same
-            // `let rec` group, which is what forbids polymorphic recursion.
-            match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
-            | ValueSome scheme -> instantiate ctx scheme
-            | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
+        | ValueSome rb -> instantiateBinding ctx rb
         | ValueNone ->
             // Provider first — provider hits beat ctor-name resolution
             // when both exist (a let-bound `Ok` would have a Binding entry
@@ -1134,19 +186,13 @@ module UnificationInfer =
                         match info with
                         | ValueSome i -> ctorType ctx i
                         | ValueNone when count >= 2 ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf
-                                            "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
-                                            n
-                                            count
-                                    Code = ""
-                                    Severity = Error
-                                }
-
-                            TyVar(freshTyVar ctx)
+                            errorTy
+                                ctx
+                                key
+                                (sprintf
+                                    "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
+                                    n
+                                    count)
                         | ValueNone ->
                             // Class-name-as-function: `Point(3, 4)` parses as
                             // `Expr.App (Expr.Ident "Point", ...)`. Return the
@@ -1155,8 +201,6 @@ module UnificationInfer =
                             classCtorAsFunction ctx n
                     | ValueNone -> TyVar(freshTyVar ctx)
 
-    /// Joins multi-segment names with `.` so the provider can look up dotted
-    /// names like `Math.PI` directly.
     and private qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
@@ -1194,12 +238,10 @@ module UnificationInfer =
 
                 currTy
 
-    /// Printf-family typing rule (front-end-gaps-plan §B). When `fn` is a
-    /// recognised printf entry point (not shadowed by a local binding) with a
-    /// plain-literal format argument, the format spec — not the literal's
-    /// apparent `string` type — drives the call's curried result type. The
-    /// format argument types as `PrintfFormat<printer, …>`. Non-literal
-    /// format strings return `ValueNone` and fall through to standard inference.
+    /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
+    /// printf entry point with a plain-literal format argument, the format spec
+    /// — not the literal's apparent `string` type — drives the call's curried
+    /// result type. The format argument types as `PrintfFormat<printer, …>`.
     and private tryInferPrintfApp
         (ctx: PassContext)
         (key: NodeKey)
@@ -1247,8 +289,7 @@ module UnificationInfer =
 
                                     let argTy =
                                         if i = idx then
-                                            // The format literal types as the
-                                            // PrintfFormat — not as `string`.
+                                            // The format literal types as the PrintfFormat, not `string`.
                                             (freshTv ctx (CstKeys.ofExpr a)).Link <- ValueSome fmtTy
                                             fmtTy
                                         else
@@ -1258,12 +299,10 @@ module UnificationInfer =
                                     unify ctx key currTy (TyFun(argTy, resultTy))
                                     currTy <- resultTy
 
-                                // P1 happy-path lowering marker: fully-applied
-                                // literal call, a StdOut/StdErr/StringResult
-                                // sink, and every specifier in `tryHoleFormat`
-                                // → Freeze mints a `TExpr.Format`. Otherwise the
-                                // FSharp.Core path stands (additive — `%A`,
-                                // partial application, etc. unaffected).
+                                // P1 happy-path lowering marker: fully-applied literal call, a
+                                // StdOut/StdErr/StringResult sink, and every specifier lowerable
+                                // → Freeze mints a `TExpr.Format`. Otherwise the FSharp.Core path
+                                // stands (additive — `%A`, partial application, etc. unaffected).
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
                                     idx = 0
@@ -1335,16 +374,7 @@ module UnificationInfer =
                     let resultTy = TyVar(freshTyVar ctx)
                     unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
                     resultTy
-                | ValueNone ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message = sprintf "Unknown operator symbol: %s" name
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    TyVar(freshTyVar ctx)
+                | ValueNone -> errorTy ctx key (sprintf "Unknown operator symbol: %s" name)
         | ValueSome _
         | ValueNone ->
             // Desugar didn't recognise the operator (non-OpName can't happen
@@ -1361,16 +391,7 @@ module UnificationInfer =
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(operandTy, resultTy))
                 resultTy
-            | ValueNone ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Unknown prefix operator: %s" name
-                        Code = ""
-                        Severity = Error
-                    }
-
-                TyVar(freshTyVar ctx)
+            | ValueNone -> errorTy ctx key (sprintf "Unknown prefix operator: %s" name)
         | ValueSome _
         | ValueNone -> TyVar(freshTyVar ctx)
 
@@ -1405,14 +426,7 @@ module UnificationInfer =
             thenTy
         | ValueNone ->
             // `if c then e` (no else) requires e : unit — not yet supported.
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = "if-then without else not yet supported"
-                    Code = ""
-                    Severity = Error
-                }
-
+            ctx.Error(key, "if-then without else not yet supported")
             thenTy
 
     and private inferFun
@@ -1428,7 +442,6 @@ module UnificationInfer =
         TyTuple(EqArray.ofSeq (seq { for e in items -> infer ctx e }))
 
     and private inferSequential (ctx: PassContext) (key: NodeKey) (items: ImmutableArray<Expr<SyntaxToken>>) : SemType =
-        // All but the last must be unit; result is the last's type.
         if items.Length = 0 then
             BuiltinTypes.tyUnit
         else
@@ -1438,12 +451,10 @@ module UnificationInfer =
 
             infer ctx items.[items.Length - 1]
 
-    /// `pEnclosed` virtual-inserts the expected close token (with a
-    /// parser-side diagnostic) when the source token is missing or
-    /// mismatched. That parser diagnostic isn't visible to semantic-analysis
-    /// consumers, so surface the breakage on `ctx.Diagnostics` too —
-    /// otherwise the malformed literal types successfully and Freeze emits a
-    /// well-shaped TAST as if the source were correct.
+    /// `pEnclosed` virtual-inserts a missing/mismatched close token with a
+    /// parser-side diagnostic that isn't visible to semantic-analysis consumers,
+    /// so surface the breakage on `ctx.Diagnostics` too — otherwise the malformed
+    /// literal types successfully and Freeze emits a well-shaped TAST.
     and private checkLiteralClose
         (ctx: PassContext)
         (key: NodeKey)
@@ -1452,39 +463,24 @@ module UnificationInfer =
         (display: string)
         : unit =
         match rTok.Index with
-        | TokenIndex.Virtual ->
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = sprintf "Mismatched or missing closing delimiter: expected '%s'" display
-                    Code = ""
-                    Severity = Error
-                }
+        | TokenIndex.Virtual -> ctx.Error(key, sprintf "Mismatched or missing closing delimiter: expected '%s'" display)
         | TokenIndex.Regular _ when rTok.Token <> expected ->
             // Defensive: pEnclosed only emits a real rParen when the peeked
             // token matched, so this can't trigger today — guards against a
             // future parser change letting a mismatched close-token through.
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = sprintf "Mismatched closing delimiter: expected '%s'" display
-                    Code = ""
-                    Severity = Error
-                }
+            ctx.Error(key, sprintf "Mismatched closing delimiter: expected '%s'" display)
         | TokenIndex.Regular _ -> ()
 
-    /// The list type a `[…]` literal carries. Three cases:
+    /// The list type a `[…]` literal carries. Two cases:
     ///   1. A program that declares its own `'T list` abbreviation (the self-host
     ///      shape — `List.fs`'s `and 'T list = List<'T>`) resolves eagerly to its
-    ///      RHS union (unchanged).
+    ///      RHS union.
     ///   2. A bare program (R3): the container is left *flexible* — a fresh
-    ///      `TypeVar` registered in `ctx.ListLiterals` (with its element). A
-    ///      consumer can drive it: `List.fold`'s `Vesper.Collections.List`
+    ///      `TypeVar` registered in `ctx.ListLiterals`. This is the consumer-driven
+    ///      typing handoff R3 calls for: `List.fold`'s `Vesper.Collections.List`
     ///      parameter flips it to the Vesper list (so the literal emits BCL-only),
     ///      while a literal nothing else pins (`printfn "%A" [1;2;3]`) defaults
-    ///      back to FSharp.Core's `list` in `resolveListLiterals`. This is the
-    ///      consumer-driven typing handoff R3 calls for: `%A` stays `FSharpList`
-    ///      (its cold printf path), `List.fold` retargets to the Vesper list.
+    ///      back to FSharp.Core's `list` in `resolveListLiterals`.
     and private listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
         match ctx.Types.Abbreviation.TryGetValue "list" with
         | true, info ->
@@ -1581,13 +577,7 @@ module UnificationInfer =
             unify ctx key srcTy BuiltinTypes.tySeqInt
             unify ctx key patTy BuiltinTypes.tyInt
         else
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = "for-in: enumerable / element-type checking not yet implemented"
-                    Code = ""
-                    Severity = Error
-                }
+            ctx.Error(key, "for-in: enumerable / element-type checking not yet implemented")
 
         let bodyTy = infer ctx body
         unify ctx key bodyTy BuiltinTypes.tyUnit
@@ -1702,14 +692,7 @@ module UnificationInfer =
                 match ctx.Types.Record.TryGetValue typeName with
                 | true, info -> ValueSome info
                 | false, _ ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message = sprintf "Unknown record type qualifier: %s" typeName
-                            Code = ""
-                            Severity = Error
-                        }
-
+                    ctx.Error(key, sprintf "Unknown record type qualifier: %s" typeName)
                     ValueNone
             | None ->
                 let cand, count = findUniqueRecordByFieldSet ctx names
@@ -1718,24 +701,14 @@ module UnificationInfer =
                 | ValueSome _ -> cand
                 | ValueNone ->
                     if count = 0 then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message = sprintf "No record type matches the field set: %s" (String.concat ", " names)
-                                Code = ""
-                                Severity = Error
-                            }
+                        ctx.Error(key, sprintf "No record type matches the field set: %s" (String.concat ", " names))
                     else
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message =
-                                    sprintf
-                                        "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
-                                        count
-                                Code = ""
-                                Severity = Error
-                            }
+                        ctx.Error(
+                            key,
+                            sprintf
+                                "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                                count
+                        )
 
                     ValueNone
 
@@ -1756,14 +729,7 @@ module UnificationInfer =
 
                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                 | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
-                | None ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = CstKeys.ofExpr e
-                            Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
-                            Code = ""
-                            Severity = Error
-                        }
+                | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
 
             TyRecord(info.Name, args)
 
@@ -1789,49 +755,57 @@ module UnificationInfer =
 
                     match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                     | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
-                    | None ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = CstKeys.ofExpr e
-                                Message = sprintf "Type '%s' has no field '%s'" recName fieldName
-                                Code = ""
-                                Severity = Error
-                            }
+                    | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" recName fieldName)
 
                 TyRecord(recName, srcArgs)
             | false, _ ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Unknown record type '%s'" recName
-                        Code = ""
-                        Severity = Error
-                    }
+                ctx.Error(key, sprintf "Unknown record type '%s'" recName)
 
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
 
                 TyRecord(recName, srcArgs)
         | _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = "Record clone requires the source expression to be a record"
-                    Code = ""
-                    Severity = Error
-                }
+            ctx.Error(key, "Record clone requires the source expression to be a record")
 
             for FieldInitializer(expr = e) in inits do
                 infer ctx e |> ignore
 
             TyVar(freshTyVar ctx)
 
-    /// One step of dot-access resolution. Deferred when the receiver is a
-    /// free TyVar. For a generic receiver `(b : Box<int>).Value`, the
-    /// declared field / member type `'a` is substituted against the
-    /// receiver's arg list so `Value` types as `int`, not a free typar.
-    /// Record-field, class- and union-member access all route through here;
-    /// the receiver's shape discriminates.
+    /// One step of dot-access resolution; deferred when the receiver is a free
+    /// TyVar. For a generic receiver `(b : Box<int>).Value`, the declared field /
+    /// member type `'a` is substituted against the receiver's arg list so `Value`
+    /// types as `int`, not a free typar.
+    /// Resolve an instance member on a project-local class/union, or emit a
+    /// static-hint-aware diagnostic. Shared by the `TyClass` / `TyUnion` arms of
+    /// `resolveFieldStep` — the only thing that differs between them is the
+    /// registry consulted and the "Unknown … type" wording on a registry miss.
+    and private resolveLocalInstanceMember
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (typeName: string)
+        (typeParams: EqArray<string * TypeVar>)
+        (args: EqArray<SemType>)
+        (members: TypeMemberInfo[])
+        (memberName: string)
+        : SemType =
+        match members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
+        | Some m -> instantiateMember (typeParams, args) m.Type
+        | None ->
+            if members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic) then
+                errorTy
+                    ctx
+                    diagKey
+                    (sprintf
+                        "Member '%s' on type '%s' is static; access it via '%s.%s'"
+                        memberName
+                        typeName
+                        typeName
+                        memberName)
+            else
+                errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" typeName memberName)
+
     and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         match resolveStep rTy with
         | TyRecord(recName, args) ->
@@ -1839,57 +813,11 @@ module UnificationInfer =
             | true, info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember (info.TypeParams, args) field.Type
-                | None ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = diagKey
-                            Message = sprintf "Type '%s' has no field '%s'" recName memberName
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    TyVar(freshTyVar ctx)
-            | false, _ ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = diagKey
-                        Message = sprintf "Unknown record type '%s'" recName
-                        Code = ""
-                        Severity = Error
-                    }
-
-                TyVar(freshTyVar ctx)
+                | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" recName memberName)
+            | false, _ -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" recName)
         | TyClass(clsName, args) ->
             match ctx.Types.Class.TryGetValue clsName with
-            | true, info ->
-                match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                | Some m -> instantiateMember (info.TypeParams, args) m.Type
-                | None ->
-                    // Distinguish "no such member" from "member is static —
-                    // access via class name, not an instance".
-                    let isStaticHit =
-                        info.Members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic)
-
-                    let msg =
-                        if isStaticHit then
-                            sprintf
-                                "Member '%s' on type '%s' is static; access it via '%s.%s'"
-                                memberName
-                                clsName
-                                clsName
-                                memberName
-                        else
-                            sprintf "Type '%s' has no instance member '%s'" clsName memberName
-
-                    ctx.Diagnostics.Add
-                        {
-                            Key = diagKey
-                            Message = msg
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    TyVar(freshTyVar ctx)
+            | true, info -> resolveLocalInstanceMember ctx diagKey clsName info.TypeParams args info.Members memberName
             | false, _ ->
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
@@ -1907,57 +835,14 @@ module UnificationInfer =
                     )
 
                     m.BuildSignature(args.AsSpan().ToArray())
-                | _ ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = diagKey
-                            Message = sprintf "Unknown class type '%s'" clsName
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    TyVar(freshTyVar ctx)
+                | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsName)
         | TyUnion(unionName, args) ->
-            // Union instance member access (P3d.3) — mirrors the `TyClass`
-            // arm against the union's augmentation members.
+            // Union instance member access (P3d.3) — mirrors the `TyClass` arm
+            // against the union's augmentation members.
             match ctx.Types.Union.TryGetValue unionName with
             | true, info ->
-                match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                | Some m -> instantiateMember (info.TypeParams, args) m.Type
-                | None ->
-                    let isStaticHit =
-                        info.Members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic)
-
-                    let msg =
-                        if isStaticHit then
-                            sprintf
-                                "Member '%s' on type '%s' is static; access it via '%s.%s'"
-                                memberName
-                                unionName
-                                unionName
-                                memberName
-                        else
-                            sprintf "Type '%s' has no instance member '%s'" unionName memberName
-
-                    ctx.Diagnostics.Add
-                        {
-                            Key = diagKey
-                            Message = msg
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    TyVar(freshTyVar ctx)
-            | false, _ ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = diagKey
-                        Message = sprintf "Unknown union type '%s'" unionName
-                        Code = ""
-                        Severity = Error
-                    }
-
-                TyVar(freshTyVar ctx)
+                resolveLocalInstanceMember ctx diagKey unionName info.TypeParams args info.Members memberName
+            | false, _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionName)
         | TyVar tv ->
             let root = UnionFind.find tv
             let resultTv = freshTyVar ctx
@@ -1971,237 +856,13 @@ module UnificationInfer =
 
             root.PendingDotAccess <- access :: root.PendingDotAccess
             TyVar resultTv
-        | _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = diagKey
-                    Message = sprintf "Cannot read member '%s' from non-record non-class type" memberName
-                    Code = ""
-                    Severity = Error
-                }
-
-            TyVar(freshTyVar ctx)
-
-    /// If `recv` is an *external generic type name* used as a static-access
-    /// receiver (`EqualityComparer<int>` in `EqualityComparer<int>.Default`),
-    /// return its metadata name (`` …EqualityComparer`1 ``) and the raw CST type
-    /// args (translation deferred to the caller so the guard stays side-effect
-    /// free — it only probes the provider). `ValueNone` for a value expression or
-    /// an unknown type. v1 handles the `TypeApp` form only; non-generic external
-    /// static access (`System.Console.Out`) is a follow-up.
-    and private tryExternalTypeReceiver
-        (ctx: PassContext)
-        (recv: Expr<SyntaxToken>)
-        : (string * Type<SyntaxToken> list) voption =
-        // The receiver type name as written: a single-segment name parses as
-        // `Expr.Ident` (`EqualityComparer<int>`), a dotted one as a `LongIdent`
-        // (`System.Collections.Generic.EqualityComparer<int>`).
-        let nameAndArgs =
-            match recv with
-            | Expr.TypeApp(expr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li); types = typeArgs) ->
-                ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".", typeArgs)
-            | Expr.TypeApp(expr = Expr.Ident tok; types = typeArgs) -> ValueSome(ctx.NameOf tok, typeArgs)
-            | _ -> ValueNone
-
-        match nameAndArgs with
-        | ValueNone -> ValueNone
-        | ValueSome(qualName, typeArgs) ->
-            let arity = typeArgs.Length
-            // The arity-suffixed metadata name for a candidate (`EqualityComparer`1`).
-            let metaNameOf (n: string) =
-                if arity = 0 then n else sprintf "%s`%d" n arity
-
-            let probe (n: string) =
-                match ctx.Provider.TryLookupType(metaNameOf n) with
-                | ValueSome(ExternalTypeShape.Class _) -> true
-                | _ -> false
-
-            // `tryQualify` applies the `open` prefixes, so a short
-            // `EqualityComparer<int>` receiver resolves to its qualified metadata
-            // name (symbol-resolution-handoff.md, open-resolution).
-            match OpenScope.tryQualify ctx.Resolution.OpenScope probe qualName with
-            | ValueSome resolved -> ValueSome(metaNameOf resolved, List.ofSeq typeArgs)
-            | ValueNone -> ValueNone
-
-    /// `System.Console.Out` / `Console.Out` (under `open System`): a multi-segment
-    /// LongIdent whose prefix resolves as a *non-generic* external type and whose
-    /// last segment is a static member. The non-generic analogue of the generic
-    /// `EqualityComparer<int>.Default` DotLookup arm — there the `<int>` keeps the
-    /// type receiver a separate `Expr.TypeApp`, but a non-generic type folds into a
-    /// single LongIdent (the parser merges consecutive `.ident`), so the split is
-    /// recovered here. Resolves the prefix through `OpenScope` like
-    /// `tryExternalTypeReceiver`, then records the access
-    /// (`inferExternalStaticMember`) so Freeze stamps a keyed `TExpr.ExternalMember`.
-    /// Always static — an instance receiver is either a local binding (caught by
-    /// the field-chain arm) or a `DotLookup`. A resolved prefix whose last segment
-    /// is *not* an accessible static member (e.g. a const field, not modelled yet)
-    /// falls through silently rather than diagnosing — it's valid F#, just
-    /// unsupported (symbol-resolution-handoff.md: static fields are a later phase).
-    and private tryExternalStaticLongIdent (ctx: PassContext) (key: NodeKey) (e: Expr<SyntaxToken>) : SemType voption =
-        match e with
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
-            let lastTok = li.Idents.[li.Idents.Length - 1]
-
-            let prefixName =
-                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
-                |> String.concat "."
-
-            let probe (n: string) =
-                match ctx.Provider.TryLookupType n with
-                | ValueSome(ExternalTypeShape.Class _) -> true
-                | _ -> false
-
-            match OpenScope.tryQualify ctx.Resolution.OpenScope probe prefixName with
-            | ValueSome resolved ->
-                // Claim it only if the member actually resolves; otherwise leave
-                // the node to the ctor/TyVar fallback without a spurious error.
-                match ctx.Provider.TryLookupMember(resolved, ctx.NameOf lastTok) with
-                | ValueSome _ -> ValueSome(inferExternalStaticMember ctx key resolved [] lastTok)
-                | ValueNone -> ValueNone
-            | ValueNone -> ValueNone
-        | _ -> ValueNone
-
-    // ---- Application-site overload resolution (type-args-bug.md Layer 2) ----
-    //
-    // .NET methods are an unresolved *method group* until applied; overloading is
-    // resolved at the call with the argument types in hand (fsc
-    // `ConstraintSolver.ResolveOverloadingCore`). This project resolves only the
-    // **static, folded-LongIdent** method-call shape (`String.Concat("a", "b")`)
-    // this way, and only when the name has **more than one** mapped overload — a
-    // single candidate (the common case, incl. the `EqualityComparer.Equals`
-    // equality fall-clause whose `DeclaredOnly` lookup is unique) keeps the eager
-    // `DotLookup`/`tryExternalStaticLongIdent` single-pick, unchanged. Resolution
-    // is: filter by **arity**, then by **applicability** (each arg assignable to
-    // the param), then **betterness** (the unique most-specific parameter set).
-    // The specificity test is **non-mutating** over (ground) zonked types — no
-    // speculative unify/undo (type-args-bug.md "Hard stop").
-
-    /// Structural `SemType` equality (ground types; primitive alias names compared
-    /// verbatim — the overload sets we resolve don't hinge on `int`/`int32`).
-    and private semTypeEq (a: SemType) (b: SemType) : bool =
-        match zonk a, zonk b with
-        | TyConst x, TyConst y -> x = y
-        | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 semTypeEq xs ys
-        | TyRecord(n1, xs), TyRecord(n2, ys)
-        | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
-        | _ -> false
-
-    /// `System.Object` / `obj` — the universal supertype in our conservative
-    /// subtype model (everything boxes to it; we model no other reference
-    /// hierarchy, so a non-`object` param only matches an arg it equals).
-    and private isObjectTy (t: SemType) : bool =
-        match zonk t with
-        | TyClass("System.Object", args) when args.IsEmpty -> true
-        | TyConst "obj" -> true
-        | _ -> false
-
-    /// An argument of type `argTy` is assignable to a parameter of type `paramTy`
-    /// (conservative: exact match, or the param is `object`).
-    and private argAssignable (argTy: SemType) (paramTy: SemType) : bool =
-        semTypeEq argTy paramTy || isObjectTy paramTy
-
-    /// `aTy` is at least as specific as `bTy` for betterness (equal, or `bTy` is
-    /// the universal `object` and `aTy` is something more derived).
-    and private asSpecificOrEq (aTy: SemType) (bTy: SemType) : bool = semTypeEq aTy bTy || isObjectTy bTy
-
-    /// The declared parameter count of an external member (its key's `argSig`
-    /// length — authoritative, distinguishes a flattened N-param method from a
-    /// genuine single tuple param).
-    and private memberParamCount (m: ExternalMember) : int =
-        match m.Key with
-        | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
-        | _ -> 0
-
-    /// The member's parameter types (instantiated at `typeArgs`), flattening the
-    /// tupled signature back to N parameters (type-args-bug.md Layer 1/3).
-    and private memberParamTypes (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
-        let n = memberParamCount m
-
-        match zonk (m.BuildSignature typeArgs) with
-        | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
-        | TyFun(TyConst "unit", _) when n = 0 -> []
-        | TyFun(p, _) -> [ p ]
-        | _ -> []
-
-    /// Pick the overload for a call of arg types `argElems`: arity, then
-    /// applicability, then betterness. `ValueNone` = none applicable, or no unique
-    /// best (ambiguous — the caller diagnoses).
-    and private pickStaticOverload
-        (typeArgs: SemType[])
-        (candidates: ExternalMember[])
-        (argElems: SemType list)
-        : ExternalMember voption =
-        let arity = List.length argElems
-
-        let applicable =
-            candidates
-            |> Array.filter (fun m ->
-                memberParamCount m = arity
-                && (let ps = memberParamTypes typeArgs m
-                    List.length ps = arity && List.forall2 argAssignable argElems ps)
-            )
-
-        match applicable with
-        | [||] -> ValueNone
-        | [| only |] -> ValueSome only
-        | many ->
-            let betterThan (a: ExternalMember) (b: ExternalMember) =
-                let pa = memberParamTypes typeArgs a
-                let pb = memberParamTypes typeArgs b
-
-                List.forall2 asSpecificOrEq pa pb
-                && List.exists2 (fun x y -> not (semTypeEq x y)) pa pb
-
-            let best =
-                many
-                |> Array.filter (fun a ->
-                    many
-                    |> Array.forall (fun b -> System.Object.ReferenceEquals(a, b) || betterThan a b)
-                )
-
-            match best with
-            | [| unique |] -> ValueSome unique
-            | _ -> ValueNone
-
-    /// Resolve a folded-LongIdent external *static* member reference
-    /// (`System.String.Concat`) to its declaring type's metadata name + member
-    /// token, when the prefix is an external `Class` declaring ≥1 such member.
-    /// (The head being a local binding — a `r.X.Y` field chain — is excluded.)
-    and private tryResolveExternalStaticMemberRef
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        : (string * SyntaxToken) voption =
-        match e with
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length >= 2
-            && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
-            ->
-            let lastTok = li.Idents.[li.Idents.Length - 1]
-
-            let prefixName =
-                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
-                |> String.concat "."
-
-            let probe (n: string) =
-                match ctx.Provider.TryLookupType n with
-                | ValueSome(ExternalTypeShape.Class _) -> true
-                | _ -> false
-
-            match OpenScope.tryQualify ctx.Resolution.OpenScope probe prefixName with
-            | ValueSome resolved when (ctx.Provider.TryLookupMembers(resolved, ctx.NameOf lastTok)).Length > 0 ->
-                ValueSome(resolved, lastTok)
-            | _ -> ValueNone
-        | _ -> ValueNone
+        | _ -> errorTy ctx diagKey (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
 
     /// Application-site overload resolution for a static external method call
     /// (`String.Concat("a", "b")`). Fires only when the member name has >1 mapped
-    /// overload (single-candidate access keeps the existing single-pick path, so
-    /// behaviour is unchanged everywhere it already worked). Resolves the overload
-    /// by the argument types, commits the chosen `SymbolKey` to `ExternalAccess`
-    /// keyed on the member node (where Freeze reads it), and types the call.
+    /// overload — single-candidate access keeps the existing single-pick path, so
+    /// behaviour is unchanged everywhere it already worked. Commits the chosen
+    /// `SymbolKey` to `ExternalAccess` keyed on the member node where Freeze reads it.
     and private tryInferExternalStaticMethodCall
         (ctx: PassContext)
         (key: NodeKey)
@@ -2224,13 +885,7 @@ module UnificationInfer =
             else
                 let argTy = infer ctx argExpr
 
-                let argElems =
-                    match zonk argTy with
-                    | TyTuple xs -> EqArray.toList xs
-                    | TyConst "unit" -> []
-                    | single -> [ single ]
-
-                match pickStaticOverload typeArgs candidates argElems with
+                match pickStaticOverload typeArgs candidates (argElemsOf argTy) with
                 | ValueSome chosen ->
                     let fnKey = CstKeys.ofExpr fn
 
@@ -2249,56 +904,15 @@ module UnificationInfer =
                     unify ctx key memberSig (TyFun(argTy, resultTy))
                     ValueSome resultTy
                 | ValueNone ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message =
-                                sprintf
-                                    "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
-                                    memberName
-                                    metaName
-                            Code = ""
-                            Severity = Error
-                        }
-
-                    ValueSome(TyVar(freshTyVar ctx))
-
-    /// Type a static member access on an external type via `TryLookupMember`,
-    /// recording the resolved member (its interned `SymbolKey`) so Freeze stamps a
-    /// `TExpr.ExternalMember` (symbol-resolution-plan §7.2). `typeArgs` instantiate
-    /// the declaring type's typars, so `EqualityComparer<int>.Default` types as
-    /// `EqualityComparer<int>`.
-    and private inferExternalStaticMember
-        (ctx: PassContext)
-        (key: NodeKey)
-        (metaName: string)
-        (typeArgs: SemType list)
-        (memberTok: SyntaxToken)
-        : SemType =
-        let memberName = ctx.NameOf memberTok
-
-        match ctx.Provider.TryLookupMember(metaName, memberName) with
-        | ValueSome m ->
-            ctx.Resolution.ExternalAccess.Set(
-                key,
-                {
-                    Key = m.Key
-                    IsStatic = m.IsStatic
-                    IsProperty = m.IsProperty
-                }
-            )
-
-            m.BuildSignature(List.toArray typeArgs)
-        | ValueNone ->
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = sprintf "Type '%s' has no accessible member '%s'" metaName memberName
-                    Code = ""
-                    Severity = Error
-                }
-
-            TyVar(freshTyVar ctx)
+                    ValueSome(
+                        errorTy
+                            ctx
+                            key
+                            (sprintf
+                                "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
+                                memberName
+                                metaName)
+                    )
 
     and private inferFieldAccess
         (ctx: PassContext)
@@ -2310,9 +924,8 @@ module UnificationInfer =
         let rTy = infer ctx receiver
         resolveFieldStep ctx key rTy fieldName
 
-    /// `new T(args)`. Mirrors a single application against the value returned
-    /// by `classCtorAsFunction` — kept inline so a bare `Expr.New` doesn't
-    /// need to fabricate an `Expr.App` first.
+    /// `new T(args)`. Mirrors a single application against the ctor, kept inline
+    /// so a bare `Expr.New` doesn't need to fabricate an `Expr.App` first.
     and private inferNew
         (ctx: PassContext)
         (key: NodeKey)
@@ -2327,16 +940,11 @@ module UnificationInfer =
             | true, info ->
                 let subst = mkNamedTypeSubst info.TypeParams args
 
-                let paramTys =
+                let expected =
                     info.CtorParams
                     |> Array.map (fun p -> substituteWith subst p.Type)
                     |> Array.toList
-
-                let expected =
-                    match paramTys with
-                    | [] -> BuiltinTypes.tyUnit
-                    | [ t ] -> t
-                    | many -> TyTuple(EqArray.ofList many)
+                    |> tupleOrSingle
 
                 let argTy = infer ctx argExpr
                 unify ctx (CstKeys.ofExpr argExpr) argTy expected
@@ -2353,28 +961,14 @@ module UnificationInfer =
                     let ctors = ctx.Provider.TryLookupMembers(name, ".ctor")
 
                     if ctors.Length = 0 then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message = sprintf "External type '%s' has no accessible constructor" name
-                                Code = ""
-                                Severity = Error
-                            }
-
+                        ctx.Error(key, sprintf "External type '%s' has no accessible constructor" name)
                         infer ctx argExpr |> ignore
                         receiverTy
                     else
                         let argTy = infer ctx argExpr
-
-                        let argElems =
-                            match zonk argTy with
-                            | TyTuple xs -> EqArray.toList xs
-                            | TyConst "unit" -> []
-                            | single -> [ single ]
-
                         let typeArgs = args |> EqArray.toList |> List.toArray
 
-                        match pickStaticOverload typeArgs ctors argElems with
+                        match pickStaticOverload typeArgs ctors (argElemsOf argTy) with
                         | ValueSome chosen ->
                             // The chosen ctor's signature is `(p1 * … * pN) → declTy`;
                             // unifying `TyFun(argTy, resultTy)` recovers each param's
@@ -2387,45 +981,22 @@ module UnificationInfer =
                             unify ctx key resultTy receiverTy
                             receiverTy
                         | ValueNone ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message = sprintf "No applicable constructor on '%s' for the given arguments" name
-                                    Code = ""
-                                    Severity = Error
-                                }
-
+                            ctx.Error(key, sprintf "No applicable constructor on '%s' for the given arguments" name)
                             receiverTy
                 | _ ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message = sprintf "Unknown class type '%s'" name
-                            Code = ""
-                            Severity = Error
-                        }
-
+                    ctx.Error(key, sprintf "Unknown class type '%s'" name)
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
         | _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = "'new' requires a class type"
-                    Code = ""
-                    Severity = Error
-                }
-
+            ctx.Error(key, "'new' requires a class type")
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
-    /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string
-    /// and the operand types are opaque to the type-checker (the IL contract is
-    /// the platform author's responsibility); we only type each operand so its
-    /// own subtree is solved, and take the node's type from the declared result
-    /// annotation. An IL op with no result annotation produces `unit`. This is
-    /// the value-level analogue of the type-level intrinsic (`Type.ILIntrinsic`,
-    /// which NameResolution records into `IntrinsicReprTypes`).
+    /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string is
+    /// opaque to the type-checker (the IL contract is the platform author's
+    /// responsibility); we only type each operand so its own subtree is solved,
+    /// and take the node's type from the declared result annotation (no annotation
+    /// → `unit`). Value-level analogue of the type-level `Type.ILIntrinsic`.
     and private inferILIntrinsic
         (ctx: PassContext)
         (args: ImmutableArray<Expr<SyntaxToken>>)
@@ -2488,20 +1059,16 @@ module UnificationInfer =
         ctx.StaticOpt.Set(key, resolved)
         baseTy
 
-    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`. The
-    /// head segment was resolved by NameResolution as a local binding — type
-    /// it through `ctx.Bindings.Binding`/`ctx.Bindings.Scheme`, then walk the remaining
-    /// segments as a field-access chain.
+    /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
+    /// head segment NameResolution resolved as a local binding; the remaining
+    /// segments are a field-access chain.
     and private inferLongIdentFieldChain (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
         let headTy =
             match ctx.Bindings.Binding.TryGetValue headKey with
-            | ValueSome rb ->
-                match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
-                | ValueSome scheme -> instantiate ctx scheme
-                | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
+            | ValueSome rb -> instantiateBinding ctx rb
             | ValueNone -> TyVar(freshTyVar ctx)
 
         let mutable currTy = headTy
@@ -2520,10 +1087,9 @@ module UnificationInfer =
         (_key: NodeKey)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         : SemType =
-        // Interpolated strings are `string` too — Freeze lowers them to a
-        // `TExpr.Format` (D9). Recurse into every hole expr so its type is
-        // computed (Freeze reads it back to emit `AppendFormatted<T>`); a
-        // `%d{x}` specifier additionally constrains the hole.
+        // Freeze lowers interpolated strings to a `TExpr.Format` (D9) and reads
+        // each hole's computed type back to emit `AppendFormatted<T>`; a `%d{x}`
+        // specifier additionally constrains the hole.
         for part in parts do
             match part with
             | StringPart.Expr(formatSpecifier = fs; expr = e) ->
@@ -2601,7 +1167,6 @@ module UnificationInfer =
                         annTy
                     | ValueNone -> bodyTy
                 else
-                    // `let f x y = body` is `let f = fun x y -> body`.
                     let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
                     let bodyTy = infer ctx b.expr
 

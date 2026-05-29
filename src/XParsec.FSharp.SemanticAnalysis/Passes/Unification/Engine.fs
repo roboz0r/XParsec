@@ -42,6 +42,25 @@ module UnificationEngine =
         | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
 
+    /// Decompose a (zonked) tupled-argument type into its element types: a
+    /// .NET-style call passes one argument that is a tuple / unit / single
+    /// value. The inverse of `tupleOrSingle`; used by call-site overload
+    /// resolution (`String.Concat(…)`, external ctors).
+    let argElemsOf (argTy: SemType) : SemType list =
+        match zonk argTy with
+        | TyTuple xs -> EqArray.toList xs
+        | TyConst "unit" -> []
+        | single -> [ single ]
+
+    /// The single SemType a parameter list presents as a function argument:
+    /// `unit` for none, the bare type for one, a tuple for many. Inverse of
+    /// `argElemsOf`.
+    let tupleOrSingle (paramTys: SemType list) : SemType =
+        match paramTys with
+        | [] -> BuiltinTypes.tyUnit
+        | [ t ] -> t
+        | many -> TyTuple(EqArray.ofList many)
+
     /// Collapses any pair whose `Kind` already appears on the target: two
     /// constraints with the same `Kind` discharge to the same predicate, so
     /// keeping both would fire the diagnostic twice for one rule.

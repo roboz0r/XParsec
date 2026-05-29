@@ -536,6 +536,28 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT, this.Input)
         | TokenIndex.Virtual -> ReadableString.Empty
 
+    /// Record an `Error`-severity diagnostic at `key`. The canonical way to
+    /// report — collapses the otherwise-ubiquitous inline `Diagnostic` literal
+    /// (every call passed `Code = ""` / `Severity = Error`).
+    member this.Error(key: NodeKey, msg: string) =
+        this.Diagnostics.Add
+            {
+                Key = key
+                Code = ""
+                Message = msg
+                Severity = Severity.Error
+            }
+
+    /// `Warning`-severity analogue of `Error`.
+    member this.Warn(key: NodeKey, msg: string) =
+        this.Diagnostics.Add
+            {
+                Key = key
+                Code = ""
+                Message = msg
+                Severity = Severity.Warning
+            }
+
 /// TODO: range + sub-severities still pending. `Code` lets the sprint group
 /// related diagnostics (e.g. for tooling); existing call sites pass `""` —
 /// new ones should mint a short identifier (e.g. `"V001"`).

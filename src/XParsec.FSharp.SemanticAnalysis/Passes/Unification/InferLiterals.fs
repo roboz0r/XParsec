@@ -1,0 +1,224 @@
+namespace XParsec.FSharp.SemanticAnalysis.Passes
+
+open System.Collections.Generic
+open System.Collections.Immutable
+open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
+open XParsec.FSharp.SemanticAnalysis
+open UnificationEngine
+open UnificationTranslate
+
+module UnificationInferLiterals =
+
+    /// Pulled out of `inferConst` so the measured-literal arm can stamp this
+    /// onto a TyVar's `Link` while the measure rides on `Units`.
+    let literalCarrier (t: SyntaxToken) : SemType =
+        match t.Token with
+        | Token.KWTrue
+        | Token.KWFalse -> BuiltinTypes.tyBool
+        | Token.NumIEEE64
+        | Token.NumIEEE64Hex
+        | Token.NumIEEE64Octal
+        | Token.NumIEEE64Binary -> BuiltinTypes.tyFloat
+        | Token.NumInt64
+        | Token.NumInt64Hex
+        | Token.NumInt64Octal
+        | Token.NumInt64Binary -> BuiltinTypes.tyInt64
+        | Token.NumByte
+        | Token.NumByteHex
+        | Token.NumByteOctal
+        | Token.NumByteBinary -> BuiltinTypes.tyByte
+        | Token.CharLiteral -> BuiltinTypes.tyChar
+        | Token.NumDecimal
+        | Token.NumDecimalHex
+        | Token.NumDecimalOctal
+        | Token.NumDecimalBinary -> BuiltinTypes.tyDecimal
+        | _ -> BuiltinTypes.tyInt
+
+    let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
+        match c with
+        | Constant.Literal t -> literalCarrier t
+        | Constant.MeasuredLiteral(value = t; measure = m) ->
+            let carrier = literalCarrier t
+            let diagKey = NodeKey.ofToken t NodeKind.ExprConst
+            let mt = translateMeasure ctx diagKey m
+            let tv = freshTyVar ctx
+            tv.Link <- ValueSome carrier
+            tv.Units <- ValueSome mt
+            TyVar tv
+
+    /// Reads `Units` straight off the root — does NOT use `resolveStep`,
+    /// which would follow a measured TyVar through its `Link` to the bare
+    /// carrier and drop the measure.
+    let unitsOf (t: SemType) : MeasureTerm voption =
+        match t with
+        | TyVar tv -> (UnionFind.find tv).Units
+        | _ -> ValueNone
+
+    /// A free variable (no Link) is returned as-is so a later unification can
+    /// pin it.
+    let carrierOf (t: SemType) : SemType =
+        match resolveStep t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome link -> link
+            | ValueNone -> TyVar root
+        | other -> other
+
+    let freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TypeVar =
+        let tv = freshTyVar ctx
+        tv.Link <- ValueSome carrier
+        tv.Units <- units
+        tv
+
+    let isComparisonOp (name: string) : bool =
+        match name with
+        | "op_Equality"
+        | "op_Inequality"
+        | "op_LessThan"
+        | "op_GreaterThan"
+        | "op_LessThanOrEqual"
+        | "op_GreaterThanOrEqual" -> true
+        | _ -> false
+
+    /// Fires before the provider lookup in `inferInfix` so measured
+    /// arithmetic / comparison operators get measure-correct result types and
+    /// a dedicated "Measure mismatch" diagnostic rather than a generic
+    /// carrier-type mismatch. Returns `None` for the all-dimensionless case
+    /// (or operators we don't dispatch); the caller falls through to the
+    /// provider path.
+    let tryMeasuredArith
+        (ctx: PassContext)
+        (key: NodeKey)
+        (name: string)
+        (leftTy: SemType)
+        (rightTy: SemType)
+        : SemType option =
+        let leftUnits = unitsOf leftTy
+        let rightUnits = unitsOf rightTy
+
+        match leftUnits, rightUnits with
+        | ValueNone, ValueNone -> None
+        | _ ->
+            let carrier = carrierOf leftTy
+            // Carriers must agree even between measured operands (no
+            // `float<m> + int<m>`). Surface that as a normal type mismatch.
+            unify ctx key carrier (carrierOf rightTy)
+
+            match name, leftUnits, rightUnits with
+            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
+            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                        Code = ""
+                        Severity = Error
+                    }
+
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
+            | ("op_Addition" | "op_Subtraction"), ValueSome m, ValueNone
+            | ("op_Addition" | "op_Subtraction"), ValueNone, ValueSome m ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
+                        Code = ""
+                        Severity = Error
+                    }
+
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | "op_Multiply", ValueSome m1, ValueSome m2 ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.mul m1 m2))))
+            | "op_Multiply", ValueSome m, ValueNone
+            | "op_Multiply", ValueNone, ValueSome m -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | "op_Division", ValueSome m1, ValueSome m2 ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.div m1 m2))))
+            | "op_Division", ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | "op_Division", ValueNone, ValueSome m ->
+                Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
+            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some BuiltinTypes.tyBool
+            | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
+                        Code = ""
+                        Severity = Error
+                    }
+
+                Some BuiltinTypes.tyBool
+            | name, ValueSome m, ValueNone
+            | name, ValueNone, ValueSome m when isComparisonOp name ->
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
+                        Code = ""
+                        Severity = Error
+                    }
+
+                Some BuiltinTypes.tyBool
+            | _ -> None
+
+    /// Reuses the lexer's canonical placeholder parser
+    /// (`Lexing.parseFormatSpecifierView`) so no second copy of the format
+    /// grammar lives here. `ValueNone` when the string carries interpolation
+    /// holes or lexer-error parts (not a simple format literal), so the
+    /// printf special-case falls through to standard inference.
+    let formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatType list voption =
+        match e with
+        | Expr.String(parts = parts) ->
+            let acc = ResizeArray<FormatType>()
+            let mutable ok = true
+
+            for part in parts do
+                match part with
+                | StringPart.Text _
+                | StringPart.EscapeSequence _
+                | StringPart.EscapePercent _
+                | StringPart.VerbatimEscapeQuote _ -> ()
+                | StringPart.FormatSpecifier t ->
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    | ValueSome placeholder -> acc.Add placeholder.Type
+                    | ValueNone -> ok <- false
+                | StringPart.Expr _
+                | StringPart.OrphanFormatSpecifier _
+                | StringPart.InvalidText _ -> ok <- false
+
+            if ok then ValueSome(List.ofSeq acc) else ValueNone
+        | _ -> ValueNone
+
+    /// Whether every specifier is one the happy path lowers inline
+    /// (`PrintfSpec.tryHoleFormat`); a `false` keeps the FSharp.Core cold
+    /// path. `%%` escapes are lowerable (P2): Freeze collapses `%%`→`%` in the
+    /// literal segment. Only interpolation holes (`Expr`), orphan specifiers
+    /// and lexer-error parts force the cold path.
+    let lowerablePlaceholders (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
+        match e with
+        | Expr.String(parts = parts) ->
+            let mutable ok = true
+
+            for part in parts do
+                match part with
+                | StringPart.FormatSpecifier t ->
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    | ValueSome p ->
+                        match PrintfSpec.tryHoleFormat p with
+                        | ValueSome _ -> ()
+                        | ValueNone -> ok <- false
+                    | ValueNone -> ok <- false
+                // A `%%` escape arrives as raw `Text` "%%" — still lowerable.
+                | StringPart.Text _
+                | StringPart.EscapeSequence _
+                | StringPart.VerbatimEscapeQuote _
+                | StringPart.EscapePercent _ -> ()
+                | StringPart.Expr _
+                | StringPart.OrphanFormatSpecifier _
+                | StringPart.InvalidText _ -> ok <- false
+
+            ok
+        | _ -> false
