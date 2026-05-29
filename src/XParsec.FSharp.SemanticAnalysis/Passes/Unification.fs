@@ -501,6 +501,51 @@ module Unification =
                 ctx.Resolution.TyparScope <- savedScope
                 ctx.Resolution.TyparScopeStrict <- savedStrict
 
+    /// Type the `inherit Base(args)` invocation (Step 2.2) against the parent's
+    /// primary-ctor signature, under the derived class's typar scope (already set
+    /// by `fillTypeMembers` before `PrelinkExtras` runs). The parent's ctor-param
+    /// types are substituted with the args `inherit Base<…>` supplied — recovered
+    /// from `info.BaseType`'s already-translated `TyClass` args. Errors attach at
+    /// the base-ctor-args expression and don't cascade into member-body inference.
+    /// No-op for parent-less classes and for parents not in `ctx.Types.Class`
+    /// (`registerInheritedSlots` already diagnosed those).
+    let private fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
+        match info.BaseType, info.BaseCtorArgs with
+        | ValueSome(TyClass(baseName, baseArgs)), ValueSome argExpr ->
+            match ctx.Types.Class.TryGetValue baseName with
+            | true, baseInfo ->
+                let subst = mkNamedTypeSubst baseInfo.TypeParams baseArgs
+
+                let expected =
+                    baseInfo.CtorParams
+                    |> Array.map (fun p -> substituteWith subst p.Type)
+                    |> Array.toList
+                    |> tupleOrSingle
+
+                enterLevel ctx
+
+                try
+                    let argTy = infer ctx argExpr
+                    unify ctx (CstKeys.ofExpr argExpr) argTy expected
+                finally
+                    exitLevel ctx
+            | false, _ -> ()
+        | _ -> ()
+
+    /// Mint the `base` TyVar (Step 2.2) pre-linked to the parent's instantiated
+    /// `TyClass` and seed `ctx.Bindings.TypeVar` at `info.BaseKey`, mirroring the
+    /// `this` mint in `fillTypeMembers`. `info.BaseType` is already substituted
+    /// under the derived class's typar scope by `registerInheritedSlots`, so it
+    /// links directly. No-op for parent-less classes.
+    let private mintBaseTyVar (ctx: PassContext) (info: ClassTypeInfo) : unit =
+        match info.BaseType with
+        | ValueSome parentTy ->
+            let baseTv = TypeVar()
+            baseTv.Level <- ctx.CurrentLevel
+            baseTv.Link <- ValueSome parentTy
+            ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)
+        | ValueNone -> ()
+
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         let common (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with
@@ -531,6 +576,15 @@ module Unification =
                                 match p.Type with
                                 | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
                                 | _ -> ()
+
+                            // Inheritance (Step 2.2): type the base-ctor call and
+                            // bring `base` into scope before any member body walks.
+                            // Both no-op for parent-less classes. Runs after the
+                            // ctor-param binding sites are seeded so an `inherit
+                            // Base(p)` arg referencing a derived ctor param `p`
+                            // resolves to its declared type (not a fresh TyVar).
+                            fillBaseCtorCall ctx info
+                            mintBaseTyVar ctx info
 
                             // `static let` initialisers (B-10): infer each in
                             // declaration order (an earlier static-let binder is

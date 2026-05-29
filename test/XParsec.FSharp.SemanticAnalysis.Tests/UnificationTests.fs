@@ -613,4 +613,55 @@ let tests =
 
                 Expect.isEmpty ctx.Diagnostics "no diagnostics on null-binding"
             }
+
+            // --- Phase 2 / B-4: base-ctor typing + `base` binding (Step 2.2) ---
+            // Step 2.2 types `inherit Base(args)` against the parent's primary
+            // ctor and mints the `base` TyVar. Inherited member access / `base.M()`
+            // resolution gate on Step 2.3's member-chain walk.
+
+            test "base-ctor argument types correctly against parent ctor" {
+                let ctx =
+                    analyse "type B(x: int) =\n    member this.X = x\ntype D(y: int) =\n    inherit B(y)"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics when base-ctor arg matches"
+            }
+
+            test "base-ctor argument type mismatch diagnoses" {
+                let ctx =
+                    analyse "type B(x: int) =\n    member this.X = x\ntype D(s: string) =\n    inherit B(s)"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "base-ctor arg mismatch diagnosed"
+            }
+
+            test "`base` binding linked to parent type" {
+                let ctx =
+                    analyse
+                        "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    member this.N () = 2"
+
+                match ctx.Types.Class.TryGetValue "D" with
+                | true, info -> Expect.equal (typeOf ctx info.BaseKey) (TyClass("B", EqArray.empty)) "base : B"
+                | false, _ -> failtest "class type D not registered"
+            }
+
+            test "generic base-ctor arg types under parent typar substitution" {
+                let ctx =
+                    analyse
+                        "type Box<'a>(v: 'a) =\n    member this.V = v\ntype IntBox(n: int) =\n    inherit Box<int>(n)"
+
+                Expect.isEmpty ctx.Diagnostics "int arg matches Box<int>'s 'a"
+            }
+
+            test "generic base-ctor arg mismatch diagnoses" {
+                let ctx =
+                    analyse
+                        "type Box<'a>(v: 'a) =\n    member this.V = v\ntype BadBox(s: string) =\n    inherit Box<int>(s)"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "string arg vs Box<int>'s int 'a diagnosed"
+            }
         ]

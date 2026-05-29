@@ -46,6 +46,12 @@ module NameResolution =
             /// the `static let`s plus its own params (no `this` / primary-ctor
             /// params). `[||]` for unions.
             SecondaryCtors: ClassSecondaryCtorInfo[]
+            /// Primary-constructor `inherit Base(args)` argument expression (B-4),
+            /// when the class has one. Name-resolved under the *instance* scope
+            /// (primary-ctor params + static lets in scope, but not `this`) so
+            /// Unification's `fillBaseCtorCall` sees its idents bound. `ValueNone`
+            /// for unions and classes without an `inherit` clause.
+            InheritsExpr: Expr<SyntaxToken> voption
             Elements: TypeDefnElements<SyntaxToken>
         }
 
@@ -122,6 +128,20 @@ module NameResolution =
 
         let instanceScope = [ mergeStaticLets scopeMap ]
         let staticScope: Scope list = [ staticLetScope ]
+
+        // Primary `inherit Base(args)` expression (B-4): name-resolve under a
+        // scope of `static let`s plus the primary-ctor params, but without
+        // `this` / `base` — the base ctor runs before the instance exists, so
+        // its args may only reference the constructor's own parameters.
+        match w.InheritsExpr with
+        | ValueSome e ->
+            let mutable ctorScope = staticLetScope
+
+            for p in w.CtorParams do
+                ctorScope <- Map.add p.Name (p.DeclKey, false) ctorScope
+
+            CstWalk.iterExpr walker [ ctorScope ] e
+        | ValueNone -> ()
 
         // Secondary constructors (B-11). The body is an `AdditionalConstrExpr`,
         // not a plain `Expr`, so it's walked manually: each embedded expression
@@ -231,6 +251,13 @@ module NameResolution =
                                 CtorParams = info.CtorParams
                                 StaticLets = info.StaticLets
                                 SecondaryCtors = info.SecondaryCtors
+                                InheritsExpr =
+                                    // Walk the primary base-ctor args only when
+                                    // `registerInheritedSlots` resolved the parent
+                                    // (otherwise it already diagnosed the clause).
+                                    match info.BaseType, body.inherits with
+                                    | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
+                                    | _ -> ValueNone
                                 Elements = body.elements
                             }
                     | false, _ -> ()
@@ -264,6 +291,7 @@ module NameResolution =
                                 CtorParams = [||]
                                 StaticLets = [||]
                                 SecondaryCtors = [||]
+                                InheritsExpr = ValueNone
                                 Elements = elems
                             }
                     | _ -> ()
