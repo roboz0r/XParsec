@@ -278,6 +278,9 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// `staticLets` are class-level `static let` bindings (B-10): codegen emits
     /// one private static field each and a synthesised `.cctor` running the
     /// initialisers in declaration order. Empty unless the class has `static let`s.
+    /// `secondaryCtors` are `new(args) = SelfType(primaryArgs)` overloads (B-11):
+    /// codegen emits each as a `.ctor` overload whose body runs the let-preamble
+    /// then chains to the primary `.ctor`. Empty unless the class declares any.
     | Class of
         fields: EqArray<TRecordField> *
         ctorParams: EqArray<TRecordField> *
@@ -285,7 +288,8 @@ and [<RequireQualifiedAccess>] TTypeKind =
         baseType: SemType voption *
         interfaces: EqArray<string * EqArray<TTypeMember>> *
         isSealed: bool *
-        staticLets: EqArray<TStaticLet>
+        staticLets: EqArray<TStaticLet> *
+        secondaryCtors: EqArray<TSecondaryCtor>
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
@@ -347,6 +351,31 @@ and TStaticLet =
         Name: string
         Type: SemType
         Init: TExpr
+    }
+
+/// One `let`-preamble binding inside a secondary constructor body
+/// (`new(args) = let x = e in SelfType(...)`). `Binder` is the local's
+/// `NodeKey` (codegen allocates a local slot and a body reference to the name
+/// loads it); `Init` is the right-hand side. Only simple (single-name) binders
+/// are modelled in v1.
+and TCtorLet =
+    {
+        Binder: NodeKey
+        Type: SemType
+        Init: TExpr
+    }
+
+/// A secondary constructor (vesper-set-sprint-plan §1.9 / B-11). Codegen emits a
+/// `.ctor` overload: `Params` are the overload's parameters (`ldarg` after
+/// `this`); `Lets` run as locals in declaration order; then the body chains to
+/// the primary `.ctor` with `PrimaryArgs` (`ldarg.0; <args>; call instance void
+/// SelfType::.ctor`). There is no usable `this` before the chain call, so the
+/// `Lets` / `PrimaryArgs` only reference the ctor params and earlier lets.
+and TSecondaryCtor =
+    {
+        Params: EqArray<NodeKey * SemType>
+        Lets: EqArray<TCtorLet>
+        PrimaryArgs: EqArray<TExpr>
     }
 
 /// `Signature` is the curried function type; a type parameter of the *declaring

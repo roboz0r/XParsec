@@ -139,7 +139,7 @@ type internal Assembler
 
     do
         classDecls
-        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType, _isSealed, _staticLets) ->
+        |> List.iteri (fun i (td, _fields, ctorParams, _members, _baseType, _isSealed, _staticLets, _secondaryCtors) ->
             provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Class i))
 
             if not td.TypeParams.IsEmpty then
@@ -198,11 +198,15 @@ type internal Assembler
         )
 
     // Per class: `.ctor` + per member + one synthesised `.cctor` when the class
-    // has `static let`s. Static-let *fields* add to the field table, not here.
+    // has `static let`s + one `.ctor` overload per secondary constructor (B-11).
+    // Static-let *fields* add to the field table, not here.
     let classMethodTotal =
         classDecls
-        |> List.sumBy (fun (_, _, _, members, _, _, staticLets) ->
-            1 + List.length members + (if List.isEmpty staticLets then 0 else 1)
+        |> List.sumBy (fun (_, _, _, members, _, _, staticLets, secondaryCtors) ->
+            1
+            + List.length members
+            + (if List.isEmpty staticLets then 0 else 1)
+            + List.length secondaryCtors
         )
 
     let closureMethodTotal = 2 * List.length closures

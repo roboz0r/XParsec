@@ -293,6 +293,113 @@ let staticTests =
         ]
 
 [<Tests>]
+let secondaryCtorTests =
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    testList
+        "ClassSecondaryCtor"
+        [
+            // vesper-set-sprint-plan §1.9 / B-11 test gate:
+            //   `type C(x: int) = new() = C(0)` — C() returns C(0), C(5) returns C(5).
+            // The secondary ctor emits as a `.ctor` overload that chains to the
+            // primary `.ctor`; reading `this.X` afterwards proves the chain ran.
+            test "a secondary ctor `new() = C(0)` chains to the primary ctor (C().X = 0, C(5).X = 5)" {
+                let _, artifact =
+                    compileSource
+                        "ClsSecCtor"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C(x: int) ="
+                                "    new() = C(0)"
+                                "    member this.X = x"
+                                "let c = C()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+                Expect.isNotNull ty "the assembly contains the class type C"
+
+                let ctors = ty.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.equal ctors.Length 2 "C declares the primary ctor + one secondary ctor"
+
+                let arities = ctors |> Array.map (fun c -> c.GetParameters().Length) |> Set.ofArray
+                Expect.equal arities (Set.ofList [ 0; 1 ]) "one nullary (secondary) and one 1-arg (primary) ctor"
+
+                let getX = ty.GetMethod("get_X", declaredInstance, null, [||], null)
+                Expect.isNotNull getX "get_X emitted"
+
+                let viaSecondary = Activator.CreateInstance(ty, [||])
+                Expect.equal (getX.Invoke(viaSecondary, [||]) :?> int) 0 "C() chains to C(0), so X = 0"
+
+                let viaPrimary = Activator.CreateInstance(ty, [| box 5 |])
+                Expect.equal (getX.Invoke(viaPrimary, [||]) :?> int) 5 "C(5).X = 5"
+            }
+
+            // A secondary ctor that forwards its own parameter to a *different-arity*
+            // primary chain (`type C2(x:int, y:int) = new(x:int) = C2(x, 0)`): the
+            // overload's param feeds the chain alongside a constant.
+            test "a secondary ctor forwards its parameter to the primary chain (C2(9).Sum = 9)" {
+                let _, artifact =
+                    compileSource
+                        "ClsSecCtorFwd"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C2(x: int, y: int) ="
+                                "    new(x: int) = C2(x, 0)"
+                                "    member this.Sum = x + y"
+                                "let c = C2(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C2"
+
+                let ctors = ty.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.equal ctors.Length 2 "primary (2-arg) + secondary (1-arg) ctor"
+
+                let getSum = ty.GetMethod("get_Sum", declaredInstance, null, [||], null)
+                let instance = Activator.CreateInstance(ty, [| box 9 |])
+                Expect.equal (getSum.Invoke(instance, [||]) :?> int) 9 "C2(9) chains to C2(9, 0): Sum = 9"
+            }
+
+            // Generic class secondary ctor (the `set.fs:23` `new(k) = SetTree(k, 1)`
+            // shape): the chain target is a `MemberRef` on the open self-`TypeSpec`.
+            // The secondary forwards its `'a` param to the primary's first field, so
+            // `Box(7).V = 7` proves the generic chain ran. (The constant flowing to
+            // the *second* field is not asserted here: reading a non-first field of a
+            // generic class is a separate, pre-existing B-1 gap — multi-field generic
+            // field access — that mono classes don't share; tracked apart from B-11.)
+            test "a generic class secondary ctor chains through the open self-TypeSpec (Box(7).V = 7)" {
+                let _, artifact =
+                    compileSource
+                        "ClsSecCtorGen"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'a>(v: 'a, n: int) ="
+                                "    new(v: 'a) = Box(v, 1)"
+                                "    member this.V = v"
+                                "let b = Box(0, 0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
+
+                let ctors = boxInt.GetConstructors(BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.equal ctors.Length 2 "Box<int> has the primary (2-arg) + secondary (1-arg) ctors"
+
+                let arities = ctors |> Array.map (fun c -> c.GetParameters().Length) |> Set.ofArray
+                Expect.equal arities (Set.ofList [ 1; 2 ]) "the secondary (1-arg) and primary (2-arg) ctors"
+
+                let getV = boxInt.GetMethod("get_V", declaredInstance, null, [||], null)
+                let instance = Activator.CreateInstance(boxInt, [| box 7 |])
+                Expect.equal (getV.Invoke(instance, [||]) :?> int) 7 "Box(7) chains to Box(7, 1): V = 7"
+            }
+        ]
+
+[<Tests>]
 let genericTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly

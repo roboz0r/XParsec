@@ -59,7 +59,8 @@ type internal PartitionedTypeDecls =
             TTypeMember list *
             SemType voption *
             bool *
-            TStaticLet list) list
+            TStaticLet list *
+            TSecondaryCtor list) list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in
@@ -78,7 +79,8 @@ type internal NominalEmissionInput =
         ctorParams: TRecordField list *
         baseType: SemType voption *
         isSealed: bool *
-        staticLets: TStaticLet list
+        staticLets: TStaticLet list *
+        secondaryCtors: TSecondaryCtor list
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

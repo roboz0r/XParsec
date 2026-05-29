@@ -28,10 +28,10 @@ module Codegen =
         for (td, fields, members) in asm.RecordDecls do
             NominalEmit.emit asm (NominalEmissionInput.Record fields) td members asm.RecordTypes
 
-        for (td, fields, ctorParams, members, baseType, isSealed, staticLets) in asm.ClassDecls do
+        for (td, fields, ctorParams, members, baseType, isSealed, staticLets, secondaryCtors) in asm.ClassDecls do
             NominalEmit.emit
                 asm
-                (NominalEmissionInput.Class(fields, ctorParams, baseType, isSealed, staticLets))
+                (NominalEmissionInput.Class(fields, ctorParams, baseType, isSealed, staticLets, secondaryCtors))
                 td
                 members
                 asm.ClassTypes

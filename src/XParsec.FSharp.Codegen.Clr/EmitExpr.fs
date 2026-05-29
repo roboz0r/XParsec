@@ -299,14 +299,29 @@ module EmitExpr =
             match env.Classes.TryGetValue className with
             | true, c ->
                 // A user class emitted into this assembly (vesper-set-sprint-plan
-                // Phase 1 / B-1). Monomorphic: use the ctor's `Def` token directly.
-                // Generic: mint a `MemberRef` on the receiver's instantiated
-                // `TypeSpec` (`Box<int>::.ctor`), mirroring the generic-record
-                // ctor path.
-                let ctorRef =
-                    memberRef env c.Typars className tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
+                // Phase 1 / B-1). The primary ctor's arity equals its field count;
+                // a different arg count selects a secondary ctor (B-11) by arity —
+                // F# forbids two ctors of the same signature, so arity is a key.
+                let argCount = args.Length
 
-                b.Add(ILInstr.Newobj(ctorRef, List.length c.Fields))
+                if argCount = List.length c.Fields then
+                    // Primary. Monomorphic: the ctor's `Def` token directly.
+                    // Generic: a `MemberRef` on the receiver's instantiated
+                    // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
+                    let ctorRef =
+                        memberRef env c.Typars className tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
+
+                    b.Add(ILInstr.Newobj(ctorRef, argCount))
+                else
+                    match c.SecondaryCtors |> List.tryFind (fun (a, _) -> a = argCount) with
+                    | Some(_, h) when List.isEmpty c.Typars -> b.Add(ILInstr.Newobj(h, argCount))
+                    | Some _ ->
+                        // Generic secondary-ctor *call sites* need a `MemberRef` on
+                        // the instantiated `TypeSpec`; the secondary-ctor *bodies*
+                        // already emit. Deferred until a `ClassMember.SecondaryCtor`
+                        // ref variant lands.
+                        failwithf "Emit: generic secondary-constructor call sites not yet supported ('%s')" className
+                    | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
             | false, _ ->
                 match env.Provider.TryEmitCtor(className, tyArgs, argTypes) with
                 | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))

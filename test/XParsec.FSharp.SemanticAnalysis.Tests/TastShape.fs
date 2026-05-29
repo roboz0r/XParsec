@@ -614,7 +614,7 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
-            | TTypeKind.Class(_, ctorParams, members, _, _, isSealed, staticLets) ->
+            | TTypeKind.Class(_, ctorParams, members, _, _, isSealed, staticLets, secondaryCtors) ->
                 if isSealed then
                     push "[<Sealed>] "
 
@@ -643,6 +643,19 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
+
+                for sc in secondaryCtors do
+                    push " new("
+
+                    sc.Params
+                    |> EqArray.iteri (fun i (_, ty) ->
+                        if i > 0 then
+                            push ", "
+
+                        push (tyStr ty)
+                    )
+
+                    push ")"
 
                 push " end"
 

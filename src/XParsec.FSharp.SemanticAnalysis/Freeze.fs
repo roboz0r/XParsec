@@ -1692,6 +1692,81 @@ module Freeze =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// Translate one secondary constructor (B-11) into a `TSecondaryCtor`. The
+    /// params carry the declaring-type typar markers (like the primary ctor's
+    /// params); each `let`-preamble binding becomes a `TCtorLet`; the final chain
+    /// call's arguments become `PrimaryArgs`. Generic-class bodies are remapped
+    /// through `markers` exactly like instance members. v1 supports a `let`
+    /// preamble followed by the chain call; sequencing / conditional preambles
+    /// recurse to the chain and drop intervening statements.
+    let private translateSecondaryCtor
+        (ctx: PassContext)
+        (markers: (TypeVar * string) list)
+        (sc: ClassSecondaryCtorInfo)
+        : TSecondaryCtor =
+        let remapTy = remapDeclTypars markers
+
+        let remapBody (e: TExpr) =
+            if List.isEmpty markers then e else mapExprTypes remapTy e
+
+        let parms =
+            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, remapTy (Unification.zonk p.Type)) })
+
+        // Binder NodeKey for a `let`-preamble head (simple names only in v1); the
+        // key matches `bindingsOfPat` (the innermost `NamedSimple`'s own key).
+        let binderKeyOf (b: Binding<SyntaxToken>) : NodeKey voption =
+            let rec walk (p: Pat<SyntaxToken>) =
+                match p with
+                | Pat.NamedSimple _ -> ValueSome(CstKeys.ofPat p)
+                | Pat.EnclosedBlock(pat = inner)
+                | Pat.Typed(pat = inner) -> walk inner
+                | _ -> ValueNone
+
+            walk b.headPat
+
+        let chainArgs (e: Expr<SyntaxToken>) : EqArray<TExpr> =
+            let raw =
+                match e with
+                | Expr.HighPrecedenceApp(argExpr = arg) -> peelOneArg (translateExpr ctx) arg
+                | Expr.App(argExprs = args) -> peelCtorArgs (translateExpr ctx) args
+                | _ -> EqArray.empty
+
+            raw |> EqArray.map remapBody
+
+        let lets = ResizeArray<TCtorLet>()
+        let mutable primaryArgs = EqArray.empty
+
+        let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
+            match ace with
+            | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
+                match binderKeyOf b with
+                | ValueSome k ->
+                    lets.Add
+                        {
+                            Binder = k
+                            Type = remapTy (typeOfKey ctx k)
+                            Init = translateExpr ctx b.expr |> remapBody
+                        }
+                | ValueNone -> ()
+
+                go body
+            | AdditionalConstrExpr.SequenceAfter(rest = rest) -> go rest
+            | AdditionalConstrExpr.SequenceBefore(before = before) -> go before
+            | AdditionalConstrExpr.Conditional(thenBranch = t) -> go t
+            | AdditionalConstrExpr.Init initExpr ->
+                match initExpr with
+                | AdditionalConstrInitExpr.Expression e
+                | AdditionalConstrInitExpr.Delegated(expr = e) -> primaryArgs <- chainArgs e
+                | AdditionalConstrInitExpr.Explicit _ -> ()
+
+        go sc.Body
+
+        {
+            Params = parms
+            Lets = EqArray.ofSeq lets
+            PrimaryArgs = primaryArgs
+        }
+
     /// Pair each declared typar's *zonked* root TyVar with its marker name, so
     /// `remapDeclTypars` can rewrite free occurrences back to `TyConst "'A"`.
     /// Pinned typars (anything that's already collapsed to a non-`TyVar`) are
@@ -1912,6 +1987,12 @@ module Freeze =
                     }
                 )
 
+            // Secondary constructors (B-11). Each `new(...)` overload becomes a
+            // `TSecondaryCtor`; codegen emits a `.ctor` overload chaining to the
+            // primary ctor. Empty unless the class declares any.
+            let secondaryCtors =
+                EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx markers sc })
+
             Some(
                 mkTypeDecl
                     name
@@ -1924,7 +2005,8 @@ module Freeze =
                         ValueNone,
                         EqArray.empty,
                         info.IsSealed,
-                        staticLets
+                        staticLets,
+                        secondaryCtors
                     ))
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.

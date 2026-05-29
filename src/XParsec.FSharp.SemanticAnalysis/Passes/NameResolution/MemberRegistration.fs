@@ -12,9 +12,55 @@ open NameResolutionTypeRegistration
 
 module NameResolutionMemberRegistration =
 
-    /// Constructor parameter names. v1 accepts only simple patterns
-    /// (`NamedSimple`, `Typed (NamedSimple, t)`, `Tuple` of those, possibly
-    /// enclosed); anything else diagnoses and contributes nothing.
+    /// Constructor parameter info from a parameter *pattern* (the primary ctor's
+    /// `PrimaryConstrArgs.pat` or a secondary ctor's `new(...)` pattern). v1
+    /// accepts only simple patterns (`NamedSimple`, `Typed (NamedSimple, t)`,
+    /// `Tuple` of those, possibly enclosed, and `()` for no params); anything
+    /// else diagnoses and contributes nothing.
+    let private ctorParamsOfPat (ctx: PassContext) (declKey: NodeKey) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
+        let results = ResizeArray<ClassCtorParamInfo>()
+
+        let rec walk (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.EmptyBlock _ -> () // `new()` / `C()` — no parameters
+            | Pat.NamedSimple id ->
+                let name = ctx.NameOf id
+                // Synthetic kind keeps the param's binding-site key distinct
+                // from a regular Pat.NamedSimple at the same offset.
+                let pKey = NodeKey.ofToken id NodeKind.PatIdent
+                let tv = TypeVar()
+                tv.Level <- 0
+                results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
+            | Pat.Typed(pat = Pat.NamedSimple id) ->
+                let name = ctx.NameOf id
+                let pKey = NodeKey.ofToken id NodeKind.PatIdent
+                let tv = TypeVar()
+                tv.Level <- 0
+                results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
+            | Pat.EnclosedBlock(pat = inner) -> walk inner
+            | Pat.Tuple(patterns = pats) ->
+                for sub in pats do
+                    walk sub
+            | _ ->
+                // Point at the offending sub-pattern when keyable; else declKey.
+                let patKey =
+                    try
+                        CstKeys.ofPat p
+                    with _ ->
+                        declKey
+
+                ctx.Diagnostics.Add
+                    {
+                        Key = patKey
+                        Message =
+                            "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
+                        Code = ""
+                        Severity = Error
+                    }
+
+        walk p
+        results.ToArray()
+
     let private extractCtorParams
         (ctx: PassContext)
         (declKey: NodeKey)
@@ -23,48 +69,28 @@ module NameResolutionMemberRegistration =
         match pcOpt with
         | ValueNone -> [||]
         | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> [||]
-        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) ->
-            let results = ResizeArray<ClassCtorParamInfo>()
+        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declKey p
 
-            let rec walk (p: Pat<SyntaxToken>) =
-                match p with
-                | Pat.NamedSimple id ->
-                    let name = ctx.NameOf id
-                    // Synthetic kind keeps the param's binding-site key distinct
-                    // from a regular Pat.NamedSimple at the same offset.
-                    let pKey = NodeKey.ofToken id NodeKind.PatIdent
-                    let tv = TypeVar()
-                    tv.Level <- 0
-                    results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
-                | Pat.Typed(pat = Pat.NamedSimple id) ->
-                    let name = ctx.NameOf id
-                    let pKey = NodeKey.ofToken id NodeKind.PatIdent
-                    let tv = TypeVar()
-                    tv.Level <- 0
-                    results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
-                | Pat.EnclosedBlock(pat = inner) -> walk inner
-                | Pat.Tuple(patterns = pats) ->
-                    for sub in pats do
-                        walk sub
-                | _ ->
-                    // Point at the offending sub-pattern when keyable; else declKey.
-                    let patKey =
-                        try
-                            CstKeys.ofPat p
-                        with _ ->
-                            declKey
+    /// `ClassSecondaryCtorInfo` placeholders for a class body's `new(...)`
+    /// overloads (B-11). Each overload's params start as placeholder TyVars
+    /// (filled by Unification); the synthetic `DeclKey` keys it from the `new`
+    /// token so distinct overloads don't collide.
+    let private extractSecondaryCtors
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (elements: TypeDefnElement<SyntaxToken> seq)
+        : ClassSecondaryCtorInfo[] =
+        let acc = ResizeArray<ClassSecondaryCtorInfo>()
 
-                    ctx.Diagnostics.Add
-                        {
-                            Key = patKey
-                            Message =
-                                "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
-                            Code = ""
-                            Severity = Error
-                        }
+        for el in elements do
+            match el with
+            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = nt; pat = pat; body = body)) ->
+                let ctorKey = NodeKey.ofToken nt NodeKind.PatIdent
+                let parms = ctorParamsOfPat ctx ctorKey pat
+                acc.Add(ClassSecondaryCtorInfo(ctorKey, parms, pat, body))
+            | _ -> ()
 
-            walk p
-            results.ToArray()
+        acc.ToArray()
 
     /// A member's name from its head pattern. `this.M`-shaped heads parse as
     /// `Pat.NamedSimple` for the member-name token; the `this`/alias is in
@@ -164,7 +190,11 @@ module NameResolutionMemberRegistration =
                     diagnose "Abstract property signatures are not yet supported"
             | TypeDefnElement.Member(MemberDefn.Value _) -> diagnose "`val` members are not yet supported"
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
-                diagnose "Additional constructors are not yet supported"
+                // Secondary constructors (B-11) aren't `TypeMemberInfo`s — class
+                // registration extracts them separately via `extractSecondaryCtors`.
+                // A union augmentation has no primary ctor to chain to, so one here
+                // is meaningless and silently dropped (the parser permits it).
+                ()
             | TypeDefnElement.InterfaceImpl _ -> diagnose "Interface implementations are not yet supported"
             | TypeDefnElement.InterfaceSpec _ -> diagnose "Interface specifications are not yet supported"
             | TypeDefnElement.Inherit _ -> diagnose "Inheritance is not yet supported"
@@ -266,6 +296,7 @@ module NameResolutionMemberRegistration =
                         ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey)
 
                     info.StaticLets <- staticLets
+                    info.SecondaryCtors <- extractSecondaryCtors ctx declKey body.elements
 
                     // B-8: `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
                     // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's

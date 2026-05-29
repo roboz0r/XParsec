@@ -98,6 +98,11 @@ module EmitTypes =
             /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. Only
             /// monomorphic classes populate this (generic `static let` deferred).
             StaticFields: Dictionary<string, EntityHandle>
+            /// Secondary constructors (B-11) keyed by arity → `.ctor` handle. A
+            /// `TExpr.New` whose arg count differs from the primary's selects the
+            /// matching overload here. Monomorphic only at call sites (generic
+            /// secondary-ctor *call sites* are deferred — the bodies still emit).
+            SecondaryCtors: (int * EntityHandle) list
         }
 
     /// A top-level function lowered to a **static method**: `let [rec] f p0 p1 …`

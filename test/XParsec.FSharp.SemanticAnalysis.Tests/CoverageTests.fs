@@ -715,9 +715,17 @@ let tests =
                 Expect.equal typeDecl.TypeParams.Length 0 "no generic typars"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(fields, ctorParams, members, baseType, interfaces, isSealed, staticLets) ->
+                | TTypeKind.Class(fields,
+                                  ctorParams,
+                                  members,
+                                  baseType,
+                                  interfaces,
+                                  isSealed,
+                                  staticLets,
+                                  secondaryCtors) ->
                     Expect.equal fields.Length 0 "B-1 has no instance fields"
                     Expect.equal staticLets.Length 0 "no static lets on this class"
+                    Expect.equal secondaryCtors.Length 0 "no secondary ctors on this class"
                     Expect.equal ctorParams.Length 2 "two ctor params"
                     Expect.equal (ctorParams.[0].Name) "x" "first param name"
                     Expect.equal (ctorParams.[0].Type) BuiltinTypes.tyInt "first param type"
@@ -755,7 +763,7 @@ let tests =
                 Expect.equal (EqArray.toList typeDecl.TypeParams) [ "'a" ] "one declared typar"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, ctorParams, members, _, _, _, _) ->
+                | TTypeKind.Class(_, ctorParams, members, _, _, _, _, _) ->
                     Expect.equal ctorParams.Length 1 "one ctor param"
                     Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
                     // The declaring typar is remapped to the `TyConst "'a"` marker
@@ -786,7 +794,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, _, members, _, _, _, staticLets) ->
+                | TTypeKind.Class(_, _, members, _, _, _, staticLets, _) ->
                     Expect.equal staticLets.Length 1 "one static let"
                     Expect.equal (staticLets.[0].Name) "x" "static-let name"
                     Expect.equal (staticLets.[0].Type) BuiltinTypes.tyInt "static-let type inferred to int"
@@ -817,6 +825,34 @@ let tests =
                     (tast.Diagnostics
                      |> List.exists (fun d -> d.Message.Contains "static let" && d.Message.Contains "generic"))
                     "diagnostic mentions the deferred generic static let"
+            }
+
+            // vesper-set-sprint-plan §1.9 / B-11: a `new(...)` overload surfaces in
+            // `TTypeKind.Class.secondaryCtors` with its params and the primary-ctor
+            // chain arguments; the primary ctor list is unaffected.
+            test "TAST: secondary constructor surfaces in TTypeKind.Class.secondaryCtors" {
+                let tast = analyse "type C(x: int) =\n    new() = C(0)\n    member this.X = x"
+
+                let typeDecl =
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Type t -> Some t
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
+
+                match typeDecl.Kind with
+                | TTypeKind.Class(_, ctorParams, _, _, _, _, _, secondaryCtors) ->
+                    Expect.equal ctorParams.Length 1 "primary ctor has one param"
+                    Expect.equal secondaryCtors.Length 1 "one secondary ctor"
+                    Expect.equal (secondaryCtors.[0].Params.Length) 0 "new() takes no params"
+                    Expect.equal (secondaryCtors.[0].Lets.Length) 0 "no let-preamble"
+                    Expect.equal (secondaryCtors.[0].PrimaryArgs.Length) 1 "chain passes one arg to the primary ctor"
+                | other -> failtestf "expected TTypeKind.Class, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "qualified name resolves through provider" {

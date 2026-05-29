@@ -196,6 +196,54 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// Build a secondary constructor body (vesper-set-sprint-plan §1.9 / B-11):
+    /// run the `let`-preamble into locals, then chain to the primary `.ctor`
+    /// (`ldarg.0; <primaryArgs>; call instance void Self::.ctor`). There is no
+    /// base-ctor call — the primary ctor performs it. `this` is `ldarg.0`; the
+    /// overload's parameters are `ldarg.1…`. The body never synthesises closures,
+    /// so an empty closure/ctor map is passed (as `buildMember`).
+    let buildSecondaryCtor
+        (ctx: EmitContext)
+        (prms: EqArray<NodeKey * SemType>)
+        (lets: TCtorLet list)
+        (primaryCtor: EntityHandle)
+        (primaryArgs: TExpr list)
+        : ILBody =
+        let b = IlBuilder()
+        let args = Dictionary<NodeKey, int>()
+        prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- 1 + i)
+
+        let env =
+            {
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
+                Args = args
+                SelfKey = ValueNone
+                CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = ctx.Unions
+                Records = ctx.Records
+                Classes = ctx.Classes
+                StaticMethods = ctx.StaticMethods
+            }
+
+        for l in lets do
+            let slot = b.Local l.Type
+            env.Slots.[l.Binder] <- slot
+            buildExpr env b l.Init
+            b.Add(ILInstr.Stloc slot)
+
+        b.Add(ILInstr.Ldarg 0)
+
+        for a in primaryArgs do
+            buildExpr env b a
+
+        b.Add(ILInstr.Call(primaryCtor, List.length primaryArgs + 1, 0))
+        b.Add ILInstr.Ret
+        b.Body
+
     /// Build a class `.cctor` body for its `static let`s (vesper-set-sprint-plan
     /// §1.8 / B-10): evaluate each initialiser in declaration order and `stsfld`
     /// it into its backing field, then `ret`. The body sees no `this` / params

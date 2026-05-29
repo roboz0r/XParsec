@@ -376,6 +376,111 @@ module Unification =
             ctx.Resolution.TyparScope <- savedScope
             ctx.Resolution.TyparScopeStrict <- savedStrict
 
+    /// Link each secondary-ctor param placeholder TyVar to its declared-type
+    /// annotation. Index walk mirrors `MemberRegistration.ctorParamsOfPat`'s
+    /// param-collection order; un-annotated params are left free so the chain-call
+    /// unification pins them. Parallel to `fillClassCtorParamTypes` but driven by a
+    /// raw `Pat` (the `new(...)` pattern) rather than `PrimaryConstrArgs`.
+    let private fillSecondaryCtorParamTypes
+        (ctx: PassContext)
+        (parms: ClassCtorParamInfo[])
+        (p: Pat<SyntaxToken>)
+        : unit =
+        let idx = ref 0
+
+        let rec walk (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.EmptyBlock _ -> ()
+            | Pat.NamedSimple _ -> incr idx
+            | Pat.Typed(pat = Pat.NamedSimple _; typ = t) ->
+                let i = !idx
+                incr idx
+
+                if i < parms.Length then
+                    let translated = translateType ctx t
+
+                    match parms.[i].Type with
+                    | TyVar tv -> (UnionFind.find tv).Link <- ValueSome translated
+                    | _ -> ()
+            | Pat.EnclosedBlock(pat = inner) -> walk inner
+            | Pat.Tuple(patterns = pats) ->
+                for sub in pats do
+                    walk sub
+            | _ -> ()
+
+        walk p
+
+    /// Type a secondary ctor body (`new(args) = …; SelfType(primaryArgs)`).
+    /// `expected` is the primary ctor's tupled parameter type (the chain-call
+    /// target). The `let`-preamble binders are inferred in order; the final chain
+    /// call's arguments are unified against `expected`. The chain call's function
+    /// position (the self-type name) is never inferred — only its arguments are.
+    let rec private inferSecondaryCtorBody
+        (ctx: PassContext)
+        (expected: SemType)
+        (ace: AdditionalConstrExpr<SyntaxToken>)
+        : unit =
+        match ace with
+        | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
+            inferBinding ctx b
+            inferSecondaryCtorBody ctx expected body
+        | AdditionalConstrExpr.SequenceAfter(stmt = s; rest = rest) ->
+            infer ctx s |> ignore
+            inferSecondaryCtorBody ctx expected rest
+        | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
+            inferSecondaryCtorBody ctx expected before
+            infer ctx e |> ignore
+        | AdditionalConstrExpr.Conditional(cond = c; thenBranch = t; elseBranch = el) ->
+            infer ctx c |> ignore
+            inferSecondaryCtorBody ctx expected t
+            inferSecondaryCtorBody ctx expected el
+        | AdditionalConstrExpr.Init initExpr ->
+            match initExpr with
+            | AdditionalConstrInitExpr.Expression e ->
+                match e with
+                | Expr.HighPrecedenceApp(argExpr = argExpr) ->
+                    let argTy = infer ctx argExpr
+                    unify ctx (CstKeys.ofExpr argExpr) argTy expected
+                | Expr.App(argExprs = argExprs) ->
+                    let argTys = [ for a in argExprs -> infer ctx a ]
+                    unify ctx (CstKeys.ofExpr e) (tupleOrSingle argTys) expected
+                | _ -> infer ctx e |> ignore
+            | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
+            | AdditionalConstrInitExpr.Explicit(initializers = inits) ->
+                for FieldInitializer(expr = e) in inits do
+                    infer ctx e |> ignore
+
+    /// Type every secondary ctor (B-11) of a class under its typar scope: link
+    /// param annotations, seed param binding-site TyVars, then infer each body.
+    let private fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
+        if info.SecondaryCtors.Length > 0 then
+            let savedScope = ctx.Resolution.TyparScope
+            let savedStrict = ctx.Resolution.TyparScopeStrict
+            ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
+            ctx.Resolution.TyparScopeStrict <- true
+
+            try
+                let expected =
+                    info.CtorParams |> Array.map (fun p -> p.Type) |> Array.toList |> tupleOrSingle
+
+                for sc in info.SecondaryCtors do
+                    fillSecondaryCtorParamTypes ctx sc.Params sc.ParamPat
+
+                    for p in sc.Params do
+                        match p.Type with
+                        | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
+                        | _ -> ()
+
+                    enterLevel ctx
+
+                    try
+                        inferSecondaryCtorBody ctx expected sc.Body
+                    finally
+                        exitLevel ctx
+            finally
+                ctx.Resolution.TyparScope <- savedScope
+                ctx.Resolution.TyparScopeStrict <- savedStrict
+
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         let common (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with
@@ -440,6 +545,8 @@ module Unification =
                                 Elements = body.elements
                                 AllowAbstractSig = true
                             }
+
+                        fillSecondaryCtors ctx info
                     | false, _ -> ()
                 | ValueNone -> ()
         | _ -> ()

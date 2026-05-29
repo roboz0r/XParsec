@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionScope
@@ -36,6 +37,10 @@ module NameResolution =
             /// instance and static member scopes; their initialisers are walked
             /// under the static scope (no `this` / ctor params). `[||]` for unions.
             StaticLets: ClassStaticLetInfo[]
+            /// Secondary constructors (B-11). Each body is walked in a scope of
+            /// the `static let`s plus its own params (no `this` / primary-ctor
+            /// params). `[||]` for unions.
+            SecondaryCtors: ClassSecondaryCtorInfo[]
             Elements: TypeDefnElements<SyntaxToken>
         }
 
@@ -95,6 +100,58 @@ module NameResolution =
         let instanceScope = [ mergeStaticLets scopeMap ]
         let staticScope: Scope list = [ staticLetScope ]
 
+        // Secondary constructors (B-11). The body is an `AdditionalConstrExpr`,
+        // not a plain `Expr`, so it's walked manually: each embedded expression
+        // goes through `walker`, and a `let`-preamble binder enters scope for the
+        // remainder. No `this` / primary-ctor params — only the static lets and
+        // the overload's own parameters are in scope.
+        let rec walkCtorBody (scope: Scope list) (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
+            match ace with
+            | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
+                let siblings = ImmutableArray.Create b
+                let rhsScope = walker.EnterBindingRhs scope false siblings b
+                CstWalk.iterExpr walker rhsScope b.expr
+                let bodyScope = walker.EnterLetBody scope siblings
+                walkCtorBody bodyScope body
+            | AdditionalConstrExpr.SequenceAfter(stmt = s; rest = rest) ->
+                CstWalk.iterExpr walker scope s
+                walkCtorBody scope rest
+            | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
+                walkCtorBody scope before
+                CstWalk.iterExpr walker scope e
+            | AdditionalConstrExpr.Conditional(cond = c; thenBranch = t; elseBranch = el) ->
+                CstWalk.iterExpr walker scope c
+                walkCtorBody scope t
+                walkCtorBody scope el
+            | AdditionalConstrExpr.Init initExpr ->
+                match initExpr with
+                | AdditionalConstrInitExpr.Expression e
+                | AdditionalConstrInitExpr.Delegated(expr = e) -> CstWalk.iterExpr walker scope e
+                | AdditionalConstrInitExpr.Explicit(inherits = inh; initializers = inits) ->
+                    match inh with
+                    | ValueSome(ClassInheritsDecl(expr = ValueSome e)) -> CstWalk.iterExpr walker scope e
+                    | _ -> ()
+
+                    for FieldInitializer(expr = e) in inits do
+                        CstWalk.iterExpr walker scope e
+
+        for sc in w.SecondaryCtors do
+            let mutable scScope = staticLetScope
+
+            for p in sc.Params do
+                scScope <- Map.add p.Name (p.DeclKey, false) scScope
+
+                ctx.Bindings.Binding.Set(
+                    p.DeclKey,
+                    {
+                        BindingSite = p.DeclKey
+                        IsInline = false
+                        IsMutable = false
+                    }
+                )
+
+            walkCtorBody [ scScope ] sc.Body
+
         for el in w.Elements do
             match el with
             | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
@@ -146,6 +203,7 @@ module NameResolution =
                                 ThisKey = info.ThisKey
                                 CtorParams = info.CtorParams
                                 StaticLets = info.StaticLets
+                                SecondaryCtors = info.SecondaryCtors
                                 Elements = body.elements
                             }
                     | false, _ -> ()
@@ -177,6 +235,7 @@ module NameResolution =
                                 ThisKey = info.ThisKey
                                 CtorParams = [||]
                                 StaticLets = [||]
+                                SecondaryCtors = [||]
                                 Elements = elems
                             }
                     | _ -> ()

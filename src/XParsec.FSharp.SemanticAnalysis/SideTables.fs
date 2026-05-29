@@ -217,6 +217,26 @@ type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<
     member val DeclKey = declKey
     member val Init = init
 
+/// A secondary constructor (`new(args) = SelfType(primaryArgs)`,
+/// vesper-set-sprint-plan §1.9 / B-11). `Params` are the secondary ctor's own
+/// parameters (their types start as placeholder TyVars, linked by Unification's
+/// `fillClassMembers` from the annotations / chain-call unification, exactly like
+/// `ClassCtorParamInfo`). `DeclKey` is a synthetic key minted from the `new`
+/// token so each overload is distinct. `Body` is the CST `AdditionalConstrExpr`
+/// re-read by Unification (to infer + unify the chain args against the primary
+/// ctor) and Freeze (to translate the let-preamble + primary-ctor args).
+[<Sealed>]
+type ClassSecondaryCtorInfo
+    (declKey: NodeKey, parms: ClassCtorParamInfo[], paramPat: Pat<SyntaxToken>, body: AdditionalConstrExpr<SyntaxToken>)
+    =
+    member val DeclKey = declKey
+    member val Params = parms
+    /// The `new(...)` parameter pattern, re-read by Unification to link each
+    /// param's placeholder TyVar to its declared-type annotation (mirrors the
+    /// primary ctor's `fillClassCtorParamTypes`).
+    member val ParamPat = paramPat
+    member val Body = body
+
 [<Sealed>]
 type ClassTypeInfo
     (
@@ -266,6 +286,11 @@ type ClassTypeInfo
     /// per-instantiation cache lowering is deferred), so this is only populated for
     /// monomorphic classes.
     member val StaticLets: ClassStaticLetInfo[] = [||] with get, set
+    /// Secondary constructors (vesper-set-sprint-plan §1.9 / B-11) in declaration
+    /// order. Stamped by `NameResolution.registerClassTypeDefn`; param types are
+    /// linked by Unification's `fillClassMembers`; `Freeze` projects each onto a
+    /// `TSecondaryCtor`. Empty unless the class declares `new(...)` overloads.
+    member val SecondaryCtors: ClassSecondaryCtorInfo[] = [||] with get, set
     /// `[<AllowNullLiteral>]` (vesper-set-sprint-plan §1.6 / B-8). Stamped
     /// by `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// read only by Unification's `Expr.Null` arm so `null` unifies with the

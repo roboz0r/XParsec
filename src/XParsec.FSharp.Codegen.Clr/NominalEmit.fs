@@ -48,6 +48,16 @@ module internal NominalEmit =
         let isGeneric = not td.TypeParams.IsEmpty
         let typarMarkers = [ for n in td.TypeParams -> TyConst n ]
 
+        // Local-signature encoder honouring the declaring type's typars: a member
+        // (or secondary-ctor) body local of a generic type needs the generic
+        // signature. Defined here so both the class arm (secondary ctors) and the
+        // member loop below share it.
+        let memberEncodeLocals =
+            if isGeneric then
+                fun locals -> provider.EncodeGenericLocalSignature(EqArray.toList td.TypeParams, locals)
+            else
+                encodeLocals
+
         let firstMember, postCtorInit =
             match input with
             | NominalEmissionInput.Union cases ->
@@ -221,7 +231,7 @@ module internal NominalEmit =
 
                 recordCtor, registerRecord
 
-            | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType, _isSealed, staticLets) ->
+            | NominalEmissionInput.Class(_instanceFields, ctorParams, _baseType, _isSealed, staticLets, secondaryCtors) ->
                 let fieldHandles =
                     ctorParams
                     |> List.map (fun p ->
@@ -295,6 +305,7 @@ module internal NominalEmit =
                             Ctor = toEntity classCtor
                             Members = Dictionary()
                             StaticFields = staticFieldsDict
+                            SecondaryCtors = []
                         }
 
                     let cctorInits =
@@ -316,6 +327,64 @@ module internal NominalEmit =
 
                     asm.MethodCount <- asm.MethodCount + 1
 
+                // Secondary constructors (B-11). Each is a `.ctor` overload whose
+                // body runs its `let`-preamble then chains to the primary `.ctor`.
+                // Emitted *before* the member-handle prediction below so their rows
+                // are counted; the chain target is the primary ctor's `Def` token
+                // (monomorphic) or a `MemberRef` on the open self-`TypeSpec` (generic).
+                // The `(arity, handle)` list lets a `TExpr.New` call site pick the
+                // matching overload.
+                let secondaryCtorHandles =
+                    if List.isEmpty secondaryCtors then
+                        []
+                    else
+                        let primaryCtorRef =
+                            if isGeneric then
+                                icodegen.UserGenericMemberRef(
+                                    td.Name,
+                                    typarMarkers,
+                                    UserMemberKind.ClassMember ClassMember.Ctor
+                                )
+                            else
+                                toEntity classCtor
+
+                        [
+                            for sc in secondaryCtors do
+                                let paramTys = [ for (_, t) in sc.Params -> t ]
+
+                                let scSig =
+                                    if isGeneric then
+                                        provider.GenericRecordCtorSignature(EqArray.toList td.TypeParams, paramTys)
+                                    else
+                                        provider.ClosureCtorSignature paramTys
+
+                                let prep (e: TExpr) =
+                                    e |> Emit.spliceExternalInlinesInExpr externalInlines |> Emit.expandBuiltinOps
+
+                                let lets = [ for l in sc.Lets -> { l with Init = prep l.Init } ]
+                                let primaryArgs = [ for a in sc.PrimaryArgs -> prep a ]
+
+                                let scBody =
+                                    Cil.buildBody
+                                        memberEncodeLocals
+                                        bodyStream
+                                        (IlIr.lower (
+                                            Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef primaryArgs
+                                        ))
+
+                                let h =
+                                    ctx.AddMethodWithParamList(
+                                        ctorAttrs,
+                                        ".ctor",
+                                        scSig,
+                                        scBody,
+                                        addParams (argNames sc.Params.Length)
+                                    )
+
+                                asm.MethodCount <- asm.MethodCount + 1
+                                yield (sc.Params.Length, toEntity h)
+                        ]
+
                 let registerClass (emittedMembers: Dictionary<string, Emit.EmittedMember>) =
                     classes.[td.Name] <-
                         {
@@ -325,6 +394,7 @@ module internal NominalEmit =
                             Ctor = toEntity classCtor
                             Members = emittedMembers
                             StaticFields = staticFieldsDict
+                            SecondaryCtors = secondaryCtorHandles
                         }
 
                 classCtor, registerClass
@@ -351,12 +421,6 @@ module internal NominalEmit =
         )
 
         postCtorInit emittedMembers
-
-        let memberEncodeLocals =
-            if isGeneric then
-                fun locals -> provider.EncodeGenericLocalSignature(EqArray.toList td.TypeParams, locals)
-            else
-                encodeLocals
 
         for mem in members do
             let bodyOffset =
@@ -759,7 +823,7 @@ module internal NominalEmit =
             match input with
             | NominalEmissionInput.Union _
             | NominalEmissionInput.Record _ -> true
-            | NominalEmissionInput.Class(_, _, _, isSealed, _) -> isSealed
+            | NominalEmissionInput.Class(_, _, _, isSealed, _, _) -> isSealed
 
         rows.Add(
             {
