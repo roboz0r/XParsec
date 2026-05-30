@@ -175,6 +175,113 @@ module SymbolProviders =
 
         acc
 
+    /// Harvest the intrinsic-representation bindings (`type exn =
+    /// (# "System.Exception" #)`) from each manifest's per-target `.fs`
+    /// companions. These carry the `name → IL repr` identity that the `.fsi`
+    /// contract (`type exn = extern`) deliberately omits, and that `subsumes`
+    /// needs to reconcile a consumer's `exn` with the BCL `System.Exception`.
+    /// They are NOT `manifest.Impl` entries (not inline-body sources, per the
+    /// Vesper.Core manifest note), so derive them from the `.fsi` `files` list:
+    /// each `<x>.fsi` may have a sibling `<x>.fs` binding extern types to
+    /// `(# … #)` intrinsics.
+    ///
+    /// A direct CST scrape — NOT a full `Pipeline.analyse` — because (a) all we
+    /// need is the `type <name> = (# "<repr>" #)` shape, registered by a single
+    /// NameResolution sub-step, and (b) the prim-types `.fs` files carry
+    /// cons-list augmentation members that trip unimplemented analysis paths
+    /// (`CstKeys.firstTokenOfPat: TODO Cons`). A later file / manifest wins a
+    /// clash, matching `inlineBodies`.
+    let private intrinsicReprs (manifestPaths: string list) : (string * string) list =
+        let acc = System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
+
+        for manifestPath in manifestPaths do
+            match ReferencedProject.loadManifest manifestPath with
+            | Result.Error _ -> ()
+            | Result.Ok manifest ->
+                let dir = Path.GetDirectoryName manifestPath
+
+                for fsi in manifest.Files do
+                    let fsRel = Path.ChangeExtension(fsi, ".fs")
+                    let abs = Path.Combine(dir, fsRel)
+
+                    if File.Exists abs then
+                        let file: VesperLib.LibFile =
+                            {
+                                BucketName = manifest.Name
+                                Relative = fsRel
+                                Absolute = abs
+                            }
+
+                        match VesperLib.parseFileFull file with
+                        | Result.Error _ -> ()
+                        | Result.Ok parsed ->
+                            let implFile =
+                                match parsed.Ast with
+                                | FSharpAst.ImplementationFile f -> Some f
+                                | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
+                                    Some(ImplementationFile.AnonymousModule elems)
+                                | _ -> None
+
+                            match implFile with
+                            | None -> ()
+                            | Some f ->
+                                let nameOf (tok: SyntaxToken) : string =
+                                    match tok.Index with
+                                    | TokenIndex.Regular i -> parsed.Lexed.GetTokenString(i, parsed.Input)
+                                    | TokenIndex.Virtual -> ""
+
+                                // Stitch a `(# "System.Exception" #)` RHS into its
+                                // literal string — mirrors TypeRegistration.ilIntrinsicString.
+                                let stitch (parts: System.Collections.Immutable.ImmutableArray<StringPart<SyntaxToken>>) : string =
+                                    let sb = System.Text.StringBuilder()
+
+                                    for part in parts do
+                                        match part with
+                                        | StringPart.Text t
+                                        | StringPart.EscapeSequence t
+                                        | StringPart.FormatSpecifier t
+                                        | StringPart.EscapePercent t
+                                        | StringPart.VerbatimEscapeQuote t
+                                        | StringPart.OrphanFormatSpecifier t
+                                        | StringPart.InvalidText t -> sb.Append(nameOf t) |> ignore
+                                        | StringPart.Expr _ -> ()
+
+                                    sb.ToString()
+
+                                for (m, _) in CstWalk.walkModuleTree nameOf OpenScope.empty f do
+                                    match m with
+                                    | ModuleElem.Type defs ->
+                                        for td in defs do
+                                            match td with
+                                            | TypeDefn.Abbrev(typeName = TypeName(ident = li); typ = Type.ILIntrinsic(instrParts = parts)) when
+                                                li.Idents.Length = 1
+                                                ->
+                                                acc.[nameOf li.Idents.[0]] <- stitch parts
+                                            | _ -> ()
+                                    | _ -> ()
+
+        [ for KeyValue(name, repr) in acc -> name, repr ]
+
+    /// Wrap `inner` so it also surfaces `reprs` via `IIntrinsicReprProvider`,
+    /// preserving its `IAmbientOpenScope` (the consumer's `PassContext` reads
+    /// both). All `IExternalSymbolProvider` calls delegate unchanged.
+    let private withIntrinsicReprs (reprs: (string * string) list) (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
+        { new IExternalSymbolProvider with
+            member _.TryLookup name = inner.TryLookup name
+            member _.TryLookupType name = inner.TryLookupType name
+            member _.TryLookupMember(t, m) = inner.TryLookupMember(t, m)
+            member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
+
+          interface IIntrinsicReprProvider with
+              member _.IntrinsicReprs = Seq.ofList reprs
+
+          interface IAmbientOpenScope with
+              member _.AmbientOpenPrefixes =
+                  match box inner with
+                  | :? IAmbientOpenScope as a -> a.AmbientOpenPrefixes
+                  | _ -> []
+        }
+
     /// Lazy cache keyed by the normalised manifest set so a *suite* of compiles
     /// parses + analyses each contract `.fsi`/`.fs` once, not once per compile
     /// (symbol-resolution-handoff.md "cache the contract analysis before
@@ -202,8 +309,14 @@ module SymbolProviders =
                 key,
                 fun _ ->
                     lazy
-                        (let provider = build normalised
-                         let inlines = inlineBodies provider normalised
+                        (let baseProvider = build normalised
+                         let inlines = inlineBodies baseProvider normalised
+                         // Surface the prim-types `.fs` intrinsic reprs (exn →
+                         // System.Exception, …) to the consumer's PassContext so
+                         // `subsumes` can reconcile contract `exn` with the BCL
+                         // type. Bodies above are frozen against `baseProvider`;
+                         // the wrap only adds a capability, lookups are unchanged.
+                         let provider = withIntrinsicReprs (intrinsicReprs normalised) baseProvider
                          provider, inlines)
             )
             .Value

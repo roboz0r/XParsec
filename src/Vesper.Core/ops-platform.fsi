@@ -266,10 +266,17 @@ module Operators =
         /// <returns>Never returns normally; the result type unifies with any context.</returns>
         ///
         /// <remarks>Inline IL — lowers to <c>throw</c>. Same shape as
-        /// FSharp.Core's <c>raise</c> (<c>prim-types.fs:547</c>); the inline-body
-        /// splice machinery (<c>SymbolProviders.inlineBodies</c>) reads the body
-        /// from <c>ops-platform.fs</c> and emits it at each use site, so this
-        /// pins no Vesper runtime dependency.</remarks>
+        /// FSharp.Core's <c>raise</c> (<c>prim-types.fs:547</c>): the parameter
+        /// is a typar bounded by <c>:> exn</c>, so only an exception type can be
+        /// raised. The contract extractor captures the coercion constraint and
+        /// the unifier enforces it via <c>subsumes</c>, which reconciles
+        /// <c>exn</c> with the BCL <c>System.Exception</c> through the
+        /// intrinsic-repr binding in <c>prim-types-exn.fs</c> and walks external
+        /// <c>inherit</c> chains (so <c>InvalidOperationException :&gt; exn</c>
+        /// holds). The inline-body splice machinery
+        /// (<c>SymbolProviders.inlineBodies</c>) reads the body from
+        /// <c>ops-platform.fs</c> and emits it at each use site, so this pins no
+        /// Vesper runtime dependency.</remarks>
         ///
         /// <example id="raise-example">
         /// <code lang="fsharp">
@@ -277,7 +284,7 @@ module Operators =
         /// </code>
         /// </example>
         ///
-        val inline raise: exn: System.Exception -> 'T
+        val inline raise: exn: 'TException -> 'T when 'TException :> exn
 
         /// <summary>Throw a <see cref="T:System.Exception"/> with the given message.</summary>
         ///
@@ -300,3 +307,26 @@ module Operators =
         /// </example>
         ///
         val inline failwith: message: string -> 'T
+
+        /// <summary>Raise a <see cref="T:System.ArgumentException"/> naming the offending argument.</summary>
+        ///
+        /// <param name="argumentName">The name of the argument that was invalid.</param>
+        /// <param name="message">The exception message.</param>
+        ///
+        /// <returns>Never returns normally; the result type unifies with any context.</returns>
+        ///
+        /// <remarks>Inline — desugars to
+        /// <c>raise (new System.ArgumentException(message, argumentName))</c>; the
+        /// cross-package inline-body splice delivers the body to each use site,
+        /// where the two-string BCL ctor is selected by the external-ctor
+        /// overload pick in <c>Infer.inferNew</c>. Argument order follows
+        /// FSharp.Core: the user-facing argument name comes first, the message
+        /// second, but the BCL ctor takes <c>(message, paramName)</c>.</remarks>
+        ///
+        /// <example id="invalidArg-example">
+        /// <code lang="fsharp">
+        /// invalidArg "x" "must be positive"   // throws ArgumentException
+        /// </code>
+        /// </example>
+        ///
+        val inline invalidArg: argumentName: string -> message: string -> 'T

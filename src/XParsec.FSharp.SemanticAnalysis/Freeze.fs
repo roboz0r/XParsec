@@ -427,6 +427,25 @@ module Freeze =
 
         sb.ToString().Trim()
 
+    /// Dispatch discriminator for an instance member access (inheritance-plan
+    /// §Subtle migrations). A `base.M(...)` / `base.X` receiver translates to a
+    /// `TExpr.Var` whose binding site is some class's `BaseKey`; that must
+    /// dispatch non-virtually so an `override` calling `base.M()` doesn't recurse
+    /// into itself. The check is O(classes) per access — the gap doc accepts this
+    /// for v1 (most files declare a handful of classes); a reverse index is a
+    /// later optimisation.
+    let private viaOfReceiver (ctx: PassContext) (receiver: TExpr) : CallVia =
+        match receiver with
+        | TExpr.Var(bindingSite, _) ->
+            let mutable isBase = false
+
+            for kv in ctx.Types.Class do
+                if not isBase && kv.Value.BaseType.IsSome && kv.Value.BaseKey = bindingSite then
+                    isBase <- true
+
+            if isBase then CallVia.Base else CallVia.Self
+        | _ -> CallVia.Self
+
     let rec private translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -498,8 +517,9 @@ module Freeze =
             )
             ->
             let memberName = ctx.NameOf li.Idents.[0]
+            let receiver = translateExpr ctx r
             let argsList = peelCtorArgs (translateExpr ctx) args
-            TExpr.MethodCall(translateExpr ctx r, memberName, argsList, ty)
+            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li); argExpr = arg) when
             li.Idents.Length = 1
@@ -514,8 +534,9 @@ module Freeze =
             )
             ->
             let memberName = ctx.NameOf li.Idents.[0]
+            let receiver = translateExpr ctx r
             let argsList = peelOneArg (translateExpr ctx) arg
-            TExpr.MethodCall(translateExpr ctx r, memberName, argsList, ty)
+            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
         // the long ident rather than emitting `DotLookup` when the head is a
@@ -527,7 +548,7 @@ module Freeze =
             argExprs = args) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
             let argsList = peelCtorArgs (translateExpr ctx) args
-            TExpr.MethodCall(receiver, memberName, argsList, ty)
+            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
                                                                                        receiverTy,
@@ -535,13 +556,13 @@ module Freeze =
             argExpr = arg) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
             let argsList = peelOneArg (translateExpr ctx) arg
-            TExpr.MethodCall(receiver, memberName, argsList, ty)
+            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
-            TExpr.PropertyGet(receiver, memberName, ty)
+            TExpr.PropertyGet(receiver, memberName, viaOfReceiver ctx receiver, ty)
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (className, memberName)))
             argExprs = args) ->
@@ -776,17 +797,18 @@ module Freeze =
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
             let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
+            let receiver = translateExpr ctx r
 
             match rTy with
             | TyClass(typeName, _)
             | TyUnion(typeName, _) ->
                 match tryClassMember ctx typeName memberName with
                 | ValueSome m when m.Kind = ClassMemberKind.Property ->
-                    TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
+                    TExpr.PropertyGet(receiver, memberName, viaOfReceiver ctx receiver, ty)
                 | _ ->
                     // Method-as-value or unresolved member.
-                    TExpr.PropertyGet(translateExpr ctx r, memberName, ty)
-            | _ -> TExpr.FieldGet(translateExpr ctx r, memberName, ty)
+                    TExpr.PropertyGet(receiver, memberName, viaOfReceiver ctx receiver, ty)
+            | _ -> TExpr.FieldGet(receiver, memberName, ty)
         | Expr.Null _ -> TExpr.Null ty
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
@@ -1101,7 +1123,7 @@ module Freeze =
                 | TyClass(clsName, _) ->
                     match ctx.Types.Class.TryGetValue clsName with
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
-                        TExpr.PropertyGet(curr, segName, stepTy)
+                        TExpr.PropertyGet(curr, segName, viaOfReceiver ctx curr, stepTy)
                     | _ -> TExpr.FieldGet(curr, segName, stepTy)
                 // A union receiver's segment is an augmentation member (P3d.3,
                 // `xs.IsEmpty`) → `PropertyGet` (codegen calls its `get_<name>`);
@@ -1109,7 +1131,7 @@ module Freeze =
                 | TyUnion(unionName, _) ->
                     match ctx.Types.Union.TryGetValue unionName with
                     | true, info when info.Members |> Array.exists (fun m -> m.Name = segName) ->
-                        TExpr.PropertyGet(curr, segName, stepTy)
+                        TExpr.PropertyGet(curr, segName, viaOfReceiver ctx curr, stepTy)
                     | _ -> TExpr.FieldGet(curr, segName, stepTy)
                 | _ -> TExpr.FieldGet(curr, segName, stepTy)
 
@@ -1576,6 +1598,8 @@ module Freeze =
                             IsStatic = isStatic
                             Kind = kind
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                            // Unions are not inheritable — `base` never in scope.
+                            BaseKey = ValueNone
                             ThisTy = TyUnion(info.Name, EqArray.empty)
                             Params = memberParams ctx b
                             Body = translateExpr ctx b.expr
@@ -1596,6 +1620,7 @@ module Freeze =
                         IsStatic = isStatic
                         Kind = TMemberKind.Property
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                        BaseKey = ValueNone
                         ThisTy = TyUnion(info.Name, EqArray.empty)
                         Params = EqArray.empty
                         Body = translateExpr ctx e
@@ -1648,6 +1673,16 @@ module Freeze =
         // `TyConst` markers — see `remapDeclTypars`).
         let classTy =
             TyClass(info.Name, EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> TyConst n }))
+
+        // `base` is in scope only when the class has an `inherit` clause; an
+        // instance member then carries the shared `BaseKey` so codegen maps a
+        // `base.M(...)` receiver to `ldarg.0` (CallVia.Base drives the
+        // non-virtual opcode — see `viaOfReceiver`).
+        let baseKey =
+            if info.BaseType.IsSome then
+                ValueSome info.BaseKey
+            else
+                ValueNone
 
         let ctorParamByKey =
             info.CtorParams |> Array.map (fun p -> p.DeclKey, p.Name) |> Map.ofArray
@@ -1717,6 +1752,7 @@ module Freeze =
                             IsStatic = isStatic
                             Kind = kind
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                            BaseKey = (if isStatic then ValueNone else baseKey)
                             ThisTy = TyClass(info.Name, EqArray.empty)
                             Params = memberParams ctx b
                             Body = lowerBody b.expr
@@ -1735,6 +1771,7 @@ module Freeze =
                         IsStatic = isStatic
                         Kind = TMemberKind.Property
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                        BaseKey = (if isStatic then ValueNone else baseKey)
                         ThisTy = TyClass(info.Name, EqArray.empty)
                         Params = EqArray.empty
                         Body = lowerBody e

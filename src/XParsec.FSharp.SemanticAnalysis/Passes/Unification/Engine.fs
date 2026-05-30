@@ -267,35 +267,87 @@ module UnificationEngine =
     /// upcast from a real one); the parent-chain walk yields `Subtype`. Args
     /// are invariant in v1 — `List<Circle>` does not subsume `List<Shape>`.
     let subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
+        // Canonical nominal name for subtype comparison. A primitive intrinsic
+        // binding (`type exn = (# "System.Exception" #)`, prim-types-exn.fs) stays
+        // a *non-transparent* `TyConst "exn"` (Translate.fs) — it never expands to
+        // its RHS the way a plain abbreviation does. Its CLI representation lives
+        // in `IntrinsicReprTypes`, which is exactly the BCL type name the external
+        // `inherit`-chain walk surfaces. Mapping through it makes a user-facing
+        // `exn` and a metadata-surfaced `TyClass("System.Exception", _)` the *same*
+        // nominal. The identity `exn === System.Exception` therefore originates
+        // from prim-types-exn.fs (recorded in `IntrinsicReprTypes`), not a literal
+        // baked into the unifier — retarget the core lib and this follows.
+        let canonName (n: string) : string =
+            match ctx.Types.IntrinsicReprTypes.TryGetValue n with
+            | true, repr -> repr
+            | _ -> n
+
+        // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
+        // (so the `exn` bound participates), not just `TyClass`.
+        let nominalOf (ty: SemType) : struct (string * EqArray<SemType>) voption =
+            match resolveStep ty with
+            | TyClass(n, args) -> ValueSome(struct (canonName n, args))
+            | TyConst n -> ValueSome(struct (canonName n, EqArray.empty))
+            | _ -> ValueNone
+
+        // The instantiated declared base of nominal `(name, args)`: the
+        // project-local class table first, then the external provider.
+        // `ExternalTypeShape.Class.BaseType` carries the BCL `inherit` chain
+        // (`InvalidOperationException :> Exception :> …`), written over the
+        // declaring type's typars, so we apply the receiver's `args`, exactly
+        // like the user-class `instantiateMember` path. Both reads are pure —
+        // `ctx.Types.Class` is a plain lookup and `TryLookupType` is
+        // contractually thread-safe and side-effect free — so `subsumes` stays
+        // the read-only query the `:>` / `:?` / `:?>` coercion sites and the
+        // constraint checker rely on (no undo trace).
+        let parentOf (name: string) (args: EqArray<SemType>) : SemType voption =
+            match ctx.Types.Class.TryGetValue name with
+            | true, info ->
+                match info.BaseType with
+                | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
+                | ValueNone -> ValueNone
+            | false, _ ->
+                match ctx.Provider.TryLookupType name with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    match shape.BaseType with
+                    | ValueSome build -> ValueSome(build (args.AsSpan().ToArray()))
+                    | ValueNone -> ValueNone
+                | _ -> ValueNone
+
         // `seen` short-circuits a cyclic `inherit` chain re-entering a class.
         let rec go (seen: HashSet<string>) (src: SemType) (tgt: SemType) : SubsumeOutcome =
-            match resolveStep src, resolveStep tgt with
-            | TyClass(s, sa), TyClass(t, ta) when s = t ->
-                // Same nominal class. v1 treats args as invariant: every pair
-                // must itself be `Equal` (a fresh chain walk per arg) for the
-                // whole to be `Equal`; any non-`Equal` arg makes them unrelated.
-                if EqArray.forall2 (fun a b -> go (HashSet<string>()) a b = SubsumeOutcome.Equal) sa ta then
+            match nominalOf src, nominalOf tgt with
+            | ValueSome(struct (s, sa)), ValueSome(struct (t, ta)) when s = t ->
+                // Same nominal. v1 treats args as invariant: every pair must
+                // itself be `Equal` (a fresh chain walk per arg) for the whole to
+                // be `Equal`; any non-`Equal` arg makes them unrelated. The length
+                // guard is belt-and-suspenders — equal canonical names imply equal
+                // arity in a well-formed program.
+                if
+                    sa.Length = ta.Length
+                    && EqArray.forall2 (fun a b -> go (HashSet<string>()) a b = SubsumeOutcome.Equal) sa ta
+                then
                     SubsumeOutcome.Equal
                 else
                     SubsumeOutcome.Unrelated
-            | TyClass(s, sa), TyClass _ ->
-                // Different class names → walk `src`'s parent chain toward `tgt`.
+            | ValueSome(struct (s, sa)), ValueSome _ ->
+                // Different nominal names → walk `src`'s parent chain toward
+                // `tgt`, now spanning user classes *and* external (BCL) chains.
                 if not (seen.Add s) then
                     SubsumeOutcome.Unrelated
                 else
-                    match ctx.Types.Class.TryGetValue s with
-                    | true, info ->
-                        match info.BaseType with
-                        | ValueSome parentTy ->
-                            let parentInstance = instantiateMember (info.TypeParams, sa) parentTy
-
-                            match go seen parentInstance tgt with
-                            | SubsumeOutcome.Unrelated -> SubsumeOutcome.Unrelated
-                            | _ -> SubsumeOutcome.Subtype
-                        | ValueNone -> SubsumeOutcome.Unrelated
-                    | false, _ -> SubsumeOutcome.Unrelated
-            | a, b when a = b -> SubsumeOutcome.Equal
-            | _ -> SubsumeOutcome.Unrelated
+                    match parentOf s sa with
+                    | ValueSome parentInstance ->
+                        match go seen parentInstance tgt with
+                        | SubsumeOutcome.Unrelated -> SubsumeOutcome.Unrelated
+                        | _ -> SubsumeOutcome.Subtype
+                    | ValueNone -> SubsumeOutcome.Unrelated
+            | _ ->
+                // Non-nominal operands (vars, funcs, tuples): identity only.
+                if resolveStep src = resolveStep tgt then
+                    SubsumeOutcome.Equal
+                else
+                    SubsumeOutcome.Unrelated
 
         go (HashSet<string>()) src tgt
 
@@ -397,6 +449,7 @@ module UnificationEngine =
         | SemanticConstraintKind.ReferenceType -> "not struct"
         | SemanticConstraintKind.Nullness -> "null"
         | SemanticConstraintKind.NotNull -> "not null"
+        | SemanticConstraintKind.Coercion target -> sprintf "subtype of %A" target
 
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
@@ -545,6 +598,10 @@ module UnificationEngine =
             if isValueType then ValueSome true
             elif isString then ValueSome false
             else ValueNone
+        | SemanticConstraintKind.Coercion _ ->
+            // Coercion has its own arm in `checkConstraint` (via `subsumes`) and
+            // never reaches the primitive table; present only for exhaustiveness.
+            ValueNone
 
     /// `Violated` is sticky (once any element fails, the whole compound
     /// fails); `Defer` propagates only when no element has failed but at
@@ -567,6 +624,18 @@ module UnificationEngine =
     and checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
         match c.Kind, resolveStep t with
         | _, TyVar _ -> Defer
+        | SemanticConstraintKind.Coercion target, _ ->
+            // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
+            // the required supertype? `subsumes` walks user AND external (BCL)
+            // `inherit` chains, and reconciles `exn`'s `TyConst` with the metadata
+            // `TyClass("System.Exception", _)` via IntrinsicReprTypes — so a thrown
+            // `InvalidOperationException` reaches `exn`. Read-only, so it's safe to
+            // run from the drain callback (no undo trace). Past the `TyVar _` guard
+            // above, `Unrelated` is a real violation, not "unknown yet".
+            match subsumes ctx t target with
+            | SubsumeOutcome.Equal
+            | SubsumeOutcome.Subtype -> Satisfied
+            | SubsumeOutcome.Unrelated -> Violated
         | k, TyConst name ->
             match primitiveSupports k name with
             | ValueSome true -> Satisfied

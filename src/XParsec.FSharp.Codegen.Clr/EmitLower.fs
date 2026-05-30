@@ -30,8 +30,8 @@ module EmitLower =
         | TExpr.FieldSet(_, _, _, ty) -> ty
         | TExpr.UnionCons(_, _, ty) -> ty
         | TExpr.New(_, _, ty) -> ty
-        | TExpr.MethodCall(_, _, _, ty) -> ty
-        | TExpr.PropertyGet(_, _, ty) -> ty
+        | TExpr.MethodCall(_, _, _, _, ty) -> ty
+        | TExpr.PropertyGet(_, _, _, ty) -> ty
         | TExpr.StaticMethodCall(_, _, _, ty) -> ty
         | TExpr.StaticPropertyGet(_, _, ty) -> ty
         | TExpr.StaticFieldGet(_, _, ty) -> ty
@@ -178,8 +178,8 @@ module EmitLower =
         | TExpr.FieldSet(r, n, v, t) -> TExpr.FieldSet(f r, n, f v, t)
         | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, EqArray.map f args, t)
         | TExpr.New(c, args, t) -> TExpr.New(c, EqArray.map f args, t)
-        | TExpr.MethodCall(r, n, args, t) -> TExpr.MethodCall(f r, n, EqArray.map f args, t)
-        | TExpr.PropertyGet(r, n, t) -> TExpr.PropertyGet(f r, n, t)
+        | TExpr.MethodCall(r, n, via, args, t) -> TExpr.MethodCall(f r, n, via, EqArray.map f args, t)
+        | TExpr.PropertyGet(r, n, via, t) -> TExpr.PropertyGet(f r, n, via, t)
         | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, EqArray.map f args, t)
         | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map f r, k, n, isProp, t)
         | TExpr.Format(sink, segs, t) ->

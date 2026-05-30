@@ -892,4 +892,35 @@ let inheritanceTests =
                     42
                     "SetTreeNode<int>.Value returns its own field 42"
             }
+
+            // Step 2.6: `base.M(...)` must dispatch non-virtually (`call B::M`),
+            // not virtually (`callvirt`) — otherwise an `override` body calling
+            // `base.M()` re-enters itself and stack-overflows. Parent returns 1;
+            // the override adds 1, so calling `M` on a derived instance returns 2
+            // (and *returns* at all, proving it didn't recurse infinitely).
+            test "`base.M()` in an override calls the parent's method, not itself (non-virtual dispatch)" {
+                let _, artifact =
+                    compileSource
+                        "InhBaseCall"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Base() ="
+                                "    member this.M () = 1"
+                                "type Derived() ="
+                                "    inherit Base()"
+                                "    override this.M () = base.M() + 1"
+                                "let d = Derived()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let derived = asm.GetType "Derived"
+                let instance = Activator.CreateInstance(derived, [||])
+
+                // `M` is the override declared on Derived; invoking it through the
+                // virtual slot runs `base.M() + 1` = 1 + 1 = 2.
+                let m = derived.GetMethod("M", declaredInstance, null, [||], null)
+                Expect.isNotNull m "Derived declares its own M override"
+                Expect.equal (m.Invoke(instance, [||]) :?> int) 2 "base.M() (= 1) + 1 = 2; no infinite recursion"
+            }
         ]

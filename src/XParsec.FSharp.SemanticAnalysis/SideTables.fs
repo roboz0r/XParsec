@@ -532,11 +532,29 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
             }
         | _ -> OpenScope.empty
 
+    // Seed the intrinsic-representation map from the provider if it surfaces one
+    // (`IIntrinsicReprProvider` — referenced packages' per-target `.fs` bindings
+    // like `type exn = (# "System.Exception" #)`). Same seam as the ambient open
+    // scope: every path that builds a `PassContext` picks it up here. A
+    // referenced package's intrinsic types resolve through `(# … #)` *exactly*
+    // like the consumer's own (`type int = (# "System.Int32" #)`) — one uniform
+    // mechanism, no per-name special case. The consumer's own NameResolution
+    // registers its local bindings on top; a clash is the existing duplicate-type
+    // diagnostic (a consumer can't redefine `exn`).
+    let types = PassContextTypes.empty ()
+
+    do
+        match box provider with
+        | :? IIntrinsicReprProvider as r ->
+            for (name, repr) in r.IntrinsicReprs do
+                types.IntrinsicReprTypes.[name] <- repr
+        | _ -> ()
+
     member val Provider = provider
     member val Input = input
     member val Lexed = lexed
     member val Diagnostics = ResizeArray<Diagnostic>() with get
-    member val Types = PassContextTypes.empty () with get
+    member val Types = types with get
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get

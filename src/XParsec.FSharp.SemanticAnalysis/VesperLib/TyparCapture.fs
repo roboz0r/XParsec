@@ -77,6 +77,10 @@ module VesperLibTyparCapture =
         /// as a `Type<SyntaxToken>` so translation can run later, after the
         /// body walk has registered every typar the target might reference.
         | Default of typarName: string * target: Type<SyntaxToken>
+        /// `when 'e :> <type>`. `target` is the raw RHS, translated later
+        /// through the same `translateType` path the val signature used
+        /// (it may reference typars not yet registered when captured).
+        | Coercion of typarName: string * target: Type<SyntaxToken>
 
     [<Sealed>]
     type ConstraintCollector() =

@@ -179,15 +179,19 @@ module Operators =
     /// runtime library).
     let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj
 
-    /// Raise the given exception. The parameter is typed as `System.Exception`
-    /// directly rather than the `Vesper.exn` abbreviation: codegen has no cross-
-    /// package intrinsic-repr lookup for an `extern` type, so a body that named
-    /// it `exn` would emit a TypeRef to `Vesper.exn` (which doesn't exist in
-    /// the compiled DLL — the abbreviation has no runtime form). The
-    /// `(# "throw" e : 'T #)` lowers through the terminal `throw` arm in
+    /// Raise the given exception. The parameter is a typar bounded by `:> exn`,
+    /// matching F#'s `raise: 'e :> exn -> 'a` — only an exception type can be
+    /// passed. The contract extractor captures the `:> exn` coercion constraint
+    /// (`VesperLibTypeTranslate.captureConstraints`) and the unifier enforces it
+    /// at each call (`UnificationEngine.checkConstraint` via `subsumes`); the
+    /// `exn === System.Exception` identity comes from `prim-types-exn.fs`'s
+    /// intrinsic-repr binding, and `subsumes` walks external `inherit` chains so
+    /// a derived BCL exception (`InvalidOperationException`) satisfies the bound.
+    /// The `(# "throw" e : 'T #)` lowers through the terminal `throw` arm in
     /// `Emit.ILIntrinsic` — no balanced result is left on the stack, the path
-    /// terminates.
-    let inline raise (e: System.Exception) : 'T = (# "throw" e : 'T #)
+    /// terminates — and the typar never reaches emitted IL (`throw` does not
+    /// reference its operand's static type).
+    let inline raise (e: 'TException) : 'T = (# "throw" e : 'T #)
 
     /// Throw a `System.Exception` with the given message. Same shape as
     /// FSharp.Core `prim-types.fs:4513`, but constructs the exception with the
@@ -201,3 +205,13 @@ module Operators =
     /// user-defined class names — `new` routes through `Expr.New` →
     /// `inferNew`, which has the external-class fallback.
     let inline failwith (message: string) : 'T = raise (new System.Exception(message))
+
+    /// Raise a `System.ArgumentException` naming the offending argument. Sugar
+    /// for `raise (new System.ArgumentException(message, argumentName))` — the
+    /// FSharp.Core shape (`prim-types.fs`), with the BCL two-string ctor
+    /// `(message, paramName)` selected by the external-ctor overload pick in
+    /// `Infer.inferNew` (arity 2 + both operands `string`). Like `raise` /
+    /// `failwith` this is a cross-package inline whose body is spliced at each
+    /// use site, so it pins no Vesper runtime dependency.
+    let inline invalidArg (argumentName: string) (message: string) : 'T =
+        raise (new System.ArgumentException(message, argumentName))

@@ -233,8 +233,9 @@ and MemberSignature =
 /// drained by `Unification.unify` when the TyVar is linked to a concrete
 /// shape. See `docs/constraints-plan.md`. v1 covers the trait-table
 /// subset (`equality`, `comparison`, `struct`, `not struct`, `: null`,
-/// `: not null`); `Coercion`, `MemberTrait`, `DefaultConstructor`,
-/// `Enum`, `Unmanaged`, `Delegate`, and `Default` are deferred.
+/// `: not null`) plus `Coercion` (`:> T` subtype bounds, checked via
+/// `subsumes`); `MemberTrait`, `DefaultConstructor`, `Enum`, `Unmanaged`,
+/// `Delegate`, and `Default` are deferred.
 and [<RequireQualifiedAccess>] SemanticConstraintKind =
     | Equality
     | Comparison
@@ -242,6 +243,13 @@ and [<RequireQualifiedAccess>] SemanticConstraintKind =
     | ReferenceType
     | Nullness
     | NotNull
+    /// `when 'e :> exn` — `target` is the required supertype, resolved to a
+    /// `SemType` at the point the typar's fresh TyVar is minted (local binding:
+    /// `translateConstraint`; external symbol: `Instantiate`). Checked by
+    /// `checkConstraint` via the read-only `subsumes` relation. The `exn ≡
+    /// System.Exception` identity it leans on comes from `IntrinsicReprTypes`
+    /// (prim-types-exn.fs), not the unifier.
+    | Coercion of target: SemType
 
 and [<Struct>] SemanticConstraint =
     {

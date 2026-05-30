@@ -493,27 +493,30 @@ module EmitExpr =
                 | ValueSome recipe -> b.Add(ILInstr.Recipe recipe)
                 | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" typeName caseName
 
-        | TExpr.PropertyGet(receiver, name, _) ->
+        | TExpr.PropertyGet(receiver, name, via, _) ->
             // Instance property read: load the receiver, then dispatch.
             // Unions/records are sealed (rung 2) so `call` is safe and avoids
             // the null check. User classes (vesper-set-sprint-plan §1.7 /
             // B-1) emit `callvirt` uniformly — non-`override` members would
-            // accept `call`, but `callvirt` is the safer default per the
-            // plan, and Phase 2's `CallVia.Base` will switch the
-            // base-dispatch case to `call`.
+            // accept `call`, but `callvirt` is the safer default per the plan.
+            // `base.X` (`CallVia.Base`) is non-virtual: `receiverTy` is already
+            // the parent type (so the slot resolves to the parent's getter), and
+            // `call` skips virtual dispatch so an `override` doesn't recurse.
             let receiverTy = typeOfExpr receiver
             let handle = resolveInstanceMember env receiverTy name
             buildExpr env b receiver
 
-            match receiverTy with
-            | TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
+            match via, receiverTy with
+            | CallVia.Self, TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
             | _ -> b.Add(ILInstr.Call(handle, 1, 1))
 
-        | TExpr.MethodCall(receiver, name, args, _) ->
+        | TExpr.MethodCall(receiver, name, via, args, _) ->
             // Instance method call: receiver then args. Unions/records use
             // `call` (sealed, no virtual dispatch needed). User classes
             // (vesper-set-sprint-plan §1.7 / B-1) emit `callvirt` uniformly
-            // for safety; Phase 2's base-dispatch switches to `call`.
+            // for safety. `base.M(...)` (`CallVia.Base`) emits `call` against the
+            // parent's slot (`receiverTy` is the parent type), so an `override`
+            // body calling `base.M()` invokes the parent — not itself.
             let receiverTy = typeOfExpr receiver
             let handle = resolveInstanceMember env receiverTy name
             buildExpr env b receiver
@@ -521,8 +524,8 @@ module EmitExpr =
             for a in args do
                 buildExpr env b a
 
-            match receiverTy with
-            | TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
+            match via, receiverTy with
+            | CallVia.Self, TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
             | _ -> b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
 
         | TExpr.StaticPropertyGet(className, name, _) ->

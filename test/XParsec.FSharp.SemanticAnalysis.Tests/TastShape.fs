@@ -356,9 +356,16 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.MethodCall(receiver, methodName, args, _) ->
+        | TExpr.MethodCall(receiver, methodName, via, args, _) ->
             this.Expr receiver
-            push "."
+            // `base.M(...)` renders with a `^` dot so it reads distinctly from a
+            // virtual `this.M(...)` (inheritance-plan §Subtle migrations).
+            push (
+                match via with
+                | CallVia.Base -> "^"
+                | CallVia.Self -> "."
+            )
+
             push methodName
             push "("
 
@@ -372,9 +379,15 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.PropertyGet(receiver, name, _) ->
+        | TExpr.PropertyGet(receiver, name, via, _) ->
             this.Expr receiver
-            push "."
+
+            push (
+                match via with
+                | CallVia.Base -> "^"
+                | CallVia.Self -> "."
+            )
+
             push name
 
         | TExpr.StaticMethodCall(className, methodName, args, _) ->

@@ -141,6 +141,13 @@ module VesperLib =
                     match translateType ctx lexed input opens typars throwaway target with
                     | Error _ -> None
                     | Ok builder -> Some(ExternalConstraint.Default(i, builder))
+            | RawConstraint.Coercion(n, target) ->
+                match typars.TryIndexOf n with
+                | ValueNone -> None
+                | ValueSome i ->
+                    match translateType ctx lexed input opens typars throwaway target with
+                    | Error _ -> None
+                    | Ok builder -> Some(ExternalConstraint.Coercion(i, builder))
         )
 
     let private extractValSig
@@ -218,6 +225,17 @@ module VesperLib =
                             | _ -> None
                         )
 
+                    // `when 'e :> <ty>` entries — stamped as a
+                    // `SemanticConstraintKind.Coercion` on the fresh TyVar so the
+                    // first `Link` fires `checkConstraint`/`subsumes`.
+                    let coercionConstraints =
+                        resolved
+                        |> List.choose (fun c ->
+                            match c with
+                            | ExternalConstraint.Coercion(i, builder) -> Some(i, builder)
+                            | _ -> None
+                        )
+
                     let instantiate =
                         if typarCount = 0 then
                             let semType = build [||]
@@ -281,6 +299,18 @@ module VesperLib =
                                         if i >= 0 && i < freshTvs.Length then
                                             let tv = freshTvs.[i]
                                             tv.SrtpBounds <- sig_ :: tv.SrtpBounds
+
+                                // The target is built against the SAME fresh array,
+                                // so a self-referential `'e :> 'f` resolves too.
+                                for (i, builder) in coercionConstraints do
+                                    if i >= 0 && i < freshTvs.Length then
+                                        let cstr: SemanticConstraint =
+                                            {
+                                                Kind = SemanticConstraintKind.Coercion(builder fresh)
+                                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                                            }
+
+                                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
 
                                 build fresh
 

@@ -608,7 +608,7 @@ let tests =
                     | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
 
                 match body with
-                | TExpr.PropertyGet(_, name, ty) ->
+                | TExpr.PropertyGet(_, name, _, ty) ->
                     Expect.equal name "X" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "property type"
                 | _ -> failtestf "expected PropertyGet, got %A" body
@@ -637,7 +637,7 @@ let tests =
                     | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
 
                 match body with
-                | TExpr.MethodCall(_, name, args, ty) ->
+                | TExpr.MethodCall(_, name, _, args, ty) ->
                     Expect.equal name "Magnitude" "method name"
                     Expect.equal args.Length 0 "no args (unit-arg fold)"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
@@ -854,6 +854,42 @@ let tests =
                     Expect.equal (secondaryCtors.[0].PrimaryArgs.Length) 1 "chain passes one arg to the primary ctor"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // Inheritance-plan test 22 (Step 2.6): a `base.M(...)` access carries
+            // the `CallVia.Base` discriminator so codegen emits a non-virtual
+            // `call` against the parent slot; an ordinary `this.M(...)` stays
+            // `CallVia.Self`.
+            test "TAST: `base.M ()` carries CallVia.Base" {
+                let tast =
+                    analyse
+                        "type Base() =\n    member this.M () = 1\ntype Derived() =\n    inherit Base()\n    override this.M () = base.M() + 1"
+
+                let vias = ResizeArray<CallVia>()
+
+                let collect =
+                    { TastWalk.identityIter with
+                        VisitExpr =
+                            fun _ e ->
+                                match e with
+                                | TExpr.MethodCall(_, "M", via, _, _) -> vias.Add via
+                                | _ -> ()
+
+                                true
+                    }
+
+                for d in EqArray.toList tast.Decls do
+                    match d with
+                    | TDecl.Type t ->
+                        match t.Kind with
+                        | TTypeKind.Class(_, _, members, _, _, _, _, _, _) ->
+                            for m in EqArray.toList members do
+                                TastWalk.iterExpr collect m.Body
+                        | _ -> ()
+                    | _ -> ()
+
+                Expect.contains vias CallVia.Base "the base.M() call dispatches via CallVia.Base"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 

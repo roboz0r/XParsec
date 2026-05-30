@@ -153,9 +153,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             ValueSome(toEntity (ctx.MemberRef(parent, ".ctor", s)))
 
     /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs` and
-    /// picked by call-site arity. Overload disambiguation is **arity only** in v1: two ctors of the same
-    /// arity pick the first one (the front end already narrowed candidates, but the chosen `SymbolKey`
-    /// isn't carried on `TExpr.New`, so codegen re-picks by arity).
+    /// picked by call-site arity **and argument types**. Two ctors of the same arity (e.g.
+    /// `ArgumentException(string, string)` vs `(string, Exception)`) are disambiguated by re-running the
+    /// front end's `pickStaticOverload` against the zonked call-site arg types — the chosen `SymbolKey`
+    /// isn't carried on `TExpr.New`, so codegen re-picks rather than threading it through. Picking the
+    /// wrong same-arity ctor mints a `newobj` whose signature disagrees with the pushed values (a `string`
+    /// landing where an `Exception` is expected), which produces a malformed object that faults the CLR
+    /// at throw/dispatch time. Falls back to the first arity match when the types can't disambiguate
+    /// (single overload, or arg types the metadata params don't equal).
     let externalCtor (fullName: string) (tyArgs: SemType list) (argTypes: SemType list) : CtorRecipe voption =
         let candidates = symbols.TryLookupMembers(fullName, ".ctor")
         let arity = List.length argTypes
@@ -171,7 +176,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match applicable with
         | [||] -> ValueNone
         | _ ->
-            let chosen = applicable.[0]
+            let chosen =
+                let typeArgsArr = tyArgs |> List.map zonk |> List.toArray
+                let argElems = argTypes |> List.map zonk
+
+                match Passes.UnificationInferOverload.pickStaticOverload typeArgsArr applicable argElems with
+                | ValueSome m -> m
+                | ValueNone -> applicable.[0]
 
             let argSigLen =
                 match chosen.Key with

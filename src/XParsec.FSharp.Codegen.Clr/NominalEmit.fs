@@ -561,6 +561,7 @@ module internal NominalEmit =
                         Emit.buildMember
                             emitCtx
                             mem.ThisKey
+                            mem.BaseKey
                             mem.Params
                             (mem.Body
                              |> Emit.spliceExternalInlinesInExpr externalInlines

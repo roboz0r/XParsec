@@ -467,7 +467,11 @@ module UnificationTranslate =
         | Constraint.ReferenceType(typar = tp; structToken = tok) -> attach tp SemanticConstraintKind.ReferenceType tok
         | Constraint.Nullness(typar = tp; nullToken = tok) -> attach tp SemanticConstraintKind.Nullness tok
         | Constraint.NotNull(typar = tp; nullToken = tok) -> attach tp SemanticConstraintKind.NotNull tok
-        | Constraint.Coercion _
+        | Constraint.Coercion(typar = tp; colonGreaterThan = tok; typ = target) ->
+            // `'a :> SomeType`: resolve the target now (typar scope is live) and
+            // stamp a Coercion constraint on the typar's TyVar, mirroring the
+            // trait arms. Checked later by `checkConstraint` via `subsumes`.
+            attach tp (SemanticConstraintKind.Coercion(translateType ctx target)) tok
         | Constraint.MemberTrait _
         | Constraint.DefaultConstructor _
         | Constraint.Enum _

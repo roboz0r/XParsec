@@ -1,0 +1,119 @@
+module XParsec.FSharp.Codegen.Clr.Tests.ExceptionTests
+
+open System
+open System.Reflection
+open Expecto
+open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+
+// Phase 3 of the Vesper.Set sprint (vesper-set-sprint-phase-3.md): exception
+// construction + `raise` (gap B-9), folding in M1 (`isFailwith` →
+// `TExpr.Raise`). The chosen mechanism is *not* a dedicated `TExpr.Raise` TAST
+// node — `raise` / `failwith` / `invalidArg` are real cross-package inline
+// operators in `Vesper.Core/ops-platform.fs` whose bodies splice to a
+// `TExpr.ILIntrinsic "throw"` (the terminal `throw` arm in `Emit`). These tests
+// pin the runtime behaviour: the thrown CLR exception's *type* and message.
+
+let private lines xs = String.concat "\n" xs
+
+/// Compile a source that defines a single top-level `let f … = raise …`,
+/// reflect the emitted `fn$…` static method, invoke it, and return the CLR
+/// exception it throws (unwrapped from `TargetInvocationException`). The
+/// function is given one `int` parameter it ignores so it emits as a plain
+/// static method we can invoke with a dummy argument.
+let private thrownBy (assemblyName: string) (src: string) : exn =
+    let tast, artifact = compileSource assemblyName src
+
+    Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
+    let asm = loadAssembly (Codegen.toBytes artifact)
+
+    let fn =
+        asm.GetTypes()
+        |> Array.collect (fun t -> t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static))
+        |> Array.filter (fun m -> m.Name.StartsWith "fn$")
+        |> Array.exactlyOne
+
+    try
+        fn.Invoke(null, [| box 0 |]) |> ignore
+        failwith "expected the emitted function to throw, but it returned"
+    with :? TargetInvocationException as e when not (isNull e.InnerException) ->
+        e.InnerException
+
+[<Tests>]
+let tests =
+    testList
+        "Exceptions (Phase 3 / B-9)"
+        [
+            test "failwith throws System.Exception with the given message (M1 regression)" {
+                let ex =
+                    thrownBy "ExnFailwith" (lines [ "let boom (n: int) : int = failwith \"boom\"" ])
+
+                Expect.equal (ex.GetType()) typeof<Exception> "failwith constructs a plain System.Exception"
+                Expect.equal ex.Message "boom" "the message round-trips through the ctor"
+            }
+
+            test "raise of a constructed System.Exception throws it" {
+                let ex =
+                    thrownBy
+                        "ExnRaiseBase"
+                        (lines [ "let boom (n: int) : int = raise (new System.Exception(\"boom\"))" ])
+
+                Expect.equal (ex.GetType()) typeof<Exception> "the raised exception is the one we constructed"
+                Expect.equal ex.Message "boom" "message preserved"
+            }
+
+            test "raise of a derived exception (InvalidOperationException) throws the derived type" {
+                // `raise : System.Exception -> 'T`, but the argument is an
+                // `InvalidOperationException` (a subtype). This exercises argument
+                // subsumption at the call site — the set.fs `raise
+                // (InvalidOperationException …)` enumeration-guard sites.
+                let ex =
+                    thrownBy
+                        "ExnRaiseDerived"
+                        (lines
+                            [
+                                "let boom (n: int) : int = raise (new System.InvalidOperationException(\"bad state\"))"
+                            ])
+
+                Expect.equal
+                    (ex.GetType())
+                    typeof<InvalidOperationException>
+                    "the concrete derived exception type is preserved through `raise`"
+
+                Expect.equal ex.Message "bad state" "message preserved"
+            }
+
+            test "raise of a non-exception is rejected by the :> exn constraint" {
+                // `raise : 'e -> 'a when 'e :> exn` — passing an `int` must fail the
+                // coercion constraint at type-check (vesper-set-sprint-phase-3.md:
+                // the v1 compromise dropped this bound; the constraint chain restores
+                // it via `subsumes` + the prim-types-exn.fs `exn ≡ System.Exception`
+                // identity). Compile only (no run): we assert a diagnostic, not a throw.
+                let tast, _ =
+                    compileSource "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
+
+                let msgs = tast.Diagnostics |> List.map (fun d -> d.Message)
+
+                Expect.isNonEmpty msgs "raising a non-exception must produce a diagnostic"
+
+                Expect.exists
+                    msgs
+                    (fun m -> m.Contains "subtype of" || m.Contains "constraint")
+                    (sprintf "expected a coercion-constraint diagnostic, got: %A" msgs)
+            }
+
+            test "invalidArg throws ArgumentException with ParamName and message" {
+                let ex =
+                    thrownBy
+                        "ExnInvalidArg"
+                        (lines [ "let boom (n: int) : int = invalidArg \"x\" \"must be positive\"" ])
+
+                Expect.equal (ex.GetType()) typeof<ArgumentException> "invalidArg constructs a System.ArgumentException"
+
+                let argEx = ex :?> ArgumentException
+                Expect.equal argEx.ParamName "x" "the argument name is carried as ParamName"
+                Expect.stringContains argEx.Message "must be positive" "the message is carried through"
+            }
+        ]

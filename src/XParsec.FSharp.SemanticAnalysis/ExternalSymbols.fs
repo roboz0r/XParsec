@@ -118,6 +118,11 @@ type ExternalConstraint =
     /// target onto the source TyVar's `Defaults` list so generalisation
     /// can chase the chain and pick the first concrete shape it reaches.
     | Default of typarIndex: int * buildTarget: (SemType[] -> SemType)
+    /// `when 'e :> <ty>` — coercion. `buildTarget` takes the symbol's
+    /// fresh-TyVar array and yields the required supertype; `Instantiate`
+    /// stamps a `SemanticConstraintKind.Coercion` onto the constrained fresh
+    /// TyVar so the first `Link` fires `checkConstraint`/`subsumes`.
+    | Coercion of typarIndex: int * buildTarget: (SemType[] -> SemType)
 
 type ExternalSymbol =
     {
@@ -331,6 +336,21 @@ type IAmbientOpenScope =
     /// candidate qualifiers for a short name after the bare name and all
     /// explicit opens have missed.
     abstract AmbientOpenPrefixes: string list
+
+/// Optional capability a provider may implement to contribute the
+/// *intrinsic-representation* bindings harvested from a referenced package's
+/// per-target `.fs` files (`type exn = (# "System.Exception" #)`,
+/// prim-types-exn.fs). The pipeline seeds `PassContext.Types.IntrinsicReprTypes`
+/// from it, so a consumer learns that e.g. `exn` is *represented by* the BCL
+/// `System.Exception` — the bridge `subsumes` needs to reconcile a user-facing
+/// `exn` with a metadata-surfaced `TyClass("System.Exception", _)`. The `.fsi`
+/// contract only commits `type exn = extern` (no repr), so this identity can
+/// only come from the `.fs`. Providers with no intrinsic bindings don't
+/// implement it and contribute nothing. Kept separate from
+/// `IExternalSymbolProvider` for the same reason as `IAmbientOpenScope`.
+type IIntrinsicReprProvider =
+    /// `(vesperTypeName, ilReprString)` pairs, e.g. `("exn", "System.Exception")`.
+    abstract IntrinsicReprs: (string * string) seq
 
 module ExternalSymbols =
 

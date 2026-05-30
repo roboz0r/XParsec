@@ -161,6 +161,7 @@ module Emit =
     let buildMember
         (ctx: EmitContext)
         (thisKey: NodeKey voption)
+        (baseKey: NodeKey voption)
         (prms: EqArray<NodeKey * SemType>)
         (body: TExpr)
         : ILBody =
@@ -173,6 +174,13 @@ module Emit =
                 args.[k] <- 0 // `this`
                 1
             | ValueNone -> 0
+
+        // `base` (B-4 Step 2.6) loads the same object reference as `this` —
+        // `ldarg.0`. The `CallVia.Base` discriminator on the member access, not
+        // the receiver load, is what makes the dispatch non-virtual.
+        match baseKey with
+        | ValueSome k -> args.[k] <- 0
+        | ValueNone -> ()
 
         prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
 

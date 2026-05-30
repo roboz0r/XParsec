@@ -53,6 +53,17 @@ type HoleSpec =
         Alignment: int option
     }
 
+/// How an instance member access dispatches (inheritance-plan §Subtle
+/// migrations). `Self` is the normal virtual dispatch (`callvirt`); `Base`
+/// is a `base.M(...)` / `base.X` access, which must target the *parent's*
+/// method slot non-virtually (`call`) so an `override` doesn't recurse into
+/// itself. Set by Freeze when the receiver's head binding site is a class's
+/// `BaseKey`; read by codegen to pick the call opcode.
+[<RequireQualifiedAccess>]
+type CallVia =
+    | Self
+    | Base
+
 [<RequireQualifiedAccess>]
 type TExpr =
     | Const of value: TConstValue * ty: SemType
@@ -130,8 +141,8 @@ type TExpr =
     /// Instance method invocation: `r.M(args)`. `args` is the
     /// per-parameter list (peeled the same way as `New`). `ty` is the
     /// method's declared return type.
-    | MethodCall of receiver: TExpr * methodName: string * args: EqArray<TExpr> * ty: SemType
-    | PropertyGet of receiver: TExpr * propertyName: string * ty: SemType
+    | MethodCall of receiver: TExpr * methodName: string * via: CallVia * args: EqArray<TExpr> * ty: SemType
+    | PropertyGet of receiver: TExpr * propertyName: string * via: CallVia * ty: SemType
     /// Same arg-peeling as `MethodCall`; no receiver.
     | StaticMethodCall of className: string * methodName: string * args: EqArray<TExpr> * ty: SemType
     | StaticPropertyGet of className: string * propertyName: string * ty: SemType
@@ -349,6 +360,14 @@ and TTypeMember =
         Kind: TMemberKind
         /// Instance members only; `ValueNone` for a static member.
         ThisKey: NodeKey voption
+        /// The synthetic `base` binder of the declaring class (inheritance-plan
+        /// §Subtle migrations), shared across every member body. A `base.M(...)`
+        /// receiver is a `TExpr.Var(BaseKey, parentTy)`; codegen maps it to the
+        /// same `ldarg.0` as `this`, so this key is loaded identically — the
+        /// `CallVia.Base` discriminator (not the receiver) drives non-virtual
+        /// dispatch. `ValueNone` for a static member, a union member, or a class
+        /// without an `inherit` clause.
+        BaseKey: NodeKey voption
         /// The declaring type (a `TyUnion`) — the receiver type for an instance
         /// member's `this`.
         ThisTy: SemType

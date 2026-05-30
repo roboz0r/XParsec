@@ -386,7 +386,10 @@ module VesperLibTypeTranslate =
                 match typarName lexed input t with
                 | ValueSome n -> acc.Add(RawConstraint.Default(n, target))
                 | ValueNone -> ()
-            | Constraint.Coercion _
+            | Constraint.Coercion(typar = t; typ = target) ->
+                match typarName lexed input t with
+                | ValueSome n -> acc.Add(RawConstraint.Coercion(n, target))
+                | ValueNone -> ()
             | Constraint.DefaultConstructor _
             | Constraint.Enum _
             | Constraint.Unmanaged _
