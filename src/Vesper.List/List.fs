@@ -56,3 +56,11 @@ module List =
         match list with
         | [] -> state
         | h :: t -> fold folder (folder state h) t
+
+    // `ofSeq` / `toSeq` bridge the cons-list and the BCL `IEnumerable<'T>` seam.
+    // Both ride Phase 4's `for x in IEnumerable`: `ofSeq` accumulates the
+    // enumeration into a list comprehension (resolves to `[]` / `::` by arity);
+    // `toSeq` re-publishes the list as a `seq` computation expression.
+    let ofSeq (source: seq<'T>) : 'T list = [ for x in source -> x ]
+
+    let toSeq (list: 'T list) : seq<'T> = seq { for x in list -> x }

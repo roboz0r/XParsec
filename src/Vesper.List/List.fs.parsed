@@ -369,4 +369,78 @@ namespace                              'namespace'       KWNamespace         tok
                             Ident      'h'               Identifier          tok= 469  pos=1910
                                        ')'               KWRParen            tok= 470  pos=1911
                       Ident            't'               Identifier          tok= 472  pos=1913
-    end                                <virt>            KWEnd               tok=virt  pos=1915
+      FunctionOrValue:
+        let                            'let'             KWLet               tok= 488  pos=2230
+          Pat.NamedSimple              'ofSeq'           Identifier          tok= 490  pos=2234
+          Pats:
+            ParenBlock                 '('               KWLParen            tok= 492  pos=2240
+              Pat.Typed:
+                Pat.NamedSimple        'source'          Identifier          tok= 493  pos=2241
+                Colon                  ':'               OpColon             tok= 494  pos=2247
+                GenericType:
+                  Ident                'seq'             Identifier          tok= 496  pos=2249
+                  <                    '<'               op_LessThan         tok= 497  pos=2252
+                  TypeArg.Type:
+                    VarType:
+                      Typar.Named:
+                                       ''T'              TypeParameter       tok= 498  pos=2253
+                  >                    '>'               op_GreaterThan      tok= 499  pos=2255
+                                       ')'               KWRParen            tok= 500  pos=2256
+          ReturnColon                  ':'               OpColon             tok= 502  pos=2258
+          SuffixedType:
+            VarType:
+              Typar.Named:
+                                       ''T'              TypeParameter       tok= 504  pos=2260
+            Ident                      'list'            Identifier          tok= 506  pos=2263
+          =                            '='               OpEquality          tok= 508  pos=2268
+            List                       '['               KWLBracket          tok= 510  pos=2270
+              ForIn                    'for'             KWFor               tok= 512  pos=2272
+              Pat:
+                Pat.NamedSimple        'x'               Identifier          tok= 514  pos=2276
+              InToken                  'in'              KWIn                tok= 516  pos=2278
+              Ident                    'source'          Identifier          tok= 518  pos=2281
+              DoToken                  '->'              OpArrowRight        tok= 520  pos=2288
+              Body:
+                Ident                  'x'               Identifier          tok= 522  pos=2291
+              DoneToken                <virt>            KWDone              tok=virt  pos=2293
+                                       ']'               KWRBracket          tok= 524  pos=2293
+      FunctionOrValue:
+        let                            'let'             KWLet               tok= 528  pos=2300
+          Pat.NamedSimple              'toSeq'           Identifier          tok= 530  pos=2304
+          Pats:
+            ParenBlock                 '('               KWLParen            tok= 532  pos=2310
+              Pat.Typed:
+                Pat.NamedSimple        'list'            Identifier          tok= 533  pos=2311
+                Colon                  ':'               OpColon             tok= 534  pos=2315
+                SuffixedType:
+                  VarType:
+                    Typar.Named:
+                                       ''T'              TypeParameter       tok= 536  pos=2317
+                  Ident                'list'            Identifier          tok= 538  pos=2320
+                                       ')'               KWRParen            tok= 539  pos=2324
+          ReturnColon                  ':'               OpColon             tok= 541  pos=2326
+          GenericType:
+            Ident                      'seq'             Identifier          tok= 543  pos=2328
+            <                          '<'               op_LessThan         tok= 544  pos=2331
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                       ''T'              TypeParameter       tok= 545  pos=2332
+            >                          '>'               op_GreaterThan      tok= 546  pos=2334
+          =                            '='               OpEquality          tok= 548  pos=2336
+            App:
+              Func:
+                Ident                  'seq'             Identifier          tok= 550  pos=2338
+              Args:
+                ComputationBlock       '{'               KWLBrace            tok= 552  pos=2342
+                  ForIn                'for'             KWFor               tok= 554  pos=2344
+                  Pat:
+                    Pat.NamedSimple    'x'               Identifier          tok= 556  pos=2348
+                  InToken              'in'              KWIn                tok= 558  pos=2350
+                  Ident                'list'            Identifier          tok= 560  pos=2353
+                  DoToken              '->'              OpArrowRight        tok= 562  pos=2358
+                  Body:
+                    Ident              'x'               Identifier          tok= 564  pos=2361
+                  DoneToken            <virt>            KWDone              tok=virt  pos=2363
+                                       '}'               KWRBrace            tok= 566  pos=2363
+    end                                <virt>            KWEnd               tok=virt  pos=2365

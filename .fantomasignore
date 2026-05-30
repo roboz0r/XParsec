@@ -9,5 +9,10 @@ src/Vesper.Core/
 # fixed shape; parser coverage is the golden `.parsed` snapshots, not Fantomas.
 src/Vesper.List/
 src/Vesper.Comparison/
+# Vesper.Array — `array.fs` opens its `zeroCreate` over the `newarr` inline-IL
+# intrinsic (`(# "..." #)`), the same construct Fantomas's FCS backend can't
+# parse in Vesper.Core / Vesper.Comparison. Authored to a fixed shape; parser
+# coverage is the golden `.parsed` snapshots.
+src/Vesper.Array/
 # Vesper.Set — verbatim FSharp.Core copy; preserve upstream formatting/comments.
 src/Vesper.Set/

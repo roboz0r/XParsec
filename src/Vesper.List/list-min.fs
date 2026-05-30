@@ -52,3 +52,11 @@ module List =
         match list with
         | Nil -> state
         | Cons(h, t) -> fold folder (folder state h) t
+
+    // `ofSeq` / `toSeq` bridge the cons-list and the BCL `IEnumerable<'T>` seam,
+    // riding Phase 4's `for x in IEnumerable`. The list comprehension resolves to
+    // the `Nil` / `Cons` union by arity (the same arity binding `[1; 2; 3]` uses);
+    // `toSeq` re-publishes the list as a `seq` computation expression.
+    let ofSeq (source: seq<'T>) : List<'T> = [ for x in source -> x ]
+
+    let toSeq (list: List<'T>) : seq<'T> = seq { for x in list -> x }

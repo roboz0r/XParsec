@@ -147,3 +147,10 @@ open System.Collections.Generic
 
         /// `fold f s [a; b; c]` computes `f (f (f s a) b) c`.
         val fold: folder: ('State -> 'T -> 'State) -> state: 'State -> list: 'T list -> 'State
+
+        /// `ofSeq source` builds a new list from the given enumerable object.
+        /// Depends on `for x in IEnumerable` (vesper-set-sprint Phase 4).
+        val ofSeq: source: seq<'T> -> 'T list
+
+        /// `toSeq list` views the given list as a sequence.
+        val toSeq: list: 'T list -> seq<'T>

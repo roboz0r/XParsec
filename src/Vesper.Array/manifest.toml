@@ -1,0 +1,36 @@
+# Vesper.Array — the `Array` module over the intrinsic `'T[]` type as a
+# standalone package (package-split-plan PS1: one package per type/module; PS2:
+# one impl DLL per package).
+#
+# Same shape as src/Vesper.List: the `.fsi` is the front-end symbol contract
+# (parsed by XParsec.FSharp, walked into an IExternalSymbolProvider); `array.fs`
+# is the runtime impl compiled by this repo's own backend → Vesper.Array.dll
+# (BCL-only, no FSharp.Core). No `.fsproj`: like its siblings this tree is not
+# built by `dotnet`/`fsc`.
+#
+# Depends on Vesper.Core (`'T[]`, `Fun`, `int`). `name` and `depends-on` are
+# recorded here per the package-split-plan package schema; these self-contained
+# package manifests are consumed today by the parser golden tests
+# (test/Vesper.Tests/VesperCoreContractTests.fs).
+#
+# Per PS5 the package is named `Vesper.Array` but contributes the `Array` module
+# into namespace `Vesper.Collections`, not `Vesper.Array`.
+#
+# See ./README.md and
+# ../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-sprint-phase-8.md (§8.2).
+
+[core]
+name = "Vesper.Array"
+namespace = "Vesper.Collections"
+description = "The Array module over the intrinsic 'T[] type (fold, zeroCreate)."
+depends-on = ["Vesper.Core"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "array.fsi",
+]
+
+# Runtime impl `.fs` files (our-backend target source).
+impl = [
+    "array.fs",
+]

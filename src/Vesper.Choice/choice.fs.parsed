@@ -1,0 +1,49 @@
+namespace            'namespace'       KWNamespace         tok=   0  pos=   0
+                     'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Union:
+    [<               '[<'              KWLAttrBracket      tok=  32  pos= 889
+    NamedType:
+      Ident          'Structural...'   Identifier          tok=  33  pos= 891
+    ;                ';'               OpSemicolon         tok=  34  pos= 909
+    NamedType:
+      Ident          'Structural...'   Identifier          tok=  36  pos= 911
+    >]               '>]'              KWRAttrBracket      tok=  37  pos= 931
+    [<               '[<'              KWLAttrBracket      tok=  39  pos= 934
+    NamedType:
+      Ident          'CompiledNa...'   Identifier          tok=  40  pos= 936
+    ParenBlock       '('               KWLParen            tok=  41  pos= 948
+      StringLiteral  '"'               StringOpen          tok=  42  pos= 949
+      Parts:
+        Text         'FSharpChoi...'   StringFragment      tok=  43  pos= 950
+                     '"'               StringClose         tok=  44  pos= 964
+                     ')'               KWRParen            tok=  45  pos= 965
+    >]               '>]'              KWRAttrBracket      tok=  46  pos= 966
+    [<               '[<'              KWLAttrBracket      tok=  48  pos= 969
+    NamedType:
+      Ident          'Struct'          Identifier          tok=  49  pos= 971
+    >]               '>]'              KWRAttrBracket      tok=  50  pos= 977
+    TypeName         'Choice'          Identifier          tok=  54  pos= 985
+    TyparDefns:
+      <              '<'               op_LessThan         tok=  55  pos= 991
+      Typar.Named:
+                     ''T1'             TypeParameter       tok=  56  pos= 992
+      Typar.Named:
+                     ''T2'             TypeParameter       tok=  59  pos= 997
+      >              '>'               op_GreaterThan      tok=  60  pos=1000
+    =                '='               OpEquality          tok=  62  pos=1002
+      Case:
+        Ident        'Choice1Of2'      Identifier          tok=  67  pos=1010
+        of           'of'              KWOf                tok=  69  pos=1021
+        ident        'Choice1Of2'      Identifier          tok=  71  pos=1024
+        :            ':'               OpColon             tok=  72  pos=1034
+        VarType:
+          Typar.Named:
+                     ''T1'             TypeParameter       tok=  74  pos=1036
+      Case:
+        Ident        'Choice2Of2'      Identifier          tok=  79  pos=1046
+        of           'of'              KWOf                tok=  81  pos=1057
+        ident        'Choice2Of2'      Identifier          tok=  83  pos=1060
+        :            ':'               OpColon             tok=  84  pos=1070
+        VarType:
+          Typar.Named:
+                     ''T2'             TypeParameter       tok=  86  pos=1072

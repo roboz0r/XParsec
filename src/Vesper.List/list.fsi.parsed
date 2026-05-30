@@ -350,4 +350,44 @@ namespace                  'namespace'       KWNamespace         tok=   0  pos= 
         VarType:
           Typar.Named:
                            ''State'          TypeParameter       tok= 779  pos=7335
-    end                    <virt>            KWEnd               tok=virt  pos=7342
+      Val:
+        val                'val'             KWVal               tok= 789  pos=7505
+        Ident              'ofSeq'           Identifier          tok= 791  pos=7509
+        :                  ':'               OpColon             tok= 792  pos=7514
+        arg                'source'          Identifier          tok= 794  pos=7516
+        :                  ':'               OpColon             tok= 795  pos=7522
+        GenericType:
+          Ident            'seq'             Identifier          tok= 797  pos=7524
+          <                '<'               op_LessThan         tok= 798  pos=7527
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                           ''T'              TypeParameter       tok= 799  pos=7528
+          >                '>'               op_GreaterThan      tok= 800  pos=7530
+        ->                 '->'              OpArrowRight        tok= 802  pos=7532
+        SuffixedType:
+          VarType:
+            Typar.Named:
+                           ''T'              TypeParameter       tok= 804  pos=7535
+          Ident            'list'            Identifier          tok= 806  pos=7538
+      Val:
+        val                'val'             KWVal               tok= 813  pos=7613
+        Ident              'toSeq'           Identifier          tok= 815  pos=7617
+        :                  ':'               OpColon             tok= 816  pos=7622
+        arg                'list'            Identifier          tok= 818  pos=7624
+        :                  ':'               OpColon             tok= 819  pos=7628
+        SuffixedType:
+          VarType:
+            Typar.Named:
+                           ''T'              TypeParameter       tok= 821  pos=7630
+          Ident            'list'            Identifier          tok= 823  pos=7633
+        ->                 '->'              OpArrowRight        tok= 825  pos=7638
+        GenericType:
+          Ident            'seq'             Identifier          tok= 827  pos=7641
+          <                '<'               op_LessThan         tok= 828  pos=7644
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                           ''T'              TypeParameter       tok= 829  pos=7645
+          >                '>'               op_GreaterThan      tok= 830  pos=7647
+    end                    <virt>            KWEnd               tok=virt  pos=7649

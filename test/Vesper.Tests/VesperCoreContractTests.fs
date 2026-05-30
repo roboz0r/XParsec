@@ -100,6 +100,36 @@ let vesperResultContractTests =
             test "Parsing result.fs" { testParseFile (resultPath "result.fs") }
         ]
 
+/// Vesper.Choice — standalone package (package-split-plan PS1) mirroring
+/// Vesper.Result: the `Choice<'T1, 'T2>` struct DU consumed by `set.fs`'s
+/// `partitionWith` (vesper-set-sprint-phase-8.md §8.1). Same golden-file bar: the
+/// `.fsi` and `.fs` must parse with zero recovery diagnostics.
+[<Tests>]
+let vesperChoiceContractTests =
+    let choicePath fileName = vesperPath "Vesper.Choice" fileName
+
+    testList
+        "VesperChoiceContract"
+        [
+            test "Parsing choice.fsi" { testParseSignatureFile (choicePath "choice.fsi") }
+            test "Parsing choice.fs" { testParseFile (choicePath "choice.fs") }
+        ]
+
+/// Vesper.Array — standalone package (package-split-plan PS1) adding the `Array`
+/// module (`fold` / `zeroCreate`) over the intrinsic `'T[]` type, consumed by
+/// `set.fs`'s `toArray` / `ofArray` (vesper-set-sprint-phase-8.md §8.2). Same
+/// golden-file bar: the `.fsi` and `.fs` must parse with zero recovery diagnostics.
+[<Tests>]
+let vesperArrayContractTests =
+    let arrayPath fileName = vesperPath "Vesper.Array" fileName
+
+    testList
+        "VesperArrayContract"
+        [
+            test "Parsing array.fsi" { testParseSignatureFile (arrayPath "array.fsi") }
+            test "Parsing array.fs" { testParseFile (arrayPath "array.fs") }
+        ]
+
 /// Vesper.Comparison — the ordering family relocated out of Vesper.Core's
 /// `ops-platform.fsi` (operators-plan.md O2). Same golden-file bar: `comparison.fsi`
 /// must parse with zero recovery diagnostics; the impl `comparison.fs` (the four
