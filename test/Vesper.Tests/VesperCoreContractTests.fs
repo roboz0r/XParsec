@@ -130,6 +130,22 @@ let vesperArrayContractTests =
             test "Parsing array.fs" { testParseFile (arrayPath "array.fs") }
         ]
 
+/// Vesper.Seq — standalone package (package-split-plan PS1) adding the `Seq`
+/// module (`fold` / `reduce` / `truncate` / `toArray`) over `seq<'T>`, consumed by
+/// `set.fs`'s `Set.Union` / `Set.Intersection` / line 961 `Seq.truncate`
+/// (vesper-set-sprint-phase-8.md §8.4). Same golden-file bar: the `.fsi` and `.fs`
+/// must parse with zero recovery diagnostics.
+[<Tests>]
+let vesperSeqContractTests =
+    let seqPath fileName = vesperPath "Vesper.Seq" fileName
+
+    testList
+        "VesperSeqContract"
+        [
+            test "Parsing seq.fsi" { testParseSignatureFile (seqPath "seq.fsi") }
+            test "Parsing seq.fs" { testParseFile (seqPath "seq.fs") }
+        ]
+
 /// Vesper.Comparison — the ordering family relocated out of Vesper.Core's
 /// `ops-platform.fsi` (operators-plan.md O2). Same golden-file bar: `comparison.fsi`
 /// must parse with zero recovery diagnostics; the impl `comparison.fs` (the four
