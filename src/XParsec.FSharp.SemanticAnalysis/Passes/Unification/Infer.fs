@@ -649,19 +649,22 @@ module UnificationInfer =
             | ValueSome(ExternalTypeShape.Class shape) ->
                 let argArr = args.AsSpan().ToArray()
 
-                // Prefer the `IEnumerable<'T>` interface shape: it is the only path
-                // codegen emits today, so resolving a source that *also* implements
-                // the interface to `Interface` keeps the §4.2 lowering (and the
-                // existing `List<int>` for-in) unchanged. C#'s precedence is the
-                // reverse — the pattern-based `GetEnumerator()` wins so `List<'T>`
-                // walks its non-boxing struct enumerator — which the full §4.4
-                // codegen flips to once value-type member-call emission lands.
-                match
-                    shape.Interfaces argArr
-                    |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
-                with
-                | Some elem -> ValueSome(elem, ForInEnumerator.Interface)
-                | None -> tryDuckTypedEnumerator ctx shape argArr
+                // C# precedence: a pattern-based `GetEnumerator()` wins over the
+                // `IEnumerable<'T>` interface, so `List<'T>` walks its non-boxing
+                // struct `Enumerator` (§4.4) rather than the boxing interface
+                // enumerator (now that value-type member-call emission has landed).
+                // Fall back to the interface shape (§4.2) for a source that only
+                // implements `IEnumerable<'T>` and exposes no usable pattern
+                // `GetEnumerator()`.
+                match tryDuckTypedEnumerator ctx shape argArr with
+                | ValueSome r -> ValueSome r
+                | ValueNone ->
+                    match
+                        shape.Interfaces argArr
+                        |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
+                    with
+                    | Some elem -> ValueSome(elem, ForInEnumerator.Interface)
+                    | None -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
 

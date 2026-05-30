@@ -290,8 +290,36 @@ type internal ClrEnv
         | ValueSome(ExternalTypeShape.Class info) ->
             let ns = info.Origin.Namespace
             let simple = SymbolOrigin.StripNamespace ns fullName
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef info.Origin.Assembly, ns, simple)))
+            let asm = externalAsmRef info.Origin.Assembly
+
+            // A nested type's `TypeRef` (`List`1+Enumerator`, the duck-typed struct
+            // enumerator) must chain through the enclosing type's `TypeRef` as its
+            // ResolutionScope with the *bare* nested name + empty namespace — a flat
+            // `Outer+Inner` name with the AssemblyRef scope fails to bind
+            // (`TypeLoadException`). The `+` is a reflection display convention, not a
+            // metadata name. Top-level (`+`-free) names take the single-segment path
+            // unchanged. The generic args ride the innermost nested TypeRef, so the
+            // encoder needs no further nesting awareness.
+            match simple.Split('+') with
+            | [| flat |] -> ValueSome(toEntity (ctx.TypeRef(asm, ns, flat)))
+            | parts ->
+                let mutable scope = toEntity (ctx.TypeRef(asm, ns, parts.[0]))
+
+                for i in 1 .. parts.Length - 1 do
+                    scope <- toEntity (ctx.TypeRef(scope, "", parts.[i]))
+
+                ValueSome scope
         | _ -> ValueNone
+
+    /// Whether a referenced-assembly type is a .NET value type (`struct`) — `false`
+    /// for every reference type and for any name the provider can't resolve as a
+    /// class. Drives the `VALUETYPE` vs `CLASS` element tag in `encodeType` and the
+    /// value-receiver dispatch for the duck-typed struct enumerator
+    /// (`List`1+Enumerator`, vesper-set-sprint-phase-4 §4.4).
+    let externalIsValueType (fullName: string) : bool =
+        match symbols.TryLookupType fullName with
+        | ValueSome(ExternalTypeShape.Class info) -> info.Flags.IsValueType
+        | _ -> false
 
     /// Referenced-assembly record shape by name + arity. The contract layer keys generic records by
     /// the bare compiled name (`Vesper.Ref`), the metadata layer by the arity-suffixed key
@@ -485,5 +513,6 @@ type internal ClrEnv
 
     member _.ExternalAsmRef asm = externalAsmRef asm
     member _.ExternalClassRef fullName = externalClassRef fullName
+    member _.ExternalIsValueType fullName = externalIsValueType fullName
     member _.ExternalRecordShape(fullName, arity) = externalRecordShape fullName arity
     member _.ExternalRecordRef(fullName, arity) = externalRecordRef fullName arity

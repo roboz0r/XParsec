@@ -127,6 +127,16 @@ module Cil =
         il.Encoder.Token(m)
         il.Adjust(pushes - argc)
 
+    /// `constrained. <type>` — the prefix that makes the following `callvirt`
+    /// dispatch on a value-type receiver (a managed pointer) without boxing. Used by
+    /// the duck-typed struct enumerator loop (`List`1+Enumerator`, §4.4) for
+    /// `MoveNext`/`Current`/`Dispose`. Net stack 0 (a prefix); the paired `callvirt`
+    /// does the operand adjust.
+    let emitConstrained (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Constrained)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
 
     // ---- Inline-IL value ops (the value-level `(# "op" args : ty #)`) ----

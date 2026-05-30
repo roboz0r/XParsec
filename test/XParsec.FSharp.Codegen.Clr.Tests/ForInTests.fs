@@ -25,6 +25,12 @@ let forInTests =
         "ForIn"
         [
             test "for-in over an empty BCL List<int> runs and prints nothing" {
+                // Post §4.4 this `List<int>` source now takes the duck-typed struct
+                // path (C# precedence: its pattern `GetEnumerator()` returning the
+                // value-type `List<int>.Enumerator` wins over the boxing
+                // `IEnumerable<int>` interface), so this also guards the new
+                // value-receiver loop on the empty case (zero iterations + struct
+                // `Dispose` in the finally).
                 let src =
                     String.concat
                         "\n"
@@ -55,6 +61,44 @@ let forInTests =
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the sequence in order"
+            }
+
+            // vesper-set-sprint-phase-4 Step 4.4 — duck-typed struct enumerator
+            // codegen. A concrete `List<int>` source walks its non-boxing value-type
+            // `List<int>.Enumerator` (C# precedence prefers the pattern
+            // `GetEnumerator()` over the `IEnumerable<int>` interface). The
+            // enumerator lives in a value local, dispatched by `ldloca` +
+            // `constrained. <Enumerator>` callvirt; no boxed `IEnumerator` is
+            // allocated. The list is populated through the `List(IEnumerable<T>)`
+            // ctor over `Linq.Range`, sidestepping the external-instance `Add` gap.
+            test "for-in over a populated List<int> walks its non-boxing struct Enumerator" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let xs = new System.Collections.Generic.List<int>(System.Linq.Enumerable.Range(1, 3))"
+                            "for x in xs do"
+                            "    printfn \"%d\" x"
+                        ]
+
+                let _, artifact = compileSource "ForInStructEnum" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the struct enumerator in order"
+
+                // The value-type path emits the `constrained.` prefix (0xFE 0x16)
+                // before each enumerator member callvirt — the interface (boxing)
+                // path never does. Its presence proves the non-boxing struct walk.
+                let il = peMethodIl bytes "Program" "Main"
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "Main IL contains a `constrained.` prefix (non-boxing struct enumerator)"
             }
 
             // vesper-set-sprint-phase-4 Step 4.4 — front end only. The duck-typed

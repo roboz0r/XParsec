@@ -248,6 +248,16 @@ type ICodegenProvider =
     /// and emits the `call` (static) / `callvirt` (instance) around the handle.
     abstract ExternalMemberRef: key: SymbolKey * isProperty: bool * isStatic: bool * memberTy: SemType -> EntityHandle
 
+    /// Like `ExternalMemberRef`, but the declaring type's instantiation is given
+    /// explicitly via `declTy` (the resolved declaring `TyClass`, e.g.
+    /// `List`1+Enumerator<int>`) instead of recovered from the member's open
+    /// signature. Required for a T-free member like `MoveNext(): bool` on a generic
+    /// enumerator, whose signature mentions no typar so the instantiation is
+    /// unrecoverable (vesper-set-sprint-phase-4 §4.4). The parent is encoded straight
+    /// from `declTy`, so a struct declaring type lands as a `VALUETYPE` parent.
+    abstract ExternalMemberRefOn:
+        key: SymbolKey * declTy: SemType * isProperty: bool * isStatic: bool * memberTy: SemType -> EntityHandle
+
     abstract FormatHandles: unit -> FormatHandles
 
     /// Lives on the provider because encoding a `SemType` needs the target's

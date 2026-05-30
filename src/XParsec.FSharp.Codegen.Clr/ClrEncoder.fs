@@ -17,6 +17,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let isVesperListName n = env.IsVesperListName n
     let zonk t = env.Zonk t
     let externalClassRef n = env.ExternalClassRef n
+    let externalIsValueType n = env.ExternalIsValueType n
     let externalRecordRef (n, a) = env.ExternalRecordRef(n, a)
     let ambientTyparLeaf = env.AmbientTyparLeaf
     let methodTyparLeaf = env.MethodTyparLeaf
@@ -124,11 +125,15 @@ type internal ClrEncoder(env: ClrEnv) =
                         encodeTypeCore tryLeaf (g.AddArgument()) a
             | TyClass(name, args) when (externalClassRef name).IsSome ->
                 let tref = (externalClassRef name).Value
+                // A struct external type (`List`1+Enumerator`, §4.4) must encode as a
+                // `VALUETYPE` element, not a class ref; every reference type stays
+                // `false` (the cached `TryLookupType` is cheap on the hot encoder arm).
+                let vt = externalIsValueType name
 
                 if args.IsEmpty then
-                    te.Type(tref, false)
+                    te.Type(tref, vt)
                 else
-                    let g = te.GenericInstantiation(tref, args.Length, false)
+                    let g = te.GenericInstantiation(tref, args.Length, vt)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
@@ -267,6 +272,17 @@ type internal ClrEncoder(env: ClrEnv) =
     member _.EncodeOpen(markerRoots, te, t) = encodeOpen markerRoots te t
     member _.RecoverTypeArgs(markerRoots, openT, instT) = recoverTypeArgs markerRoots openT instT
     member _.ExternalTypeSpec(tref, instArgs) = externalTypeSpec tref instArgs
+
+    /// A `TypeSpec` token for an arbitrary `SemType`, encoded through the full
+    /// `encodeType` path — so a struct external type lands as a `VALUETYPE`
+    /// generic-inst (the duck-typed enumerator's member-ref parent, §4.4), unlike
+    /// `externalTypeSpec`, which hardcodes the class tag. Mirrors `ClrRecipes.typeToken`.
+    member _.TypeSpecOf(ty: SemType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        encodeType te (zonk ty)
+        toEntity (ctx.TypeSpec tsB)
+
     member _.EncodeUnionType(typeIx, te, t) = encodeUnionType typeIx te t
     member _.EncodeLocalSignature locals = encodeLocalSignature locals
 

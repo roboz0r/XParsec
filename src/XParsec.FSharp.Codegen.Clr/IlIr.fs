@@ -49,6 +49,10 @@ type ILInstr =
     | Box of EntityHandle
     /// `unbox.any <type>` — unbox / checked cast to a value type (`:?>`). Net 0.
     | UnboxAny of EntityHandle
+    /// `constrained. <type>` — prefix on the next `callvirt`, dispatching a value-type
+    /// receiver (managed pointer) without boxing. Net 0 (the `callvirt` adjusts). The
+    /// duck-typed struct enumerator's member calls (§4.4).
+    | Constrained of EntityHandle
     | Newobj of EntityHandle * argc: int
     | Call of EntityHandle * argc: int * pushes: int
     | Callvirt of EntityHandle * argc: int * pushes: int
@@ -144,6 +148,7 @@ module private InstrDelta =
         | ILInstr.Castclass _
         | ILInstr.Box _
         | ILInstr.UnboxAny _
+        | ILInstr.Constrained _
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
@@ -233,6 +238,7 @@ module IlIr =
         | ILInstr.Castclass _
         | ILInstr.Box _
         | ILInstr.UnboxAny _
+        | ILInstr.Constrained _
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
@@ -455,6 +461,7 @@ module IlIr =
             | ILInstr.Castclass t -> Cil.emitCastclass il t
             | ILInstr.Box t -> Cil.emitBox il t
             | ILInstr.UnboxAny t -> Cil.emitUnboxAny il t
+            | ILInstr.Constrained t -> Cil.emitConstrained il t
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes
             | ILInstr.Callvirt(m, argc, pushes) -> Cil.emitCallvirt il m argc pushes

@@ -207,6 +207,9 @@ type ClrProvider
         member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
             ext.ExternalMemberRef(key, isProperty, isStatic, memberTy)
 
+        member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
+            ext.ExternalMemberRefOn(key, env.Zonk declTy, isProperty, isStatic, memberTy)
+
         member _.FSharpCoreDependencies() = env.FSharpCoreDependencies()
 
         member _.TryEmitCall(compiledName, key, fnTy) =

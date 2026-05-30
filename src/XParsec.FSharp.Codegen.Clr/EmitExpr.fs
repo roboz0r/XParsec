@@ -302,22 +302,135 @@ module EmitExpr =
             b.Add(ILInstr.Ldloc resultSlot)
         | TExpr.Use(pat, _, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
 
-        | TExpr.ForIn(_, _, _, ForInEnumerator.DuckTyped(enumeratorTy, _, _, _, isValueType, _), _) ->
-            // §4.4 duck-typed / pattern-based `GetEnumerator()`. The front end has
-            // resolved the enumerator type + member keys + struct-ness onto the
-            // node, but the codegen that consumes them — a value-receiver loop
-            // (`ldloca` + `constrained.`/`call` over the struct enumerator,
-            // `Dispose` in the `finally` only when `IDisposable`) — is deferred to a
-            // dedicated session (the project's first value-type member-call IL).
-            // Until then this shape only arises for a source that exposes a
-            // pattern-based `GetEnumerator()` and does *not* implement
-            // `IEnumerable<'T>` (an interface source resolves to `Interface` and
-            // takes the path below), so reaching here is a genuine
-            // not-yet-implemented case, not a regression.
-            failwithf
-                "Emit: duck-typed (pattern-based GetEnumerator) for-in is deferred to the §4.4 codegen session (enumerator %A, isValueType=%b) — see docs/vesper-set-sprint-phase-4.md"
-                enumeratorTy
-                isValueType
+        | TExpr.ForIn(TPat.NamedSimple(binding, elemTy),
+                      source,
+                      body,
+                      ForInEnumerator.DuckTyped(enumeratorTy, geKey, mnKey, curKey, isValueType, disposeOpt),
+                      _) ->
+            // §4.4 duck-typed / pattern-based `GetEnumerator()` — C#'s non-boxing
+            // `foreach`. The source exposes a public `GetEnumerator()` returning an
+            // enumerator type `E` (`List`1+Enumerator<int>`) with `MoveNext(): bool`
+            // and a `Current` property, *without* implementing `IEnumerable<'T>`. The
+            // loop walks `E` directly — by value with no allocation when `E` is a
+            // struct (`isValueType`):
+            //
+            //   let e = (src).GetEnumerator()
+            //   try                                  // only when E : IDisposable
+            //     while e.MoveNext() do e.Current → body
+            //   finally e.Dispose()                  // only when E : IDisposable
+            //
+            // Unlike the §4.2 interface path, `MoveNext` / `Current` are declared on
+            // `E` itself, so their refs come from `ExternalMemberRefOn` (the
+            // declaring instantiation is `enumeratorTy`, not recoverable from a
+            // T-free `MoveNext(): bool`). A struct `E` dispatches via `ldloca` +
+            // `constrained. <E>` callvirt (no box, no null-check — a struct value is
+            // never null); a reference `E` uses `ldloc` + `callvirt` with the
+            // §4.2-style null-checked `Dispose`. `GetEnumerator` is on the (reference)
+            // source, so its ref recovers normally (its return mentions the typar).
+            let geHandle =
+                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst "unit", enumeratorTy))
+
+            let mnHandle =
+                env.Provider.ExternalMemberRefOn(
+                    mnKey,
+                    enumeratorTy,
+                    false,
+                    false,
+                    TyFun(TyConst "unit", TyConst "bool")
+                )
+
+            let curHandle =
+                env.Provider.ExternalMemberRefOn(curKey, enumeratorTy, true, false, elemTy)
+
+            // The `constrained.` token for a struct enumerator — `TypeToken` routes
+            // through the (now value-type-aware) encoder, so `E` lands as a value type.
+            let constrainedTok =
+                if isValueType then
+                    ValueSome(env.Provider.TypeToken enumeratorTy)
+                else
+                    ValueNone
+
+            let enumSlot = b.Local enumeratorTy
+            buildExpr env b source
+            b.Add(ILInstr.Callvirt(geHandle, 1, 1))
+            b.Add(ILInstr.Stloc enumSlot)
+
+            let xSlot = b.Local elemTy
+            env.Slots.[binding] <- xSlot
+
+            // Load the enumerator as the receiver for a member call: a struct by
+            // address (+ `constrained.`), a reference by value.
+            let loadEnumReceiver () =
+                if isValueType then
+                    b.Add(ILInstr.Ldloca enumSlot)
+
+                    match constrainedTok with
+                    | ValueSome t -> b.Add(ILInstr.Constrained t)
+                    | ValueNone -> ()
+                else
+                    b.Add(ILInstr.Ldloc enumSlot)
+
+            let loopStart = b.Label()
+            let loopEnd = b.Label()
+            let endLabel = b.Label()
+
+            match disposeOpt with
+            | ValueSome _ -> b.Add ILInstr.Try
+            | ValueNone -> ()
+
+            b.Add(ILInstr.Mark loopStart)
+            loadEnumReceiver ()
+            b.Add(ILInstr.Callvirt(mnHandle, 1, 1))
+            b.Add(ILInstr.Brfalse loopEnd)
+            // `x = e.Current`, then the unit-typed body whose value is discarded.
+            loadEnumReceiver ()
+            b.Add(ILInstr.Callvirt(curHandle, 1, 1))
+            b.Add(ILInstr.Stloc xSlot)
+            buildExpr env b body
+            b.Add ILInstr.Pop
+            b.Add(ILInstr.Br loopStart)
+            b.Add(ILInstr.Mark loopEnd)
+
+            match disposeOpt with
+            | ValueSome dispKey ->
+                let dispHandle =
+                    env.Provider.ExternalMemberRef(dispKey, false, false, TyFun(TyConst "unit", TyConst "unit"))
+
+                b.Add(ILInstr.Leave endLabel)
+                b.Add ILInstr.BeginFinally
+                b.SetDepth 0
+
+                if isValueType then
+                    // A struct value is never null — no `brfalse` (invalid IL on a
+                    // value). Dispose via `constrained. <E>` callvirt on the address;
+                    // the external `IDisposable.Dispose` carries a real `void` return,
+                    // so the callvirt consumes only the receiver (no `pop`).
+                    b.Add(ILInstr.Ldloca enumSlot)
+
+                    match constrainedTok with
+                    | ValueSome t -> b.Add(ILInstr.Constrained t)
+                    | ValueNone -> ()
+
+                    b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
+                else
+                    // Reference enumerator: the §4.2 null-checked `callvirt` disposal.
+                    let skipLabel = b.Label()
+                    b.Add(ILInstr.Ldloc enumSlot)
+                    b.Add(ILInstr.Brfalse skipLabel)
+                    b.Add(ILInstr.Ldloc enumSlot)
+                    b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
+                    b.Add(ILInstr.Mark skipLabel)
+
+                b.Add ILInstr.EndFinally
+                b.SetDepth 0
+                b.Add(ILInstr.Mark endLabel)
+            | ValueNone ->
+                // `E` is not `IDisposable` — no `try … finally` region at all (C#
+                // parity); the plain `while` simply falls through.
+                b.Add(ILInstr.Mark endLabel)
+
+            // `for` is a unit expression — leave the single reified `unit` value.
+            b.Add ILInstr.Ldnull
         | TExpr.ForIn(TPat.NamedSimple(binding, elemTy), source, body, _, _) ->
             // `for x in src do body` over an `IEnumerable<'T>` (B-6,
             // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator

@@ -24,10 +24,72 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         enc.RecoverTypeArgs(markerRoots, openT, instT)
 
     let externalTypeSpec tref instArgs = enc.ExternalTypeSpec(tref, instArgs)
+    let typeSpecOf ty = enc.TypeSpecOf ty
 
     /// `SymbolKey` (+ instantiation) → minted `MemberRef`, so a member is reified once across a
     /// compilation (mechanism B's codegen memo, §7.2).
     let externalMemberCache = Dictionary<string, EntityHandle>()
+
+    /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
+    /// `void`-return fix) over already-resolved `markerRoots` + open signature, and mint it on `parent`.
+    /// Shared by `externalMemberRef` (parent recovered by signature match) and `externalMemberRefOn`
+    /// (parent encoded straight from the declaring type) — only the parent derivation differs.
+    let mintMemberRef
+        (parent: EntityHandle)
+        (markerRoots: TypeVar list)
+        (openSig: SemType)
+        (isProperty: bool)
+        (isStatic: bool)
+        (argSigLen: int)
+        (memberName: string)
+        : EntityHandle =
+        let metaName = if isProperty then "get_" + memberName else memberName
+        let s = BlobBuilder()
+
+        if isProperty then
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = not isStatic)
+                .Parameters(
+                    0,
+                    (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) openSig),
+                    (fun (_: ParametersEncoder) -> ())
+                )
+        else
+            let rawParams, retTy = decurryTy openSig
+
+            // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`, type-args-bug.md
+            // Layer 1), so the lone decurried "parameter" is the argument `TyTuple` — flatten it back
+            // to N parameters, driven by the chosen key's `argSig` length (authoritative: a genuine
+            // single `(int*int)` param has argSig length 1 and stays one parameter). Arity ≤ 1 unchanged.
+            let paramTys =
+                match rawParams with
+                | [ TyConst "unit" ] -> []
+                | [ TyTuple elems ] when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
+                | ps -> ps
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = not isStatic)
+                .Parameters(
+                    List.length paramTys,
+                    // A `System.Void` return maps to `TyConst "unit"`
+                    // (MetadataSymbols §6.1), but a BCL method's `void` is a
+                    // genuine `void` slot — encoding it as `FSharp.Core.Unit`
+                    // (the value-position `unit` encoding) mints a `MemberRef`
+                    // whose signature no external void method matches, so the
+                    // runtime fails to bind it (`MissingMethodException`). Emit
+                    // `void` directly here (`IDisposable.Dispose`, `List.Add`).
+                    (fun (ret: ReturnTypeEncoder) ->
+                        match retTy with
+                        | TyConst "unit" -> ret.Void()
+                        | _ -> encodeOpen markerRoots (ret.Type()) retTy
+                    ),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeOpen markerRoots (pars.AddParameter().Type()) p
+                    )
+                )
+
+        toEntity (ctx.MemberRef(parent, metaName, s))
 
     /// Mint the `MemberRef` for a `TExpr.ExternalMember` (P4). The member's *open* signature is read
     /// from the (key-pinned, provider-cached) `TryLookupMember` over fresh marker typars; the use-site
@@ -83,53 +145,80 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
             let parent = externalTypeSpec tref (List.map zonk instArgs)
-            let metaName = if isProperty then "get_" + memberName else memberName
-            let s = BlobBuilder()
 
-            if isProperty then
-                BlobEncoder(s)
-                    .MethodSignature(isInstanceMethod = not isStatic)
-                    .Parameters(
-                        0,
-                        (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) openSig),
-                        (fun (_: ParametersEncoder) -> ())
-                    )
-            else
-                let rawParams, retTy = decurryTy openSig
+            let handle =
+                mintMemberRef parent markerRoots openSig isProperty isStatic argSig.Length memberName
 
-                // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`, type-args-bug.md
-                // Layer 1), so the lone decurried "parameter" is the argument `TyTuple` — flatten it back
-                // to N parameters, driven by the chosen key's `argSig` length (authoritative: a genuine
-                // single `(int*int)` param has argSig length 1 and stays one parameter). Arity ≤ 1 unchanged.
-                let paramTys =
-                    match rawParams with
-                    | [ TyConst "unit" ] -> []
-                    | [ TyTuple elems ] when argSig.Length >= 2 && elems.Length = argSig.Length -> EqArray.toList elems
-                    | ps -> ps
+            externalMemberCache.[memoKey] <- handle
+            handle
 
-                BlobEncoder(s)
-                    .MethodSignature(isInstanceMethod = not isStatic)
-                    .Parameters(
-                        List.length paramTys,
-                        // A `System.Void` return maps to `TyConst "unit"`
-                        // (MetadataSymbols §6.1), but a BCL method's `void` is a
-                        // genuine `void` slot — encoding it as `FSharp.Core.Unit`
-                        // (the value-position `unit` encoding) mints a `MemberRef`
-                        // whose signature no external void method matches, so the
-                        // runtime fails to bind it (`MissingMethodException`). Emit
-                        // `void` directly here (`IDisposable.Dispose`, `List.Add`).
-                        (fun (ret: ReturnTypeEncoder) ->
-                            match retTy with
-                            | TyConst "unit" -> ret.Void()
-                            | _ -> encodeOpen markerRoots (ret.Type()) retTy
-                        ),
-                        (fun (pars: ParametersEncoder) ->
-                            for p in paramTys do
-                                encodeOpen markerRoots (pars.AddParameter().Type()) p
-                        )
-                    )
+    /// `externalMemberRef` for a member whose declaring type's instantiation cannot be recovered from
+    /// the member's *open* signature — a T-free member like `MoveNext(): bool` on a generic enumerator
+    /// (§4.4). Instead of `recoverTypeArgs`, the declaring instantiation is read straight off `declTy`
+    /// (the resolved `enumeratorTy`, e.g. `List`1+Enumerator<int>`); its `args` length sets the marker
+    /// count (NOT `arityOfMetaName`, which yields 0 for a nested `…List`1+Enumerator` name). The parent
+    /// `TypeSpec` is encoded through `enc.TypeSpecOf`, so a struct enumerator's parent lands as a
+    /// `VALUETYPE` generic-inst (and nested-correct via the fixed `externalClassRef`).
+    let externalMemberRefOn
+        (key: SymbolKey)
+        (declTy: SemType)
+        (isProperty: bool)
+        (isStatic: bool)
+        (memberTy: SemType)
+        : EntityHandle =
+        let declKey, memberName, argSig =
+            match key with
+            | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
+            | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
-            let handle = toEntity (ctx.MemberRef(parent, metaName, s))
+        let ns, name =
+            match declKey with
+            | SymbolKey.TypeKey(_, ns, name) -> ns, name
+            | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
+
+        let declZ = zonk declTy
+
+        let declArgs =
+            match declZ with
+            | TyClass(_, a) -> EqArray.toList a
+            | _ -> []
+
+        let instTy = zonk memberTy
+        let memoKey = sprintf "on|%A|%A|%b|%b|%A" key declZ isProperty isStatic instTy
+
+        match externalMemberCache.TryGetValue memoKey with
+        | true, h -> h
+        | _ ->
+            let declFullName = if ns = "" then name else ns + "." + name
+
+            // Marker count = the declaring type's generic arity, read off `declTy`'s own args (the
+            // resolved enumerator instantiation), since `arityOfMetaName` returns 0 for a nested
+            // `…List`1+Enumerator` name. `BuildSignature`/`encodeOpen` then see exactly these `!i` slots.
+            let markers = [ for _ in 1 .. List.length declArgs -> TypeVar() ]
+            let markerRoots = markers |> List.map UnionFind.find
+            let markerTys = markers |> List.map TyVar |> List.toArray
+
+            let openSig =
+                let chosen =
+                    match
+                        symbols.TryLookupMembers(declFullName, memberName)
+                        |> Array.tryFind (fun m -> m.Key = key)
+                    with
+                    | Some m -> ValueSome m
+                    | None -> symbols.TryLookupMember(declFullName, memberName)
+
+                match chosen with
+                | ValueSome m -> m.BuildSignature markerTys
+                | ValueNone ->
+                    failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
+
+            // The parent is the declaring type encoded directly (value-type / nested correct), not
+            // recovered+rebuilt — that is the whole point of this entry point.
+            let parent = typeSpecOf declZ
+
+            let handle =
+                mintMemberRef parent markerRoots openSig isProperty isStatic argSig.Length memberName
+
             externalMemberCache.[memoKey] <- handle
             handle
 
@@ -280,6 +369,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
         externalMemberRef key isProperty isStatic memberTy
+
+    member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
+        externalMemberRefOn key declTy isProperty isStatic memberTy
 
     member _.ExternalRecordCtor(fullName, args) = externalRecordCtor fullName args
     member _.ExternalCtor(fullName, tyArgs, argTypes) = externalCtor fullName tyArgs argTypes
