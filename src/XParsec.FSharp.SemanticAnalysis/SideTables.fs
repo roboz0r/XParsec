@@ -487,6 +487,13 @@ type PassContextResolution =
         /// Unification and read by Freeze to populate `TExpr.TypeTest.testTy`
         /// (inheritance-plan §`:?`).
         TypeTestTargets: SideTable<SemType>
+        /// Keyed by a `use` binding's head-pattern `NodeKey`: the `SymbolKey` of the
+        /// `Dispose` member to call when the binder's type is *external* (a BCL
+        /// disposable). Recorded by `Unification`'s `use`-Dispose resolution and read
+        /// by `Freeze` to stamp `TExpr.Use.dispose` (`ValueSome`); absent for a
+        /// project-local binder, where Freeze leaves `ValueNone` and codegen takes the
+        /// duck-typed direct-call path (vesper-set-sprint-phase-4 §4.3).
+        UseDispose: SideTable<SymbolKey>
     }
 
 module PassContextResolution =
@@ -500,6 +507,7 @@ module PassContextResolution =
             ExternalAccess = SideTable<_>()
             ExternalValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()
+            UseDispose = SideTable<_>()
         }
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,

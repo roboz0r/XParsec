@@ -142,7 +142,7 @@ module TastWalk =
             | TExpr.Lambda(p, b, ty) -> TExpr.Lambda(pp p, pe b, f ty)
             | TExpr.App(fn, a, ty) -> TExpr.App(pe fn, pe a, f ty)
             | TExpr.Let(p, v, body, ty) -> TExpr.Let(pp p, pe v, pe body, f ty)
-            | TExpr.Use(p, v, body, ty) -> TExpr.Use(pp p, pe v, pe body, f ty)
+            | TExpr.Use(p, v, body, dispose, ty) -> TExpr.Use(pp p, pe v, pe body, dispose, f ty)
             | TExpr.IfThenElse(c, t, el, ty) -> TExpr.IfThenElse(pe c, pe t, pe el, f ty)
             | TExpr.Tuple(items, ty) -> TExpr.Tuple(EqArray.map pe items, f ty)
             | TExpr.Sequential(items, ty) -> TExpr.Sequential(EqArray.map pe items, f ty)
@@ -282,7 +282,7 @@ module TastWalk =
                 walk fn
                 walk a
             | TExpr.Let(p, v, body, _)
-            | TExpr.Use(p, v, body, _) ->
+            | TExpr.Use(p, v, body, _, _) ->
                 walkPat p
                 walk v
                 walk body

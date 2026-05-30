@@ -212,7 +212,7 @@ module EmitExpr =
             buildExpr env b body
         | TExpr.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
 
-        | TExpr.Use(TPat.NamedSimple(binding, varTy), value, body, _) ->
+        | TExpr.Use(TPat.NamedSimple(binding, varTy), value, body, dispose, _) ->
             // `use x = value in body` → `let x = value in try body finally if x <> null
             // then x.Dispose()` (B-5, vesper-set-sprint-phase-4 §4.1). The IL-IR
             // exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`,
@@ -223,13 +223,31 @@ module EmitExpr =
             // `leave`, so the body's result is parked in a local inside the `try`
             // and reloaded after the finally as the expression's value (works for a
             // unit body too — `Unit` is `null`, parked and reloaded like any value).
-            // The disposal is a direct `x.Dispose()` call (no `IDisposable` upcast):
-            // v1's looser type-check (Phase 5 interfaces aren't a prerequisite),
-            // guarded by a null check so a null binder is a no-op like F#'s `use`.
+            // The disposal is guarded by a null check so a null binder is a no-op
+            // like F#'s `use`. `dispose` selects the path (§4.3): `ValueNone` is the
+            // duck-typed direct `x.Dispose()` call on a project-local binder (no
+            // `IDisposable` upcast, §4.1); `ValueSome key` disposes an external (BCL)
+            // binder through the keyed `Dispose` member the front end resolved.
             //
             // `use` is a statement-position binding, so the surrounding stack is
             // empty here: the region opens at depth 0 and the final `ldloc` leaves
             // exactly the one result value.
+            //
+            // Both disposal paths below guard the call with a reference null check
+            // (`ldloc; brfalse`) and dispatch via `callvirt` — correct only for a
+            // *reference* binder. A value-type binder would need no null check (a
+            // struct can't be null) and an address-based `ldloca` + `call` /
+            // `constrained. callvirt` to avoid boxing the receiver; emitting `brfalse`
+            // on a loaded struct is in fact invalid IL. Vesper has no value types
+            // yet, so this can't be reached today — but fail fast rather than emit
+            // bad IL if a primitive-typed binder ever slips through. A BCL *struct*
+            // disposable (e.g. a struct enumerator) reads as `TyClass` and is
+            // indistinguishable from a class here; supporting it is Step 4.4's job
+            // (it must record struct-ness on the node — the provider's
+            // `ExternalClassShape` doesn't surface it).
+            if isValueType varTy then
+                failwithf "Emit: `use` over a value-type binder is out of scope (vesper-set-sprint-phase-4 §4.4): %A" varTy
+
             let slot = b.Local varTy
             env.Slots.[binding] <- slot
             buildExpr env b value
@@ -248,15 +266,31 @@ module EmitExpr =
             b.SetDepth 0
             b.Add(ILInstr.Ldloc slot)
             b.Add(ILInstr.Brfalse skipLabel)
-            // Reuse the standard instance-call path for `x.Dispose()`: it resolves
-            // the member handle and emits the `callvirt`. `Dispose` returns unit
-            // (one `Unit` value), popped so the finally handler ends empty-stacked.
-            buildExpr
-                env
-                b
-                (TExpr.MethodCall(TExpr.Var(binding, varTy), "Dispose", CallVia.Self, EqArray.empty, TyConst "unit"))
 
-            b.Add ILInstr.Pop
+            match dispose with
+            | ValueNone ->
+                // Reuse the standard instance-call path for `x.Dispose()`: it resolves
+                // the member handle and emits the `callvirt`. `Dispose` returns unit
+                // (one `Unit` value), popped so the finally handler ends empty-stacked.
+                buildExpr
+                    env
+                    b
+                    (TExpr.MethodCall(TExpr.Var(binding, varTy), "Dispose", CallVia.Self, EqArray.empty, TyConst "unit"))
+
+                b.Add ILInstr.Pop
+            | ValueSome key ->
+                // External (BCL) binder (§4.3): dispose through the keyed `Dispose`
+                // the front end resolved (the type's own `Dispose`, or
+                // `System.IDisposable`'s), minted as an `ExternalMemberRef` `callvirt`
+                // — the same machinery the §4.2 for-in disposal uses. The external
+                // member carries a real `void` return (the §4.2 fix), so it pushes
+                // nothing: a receiver-only `callvirt`, no `pop`.
+                let dispHandle =
+                    env.Provider.ExternalMemberRef(key, false, false, TyFun(TyConst "unit", TyConst "unit"))
+
+                b.Add(ILInstr.Ldloc slot)
+                b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
+
             b.SetDepth 0
             b.Add(ILInstr.Mark skipLabel)
             b.Add ILInstr.EndFinally
@@ -264,7 +298,7 @@ module EmitExpr =
             b.SetDepth 0
             b.Add(ILInstr.Mark endLabel)
             b.Add(ILInstr.Ldloc resultSlot)
-        | TExpr.Use(pat, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
+        | TExpr.Use(pat, _, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
 
         | TExpr.ForIn(TPat.NamedSimple(binding, elemTy), source, body, _) ->
             // `for x in src do body` over an `IEnumerable<'T>` (B-6,

@@ -155,7 +155,7 @@ type private Renderer() =
             push " in "
             this.Expr b
 
-        | TExpr.Use(p, v, b, _) ->
+        | TExpr.Use(p, v, b, _, _) ->
             push "use "
             this.Pat p
             push " = "

@@ -1437,7 +1437,11 @@ module Freeze =
 
             result <-
                 if isUse then
-                    TExpr.Use(tpat, valT, result, resultTy)
+                    // An external (BCL) binder's keyed `Dispose` is recorded by
+                    // Unification under the head-pattern's key; a project-local binder
+                    // has none and codegen takes the duck-typed direct call (§4.3).
+                    let dispose = ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat)
+                    TExpr.Use(tpat, valT, result, dispose, resultTy)
                 else
                     TExpr.Let(tpat, valT, result, resultTy)
 

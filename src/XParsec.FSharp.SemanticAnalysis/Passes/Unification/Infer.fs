@@ -29,7 +29,7 @@ module UnificationInfer =
             | Expr.InfixApp(left, _, right) -> inferInfix ctx key left right
             | Expr.PrefixApp(_, operand) -> inferPrefix ctx key operand
             | Expr.Fun(argumentPats = argPats; expr = body) -> inferFun ctx argPats body
-            | Expr.LetOrUse(bindings = bindings; body = body) -> inferLet ctx key bindings body
+            | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> inferLet ctx key kw bindings body
             | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner; rParen = rTok) ->
                 checkLiteralClose ctx key rTok Token.KWRBracket "]"
                 inferListLikeLiteral ctx key inner false
@@ -1277,13 +1277,87 @@ module UnificationInfer =
 
         tgtTy
 
+    /// Resolve a keyed `Dispose` for a `use` binder of *external* (BCL) type
+    /// (vesper-set-sprint-phase-4 §4.3). Prefer the type's *own* declared `Dispose`
+    /// — a duck-typed pattern dispose, including a non-`IDisposable` ref struct —
+    /// then fall back to `System.IDisposable::Dispose` when the type implements the
+    /// interface (the common BCL case: `Dispose` is declared on a base, so
+    /// `TryLookupMember` — `DeclaredOnly` — misses it, but `GetInterfaces` surfaces
+    /// `IDisposable` transitively). `ValueNone` ⇒ the type exposes no `Dispose`.
+    and private tryExternalDispose (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SymbolKey voption =
+        match ctx.Provider.TryLookupMember(name, "Dispose") with
+        | ValueSome m when not m.IsStatic && not m.IsProperty -> ValueSome m.Key
+        | _ ->
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Class shape) when
+                shape.Interfaces(args.AsSpan().ToArray())
+                |> Array.exists (fun (n, _) -> n = "System.IDisposable")
+                ->
+                ValueSome(
+                    SymbolKey.MemberKey(
+                        SymbolKey.TypeKey(None, "System", "IDisposable"),
+                        "Dispose",
+                        EqArray.empty,
+                        MemberKind.Method
+                    )
+                )
+            | _ -> ValueNone
+
+    /// Resolve the disposal target for one `use` binding (§4.3). A *project-local*
+    /// binder keeps the duck-typed direct `Dispose()` call (codegen resolves it via
+    /// the local member table), recorded as nothing so Freeze leaves
+    /// `TExpr.Use.dispose = ValueNone`. An *external* binder's keyed `Dispose` is
+    /// stashed in `UseDispose` for Freeze. A binder with no `Dispose` is a
+    /// `use`-over-non-disposable error (C# parity); an unresolved binder type is
+    /// left alone (pre-existing behaviour).
+    and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
+        match b.headPat with
+        | Pat.NamedSimple _ ->
+            let patKey = CstKeys.ofPat b.headPat
+            let binderTy = zonk (TyVar(tvOf ctx patKey))
+
+            match resolveStep binderTy with
+            | TyClass(name, args) ->
+                match ctx.Types.Class.TryGetValue name with
+                | true, _ ->
+                    match tryClassChainMember ctx name args "Dispose" with
+                    | ValueSome _ -> ()
+                    | ValueNone ->
+                        ctx.Error(
+                            patKey,
+                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" name
+                        )
+                | false, _ ->
+                    match tryExternalDispose ctx name args with
+                    | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
+                    | ValueNone ->
+                        ctx.Error(
+                            patKey,
+                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" name
+                        )
+            | _ -> ()
+        | _ -> ()
+
     and private inferLet
         (ctx: PassContext)
         (key: NodeKey)
+        (keyword: LetOrUseKeyword<SyntaxToken>)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : SemType =
         inferBindingGroup ctx bindings
+
+        // `use` binds a disposable: resolve each binder's `Dispose` so an external
+        // (BCL) disposal can be keyed for codegen and a non-disposable diagnosed
+        // (§4.3). `let` skips this.
+        match keyword with
+        | LetOrUseKeyword.Use _
+        | LetOrUseKeyword.UseBang _ ->
+            for b in bindings do
+                resolveUseDispose ctx b
+        | LetOrUseKeyword.Let _
+        | LetOrUseKeyword.LetBang _ -> ()
+
         infer ctx (CstWalk.requireLetBody body)
 
     and inferBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =

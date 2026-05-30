@@ -8,11 +8,14 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // vesper-set-sprint-phase-4 Step 4.1 / B-5 backend tests. `use x = e in body`
 // lowers to `let x = e in try body finally if x <> null then x.Dispose()`: the
 // IL-IR exception region (H5) wraps the body, and the binder is disposed on
-// every exit. v1 disposes via a direct `Dispose()` call on the binder (the
-// looser type-check — no `IDisposable` upcast, Phase 5 not required), so the
+// every exit. A *project-local* binder disposes via a direct `Dispose()` call
+// (the duck-typed path — no `IDisposable` upcast, Phase 5 not required), so the
 // mock here is a plain user class with a `Dispose` member that records the call
 // by printing. Asserting on captured stdout proves both that `Dispose` ran and
-// that it ran *after* the body.
+// that it ran *after* the body. Step 4.3 extends this to *external* (BCL)
+// binders: the front end resolves a keyed `Dispose` (the type's own, or
+// `System.IDisposable`'s when implemented) and codegen disposes it through an
+// `ExternalMemberRef` `callvirt` — the `MemoryStream` test below is the gate.
 
 [<Tests>]
 let useTests =
@@ -68,5 +71,35 @@ let useTests =
                     (output.Replace("\r", "").Trim())
                     "disposed\n42"
                     "Dispose() runs in the finally; the body's 42 is reloaded as the result"
+            }
+
+            test "`use` over an external BCL disposable compiles, runs, and disposes it (Step 4.3)" {
+                // `System.IO.MemoryStream` declares no `Dispose` of its own — it
+                // inherits `Stream.Dispose()` and implements `IDisposable`. The front
+                // end therefore resolves the *interface* `Dispose` (the provider's
+                // `DeclaredOnly` member walk misses the inherited one), and codegen
+                // disposes through an `ExternalMemberRef` `callvirt`. A false
+                // "non-disposable" diagnostic or a `MissingMethodException` at the
+                // disposal site would fail this; running to a clean exit proves the
+                // external disposal path binds and emits.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let run () ="
+                            "    use s = new System.IO.MemoryStream()"
+                            "    printfn \"body\""
+                            "run ()"
+                        ]
+
+                let _, artifact = compileSource "UseExternalDispose" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "body"
+                    "the body runs and the BCL stream is disposed in the finally without faulting"
             }
         ]
