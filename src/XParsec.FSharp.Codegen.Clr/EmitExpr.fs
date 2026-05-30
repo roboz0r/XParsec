@@ -266,6 +266,122 @@ module EmitExpr =
             b.Add(ILInstr.Ldloc resultSlot)
         | TExpr.Use(pat, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
 
+        | TExpr.ForIn(TPat.NamedSimple(binding, elemTy), source, body, _) ->
+            // `for x in src do body` over an `IEnumerable<'T>` (B-6,
+            // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator
+            // loop through the *interface* slots, so the same shape drives any BCL
+            // collection (and, later, a user `seq`):
+            //
+            //   let e = (src).GetEnumerator()            // IEnumerable<T>::GetEnumerator → IEnumerator<T>
+            //   try
+            //     while e.MoveNext() do                  // IEnumerator::MoveNext
+            //       let x = e.Current                    // IEnumerator<T>::get_Current
+            //       body
+            //   finally
+            //     if e <> null then e.Dispose()          // IDisposable::Dispose
+            //
+            // The four member refs are minted from hand-built `SymbolKey`s against
+            // the well-known interface types — the *declaring* type of each slot,
+            // not the source's concrete type — so a `callvirt` dispatches to the
+            // collection's implementation. `ExternalMemberRef` recovers the
+            // instantiation (`!0` → `elemTy`) from the supplied member type. The
+            // IL-IR exception region (H5) is the same `Try` / `BeginFinally` /
+            // `EndFinally` shape as `TExpr.Use`'s disposal.
+            let enumTy =
+                TyClass("System.Collections.Generic.IEnumerator`1", EqArray.singleton elemTy)
+
+            let geKey =
+                SymbolKey.MemberKey(
+                    SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerable`1"),
+                    "GetEnumerator",
+                    EqArray.empty,
+                    MemberKind.Method
+                )
+
+            let geHandle =
+                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst "unit", enumTy))
+
+            let mnKey =
+                SymbolKey.MemberKey(
+                    SymbolKey.TypeKey(None, "System.Collections", "IEnumerator"),
+                    "MoveNext",
+                    EqArray.empty,
+                    MemberKind.Method
+                )
+
+            let mnHandle =
+                env.Provider.ExternalMemberRef(mnKey, false, false, TyFun(TyConst "unit", TyConst "bool"))
+
+            let curKey =
+                SymbolKey.MemberKey(
+                    SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerator`1"),
+                    "Current",
+                    EqArray.empty,
+                    MemberKind.Property
+                )
+
+            let curHandle = env.Provider.ExternalMemberRef(curKey, true, false, elemTy)
+
+            let dispKey =
+                SymbolKey.MemberKey(
+                    SymbolKey.TypeKey(None, "System", "IDisposable"),
+                    "Dispose",
+                    EqArray.empty,
+                    MemberKind.Method
+                )
+
+            let dispHandle =
+                env.Provider.ExternalMemberRef(dispKey, false, false, TyFun(TyConst "unit", TyConst "unit"))
+
+            // `e = src.GetEnumerator()` — at statement position, so the stack is
+            // empty here and the enumerator local is the only live value.
+            let enumSlot = b.Local enumTy
+            buildExpr env b source
+            b.Add(ILInstr.Callvirt(geHandle, 1, 1))
+            b.Add(ILInstr.Stloc enumSlot)
+
+            let xSlot = b.Local elemTy
+            env.Slots.[binding] <- xSlot
+
+            let loopStart = b.Label()
+            let loopEnd = b.Label()
+            let skipLabel = b.Label()
+            let endLabel = b.Label()
+
+            b.Add ILInstr.Try
+            b.Add(ILInstr.Mark loopStart)
+            b.Add(ILInstr.Ldloc enumSlot)
+            b.Add(ILInstr.Callvirt(mnHandle, 1, 1))
+            b.Add(ILInstr.Brfalse loopEnd)
+            // `x = e.Current`, then the unit-typed body whose value is discarded.
+            b.Add(ILInstr.Ldloc enumSlot)
+            b.Add(ILInstr.Callvirt(curHandle, 1, 1))
+            b.Add(ILInstr.Stloc xSlot)
+            buildExpr env b body
+            b.Add ILInstr.Pop
+            b.Add(ILInstr.Br loopStart)
+            b.Add(ILInstr.Mark loopEnd)
+            b.Add(ILInstr.Leave endLabel)
+
+            b.Add ILInstr.BeginFinally
+            b.SetDepth 0
+            b.Add(ILInstr.Ldloc enumSlot)
+            b.Add(ILInstr.Brfalse skipLabel)
+            b.Add(ILInstr.Ldloc enumSlot)
+            // `IDisposable.Dispose()` returns `void` (pushes nothing — the
+            // external void return encoded in `ClrExternalMembers`), so the
+            // `callvirt` consumes only the receiver and leaves the finally
+            // handler empty-stacked; no `pop` of a phantom result.
+            b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
+            b.Add(ILInstr.Mark skipLabel)
+            b.Add ILInstr.EndFinally
+
+            b.SetDepth 0
+            b.Add(ILInstr.Mark endLabel)
+            // `for` is a unit expression — leave the single reified `unit` value.
+            b.Add ILInstr.Ldnull
+        | TExpr.ForIn(pat, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
+
         | TExpr.Sequential(items, _) ->
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item

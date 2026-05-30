@@ -111,7 +111,18 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     .MethodSignature(isInstanceMethod = not isStatic)
                     .Parameters(
                         List.length paramTys,
-                        (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) retTy),
+                        // A `System.Void` return maps to `TyConst "unit"`
+                        // (MetadataSymbols §6.1), but a BCL method's `void` is a
+                        // genuine `void` slot — encoding it as `FSharp.Core.Unit`
+                        // (the value-position `unit` encoding) mints a `MemberRef`
+                        // whose signature no external void method matches, so the
+                        // runtime fails to bind it (`MissingMethodException`). Emit
+                        // `void` directly here (`IDisposable.Dispose`, `List.Add`).
+                        (fun (ret: ReturnTypeEncoder) ->
+                            match retTy with
+                            | TyConst "unit" -> ret.Void()
+                            | _ -> encodeOpen markerRoots (ret.Type()) retTy
+                        ),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
                                 encodeOpen markerRoots (pars.AddParameter().Type()) p

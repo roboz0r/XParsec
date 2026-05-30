@@ -557,6 +557,29 @@ module UnificationInfer =
         unify ctx key bodyTy BuiltinTypes.tyUnit
         BuiltinTypes.tyUnit
 
+    /// The `IEnumerable<'T>` element-type probe for `for x in src do …` (B-6).
+    /// `srcTy` is either `IEnumerable<'T>` itself, or an external class that
+    /// implements it — the directly-implemented interface set the metadata layer
+    /// surfaces through `ExternalClassShape.Interfaces`. Returns the `'T` so
+    /// `inferForIn` can pin the loop pattern's type. v1 covers external (BCL)
+    /// sources; a *user* class implementing `IEnumerable<'T>` lands with Phase 5.
+    and private tryEnumerableElement (ctx: PassContext) (srcTy: SemType) : SemType voption =
+        let ienumName = "System.Collections.Generic.IEnumerable`1"
+
+        match zonk srcTy with
+        | TyClass(name, args) when name = ienumName && args.Length = 1 -> ValueSome args.[0]
+        | TyClass(name, args) ->
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Class shape) ->
+                match
+                    shape.Interfaces(args.AsSpan().ToArray())
+                    |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
+                with
+                | Some elem -> ValueSome elem
+                | None -> ValueNone
+            | _ -> ValueNone
+        | _ -> ValueNone
+
     and private inferForIn
         (ctx: PassContext)
         (key: NodeKey)
@@ -564,8 +587,9 @@ module UnificationInfer =
         (src: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         : SemType =
-        // Int-range source: element type is int. No `seq<T>` machinery yet
-        // for anything else — pattern stays unconstrained, Info flags the gap.
+        // Int-range source: element type is int. Any other source must be an
+        // `IEnumerable<'T>` (a BCL collection in v1, B-6) — the element type is
+        // recovered from its interface set and the loop pattern unified with it.
         let srcTy = infer ctx src
         let patTy = inferPat ctx pat
 
@@ -581,7 +605,9 @@ module UnificationInfer =
             unify ctx key srcTy BuiltinTypes.tySeqInt
             unify ctx key patTy BuiltinTypes.tyInt
         else
-            ctx.Error(key, "for-in: enumerable / element-type checking not yet implemented")
+            match tryEnumerableElement ctx srcTy with
+            | ValueSome elemTy -> unify ctx key patTy elemTy
+            | ValueNone -> ctx.Error(key, "for-in: source is not a supported enumerable (expected IEnumerable<'T>)")
 
         let bodyTy = infer ctx body
         unify ctx key bodyTy BuiltinTypes.tyUnit
