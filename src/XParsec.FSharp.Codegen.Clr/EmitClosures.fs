@@ -68,7 +68,7 @@ module EmitClosures =
                 go s
                 go e2
                 scoped [ var ] (fun () -> go b)
-            | TExpr.ForIn(p, src, b, _) ->
+            | TExpr.ForIn(p, src, b, _, _) ->
                 go src
                 scoped (patKeys p) (fun () -> go b)
             | TExpr.Match(sc, arms, _) ->
@@ -123,7 +123,7 @@ module EmitClosures =
                 go s
                 go e2
                 scoped [ var ] (fun () -> go b)
-            | TExpr.ForIn(p, src, b, _) ->
+            | TExpr.ForIn(p, src, b, _, _) ->
                 go src
                 scoped (patKeys p) (fun () -> go b)
             | TExpr.Match(sc, arms, _) ->

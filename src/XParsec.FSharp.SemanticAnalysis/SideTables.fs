@@ -323,6 +323,37 @@ type ResolvedExternalMember =
         IsProperty: bool
     }
 
+/// How a `for x in src do …` (`TExpr.ForIn`) sources its enumerator — resolved by
+/// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
+/// codegen can't re-derive the struct-vs-interface decision from the element type
+/// alone (vesper-set-sprint-phase-4 §4.2/§4.4). Defined here (ahead of `Tast.fs`
+/// in compile order) so both the side table below and the `TExpr.ForIn` field can
+/// name it.
+[<RequireQualifiedAccess>]
+type ForInEnumerator =
+    /// The §4.2 interface path: lower through the `IEnumerable<'T>` /
+    /// `IEnumerator<'T>` interface slots with `callvirt`. The default for the
+    /// range form and for every source whose enumerable surface is (or includes)
+    /// the interface — the only path codegen emits today.
+    | Interface
+    /// The §4.4 duck-typed path: the source exposes a public parameterless
+    /// `GetEnumerator()` returning `EnumeratorTy`, which itself exposes
+    /// `MoveNext(): bool` and a `Current` property *without* the source
+    /// implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`). The member
+    /// `SymbolKey`s are the provider-interned identities (`GetEnumerator` on the
+    /// source; `MoveNext` / `Current` on `EnumeratorTy`). `IsValueType` selects
+    /// value-receiver emission (`ldloca` + `constrained.`/`call`); `Dispose` is
+    /// `ValueSome key` iff `EnumeratorTy : IDisposable`, else the `finally` is
+    /// elided. **Scaffolding + front end only** — codegen value-type emission is
+    /// deferred to a dedicated session (see the §4.4 codegen handoff).
+    | DuckTyped of
+        enumeratorTy: SemType *
+        getEnumerator: SymbolKey *
+        moveNext: SymbolKey *
+        current: SymbolKey *
+        isValueType: bool *
+        dispose: SymbolKey voption
+
 [<Sealed>]
 type SideTable<'V>() =
     let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
@@ -494,6 +525,13 @@ type PassContextResolution =
         /// project-local binder, where Freeze leaves `ValueNone` and codegen takes the
         /// duck-typed direct-call path (vesper-set-sprint-phase-4 §4.3).
         UseDispose: SideTable<SymbolKey>
+        /// Keyed by a `for x in src do …` node's `NodeKey`: how the source yields
+        /// its enumerator. Recorded by `Unification.inferForIn` and read by `Freeze`
+        /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`
+        /// (range sources and the §4.2 interface path); present with
+        /// `ForInEnumerator.DuckTyped` for a source exposing only a pattern-based
+        /// `GetEnumerator()` (vesper-set-sprint-phase-4 §4.4).
+        ForInShape: SideTable<ForInEnumerator>
     }
 
 module PassContextResolution =
@@ -508,6 +546,7 @@ module PassContextResolution =
             ExternalValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()
+            ForInShape = SideTable<_>()
         }
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,

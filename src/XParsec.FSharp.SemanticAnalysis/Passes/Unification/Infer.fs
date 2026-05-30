@@ -557,26 +557,111 @@ module UnificationInfer =
         unify ctx key bodyTy BuiltinTypes.tyUnit
         BuiltinTypes.tyUnit
 
-    /// The `IEnumerable<'T>` element-type probe for `for x in src do …` (B-6).
-    /// `srcTy` is either `IEnumerable<'T>` itself, or an external class that
-    /// implements it — the directly-implemented interface set the metadata layer
-    /// surfaces through `ExternalClassShape.Interfaces`. Returns the `'T` so
-    /// `inferForIn` can pin the loop pattern's type. v1 covers external (BCL)
-    /// sources; a *user* class implementing `IEnumerable<'T>` lands with Phase 5.
-    and private tryEnumerableElement (ctx: PassContext) (srcTy: SemType) : SemType voption =
+    /// The §4.4 duck-typed enumerator probe: C#'s pattern-based `foreach` accepts
+    /// any source exposing a public parameterless `GetEnumerator()` whose return
+    /// type `E` exposes `MoveNext(): bool` and a `Current` property — no
+    /// `IEnumerable<'T>` required (`List<'T>` hands back its non-boxing
+    /// `struct Enumerator` this way). Returns the element type (`Current`'s type)
+    /// and the resolved `DuckTyped` descriptor so codegen can pick value-receiver
+    /// emission. `srcArgs` are the source class's type arguments — the substitution
+    /// for `GetEnumerator`'s (and thereby `E`'s) typars.
+    and private tryDuckTypedEnumerator
+        (ctx: PassContext)
+        (shape: ExternalClassShape)
+        (srcArgs: SemType[])
+        : (SemType * ForInEnumerator) voption =
+        match
+            shape.Members
+            |> Array.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsProperty)
+        with
+        | None -> ValueNone
+        | Some ge ->
+            // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's
+            // own instantiation (`List`1+Enumerator` over the source's `'T`).
+            match ge.BuildSignature srcArgs with
+            | TyFun(_, (TyClass(enumName, enumArgsEq) as enumTy)) ->
+                match ctx.Provider.TryLookupType enumName with
+                | ValueSome(ExternalTypeShape.Class enumShape) ->
+                    let enumArgs = enumArgsEq.AsSpan().ToArray()
+
+                    let moveNext =
+                        enumShape.Members
+                        |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsProperty)
+
+                    let current =
+                        enumShape.Members
+                        |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsProperty)
+
+                    match moveNext, current with
+                    | Some mn, Some cur ->
+                        match mn.BuildSignature enumArgs with
+                        | TyFun(_, TyConst "bool") ->
+                            let elemTy = cur.BuildSignature enumArgs
+
+                            // The enumerator only needs disposing — and the `finally`
+                            // region only exists — when it is `IDisposable` (C# parity).
+                            let dispose =
+                                if
+                                    enumShape.Interfaces enumArgs
+                                    |> Array.exists (fun (n, _) -> n = "System.IDisposable")
+                                then
+                                    ValueSome(
+                                        SymbolKey.MemberKey(
+                                            SymbolKey.TypeKey(None, "System", "IDisposable"),
+                                            "Dispose",
+                                            EqArray.empty,
+                                            MemberKind.Method
+                                        )
+                                    )
+                                else
+                                    ValueNone
+
+                            ValueSome(
+                                elemTy,
+                                ForInEnumerator.DuckTyped(
+                                    enumTy,
+                                    ge.Key,
+                                    mn.Key,
+                                    cur.Key,
+                                    enumShape.Flags.IsValueType,
+                                    dispose
+                                )
+                            )
+                        | _ -> ValueNone
+                    | _ -> ValueNone
+                | _ -> ValueNone
+            | _ -> ValueNone
+
+    /// The element-type + enumerator-shape probe for `for x in src do …` (B-6 /
+    /// §4.4). `srcTy` is either `IEnumerable<'T>` itself, an external class that
+    /// implements it (the directly-implemented interface set the metadata layer
+    /// surfaces through `ExternalClassShape.Interfaces`), or — as the §4.4
+    /// fallback — a source exposing a pattern-based `GetEnumerator()`. Returns the
+    /// `'T` so `inferForIn` can pin the loop pattern's type, plus the
+    /// `ForInEnumerator` codegen reads off the frozen node.
+    and private tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
         let ienumName = "System.Collections.Generic.IEnumerable`1"
 
         match zonk srcTy with
-        | TyClass(name, args) when name = ienumName && args.Length = 1 -> ValueSome args.[0]
+        | TyClass(name, args) when name = ienumName && args.Length = 1 -> ValueSome(args.[0], ForInEnumerator.Interface)
         | TyClass(name, args) ->
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
+                let argArr = args.AsSpan().ToArray()
+
+                // Prefer the `IEnumerable<'T>` interface shape: it is the only path
+                // codegen emits today, so resolving a source that *also* implements
+                // the interface to `Interface` keeps the §4.2 lowering (and the
+                // existing `List<int>` for-in) unchanged. C#'s precedence is the
+                // reverse — the pattern-based `GetEnumerator()` wins so `List<'T>`
+                // walks its non-boxing struct enumerator — which the full §4.4
+                // codegen flips to once value-type member-call emission lands.
                 match
-                    shape.Interfaces(args.AsSpan().ToArray())
+                    shape.Interfaces argArr
                     |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
                 with
-                | Some elem -> ValueSome elem
-                | None -> ValueNone
+                | Some elem -> ValueSome(elem, ForInEnumerator.Interface)
+                | None -> tryDuckTypedEnumerator ctx shape argArr
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -605,9 +690,15 @@ module UnificationInfer =
             unify ctx key srcTy BuiltinTypes.tySeqInt
             unify ctx key patTy BuiltinTypes.tyInt
         else
-            match tryEnumerableElement ctx srcTy with
-            | ValueSome elemTy -> unify ctx key patTy elemTy
-            | ValueNone -> ctx.Error(key, "for-in: source is not a supported enumerable (expected IEnumerable<'T>)")
+            match tryForInEnumerator ctx srcTy with
+            | ValueSome(elemTy, shape) ->
+                unify ctx key patTy elemTy
+                ctx.Resolution.ForInShape.Set(key, shape)
+            | ValueNone ->
+                ctx.Error(
+                    key,
+                    "for-in: source is not a supported enumerable (expected IEnumerable<'T> or a pattern-based GetEnumerator())"
+                )
 
         let bodyTy = infer ctx body
         unify ctx key bodyTy BuiltinTypes.tyUnit

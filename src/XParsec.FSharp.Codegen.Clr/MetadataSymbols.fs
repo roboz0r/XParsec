@@ -394,6 +394,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             IsSealed = t.IsSealed
             IsAbstract = t.IsAbstract
             AllowNullLiteral = hasAllowNullLiteral t
+            IsValueType = t.IsValueType
         }
 
     let computeType (name: string) : ExternalTypeShape voption =

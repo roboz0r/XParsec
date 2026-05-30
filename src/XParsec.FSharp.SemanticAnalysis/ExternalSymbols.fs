@@ -208,6 +208,13 @@ type ExternalClassFlags =
         IsSealed: bool
         IsAbstract: bool
         AllowNullLiteral: bool
+        /// `true` for a .NET value type (`struct`) — read off `Type.IsValueType`
+        /// by the metadata layer. Codegen needs it to pick value-receiver emission
+        /// (`ldloca` + `constrained.`/`call`) over reference `callvirt`; the duck-
+        /// typed `for … in` over a struct enumerator (`List<'T>.Enumerator`) is the
+        /// first consumer (vesper-set-sprint-phase-4 §4.4). Contract-layer providers
+        /// leave it `false` (a `.fsi` doesn't yet publish struct-ness).
+        IsValueType: bool
     }
 
     /// The conservative default the contract layer stamps when a `.fsi` only
@@ -217,6 +224,7 @@ type ExternalClassFlags =
             IsSealed = false
             IsAbstract = false
             AllowNullLiteral = false
+            IsValueType = false
         }
 
 /// The shape of an external class or interface (pre-sprint-recommendations H2).

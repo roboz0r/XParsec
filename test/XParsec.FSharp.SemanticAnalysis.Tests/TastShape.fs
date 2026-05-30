@@ -212,7 +212,7 @@ type private Renderer() =
             push " do "
             this.Expr b
 
-        | TExpr.ForIn(p, src, b, _) ->
+        | TExpr.ForIn(p, src, b, _, _) ->
             push "for "
             this.Pat p
             push " in "

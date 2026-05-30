@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.ForInTests
 
 open System
 open Expecto
+open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -54,5 +55,38 @@ let forInTests =
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the sequence in order"
+            }
+
+            // vesper-set-sprint-phase-4 Step 4.4 — front end only. The duck-typed
+            // (pattern-based `GetEnumerator()`) codegen is deferred (the project's
+            // first value-type member-call IL), so this asserts the *analysis*
+            // resolves the loop rather than running the program.
+            test "for-in over a duck-typed source (no IEnumerable<'T>) type-checks via the pattern GetEnumerator()" {
+                // `System.Collections.BitArray` implements only the *non-generic*
+                // `IEnumerable`, so the §4.2 `IEnumerable<'T>` interface probe
+                // misses it; the §4.4 duck-typed fallback resolves it through its
+                // public `GetEnumerator(): IEnumerator`, whose `MoveNext(): bool` +
+                // `Current` property drive the loop and pin the element type. Before
+                // §4.4 this raised a "source is not a supported enumerable"
+                // diagnostic.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let f (ba: System.Collections.BitArray) ="
+                            "    for x in ba do"
+                            "        ()"
+                        ]
+
+                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let lexed, file = parseFile src
+                let tast = Pipeline.analyse provider src lexed file
+
+                let errors =
+                    tast.Diagnostics
+                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                    |> Seq.toList
+
+                Expect.isEmpty errors (sprintf "duck-typed for-in should type-check; got %A" errors)
             }
         ]

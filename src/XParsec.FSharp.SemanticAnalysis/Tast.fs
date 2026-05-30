@@ -101,8 +101,12 @@ type TExpr =
     | ForTo of var: NodeKey * startExpr: TExpr * endExpr: TExpr * body: TExpr * ty: SemType
     /// `ty` is always unit. `pat`'s type matches the element type of `source`
     /// — pinned to `int` for range sources, left as a free TypeVar otherwise.
-    /// `body` types as unit.
-    | ForIn of pat: TPat * source: TExpr * body: TExpr * ty: SemType
+    /// `body` types as unit. `enumerator` records how the source yields its
+    /// enumerator (the front-end resolution): `Interface` lowers through the
+    /// `IEnumerable<'T>` interface slots (§4.2, the range form too); `DuckTyped`
+    /// carries a pattern-based struct/class `GetEnumerator()` (§4.4 — codegen
+    /// emission deferred). Codegen can't re-derive this from the element type.
+    | ForIn of pat: TPat * source: TExpr * body: TExpr * enumerator: ForInEnumerator * ty: SemType
     /// `scrutinee` and each `arms.[i].Pat` share the same type; every
     /// `arms.[i].Body` shares `ty`. `function` desugars to a Match over a
     /// synthetic parameter — same TExpr shape.

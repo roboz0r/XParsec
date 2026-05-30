@@ -151,7 +151,7 @@ module TastWalk =
             // it — passes that rename binders (`Inline.freshen`) must override
             // `ForTo` at the expr level.
             | TExpr.ForTo(k, s, e2, b, ty) -> TExpr.ForTo(k, pe s, pe e2, pe b, f ty)
-            | TExpr.ForIn(p, src, b, ty) -> TExpr.ForIn(pp p, pe src, pe b, f ty)
+            | TExpr.ForIn(p, src, b, en, ty) -> TExpr.ForIn(pp p, pe src, pe b, en, f ty)
             | TExpr.Match(sc, arms, ty) -> TExpr.Match(pe sc, EqArray.map pa arms, f ty)
             | TExpr.TryWith(b, arms, ty) -> TExpr.TryWith(pe b, EqArray.map pa arms, f ty)
             | TExpr.TryFinally(b, c, ty) -> TExpr.TryFinally(pe b, pe c, f ty)
@@ -301,7 +301,7 @@ module TastWalk =
                 walk s
                 walk e2
                 walk b
-            | TExpr.ForIn(p, src, b, _) ->
+            | TExpr.ForIn(p, src, b, _, _) ->
                 walkPat p
                 walk src
                 walk b

@@ -657,7 +657,15 @@ module Freeze =
             let varKey = CstKeys.ofForToVar ident
             TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty)
         | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) ->
-            TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, ty)
+            // How the source yields its enumerator was resolved by Unification and
+            // stashed by this node's key; absent ⇒ the §4.2 interface path (range
+            // sources and IEnumerable<'T> sources alike).
+            let enumerator =
+                match ctx.Resolution.ForInShape.TryGetValue key with
+                | ValueSome shape -> shape
+                | ValueNone -> ForInEnumerator.Interface
+
+            TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, enumerator, ty)
         | Expr.String _ -> translateString ctx e ty
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
             TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty)

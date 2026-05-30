@@ -246,7 +246,9 @@ module EmitExpr =
             // (it must record struct-ness on the node — the provider's
             // `ExternalClassShape` doesn't surface it).
             if isValueType varTy then
-                failwithf "Emit: `use` over a value-type binder is out of scope (vesper-set-sprint-phase-4 §4.4): %A" varTy
+                failwithf
+                    "Emit: `use` over a value-type binder is out of scope (vesper-set-sprint-phase-4 §4.4): %A"
+                    varTy
 
             let slot = b.Local varTy
             env.Slots.[binding] <- slot
@@ -300,7 +302,23 @@ module EmitExpr =
             b.Add(ILInstr.Ldloc resultSlot)
         | TExpr.Use(pat, _, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
 
-        | TExpr.ForIn(TPat.NamedSimple(binding, elemTy), source, body, _) ->
+        | TExpr.ForIn(_, _, _, ForInEnumerator.DuckTyped(enumeratorTy, _, _, _, isValueType, _), _) ->
+            // §4.4 duck-typed / pattern-based `GetEnumerator()`. The front end has
+            // resolved the enumerator type + member keys + struct-ness onto the
+            // node, but the codegen that consumes them — a value-receiver loop
+            // (`ldloca` + `constrained.`/`call` over the struct enumerator,
+            // `Dispose` in the `finally` only when `IDisposable`) — is deferred to a
+            // dedicated session (the project's first value-type member-call IL).
+            // Until then this shape only arises for a source that exposes a
+            // pattern-based `GetEnumerator()` and does *not* implement
+            // `IEnumerable<'T>` (an interface source resolves to `Interface` and
+            // takes the path below), so reaching here is a genuine
+            // not-yet-implemented case, not a regression.
+            failwithf
+                "Emit: duck-typed (pattern-based GetEnumerator) for-in is deferred to the §4.4 codegen session (enumerator %A, isValueType=%b) — see docs/vesper-set-sprint-phase-4.md"
+                enumeratorTy
+                isValueType
+        | TExpr.ForIn(TPat.NamedSimple(binding, elemTy), source, body, _, _) ->
             // `for x in src do body` over an `IEnumerable<'T>` (B-6,
             // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator
             // loop through the *interface* slots, so the same shape drives any BCL
@@ -414,7 +432,7 @@ module EmitExpr =
             b.Add(ILInstr.Mark endLabel)
             // `for` is a unit expression — leave the single reified `unit` value.
             b.Add ILInstr.Ldnull
-        | TExpr.ForIn(pat, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
+        | TExpr.ForIn(pat, _, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
 
         | TExpr.Sequential(items, _) ->
             // Every item but the last is a unit-typed statement: emit it and

@@ -18,7 +18,7 @@ module EmitLower =
         | TExpr.Sequential(_, ty) -> ty
         | TExpr.While(_, _, ty) -> ty
         | TExpr.ForTo(_, _, _, _, ty) -> ty
-        | TExpr.ForIn(_, _, _, ty) -> ty
+        | TExpr.ForIn(_, _, _, _, ty) -> ty
         | TExpr.Match(_, _, ty) -> ty
         | TExpr.TryWith(_, _, ty) -> ty
         | TExpr.TryFinally(_, _, ty) -> ty
@@ -146,7 +146,7 @@ module EmitLower =
         | TExpr.Sequential(xs, t) -> TExpr.Sequential(EqArray.map f xs, t)
         | TExpr.While(c, b, t) -> TExpr.While(f c, f b, t)
         | TExpr.ForTo(v, s, e2, b, t) -> TExpr.ForTo(v, f s, f e2, f b, t)
-        | TExpr.ForIn(p, src, b, t) -> TExpr.ForIn(p, f src, f b, t)
+        | TExpr.ForIn(p, src, b, en, t) -> TExpr.ForIn(p, f src, f b, en, t)
         | TExpr.Match(sc, arms, t) ->
             TExpr.Match(
                 f sc,
