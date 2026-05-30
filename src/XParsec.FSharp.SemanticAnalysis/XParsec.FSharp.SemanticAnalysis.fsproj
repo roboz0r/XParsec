@@ -39,6 +39,7 @@
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />
+    <Compile Include="FreezeExpr.fs" />
     <Compile Include="Freeze.fs" />
     <Compile Include="Passes\RefCellPromotion.fs" />
     <Compile Include="ResolvedTypes.fs" />
