@@ -388,6 +388,16 @@ module VesperLib =
     /// Returns the (compiled name, declared arity) tuple so the body
     /// extractor below can populate `ctx.TypeShapes` against the same key.
     /// `ValueNone` indicates the declaration was malformed (no ident).
+    /// The undotted short name of a `TypeName` (its last ident segment), or `""`
+    /// when it carries none. The key `ctx.IntrinsicReprs` is harvested under.
+    let private shortNameOfTypeName (lexed: Lexed) (input: string) (typeName: TypeName<SyntaxToken>) : string =
+        let (TypeName(_, _, _, ident, _, _)) = typeName
+
+        if ident.Idents.Length = 0 then
+            ""
+        else
+            nameOfTok lexed input ident.Idents.[ident.Idents.Length - 1]
+
     let private registerTypeDecl
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -624,14 +634,33 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
 
+        | TypeSignature.Extern(typeName = typeName) ->
+            // An `extern` type is either an intrinsic-repr primitive (its sibling
+            // `.fs` carries `type x = (# "<repr>" #)`, harvested into
+            // `ctx.IntrinsicReprs` before extraction) or an opaque abstract type
+            // / real class with no `.fs` binding. The former publishes as a
+            // NON-transparent `Intrinsic repr` (a use site resolves to the
+            // nominal `TyConst name`, the repr feeding codegen / `subsumes`); the
+            // latter falls through to `Class` exactly as a non-extern nominal
+            // does (intrinsic-repr-handoff.md — `.fsi`/`.fs` pairing).
+            match registerTypeDecl ctx lexed input path typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) ->
+                let short = shortNameOfTypeName lexed input typeName
+
+                match ctx.IntrinsicReprs.TryGetValue short with
+                | true, repr -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic repr
+                | _ ->
+                    ctx.TypeShapes.[compiled] <-
+                        ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
+
         | TypeSignature.Anon(typeName = typeName)
         | TypeSignature.Class(typeName = typeName)
         | TypeSignature.Struct(typeName = typeName)
-        | TypeSignature.Extern(typeName = typeName)
         | TypeSignature.AbstractType typeName ->
-            // Nominal types with no front-end-modelled body shape (an `extern`
-            // primitive like `int`, a class, an opaque abstract type). Resolve as
-            // a non-interface `Class` so codegen can mint a ref off the origin.
+            // Nominal types with no front-end-modelled body shape (a class, an
+            // opaque abstract type). Resolve as a non-interface `Class` so codegen
+            // can mint a ref off the origin.
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
@@ -802,6 +831,68 @@ module VesperLib =
                 for i in 0 .. elems.Length - 1 do
                     extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] [] elems.[i]
         | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
+
+    /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
+    /// (`(# "System.Int32" #)` ⇒ `"System.Int32"`). Mirrors
+    /// `NameResolution.TypeRegistration.ilIntrinsicString` for the extractor's
+    /// `.fs`-harvest path, where the consumer's `PassContext` is not in scope.
+    let private ilIntrinsicReprString
+        (lexed: Lexed)
+        (input: string)
+        (parts: System.Collections.Immutable.ImmutableArray<StringPart<SyntaxToken>>)
+        : string =
+        let sb = System.Text.StringBuilder()
+
+        for part in parts do
+            match part with
+            | StringPart.Text t
+            | StringPart.EscapeSequence t
+            | StringPart.FormatSpecifier t
+            | StringPart.EscapePercent t
+            | StringPart.VerbatimEscapeQuote t
+            | StringPart.OrphanFormatSpecifier t
+            | StringPart.InvalidText t -> sb.Append(nameOfTok lexed input t) |> ignore
+            | StringPart.Expr _ -> ()
+
+        sb.ToString()
+
+    /// Harvest the per-target intrinsic-representation bindings from a parsed
+    /// `.fs` companion (`type exn = (# "System.Exception" #)`) into
+    /// `ctx.IntrinsicReprs` (short name ⇒ repr). This is the `.fs` half of the
+    /// `.fsi`/`.fs` pairing: the `.fsi` `type exn = extern` deliberately omits
+    /// the repr, so the identity lives only here. Run BEFORE the `.fsi`
+    /// extraction so the `extern` arm of `extractTypeSig` can publish
+    /// `ExternalTypeShape.Intrinsic` (intrinsic-repr-handoff.md).
+    ///
+    /// A direct CST scrape — NOT `Pipeline.analyse` — because (a) all we need is
+    /// the `type <name> = (# "<repr>" #)` shape, and (b) the prim-types `.fs`
+    /// carry cons-list augmentation members that trip unimplemented analysis
+    /// paths (`CstKeys.firstTokenOfPat: TODO Cons`). A later binding wins a clash.
+    let harvestIntrinsicReprs (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
+        let implFile =
+            match parsed.Ast with
+            | FSharpAst.ImplementationFile f -> Some f
+            | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
+                Some(ImplementationFile.AnonymousModule elems)
+            | _ -> None
+
+        match implFile with
+        | None -> ()
+        | Some f ->
+            let nameOf t = nameOfTok parsed.Lexed parsed.Input t
+
+            for (m, _) in CstWalk.walkModuleTree nameOf OpenScope.empty f do
+                match m with
+                | ModuleElem.Type defs ->
+                    for td in defs do
+                        match td with
+                        | TypeDefn.Abbrev(typeName = TypeName(ident = li); typ = Type.ILIntrinsic(instrParts = parts)) when
+                            li.Idents.Length = 1
+                            ->
+                            ctx.IntrinsicReprs.[nameOf li.Idents.[0]] <-
+                                ilIntrinsicReprString parsed.Lexed parsed.Input parts
+                        | _ -> ()
+                | _ -> ()
 
     /// F#'s implicit prelude namespaces / `[<AutoOpen>]` modules in
     /// `Microsoft.FSharp.*`. Seeded into `ctx.AutoOpenPrefixes` so the

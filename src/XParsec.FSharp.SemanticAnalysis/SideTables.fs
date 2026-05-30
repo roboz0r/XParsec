@@ -440,7 +440,7 @@ type PassContextResolution =
         mutable OpenScope: OpenScope
         /// The *stable* ambient prelude each pass seeds its `walkModuleTree` from —
         /// distinct from the mutable `OpenScope` (which a pass overwrites per
-        /// element). Seeded from the provider's `IAmbientOpenScope` (the
+        /// element). Seeded from the provider's `AmbientOpenPrefixes` (the
         /// referenced-contract `[<AutoOpen>]` modules / prelude), empty when the
         /// provider surfaces none. Both NameResolution and Unification must read
         /// the *same* seed, so it can't be the per-element `OpenScope` they mutate.
@@ -516,45 +516,39 @@ module PassContextResolution =
 /// scopes). See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.3.
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
-    // Seed the ambient (implicit-open) prelude from the provider if it surfaces
-    // one (`IAmbientOpenScope` — the referenced-contract `[<AutoOpen>]` modules /
+    // Seed the ambient (implicit-open) prelude from the provider's
+    // `AmbientOpenPrefixes` (the referenced-contract `[<AutoOpen>]` modules /
     // FSharp.Core prelude). This is the single seam: every path that builds a
     // `PassContext` (the pipeline and the direct-construction tests alike) picks
-    // it up here. Providers without an implicit prelude contribute the empty
-    // ambient, so resolution is unchanged for them. The ambient sits at the tail
-    // of the prefix list, so explicit `open`s the pass walk prepends are tried
-    // first (symbol-resolution-handoff.md, open-resolution).
+    // it up here. Providers without an implicit prelude return `[]`, so
+    // resolution is unchanged for them. The ambient sits at the tail of the
+    // prefix list, so explicit `open`s the pass walk prepends are tried first
+    // (symbol-resolution-handoff.md, open-resolution).
     let ambientOpenScope =
-        match box provider with
-        | :? IAmbientOpenScope as a ->
-            { OpenScope.empty with
-                Prefixes = a.AmbientOpenPrefixes
-            }
-        | _ -> OpenScope.empty
+        { OpenScope.empty with
+            Prefixes = provider.AmbientOpenPrefixes
+        }
 
-    // Seed the intrinsic-representation map from the provider if it surfaces one
-    // (`IIntrinsicReprProvider` — referenced packages' per-target `.fs` bindings
-    // like `type exn = (# "System.Exception" #)`). Same seam as the ambient open
-    // scope: every path that builds a `PassContext` picks it up here. A
-    // referenced package's intrinsic types resolve through `(# … #)` *exactly*
-    // like the consumer's own (`type int = (# "System.Int32" #)`) — one uniform
-    // mechanism, no per-name special case. The consumer's own NameResolution
-    // registers its local bindings on top; a clash is the existing duplicate-type
-    // diagnostic (a consumer can't redefine `exn`).
+    // `IntrinsicReprTypes` holds ONLY this compilation unit's own intrinsic
+    // bindings (`type int = (# "System.Int32" #)`), registered by NameResolution.
+    // A *referenced* package's intrinsics are no longer seeded here: they ride
+    // the provider as `ExternalTypeShape.Intrinsic` shapes, read local-first /
+    // provider-fallback by `subsumes.canonName`, `translateType`, and codegen
+    // (intrinsic-repr-handoff.md — first-cut teardown).
     let types = PassContextTypes.empty ()
-
-    do
-        match box provider with
-        | :? IIntrinsicReprProvider as r ->
-            for (name, repr) in r.IntrinsicReprs do
-                types.IntrinsicReprTypes.[name] <- repr
-        | _ -> ()
 
     member val Provider = provider
     member val Input = input
     member val Lexed = lexed
     member val Diagnostics = ResizeArray<Diagnostic>() with get
     member val Types = types with get
+    /// PassContext-lifetime memo of intrinsic-name → canonical repr, populated
+    /// lazily by `subsumes.canonName`. `subsumes`' recursive walk would otherwise
+    /// round-trip the composite provider / MetadataLoadContext per node to read
+    /// an `ExternalTypeShape.Intrinsic` repr; the set is tiny and bounded, so a
+    /// per-context cache keyed by name suffices. A name that is neither a local
+    /// nor a provider intrinsic caches its own identity. See intrinsic-repr-handoff.md.
+    member val IntrinsicCanonCache = Dictionary<string, string>() with get
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get

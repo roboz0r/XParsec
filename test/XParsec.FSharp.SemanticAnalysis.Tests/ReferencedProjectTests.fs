@@ -58,20 +58,21 @@ let tests =
                 Expect.isEmpty diags (sprintf "expected clean parse, got: %A" diags)
             }
 
-            test "int resolves (qualified) as a Class shape with a non-empty Origin" {
+            test "int resolves (qualified) as an Intrinsic shape carrying its `.fs` repr" {
                 let provider, _ = builtProvider.Value
 
                 // Short names no longer resolve through the provider's own retry
                 // (O3): they're resolved by the pipeline via the ambient prefix
-                // set. The provider answers the qualified name directly, stamping
-                // the package `Origin`.
+                // set. The provider answers the qualified name directly. `int` is an
+                // `extern` paired with its sibling `.fs` `(# "System.Int32" #)`
+                // binding, so it surfaces as an `Intrinsic` carrying the CLI repr —
+                // NOT an opaque `Class`. The repr is what codegen / `subsumes`
+                // consume; an intrinsic carries no `Origin` (it keys off the repr
+                // string, not an assembly ref) — intrinsic-repr-handoff.md.
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.Arity 0 "int is non-generic"
-                    Expect.isFalse info.IsInterface "int is not an interface"
-                    Expect.equal info.Origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"
-                    Expect.equal info.Origin.Namespace "Vesper" "origin namespace = Vesper"
-                | other -> failtestf "expected Vesper.int as Class shape, got %A" other
+                | ValueSome(ExternalTypeShape.Intrinsic repr) ->
+                    Expect.equal repr "System.Int32" "int carries its prim-types-min `.fs` representation"
+                | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
             test "Fun resolves (qualified) as a Class shape with a non-empty Origin" {
@@ -100,20 +101,16 @@ let tests =
 
             test "the contract surfaces its [<AutoOpen>] modules + namespace as the ambient prefix set" {
                 let provider, _ = builtProvider.Value
+                let prefixes = provider.AmbientOpenPrefixes
+                // `ops-platform.fsi`'s `[<AutoOpen>]` operator modules, plus
+                // the package namespace as the trailing implicit prefix.
+                Expect.isTrue
+                    (List.contains "Vesper.ArithmeticOperators" prefixes)
+                    "ArithmeticOperators auto-open surfaced"
 
-                match box provider with
-                | :? IAmbientOpenScope as a ->
-                    let prefixes = a.AmbientOpenPrefixes
-                    // `ops-platform.fsi`'s `[<AutoOpen>]` operator modules, plus
-                    // the package namespace as the trailing implicit prefix.
-                    Expect.isTrue
-                        (List.contains "Vesper.ArithmeticOperators" prefixes)
-                        "ArithmeticOperators auto-open surfaced"
-
-                    Expect.isTrue (List.contains "Vesper.Operators" prefixes) "Operators (hash) auto-open surfaced"
-                    Expect.isTrue (List.contains "Vesper" prefixes) "namespace surfaced as the trailing prefix"
-                    Expect.equal (List.last prefixes) "Vesper" "namespace is last (probed after the AutoOpen modules)"
-                | _ -> failtest "the manifest provider should implement IAmbientOpenScope"
+                Expect.isTrue (List.contains "Vesper.Operators" prefixes) "Operators (hash) auto-open surfaced"
+                Expect.isTrue (List.contains "Vesper" prefixes) "namespace surfaced as the trailing prefix"
+                Expect.equal (List.last prefixes) "Vesper" "namespace is last (probed after the AutoOpen modules)"
             }
 
             test "an unknown type misses" {

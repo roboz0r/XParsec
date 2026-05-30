@@ -121,6 +121,7 @@ let tests =
                         member _.TryLookupType _ = ValueNone
                         member _.TryLookupMember(_, _) = ValueNone
                         member _.TryLookupMembers(_, _) = [||]
+                        member _.AmbientOpenPrefixes = []
                     }
 
                 let input = "let r = let f = myId in f 1, f true"

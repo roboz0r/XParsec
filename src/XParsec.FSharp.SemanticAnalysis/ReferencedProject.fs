@@ -118,6 +118,29 @@ module ReferencedProject =
             let dir = Path.GetDirectoryName manifestPath
             let ctx = VesperLib.ExtractCtx.empty ()
 
+            // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the per-target
+            // intrinsic reprs from each contract's sibling `.fs` companion FIRST,
+            // so the `extern` arm of the `.fsi` extraction below publishes a
+            // matched primitive as `ExternalTypeShape.Intrinsic repr` rather than
+            // an opaque `Class`. The `.fs` is the only place the repr lives
+            // (the `.fsi` commits `type exn = extern`, no repr) —
+            // intrinsic-repr-handoff.md (moved here from the codegen-layer harvest).
+            for rel in manifest.Files do
+                let fsRel = Path.ChangeExtension(rel, ".fs")
+                let abs = Path.Combine(dir, fsRel)
+
+                if File.Exists abs then
+                    let fsFile: VesperLib.LibFile =
+                        {
+                            BucketName = manifest.Name
+                            Relative = fsRel
+                            Absolute = abs
+                        }
+
+                    match VesperLib.parseFileFull fsFile with
+                    | Error _ -> ()
+                    | Ok parsed -> VesperLib.harvestIntrinsicReprs ctx parsed
+
             for rel in manifest.Files do
                 let file: VesperLib.LibFile =
                     {

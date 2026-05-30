@@ -288,6 +288,16 @@ type ExternalTypeShape =
     /// directly. Contract-layer providers stamp `ExternalClassShape.basic`; the
     /// metadata layer fills the rich form.
     | Class of shape: ExternalClassShape
+    /// A *referenced* package's intrinsic-representation binding: an `extern`
+    /// type whose sibling `.fs` carries `type x = (# "<repr>" #)`
+    /// (`type exn = (# "System.Exception" #)`, prim-types-exn.fs). `repr` is the
+    /// CLI representation string. NON-transparent (unlike `Abbrev`): a use site
+    /// resolves to the nominal `TyConst name`, never the expanded `repr`. The
+    /// repr is consumed only by codegen (`IntrinsicRepr`) and by `subsumes`'
+    /// `canonName` to reconcile the contract name with its metadata type. This
+    /// mirrors the *local* `IntrinsicReprTypes` semantics (SideTables.fs) for a
+    /// referenced package; arity is always 0 (primitives are non-generic).
+    | Intrinsic of repr: string
 
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call
 /// concurrently from multiple threads. Implementations that cache lazily must
@@ -320,37 +330,19 @@ type IExternalSymbolProvider =
     /// single-pick collapse).
     abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
 
-/// Optional capability a provider may implement to contribute an *ambient*
-/// (implicit) open-prefix set — the prelude / referenced-contract `[<AutoOpen>]`
-/// modules. The pipeline seeds `PassContext.Resolution.AmbientOpenScope` from it, where it
-/// is probed strictly BEHIND explicit `open`s: a short name tries its bare form
-/// and every explicit open first, and only then these ambient prefixes
-/// (symbol-resolution-handoff.md, open-resolution — auto-opens resolve as if behind explicit opens).
-/// Providers with no implicit prelude (`MockBuiltins`, inline test fakes) simply
-/// don't implement it, so they contribute an empty ambient and behave exactly as
-/// before. Kept separate from `IExternalSymbolProvider` for that reason: every
-/// inline provider would otherwise have to implement it.
-type IAmbientOpenScope =
-    /// Dotted namespace/module prefixes in priority order (earliest wins on a
-    /// collision), e.g. `["Vesper.ArithmeticOperators"; "Vesper"]`. Tried as
-    /// candidate qualifiers for a short name after the bare name and all
-    /// explicit opens have missed.
+    /// The *ambient* (implicit) open-prefix set this provider contributes — the
+    /// prelude / referenced-contract `[<AutoOpen>]` modules. The pipeline seeds
+    /// `PassContext.Resolution.AmbientOpenScope` from it, where it is probed
+    /// strictly BEHIND explicit `open`s: a short name tries its bare form and
+    /// every explicit open first, and only then these ambient prefixes
+    /// (symbol-resolution-handoff.md, open-resolution). Dotted prefixes in
+    /// priority order (earliest wins on a collision), e.g.
+    /// `["Vesper.ArithmeticOperators"; "Vesper"]`. Providers with no implicit
+    /// prelude (`MockBuiltins`, inline test fakes) return `[]`. Required (was the
+    /// optional `IAmbientOpenScope` cast); folded in alongside the intrinsic
+    /// surface, which now rides `TryLookupType` via `ExternalTypeShape.Intrinsic`
+    /// (intrinsic-repr-handoff.md — first-cut teardown).
     abstract AmbientOpenPrefixes: string list
-
-/// Optional capability a provider may implement to contribute the
-/// *intrinsic-representation* bindings harvested from a referenced package's
-/// per-target `.fs` files (`type exn = (# "System.Exception" #)`,
-/// prim-types-exn.fs). The pipeline seeds `PassContext.Types.IntrinsicReprTypes`
-/// from it, so a consumer learns that e.g. `exn` is *represented by* the BCL
-/// `System.Exception` — the bridge `subsumes` needs to reconcile a user-facing
-/// `exn` with a metadata-surfaced `TyClass("System.Exception", _)`. The `.fsi`
-/// contract only commits `type exn = extern` (no repr), so this identity can
-/// only come from the `.fs`. Providers with no intrinsic bindings don't
-/// implement it and contribute nothing. Kept separate from
-/// `IExternalSymbolProvider` for the same reason as `IAmbientOpenScope`.
-type IIntrinsicReprProvider =
-    /// `(vesperTypeName, ilReprString)` pairs, e.g. `("exn", "System.Exception")`.
-    abstract IntrinsicReprs: (string * string) seq
 
 module ExternalSymbols =
 
@@ -408,14 +400,15 @@ module ExternalSymbols =
             member _.TryLookupType _ = ValueNone
             member _.TryLookupMember(_, _) = ValueNone
             member _.TryLookupMembers(_, _) = [||]
+            member _.AmbientOpenPrefixes = []
         }
 
     /// The single provider-shim primitive: first-hit-wins composition over
-    /// `sources` plus an `IAmbientOpenScope` carrying `ambient`, optionally
+    /// `sources`, surfacing `ambient` via `AmbientOpenPrefixes`, optionally
     /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
     /// `ExternalMember` to carry `stampOrigin`'s `SymbolOrigin`. `composite`
     /// and `ReferencedProject.wrap` both layer on top of this — one TryLookup*
-    /// fall-through, one IAmbientOpenScope surface, one place to keep the shape
+    /// fall-through, one ambient surface, one place to keep the shape
     /// switch in `TryLookupType` honest when a new `ExternalTypeShape` case
     /// learns to carry its `Origin`.
     let stack
@@ -468,7 +461,8 @@ module ExternalSymbols =
                     | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
                     | ExternalTypeShape.Abbrev _
-                    | ExternalTypeShape.Union _ -> shape
+                    | ExternalTypeShape.Union _
+                    | ExternalTypeShape.Intrinsic _ -> shape
 
         { new IExternalSymbolProvider with
             member _.TryLookup name =
@@ -523,22 +517,19 @@ module ExternalSymbols =
                 | ValueNone -> result
                 | ValueSome _ -> result |> Array.map stampMember
 
-          interface IAmbientOpenScope with
-              member _.AmbientOpenPrefixes = ambient
+            member _.AmbientOpenPrefixes = ambient
         }
 
     /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude
     /// prefixes, concatenated in source priority order (so a higher-priority
     /// provider's auto-opens shadow a lower one's on a name collision, same
     /// first-hit-wins ordering as lookups). Providers without an implicit
-    /// prelude (`MockBuiltins`, inline test fakes) don't implement
-    /// `IAmbientOpenScope` and contribute nothing.
+    /// prelude (`MockBuiltins`, inline test fakes) return `[]` and contribute
+    /// nothing.
     let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
         [
             for s in sources do
-                match box s with
-                | :? IAmbientOpenScope as a -> yield! a.AmbientOpenPrefixes
-                | _ -> ()
+                yield! s.AmbientOpenPrefixes
         ]
 
     /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
@@ -546,7 +537,7 @@ module ExternalSymbols =
     /// (a referenced project beats a referenced assembly — symbol-resolution-plan
     /// §5). Project-local symbols are not here: `PassContext` resolves them
     /// before the provider is ever consulted. Just `stack` with no origin
-    /// stamping and ambient computed from each source's `IAmbientOpenScope`.
+    /// stamping and ambient computed from each source's `AmbientOpenPrefixes`.
     let composite (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
         match sources with
         | [] -> nullProvider

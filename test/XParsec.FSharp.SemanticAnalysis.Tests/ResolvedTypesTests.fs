@@ -140,4 +140,28 @@ let tests =
 
                 Expect.equal added 0 "TyVar bound by the matching scheme is allowed"
             }
+
+            // No-provider regression (intrinsic-repr-handoff.md Goal 2): with the
+            // hardcoded `"int" -> BuiltinTypes.tyInt` arms deleted from
+            // `translateType`, a primitive type annotation must still pin to
+            // `TyConst "int"` even when NO provider supplies an `Intrinsic` shape —
+            // via the step-6 opaque fallback (`TyConst name`). Uses the true
+            // `nullProvider` (every `TryLookupType` is `ValueNone`) so nothing but
+            // the fallback can produce the type.
+            test "primitive annotations pin to TyConst via the opaque fallback with a null provider" {
+                let bindingTy (src: string) : SemType =
+                    let lexed, file = parseFile src
+                    let tast = Pipeline.analyse ExternalSymbols.nullProvider src lexed file
+
+                    match tast.Decls with
+                    | EqList [ TDecl.Let(TPat.NamedSimple(_, ty), _, _, _) ] -> ty
+                    | other -> failwithf "expected a single annotated let, got %A" other
+
+                Expect.equal (bindingTy "let x : int = 1") (TyConst "int") "int annotation pins to TyConst \"int\""
+
+                Expect.equal
+                    (bindingTy "let b : bool = true")
+                    (TyConst "bool")
+                    "bool annotation pins to TyConst \"bool\""
+            }
         ]

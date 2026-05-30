@@ -401,14 +401,12 @@ let tests =
                     | TyFun(TyVar _, TyFun(TyVar _, TyVar _)) -> ()
                     | other -> failtestf "op_Addition shape unexpected: %A" other
 
-                // The auto-open prefix is exposed via `IAmbientOpenScope`, not a
-                // provider-internal retry.
-                match box libProvider with
-                | :? IAmbientOpenScope as a ->
-                    Expect.isTrue
-                        (a.AmbientOpenPrefixes |> List.contains "Microsoft.FSharp.Core.Operators")
-                        "lib surfaces the Operators auto-open prefix"
-                | _ -> failtest "lib provider should implement IAmbientOpenScope"
+                // The auto-open prefix is exposed via the provider's
+                // `AmbientOpenPrefixes` member, not a provider-internal retry.
+                Expect.isTrue
+                    (libProvider.AmbientOpenPrefixes
+                     |> List.contains "Microsoft.FSharp.Core.Operators")
+                    "lib surfaces the Operators auto-open prefix"
 
                 // Unknown name: both providers miss.
                 match chained.TryLookup "nope.no.such.symbol" with

@@ -270,17 +270,46 @@ module UnificationEngine =
         // Canonical nominal name for subtype comparison. A primitive intrinsic
         // binding (`type exn = (# "System.Exception" #)`, prim-types-exn.fs) stays
         // a *non-transparent* `TyConst "exn"` (Translate.fs) — it never expands to
-        // its RHS the way a plain abbreviation does. Its CLI representation lives
-        // in `IntrinsicReprTypes`, which is exactly the BCL type name the external
-        // `inherit`-chain walk surfaces. Mapping through it makes a user-facing
-        // `exn` and a metadata-surfaced `TyClass("System.Exception", _)` the *same*
-        // nominal. The identity `exn === System.Exception` therefore originates
-        // from prim-types-exn.fs (recorded in `IntrinsicReprTypes`), not a literal
-        // baked into the unifier — retarget the core lib and this follows.
+        // its RHS the way a plain abbreviation does. Its CLI representation is the
+        // BCL type name the external `inherit`-chain walk surfaces. Mapping through
+        // it makes a user-facing `exn` and a metadata-surfaced
+        // `TyClass("System.Exception", _)` the *same* nominal. The identity
+        // `exn === System.Exception` therefore originates from prim-types-exn.fs,
+        // not a literal baked into the unifier — retarget the core lib and this follows.
+        //
+        // Resolution order (intrinsic-repr-handoff.md, local-first / provider-fallback):
+        //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`,
+        //      keyed by the unqualified name it declared);
+        //   2. a *referenced* package's intrinsics, riding the provider as
+        //      `ExternalTypeShape.Intrinsic repr` (the self-compiled `exn` is local;
+        //      a consumer's `exn` comes from Vesper.Core through the provider).
+        // `n` here is the unqualified nominal (`translateType` strips an external
+        // intrinsic to its short name so `exn` unifies with literals), so the
+        // provider tier resolves it through the *same* ambient open scope
+        // `translateType` used — `exn` ⇒ `Vesper.exn` ⇒ `Intrinsic "System.Exception"`.
+        // Memoized per `PassContext`: `canonName` runs inside `subsumes`' recursive
+        // walk, so without the cache every node would round-trip the composite
+        // provider / MetadataLoadContext through that ambient candidate list. A name
+        // that is neither a local nor a provider intrinsic caches its own identity.
+        let providerIntrinsicRepr (c: string) : string voption =
+            match ctx.Provider.TryLookupType c with
+            | ValueSome(ExternalTypeShape.Intrinsic repr) -> ValueSome repr
+            | _ -> ValueNone
+
         let canonName (n: string) : string =
-            match ctx.Types.IntrinsicReprTypes.TryGetValue n with
+            match ctx.IntrinsicCanonCache.TryGetValue n with
             | true, repr -> repr
-            | _ -> n
+            | _ ->
+                let repr =
+                    match ctx.Types.IntrinsicReprTypes.TryGetValue n with
+                    | true, repr -> repr
+                    | _ ->
+                        match OpenScope.tryResolve ctx.Resolution.OpenScope providerIntrinsicRepr n with
+                        | ValueSome repr -> repr
+                        | ValueNone -> n
+
+                ctx.IntrinsicCanonCache.[n] <- repr
+                repr
 
         // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
         // (so the `exn` bound participates), not just `TyClass`.

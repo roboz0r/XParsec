@@ -55,6 +55,8 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             match this.TryLookupMember(t, m) with
             | ValueSome mem -> [| mem |]
             | ValueNone -> [||]
+
+        member _.AmbientOpenPrefixes = []
     }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which

@@ -16,7 +16,8 @@ open XParsec.FSharp.Parser
 ///     until the body walk has registered every typar they might reference.
 ///   - `ExtractCtx` — the per-build accumulator: symbol / type-shape tables,
 ///     diagnostics, ambient open-prefix set. `ExtractCtx.toProvider` lifts
-///     it to an `IExternalSymbolProvider` (plus `IAmbientOpenScope`).
+///     it to an `IExternalSymbolProvider` (surfacing the ambient prefixes
+///     via its `AmbientOpenPrefixes` member).
 module VesperLibTyparCapture =
 
     /// SemType template parameterised over a fresh-TyVar array (one per
@@ -115,6 +116,17 @@ module VesperLibTyparCapture =
         /// records, unions, and abbreviations are populated in v1; classes
         /// and other shapes land later.
         member val TypeShapes = Dictionary<string, ExternalTypeShape>(StringComparer.Ordinal) with get
+        /// Intrinsic-representation index: *short* type name -> CLI repr string,
+        /// harvested from the package's per-target `.fs` companions
+        /// (`type exn = (# "System.Exception" #)` ⇒ `"exn" -> "System.Exception"`).
+        /// Populated BEFORE `.fsi` extraction so the `extern` arm of
+        /// `extractTypeSig` can publish a matching extern as
+        /// `ExternalTypeShape.Intrinsic repr` instead of an opaque `Class`
+        /// (intrinsic-repr-handoff.md — the `.fsi`/`.fs` pairing moves here from
+        /// the codegen-layer harvest). Empty for callers with no `.fs` companions
+        /// (e.g. `VesperLib.buildProvider` over the signature-only FSharp.Core
+        /// port), so every extern stays a `Class` exactly as before.
+        member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
         /// Qualified names of `[<AutoOpen>]` modules encountered during
         /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
         /// referenced contract surfaces these as its ambient open-prefix set so a
@@ -151,7 +163,5 @@ module VesperLibTyparCapture =
 
                 member _.TryLookupMember(_, _) = ValueNone
                 member _.TryLookupMembers(_, _) = [||]
-
-              interface IAmbientOpenScope with
-                  member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
+                member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
             }

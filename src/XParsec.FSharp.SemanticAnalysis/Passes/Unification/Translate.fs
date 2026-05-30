@@ -143,18 +143,16 @@ module UnificationTranslate =
             let name = ctx.NameOf li.Idents.[0]
 
             match name with
-            | "int" -> BuiltinTypes.tyInt
-            | "bool" -> BuiltinTypes.tyBool
-            | "unit" -> BuiltinTypes.tyUnit
-            | "float" -> BuiltinTypes.tyFloat
-            | "string" -> BuiltinTypes.tyString
-            | "int64" -> BuiltinTypes.tyInt64
-            | "byte" -> BuiltinTypes.tyByte
             | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name ->
                 // Primitive binding (`type int = (# "System.Int32" #)`): a
                 // nominal intrinsic, NOT a transparent abbreviation. Resolve to
                 // `TyConst name`; the representation string is consumed later by
                 // the codegen `encodeType` rekey. See docs/self-host-rung1-plan.md.
+                // No hardcoded `"int" -> BuiltinTypes.tyInt` arms: primitives now
+                // resolve uniformly through this local check, the external provider
+                // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque
+                // fallback below — all of which yield `TyConst name`, identical to
+                // the retired anchors (intrinsic-repr-handoff.md Goal 2).
                 TyConst name
             | _ ->
                 match ctx.Types.Abbreviation.TryGetValue name with
@@ -389,6 +387,7 @@ module UnificationTranslate =
         let shapeArity (shape: ExternalTypeShape) : int =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
+            | ExternalTypeShape.Intrinsic _ -> 0
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a) -> a
@@ -403,6 +402,19 @@ module UnificationTranslate =
                         | ExternalTypeShape.Class _ -> Some(TyClass(key, translatedArgs))
                         | ExternalTypeShape.Record _ -> Some(TyRecord(key, translatedArgs))
                         | ExternalTypeShape.Union _ -> Some(TyUnion(key, translatedArgs))
+                        // A referenced intrinsic (`exn = (# "System.Exception" #)`):
+                        // NON-transparent, resolves to the nominal `TyConst <short>` —
+                        // the *unqualified* name, identical to the local arm
+                        // (`IntrinsicReprTypes.ContainsKey name -> TyConst name`) and to
+                        // `BuiltinTypes.tyInt = TyConst "int"`, so an external `int` /
+                        // `string` unifies with literals and keys the codegen repr map
+                        // the same way a locally-declared one does. (The qualified `key`
+                        // is what `subsumes.canonName` re-resolves through the ambient to
+                        // recover the repr.) The repr is consumed by codegen / subsumes,
+                        // never by dealiasing here (intrinsic-repr-handoff.md Goal 2).
+                        | ExternalTypeShape.Intrinsic _ ->
+                            let short = key.Substring(key.LastIndexOf('.') + 1)
+                            Some(TyConst short)
                         // A transparent abbreviation dealiases to its body: `int32 =
                         // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
                         // "int"`, the form codegen actually encodes — without this an

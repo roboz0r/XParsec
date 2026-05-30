@@ -49,13 +49,16 @@ let tests =
             test "the Vesper.Core manifest layer adds type + operator resolution from the contract" {
                 let provider = SymbolProviders.build [ vesperCoreManifest ]
 
-                // Layer 1 (manifest) contributes the `int` type with its origin.
-                // Short-name resolution moved out of the provider into the ambient
-                // open scope (O3), so the provider answers the qualified name.
+                // Layer 1 (manifest) contributes the `int` type. Short-name
+                // resolution moved out of the provider into the ambient open scope
+                // (O3), so the provider answers the qualified name. `int` is an
+                // `extern` paired with its `.fs` `(# "System.Int32" #)` binding, so
+                // the manifest layer surfaces it as an `Intrinsic` shape carrying the
+                // CLI repr — NOT an opaque `Class` (intrinsic-repr-handoff.md).
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.Origin.Assembly (Some "Vesper.Core") "int resolves through the manifest layer"
-                | other -> failtestf "expected Vesper.int as a Class shape from the manifest layer, got %A" other
+                | ValueSome(ExternalTypeShape.Intrinsic repr) ->
+                    Expect.equal repr "System.Int32" "int surfaces its prim-types-min `.fs` representation"
+                | other -> failtestf "expected Vesper.int as an Intrinsic shape from the manifest layer, got %A" other
 
                 // Operators now resolve from the contract — but only under their
                 // *qualified* `[<AutoOpen>]`-module name (the pipeline reaches the

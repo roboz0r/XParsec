@@ -545,6 +545,12 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 membersCache.[key] <- v
                 v
 
+        // The BCL metadata layer contributes no implicit prelude — the ambient
+        // `[<AutoOpen>]` / namespace prefixes come from the contract layer
+        // (`ReferencedProject`), so this returns `[]` (intrinsic-repr-handoff.md
+        // — `IAmbientOpenScope` folded into `IExternalSymbolProvider`).
+        member _.AmbientOpenPrefixes = []
+
 module MetadataSymbols =
 
     /// The host runtime's trusted-platform assemblies — the BCL the codegen host
