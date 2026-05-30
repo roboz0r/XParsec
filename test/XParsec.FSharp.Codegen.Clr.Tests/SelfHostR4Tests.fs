@@ -7,8 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// R4 (docs/selfhost-handoff.md): the bootstrap plumbing is off FSharp.Core. Two
-// things lock that in:
+// The bootstrap plumbing is off FSharp.Core. Two things lock that in:
 //   1. The canonical sample's on-disk bundle ships only the `Vesper.*` libraries it
 //      binds against — no `FSharp.Core.dll` — and still runs. `materialiseApp` copies
 //      exactly the assemblies the emitted PE references (`ReferencedAssemblies`), so

@@ -147,7 +147,7 @@ module UnificationTranslate =
                 // Primitive binding (`type int = (# "System.Int32" #)`): a
                 // nominal intrinsic, NOT a transparent abbreviation. Resolve to
                 // `TyConst name`; the representation string is consumed later by
-                // the codegen `encodeType` rekey. See docs/self-host-rung1-plan.md.
+                // the codegen `encodeType` rekey.
                 // No hardcoded `"int" -> BuiltinTypes.tyInt` arms: primitives now
                 // resolve uniformly through this local check, the external provider
                 // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque

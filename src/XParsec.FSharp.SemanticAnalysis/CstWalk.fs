@@ -416,8 +416,7 @@ module CstWalk =
     /// arbitrary nesting) rather than surfaced as a `ModuleElem.Module`. v1 has
     /// no module-scoped types, so every pass that walks `implFileElems` analyses
     /// a nested module's contents without needing its own `ModuleElem.Module`
-    /// arm. (Proper module nesting / qualification is a later rung — see
-    /// docs/selfhost-handoff.md G10.)
+    /// arm. (Proper module nesting / qualification is a later rung.)
     let implFileElems (file: ImplementationFile<SyntaxToken>) : ModuleElems<SyntaxToken> =
         let b = ImmutableArray.CreateBuilder<ModuleElem<SyntaxToken>>()
 

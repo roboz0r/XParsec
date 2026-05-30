@@ -65,7 +65,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // R3 (docs/selfhost-handoff.md): the bare-program list literal +
+            // The bare-program list literal +
             // `List.fold` now retarget onto the Vesper `List` — the literal builds a
             // `Vesper.Collections.List` and `List.fold` is emitted inline over it
             // (`Vesper.Fun` folder, `IsEmpty`/`Head`/`Tail`), so the canonical sample

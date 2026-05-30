@@ -31,7 +31,6 @@
     <Compile Include="Assembler.fs" />
     <Compile Include="NominalEmit.fs" />
     <Compile Include="Codegen.fs" />
-    <None Include="docs\codegen-clr-plan.md" Condition="Exists('docs\codegen-clr-plan.md')" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />

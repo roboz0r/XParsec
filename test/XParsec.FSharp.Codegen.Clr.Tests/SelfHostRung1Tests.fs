@@ -7,7 +7,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Self-hosting rung 1 (docs/self-host-rung1-plan.md): compile the real
+// Compile the real
 // `src/Vesper.Core/prim-types-min.fs` into a `Vesper.Core.dll` library that
 // emits the `Fun<'A,'B>` interface and references no `FSharp.Core`. The
 // intrinsic abbrevs (`type int = (# "System.Int32" #)` …) surface nothing —
@@ -89,7 +89,7 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // G4 item 5 (docs/selfhost-handoff.md): an abstract method declaring its
+            // An abstract method declaring its
             // *own* generic parameters. `GenericParam` rows must be globally sorted
             // by `CodedIndex.TypeOrMethodDef` — the method's `'B` (a MethodDef owner)
             // sorts *before* the type's `'A` (a later TypeDef owner), so a naive
@@ -128,12 +128,12 @@ let tests =
                 Expect.equal map.ReturnType methodArgs.[0] "the return is the method's 'B"
             }
 
-            // G7 (docs/selfhost-handoff.md): the backend keys a primitive's emitted
-            // IL type off its *representation string* — the value a `type x = (# "..." #)`
+            // The backend keys a primitive's emitted IL type off its
+            // *representation string* — the value a `type x = (# "..." #)`
             // intrinsic binds (on `TastFile.IntrinsicReprTypes`) — not a hard-coded
             // Vesper name, so retargeting is a one-line `.fs` edit. Compiling the same
             // interface twice with different bindings, the param/return type follows it.
-            test "an interface method's custom intrinsic primitive is emitted from its representation string (G7)" {
+            test "an interface method's custom intrinsic primitive is emitted from its representation string" {
                 let unwrapOf (asmSuffix: string) (repr: string) : System.Reflection.MethodInfo =
                     let src =
                         sprintf
@@ -188,13 +188,13 @@ let tests =
                     "the custom-intrinsic-typed closure encoded via the repr rekey and the app ran"
             }
 
-            // G5 / P2 (docs/selfhost-handoff.md): `assembleLibrary` reuses a
-            // `ClrProvider`'s `encodeType`, so an abstract method may reference a
-            // *concrete* type — here a nested function `('A -> 'B)` — that the old
-            // provider-free path would `failwith` on. Post-R1 that function type
-            // encodes to `Vesper.Fun\`2` (read from Vesper.Core), so the DLL
-            // references Vesper.Core and pins **no** FSharp.Core construct.
-            test "an interface method referencing a function type encodes to Vesper.Fun via the provider (G5 / R1)" {
+            // `assembleLibrary` reuses a `ClrProvider`'s `encodeType`, so an
+            // abstract method may reference a *concrete* type — here a nested
+            // function `('A -> 'B)` — that the old provider-free path would
+            // `failwith` on. That function type encodes to `Vesper.Fun\`2`
+            // (read from Vesper.Core), so the DLL references Vesper.Core and
+            // pins **no** FSharp.Core construct.
+            test "an interface method referencing a function type encodes to Vesper.Fun via the provider" {
                 let src =
                     "namespace Vesper\n\ntype Applier<'A, 'B> =\n    abstract member Apply : f: ('A -> 'B) -> x: 'A -> 'B"
 

@@ -6,9 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Rung 2 of the self-hosting ladder (docs/self-host-rung2-plan.md): the backend
-// expression compiler — `if`/`then`/`else`, `match`, recursion, and our-own
-// union construction + deconstruction.
+// The backend expression compiler — `if`/`then`/`else`, `match`, recursion,
+// and our-own union construction + deconstruction.
 
 [<Tests>]
 let tests =

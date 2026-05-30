@@ -15,7 +15,7 @@ open XParsec.FSharp.Parser
 /// emitted static method its source `Name` on the `Holder` type in `Namespace`
 /// (e.g. `Vesper.Collections.ListModule::fold`). The `Module` suffix follows the
 /// F# rule that a module sharing a name with a type in its namespace compiles to
-/// `<Name>Module`. See docs/selfhost-handoff.md (R3 "compile `fold` into the core").
+/// `<Name>Module`.
 type ModuleMemberInfo =
     {
         Namespace: string option
@@ -373,8 +373,8 @@ type PassContextTypes =
         /// string), from an intrinsic-binding abbrev (`type int = (# "System.Int32" #)`).
         /// Unlike `Abbreviation`, these are NOT transparent: a use site resolves to
         /// `TyConst name`, not the RHS — the binding records *how the target
-        /// represents* the type, not an alias to expand. Input to the future
-        /// `encodeType` rekey; see docs/self-host-rung1-plan.md.
+        /// represents* the type, not an alias to expand. Input to the
+        /// `encodeType` rekey.
         IntrinsicReprTypes: Dictionary<string, string>
     }
 

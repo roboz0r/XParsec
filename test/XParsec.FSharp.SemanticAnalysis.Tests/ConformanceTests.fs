@@ -1,6 +1,6 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ConformanceTests
 
-// selfhost-handoff P4 — sig/impl conformance. Proves the Vesper.Core contract
+// Sig/impl conformance. Proves the Vesper.Core contract
 // (`.fsi`) `extern` capability set coincides with the implementation (`.fs`)
 // `(# … #)` intrinsic representation set, and exercises each drift the check
 // catches. A source-level check, so it is not gated on the self-hosting rungs.

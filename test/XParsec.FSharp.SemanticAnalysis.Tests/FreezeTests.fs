@@ -179,12 +179,12 @@ let tests =
 
         ]
 
-// G1 (docs/selfhost-handoff.md): every pass — not just Freeze — now walks
-// `namespace`-headed files, so declarations under a `namespace` are fully
-// analysed (name-resolved, inferred, frozen) exactly like a module file.
-// Before G1, Desugar / NameResolution / Unification / Regions / Validation
-// dropped namespace files, so a `let` under a `namespace` silently froze to
-// an untyped / unresolved TAST.
+// Every pass — not just Freeze — walks `namespace`-headed files, so
+// declarations under a `namespace` are fully analysed (name-resolved,
+// inferred, frozen) exactly like a module file. Earlier, Desugar /
+// NameResolution / Unification / Regions / Validation dropped namespace
+// files, so a `let` under a `namespace` silently froze to an untyped /
+// unresolved TAST.
 [<Tests>]
 let namespaceTests =
     testList
@@ -239,12 +239,12 @@ let namespaceTests =
             }
         ]
 
-// P3d.2 (docs/selfhost-handoff.md): every pass + Freeze descend into a nested
-// `module Foo = …`. Its body is flattened to the enclosing scope (v1 has no
-// module-scoped types), the same simplification `CstWalk.implFileElems` applies
-// to namespace groups. Before this slice the analysis passes never descended
-// into `ModuleElem.Module` (Validation `failwith`'d on it) and Freeze dropped
-// the body, so a `let` inside a nested module silently vanished.
+// Every pass + Freeze descend into a nested `module Foo = …`. Its body is
+// flattened to the enclosing scope (v1 has no module-scoped types), the same
+// simplification `CstWalk.implFileElems` applies to namespace groups. Earlier
+// the analysis passes never descended into `ModuleElem.Module` (Validation
+// `failwith`'d on it) and Freeze dropped the body, so a `let` inside a nested
+// module silently vanished.
 [<Tests>]
 let nestedModuleTests =
     testList
@@ -302,7 +302,7 @@ let nestedModuleTests =
             }
         ]
 
-// G3 (docs/selfhost-handoff.md): an interface-shaped `TypeDefn.Anon` surfaces as
+// An interface-shaped `TypeDefn.Anon` surfaces as
 // `TDecl.Type` whose method signatures are read from the *resolved* member types
 // in `ctx.Types.Class` (NameResolution registers the abstract member; Unification
 // fills its signature), with the declaring typars remapped to the `TyConst "'A"`
@@ -337,8 +337,8 @@ let interfaceTests =
                 | other -> failtestf "expected single TDecl.Type, got %A" other
             }
 
-            // G4 item 5 (docs/selfhost-handoff.md): an abstract method may carry
-            // its *own* generic parameters (`abstract Map<'B> : 'A -> 'B`). Its `'B`
+            // An abstract method may carry its *own* generic parameters
+            // (`abstract Map<'B> : 'A -> 'B`). Its `'B`
             // is no longer diagnosed as a free typar; it surfaces on the method as
             // `MethodTypeParams` and rides the signature as a `TyConst "'B"` marker,
             // distinct from the declaring type's `'A`.
@@ -364,11 +364,11 @@ let interfaceTests =
             }
         ]
 
-// P3d.1 (docs/selfhost-handoff.md): the front-end union *shape* needed to compile
-// `Vesper.Collections.List` verbatim — operator-named cases (`([])` → Empty,
-// `(::)` → Cons) and the explicit-return (GADT-syntax) case forms FSharp.Core's
-// list uses (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
-// Before this slice `inspectCaseData` returned `""` for any operator head (the
+// The front-end union *shape* needed to compile `Vesper.Collections.List`
+// verbatim — operator-named cases (`([])` → Empty, `(::)` → Cons) and the
+// explicit-return (GADT-syntax) case forms FSharp.Core's list uses
+// (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
+// Earlier `inspectCaseData` returned `""` for any operator head (the
 // case was dropped) and `GadtNary`/`GadtNullary` were diagnosed "not supported".
 module private UnionCaseSyntaxHelpers =
     let union (tast: TastFile) =
@@ -439,9 +439,9 @@ let unionCaseSyntaxTests =
             }
         ]
 
-// P3d.4 (docs/selfhost-handoff.md): the `and 'T list = List<'T>` recursive
-// abbreviation retargets `[…]` list literals onto a program-declared list
-// union (the self-host shape) instead of FSharp.Core's `FSharpList`. Additive:
+// The `and 'T list = List<'T>` recursive abbreviation retargets `[…]` list
+// literals onto a program-declared list union (the self-host shape) instead
+// of FSharp.Core's `FSharpList`. Additive:
 // a normal program declares no `list` abbreviation, so its list literals keep
 // the `Microsoft.FSharp.Collections.list` nominal + `Cons`/`Nil` case names.
 // The generic-union *backend emission* that makes `[1;2;3]` runnable against

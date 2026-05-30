@@ -6,7 +6,7 @@ namespace Vesper.Collections
 // by XParsec.FSharp and walked into an IExternalSymbolProvider. The runtime impl
 // is `list-min.fs` (→ Vesper.List.dll, BCL-only, our own backend); `List.fs` is
 // the verbatim `[]`/`::` + `module List` target it grows into once public
-// module-function compilation lands (selfhost-handoff.md).
+// module-function compilation lands.
 //
 // Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`) and Vesper.Option — the
 // `List.GetSlice` member below names `int option`, resolving the forward-reference

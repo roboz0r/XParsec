@@ -5,7 +5,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// R1 (docs/selfhost-handoff.md): a function value is a `Vesper.Fun`, not an
+// A function value is a `Vesper.Fun`, not an
 // `FSharpFunc`. A program's synthesised closures derive from `System.Object` and
 // *implement* the `Vesper.Fun\`2` interface read from a compiled `Vesper.Core.dll`;
 // application is `callvirt Vesper.Fun::Invoke`. The emitted PE carries a

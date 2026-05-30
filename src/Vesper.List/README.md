@@ -35,8 +35,7 @@ binary cons), not by case name.
 **`List.fs`** is the verbatim `[]` / `::` operator-case form with the higher-order
 `module List.fold` written in Vesper. It is the end-state `list-min.fs` is replaced
 by once the backend gains *public module-function compilation* (a self-reference to
-`Vesper.Fun` + a real `Vesper.Collections.ListModule` holder — the deferred gap in
-[selfhost-handoff](../XParsec.FSharp.SemanticAnalysis/docs/selfhost-handoff.md)).
+`Vesper.Fun` + a real `Vesper.Collections.ListModule` holder).
 Until then `List.fold` is emitted **inline** in the consuming program rather than
 compiled into `Vesper.List.dll`.
 
@@ -91,7 +90,6 @@ to each source (`test/XParsec.FSharp.Tests/VesperCoreContractTests.fs`).
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`selfhost-handoff.md`](../XParsec.FSharp.SemanticAnalysis/docs/selfhost-handoff.md) — R3 (the list/fold cutover) + the deferred public-module-compilation gap.
 - [`minimal-core-lib-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md) — the single-tree core this is split out of; D6 (`Nil`/`Cons` deviation), D8 (`List` mirrors `FSharpList`).
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.
 - [`../Vesper.Option/README.md`](../Vesper.Option/README.md) — the sibling package whose split this mirrors.

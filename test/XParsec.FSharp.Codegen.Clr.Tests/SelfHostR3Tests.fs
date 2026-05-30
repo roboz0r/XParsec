@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// R3 (docs/selfhost-handoff.md): the bare-program list/fold cutover onto the
+// The bare-program list/fold cutover onto the
 // Vesper `List`. The first capability it rests on is a *generic* top-level
 // function emitted as a generic static method (`fold<'State,'T>`) — the method's
 // type parameters are the free `TypeVar`s of its signature, encoded `!!i`, its

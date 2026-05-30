@@ -328,8 +328,7 @@ module NameResolutionTypeRegistration =
     /// kept out of AbbreviationTypes, so translateType resolves the name to
     /// `TyConst name` rather than expanding the RHS. Other bodies are left
     /// unfilled; Unification's fillAbbreviationBodies forces each later, so an
-    /// RHS can reference any other same-file type. See self-host-rung1-plan.md
-    /// ("The intrinsic-impl rule").
+    /// RHS can reference any other same-file type.
     let private registerAbbreviationDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->

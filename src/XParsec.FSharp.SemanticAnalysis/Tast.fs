@@ -249,8 +249,7 @@ type TDecl =
     /// [front-end-gaps-plan](docs/front-end-gaps-plan.md) §C.
     | Let of binding: TPat * value: TExpr * isInline: bool * ty: SemType
     | Expression of expr: TExpr * ty: SemType
-    /// Rung 1 (self-host) emits only the interface shape. Records / unions /
-    /// classes are later rungs. See docs/self-host-rung1-plan.md.
+    /// Emits only the interface shape; records / unions / classes came later.
     | Type of TTypeDecl
 
 and TTypeDecl =
@@ -281,11 +280,10 @@ and TTypeDecl =
 
 and [<RequireQualifiedAccess>] TTypeKind =
     /// A nominal type whose members are all abstract and which has no base type /
-    /// field. Rung 1's only kind.
+    /// field.
     | Interface of methods: EqArray<TAbstractMethod>
     /// `cases` in declaration order (the index is the runtime tag), plus any
-    /// augmentation members (`with member …` / `static member …`). See
-    /// docs/self-host-rung2-plan.md.
+    /// augmentation members (`with member …` / `static member …`).
     | Union of cases: EqArray<TUnionCase> * members: EqArray<TTypeMember>
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
@@ -475,7 +473,7 @@ type TastFile =
         /// abbrevs. A use site resolves to `TyConst name`; the backend keys the
         /// emitted IL type off the *representation string* (so a platform author
         /// retargets a primitive by editing one `.fs` line). The backend overlays
-        /// these on its built-in defaults. See docs/selfhost-handoff.md (G7).
+        /// these on its built-in defaults.
         IntrinsicReprTypes: Map<string, string>
         /// A module-level binding's `NodeKey.Raw` → its named-holder placement
         /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
