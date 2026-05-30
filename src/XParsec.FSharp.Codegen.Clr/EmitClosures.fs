@@ -60,7 +60,8 @@ module EmitClosures =
                 if not (bound.Contains key) && seen.Add key then
                     acc.Add(key, ty)
             | TExpr.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExpr.Let(p, v, b, _) ->
+            | TExpr.Let(p, v, b, _)
+            | TExpr.Use(p, v, b, _) ->
                 go v
                 scoped (patKeys p) (fun () -> go b)
             | TExpr.ForTo(var, s, e2, b, _) ->
@@ -114,7 +115,8 @@ module EmitClosures =
                 if not (bound.Contains key) then
                     acc.Add key |> ignore
             | TExpr.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExpr.Let(p, v, b, _) ->
+            | TExpr.Let(p, v, b, _)
+            | TExpr.Use(p, v, b, _) ->
                 go v
                 scoped (patKeys p) (fun () -> go b)
             | TExpr.ForTo(var, s, e2, b, _) ->

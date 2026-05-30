@@ -155,6 +155,13 @@ type private Renderer() =
             push " in "
             this.Expr b
 
+        | TExpr.Use(p, v, b, _) ->
+            push "use "
+            this.Pat p
+            push " = "
+            this.Expr v
+            push " in "
+            this.Expr b
         | TExpr.IfThenElse(c, t, e, _) ->
             push "if "
             this.Expr c

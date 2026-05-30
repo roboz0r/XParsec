@@ -212,6 +212,60 @@ module EmitExpr =
             buildExpr env b body
         | TExpr.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
 
+        | TExpr.Use(TPat.NamedSimple(binding, varTy), value, body, _) ->
+            // `use x = value in body` → `let x = value in try body finally if x <> null
+            // then x.Dispose()` (B-5, vesper-set-sprint-phase-4 §4.1). The IL-IR
+            // exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`,
+            // H5) carry the region; `IlIr.lower` replays them into a proper
+            // `try`/`finally`.
+            //
+            // A protected region can't carry an evaluation-stack value across its
+            // `leave`, so the body's result is parked in a local inside the `try`
+            // and reloaded after the finally as the expression's value (works for a
+            // unit body too — `Unit` is `null`, parked and reloaded like any value).
+            // The disposal is a direct `x.Dispose()` call (no `IDisposable` upcast):
+            // v1's looser type-check (Phase 5 interfaces aren't a prerequisite),
+            // guarded by a null check so a null binder is a no-op like F#'s `use`.
+            //
+            // `use` is a statement-position binding, so the surrounding stack is
+            // empty here: the region opens at depth 0 and the final `ldloc` leaves
+            // exactly the one result value.
+            let slot = b.Local varTy
+            env.Slots.[binding] <- slot
+            buildExpr env b value
+            b.Add(ILInstr.Stloc slot)
+
+            let resultSlot = b.Local(typeOfExpr body)
+            let endLabel = b.Label()
+            let skipLabel = b.Label()
+
+            b.Add ILInstr.Try
+            buildExpr env b body
+            b.Add(ILInstr.Stloc resultSlot)
+            b.Add(ILInstr.Leave endLabel)
+
+            b.Add ILInstr.BeginFinally
+            b.SetDepth 0
+            b.Add(ILInstr.Ldloc slot)
+            b.Add(ILInstr.Brfalse skipLabel)
+            // Reuse the standard instance-call path for `x.Dispose()`: it resolves
+            // the member handle and emits the `callvirt`. `Dispose` returns unit
+            // (one `Unit` value), popped so the finally handler ends empty-stacked.
+            buildExpr
+                env
+                b
+                (TExpr.MethodCall(TExpr.Var(binding, varTy), "Dispose", CallVia.Self, EqArray.empty, TyConst "unit"))
+
+            b.Add ILInstr.Pop
+            b.SetDepth 0
+            b.Add(ILInstr.Mark skipLabel)
+            b.Add ILInstr.EndFinally
+
+            b.SetDepth 0
+            b.Add(ILInstr.Mark endLabel)
+            b.Add(ILInstr.Ldloc resultSlot)
+        | TExpr.Use(pat, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
+
         | TExpr.Sequential(items, _) ->
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item

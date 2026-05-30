@@ -79,6 +79,13 @@ type TExpr =
     | Lambda of param: TPat * body: TExpr * ty: SemType
     | App of fn: TExpr * arg: TExpr * ty: SemType
     | Let of binding: TPat * value: TExpr * body: TExpr * ty: SemType
+    /// `use x = value in body` (B-5). Same shape as `Let`; the distinction is that
+    /// codegen wraps `body` in a `try … finally x.Dispose()` exception region so
+    /// `x` is disposed on every exit. `ty` is the body's type — the expression's
+    /// result. v1 lowers the disposal as a direct `Dispose()` call on the binder
+    /// (no `IDisposable` upcast — the looser type-check, vesper-set-sprint-phase-4
+    /// §4.1, since Phase 5 interfaces aren't required to land first).
+    | Use of binding: TPat * value: TExpr * body: TExpr * ty: SemType
     | IfThenElse of cond: TExpr * thenExpr: TExpr * elseExpr: TExpr * ty: SemType
     /// `ty` is always a TyTuple of the elements' inferred types.
     | Tuple of items: EqArray<TExpr> * ty: SemType

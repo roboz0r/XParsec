@@ -621,7 +621,7 @@ module Freeze =
         | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty
         | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
-        | Expr.LetOrUse(bindings = bindings; body = body) -> translateLet ctx bindings body
+        | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> translateLet ctx kw bindings body
         | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner) ->
             translateListLikeLiteral ctx ty false (listLiteralItems inner)
         | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
@@ -1412,6 +1412,7 @@ module Freeze =
 
     and private translateLet
         (ctx: PassContext)
+        (keyword: LetOrUseKeyword<SyntaxToken>)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
         : TExpr =
@@ -1419,11 +1420,26 @@ module Freeze =
         let mutable result = translateExpr ctx bodyExpr
         let mutable resultTy = typeOfKey ctx (CstKeys.ofExpr bodyExpr)
 
+        // `use` / `use!` bind a disposable: each binding folds to a `TExpr.Use`
+        // (codegen wraps the body in a `try … finally Dispose()` region, B-5)
+        // rather than a plain `TExpr.Let`.
+        let isUse =
+            match keyword with
+            | LetOrUseKeyword.Use _
+            | LetOrUseKeyword.UseBang _ -> true
+            | LetOrUseKeyword.Let _
+            | LetOrUseKeyword.LetBang _ -> false
+
         for i = bindings.Length - 1 downto 0 do
             let b = bindings.[i]
             let tpat = translatePat ctx b.headPat
             let valT = translateBinding ctx b
-            result <- TExpr.Let(tpat, valT, result, resultTy)
+
+            result <-
+                if isUse then
+                    TExpr.Use(tpat, valT, result, resultTy)
+                else
+                    TExpr.Let(tpat, valT, result, resultTy)
 
         result
 

@@ -12,6 +12,7 @@ module EmitLower =
         | TExpr.Lambda(_, _, ty) -> ty
         | TExpr.App(_, _, ty) -> ty
         | TExpr.Let(_, _, _, ty) -> ty
+        | TExpr.Use(_, _, _, ty) -> ty
         | TExpr.IfThenElse(_, _, _, ty) -> ty
         | TExpr.Tuple(_, ty) -> ty
         | TExpr.Sequential(_, ty) -> ty
@@ -139,6 +140,7 @@ module EmitLower =
         | TExpr.Lambda(p, b, t) -> TExpr.Lambda(p, f b, t)
         | TExpr.App(fn, a, t) -> TExpr.App(f fn, f a, t)
         | TExpr.Let(p, v, b, t) -> TExpr.Let(p, f v, f b, t)
+        | TExpr.Use(p, v, b, t) -> TExpr.Use(p, f v, f b, t)
         | TExpr.IfThenElse(c, th, el, t) -> TExpr.IfThenElse(f c, f th, f el, t)
         | TExpr.Tuple(xs, t) -> TExpr.Tuple(EqArray.map f xs, t)
         | TExpr.Sequential(xs, t) -> TExpr.Sequential(EqArray.map f xs, t)

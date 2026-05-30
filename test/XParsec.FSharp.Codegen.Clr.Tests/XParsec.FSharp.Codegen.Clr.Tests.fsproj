@@ -39,6 +39,7 @@
     <Compile Include="CapturedMutableTests.fs" />
     <Compile Include="ClassTests.fs" />
     <Compile Include="ExceptionTests.fs" />
+    <Compile Include="UseTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
