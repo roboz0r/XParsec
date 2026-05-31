@@ -119,7 +119,7 @@ module ReferencedProject =
 
     /// Close `rootManifests` over `[core] depends-on` and return every reachable
     /// manifest path in **dependency order** — each package appears *after* all the
-    /// packages it depends on (package-type-extraction-plan Phase 1). Paths are
+    /// packages it depends on. Paths are
     /// normalised (`Path.GetFullPath`) and de-duplicated, so a dependency named by
     /// several roots (every Vesper package's `Vesper.Core`) is processed once. A
     /// `depends-on` cycle is a hard error — contract packages may not be mutually
@@ -127,7 +127,7 @@ module ReferencedProject =
     ///
     /// The returned order is the priority order callers stack into the composite
     /// provider; building bottom-up is what later lets each package's extraction
-    /// read its dependencies' already-built type shapes (plan Phase 2). For an
+    /// read its dependencies' already-built type shapes. For an
     /// input that is already dependency-ordered the order is returned unchanged
     /// (the sort is stable over the discovery order).
     let buildClosure (rootManifests: string list) : Result<string list, string> =
@@ -231,7 +231,7 @@ module ReferencedProject =
 
     /// Stand up a referenced project (layer 1) from its `manifest.toml`, with
     /// read access to its dependencies' already-built type shapes
-    /// (`ambientShapes`, package-type-extraction-plan Phase 2). Parse each
+    /// (`ambientShapes`). Parse each
     /// contract `.fsi` in `files` order into one accumulating `ExtractCtx` seeded
     /// with `ambientShapes`, then expose it as a provider whose symbols carry the
     /// package `Origin`. The ambient is consulted during extraction (through

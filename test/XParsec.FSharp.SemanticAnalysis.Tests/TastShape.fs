@@ -57,6 +57,7 @@ let rec private tyName (t: SemType) : string =
     | TyRecord(n, _)
     | TyUnion(n, _)
     | TyClass(n, _) -> n
+    | TyUnknown n -> "?" + n
 
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
@@ -599,6 +600,7 @@ type private Renderer() =
                 | TyRecord(n, _)
                 | TyUnion(n, _)
                 | TyClass(n, _) -> n
+                | TyUnknown n -> "?" + n
 
             push "type "
 

@@ -44,7 +44,7 @@ module SymbolProviders =
     /// layer-1 manifests and the layer-2 reference paths from the reference set is
     /// the remaining pairing.
     /// Close `manifestPaths` over `depends-on` and return them in dependency order
-    /// (package-type-extraction-plan Phase 1): a dependency a root only names
+    /// A dependency a root only names
     /// transitively is pulled in, and every package is processed *after* the
     /// packages it depends on. A `depends-on` cycle or a missing dependency
     /// manifest is a hard error. Both `build` and `buildContract` thread the same
@@ -59,8 +59,8 @@ module SymbolProviders =
     /// list ahead of the layer-2 metadata provider. Each package is built bottom-up
     /// with read access to the type shapes of the packages already built — its
     /// dependencies, which dependency order guarantees precede it
-    /// (package-type-extraction-plan Phase 2). This is what lets extraction kind a
-    /// cross-package nominal head at bake time (Phase 3), instead of leaving a
+    /// This is what lets extraction kind a
+    /// cross-package nominal head at bake time, instead of leaving a
     /// placeholder for the consumer to reconcile.
     ///
     /// Builds via `buildProviderWith` rather than the per-path `ReferencedProject.provider`

@@ -72,6 +72,7 @@ module UnificationInferGeneralize =
         | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
+        | TyUnknown _ -> false
 
     /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs
     /// two passes, hence the fixpoint iteration.
@@ -115,6 +116,7 @@ module UnificationInferGeneralize =
                 | TyClass(_, args) ->
                     for a in args do
                         go a
+                | TyUnknown _ -> ()
 
             go t
             acc
@@ -215,6 +217,7 @@ module UnificationInferGeneralize =
                     for x in xs do
                         walk x
                 | TyConst _ -> ()
+                | TyUnknown _ -> ()
 
             walk ty
 
@@ -251,6 +254,7 @@ module UnificationInferGeneralize =
             | TyClass(_, args) ->
                 for a in args do
                     walk a
+            | TyUnknown _ -> ()
 
         walk zonkedTy
 

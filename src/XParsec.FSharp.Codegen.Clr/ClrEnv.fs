@@ -272,6 +272,7 @@ type internal ClrEnv
         | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
         | TyConst _ -> t
+        | TyUnknown _ -> t
 
     let externalAsmRef (asm: string option) : EntityHandle =
         match asm with

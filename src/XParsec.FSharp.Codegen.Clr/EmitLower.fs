@@ -81,6 +81,7 @@ module EmitLower =
         | TyUnion(n, xs) -> TyUnion(n, EqArray.map zonk xs)
         | TyClass(n, xs) -> TyClass(n, EqArray.map zonk xs)
         | TyConst _ -> t
+        | TyUnknown _ -> t
 
     /// Recover a generic static method's per-typar instantiation at a call site
     /// (R3): structurally match each declared parameter type (`defTys`, carrying
@@ -381,6 +382,10 @@ module EmitLower =
         | TyRecord(_, xs)
         | TyUnion(_, xs)
         | TyClass(_, xs) -> EqArray.forall isGroundType xs
+        // An unresolved contract head is never ground — the front end
+        // errors on it before frozen TAST reaches here; keep it off the ground-only
+        // inline-emit path defensively.
+        | TyUnknown _ -> false
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter types (carrying the quantified typars) against the actual

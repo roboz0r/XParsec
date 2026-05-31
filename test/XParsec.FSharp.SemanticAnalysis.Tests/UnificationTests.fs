@@ -67,6 +67,44 @@ let tests =
                 Expect.isTrue hasMismatch "Type mismatch diagnostic emitted"
             }
 
+            test "Using a TyUnknown-typed external value emits a use-site diagnostic" {
+                // A contract val whose signature named an out-of-scope type bakes a
+                // `TyUnknown` leaf. Referencing that symbol must fire a diagnostic when
+                // its `TyUnknown` type reaches unification — not silently succeed.
+                let brokenProvider =
+                    { new IExternalSymbolProvider with
+                        member _.TryLookup name =
+                            if name = "broken" then
+                                ValueSome(ExternalSymbols.mono "broken" (TyUnknown "Missing.Thing"))
+                            else
+                                ValueNone
+
+                        member _.TryLookupType _ = ValueNone
+                        member _.TryLookupMember(_, _) = ValueNone
+                        member _.TryLookupMembers(_, _) = [||]
+                        member _.TryLookupUnionCase _ = ValueNone
+                        member _.AmbientOpenPrefixes = []
+                    }
+
+                let provider = ExternalSymbols.composite [ brokenProvider; MockBuiltins.provider ]
+                let input = "let y = broken"
+                let lexed, file = parseFile input
+                let ctx = PassContext(provider, input, lexed)
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                let hasUnknownDiag =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "could not be resolved")
+
+                Expect.isTrue
+                    hasUnknownDiag
+                    (sprintf
+                        "use-site TyUnknown diagnostic expected; diagnostics: %A"
+                        (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.toList))
+            }
+
             test "ident `true` types as bool via provider" {
                 let ctx = analyse "let b = true"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent

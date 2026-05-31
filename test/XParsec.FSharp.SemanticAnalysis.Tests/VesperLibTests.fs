@@ -267,8 +267,8 @@ let tests =
                     let inst2 = sym.Instantiate 0
 
                     // `option<'T>` is a transparent abbreviation for `Option<'T>`;
-                    // dependency-aware extraction now expands it at bake time
-                    // (package-type-extraction-plan Phase 3), so the head is the
+                    // dependency-aware extraction now expands it at bake time,
+                    // so the head is the
                     // union name `Option`, not the abbreviation `option`. The
                     // FSharp.Core port declares `Option` with GADT-style cases
                     // (`| Some: Value:'T -> 'T option`), which the extractor skips
@@ -321,9 +321,8 @@ let tests =
 
                     // val map: ('T -> 'U) -> Result<'T, 'TError> -> Result<'U, 'TError>.
                     // `Result` is declared with ordinary cases, so dependency-aware
-                    // extraction kinds the head as a proper `TyUnion`
-                    // (package-type-extraction-plan Phase 3), not the old kind-agnostic
-                    // `TyRecord` placeholder.
+                    // extraction kinds the head as a proper `TyUnion`,
+                    // not the old kind-agnostic `TyRecord` placeholder.
                     match inst with
                     | TyFun(TyFun(TyVar t, TyVar u), TyFun(TyUnion(n1, args1), TyUnion(n2, args2))) when
                         n1 = resultName && n2 = resultName && args1.Length = 2 && args2.Length = 2
@@ -341,9 +340,8 @@ let tests =
             }
 
             test "cross-package nominal resolves through ambient shapes and bakes kind-correct" {
-                // Phase 3 (package-type-extraction-plan): a dependency package
-                // contributes its type shapes through `ExtractCtx.AmbientShapes`
-                // (Phase 2), keyed by qualified compiled name. A downstream
+                // A dependency package contributes its type shapes through
+                // `ExtractCtx.AmbientShapes`, keyed by qualified compiled name. A downstream
                 // package's signature that references one of those types — by its
                 // fully-qualified name and, separately, via an `open` — must (a)
                 // RESOLVE (the reference is no longer silently skipped because the
@@ -420,6 +418,61 @@ let tests =
 
                 assertWidgetIntToInt "fully-qualified reference" (instOf "qualified")
                 assertWidgetIntToInt "reference via open" (instOf "viaOpen")
+            }
+
+            test "Phase 4: a signature naming an out-of-scope type bakes TyUnknown" {
+                // No ambient shape and no local type declares `Missing.Thing`, so
+                // `resolveTypeName` fails. Instead of the pre-Phase-4 silent skip
+                // (the val landing in `ctx.Skipped`), extraction retains the val and
+                // bakes a `TyUnknown` leaf carrying the unresolved name — which a
+                // consumer surfaces as a use-site diagnostic (see the unify arm in
+                // `Passes/Unification/Engine.fs`).
+                let input = "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+
+                let mutable found = ValueNone
+
+                for kv in ctx.Symbols do
+                    if found.IsNone && kv.Key.EndsWith(".broken") then
+                        found <- ValueSome(kv.Value.Instantiate 0)
+
+                match found with
+                | ValueNone ->
+                    failtestf
+                        "val 'broken' was skipped, not retained as TyUnknown. Symbols: %A"
+                        (Seq.toList ctx.Symbols.Keys)
+                | ValueSome ty ->
+                    match ty with
+                    | TyFun(TyUnknown name, TyConst "int") ->
+                        Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
+                    | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
 
             test "ModuleSuffix flag applied to the innermost module" {
@@ -611,6 +664,7 @@ let tests =
                             for x in xs do
                                 yield! collectTyVars x
                         | TyConst _ -> ()
+                        | TyUnknown _ -> ()
                     }
 
                 let anyEquality =

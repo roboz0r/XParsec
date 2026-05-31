@@ -188,8 +188,7 @@ let tests =
                 | ValueNone -> failtest "no TypeVar for r"
             }
 
-            // Phase 1 (package-type-extraction-plan): `buildClosure` closes a root
-            // manifest set over `depends-on` and orders it dependencies-first.
+            // `buildClosure` closes a root manifest set over `depends-on` and orders it dependencies-first.
             testList
                 "buildClosure"
                 [

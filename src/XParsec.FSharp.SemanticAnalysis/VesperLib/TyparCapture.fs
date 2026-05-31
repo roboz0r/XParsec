@@ -143,8 +143,7 @@ module VesperLibTyparCapture =
         /// (symbol-resolution-handoff.md, open-resolution). The hardcoded FSharp.Core prelude list
         /// stays separate (compiler-magic opens not expressible as `[<AutoOpen>]`).
         member val AutoOpenPrefixes = ResizeArray<string>() with get
-        /// Type shapes contributed by already-extracted dependency packages
-        /// (dependency-ordered, see package-type-extraction-plan.md Phase 2).
+        /// Type shapes contributed by already-extracted dependency packages (dependency-ordered).
         /// Read-only here: extraction never writes a dependency's shape, only
         /// consults it (through `shapeOf`) to kind a cross-package nominal head.
         /// `ReferencedProject.buildProviderWith` seeds it from the composite

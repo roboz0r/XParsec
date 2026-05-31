@@ -150,6 +150,13 @@ type SemType =
     /// `ctx.Types.Class`. Two `TyClass` unify iff their names match AND their
     /// args unify pairwise.
     | TyClass of name: string * args: EqArray<SemType>
+    /// A nominal reference that resolved to no in-scope type shape during extraction.
+    /// It never unifies with anything; Unification reports it at the use site and
+    /// recovers, so one broken contract head doesn't cascade. Distinct from
+    /// `TyConst` (a known intrinsic/primitive) and from a fresh `TyVar` (an
+    /// inference hole). Must never reach the backend — `ClrEncoder` treats it as
+    /// an internal error.
+    | TyUnknown of name: string
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero

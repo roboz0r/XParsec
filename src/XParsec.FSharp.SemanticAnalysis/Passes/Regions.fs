@@ -163,6 +163,9 @@ module Regions =
         | TyUnion _ -> true
         | TyClass _ -> true
         | TyVar _ -> false
+        // Unresolved contract head: errors before it can reach a region
+        // walk; treat as non-allocating so this pass stays conservative.
+        | TyUnknown _ -> false
 
     let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
         let key = CstKeys.ofExpr e

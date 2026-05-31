@@ -417,7 +417,8 @@ module ExternalSymbols =
         | TyTuple items -> TyTuple(EqArray.map (normalizeNominal lookup) items)
         | TyFun(a, b) -> TyFun(normalizeNominal lookup a, normalizeNominal lookup b)
         | TyVar _
-        | TyConst _ -> ty
+        | TyConst _
+        | TyUnknown _ -> ty
 
     /// The last `.`-separated segment of a compiled name (`Vesper.Option` ⇒
     /// `Option`), i.e. the simple name with any namespace / declaring-module

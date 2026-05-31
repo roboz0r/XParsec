@@ -228,8 +228,8 @@ module VesperLibTypeTranslate =
     ///      `prefix + "." + name` against the qualified-name set, then the
     ///      dependency shapes (`ctx.AmbientShapes`).
     ///
-    /// Dependency packages contribute their type shapes through `ctx.AmbientShapes`
-    /// (package-type-extraction-plan Phase 2/3), keyed by qualified compiled name —
+    /// Dependency packages contribute their type shapes through `ctx.AmbientShapes`,
+    /// keyed by qualified compiled name —
     /// not the per-package `ctx.Types` / `ctx.QualifiedTypes` index, which holds
     /// only this package's own declarations. A cross-package reference is written
     /// either fully-qualified or as a short name resolved through an open prefix
@@ -416,7 +416,7 @@ module VesperLibTypeTranslate =
     /// Bake a nominal reference (`compiled` head + already-translated `args`) to
     /// its kind-correct `SemType`, consulting the in-scope type shapes
     /// (`ExtractCtx.shapeOf`: this package's own shapes, then its dependencies'
-    /// via `ctx.AmbientShapes`; package-type-extraction-plan Phase 3)
+    /// via `ctx.AmbientShapes`)
     /// A transparent abbreviation expands (then re-kinds its body), and a referenced-package
     /// intrinsic collapses to its short `TyConst` (so an external `int` / `exn`
     /// matches the literal-typed form).
@@ -426,11 +426,15 @@ module VesperLibTypeTranslate =
     /// — legal only inside a `type … and …` group or a `rec` scope, whose shapes
     /// register together before any body is kinded — resolves.
     ///
-    /// A head that resolves to no in-scope shape (an `enum` / `delegate` the
-    /// extractor records by name only, or a not-yet-modelled type) keeps the
-    /// `TyRecord(compiled, args)` placeholder for now: the consumer's
-    /// `normalizeNominal` still reconciles it. Phase 4 turns this miss into a
-    /// `TyUnknown` use-site diagnostic; Phase 5 then retires the consumer pass.
+    /// A head whose *name* resolved (so we reach here) but that registered no
+    /// in-scope *shape* keeps the `TyRecord(compiled, args)` placeholder, args
+    /// preserved. These are real, name-known types the extractor models by name
+    /// only — a GADT-cased union whose cases were skipped (`Vesper.Collections.List`,
+    /// FSharp.Core's `Option`), an `enum` / `delegate`, or a not-yet-modelled type.
+    /// The consumer reconciles the placeholder (`normalizeNominal`) or codegen
+    /// special-cases it (`isVesperListName`, `userTypes`, external refs). A genuine
+    /// *unresolved name* never reaches here: `resolveTypeName` fails first and that
+    /// arm bakes the `TyUnknown` leaf.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<SemType>) : SemType =
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union _) -> TyUnion(compiled, args)
@@ -507,7 +511,10 @@ module VesperLibTypeTranslate =
                 Ok(fun _ -> ty)
             else
                 match resolveTypeName ctx opens name 0 with
-                | Error e -> Error e
+                // A name that resolves to nothing in scope bakes a `TyUnknown`
+                // leaf rather than skipping the val (Phase 4): it surfaces as a
+                // use-site diagnostic instead of a silent drop.
+                | Error _ -> Ok(fun _ -> TyUnknown name)
                 // Kind the bare nominal against the in-scope shapes (a zero-arity
                 // union bakes `TyUnion(compiled, [])`, etc.); `mkNominal` runs in
                 // the deferred builder so forward references resolve.
@@ -533,7 +540,10 @@ module VesperLibTypeTranslate =
                 let bs = builders.ToArray()
 
                 match resolveTypeName ctx opens name bs.Length with
-                | Error e -> Error e
+                // Unresolved head ⇒ `TyUnknown` leaf (Phase 4). The arg builders
+                // are dropped: an unknown head has no kind to carry them into, and
+                // the use-site diagnostic only needs the name.
+                | Error _ -> Ok(fun _ -> TyUnknown name)
                 // Kind the head against the in-scope shapes (own + dependency
                 // packages) at `Instantiate` time — see `mkNominal`.
                 | Ok compiled -> Ok(fun ts -> mkNominal ctx compiled (EqArray.ofSeq (seq { for b in bs -> b ts })))
@@ -546,7 +556,8 @@ module VesperLibTypeTranslate =
             | Error e -> Error e
             | Ok fb ->
                 match resolveTypeName ctx opens name 1 with
-                | Error e -> Error e
+                // Unresolved suffix head ⇒ `TyUnknown` leaf (Phase 4).
+                | Error _ -> Ok(fun _ -> TyUnknown name)
                 // `'T list` ≡ `List<'T>`; kind the head against the in-scope
                 // shapes at `Instantiate` time — see `mkNominal`.
                 | Ok compiled -> Ok(fun ts -> mkNominal ctx compiled (EqArray.singleton (fb ts)))

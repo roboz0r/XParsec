@@ -45,6 +45,7 @@ module Freeze =
             | TyRecord(n, args) -> TyRecord(n, EqArray.map go args)
             | TyUnion(n, args) -> TyUnion(n, EqArray.map go args)
             | TyClass(n, args) -> TyClass(n, EqArray.map go args)
+            | TyUnknown _ -> t
 
         go (Unification.zonk t)
 

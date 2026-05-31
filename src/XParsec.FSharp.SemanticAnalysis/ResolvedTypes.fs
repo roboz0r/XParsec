@@ -41,6 +41,7 @@ module ResolvedTypes =
             | TyClass(_, args) ->
                 for a in args do
                     go a
+            | TyUnknown _ -> ()
 
         go t
 

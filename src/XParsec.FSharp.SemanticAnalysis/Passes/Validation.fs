@@ -32,6 +32,7 @@ module Validation =
         | TyRecord(_, args) -> args |> EqArray.exists hasFreeTyVar
         | TyUnion(_, args) -> args |> EqArray.exists hasFreeTyVar
         | TyClass(_, args) -> args |> EqArray.exists hasFreeTyVar
+        | TyUnknown _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,

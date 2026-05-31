@@ -446,14 +446,14 @@ module UnificationTranslate =
     /// (`VesperLibTypeTranslate`) bakes every nominal reference as a kind-agnostic
     /// `TyRecord(compiled, …)` placeholder and never expands an abbreviation — it
     /// extracts each package in isolation (`ReferencedProject.buildProvider`), so a
-    /// cross-package kind / abbreviation isn't knowable at bake time
-    /// (`docs/package-type-extraction-plan.md`). A module function's `'T option`
+    /// cross-package kind / abbreviation isn't knowable at bake time.
+    /// A module function's `'T option`
     /// parameter therefore comes back as `TyRecord("Vesper.option", …)` — which unifies
     /// with neither the `TyUnion("Vesper.Option", …)` a use-site `int option` resolves to
     /// (the abbreviation is unexpanded *and* the head is mis-kinded) nor anything else.
     /// Binds the front-end's composite provider into the shared
     /// `ExternalSymbols.normalizeNominal` walk; applied to every provider-resolved value
-    /// reference (vesper-lib-test-plan Gap 2 Layer D, front-end half). The abbrev-body
+    /// reference. The abbrev-body
     /// re-kind in `tryResolveExternalType` uses the same walk.
     and normalizeExternalValueTy (ctx: PassContext) (ty: SemType) : SemType =
         ExternalSymbols.normalizeNominal ctx.Provider.TryLookupType ty

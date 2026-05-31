@@ -293,6 +293,7 @@ module EmitClosures =
                 for x in xs do
                     go x
             | TyConst _ -> ()
+            | TyUnknown _ -> ()
 
         for (_, pty) in fn.Params do
             go pty

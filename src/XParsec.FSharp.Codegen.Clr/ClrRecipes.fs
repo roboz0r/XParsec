@@ -380,6 +380,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 for x in xs do
                     go x
             | TyConst _ -> ()
+            | TyUnknown _ -> ()
 
         for p in paramTys do
             go p
@@ -391,7 +392,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// `recoverTypeArgs` expect. The symbol extractor bakes every nominal reference as a
     /// kind-agnostic `TyRecord(compiled, …)` placeholder and never expands an abbreviation,
     /// because it extracts each package in isolation (cross-package kinds / abbreviations
-    /// aren't knowable at bake time — `SemanticAnalysis/docs/package-type-extraction-plan.md`),
+    /// aren't knowable at bake time),
     /// so a module function's `'T option` parameter comes back from `Instantiate` as the
     /// unexpanded, mis-kinded `TyRecord("Vesper.option", …)`. Binds the codegen provider into
     /// the shared `ExternalSymbols.normalizeNominal` walk (the same one the front-end's

@@ -52,6 +52,7 @@ module Inline =
             | TyClass(_, args) ->
                 for a in args do
                     go a
+            | TyUnknown _ -> ()
 
         go declTy
         acc.ToArray()
@@ -73,6 +74,7 @@ module Inline =
         | TyRecord(n, args) -> TyRecord(n, EqArray.map (substType subst) args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map (substType subst) args)
         | TyClass(n, args) -> TyClass(n, EqArray.map (substType subst) args)
+        | TyUnknown _ -> t
 
     /// Canonicalise the primitive type-name aliases a static-optimization clause
     /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a

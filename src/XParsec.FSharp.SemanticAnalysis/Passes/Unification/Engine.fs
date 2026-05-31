@@ -41,6 +41,7 @@ module UnificationEngine =
         | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
+        | TyUnknown _ -> t
 
     /// Decompose a (zonked) tupled-argument type into its element types: a
     /// .NET-style call passes one argument that is a tuple / unit / single
@@ -127,6 +128,7 @@ module UnificationEngine =
         | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
+        | TyUnknown _ -> false
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -177,6 +179,7 @@ module UnificationEngine =
         | TyRecord(n, args) -> TyRecord(n, EqArray.map (substituteWith subst) args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map (substituteWith subst) args)
         | TyClass(n, args) -> TyClass(n, EqArray.map (substituteWith subst) args)
+        | TyUnknown _ -> t
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
@@ -485,6 +488,17 @@ module UnificationEngine =
         let b = resolveStep b
 
         match a, b with
+        // An unresolved contract head unifies with nothing.
+        // Report at the use site and stop — the other side is left untouched (no Link),
+        // so one broken head can't cascade into a wrong inference elsewhere.
+        | TyUnknown name, _
+        | _, TyUnknown name ->
+            ctx.Error(
+                key,
+                sprintf
+                    "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
+                    name
+            )
         | TyConst n1, TyConst n2 when n1 = n2 -> ()
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
             for i in 0 .. a1.Length - 1 do
@@ -653,6 +667,10 @@ module UnificationEngine =
     and checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
         match c.Kind, resolveStep t with
         | _, TyVar _ -> Defer
+        // An unresolved contract head supports no constraint, but the
+        // mismatch is already reported where it unified — defer here so the
+        // constraint quietly never re-fires rather than emitting a second error.
+        | _, TyUnknown _ -> Defer
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)
@@ -792,6 +810,7 @@ module UnificationEngine =
             | TyClass(_, args) ->
                 for a in args do
                     walk a
+            | TyUnknown _ -> ()
 
         walk t
 
