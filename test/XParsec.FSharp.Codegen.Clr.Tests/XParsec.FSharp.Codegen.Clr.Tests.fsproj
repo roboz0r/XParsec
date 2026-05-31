@@ -9,19 +9,10 @@
   <ItemGroup>
     <Compile Include="..\XParsec.FSharp.SemanticAnalysis.Tests\MockBuiltins.fs" Link="MockBuiltins.fs" />
     <Compile Include="TestHelpers.fs" />
-    <Compile Include="Slice1Tests.fs" />
-    <Compile Include="Slice2Tests.fs" />
-    <Compile Include="Slice3Tests.fs" />
-    <Compile Include="Slice4Tests.fs" />
-    <Compile Include="Slice5Tests.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="FSharpCoreDepsTests.fs" />
     <Compile Include="RunnableAppTests.fs" />
-    <Compile Include="SelfHostRung1Tests.fs" />
-    <Compile Include="SelfHostR1Tests.fs" />
-    <Compile Include="Rung2Tests.fs" />
-    <Compile Include="SelfHostR3Tests.fs" />
-    <Compile Include="SelfHostR4Tests.fs" />
+    <Compile Include="SelfHostTests.fs" />
     <Compile Include="ILIntrinsicTests.fs" />
     <Compile Include="OperatorRoutingTests.fs" />
     <Compile Include="ArithmeticOperatorTests.fs" />
@@ -32,6 +23,8 @@
     <Compile Include="MatchTests.fs" />
     <Compile Include="FunctionTests.fs" />
     <Compile Include="ClosureTests.fs" />
+    <Compile Include="UnionTests.fs" />
+    <Compile Include="ListTests.fs" />
     <Compile Include="DiagnosticTests.fs" />
     <Compile Include="BitwiseOperatorTests.fs" />
     <Compile Include="StructuralEqualityTests.fs" />

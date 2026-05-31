@@ -39,6 +39,21 @@ let tests =
     testList
         "PrintfHappyPath"
         [
+            // A literal-only `printfn` (no holes) lowers to a Format node carrying a
+            // single `Lit` segment — the simplest happy-path shape (former Slice1).
+            test "`printfn \"hi\"` lowers to a single-literal Format node and prints \"hi\"" {
+                match soleDecl "printfn \"hi\"" with
+                | TDecl.Expression(TExpr.Format(sink, segs, _), _) ->
+                    Expect.equal sink (FormatSink.ToStdOut true) "printfn → stdout with newline"
+
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Lit "hi" ] -> ()
+                    | other -> failtestf "unexpected Format segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+
+                runPrints "PHpHi" "printfn \"hi\"" "hi"
+            }
+
             test "`printfn \"%s\"` lowers to a single string hole" {
                 match soleDecl "printfn \"%s\" \"world\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ->

@@ -1,14 +1,21 @@
-module XParsec.FSharp.Codegen.Clr.Tests.Slice4Tests
+module XParsec.FSharp.Codegen.Clr.Tests.ListTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
+// List literals: the cons-chain construction (`Slice4` anchor for the TAST
+// shape) and its runtime printing, plus a `[1; 2; 3]` over a program's *own*
+// declared `List<'T>` union (`Rung2` anchor). The list type retargets onto the
+// Vesper cons-list; `%A` here is the FSharp.Core cold-path printer.
+
+let private lines xs = String.concat "\n" xs
+
 [<Tests>]
 let tests =
     testList
-        "Slice4"
+        "Lists"
         [
             test "`printfn \"%A\" [1; 2; 3]` analyses clean as a Cons/Nil chain over list<int>" {
                 let tast = analyse "printfn \"%A\" [1; 2; 3]"
@@ -36,11 +43,11 @@ let tests =
                                                       _),
                                             _) ] ->
                     Expect.equal outerTy listTy "the trailing arg is the cons chain typed list<int>"
-                | _ -> failtestf "unexpected slice-4 TAST: %A" tast.Decls
+                | _ -> failtestf "unexpected list TAST: %A" tast.Decls
             }
 
             test "`printfn \"%A\" [1]` prints [1] (one Cons over Nil + list-typed Invoke)" {
-                let _, artifact = compileSource "Slice4Single" "printfn \"%A\" [1]"
+                let _, artifact = compileSource "ListSingle" "printfn \"%A\" [1]"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -48,7 +55,7 @@ let tests =
             }
 
             test "`printfn \"%A\" [1; 2; 3]` prints [1; 2; 3] (recursive tail + post-order calls)" {
-                let _, artifact = compileSource "Slice4Chain" "printfn \"%A\" [1; 2; 3]"
+                let _, artifact = compileSource "ListChain" "printfn \"%A\" [1; 2; 3]"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -57,11 +64,44 @@ let tests =
 
             test "`let nums = [1; 2; 3]` / `printfn \"%A\" nums` prints [1; 2; 3] (list-typed local)" {
                 let _, artifact =
-                    compileSource "Slice4Local" "let nums = [1; 2; 3]\nprintfn \"%A\" nums"
+                    compileSource "ListLocal" "let nums = [1; 2; 3]\nprintfn \"%A\" nums"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "[1; 2; 3]" "list stored to a local, reloaded, and printed"
+            }
+
+            // A `[1; 2; 3]` literal that binds against the *program's own* declared
+            // `List<'T>` union (with the `[]` / `(::)` syntactic constructors), then
+            // folds it — no FSharp.Core, no external list.
+            test "`[1; 2; 3]` runs against the program's own declared list union (prints 6)" {
+                let src =
+                    lines
+                        [
+                            "type List<'T> ="
+                            "    | ([]): List<'T>"
+                            "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
+                            "and 'T list = List<'T>"
+                            "let rec sum xs ="
+                            "    match xs with"
+                            "    | Empty -> 0"
+                            "    | Cons(h, t) -> h + sum t"
+                            "printfn \"%d\" (sum [1; 2; 3])"
+                        ]
+
+                let tast, artifact = compileSource "ListLitOwnUnion" src
+
+                Expect.isEmpty
+                    tast.Diagnostics
+                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    "a `[1;2;3]` over our own list + a concrete printf references no FSharp.Core"
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "6" "[1; 2; 3] built + folded over the program's own List<'T>"
             }
         ]

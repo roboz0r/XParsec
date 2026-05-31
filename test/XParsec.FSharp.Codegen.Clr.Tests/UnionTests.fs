@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.Rung2Tests
+module XParsec.FSharp.Codegen.Clr.Tests.UnionTests
 
 open System.Reflection
 open Expecto
@@ -6,62 +6,133 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The backend expression compiler — `if`/`then`/`else`, `match`, recursion,
-// and our-own union construction + deconstruction.
+// Our own (discriminated) unions: construction, `match` deconstruction,
+// recursion over them, augmentation members, and the generic `Lst<'T>` /
+// `List<'T>` forms — plus the BCL-only library-DLL shape (static factories,
+// generic instance members) the reflection round-trips pin. These were the
+// `Rung2`/`SelfHostR3` milestone anchors; they live here under the capability
+// they exercise.
+
+let private lines xs = String.concat "\n" xs
+
+let private unionSrc =
+    "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet head =\n    match Cons(7, Nil) with\n    | Nil -> 0\n    | Cons(h, _) -> h\nprintfn \"%d\" head"
+
+let private recSrc =
+    "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet rec sumList xs =\n    match xs with\n    | Nil -> 0\n    | Cons(h, t) -> h + sumList t\nprintfn \"%d\" (sumList (Cons(1, Cons(2, Cons(3, Nil)))))"
+
+let private memberUnionSrc =
+    lines
+        [
+            "type Lst ="
+            "    | Nil"
+            "    | Cons of int * Lst"
+            ""
+            "    member this.IsEmpty ="
+            "        match this with"
+            "        | Nil -> true"
+            "        | Cons(_, _) -> false"
+            ""
+            "    member this.Head ="
+            "        match this with"
+            "        | Cons(h, _) -> h"
+            "        | Nil -> failwith \"empty\""
+            ""
+            "    member this.Length ="
+            "        match this with"
+            "        | Nil -> 0"
+            "        | Cons(_, t) -> 1 + t.Length"
+            ""
+            "    static member Empty = Nil"
+            "    static member Single x = Cons(x, Nil)"
+        ]
+
+let private genUnionSrc =
+    lines
+        [
+            "type Lst<'T> ="
+            "    | Nil"
+            "    | Cons of 'T * Lst<'T>"
+            "let rec sumList xs ="
+            "    match xs with"
+            "    | Nil -> 0"
+            "    | Cons(h, t) -> h + sumList t"
+            "printfn \"%d\" (sumList (Cons(1, Cons(2, Cons(3, Nil)))))"
+        ]
+
+let private genMemberSrc =
+    lines
+        [
+            "type Lst<'T> ="
+            "    | Nil"
+            "    | Cons of 'T * Lst<'T>"
+            ""
+            "    member this.IsEmpty ="
+            "        match this with"
+            "        | Nil -> true"
+            "        | Cons(_, _) -> false"
+            ""
+            "    member this.Head ="
+            "        match this with"
+            "        | Cons(h, _) -> h"
+            "        | Nil -> failwith \"empty\""
+            ""
+            "    member this.Tail ="
+            "        match this with"
+            "        | Cons(_, t) -> t"
+            "        | Nil -> failwith \"empty\""
+            ""
+            "    member this.Length ="
+            "        match this with"
+            "        | Nil -> 0"
+            "        | Cons(_, t) -> 1 + t.Length"
+        ]
+
+// Generic match / recursion / fold over a generic union (SelfHostR3 anchors).
+let private hdSrc =
+    lines
+        [
+            "type Lst<'T> ="
+            "    | Nil"
+            "    | Cons of 'T * Lst<'T>"
+            "let hd (xs: Lst<'T>) (dflt: 'T) : 'T ="
+            "    match xs with"
+            "    | Nil -> dflt"
+            "    | Cons(h, t) -> h"
+            "printfn \"%d\" (hd (Cons(7, Nil)) 0)"
+        ]
+
+let private lastOrSrc =
+    lines
+        [
+            "type Lst<'T> ="
+            "    | Nil"
+            "    | Cons of 'T * Lst<'T>"
+            "let rec lastOr (xs: Lst<'T>) (dflt: 'T) : 'T ="
+            "    match xs with"
+            "    | Nil -> dflt"
+            "    | Cons(h, t) -> lastOr t h"
+            "printfn \"%d\" (lastOr (Cons(1, Cons(2, Cons(3, Nil)))) 0)"
+        ]
+
+let private foldlSrc =
+    lines
+        [
+            "type Lst<'T> ="
+            "    | Nil"
+            "    | Cons of 'T * Lst<'T>"
+            "let rec foldl (f: 'State -> 'T -> 'State) (acc: 'State) (xs: Lst<'T>) : 'State ="
+            "    match xs with"
+            "    | Nil -> acc"
+            "    | Cons(h, t) -> foldl f (f acc h) t"
+            "printfn \"%d\" (foldl (+) 0 (Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil)))))))"
+        ]
 
 [<Tests>]
 let tests =
     testList
-        "Rung2"
+        "Unions"
         [
-            test "`if true then 1 else 2` takes the then-branch (prints 1)" {
-                let _, artifact =
-                    compileSource "Rung2IfTrue" "printfn \"%d\" (if true then 1 else 2)"
-
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "1" "then-branch value"
-            }
-
-            test "`if false then 1 else 2` takes the else-branch (prints 2)" {
-                let _, artifact =
-                    compileSource "Rung2IfFalse" "printfn \"%d\" (if false then 1 else 2)"
-
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "2" "else-branch value"
-            }
-
-            test "`match` on an int literal arm hits the matching case" {
-                let _, artifact =
-                    compileSource "Rung2MatchConst" "printfn \"%d\" (match 1 with | 0 -> 10 | 1 -> 20 | _ -> 30)"
-
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "20" "the `| 1 ->` arm matched"
-            }
-
-            test "`match` falls through literal arms to the wildcard default" {
-                let _, artifact =
-                    compileSource "Rung2MatchWildcard" "printfn \"%d\" (match 7 with | 0 -> 10 | 1 -> 20 | _ -> 30)"
-
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "30" "no literal matched, the `_` default ran"
-            }
-
-            test "`match` binds a named pattern and uses it in the body" {
-                let _, artifact =
-                    compileSource "Rung2MatchNamed" "printfn \"%d\" (match 5 with | 0 -> 100 | n -> n + 1)"
-
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "6" "the named arm bound 5 and computed 5 + 1"
-            }
-
-            let unionSrc =
-                "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet head =\n    match Cons(7, Nil) with\n    | Nil -> 0\n    | Cons(h, _) -> h\nprintfn \"%d\" head"
-
             test "monomorphic union + match analyses clean and surfaces TTypeKind.Union" {
                 let tast = analyse unionSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -89,7 +160,7 @@ let tests =
             }
 
             test "construct `Cons(7, Nil)` and read its head via match (prints 7)" {
-                let _, artifact = compileSource "Rung2UnionHead" unionSrc
+                let _, artifact = compileSource "UnionHead" unionSrc
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "7" "Cons head extracted by the `| Cons(h, _)` arm"
@@ -99,14 +170,11 @@ let tests =
                 let src =
                     "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet n =\n    match Nil with\n    | Nil -> 0\n    | Cons(h, _) -> h\nprintfn \"%d\" n"
 
-                let _, artifact = compileSource "Rung2UnionNil" src
+                let _, artifact = compileSource "UnionNil" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "0" "the Nil arm matched on a constructed Nil"
             }
-
-            let recSrc =
-                "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet rec sumList xs =\n    match xs with\n    | Nil -> 0\n    | Cons(h, t) -> h + sumList t\nprintfn \"%d\" (sumList (Cons(1, Cons(2, Cons(3, Nil)))))"
 
             test "recursive `sumList` analyses clean and self-references its binding" {
                 let tast = analyse recSrc
@@ -129,7 +197,7 @@ let tests =
             }
 
             test "recursive `sumList` folds a 3-element list (prints 6)" {
-                let _, artifact = compileSource "Rung2Recursion" recSrc
+                let _, artifact = compileSource "UnionRecursion" recSrc
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "6" "sumList [1;2;3] = 6 via self-recursive static call"
@@ -139,145 +207,16 @@ let tests =
                 let src =
                     "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet second =\n    match Cons(10, Cons(20, Nil)) with\n    | Cons(_, Cons(y, _)) -> y\n    | _ -> -1\nprintfn \"%d\" second"
 
-                let _, artifact = compileSource "Rung2UnionNested" src
+                let _, artifact = compileSource "UnionNested" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "20" "the nested `Cons(_, Cons(y, _))` bound the tail's head"
-            }
-
-            let staticFnMethods (bytes: byte[]) : MethodInfo[] =
-                let asm = loadAssembly bytes
-
-                asm.GetTypes()
-                |> Array.collect (fun t ->
-                    t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-                )
-                |> Array.filter (fun m -> m.Name.StartsWith "fn$")
-
-            test "a top-level function is emitted as a static method, called directly (prints 42)" {
-                let _, artifact =
-                    compileSource "Rung2bStatic" "let twice x = x + x\nprintfn \"%d\" (twice 21)"
-
-                let bytes = Codegen.toBytes artifact
-                let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "42" "twice 21 = 42 via a direct static call"
-
-                // G8: a nil `ParamList` would throw `BadImageFormatException` on
-                // `GetParameters`, so the reflection round-trip guards it.
-                match staticFnMethods bytes with
-                | [| m |] ->
-                    Expect.isTrue m.IsStatic "emitted as a static method"
-                    Expect.equal (m.GetParameters().Length) 1 "one real Param row (G8)"
-                | other -> failtestf "expected one static fn, got %A" (other |> Array.map (fun m -> m.Name))
-            }
-
-            test "a recursive function recurses via a direct static call (prints 15)" {
-                let src =
-                    "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
-
-                let _, artifact = compileSource "Rung2bRec" src
-                let bytes = Codegen.toBytes artifact
-                let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "15" "sumTo 5 = 5+4+3+2+1+0 via a self-recursive static call"
-                Expect.equal (staticFnMethods bytes).Length 1 "sumTo is the one static method (no closure)"
-            }
-
-            test "one static method calls another by a direct call (prints 13)" {
-                let src =
-                    "let inc x = x + 1\nlet add3 x = inc (inc (inc x))\nprintfn \"%d\" (add3 10)"
-
-                let _, artifact = compileSource "Rung2bCross" src
-                let bytes = Codegen.toBytes artifact
-                let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "13" "add3 10 = inc(inc(inc 10)) = 13"
-                Expect.equal (staticFnMethods bytes).Length 2 "both inc and add3 are static methods"
-            }
-
-            test "a capturing function stays a closure, not a static method (prints 15)" {
-                let src = "let n = 10\nlet addN x = x + n\nprintfn \"%d\" (addN 5)"
-                let _, artifact = compileSource "Rung2bCapture" src
-                let bytes = Codegen.toBytes artifact
-                let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "15" "addN 5 = 15 via a capturing closure"
-                Expect.isEmpty (staticFnMethods bytes) "addN captures n, so it stays a closure (no static fn)"
-
-                let asm = loadAssembly bytes
-
-                let hasClosure =
-                    asm.GetTypes() |> Array.exists (fun t -> t.Name.StartsWith "<closure>")
-
-                Expect.isTrue hasClosure "a closure type was emitted for the capturing addN"
-            }
-
-            // R3 deferred: a named `module M = …` now compiles to an `M` holder type
-            // carrying its functions under their *source* names (no `fn$` mangling,
-            // not on the "Program" holder) — exercised here in an executable.
-            let moduleStaticMethod (bytes: byte[]) (holder: string) (name: string) : MethodInfo =
-                let asm = loadAssembly bytes
-
-                match asm.GetTypes() |> Array.tryFind (fun t -> t.FullName = holder) with
-                | None -> failtestf "no `%s` holder type emitted for the nested module" holder
-                | Some t ->
-                    match t.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static) with
-                    | null -> failtestf "`%s` is not a public static method on the `%s` holder" name holder
-                    | m -> m
-
-            test "a function inside a nested module compiles + runs as a static method on its holder (prints 42)" {
-                let src =
-                    "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)"
-
-                let _, artifact = compileSource "Rung2dNestedMod" src
-                let bytes = Codegen.toBytes artifact
-                let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "42" "twice 21 = 42 — the nested-module function ran"
-
-                let twice = moduleStaticMethod bytes "M" "twice"
-                Expect.isTrue twice.IsStatic "twice is a static method on the M holder"
-                Expect.isEmpty (staticFnMethods bytes) "carries its source name `twice`, not an anonymous `fn$`"
-            }
-
-            test "a recursive function inside a nested module recurses (prints 15)" {
-                let src =
-                    "module M =\n    let rec sumTo n =\n        match n with\n        | 0 -> 0\n        | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
-
-                let _, artifact = compileSource "Rung2dNestedRec" src
-                let bytes = Codegen.toBytes artifact
-                let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "15" "sumTo 5 = 15 via a self-recursive static call from a nested module"
-
-                let sumTo = moduleStaticMethod bytes "M" "sumTo"
-                Expect.isTrue sumTo.IsStatic "sumTo is a static method on the M holder"
-                Expect.isEmpty (staticFnMethods bytes) "carries its source name `sumTo`, not an anonymous `fn$`"
-            }
-
-            test "a recursive static-method program runs as a standalone `dotnet <dll>` app (prints 15)" {
-                let outDir = tmpDir "rung2b-static-app"
-                let project = ProjectInfo.app "Rung2bStaticApp" outDir
-
-                let src =
-                    "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
-
-                let artifact = compileSourceTo project src
-                Codegen.materialiseApp project artifact
-
-                let dllPath = System.IO.Path.Combine(outDir, "Rung2bStaticApp.dll")
-                let exitCode, output = runOnDisk dllPath
-
-                Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
-                Expect.equal (output.Trim()) "15" "the recursive static method runs as a real assembly"
             }
 
             // P3c: emit a union + module as a *library* DLL (no Main) via the
             // converged assembler. The fold here is the concrete `sum` rather than
             // a higher-order `fold`: a function parameter would be an `FSharpFunc`2`,
             // pinning FSharp.Core and breaking "BCL-only".
-
             test "a union + recursive module fold ships as a BCL-only library DLL (P3c)" {
                 let src =
                     "namespace Vesper.Collections\n\ntype IntList =\n    | Empty\n    | Cons of int * IntList\n\nlet rec sum xs =\n    match xs with\n    | Empty -> 0\n    | Cons(h, t) -> h + sum t"
@@ -331,33 +270,6 @@ let tests =
                 | other -> failtestf "expected one static fold method, got %A" (other |> Array.map (fun m -> m.Name))
             }
 
-            let memberUnionSrc =
-                String.concat
-                    "\n"
-                    [
-                        "type Lst ="
-                        "    | Nil"
-                        "    | Cons of int * Lst"
-                        ""
-                        "    member this.IsEmpty ="
-                        "        match this with"
-                        "        | Nil -> true"
-                        "        | Cons(_, _) -> false"
-                        ""
-                        "    member this.Head ="
-                        "        match this with"
-                        "        | Cons(h, _) -> h"
-                        "        | Nil -> failwith \"empty\""
-                        ""
-                        "    member this.Length ="
-                        "        match this with"
-                        "        | Nil -> 0"
-                        "        | Cons(_, t) -> 1 + t.Length"
-                        ""
-                        "    static member Empty = Nil"
-                        "    static member Single x = Cons(x, Nil)"
-                    ]
-
             test "union augmentation members surface on TTypeKind.Union (P3d.3)" {
                 let tast = analyse memberUnionSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -390,8 +302,7 @@ let tests =
                 let src =
                     memberUnionSrc
                     + "\n"
-                    + String.concat
-                        "\n"
+                    + lines
                         [
                             "let xs = Cons(10, Cons(20, Cons(30, Nil)))"
                             "printfn \"%b\" xs.IsEmpty"
@@ -403,7 +314,7 @@ let tests =
                             "printfn \"%d\" s.Head"
                         ]
 
-                let tast, artifact = compileSource "Rung2dMembers" src
+                let tast, artifact = compileSource "UnionMembers" src
 
                 Expect.isEmpty
                     tast.Diagnostics
@@ -412,19 +323,19 @@ let tests =
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
-                let lines =
+                let outLines =
                     output.Split('\n')
                     |> Array.map (fun s -> s.Trim())
                     |> Array.filter (fun s -> s.Length > 0)
 
                 Expect.equal
-                    lines
+                    outLines
                     [| "false"; "10"; "3"; "true"; "7" |]
                     "xs.IsEmpty=false, xs.Head=10, xs.Length=3, Lst.Empty.IsEmpty=true, (Lst.Single 7).Head=7"
             }
 
             test "an instance member is emitted as a real method (get_IsEmpty) on the union (P3d.3)" {
-                let _, artifact = compileSource "Rung2dMemberMeta" memberUnionSrc
+                let _, artifact = compileSource "UnionMemberMeta" memberUnionSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let listTy = asm.GetType "Lst"
                 Expect.isNotNull listTy "the assembly contains the union type Lst"
@@ -440,22 +351,8 @@ let tests =
                 Expect.equal (single.GetParameters().Length) 1 "Single has one real Param row"
             }
 
-            let genUnionSrc =
-                String.concat
-                    "\n"
-                    [
-                        "type Lst<'T> ="
-                        "    | Nil"
-                        "    | Cons of 'T * Lst<'T>"
-                        "let rec sumList xs ="
-                        "    match xs with"
-                        "    | Nil -> 0"
-                        "    | Cons(h, t) -> h + sumList t"
-                        "printfn \"%d\" (sumList (Cons(1, Cons(2, Cons(3, Nil)))))"
-                    ]
-
             test "a generic union constructs + match-deconstructs at runtime via a recursive fold (prints 6)" {
-                let tast, artifact = compileSource "Rung2dGenUnion" genUnionSrc
+                let tast, artifact = compileSource "GenUnion" genUnionSrc
 
                 Expect.isEmpty
                     tast.Diagnostics
@@ -470,41 +367,9 @@ let tests =
                     "Cons(1, Cons(2, Cons(3, Nil))) folds to 6 over our own generic Lst<'T>"
             }
 
-            let listLitSrc =
-                String.concat
-                    "\n"
-                    [
-                        "type List<'T> ="
-                        "    | ([]): List<'T>"
-                        "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
-                        "and 'T list = List<'T>"
-                        "let rec sum xs ="
-                        "    match xs with"
-                        "    | Empty -> 0"
-                        "    | Cons(h, t) -> h + sum t"
-                        "printfn \"%d\" (sum [1; 2; 3])"
-                    ]
-
-            test "`[1; 2; 3]` runs against the program's own declared list union (prints 6)" {
-                let tast, artifact = compileSource "Rung2dListLit" listLitSrc
-
-                Expect.isEmpty
-                    tast.Diagnostics
-                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
-
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    "a `[1;2;3]` over our own list + a concrete printf references no FSharp.Core"
-
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-                Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "6" "[1; 2; 3] built + folded over the program's own List<'T>"
-            }
-
             test "a generic List<'T> union compiles to a BCL-only library DLL with generic factories (P3d.4)" {
                 let src =
-                    String.concat
-                        "\n"
+                    lines
                         [
                             "namespace Vesper.Collections"
                             ""
@@ -553,45 +418,15 @@ let tests =
                 Expect.equal (headField.GetValue one :?> int) 1 "Cons_0 holds the head value 1"
             }
 
-            // R2 piece 1: instance augmentation members on a *generic* union. The
-            // member signatures + bodies carry the declaring-typar marker (`!0`),
-            // and every member access on `Lst<int>` goes through a `MemberRef` on
-            // the instantiated `TypeSpec` (`Lst<int>::get_Head`).
-            let genMemberSrc =
-                String.concat
-                    "\n"
-                    [
-                        "type Lst<'T> ="
-                        "    | Nil"
-                        "    | Cons of 'T * Lst<'T>"
-                        ""
-                        "    member this.IsEmpty ="
-                        "        match this with"
-                        "        | Nil -> true"
-                        "        | Cons(_, _) -> false"
-                        ""
-                        "    member this.Head ="
-                        "        match this with"
-                        "        | Cons(h, _) -> h"
-                        "        | Nil -> failwith \"empty\""
-                        ""
-                        "    member this.Tail ="
-                        "        match this with"
-                        "        | Cons(_, t) -> t"
-                        "        | Nil -> failwith \"empty\""
-                        ""
-                        "    member this.Length ="
-                        "        match this with"
-                        "        | Nil -> 0"
-                        "        | Cons(_, t) -> 1 + t.Length"
-                    ]
-
+            // R2: instance augmentation members on a *generic* union. The member
+            // signatures + bodies carry the declaring-typar marker (`!0`), and every
+            // member access on `Lst<int>` goes through a `MemberRef` on the
+            // instantiated `TypeSpec` (`Lst<int>::get_Head`).
             test "generic union instance members run at runtime: chained Head/Tail, recursive Length (R2)" {
                 let src =
                     genMemberSrc
                     + "\n"
-                    + String.concat
-                        "\n"
+                    + lines
                         [
                             "let xs = Cons(10, Cons(20, Cons(30, Nil)))"
                             "printfn \"%b\" xs.IsEmpty"
@@ -600,7 +435,7 @@ let tests =
                             "printfn \"%d\" xs.Tail.Head"
                         ]
 
-                let tast, artifact = compileSource "Rung2GenMembers" src
+                let tast, artifact = compileSource "GenMembers" src
 
                 Expect.isEmpty
                     tast.Diagnostics
@@ -609,13 +444,13 @@ let tests =
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
-                let lines =
+                let outLines =
                     output.Split('\n')
                     |> Array.map (fun s -> s.Trim())
                     |> Array.filter (fun s -> s.Length > 0)
 
                 Expect.equal
-                    lines
+                    outLines
                     [| "false"; "10"; "3"; "20" |]
                     "xs.IsEmpty=false, xs.Head=10, xs.Length=3, xs.Tail.Head=20"
             }
@@ -671,5 +506,53 @@ let tests =
 
                 let tail = getTail.Invoke(l2, [||])
                 Expect.equal (getHead.Invoke(tail, [||]) :?> int) 7 "l2.Tail.Head = 7"
+            }
+
+            // Generic match / recursion / fold over a generic union, emitted as
+            // generic static methods (`!!`-typed tag + field member refs, a
+            // `MethodSpec` self-call, a `Vesper.Fun` folder parameter).
+            test "a generic match over a generic union returns the head (prints 7)" {
+                let tast, artifact = compileSource "GenericHd" hdSrc
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "7" "Cons(7, Nil) head is 7 via a generic static method"
+            }
+
+            test "a recursive generic function self-calls via MethodSpec (prints 3)" {
+                let tast, artifact = compileSource "GenericLastOr" lastOrSrc
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "3" "lastOr recurses through the list to the last element"
+            }
+
+            test "a generic recursive `foldl<'State,'T>` over a generic union folds to 15 (generic static method)" {
+                let tast, artifact = compileSource "GenericFoldl" foldlSrc
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Trim())
+                    "15"
+                    "foldl (+) 0 [1..5] = 15 over our own generic Lst<'T>, via a generic static method"
+            }
+
+            test "the generic static method reflects as a 2-typar generic method" {
+                let _, artifact = compileSource "GenericFoldlShape" foldlSrc
+                let asm = loadAssembly (Codegen.toBytes artifact)
+
+                let foldl =
+                    asm.GetTypes()
+                    |> Array.collect (fun t -> t.GetMethods(BindingFlags.Public ||| BindingFlags.Static))
+                    |> Array.tryFind (fun m -> m.IsGenericMethodDefinition && m.GetGenericArguments().Length = 2)
+
+                match foldl with
+                | None -> failtest "no 2-typar generic static method was emitted"
+                | Some m -> Expect.equal (m.GetGenericArguments().Length) 2 "foldl has two generic parameters"
             }
         ]
