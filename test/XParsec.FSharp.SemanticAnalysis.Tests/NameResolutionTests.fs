@@ -598,4 +598,51 @@ let tests =
 
                 Expect.isTrue cyclic "cyclic-inheritance diagnostic emitted"
             }
+
+            // --- symbol-key-refactor.md Phase 2: ResolvedType side table ----------
+
+            test "Phase 2: union decl sites stamp ResolvedType with arity-qualified keys" {
+                // NameResolution stamps each union's decl-site NodeKey → the union's
+                // minted `SymbolKey`; the type-decl emitter (`Freeze.tryUnionType`)
+                // reads it back by key rather than re-deriving `(name, arity)`.
+                let ctx =
+                    analyse "type Color = | Red | Green\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b"
+
+                let stamped = ctx.Resolution.ResolvedType.AsDictionary()
+
+                let hasValue key =
+                    stamped |> Seq.exists (fun kv -> kv.Value = key)
+
+                Expect.isTrue (hasValue (SymbolKey.TypeKey(None, "", "Color"))) "Color decl site stamped"
+                Expect.isTrue (hasValue (SymbolKey.TypeKey(None, "", "Choice`2"))) "Choice`2 decl site stamped"
+
+                // The stamped key round-trips back to the union through the same
+                // reader-side seam the emitter uses.
+                match TypeRegistry.tryUnionByKey ctx.Types (SymbolKey.TypeKey(None, "", "Choice`2")) with
+                | ValueSome info -> Expect.equal info.Name "Choice" "Choice`2 key resolves to the Choice union"
+                | ValueNone -> failtest "Choice`2 key did not resolve via tryUnionByKey"
+            }
+
+            test "Phase 2: union annotation use site stamps ResolvedType" {
+                // `translateType` (via Unification) stamps the use-site type-reference
+                // NodeKey as the `Choice<int, string>` annotation resolves — the
+                // populate half a Phase 3 consumer will key off.
+                let input =
+                    "type Choice<'a, 'b> = | C1 of 'a | C2 of 'b\nlet f (x: Choice<int, string>) = x"
+
+                let lexed, file = parseFile input
+                let ctx = PassContext(MockBuiltins.provider, input, lexed)
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                let useStamp =
+                    ctx.Resolution.ResolvedType.AsDictionary()
+                    |> Seq.exists (fun kv ->
+                        kv.Key.Kind = NodeKind.TypeGeneric
+                        && kv.Value = SymbolKey.TypeKey(None, "", "Choice`2")
+                    )
+
+                Expect.isTrue useStamp "Choice<int, string> annotation stamped at its TypeGeneric use site"
+            }
         ]

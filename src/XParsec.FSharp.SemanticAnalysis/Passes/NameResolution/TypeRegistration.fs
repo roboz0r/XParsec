@@ -290,6 +290,15 @@ module NameResolutionTypeRegistration =
 
                     TypeRegistry.registerUnion ctx.Types name typeArity info
 
+                    // symbol-key-refactor.md Phase 2: record the decl-site identity
+                    // so the type-decl emitter (`Freeze.tryUnionType`) recovers the
+                    // union by key rather than re-deriving `(name, arity)`. `info.Key`
+                    // is the arity-qualified `TypeKey(None, "", name\`arity)` minted at
+                    // construction; this stamp is co-populated with `ctx.Types.Union`,
+                    // so the emitter's key lookup is exactly as total as the former
+                    // `(name, arity)` one.
+                    ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+
                     for c in caseInfos do
                         match ctx.Types.CtorIndex.TryGetValue c.Name with
                         | true, infos ->

@@ -179,7 +179,9 @@ module UnificationTranslate =
                         match ctx.Types.Union.TryGetValue name with
                         | true, info ->
                             let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-
+                            // symbol-key-refactor.md Phase 2: record the resolved
+                            // union identity at this use site (populate-only for now).
+                            ctx.Resolution.ResolvedType.Set(NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed, info.Key)
                             TyUnion(name, args)
                         | false, _ ->
                             match ctx.Types.Class.TryGetValue name with
@@ -339,8 +341,10 @@ module UnificationTranslate =
                     TyRecord(name, translatedArgs)
                 | false, _ ->
                     match TypeRegistry.tryUnion ctx.Types name argCount with
-                    | ValueSome _ ->
+                    | ValueSome info ->
                         // Exact arity-key match (`Choice\`2`): no diagnostic.
+                        // symbol-key-refactor.md Phase 2: stamp the use site (populate-only).
+                        ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
                         TyUnion(name, translatedArgs)
                     | ValueNone ->
                         // No union of this exact arity. If the bare alias resolves (a
@@ -349,6 +353,7 @@ module UnificationTranslate =
                         match ctx.Types.Union.TryGetValue name with
                         | true, info ->
                             checkArity (info.TypeParams.Length)
+                            ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
                             TyUnion(name, translatedArgs)
                         | false, _ ->
                             match ctx.Types.Class.TryGetValue name with

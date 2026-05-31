@@ -597,6 +597,21 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
+    /// Resolve a union by its project-local `SymbolKey` — the arity-qualified
+    /// `TypeKey(None, _, name\`arity)` minted onto `UnionTypeInfo.Key` and stamped
+    /// into `Resolution.ResolvedType` (symbol-key-refactor.md Phase 2). The key's
+    /// `name` component *is* the registry key: both it (`LocalSymbolKey.arityName`)
+    /// and `keyFor` delegate to one rule, so this is a direct `Union` lookup with
+    /// no arity re-derivation. A non-`TypeKey` key (a value / member) never names a
+    /// union, so it misses. The reader-side seam for SymbolKey-first resolution.
+    let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption =
+        match key with
+        | SymbolKey.TypeKey(name = name) ->
+            match types.Union.TryGetValue name with
+            | true, info -> ValueSome info
+            | false, _ -> ValueNone
+        | _ -> ValueNone
+
     /// The declaring union of a registered case, resolved by its `(UnionName,
     /// UnionArity)`. The case came from a registered union, so this is total in
     /// practice; falls back to the bare alias defensively.
@@ -725,6 +740,18 @@ type PassContextResolution =
         /// `ForInEnumerator.DuckTyped` for a source exposing only a pattern-based
         /// `GetEnumerator()` (vesper-set-sprint-phase-4 §4.4).
         ForInShape: SideTable<ForInEnumerator>
+        /// Keyed by a *type-reference* `NodeKey`: the project-local `SymbolKey`
+        /// that reference resolves to (symbol-key-refactor.md Phase 2). Two minting
+        /// sites populate it: `NameResolution.registerUnionTypeDefn` stamps the
+        /// *decl* site (`DeclType` key) from the union's minted `Key`, and
+        /// `translateType` / `resolveNamedGeneric` stamp *use* sites (`TypeNamed` /
+        /// `TypeGeneric` keys) as a union annotation resolves. Read by the type-decl
+        /// emitter (`Freeze.tryUnionType`) to recover the union by key instead of
+        /// re-deriving `(name, arity)`; the use-site stamps are populate-only
+        /// groundwork until a Phase 3 consumer keys off them. Unions only for now
+        /// (the proven-out case); records / classes / abbrevs follow as their
+        /// consumers migrate.
+        ResolvedType: SideTable<SymbolKey>
     }
 
 module PassContextResolution =
@@ -740,6 +767,7 @@ module PassContextResolution =
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
+            ResolvedType = SideTable<_>()
         }
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
