@@ -236,8 +236,15 @@ module NameResolutionTypeRegistration =
                 let nameTok = nameLi.Idents.[0]
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+                let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                // Generic arity overloads the short name (`Choice\`2`…`Choice\`7`),
+                // so the duplicate test and the registry key are arity-qualified.
+                let typeArity = typeParams.Length
 
-                if ctx.Types.Union.ContainsKey name || ctx.Types.Record.ContainsKey name then
+                if
+                    TypeRegistry.containsUnion ctx.Types name typeArity
+                    || ctx.Types.Record.ContainsKey name
+                then
                     ctx.Diagnostics.Add
                         {
                             Key = declKey
@@ -246,8 +253,6 @@ module NameResolutionTypeRegistration =
                             Severity = Error
                         }
                 else
-                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-
                     let caseInfos =
                         [|
                             for UnionTypeCase(data = data) in cases do
@@ -262,7 +267,7 @@ module NameResolutionTypeRegistration =
                                                 TyVar tv
                                             )
 
-                                    yield UnionCaseInfo(caseName, name, fieldTys, fieldNames, declKey)
+                                    yield UnionCaseInfo(caseName, name, typeArity, fieldTys, fieldNames, declKey)
                                 | ValueNone -> ()
                         |]
 
@@ -283,7 +288,7 @@ module NameResolutionTypeRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    ctx.Types.Union.[name] <- info
+                    TypeRegistry.registerUnion ctx.Types name typeArity info
 
                     for c in caseInfos do
                         match ctx.Types.CtorIndex.TryGetValue c.Name with

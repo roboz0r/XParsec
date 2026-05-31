@@ -99,11 +99,15 @@ type internal ClrEncoder(env: ClrEnv) =
                 let elem = args.[0]
                 let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) elem
-            | TyUnion(name, args) when userTypes.ContainsKey name ->
+            | TyUnion(name, args) when userTypes.ContainsKey(TypeRegistry.keyFor name args.Length) ->
+                // Unions are registered by arity-key (`Choice\`2`), so the same short
+                // name at different arities resolves to distinct `TypeDefinition`s.
+                let handle = userTypes.[TypeRegistry.keyFor name args.Length]
+
                 if args.IsEmpty then
-                    te.Type(userTypes.[name], false)
+                    te.Type(handle, false)
                 else
-                    let g = te.GenericInstantiation(userTypes.[name], args.Length, false)
+                    let g = te.GenericInstantiation(handle, args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a

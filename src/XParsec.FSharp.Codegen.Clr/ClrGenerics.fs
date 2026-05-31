@@ -18,12 +18,15 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let encodeType te t = enc.EncodeType(te, t)
     let encodeUnionType typeIx te t = enc.EncodeUnionType(typeIx, te, t)
 
+    // Unions are keyed by arity (`Choice\`2`), so the use-site arg count selects the
+    // right same-named overload in `genericUnions` / `userTypes`.
     let genericUnionTypeSpec (name: string) (args: SemType list) : EntityHandle =
-        let typars, _ = genericUnions.[name]
+        let key = TypeRegistry.keyFor name (List.length args)
+        let typars, _ = genericUnions.[key]
         let typeIx = typarIx typars
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(userTypes.[name], List.length typars, false)
+        let g = te.GenericInstantiation(userTypes.[key], List.length typars, false)
 
         for a in args do
             encodeUnionType typeIx (g.AddArgument()) a
@@ -31,7 +34,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     let genericUnionMemberRef (name: string) (args: SemType list) (which: UnionMember) : EntityHandle =
-        let typars, cases = genericUnions.[name]
+        let typars, cases = genericUnions.[TypeRegistry.keyFor name (List.length args)]
         let typeIx = typarIx typars
         let parent = genericUnionTypeSpec name args
 
@@ -267,8 +270,9 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
     /// A generic union's own instantiation `TypeSpec` over its declaring typars (`List`1<!0>`) — the
     /// `isinst` target / `other`-local / typed-`Equals` self for its synthesised equality triple.
-    member _.GenericUnionSelfSpec(name: string) : EntityHandle =
-        let typars, _ = genericUnions.[name]
+    /// `arity` disambiguates same-named overloads (`Choice\`2`…`Choice\`7`) in `genericUnions`.
+    member _.GenericUnionSelfSpec(name: string, arity: int) : EntityHandle =
+        let typars, _ = genericUnions.[TypeRegistry.keyFor name arity]
         genericUnionTypeSpec name [ for t in typars -> TyConst t ]
 
     member _.GenericRecordSelfSpec(name: string) : EntityHandle =

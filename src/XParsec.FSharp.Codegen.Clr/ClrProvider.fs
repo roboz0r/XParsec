@@ -92,7 +92,8 @@ type ClrProvider
 
     member _.ClearTypeTypars() : unit = env.TypeTyparIx <- Map.empty
 
-    member _.GenericUnionSelfSpec(name: string) : EntityHandle = generics.GenericUnionSelfSpec name
+    member _.GenericUnionSelfSpec(name: string, arity: int) : EntityHandle =
+        generics.GenericUnionSelfSpec(name, arity)
 
     member _.GenericRecordSelfSpec(name: string) : EntityHandle = generics.GenericRecordSelfSpec name
 

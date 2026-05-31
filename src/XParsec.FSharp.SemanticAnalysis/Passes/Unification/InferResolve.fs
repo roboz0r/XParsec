@@ -75,7 +75,7 @@ module UnificationInferResolve =
     /// The receiver union's typars are instantiated fresh so two independent
     /// uses of `Some` don't share a `'a`.
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
-        let unionInfo = ctx.Types.Union.[info.UnionName]
+        let unionInfo = TypeRegistry.unionOfCase ctx.Types info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(info.UnionName, args)
 
@@ -135,12 +135,14 @@ module UnificationInferResolve =
         | true, infos -> ValueNone, infos.Length
 
     let resolveQualifiedCtor (ctx: PassContext) (typeName: string) (caseName: string) : UnionCaseInfo voption =
-        match ctx.Types.Union.TryGetValue typeName with
+        // Case names are globally unique (even across arity-overloaded unions like
+        // `Choice\`2`…`Choice\`7`), so resolve through the reverse case index and let
+        // the written qualifier select which union short name the case belongs to.
+        // Avoids a bare `Union.[typeName]` lookup, which can't see an arity-overloaded
+        // union (its bare alias is withdrawn).
+        match ctx.Types.CtorIndex.TryGetValue caseName with
         | false, _ -> ValueNone
-        | true, info ->
-            match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
-            | Some c -> ValueSome c
-            | None -> ValueNone
+        | true, infos -> infos |> EqArray.tryFind (fun c -> c.UnionName = typeName)
 
     /// Field set match is order-insensitive. candidateCount disambiguates the
     /// "no match" vs "ambiguous" diagnostic paths.

@@ -450,15 +450,15 @@ module UnificationEngine =
             else
                 DotSource.UnknownType(name, "class")
         | ValueSome(NominalKind.Union, name, args) ->
-            match ctx.Types.Union.TryGetValue name with
-            | true, info ->
+            match TypeRegistry.tryUnion ctx.Types name args.Length with
+            | ValueSome info ->
                 DotSource.Resolved(
                     name,
                     "instance member",
                     mkNamedTypeSubst info.TypeParams args,
                     memberLookup info.Members
                 )
-            | false, _ -> DotSource.UnknownType(name, "union")
+            | ValueNone -> DotSource.UnknownType(name, "union")
 
     /// `Defer` is the "I don't know yet" answer: the target is still free
     /// (or compound-with-free-args) and a future unification might pin it.
@@ -717,8 +717,8 @@ module UnificationEngine =
                     |> reduceOutcome (checkConstraint ctx c)
             | false, _ -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
-            match ctx.Types.Union.TryGetValue name with
-            | true, info ->
+            match TypeRegistry.tryUnion ctx.Types name args.Length with
+            | ValueSome info ->
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
                 | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
@@ -733,7 +733,7 @@ module UnificationEngine =
                             fields.Add(substituteWith subst field)
 
                     fields |> EqArray.ofResizeArray |> reduceOutcome (checkConstraint ctx c)
-            | false, _ -> Defer
+            | ValueNone -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass _ ->
             // Per docs/classes-plan.md §Open questions: F# classes are
             // reference-equal by default; structural equality / comparison

@@ -419,13 +419,27 @@ module VesperLib =
 
                 let qualifier = String.concat "." (List.rev path)
 
-                let compiled =
+                let baseName =
                     if qualifier.Length = 0 then
                         short
                     else
                         qualifier + "." + short
 
-                // First declaration wins on collision.
+                // Arity-suffix generic types (`Vesper.Choice`2`) so an arity-
+                // overloaded type doesn't collapse onto its bare compiled name in
+                // `ctx.TypeShapes` / the reverse case index. This matches the emitted
+                // metadata name (`TypeRegistry.keyFor`) and the consumer's arity-
+                // suffixed `keysFor` probe in `tryResolveExternalType`. Non-generic
+                // types keep their bare name.
+                let compiled =
+                    if arity = 0 then
+                        baseName
+                    else
+                        sprintf "%s`%d" baseName arity
+
+                // First declaration wins on a *short-name* collision; arity-overloaded
+                // types share the short name, so only the first arity is reachable by
+                // bare short name (the consumer resolves the rest by arity-key).
                 if not (ctx.Types.ContainsKey short) then
                     ctx.Types.[short] <- (arity, compiled)
 

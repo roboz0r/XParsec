@@ -111,9 +111,16 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
 /// typed. `FieldNames` carries per-field names for named fields
 /// (`| Case of x: int * y: int`); positional fields have `ValueNone`.
 [<Sealed>]
-type UnionCaseInfo(name: string, unionName: string, fields: SemType[], fieldNames: string voption[], declKey: NodeKey) =
+type UnionCaseInfo
+    (name: string, unionName: string, unionArity: int, fields: SemType[], fieldNames: string voption[], declKey: NodeKey)
+    =
     member val Name = name
     member val UnionName = unionName
+    /// Generic arity of the declaring union (count of its type parameters). Pairs
+    /// with `UnionName` to resolve the *right* union when the short name is
+    /// overloaded by arity (`Choice\`2`…`Choice\`7`): `TypeRegistry.unionOfCase`
+    /// keys `ctx.Types.Union` by `(UnionName, UnionArity)`.
+    member val UnionArity = unionArity
     member val Fields = fields
     member val FieldNames = fieldNames
     member val DeclKey = declKey
@@ -441,6 +448,16 @@ type PassContextTypes =
         /// represents* the type, not an alias to expand. Input to the
         /// `encodeType` rekey.
         IntrinsicReprTypes: Dictionary<string, string>
+        /// Bookkeeping for the bare-name alias `Union` keeps for arity-overloaded
+        /// unions (`Choice\`2`…`Choice\`7`). `Union` is keyed by `TypeRegistry.keyFor`
+        /// (bare name for a non-generic union, ``name`N`` for arity N>0); a *single*
+        /// generic arity of a name additionally registers a bare-name alias, so a
+        /// generic union written without args (or read by bare name in legacy paths)
+        /// still resolves exactly as before. This maps the bare short name → the arity
+        /// of its current alias, or `-1` once a second arity collides and the alias is
+        /// withdrawn (the name is then only resolvable by its arity-key). Internal to
+        /// `TypeRegistry.registerUnion`; not read elsewhere.
+        UnionBareArity: Dictionary<string, int>
     }
 
 module PassContextTypes =
@@ -454,7 +471,72 @@ module PassContextTypes =
             FieldIndex = Dictionary<_, _>()
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
+            UnionBareArity = Dictionary<_, _>()
         }
+
+/// Arity-aware access to the project-local *union* registry. F# (and .NET) let a
+/// type name be overloaded by generic arity — `Choice<'T1,'T2>` and
+/// `Choice<'T1,'T2,'T3>` are distinct types `Choice\`2` / `Choice\`3`. The bare
+/// `Dictionary<string, _>` keys would collapse them onto `"Choice"`, so unions are
+/// keyed by `keyFor name arity`. A *single*-arity name also keeps a bare-name alias
+/// (so every existing single-arity lookup by bare name keeps working unchanged);
+/// the alias is withdrawn once a second arity registers (`UnionBareArity`). Only
+/// unions are arity-overloaded today (records / classes / abbreviations stay bare).
+module TypeRegistry =
+
+    /// The .NET-style key: the bare name for a non-generic type, ``name`N`` for
+    /// arity N>0. Matches the emitted metadata type name.
+    let keyFor (name: string) (arity: int) : string =
+        if arity <= 0 then name else name + "`" + string arity
+
+    /// Register a union under its arity-key, maintaining the bare-name alias while
+    /// the short name is single-arity and withdrawing it once a second arity
+    /// collides. Idempotent for a repeat of the same `(name, arity)`.
+    let registerUnion (types: PassContextTypes) (name: string) (arity: int) (info: UnionTypeInfo) : unit =
+        types.Union.[keyFor name arity] <- info
+
+        if arity > 0 then
+            match types.UnionBareArity.TryGetValue name with
+            | false, _ ->
+                types.Union.[name] <- info
+                types.UnionBareArity.[name] <- arity
+            | true, a when a = arity -> types.Union.[name] <- info // refresh the same-arity alias
+            | true, -1 -> () // already demoted: only the arity-key resolves
+            | true, _ ->
+                // A second distinct arity for this short name: withdraw the now-
+                // ambiguous bare alias; both arities resolve only by their key.
+                types.Union.Remove name |> ignore
+                types.UnionBareArity.[name] <- -1
+
+    /// True iff a union with this exact `(name, arity)` is registered (the arity-
+    /// key, never the bare alias) — the duplicate-definition test.
+    let containsUnion (types: PassContextTypes) (name: string) (arity: int) : bool =
+        types.Union.ContainsKey(keyFor name arity)
+
+    /// Resolve a union by `(name, arity)` — exact arity-key only, so a wrong arity
+    /// misses (the caller diagnoses). Does NOT fall back to the bare alias.
+    let tryUnion (types: PassContextTypes) (name: string) (arity: int) : UnionTypeInfo voption =
+        match types.Union.TryGetValue(keyFor name arity) with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
+
+    /// The declaring union of a registered case, resolved by its `(UnionName,
+    /// UnionArity)`. The case came from a registered union, so this is total in
+    /// practice; falls back to the bare alias defensively.
+    let unionOfCase (types: PassContextTypes) (info: UnionCaseInfo) : UnionTypeInfo =
+        match tryUnion types info.UnionName info.UnionArity with
+        | ValueSome u -> u
+        | ValueNone -> types.Union.[info.UnionName]
+
+    /// Is `qualifier.caseName` a *local* union-case reference — the case is
+    /// registered and one of its declaring unions has the short name `qualifier`?
+    /// Case names are globally unique (even across `Choice\`2`…`Choice\`7`), so this
+    /// is the arity-safe replacement for `Union.ContainsKey qualifier` + "has case"
+    /// when recognising a qualified union-case (`Choice.Choice1Of3`).
+    let localQualifiedCase (types: PassContextTypes) (qualifier: string) (caseName: string) : bool =
+        match types.CtorIndex.TryGetValue caseName with
+        | true, infos -> infos |> EqArray.exists (fun c -> c.UnionName = qualifier)
+        | false, _ -> false
 
 /// Per-binding side tables: the resolved binder / inferred scheme / TyVar
 /// graph / escape-classification entries indexed by `NodeKey`, plus the

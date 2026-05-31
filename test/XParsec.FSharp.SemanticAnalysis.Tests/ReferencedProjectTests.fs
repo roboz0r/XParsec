@@ -116,7 +116,9 @@ let tests =
                 // a non-interface `Class` shape — SAM-interface detection from an
                 // all-abstract body is a downstream (Freeze/codegen) concern. P1
                 // only needs it to resolve with the package `Origin`.
-                match provider.TryLookupType "Vesper.Fun" with
+                // Generic compiled names are arity-suffixed (`Fun`2`), matching the
+                // emitted metadata name (`Vesper.Fun`2`) and the consumer's probe.
+                match provider.TryLookupType "Vesper.Fun`2" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.Arity 2 "Fun has two typars"
                     Expect.equal info.Origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"

@@ -216,10 +216,10 @@ module NameResolutionScope =
                     // ctx.Types.Union, suppress so Unification picks it up.
                     let isQualifiedCtor =
                         li.Idents.Length = 2
-                        && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
-                        && (let info = ctx.Types.Union.[ctx.NameOf li.Idents.[0]]
-                            let caseName = ctx.NameOf li.Idents.[1]
-                            info.Cases |> Array.exists (fun c -> c.Name = caseName))
+                        && TypeRegistry.localQualifiedCase
+                            ctx.Types
+                            (ctx.NameOf li.Idents.[0])
+                            (ctx.NameOf li.Idents.[1])
 
                     // `Math.Pi` / `Box.Empty` — two-segment qualified static member,
                     // incl. union augmentation statics (P3d.3). Same suppression.

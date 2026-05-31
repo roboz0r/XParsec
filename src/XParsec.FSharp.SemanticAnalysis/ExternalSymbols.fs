@@ -391,7 +391,14 @@ module ExternalSymbols =
     /// prefix dropped. Used to test a union's declaring type against a written
     /// qualifier (`Option.Some`). A name with no `.` is returned unchanged.
     let shortName (compiled: string) : string =
-        compiled.Substring(compiled.LastIndexOf '.' + 1)
+        let simple = compiled.Substring(compiled.LastIndexOf '.' + 1)
+        // Drop a generic-arity suffix (`Choice`2` ⇒ `Choice`) so a written qualifier
+        // (`Choice.Choice1Of2`) matches an arity-overloaded union's short name. The
+        // contract layer now arity-suffixes generic compiled names (matching the
+        // metadata layer and the emitted type name), so the suffix reaches here.
+        let tick = simple.IndexOf '`'
+
+        if tick < 0 then simple else simple.Substring(0, tick)
 
     /// Mint a `SymbolKey.ValueKey` from an assembly + fully-qualified compiled
     /// name by splitting at the last `.`: everything before becomes the

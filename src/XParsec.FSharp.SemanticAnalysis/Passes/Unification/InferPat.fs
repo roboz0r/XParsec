@@ -31,7 +31,7 @@ module UnificationInferPat =
 
             match info with
             | ValueSome i when i.Fields.Length = 0 ->
-                let unionInfo = ctx.Types.Union.[i.UnionName]
+                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
@@ -50,7 +50,7 @@ module UnificationInferPat =
                         Severity = Error
                     }
 
-                let unionInfo = ctx.Types.Union.[i.UnionName]
+                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(i.UnionName, args)
                 let nodeTv = freshTv ctx key
@@ -176,7 +176,7 @@ module UnificationInferPat =
                             Severity = Error
                         }
 
-                let unionInfo = ctx.Types.Union.[i.UnionName]
+                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, subst = freshNamedInstance ctx unionInfo.TypeParams
                 let m = min subPats.Length i.Fields.Length
 

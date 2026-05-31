@@ -112,7 +112,11 @@ type internal Assembler
     do
         unionDecls
         |> List.iteri (fun i (td, cases, _) ->
-            provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Union i))
+            // Unions are keyed by arity so same-named overloads (`Choice\`2`…
+            // `Choice\`7`) don't collide in `userTypes` / `genericUnions`; the
+            // arity-0 key is the bare name, so monomorphic unions are unchanged.
+            let key = TypeRegistry.keyFor td.Name td.TypeParams.Length
+            provider.RegisterUserType(key, toEntity (predictTypeDef typeCounts NominalKind.Union i))
 
             if not td.TypeParams.IsEmpty then
                 let shape =
@@ -124,7 +128,7 @@ type internal Assembler
                             ]
                     ]
 
-                provider.RegisterGenericUnion(td.Name, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericUnion(key, EqArray.toList td.TypeParams, shape)
         )
 
     do

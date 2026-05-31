@@ -338,22 +338,30 @@ module UnificationTranslate =
                     checkArity (info.TypeParams.Length)
                     TyRecord(name, translatedArgs)
                 | false, _ ->
-                    match ctx.Types.Union.TryGetValue name with
-                    | true, info ->
-                        checkArity (info.TypeParams.Length)
+                    match TypeRegistry.tryUnion ctx.Types name argCount with
+                    | ValueSome _ ->
+                        // Exact arity-key match (`Choice\`2`): no diagnostic.
                         TyUnion(name, translatedArgs)
-                    | false, _ ->
-                        match ctx.Types.Class.TryGetValue name with
+                    | ValueNone ->
+                        // No union of this exact arity. If the bare alias resolves (a
+                        // single-arity union of a *different* arity), keep the legacy
+                        // "expects N got M" diagnostic; otherwise fall through.
+                        match ctx.Types.Union.TryGetValue name with
                         | true, info ->
                             checkArity (info.TypeParams.Length)
-                            TyClass(name, translatedArgs)
+                            TyUnion(name, translatedArgs)
                         | false, _ ->
-                            match tryResolveExternalType ctx name translatedArgs with
-                            | ValueSome ty -> ty
-                            | ValueNone ->
-                                // Unknown name with type args — opaque TyConst,
-                                // args ignored (matches the bare-name arm).
-                                TyConst name
+                            match ctx.Types.Class.TryGetValue name with
+                            | true, info ->
+                                checkArity (info.TypeParams.Length)
+                                TyClass(name, translatedArgs)
+                            | false, _ ->
+                                match tryResolveExternalType ctx name translatedArgs with
+                                | ValueSome ty -> ty
+                                | ValueNone ->
+                                    // Unknown name with type args — opaque TyConst,
+                                    // args ignored (matches the bare-name arm).
+                                    TyConst name
 
     /// Resolve a named/generic type reference that missed every project-local
     /// registry against the external provider — the type-annotation analogue of
@@ -363,11 +371,12 @@ module UnificationTranslate =
     /// sibling, so `EqualityComparer<int>` under `open System.Collections.Generic`
     /// reaches the qualified metadata name. The resolved provider key *is* the
     /// canonical SemType name — the same name member signatures and list literals
-    /// carry — so the annotation unifies with the resolved receiver type. Two
-    /// keying conventions coexist: the metadata (BCL) layer keys generic types by
-    /// their arity-suffixed name (`` EqualityComparer`1 ``), the contract layer by
-    /// the bare compiled name, so both forms are probed and the hit's key becomes
-    /// the SemType name. An arity-mismatched hit is rejected (a generic type
+    /// carry — so the annotation unifies with the resolved receiver type. Both the
+    /// metadata (BCL) layer and the contract layer now key generic types by their
+    /// arity-suffixed name (`` EqualityComparer`1 `` / `` Vesper.Choice`2 ``), so a
+    /// type name overloaded by arity stays unambiguous; the suffixed form is probed
+    /// first (then the bare name, for arity-0 types) and the hit's key becomes the
+    /// SemType name. An arity-mismatched hit is rejected (a generic type
     /// referenced at the wrong arity isn't this type, and guards the abbrev/record
     /// builders against a wrong-length arg array). Abbreviations are left to the
     /// caller's opaque fallback rather than expanded here — expanding would discard

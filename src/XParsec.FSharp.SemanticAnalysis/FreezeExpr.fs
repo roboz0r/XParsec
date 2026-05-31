@@ -184,7 +184,7 @@ module FreezeExpr =
                 && (li.Idents.Length = 1
                     && (ctx.Types.CtorIndex.ContainsKey last || isExternalUnionCase ctx ValueNone last)
                     || li.Idents.Length = 2
-                       && (ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
+                       && (TypeRegistry.localQualifiedCase ctx.Types (ctx.NameOf li.Idents.[0]) last
                            || isExternalUnionCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) last)))
             ->
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
@@ -379,16 +379,12 @@ module FreezeExpr =
 
                 if isCase n then ValueSome n else ValueNone
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-                li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
+                li.Idents.Length = 2
+                && TypeRegistry.localQualifiedCase ctx.Types (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])
                 ->
-                let typeName = ctx.NameOf li.Idents.[0]
-                let caseName = ctx.NameOf li.Idents.[1]
-                let info = ctx.Types.Union.[typeName]
-
-                if info.Cases |> Array.exists (fun c -> c.Name = caseName) then
-                    ValueSome caseName
-                else
-                    ValueNone
+                // `localQualifiedCase` already confirmed the case belongs to the
+                // qualifier's union (arity-safe over `Choice\`2`…`Choice\`7`).
+                ValueSome(ctx.NameOf li.Idents.[1])
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 ->
                 // Qualified external union case (`Option.Some`): the head is an
                 // external union, not a local one. Accept only when the resolved
@@ -529,9 +525,9 @@ module FreezeExpr =
                     )
                 | false, _ -> None
             | TyUnion(unionName, args) ->
-                match ctx.Types.Union.TryGetValue unionName with
-                | true, info -> memberTy (info.TypeParams, args) info.Members
-                | false, _ -> None
+                match TypeRegistry.tryUnion ctx.Types unionName args.Length with
+                | ValueSome info -> memberTy (info.TypeParams, args) info.Members
+                | ValueNone -> None
             | TyClass(clsName, args) ->
                 match ctx.Types.Class.TryGetValue clsName with
                 | true, info -> memberTy (info.TypeParams, args) info.Members
@@ -561,9 +557,9 @@ module FreezeExpr =
             | true, info when isMember info.Members ->
                 TExpr.PropertyGet(receiver, segName, viaOfReceiver ctx receiver, stepTy)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy)
-        | TyUnion(unionName, _) ->
-            match ctx.Types.Union.TryGetValue unionName with
-            | true, info when isMember info.Members ->
+        | TyUnion(unionName, args) ->
+            match TypeRegistry.tryUnion ctx.Types unionName args.Length with
+            | ValueSome info when isMember info.Members ->
                 TExpr.PropertyGet(receiver, segName, viaOfReceiver ctx receiver, stepTy)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy)
         | _ -> TExpr.FieldGet(receiver, segName, stepTy)
@@ -1369,7 +1365,17 @@ module FreezeExpr =
             // backend's `TryEmitUnionCons` Vesper case — BCL-only, no FSharp.Core.
             // It is an *external* union, so it is absent from
             // `ctx.Types.Union` and is not caught by the user-union arm above.
-            | TyUnion(("Vesper.Collections.List" | "Vesper.Collections.list"), _) when not isArray ->
+            // The contract layer arity-suffixes generic compiled names, so the
+            // external cons-list now arrives as `Vesper.Collections.List`1` (or its
+            // `list`1` abbreviation). Strip a trailing `` `N `` before comparing.
+            | TyUnion(listName, _) when
+                not isArray
+                && (let bare =
+                        let tick = listName.IndexOf '`'
+                        if tick < 0 then listName else listName.Substring(0, tick)
+
+                    bare = "Vesper.Collections.List" || bare = "Vesper.Collections.list")
+                ->
                 zonked, "Cons", "Nil"
             | _ -> TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy), "Cons", "Nil"
 

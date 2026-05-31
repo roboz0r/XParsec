@@ -678,7 +678,7 @@ module internal NominalEmit =
                     {
                         SelfType =
                             if isGeneric then
-                                provider.GenericUnionSelfSpec td.Name
+                                provider.GenericUnionSelfSpec(td.Name, td.TypeParams.Length)
                             else
                                 provider.UserTypeHandle td.Name
                         SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
@@ -856,7 +856,7 @@ module internal NominalEmit =
                     {
                         SelfType =
                             if isGeneric then
-                                provider.GenericUnionSelfSpec td.Name
+                                provider.GenericUnionSelfSpec(td.Name, td.TypeParams.Length)
                             else
                                 provider.UserTypeHandle td.Name
                         SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)

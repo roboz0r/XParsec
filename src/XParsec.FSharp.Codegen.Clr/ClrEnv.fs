@@ -125,7 +125,16 @@ type internal ClrEnv
     let vesperListAbbrevName = "Vesper.Collections.list"
 
     let isVesperListName (name: string) =
-        name = vesperListName || name = vesperListAbbrevName
+        // The contract layer now arity-suffixes generic compiled names
+        // (`Vesper.Collections.List`1`), so strip a trailing `` `N `` before
+        // comparing — recognition must accept both the bare and suffixed forms
+        // (a self-host expansion may still carry the bare union name).
+        let bare =
+            let tick = name.IndexOf '`'
+
+            if tick < 0 then name else name.Substring(0, tick)
+
+        bare = vesperListName || bare = vesperListAbbrevName
 
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
 

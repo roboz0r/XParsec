@@ -100,11 +100,17 @@ module Unification =
         | ModuleElem.Type defs ->
             for td in defs do
                 match td with
-                | TypeDefn.Union(typeName = TypeName(ident = nameLi); cases = cases) when nameLi.Idents.Length = 1 ->
+                | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn); cases = cases) when
+                    nameLi.Idents.Length = 1
+                    ->
                     let name = ctx.NameOf nameLi.Idents.[0]
+                    // Resolve by (name, arity) so an arity-overloaded union
+                    // (`Choice\`2`…`Choice\`7`) fills the *right* case fields.
+                    let arity =
+                        NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
 
-                    match ctx.Types.Union.TryGetValue name with
-                    | true, info ->
+                    match TypeRegistry.tryUnion ctx.Types name arity with
+                    | ValueSome info ->
                         let savedScope = ctx.Resolution.TyparScope
                         let savedStrict = ctx.Resolution.TyparScopeStrict
                         ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
@@ -168,7 +174,7 @@ module Unification =
                         finally
                             ctx.Resolution.TyparScope <- savedScope
                             ctx.Resolution.TyparScopeStrict <- savedStrict
-                    | false, _ -> ()
+                    | ValueNone -> ()
                 | _ -> ()
         | _ -> ()
 
@@ -754,13 +760,15 @@ module Unification =
             for td in defs do
                 match td with
                 | TypeDefn.Union(
-                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
-                    nameLi.Idents.Length = 1
-                    ->
+                    typeName = (TypeName(ident = nameLi) as tn)
+                    extensions = ValueSome(TypeExtensionElements(elements = elems))) when nameLi.Idents.Length = 1 ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.Types.Union.TryGetValue name with
-                    | true, info when not (Array.isEmpty info.Members) ->
+                    let arity =
+                        NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
+
+                    match TypeRegistry.tryUnion ctx.Types name arity with
+                    | ValueSome info when not (Array.isEmpty info.Members) ->
                         fillTypeMembers
                             ctx
                             {

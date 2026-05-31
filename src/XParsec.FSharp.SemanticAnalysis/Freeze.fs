@@ -25,6 +25,12 @@ module Freeze =
         else
             ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
+    /// The declared generic arity of a `TypeName` — the count of declared typars,
+    /// reusing the registration-phase typar walk. Needed to resolve an arity-
+    /// overloaded union (`Choice\`2`…`Choice\`7`) by its `(name, arity)` key.
+    let private typeNameArity (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =
+        NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
+
     /// Rewrite declaring-type typars (free `TyVar`s, by zonked root) to the
     /// `TyConst "'A"` markers the backend's typar encoder consumes. Anything else
     /// passes through unchanged — a leftover inference var stays a `TyVar`, which
@@ -487,11 +493,12 @@ module Freeze =
         (ctx: PassContext)
         (ns: string option)
         (name: string)
+        (arity: int)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         : TDecl option =
-        match ctx.Types.Union.TryGetValue name with
-        | false, _ -> None
-        | true, info ->
+        match TypeRegistry.tryUnion ctx.Types name arity with
+        | ValueNone -> None
+        | ValueSome info ->
             let markers = mkTypeMarkers info.TypeParams
 
             let cases =
@@ -777,7 +784,8 @@ module Freeze =
         | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Interface(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Class(typeName = tn; body = body) -> tryClassType ctx ns (typeNameSimple ctx tn) body.elements
-        | TypeDefn.Union(typeName = tn; extensions = ext) -> tryUnionType ctx ns (typeNameSimple ctx tn) ext
+        | TypeDefn.Union(typeName = tn; extensions = ext) ->
+            tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameArity ctx tn) ext
         | TypeDefn.Record(typeName = tn) -> tryRecordType ctx ns (typeNameSimple ctx tn)
         | _ -> None
 

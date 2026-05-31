@@ -271,7 +271,9 @@ let tests =
                     // FSharp.Core port declares `Option` with GADT-style cases
                     // (`| Some: Value:'T -> 'T option`); GADT-case extraction
                     // registers a genuine `Union` shape, so the kinded head bakes a proper `TyUnion`.
-                    let optionName = "Microsoft.FSharp.Core.Option"
+                    // Generic compiled names are arity-suffixed (`Option`1`), matching
+                    // the emitted metadata name and the consumer's `keysFor` probe.
+                    let optionName = "Microsoft.FSharp.Core.Option`1"
 
                     // Two TyVars share identity iff they're the same object — fresh
                     // instantiations must produce disjoint TyVars.
@@ -312,7 +314,8 @@ let tests =
                 | ValueNone -> failtestf "Microsoft.FSharp.Core.ResultModule.Map not in provider"
                 | ValueSome sym ->
                     let inst = sym.Instantiate 0
-                    let resultName = "Microsoft.FSharp.Core.Result"
+                    // Arity-suffixed compiled name (`Result`2`).
+                    let resultName = "Microsoft.FSharp.Core.Result`2"
 
                     // val map: ('T -> 'U) -> Result<'T, 'TError> -> Result<'U, 'TError>.
                     // `Result` is declared with ordinary cases, so dependency-aware
@@ -568,7 +571,8 @@ let tests =
                     let mutable found = ValueNone
 
                     for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "Thing" then
+                        // Generic compiled names are arity-suffixed (`Thing`1`).
+                        if found.IsNone && kv.Key.EndsWith "Thing`1" then
                             found <- ValueSome kv.Value
 
                     found
@@ -733,7 +737,7 @@ let tests =
                 // `int` for the typar must yield `TyRecord("...Option", [int])`.
                 let provider, _ = builtProvider.Value
 
-                match provider.TryLookupType "Microsoft.FSharp.Core.option" with
+                match provider.TryLookupType "Microsoft.FSharp.Core.option`1" with
                 | ValueNone -> failtest "Microsoft.FSharp.Core.option shape not found"
                 | ValueSome(ExternalTypeShape.Abbrev(arity, build)) ->
                     Expect.equal arity 1 "option has one typar"
@@ -756,7 +760,7 @@ let tests =
             test "Phase 4: Result<_,_> union exposes Ok / Error cases" {
                 let provider, _ = builtProvider.Value
 
-                match provider.TryLookupType "Microsoft.FSharp.Core.Result" with
+                match provider.TryLookupType "Microsoft.FSharp.Core.Result`2" with
                 | ValueNone -> failtest "Result shape not found"
                 | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
                     Expect.equal arity 2 "Result has two typars"

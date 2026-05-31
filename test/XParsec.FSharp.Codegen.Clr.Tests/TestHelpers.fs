@@ -676,6 +676,106 @@ let failsWithResult (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
+// ---- Vesper.Choice runtime harness (vesper-lib-test-plan Phase 2) -----------
+// Mirrors the Vesper.Option / Vesper.Result harnesses above. `Vesper.Choice` is
+// *not* in `defaultManifests` (its `Choice`/`Choice1Of2`/`Choice2Of2` would shadow
+// resolution in every other test), so driver programs opt in by stacking the
+// Choice contract and referencing a once-built `Vesper.Choice.dll`. Choice is a
+// pure-data struct union with NO module (its sole consumer `set.fs` uses only the
+// constructors + pattern matching), so there is no `runs…`-via-module-call surface
+// — only construction (Layer B) and `match` (Layer C). Like Result it is BCL-only.
+
+let vesperChoiceSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Choice", fileName)
+
+let vesperChoiceManifest: string = srcManifest "Vesper.Choice"
+
+/// Compile `Vesper.Choice.dll` from `src/Vesper.Choice/choice.fs` against the
+/// Vesper.Core contract (so `unit` / `bool` / `int` resolve from source), load it
+/// into the Default `AssemblyLoadContext`, and return its path. Depends on
+/// `Vesper.Core` only, so just the core DLL is in `References`. (Loaded into the
+/// Default ALC — not the `buildPackage` `packageAlc` — so a `runEntryPoint` driver
+/// program, which runs in a fresh ALC that falls back to Default, can resolve it.)
+let vesperChoiceDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-choice"
+         let choicePath = IO.Path.Combine(outDir, "Vesper.Choice.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Choice" with
+                 OutputPath = Some choicePath
+                 References = [ vesperCoreDll.Value ]
+             }
+
+         let src = IO.File.ReadAllText(vesperChoiceSource "choice.fs")
+         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyse provider src lexed file
+         let artifact = Codegen.compileWithInlines inlines provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath choicePath |> ignore
+         choicePath)
+
+/// Compile a driver program that `open`s `Vesper` and exercises the `Choice` type,
+/// run it in-process, and assert exit 0 with trimmed stdout equal to `expected`.
+/// The `Choice`-type counterpart of `runsResult`.
+let runsChoice (expected: string) (src: string) : unit =
+    let provider, inlines =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperChoiceManifest ])
+
+    let baseProject = withCore (ProjectInfo.defaults "ChoiceCorpus")
+
+    let project =
+        { baseProject with
+            References = baseProject.References @ [ vesperChoiceDll.Value ]
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    let artifact = Codegen.compileWithInlines inlines provider project tast
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsChoice` for a multi-line expected block.
+let runsChoiceLines (expected: string list) (src: string) : unit =
+    runsChoice (String.concat "\n" expected) src
+
+/// `analyseErrors` against the default contract stack PLUS the `Vesper.Choice`
+/// contract — the front-end-only probe for cross-package Choice use.
+let private analyseChoiceErrors (src: string) : Diagnostic list =
+    let provider, _ =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperChoiceManifest ])
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// Analyse `src` against the Choice contract; assert NO error diagnostics —
+/// `typeChecks`'s Choice-aware twin.
+let typeChecksChoice (src: string) : unit =
+    match analyseChoiceErrors src with
+    | [] -> ()
+    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
+/// Analyse `src` against the Choice contract; assert an error diagnostic whose
+/// message contains `fragment`. `failsWith`'s Choice-aware twin.
+let failsWithChoice (fragment: string) (src: string) : unit =
+    match analyseChoiceErrors src with
+    | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
+    | errors ->
+        if not (errors |> List.exists (fun d -> d.Message.Contains fragment)) then
+            failwithf
+                "expected an error containing %A but got %A for:\n%s"
+                fragment
+                (errors |> List.map (fun d -> d.Message))
+                src
+
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
 // `System.Reflection.Metadata` so a test can read raw metadata (Method/Field
