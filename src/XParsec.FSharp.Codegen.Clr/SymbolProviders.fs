@@ -43,9 +43,23 @@ module SymbolProviders =
     /// classification that lets a `forProject : ProjectInfo -> _` derive both the
     /// layer-1 manifests and the layer-2 reference paths from the reference set is
     /// the remaining pairing.
-    let build (manifestPaths: string list) : IExternalSymbolProvider =
+    /// Close `manifestPaths` over `depends-on` and return them in dependency order
+    /// (package-type-extraction-plan Phase 1): a dependency a root only names
+    /// transitively is pulled in, and every package is processed *after* the
+    /// packages it depends on. A `depends-on` cycle or a missing dependency
+    /// manifest is a hard error. Both `build` and `buildContract` thread the same
+    /// ordered list so the composite provider and the inline-body loader agree on
+    /// the package set.
+    let private orderedManifests (manifestPaths: string list) : string list =
+        match ReferencedProject.buildClosure manifestPaths with
+        | Result.Ok ordered -> ordered
+        | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
+
+    /// Compose the layer-1 providers for an *already dependency-ordered* manifest
+    /// list ahead of the layer-2 metadata provider.
+    let private composeProviders (orderedManifestPaths: string list) : IExternalSymbolProvider =
         let layer1 =
-            manifestPaths
+            orderedManifestPaths
             |> List.map (fun path ->
                 // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
                 // brings `Severity.Error` into scope, shadowing the bare cases.
@@ -55,6 +69,9 @@ module SymbolProviders =
             )
 
         ExternalSymbols.composite (layer1 @ [ MetadataSymbols.provider ])
+
+    let build (manifestPaths: string list) : IExternalSymbolProvider =
+        composeProviders (orderedManifests manifestPaths)
 
     /// The inline `val` bindings a referenced project contributes whose `.fs`
     /// bodies must be *spliced* at the consumer's use site — a cross-package
@@ -209,8 +226,14 @@ module SymbolProviders =
                         // `.fsi` extern with its sibling `.fs` `(# … #)` binding);
                         // no codegen-layer harvest wrap is needed
                         // (intrinsic-repr-handoff.md — first-cut teardown).
-                        (let provider = build normalised
-                         let inlines = inlineBodies provider normalised
+                        // Close + order the manifest set ONCE (Phase 1) and thread
+                        // the same ordered list into the provider stack and the
+                        // inline-body loader, so both see the full `depends-on`
+                        // closure (a root's transitive dependency contributes its
+                        // contract symbols AND its cross-package inline bodies).
+                        (let ordered = orderedManifests normalised
+                         let provider = composeProviders ordered
+                         let inlines = inlineBodies provider ordered
                          provider, inlines)
             )
             .Value

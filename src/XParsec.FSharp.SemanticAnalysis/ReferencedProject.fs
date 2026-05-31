@@ -105,6 +105,111 @@ module ReferencedProject =
             | Error e -> Error(sprintf "Manifest parse error (%s): %s" manifestPath e)
             | Ok doc -> parseManifest dirName doc
 
+    /// Resolve a `depends-on` package name to its `manifest.toml` path, relative
+    /// to a dependent manifest's location. By the package-split-plan convention a
+    /// package's directory name *is* its identity (`src/Vesper.Core` ⇒
+    /// `"Vesper.Core"`, the `Manifest.Name` fallback), so a dependency
+    /// `"Vesper.Core"` of the manifest at `src/Vesper.List/manifest.toml` lives at
+    /// the sibling `src/Vesper.Core/manifest.toml`. Mirrors the package-build
+    /// harness's `srcManifest`.
+    let private dependencyManifestPath (dependentManifestPath: string) (dependencyName: string) : string =
+        let packageDir = Path.GetDirectoryName dependentManifestPath
+        let srcDir = Path.GetDirectoryName packageDir
+        Path.Combine(srcDir, dependencyName, "manifest.toml")
+
+    /// Close `rootManifests` over `[core] depends-on` and return every reachable
+    /// manifest path in **dependency order** — each package appears *after* all the
+    /// packages it depends on (package-type-extraction-plan Phase 1). Paths are
+    /// normalised (`Path.GetFullPath`) and de-duplicated, so a dependency named by
+    /// several roots (every Vesper package's `Vesper.Core`) is processed once. A
+    /// `depends-on` cycle is a hard error — contract packages may not be mutually
+    /// recursive — as is a `depends-on` naming a package whose manifest is absent.
+    ///
+    /// The returned order is the priority order callers stack into the composite
+    /// provider; building bottom-up is what later lets each package's extraction
+    /// read its dependencies' already-built type shapes (plan Phase 2). For an
+    /// input that is already dependency-ordered the order is returned unchanged
+    /// (the sort is stable over the discovery order).
+    let buildClosure (rootManifests: string list) : Result<string list, string> =
+        let norm (p: string) = Path.GetFullPath p
+
+        // key (normalised path) → its dependency keys (adjacency) and package name.
+        // `discovered` is the order nodes were first reached (roots, then their
+        // deps), which the topo sort below walks so an already-ordered input is
+        // returned unchanged.
+        let dependencies =
+            System.Collections.Generic.Dictionary<string, string list>(System.StringComparer.Ordinal)
+
+        let names =
+            System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
+
+        let discovered = ResizeArray<string>()
+        let mutable error = None
+
+        let rec load (path: string) =
+            if error.IsSome then
+                ()
+            else
+                let key = norm path
+
+                if dependencies.ContainsKey key then
+                    ()
+                else
+                    match loadManifest key with
+                    | Error e -> error <- Some(sprintf "buildClosure: %s" e)
+                    | Ok manifest ->
+                        let depPaths =
+                            manifest.DependsOn
+                            |> List.map (fun dep -> norm (dependencyManifestPath key dep))
+
+                        dependencies.[key] <- depPaths
+                        names.[key] <- manifest.Name
+                        discovered.Add key
+
+                        for depPath in depPaths do
+                            load depPath
+
+        for root in rootManifests do
+            load root
+
+        match error with
+        | Some e -> Error e
+        | None ->
+            // Post-order DFS over the discovery order: a node is emitted only after
+            // its dependencies, so the result lists dependencies before dependents.
+            // The gray/black colouring (1 = on the current stack, 2 = emitted)
+            // rejects a `depends-on` cycle.
+            let ordered = ResizeArray<string>()
+
+            let state =
+                System.Collections.Generic.Dictionary<string, int>(System.StringComparer.Ordinal)
+
+            let mutable cycle = None
+
+            let rec visit (node: string) =
+                if cycle.IsSome then
+                    ()
+                else
+                    match state.TryGetValue node with
+                    | true, 2 -> ()
+                    | true, _ ->
+                        cycle <- Some(sprintf "buildClosure: dependency cycle through package '%s'" names.[node])
+                    | _ ->
+                        state.[node] <- 1
+
+                        for dep in dependencies.[node] do
+                            visit dep
+
+                        state.[node] <- 2
+                        ordered.Add node
+
+            for node in discovered do
+                visit node
+
+            match cycle with
+            | Some e -> Error e
+            | None -> Ok(List.ofSeq ordered)
+
     /// Wrap the extractor's provider so (a) every resolved descriptor carries
     /// the package `Origin` (the extractor records `SymbolOrigin.Empty`; the
     /// manifest knows the assembly + namespace — symbol-resolution-plan §5.1),

@@ -29,6 +29,39 @@ let private vesperCoreManifest =
     | Some p -> p
     | None -> failwithf "Could not locate src/Vesper.Core/manifest.toml from %s" testDir
 
+/// `src/` directory holding the real Vesper package manifests (the parent of
+/// `Vesper.Core`), and the sibling `Vesper.List` manifest (which `depends-on`
+/// Vesper.Core) — the fixtures for the `buildClosure` dependency-ordering tests.
+let private srcDir = Path.GetDirectoryName(Path.GetDirectoryName vesperCoreManifest)
+
+let private vesperListManifest =
+    Path.Combine(srcDir, "Vesper.List", "manifest.toml")
+
+/// A throwaway `src/`-shaped tree under the repo `./tmp` for the synthetic
+/// cycle / missing-dependency manifests (`buildClosure` resolves a `depends-on`
+/// name to a *sibling* package directory, so the manifests must live side by
+/// side). Each package gets `tmpSrc/<name>/manifest.toml`.
+let private tmpSrc =
+    let repoRoot = Path.GetDirectoryName srcDir
+    let d = Path.Combine(repoRoot, "tmp", "buildClosure-tests", "src")
+    Directory.CreateDirectory d |> ignore
+    d
+
+/// Write `tmpSrc/<name>/manifest.toml` with the given `depends-on` packages and
+/// return its path. `files = []` keeps it parse-valid without any `.fsi`.
+let private writeSyntheticManifest (name: string) (dependsOn: string list) : string =
+    let dir = Path.Combine(tmpSrc, name)
+    Directory.CreateDirectory dir |> ignore
+    let deps = dependsOn |> List.map (sprintf "\"%s\"") |> String.concat ", "
+    let path = Path.Combine(dir, "manifest.toml")
+
+    File.WriteAllText(
+        path,
+        sprintf "[core]\nname = \"%s\"\nnamespace = \"%s\"\ndepends-on = [%s]\nfiles = []\n" name name deps
+    )
+
+    path
+
 /// Build the manifest provider once for the run.
 let private builtProvider =
     lazy
@@ -154,4 +187,66 @@ let tests =
                     | other -> failtestf "Expected r : int, got %A" other
                 | ValueNone -> failtest "no TypeVar for r"
             }
+
+            // Phase 1 (package-type-extraction-plan): `buildClosure` closes a root
+            // manifest set over `depends-on` and orders it dependencies-first.
+            testList
+                "buildClosure"
+                [
+                    test "pulls a transitive dependency into the closure (List ⇒ + Core)" {
+                        // `Vesper.List` only names `Vesper.Core` via `depends-on`; the
+                        // closure resolves it (sibling directory) and includes it.
+                        match ReferencedProject.buildClosure [ vesperListManifest ] with
+                        | Result.Error e -> failtestf "buildClosure failed: %s" e
+                        | Result.Ok ordered ->
+                            let coreFull = Path.GetFullPath vesperCoreManifest
+                            let listFull = Path.GetFullPath vesperListManifest
+                            Expect.contains ordered coreFull "Core pulled into the closure"
+                            Expect.contains ordered listFull "List itself present"
+                            // dependency before dependent
+                            Expect.isLessThan
+                                (List.findIndex ((=) coreFull) ordered)
+                                (List.findIndex ((=) listFull) ordered)
+                                "Core ordered before List"
+                    }
+
+                    test "reorders a dependent-first input dependencies-first" {
+                        // Caller lists List before its Core dependency; `buildClosure`
+                        // returns Core first (post-order topo sort).
+                        match ReferencedProject.buildClosure [ vesperListManifest; vesperCoreManifest ] with
+                        | Result.Error e -> failtestf "buildClosure failed: %s" e
+                        | Result.Ok ordered ->
+                            let coreFull = Path.GetFullPath vesperCoreManifest
+                            let listFull = Path.GetFullPath vesperListManifest
+
+                            Expect.isLessThan
+                                (List.findIndex ((=) coreFull) ordered)
+                                (List.findIndex ((=) listFull) ordered)
+                                "Core ordered before List despite being listed second"
+                    }
+
+                    test "empty root set closes to nothing" {
+                        match ReferencedProject.buildClosure [] with
+                        | Result.Ok [] -> ()
+                        | other -> failtestf "expected Ok [], got %A" other
+                    }
+
+                    test "a depends-on cycle is a hard error" {
+                        // Two synthetic siblings that depend on each other.
+                        let a = writeSyntheticManifest "CycleA" [ "CycleB" ]
+                        writeSyntheticManifest "CycleB" [ "CycleA" ] |> ignore
+
+                        match ReferencedProject.buildClosure [ a ] with
+                        | Result.Ok ordered -> failtestf "expected a cycle error, got Ok %A" ordered
+                        | Result.Error e -> Expect.stringContains e "cycle" "error names the cycle"
+                    }
+
+                    test "a missing dependency manifest is a hard error" {
+                        let p = writeSyntheticManifest "NeedsGhost" [ "NoSuchPackage" ]
+
+                        match ReferencedProject.buildClosure [ p ] with
+                        | Result.Ok ordered -> failtestf "expected a missing-dependency error, got Ok %A" ordered
+                        | Result.Error e -> Expect.stringContains e "buildClosure" "error is surfaced from buildClosure"
+                    }
+                ]
         ]
