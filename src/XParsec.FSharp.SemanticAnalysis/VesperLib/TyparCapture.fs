@@ -116,6 +116,15 @@ module VesperLibTyparCapture =
         /// records, unions, and abbreviations are populated in v1; classes
         /// and other shapes land later.
         member val TypeShapes = Dictionary<string, ExternalTypeShape>(StringComparer.Ordinal) with get
+        /// Instance/static members extracted from a type's augmentation block —
+        /// the `member`s a `.fsi` declares inside a union/record/class body
+        /// (`Option.IsSome` / `.Value` / `.IsNone`). Keyed by the declaring
+        /// type's qualified compiled name (the same key `TypeShapes` uses);
+        /// each list preserves declaration order. Surfaced through `toProvider`'s
+        /// `TryLookupMember` / `TryLookupMembers` so a cross-package use site can
+        /// type `o.IsSome` against the contract (vesper-lib-test-plan Gap 2
+        /// Layer A). Empty for types with no augmentation members.
+        member val TypeMembers = Dictionary<string, ResizeArray<ExternalMember>>(StringComparer.Ordinal) with get
         /// Intrinsic-representation index: *short* type name -> CLI repr string,
         /// harvested from the package's per-target `.fs` companions
         /// (`type exn = (# "System.Exception" #)` ⇒ `"exn" -> "System.Exception"`).
@@ -150,6 +159,26 @@ module VesperLibTyparCapture =
         /// namespace opens) before calling `toProvider`. The same mechanism
         /// `ReferencedProject` uses for Vesper packages.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
+            // Reverse case-name index for `TryLookupUnionCase` (Gap 2 Layer B):
+            // bare case name -> (declaring union compiled name, arity, case
+            // shape). Built once here, after extraction has fully populated
+            // `ctx.TypeShapes`. First declaration wins on a name collision (the
+            // same warn-and-take-first rule the short-name type index uses); the
+            // actual Vesper packages have disjoint case names across unions, so
+            // collisions don't arise in practice.
+            let unionCaseIndex =
+                let d = Dictionary<string, string * int * ExternalCaseShape>(StringComparer.Ordinal)
+
+                for kv in ctx.TypeShapes do
+                    match kv.Value with
+                    | ExternalTypeShape.Union(arity, cases, _) ->
+                        for case in cases do
+                            if not (d.ContainsKey case.Name) then
+                                d.[case.Name] <- (kv.Key, arity, case)
+                    | _ -> ()
+
+                d
+
             { new IExternalSymbolProvider with
                 member _.TryLookup(name) =
                     match ctx.Symbols.TryGetValue name with
@@ -161,7 +190,35 @@ module VesperLibTyparCapture =
                     | true, shape -> ValueSome shape
                     | _ -> ValueNone
 
-                member _.TryLookupMember(_, _) = ValueNone
-                member _.TryLookupMembers(_, _) = [||]
+                member _.TryLookupMember(typeName, memberName) =
+                    match ctx.TypeMembers.TryGetValue typeName with
+                    | true, members ->
+                        let mutable found = ValueNone
+                        let mutable i = 0
+
+                        while found.IsNone && i < members.Count do
+                            if members.[i].Name = memberName then
+                                found <- ValueSome members.[i]
+
+                            i <- i + 1
+
+                        found
+                    | _ -> ValueNone
+
+                member _.TryLookupMembers(typeName, memberName) =
+                    match ctx.TypeMembers.TryGetValue typeName with
+                    | true, members ->
+                        [|
+                            for m in members do
+                                if m.Name = memberName then
+                                    m
+                        |]
+                    | _ -> [||]
+
+                member _.TryLookupUnionCase caseName =
+                    match unionCaseIndex.TryGetValue caseName with
+                    | true, hit -> ValueSome hit
+                    | _ -> ValueNone
+
                 member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
             }

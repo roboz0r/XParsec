@@ -9,8 +9,15 @@ open XParsec.FSharp.SemanticAnalysis
 /// member refs (`EqualityComparer`1` / `Comparer`1` / `HashCode` / `IEquatable`1` / `IComparable`1`).
 type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
+    let symbols = env.Symbols
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let zonk t = env.Zonk t
+    let decurryTy t = env.DecurryTy t
+    let externalAsmRef asm = env.ExternalAsmRef asm
+
+    let recoverTypeArgs markerRoots openT instT =
+        enc.RecoverTypeArgs(markerRoots, openT, instT)
+
     let encodeType te t = enc.EncodeType(te, t)
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
@@ -347,6 +354,154 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
+    /// The distinct free `TypeVar` roots of a curried signature (its decurried parameter types, then
+    /// its return type), in first-appearance order — the consumer-side mirror of the producer's
+    /// `EmitClosures.staticFnTypars`. These ARE the emitted static method's generic parameters, in the
+    /// same order the producer assigned them, so a `call`/`MethodSpec` minted off this list lines up
+    /// with the method's `!!0, !!1, …` slots.
+    let signatureTypars (paramTys: SemType list) (retTy: SemType) : TypeVar list =
+        let seen = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
+        let acc = ResizeArray<TypeVar>()
+
+        let rec go (t: SemType) =
+            match zonk t with
+            | TyVar tv ->
+                let r = UnionFind.find tv
+
+                if seen.Add r then
+                    acc.Add r
+            | TyFun(a, b) ->
+                go a
+                go b
+            | TyTuple xs
+            | TyRecord(_, xs)
+            | TyUnion(_, xs)
+            | TyClass(_, xs) ->
+                for x in xs do
+                    go x
+            | TyConst _ -> ()
+
+        for p in paramTys do
+            go p
+
+        go retTy
+        List.ofSeq acc
+
+    /// Normalize the nominal heads of a raw contract signature to the forms `encodeType` /
+    /// `recoverTypeArgs` expect. The symbol extractor bakes every nominal reference as a
+    /// kind-agnostic `TyRecord(compiled, …)` placeholder and never expands an abbreviation,
+    /// because it extracts each package in isolation (cross-package kinds / abbreviations
+    /// aren't knowable at bake time — `SemanticAnalysis/docs/package-type-extraction-plan.md`),
+    /// so a module function's `'T option` parameter comes back from `Instantiate` as the
+    /// unexpanded, mis-kinded `TyRecord("Vesper.option", …)`. Binds the codegen provider into
+    /// the shared `ExternalSymbols.normalizeNominal` walk (the same one the front-end's
+    /// `normalizeExternalValueTy` uses): per nominal head a transparent abbreviation expands, a
+    /// union/class/record re-kinds, an intrinsic collapses to its unqualified `TyConst` (the
+    /// `reprs`-keyed encoder form). Without this the option parameter fails to encode and
+    /// `recoverTypeArgs` can't structurally match the producer's emitted `TyUnion` signature.
+    let normalizeSig (t: SemType) : SemType =
+        ExternalSymbols.normalizeNominal symbols.TryLookupType t
+
+    /// The member-ref parent `TypeRef` for an external module's compiled holder type — `declFullName`
+    /// is the holder's fully-qualified compiled name (`Vesper.OptionModule`), `metaNs` its metadata
+    /// namespace (the package namespace, `Vesper`). A nested holder (`Outer.Inner`) chains through the
+    /// enclosing `TypeRef` with the bare nested name + empty namespace, exactly as `ClrEnv.externalClassRef`
+    /// does for a nested class.
+    let externalModuleRef (asm: string option) (metaNs: string) (declFullName: string) : EntityHandle =
+        let asmRef = externalAsmRef asm
+        let simple = SymbolOrigin.StripNamespace metaNs declFullName
+
+        match simple.Split('.') with
+        | [| flat |] -> toEntity (ctx.TypeRef(asmRef, metaNs, flat))
+        | parts ->
+            let mutable scope = toEntity (ctx.TypeRef(asmRef, metaNs, parts.[0]))
+
+            for i in 1 .. parts.Length - 1 do
+                scope <- toEntity (ctx.TypeRef(scope, "", parts.[i]))
+
+            scope
+
+    /// General external module-function call (vesper-lib-test-plan Gap 2 Layer D): a `call` to a static
+    /// method `<ns>::<name>` compiled into a referenced package by our own backend, generalised from
+    /// `emitFold`. `declFullName` is the declaring module's compiled holder name (the call key's `ns`,
+    /// e.g. `Vesper.OptionModule`), `name` the method, `fnTy` the *use-site* curried function type.
+    ///
+    /// The open method signature is reconstructed from the symbol provider's `Instantiate` (route (b) in
+    /// the plan): a fresh monotype whose free `TypeVar`s are the method's own typars. Their roots — in
+    /// first-appearance order over (params, return) — are installed as the ambient method-typar set so
+    /// `encodeType` maps them to `!!i`, matching the producer's emitted signature; the use-site type
+    /// arguments are then recovered by structurally matching that open type against `fnTy`
+    /// (`recoverTypeArgs`, as `emitFold` does). A monomorphic method needs no `MethodSpec`. `ValueNone`
+    /// ⇒ the symbol is unknown to the provider, or carries no home assembly (a project-local symbol the
+    /// provider never sees), in which case the caller falls back to its hard error.
+    let emitExternalCall (declFullName: string) (name: string) (fnTy: SemType) : CallRecipe voption =
+        let compiledFullName =
+            if declFullName = "" then
+                name
+            else
+                declFullName + "." + name
+
+        match symbols.TryLookup compiledFullName with
+        | ValueNone -> ValueNone
+        | ValueSome sym ->
+            match sym.Origin.Assembly with
+            | None -> ValueNone
+            | Some _ ->
+                // The symbol's full curried monotype, with one fresh `TypeVar` per declared typar,
+                // re-kinded so its nominal heads (`'T option` ⇒ `TyUnion`, not the extractor's `TyRecord`)
+                // encode + recover against the producer's emitted signature.
+                let monoSig = normalizeSig (sym.Instantiate 0)
+                let paramTys, retTy = decurryTy monoSig
+                let markerRoots = signatureTypars paramTys retTy
+
+                // The open method-ref signature: parameters + return encoded with the method typars as
+                // `!!i` (the ambient `MethodTyparRoots` window, as the producer's static-method emit uses).
+                let msig =
+                    let saved = env.MethodTyparRoots
+                    env.MethodTyparRoots <- markerRoots
+                    let s = BlobBuilder()
+
+                    BlobEncoder(s)
+                        .MethodSignature(genericParameterCount = List.length markerRoots, isInstanceMethod = false)
+                        .Parameters(
+                            List.length paramTys,
+                            (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                            (fun (pars: ParametersEncoder) ->
+                                for p in paramTys do
+                                    encodeType (pars.AddParameter().Type()) p
+                            )
+                        )
+
+                    env.MethodTyparRoots <- saved
+                    s
+
+                let parent = externalModuleRef sym.Origin.Assembly sym.Origin.Namespace declFullName
+                let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
+
+                let callHandle =
+                    if List.isEmpty markerRoots then
+                        memberRef
+                    else
+                        // Use-site instantiation: match the open monotype (its `TypeVar`s are the markers)
+                        // against the call's concrete type, in the markers' own order.
+                        let instArgs = recoverTypeArgs markerRoots monoSig (zonk fnTy)
+                        let inst = BlobBuilder()
+
+                        let specEnc =
+                            BlobEncoder(inst).MethodSpecificationSignature(List.length markerRoots)
+
+                        for a in instArgs do
+                            encodeType (specEnc.AddArgument()) (zonk a)
+
+                        toEntity (ctx.MethodSpec(memberRef, inst))
+
+                ValueSome
+                    {
+                        Emit = fun il -> il.Encoder.Call callHandle
+                        ArgCount = List.length paramTys
+                        Pushes = 1
+                    }
+
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the
     /// `Vesper.Formatter` write-through handler. All members hang off the non-generic `Formatter` value
     /// type, so the parent is a plain `TypeRef`; the generic `AppendFormatted` is a member ref to the
@@ -672,6 +827,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitVesperListNil elem = emitVesperListNil elem
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.EmitFold fnTy = emitFold fnTy
+    member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy
     member _.BuildFormatHandles() = buildFormatHandles ()
 
     member _.EqualityComparerDefault elem = equalityComparerDefault elem

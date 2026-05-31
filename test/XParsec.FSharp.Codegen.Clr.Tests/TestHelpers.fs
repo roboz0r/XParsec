@@ -440,6 +440,78 @@ let runs (expected: string) (src: string) : unit =
 /// callers the `\n` plumbing in the table.
 let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
 
+// ---- Vesper.Option runtime harness (vesper-lib-test-plan Phase 2) -----------
+// `Vesper.Option` is *not* in `defaultManifests` (adding `Some`/`None`/`Option`
+// to the global stack would shadow resolution in every other test), so it gets
+// its own opt-in harness: build `Vesper.Option.dll` from `option.fs` once, load
+// it into the *Default* ALC (like `vesperCoreDll`/`vesperListDll`), and compile
+// driver programs against the default stack PLUS the Option contract, with the
+// DLL in `References`. The emitted DLL is not BCL-only yet (it pulls
+// `FSharp.Core.Unit` via the shared `unit` codegen cut — see PackageBuildTriage),
+// which is harmless for an in-process `runEntryPoint`: FSharp.Core is present in
+// the test process, so the program still loads and runs.
+
+let vesperOptionSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Option", fileName)
+
+let vesperOptionManifest: string = srcManifest "Vesper.Option"
+
+/// Compile `Vesper.Option.dll` from `src/Vesper.Option/option.fs` against the
+/// Vesper.Core contract (so `Fun` / `unit` / `raise` resolve from source), load
+/// it into the Default `AssemblyLoadContext`, and return its path. Depends on
+/// `Vesper.Core` only, so just the core DLL is in `References`.
+let vesperOptionDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-option"
+         let optionPath = IO.Path.Combine(outDir, "Vesper.Option.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Option" with
+                 OutputPath = Some optionPath
+                 References = [ vesperCoreDll.Value ]
+             }
+
+         let src = IO.File.ReadAllText(vesperOptionSource "option.fs")
+         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyse provider src lexed file
+         let artifact = Codegen.compileWithInlines inlines provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath optionPath |> ignore
+         optionPath)
+
+/// Compile a driver program that `open`s `Vesper` and exercises the `Option`
+/// type/module, run it in-process, and assert exit 0 with trimmed stdout equal
+/// to `expected`. The Option contract is stacked on the default manifests and
+/// `Vesper.Option.dll` is added to `References` (alongside the `withCore`
+/// Core/List DLLs). The `Option`-module counterpart of `runs`.
+let runsOption (expected: string) (src: string) : unit =
+    let provider, inlines =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperOptionManifest ])
+
+    let baseProject = withCore (ProjectInfo.defaults "OptionCorpus")
+
+    let project =
+        { baseProject with
+            References = baseProject.References @ [ vesperOptionDll.Value ]
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    let artifact = Codegen.compileWithInlines inlines provider project tast
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsOption` for a multi-line expected block.
+let runsOptionLines (expected: string list) (src: string) : unit =
+    runsOption (String.concat "\n" expected) src
+
 /// Analyse `src` through the default contract stack (no codegen) and return the
 /// error-severity diagnostics — the front-end-only half of the corpus.
 /// `Pipeline.analyse` collects diagnostics rather than throwing, so both
@@ -471,6 +543,38 @@ let typeChecks (src: string) : unit =
     match analyseErrors src with
     | [] -> ()
     | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
+/// `analyseErrors` against the default contract stack PLUS the `Vesper.Option`
+/// contract — the front-end-only probe for cross-package Option use
+/// (vesper-lib-test-plan Gap 2 Layer A). No codegen, so it exercises type
+/// resolution + member access without the backend B/C/D paths.
+let private analyseOptionErrors (src: string) : Diagnostic list =
+    let provider, _ =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperOptionManifest ])
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// Analyse `src` against the Option contract; assert NO error diagnostics —
+/// `typeChecks`'s Option-aware twin.
+let typeChecksOption (src: string) : unit =
+    match analyseOptionErrors src with
+    | [] -> ()
+    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
+/// Analyse `src` against the Option contract; assert an error diagnostic whose
+/// message contains `fragment`. `failsWith`'s Option-aware twin.
+let failsWithOption (fragment: string) (src: string) : unit =
+    match analyseOptionErrors src with
+    | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
+    | errors ->
+        if not (errors |> List.exists (fun d -> d.Message.Contains fragment)) then
+            failwithf
+                "expected an error containing %A but got %A for:\n%s"
+                fragment
+                (errors |> List.map (fun d -> d.Message))
+                src
 
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through

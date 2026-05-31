@@ -160,5 +160,6 @@ module MockBuiltins =
             member _.TryLookupType _ = ValueNone
             member _.TryLookupMember(_, _) = ValueNone
             member _.TryLookupMembers(_, _) = [||]
+            member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
         }

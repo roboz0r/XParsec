@@ -76,6 +76,13 @@ type internal ClrEnv
     let eUnit =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "Unit")))
 
+    // The BCL-only `unit`: the zero-field `System.ValueTuple` struct (the repr
+    // `prim-types-min.fs` binds `unit` to). The general `unit` type/value encodes
+    // off this; `eUnit` (`FSharp.Core.Unit`) survives only on the cold-printf
+    // interop island, where the `PrintfFormat` signatures name it explicitly.
+    let eValueTuple =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))
+
     let ePrintfFormat4 =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfFormat`4")))
 
@@ -358,6 +365,43 @@ type internal ClrEnv
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
 
+    /// Referenced-assembly union shape by name + arity — the mirror of
+    /// `externalRecordShape` for cross-package case construction (`Some` / `None`,
+    /// vesper-lib-test-plan Gap 2 Layer B). The contract layer keys generic unions
+    /// by the bare compiled name (`Vesper.Option`), the metadata layer by the
+    /// arity-suffixed key (`Vesper.Option`1`); both forms are probed.
+    let externalUnionShape (fullName: string) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
+        let probe (key: string) =
+            match symbols.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Union(a, cases, origin)) when a = arity && origin.Assembly.IsSome ->
+                ValueSome(cases, origin)
+            | _ -> ValueNone
+
+        let suffixed =
+            if arity > 0 then
+                sprintf "%s`%d" fullName arity
+            else
+                fullName
+
+        match probe fullName with
+        | ValueSome v -> ValueSome v
+        | ValueNone -> probe suffixed
+
+    let externalUnionRef (fullName: string) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
+        match externalUnionShape fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(cases, origin) ->
+            let ns = origin.Namespace
+            let bareSimple = SymbolOrigin.StripNamespace ns fullName
+
+            let simple =
+                if arity > 0 && not (bareSimple.Contains '`') then
+                    sprintf "%s`%d" bareSimple arity
+                else
+                    bareSimple
+
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
+
     // ---- Ambient generic-typar context ----
     //
     // Three disjoint sets drive how a free/marker typar leaf is encoded:
@@ -444,6 +488,7 @@ type internal ClrEnv
     member _.VesperRef = vesperRef
     member _.ConsoleRef = consoleRef
     member _.EUnit = eUnit
+    member _.EValueTuple = eValueTuple
     member _.EPrintfFormat4 = ePrintfFormat4
     member _.EPrintfModule = ePrintfModule
     member _.EFSharpFunc2 = eFSharpFunc2
@@ -516,3 +561,5 @@ type internal ClrEnv
     member _.ExternalIsValueType fullName = externalIsValueType fullName
     member _.ExternalRecordShape(fullName, arity) = externalRecordShape fullName arity
     member _.ExternalRecordRef(fullName, arity) = externalRecordRef fullName arity
+    member _.ExternalUnionShape(fullName, arity) = externalUnionShape fullName arity
+    member _.ExternalUnionRef(fullName, arity) = externalUnionRef fullName arity

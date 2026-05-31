@@ -591,7 +591,107 @@ module VesperLib =
         | None ->
             match bodyTyparsOk collector arity with
             | Error e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
-            | Ok() -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray())
+            // `Origin` is filled later by `ReferencedProject.wrap` (which knows
+            // the package's assembly + namespace from the manifest); the
+            // extractor itself records `Empty`.
+            | Ok() ->
+                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), SymbolOrigin.Empty)
+
+    /// Extract the augmentation `member`s declared inside a type body's
+    /// `with`-block (`member Value: 'T` / `member IsSome: bool` on `Option`)
+    /// into `ctx.TypeMembers`, keyed by the type's qualified compiled name.
+    /// Each member's signature is translated over the *type's* typar collector
+    /// (so `'T` substitutes through the enclosing type's args at a use site),
+    /// yielding the `ExternalMember.BuildSignature` the consumer's
+    /// `resolveFieldStep` instantiates. Scope (vesper-lib-test-plan Gap 2 Layer
+    /// A): instance/static `member` property/method sigs with no own generic
+    /// parameters — a member that introduces its own typars, or whose signature
+    /// fails to translate, is skipped (not faked), exactly like the val path.
+    let private extractTypeMembers
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (input: string)
+        (opens: string list)
+        (compiled: string)
+        (arity: int)
+        (typeName: TypeName<SyntaxToken>)
+        (extensions: TypeExtensionElementsSignature<SyntaxToken> voption)
+        : unit =
+        match extensions with
+        | ValueNone -> ()
+        | ValueSome(TypeExtensionElementsSignature(_, elems, _)) ->
+            // Split the qualified compiled name into the declaring `TypeKey`
+            // (ns, simple name) so each member carries a best-effort identity;
+            // the asm slot is stamped later by the wrapping source.
+            let declKey =
+                let i = compiled.LastIndexOf '.'
+
+                if i < 0 then
+                    SymbolKey.TypeKey(None, "", compiled)
+                else
+                    SymbolKey.TypeKey(None, compiled.Substring(0, i), compiled.Substring(i + 1))
+
+            let members = ResizeArray<ExternalMember>()
+
+            for i in 0 .. elems.Length - 1 do
+                let memberSig =
+                    match elems.[i] with
+                    | TypeSignatureElement.Member(signature = s) -> ValueSome(false, s)
+                    | TypeSignatureElement.StaticMember(signature = s) -> ValueSome(true, s)
+                    | _ -> ValueNone
+
+                match memberSig with
+                | ValueNone -> ()
+                | ValueSome(isStatic, sign) ->
+                    // Only property/method sigs with no own generic parameters
+                    // (`typarDefns = ValueNone`): an own-typar member would need
+                    // fresh args the consumer can't mint from the receiver's arg
+                    // list alone, so it is skipped.
+                    let identAndSig =
+                        match sign with
+                        | MemberSig.MethodOrPropSig(ident = ioo; typarDefns = ValueNone; sign = csig) ->
+                            ValueSome(ioo, csig, false)
+                        | MemberSig.PropSig(ident = ioo; typarDefns = ValueNone; sign = csig) ->
+                            ValueSome(ioo, csig, true)
+                        | _ -> ValueNone
+
+                    match identAndSig with
+                    | ValueNone -> ()
+                    | ValueSome(ioo, csig, isPropSig) ->
+                        match identOrOpName lexed input ioo with
+                        | ValueNone -> ()
+                        | ValueSome memberName ->
+                            let collector = collectorForTypeName lexed input typeName
+                            let throwaway = ConstraintCollector()
+
+                            match translateCurriedSig ctx lexed input opens collector throwaway csig with
+                            | Error _ -> ()
+                            | Ok builder ->
+                                // A member whose sig pulled in typars beyond the
+                                // type's own can't be instantiated from the
+                                // receiver's args alone — skip it.
+                                if collector.Count <= arity then
+                                    let (CurriedSig(args, _)) = csig
+                                    let isProperty = isPropSig || args.Length = 0
+
+                                    let kind =
+                                        if isProperty then
+                                            MemberKind.Property
+                                        else
+                                            MemberKind.Method
+
+                                    members.Add
+                                        {
+                                            Name = memberName
+                                            IsStatic = isStatic
+                                            IsProperty = isProperty
+                                            BuildSignature = builder
+                                            Origin = SymbolOrigin.Empty
+                                            Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
+                                        }
+
+            if members.Count > 0 then
+                ctx.TypeMembers.[compiled] <- members
 
     let private extractTypeSig
         (ctx: ExtractCtx)
@@ -615,11 +715,12 @@ module VesperLib =
             | ValueSome(struct (compiled, arity)) ->
                 extractRecordBody ctx file lexed input opens compiled arity typeName fields
 
-        | TypeSignature.Union(typeName = typeName; cases = cases) ->
+        | TypeSignature.Union(typeName = typeName; cases = cases; extensions = extensions) ->
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 extractUnionBody ctx file lexed input opens compiled arity typeName cases
+                extractTypeMembers ctx lexed input opens compiled arity typeName extensions
 
         | TypeSignature.Interface(typeName = typeName) ->
             match registerTypeDecl ctx lexed input path typeName with

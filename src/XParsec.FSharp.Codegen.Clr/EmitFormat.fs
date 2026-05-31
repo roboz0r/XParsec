@@ -14,8 +14,9 @@ module EmitFormat =
     /// left-to-right (`AppendLiteral` for a literal run, `AppendFormatted<T>`
     /// for a hole — its arg evaluated *here*, at its position), then a trailing
     /// newline (printfn-style sinks) and flush, or `ToStringAndClear` for the
-    /// string sink. The node yields a value: the `unit` (null) of the writing
-    /// sinks, or the result string of `sprintf`. Not a `CallRecipe` — the recipe
+    /// string sink. The node yields a value: the `unit` (zero-field
+    /// `System.ValueTuple`) of the writing sinks, or the result string of
+    /// `sprintf`. Not a `CallRecipe` — the recipe
     /// model can't interleave literals/args around a ref-struct local + sink.
     let buildFormat
         (buildExpr: EmitEnv -> IlBuilder -> TExpr -> unit)
@@ -137,9 +138,9 @@ module EmitFormat =
 
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            b.Add ILInstr.Ldnull // unit value
+            EmitTypes.buildUnitValue env b
         | FormatSink.ToWriter _ ->
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
-            b.Add ILInstr.Ldnull // unit value
+            EmitTypes.buildUnitValue env b
         | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"

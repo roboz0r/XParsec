@@ -53,8 +53,12 @@ type Il(encoder: InstructionEncoder) =
 /// editing one `.fs` line.
 module IntrinsicRepr =
 
-    /// `unit` is omitted: the backend still maps it to `FSharp.Core.Unit` (a name
-    /// arm in `encodeType`), not to its `prim-types-min` `System.ValueTuple` binding.
+    /// `unit` maps to the zero-field BCL struct `System.ValueTuple` — its
+    /// `prim-types-min.fs` binding. Listed in `defaults` (not only that file's own
+    /// `IntrinsicReprTypes`) so a package that merely *mentions* `unit` without
+    /// redeclaring it — every consumer of `Vesper.Core` — still resolves it,
+    /// exactly as `int`/`bool` do. `FSharp.Core.Unit` is gone from the general
+    /// path (it lingers only on the cold-printf interop island).
     let defaults: Map<string, string> =
         Map
             [
@@ -66,6 +70,7 @@ module IntrinsicRepr =
                 "char", "System.Char"
                 "decimal", "System.Decimal"
                 "string", "System.String"
+                "unit", "System.ValueTuple"
             ]
 
     /// A file entry wins over the defaults, so retargeting is one `.fs` edit.

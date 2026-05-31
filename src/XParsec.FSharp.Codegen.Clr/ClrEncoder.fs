@@ -19,11 +19,13 @@ type internal ClrEncoder(env: ClrEnv) =
     let externalClassRef n = env.ExternalClassRef n
     let externalIsValueType n = env.ExternalIsValueType n
     let externalRecordRef (n, a) = env.ExternalRecordRef(n, a)
+    let externalUnionRef (n, a) = env.ExternalUnionRef(n, a)
     let ambientTyparLeaf = env.AmbientTyparLeaf
     let methodTyparLeaf = env.MethodTyparLeaf
     let typarIx typars = env.TyparIx typars
 
     let eUnit = env.EUnit
+    let eValueTuple = env.EValueTuple
     let eTextWriter = env.ETextWriter
     let eFormatter = env.EFormatter
     let eHashCode = env.EHashCode
@@ -55,14 +57,11 @@ type internal ClrEncoder(env: ClrEnv) =
             ()
         else
             match zt with
-            // `unit` is name-keyed to `FSharp.Core.Unit` (NOT its prim-types `System.ValueTuple`
-            // binding) and this is forced while FSharp.Core is in the loop: the FSharp.Core printf
-            // surfaces are typed in `Unit`, and the unit value is emitted as `ldnull` (`()` is `Unit`'s
-            // null), not a valid zero-field struct. Flipping `unit` to its declared repr is entangled
-            // with the FSharp.Core cut. `TextWriter` / `Formatter` precede the rekey for the same reason.
-            | TyConst "unit" ->
-                markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
-                te.Type(eUnit.Value, false)
+            // `TextWriter` / `Formatter` / `HashCode` precede the repr-keyed arm because their names
+            // aren't in `reprs`. `unit` is NOT special-cased here: it falls through to the repr arm and
+            // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
+            // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
+            // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly), R9.
             | TyConst "System.IO.TextWriter" -> te.Type(eTextWriter.Value, false)
             | TyConst "Vesper.Formatter" -> te.Type(eFormatter.Value, true)
             | TyConst "System.HashCode" -> te.Type(eHashCode.Value, true)
@@ -75,6 +74,9 @@ type internal ClrEncoder(env: ClrEnv) =
                     ()
                 elif repr = "System.Decimal" then
                     te.Type(eDecimal.Value, true)
+                elif repr = "System.ValueTuple" then
+                    // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
+                    te.Type(eValueTuple.Value, true)
                 else
                     failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
             | TyFun(a, b) ->
@@ -147,6 +149,20 @@ type internal ClrEncoder(env: ClrEnv) =
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyUnion(name, args) when (externalUnionRef (name, args.Length)).IsSome ->
+                // A referenced-package union (`Vesper.Option<int>`) — the case
+                // factories' return type and any field typed in the union itself
+                // (vesper-lib-test-plan Gap 2 Layer B). Same shape as the external
+                // record arm; the union is a reference type, so never `VALUETYPE`.
+                let tref, _ = (externalUnionRef (name, args.Length)).Value
+
+                if args.IsEmpty then
+                    te.Type(tref, false)
+                else
+                    let g = te.GenericInstantiation(tref, args.Length, false)
+
+                    for a in args do
+                        encodeTypeCore tryLeaf (g.AddArgument()) a
             | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
     /// Encode for the executable path. The only leaf hook is the ambient generic-method-typar resolver
@@ -163,6 +179,14 @@ type internal ClrEncoder(env: ClrEnv) =
             let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
             encodeFSharpFunc (g.AddArgument()) a
             encodeFSharpFunc (g.AddArgument()) b
+        | TyConst "unit" ->
+            // This encoder is exclusively the FSharp.Core interop island (the cold-printf printer, R9):
+            // FSharp.Core's printf machinery types its result/state slots in `FSharp.Core.Unit`, so a
+            // `unit` here must stay `Unit` — NOT the general `System.ValueTuple` the rest of the backend
+            // uses (which would mint a `PrintfFunc`4<…,ValueTuple,…>` the runtime can't cast to its
+            // `…,Unit,…` factory). The general encoder's `unit` arm resolves to `ValueTuple`.
+            markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
+            te.Type(eUnit.Value, false)
         | other -> encodeType te other
 
     /// Encode a `SemType` written in the declaring type's *open* typars: a marker `TypeVar` (one of

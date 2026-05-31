@@ -210,6 +210,23 @@ type ICodegenProvider =
     abstract TryResolveExternalRecordField:
         typeName: string * tyArgs: SemType list * fieldName: string -> (EntityHandle * SemType) voption
 
+    /// The `_tag : int` discriminator field `MemberRef` on a *referenced-package*
+    /// union, instantiated at `tyArgs`, plus `caseName`'s tag value (its
+    /// zero-based index in declaration order). The cross-package `match` arm reads
+    /// `scrut._tag` and compares it against this value (vesper-lib-test-plan Gap 2
+    /// Layer C); the union emitter (`NominalEmit.fs`) fixes both the field name and
+    /// the declaration-order tagging. `ValueNone` ⇒ unknown union / case.
+    abstract ExternalUnionTag:
+        unionName: string * tyArgs: SemType list * caseName: string -> (EntityHandle * int) voption
+
+    /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package
+    /// union, instantiated at `tyArgs`, plus that field's substituted declared
+    /// type — the field-extract slot a `match … Some x` binds. The union sibling of
+    /// `TryResolveExternalRecordField`. `ValueNone` ⇒ unknown union / case / field.
+    abstract ExternalUnionCaseField:
+        unionName: string * tyArgs: SemType list * caseName: string * fieldIndex: int ->
+            (EntityHandle * SemType) voption
+
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
     /// call site (R3). `handle` is the method's (predicted) `MethodDefinition`;
     /// `instTypes` the per-typar instantiation recovered by matching the method's

@@ -86,6 +86,46 @@ module UnificationInferResolve =
         | 1 -> TyFun(walkedFields.[0], unionTy)
         | _ -> TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
 
+    /// Resolve a union case in *pattern* position through the provider's reverse
+    /// case index, freshly instantiating the declaring union's typars (one TyVar
+    /// per declared arity, so two uses of `Some` don't share a `'a`) and
+    /// returning the union type plus the per-field types in that instantiation —
+    /// the union to return as the pattern's type, and the field types to unify
+    /// the sub-patterns against (vesper-lib-test-plan Gap 2 Layer C). `qualifier`
+    /// is the optionally-written declaring type (`Option.Some` ⇒ `ValueSome
+    /// "Option"`): when present, the case is accepted only if the resolved
+    /// union's short name matches it; the bare form (`ValueNone`) skips that
+    /// guard. `ValueNone` when no external union declares `caseName`.
+    let tryExternalCasePattern
+        (ctx: PassContext)
+        (qualifier: string voption)
+        (caseName: string)
+        : (SemType * SemType[]) voption =
+        match ctx.Provider.TryLookupUnionCase caseName with
+        | ValueSome(unionName, arity, case) when
+            (match qualifier with
+             | ValueNone -> true
+             | ValueSome q -> ExternalSymbols.shortName unionName = q)
+            ->
+            let freshArgs = Array.init arity (fun _ -> TyVar(freshTyVar ctx))
+            let unionTy = TyUnion(unionName, EqArray.ofArray freshArgs)
+            let fields = case.BuildFieldTypes |> Array.map (fun b -> b freshArgs)
+            ValueSome(unionTy, fields)
+        | _ -> ValueNone
+
+    /// External (referenced-package) analogue of `ctorType`: build the case
+    /// ctor's function/value type `field… → TyUnion(union, freshArgs)` from
+    /// `tryExternalCasePattern`'s union + field types. `qualifier` carries an
+    /// optional written declaring type (`Option.Some`); see `tryExternalCasePattern`.
+    let tryExternalCtorType (ctx: PassContext) (qualifier: string voption) (caseName: string) : SemType voption =
+        match tryExternalCasePattern ctx qualifier caseName with
+        | ValueNone -> ValueNone
+        | ValueSome(unionTy, fields) ->
+            match fields.Length with
+            | 0 -> ValueSome unionTy
+            | 1 -> ValueSome(TyFun(fields.[0], unionTy))
+            | _ -> ValueSome(TyFun(TyTuple(EqArray.ofArray fields), unionTy))
+
     /// ValueNone with `count = 0` means "no such ctor"; `count >= 2` means
     /// ambiguous — the caller emits the appropriate diagnostic.
     let resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =

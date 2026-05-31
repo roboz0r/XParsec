@@ -13,10 +13,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // body still calls `buildsBclOnly`, so flipping `ptest`→`test` re-runs the build
 // once the gap is closed.
 //
-// Triage result (2026-05-30):
-//   Vesper.Choice  — BUILDS (BCL-only). The only Candidate that links end-to-end.
-//   Vesper.Option  — front-end: `Some x` / generic `option` don't type-check.
-//   Vesper.Result  — builds, but NOT BCL-only (emits FSharp.Core `unit`).
+// Triage result (2026-05-30, Gap 1 closed):
+//   Vesper.Choice  — BUILDS (BCL-only).
+//   Vesper.Option  — BUILDS (BCL-only) after the front-end + `unit`-repr fixes.
+//   Vesper.Result  — BUILDS (BCL-only) after the `unit`-repr fix.
 //   Vesper.Array   — front-end: indexed `arr.[i]` lookup unhandled in CstKeys.
 //   Vesper.Seq     — front-end: a `while`-loop body trips a CstKeys TODO.
 //
@@ -47,20 +47,21 @@ let tests =
             // to a BCL-only DLL. Real assertion — a regression turns this red.
             test "Vesper.Choice builds BCL-only" { buildsBclOnly "Vesper.Choice" }
 
-            // PENDING — `option.fs` does not type-check (33 errors). The union-case
-            // `Some x` resolves to a 0-arg constructor ("Constructor 'Some' expects
-            // 0 argument(s) but got 1") and the generic `'T option` head unifies
-            // against an arrow ("Type mismatch: TyUnion Option vs TyFun" / "Free
-            // type parameter 'T is not declared in the enclosing type's
-            // type-parameter list"). A front-end gap in single-case-arg union
-            // construction / generic-union inference, not a codegen one.
-            ptest "Vesper.Option builds BCL-only (front-end: Some/generic option)" { buildsBclOnly "Vesper.Option" }
+            // `option.fs` type-checks, compiles end-to-end, AND is now BCL-only.
+            // The front-end gaps were fixed earlier (`Some` carries its `Value`
+            // field; external-ctor-without-`new` resolution lets `get` /
+            // `member Value`'s `raise (InvalidOperationException …)` type-check);
+            // Gap 1 (vesper-lib-test-plan.md) then removed the last wall — `iter` /
+            // `defaultWith` / `orElseWith` no longer pull `Microsoft.FSharp.Core.Unit`
+            // now that `unit` encodes off its `prim-types-min` `System.ValueTuple`
+            // binding. Behavioural coverage rides reflection-invoke (OptionTests.fs).
+            test "Vesper.Option builds BCL-only" { buildsBclOnly "Vesper.Option" }
 
-            // PENDING — `result.fs` compiles, but the emitted DLL is NOT BCL-only:
-            // `FSharpCoreDependencies = ["Microsoft.FSharp.Core.Unit"]`. Something in
-            // the impl lowers `unit` to FSharp.Core's `unit` instead of Vesper's,
-            // pulling an FSharp.Core reference into a package that must stand alone.
-            ptest "Vesper.Result builds BCL-only (emits FSharp.Core unit)" { buildsBclOnly "Vesper.Result" }
+            // `result.fs` compiles to a BCL-only DLL — same story as Option: the
+            // `unit`→`System.ValueTuple` repr (Gap 1) dropped the lone
+            // `Microsoft.FSharp.Core.Unit` dependency the impl's `unit`-typed
+            // functions used to pin.
+            test "Vesper.Result builds BCL-only" { buildsBclOnly "Vesper.Result" }
 
             // ---- At-risk: documented feature gap ------------------------------
 

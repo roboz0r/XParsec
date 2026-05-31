@@ -484,6 +484,15 @@ module VesperLibTypeTranslate =
 
                 match resolveTypeName ctx opens name bs.Length with
                 | Error e -> Error e
+                // `TyRecord` here is a KIND-AGNOSTIC PLACEHOLDER, not a claim that
+                // `compiled` is a record. Extraction runs per-package in an isolated
+                // `ExtractCtx` (`ReferencedProject.buildProvider`) that holds only this
+                // package's own type shapes, so the actual kind of `compiled` (union /
+                // class / record) — and whether it's a transparent abbreviation to
+                // expand — isn't knowable here for a cross-package reference. The
+                // consumer reconciles the head against the full composite provider via
+                // `ExternalSymbols.normalizeNominal`. (The per-package scope is the real
+                // defect; see `docs/package-type-extraction-plan.md`.)
                 | Ok compiled -> Ok(fun ts -> TyRecord(compiled, EqArray.ofSeq (seq { for b in bs -> b ts })))
 
         | Type.SuffixedType(baseTy, li) ->
@@ -495,6 +504,8 @@ module VesperLibTypeTranslate =
             | Ok fb ->
                 match resolveTypeName ctx opens name 1 with
                 | Error e -> Error e
+                // Kind-agnostic placeholder, as in the `GenericType` arm above —
+                // `'T list` ≡ `List<'T>` and the consumer re-kinds `compiled`.
                 | Ok compiled -> Ok(fun ts -> TyRecord(compiled, EqArray.singleton (fb ts)))
 
         | Type.ArrayType(baseTy, _, commas, _) ->

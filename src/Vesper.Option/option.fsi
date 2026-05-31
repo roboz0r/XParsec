@@ -41,27 +41,11 @@ type Option<'T> =
     /// <param name="Value">The input value.</param>
     ///
     /// <returns>An option representing the value.</returns>
-    | Some
+    | Some of Value: 'T
 
-    /// <summary>Create an option value that is a 'None' value.</summary>
-    /// <exclude />
-    static member None: 'T option
-
-    /// <summary>Create an option value that is a 'Some' value.</summary>
-    ///
-    /// <param name="value">The input value</param>
-    ///
-    /// <returns>An option representing the value.</returns>
-    /// <exclude />
-    static member Some: value: 'T -> 'T option
-
-    /// <summary>Implicitly converts a value into an optional that is a 'Some' value.</summary>
-    ///
-    /// <param name="value">The input value</param>
-    ///
-    /// <returns>An option representing the value.</returns>
-    /// <exclude />
-    static member op_Implicit: value: 'T -> 'T option
+    // FSharp.Core's `static member None / Some / op_Implicit` are intentionally
+    // omitted — they exist there for C# / null-representation interop, which Vesper
+    // does not consume. Construction is via the `None` / `Some` cases directly.
 
     /// <summary>Get the value of a 'Some' option. An InvalidOperationException is raised if the option is 'None'.</summary>
     member Value: 'T

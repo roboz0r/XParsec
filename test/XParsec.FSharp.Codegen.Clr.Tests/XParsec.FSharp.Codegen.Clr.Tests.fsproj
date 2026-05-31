@@ -44,6 +44,7 @@
     <Compile Include="ForInTests.fs" />
     <Compile Include="PackageBuildTests.fs" />
     <Compile Include="PackageBuildTriage.fs" />
+    <Compile Include="OptionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

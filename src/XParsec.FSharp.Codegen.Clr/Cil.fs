@@ -119,6 +119,15 @@ module Cil =
         il.Encoder.Token(t)
         il.Adjust 0
 
+    /// `initobj <type>` — zero-initialise the value-type instance addressed by
+    /// the managed pointer on the stack (pops it, pushes nothing: net −1). Used to
+    /// reify the `unit` value, whose `System.ValueTuple` representation is a
+    /// zero-field struct.
+    let emitInitobj (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Initobj)
+        il.Encoder.Token(t)
+        il.Adjust -1
+
     /// `callvirt` against a metadata handle with the receiver + args already on
     /// the stack. SRM has no `Callvirt` helper, so the opcode + token are emitted
     /// by hand; depth adjusts by `pushes - argc` (`argc` includes the receiver).

@@ -159,3 +159,16 @@ module EmitTypes =
             Classes: Dictionary<string, EmittedClass>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
+
+    /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
+    /// BCL struct `System.ValueTuple` (its `prim-types-min.fs` binding), not
+    /// FSharp.Core's null `Unit`, so the value is reified by zero-initialising a
+    /// scratch local: `ldloca; initobj System.ValueTuple; ldloc` (net +1). Every
+    /// site that leaves a unit result — `()`, a `for` loop, a `FieldSet`, a
+    /// `printfn` flush — funnels through here so the BCL-only representation stays
+    /// consistent (and the local's `unit` type encodes off the same repr).
+    let buildUnitValue (env: EmitEnv) (b: IlBuilder) : unit =
+        let slot = b.Local(TyConst "unit")
+        b.Add(ILInstr.Ldloca slot)
+        b.Add(ILInstr.Initobj(env.Provider.TypeToken(TyConst "unit")))
+        b.Add(ILInstr.Ldloc slot)

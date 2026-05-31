@@ -75,6 +75,28 @@ module EmitResolve =
                 | false, _ -> failwithf "Emit: class '%s' has no emitted member '%s'" typeName name
             | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%s'" typeName
 
+    /// Member handle for an instance access on an *external* (referenced-package)
+    /// type. A union/record receiver carries its instantiation in its own type
+    /// args, but its arity can't be recovered from the bare contract name
+    /// (`"Vesper.Option"` has no `` `1 `` suffix) and `externalClassRef` resolves
+    /// only a `Class` — so the recover-by-signature `ExternalMemberRef` fails on
+    /// it (`… did not resolve at emit`). Route a union/record receiver through
+    /// `ExternalMemberRefOn`, which reads the parent `TypeSpec` and the marker
+    /// count straight off the receiver type (vesper-lib-test-plan Gap 2 — the
+    /// Layer A *backend* half, `(Some 5).IsSome` / `o.Value` at runtime). A class
+    /// receiver keeps the existing, tested recover path.
+    let externalInstanceMemberRef
+        (env: EmitEnv)
+        (key: SymbolKey)
+        (receiverTy: SemType)
+        (isProperty: bool)
+        (memberTy: SemType)
+        : EntityHandle =
+        match zonk receiverTy with
+        | TyUnion _
+        | TyRecord _ -> env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
+        | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
+
     /// The static-member equivalent. Generic-union *static* augmentation members
     /// are out of scope in R2 (a static member's typars aren't tied to the type's
     /// via `this`, so the front-end leaves them un-remapped — the type's generic

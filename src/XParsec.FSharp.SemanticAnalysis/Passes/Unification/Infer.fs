@@ -154,7 +154,12 @@ module UnificationInfer =
                         match resolveQualifiedCtor ctx headName tailName with
                         | ValueSome info -> ctorType ctx info
                         | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
-                | false, _ -> inferIdentDefault ctx e key
+                | false, _ ->
+                    // Qualified external union case (`Option.Some`) — the head is
+                    // an external union, not a local one (Gap 2 Layer B).
+                    match tryExternalCtorType ctx (ValueSome headName) tailName with
+                    | ValueSome t -> t
+                    | ValueNone -> inferIdentDefault ctx e key
         | _ -> inferIdentDefault ctx e key
 
     /// Resolution order: local binding map, then provider, then `Class`-name
@@ -170,7 +175,12 @@ module UnificationInfer =
             let name = qualifiedNameOf ctx e
 
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
-            | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
+            // Normalize the instantiated signature's nominal heads (expand external
+            // abbreviations + re-kind), so a module function's `'T option` parameter
+            // (baked by the extractor as a mis-kinded `TyRecord("Vesper.option", …)`)
+            // unifies with the `TyUnion("Vesper.Option", …)` a use-site option resolves
+            // to (vesper-lib-test-plan Gap 2 Layer D, front-end half).
+            | ValueSome sym -> normalizeExternalValueTy ctx (sym.Instantiate ctx.CurrentLevel)
             | ValueNone ->
 
                 match tryExternalStaticLongIdent ctx key e with
@@ -198,11 +208,20 @@ module UnificationInfer =
                                     n
                                     count)
                         | ValueNone ->
-                            // Class-name-as-function: `Point(3, 4)` parses as
-                            // `Expr.App (Expr.Ident "Point", ...)`. Return the
-                            // ctor as a function value so `inferApp` types the
-                            // call through the normal function arm.
-                            classCtorAsFunction ctx n
+                            // External union case ctor (`Some` / `None` from a
+                            // referenced package, in scope via `open`): typed as
+                            // `field… → TyUnion(union, …)` so `inferApp` flows the
+                            // application through the normal function arm and the
+                            // bare nullary form (`None`) lands as the union value
+                            // (vesper-lib-test-plan Gap 2 Layer B).
+                            match tryExternalCtorType ctx ValueNone n with
+                            | ValueSome t -> t
+                            | ValueNone ->
+                                // Class-name-as-function: `Point(3, 4)` parses as
+                                // `Expr.App (Expr.Ident "Point", ...)`. Return the
+                                // ctor as a function value so `inferApp` types the
+                                // call through the normal function arm.
+                                classCtorAsFunction ctx n
                     | ValueNone -> TyVar(freshTyVar ctx)
 
     and private qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
@@ -232,15 +251,24 @@ module UnificationInfer =
             | ValueSome ty -> ty
             | ValueNone ->
 
-                let mutable currTy = infer ctx fn
+                // `new`-less ctor-as-function sugar on an external class (`Exn "x"`).
+                // Probed before the generic application path so the head resolves to the
+                // external constructor instead of leaking a fresh TyVar (the latter only
+                // generalises when it reaches the binding's type — buried as an argument
+                // it dangles, which `ResolvedTypes` flags as an unresolved TyVar).
+                match tryInferExternalCtorApp ctx key fn args with
+                | ValueSome ty -> ty
+                | ValueNone ->
 
-                for a in args do
-                    let argTy = infer ctx a
-                    let resultTy = TyVar(freshTyVar ctx)
-                    unify ctx key currTy (TyFun(argTy, resultTy))
-                    currTy <- resultTy
+                    let mutable currTy = infer ctx fn
 
-                currTy
+                    for a in args do
+                        let argTy = infer ctx a
+                        let resultTy = TyVar(freshTyVar ctx)
+                        unify ctx key currTy (TyFun(argTy, resultTy))
+                        currTy <- resultTy
+
+                    currTy
 
     /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
     /// printf entry point with a plain-literal format argument, the format spec
@@ -974,7 +1002,31 @@ module UnificationInfer =
             match ctx.Types.Union.TryGetValue unionName with
             | true, info ->
                 resolveLocalInstanceMember ctx diagKey unionName info.TypeParams args info.Members memberName
-            | false, _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionName)
+            | false, _ ->
+                // Not a project-local union — an *external* one (e.g. a referenced
+                // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation
+                // members the contract provider publishes). Resolve through the
+                // provider and record it for Freeze, exactly as the external
+                // `TyClass` arm does (vesper-lib-test-plan Gap 2 Layer A).
+                match ctx.Provider.TryLookupMember(unionName, memberName) with
+                | ValueSome m when not m.IsStatic ->
+                    ctx.Resolution.ExternalAccess.Set(
+                        diagKey,
+                        {
+                            Key = m.Key
+                            IsStatic = false
+                            IsProperty = m.IsProperty
+                        }
+                    )
+
+                    m.BuildSignature(args.AsSpan().ToArray())
+                | _ ->
+                    // The provider knows the union but not this member → a real
+                    // member miss; otherwise the type itself is unknown.
+                    match ctx.Provider.TryLookupType unionName with
+                    | ValueSome(ExternalTypeShape.Union _) ->
+                        errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionName memberName)
+                    | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionName)
         | TyVar tv ->
             let root = UnionFind.find tv
             let resultTv = freshTyVar ctx
@@ -1089,32 +1141,7 @@ module UnificationInfer =
                 // owns the ctor catalogue (`MetadataSymbols.extractMembers` /
                 // `computeMembers` surfaces them under `.ctor`).
                 match ctx.Provider.TryLookupType name with
-                | ValueSome(ExternalTypeShape.Class _) ->
-                    let ctors = ctx.Provider.TryLookupMembers(name, ".ctor")
-
-                    if ctors.Length = 0 then
-                        ctx.Error(key, sprintf "External type '%s' has no accessible constructor" name)
-                        infer ctx argExpr |> ignore
-                        receiverTy
-                    else
-                        let argTy = infer ctx argExpr
-                        let typeArgs = args |> EqArray.toList |> List.toArray
-
-                        match pickStaticOverload typeArgs ctors (argElemsOf argTy) with
-                        | ValueSome chosen ->
-                            // The chosen ctor's signature is `(p1 * … * pN) → declTy`;
-                            // unifying `TyFun(argTy, resultTy)` recovers each param's
-                            // unification against the call's argument types (same
-                            // pattern as `tryInferExternalStaticMethodCall`), and the
-                            // result type unifies with the receiver shape.
-                            let ctorSig = chosen.BuildSignature typeArgs
-                            let resultTy = TyVar(freshTyVar ctx)
-                            unify ctx key ctorSig (TyFun(argTy, resultTy))
-                            unify ctx key resultTy receiverTy
-                            receiverTy
-                        | ValueNone ->
-                            ctx.Error(key, sprintf "No applicable constructor on '%s' for the given arguments" name)
-                            receiverTy
+                | ValueSome(ExternalTypeShape.Class _) -> inferExternalCtorOn ctx key name args receiverTy argExpr
                 | _ ->
                     ctx.Error(key, sprintf "Unknown class type '%s'" name)
                     infer ctx argExpr |> ignore
@@ -1123,6 +1150,82 @@ module UnificationInfer =
             ctx.Error(key, "'new' requires a class type")
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
+
+    /// Resolve a constructor application on an external (BCL / referenced) class —
+    /// shared by `new T(args)` (`inferNew`) and the *sugar* form `T args` (a ctor
+    /// treated as a first-class function, routed here from `inferApp` via
+    /// `tryInferExternalCtorApp`). `name` is the resolved metadata full name and
+    /// `receiverTy` the `TyClass(name, args)` the call yields; the provider owns the
+    /// `.ctor` catalogue. Overload-resolves on the argument types, then unifies the
+    /// chosen ctor signature `(p1 * … * pN) → declTy` against `TyFun(argTy, result)`
+    /// so each parameter constrains the call's arguments — the same shape as
+    /// `tryInferExternalStaticMethodCall`.
+    and private inferExternalCtorOn
+        (ctx: PassContext)
+        (key: NodeKey)
+        (name: string)
+        (args: EqArray<SemType>)
+        (receiverTy: SemType)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType =
+        let ctors = ctx.Provider.TryLookupMembers(name, ".ctor")
+
+        if ctors.Length = 0 then
+            ctx.Error(key, sprintf "External type '%s' has no accessible constructor" name)
+            infer ctx argExpr |> ignore
+            receiverTy
+        else
+            let argTy = infer ctx argExpr
+            let typeArgs = args |> EqArray.toList |> List.toArray
+
+            match pickStaticOverload typeArgs ctors (argElemsOf argTy) with
+            | ValueSome chosen ->
+                let ctorSig = chosen.BuildSignature typeArgs
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key ctorSig (TyFun(argTy, resultTy))
+                unify ctx key resultTy receiverTy
+                receiverTy
+            | ValueNone ->
+                ctx.Error(key, sprintf "No applicable constructor on '%s' for the given arguments" name)
+                receiverTy
+
+    /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
+    /// `ArgumentException(message, name)`. `inferApp` reaches here only after the
+    /// head fails to resolve as a value / static method / union case / *user* class
+    /// ctor — exactly the slot that previously fell to a fresh, unconstrained TyVar
+    /// (the head's type leaked when buried in an argument, e.g. `raise (Exn "x")`,
+    /// surfacing as a stray unresolved TyVar). The head must name an external class
+    /// (resolved through the active `open`s) and not be a local binding (a real
+    /// call). Multi-argument ctors arrive as one tupled arg, matching `inferNew`.
+    and private tryInferExternalCtorApp
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        : SemType voption =
+        if args.Length <> 1 then
+            ValueNone
+        else
+            let headName =
+                match fn with
+                | Expr.Ident tok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent)) ->
+                    ValueSome(ctx.NameOf tok)
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                    li.Idents.Length >= 1
+                    && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
+                    ->
+                    ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
+                | _ -> ValueNone
+
+            match headName with
+            | ValueNone -> ValueNone
+            | ValueSome name ->
+                match OpenScope.tryQualify ctx.Resolution.OpenScope (isExternalClass ctx) name with
+                | ValueSome resolved ->
+                    ValueSome(
+                        inferExternalCtorOn ctx key resolved EqArray.empty (TyClass(resolved, EqArray.empty)) args.[0]
+                    )
+                | ValueNone -> ValueNone
 
     /// Explicit type application on a value/constructor head: `Set<'T>(args)`
     /// (`set.fs` construction sites), `Box<int>(x)`, etc. The CST shape is

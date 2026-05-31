@@ -546,6 +546,12 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 membersCache.[key] <- v
                 v
 
+        // The BCL models no F#-style discriminated unions whose cases we
+        // construct (FSharp.Core's `Option`/`Result`/`Choice` come from the
+        // Vesper contract layer, not from metadata), so there is nothing to
+        // index here — union construction is a contract-layer capability.
+        member _.TryLookupUnionCase _ = ValueNone
+
         // The BCL metadata layer contributes no implicit prelude — the ambient
         // `[<AutoOpen>]` / namespace prefixes come from the contract layer
         // (`ReferencedProject`), so this returns `[]` (intrinsic-repr-handoff.md

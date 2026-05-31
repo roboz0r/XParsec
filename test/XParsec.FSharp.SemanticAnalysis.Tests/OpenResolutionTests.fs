@@ -28,6 +28,7 @@ let private provider: IExternalSymbolProvider =
 
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
+        member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
     }
 

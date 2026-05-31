@@ -17,6 +17,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let decurryTy t = env.DecurryTy t
     let externalClassRef n = env.ExternalClassRef n
     let externalRecordRef fullName arity = env.ExternalRecordRef(fullName, arity)
+    let externalUnionRef fullName arity = env.ExternalUnionRef(fullName, arity)
     let encodeType te t = enc.EncodeType(te, t)
     let encodeOpen markerRoots te t = enc.EncodeOpen(markerRoots, te, t)
 
@@ -180,7 +181,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         let declArgs =
             match declZ with
-            | TyClass(_, a) -> EqArray.toList a
+            | TyClass(_, a)
+            | TyUnion(_, a)
+            | TyRecord(_, a) -> EqArray.toList a
             | _ -> []
 
         let instTy = zonk memberTy
@@ -251,6 +254,100 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 )
 
             ValueSome(toEntity (ctx.MemberRef(parent, ".ctor", s)))
+
+    /// Mint the `MemberRef` for a referenced-assembly union's case factory — the static method
+    /// `<caseName>(fields…) : Union<…>` the union emitter writes (`NominalEmit.fs`). The mirror of
+    /// `externalRecordCtor` for cross-package case construction (`Some` / `None`, vesper-lib-test-plan
+    /// Gap 2 Layer B): parameter types are the case's declared fields in their *open* typar form and the
+    /// return type is the union itself, both written over fresh marker typars so the signature matches the
+    /// emitted generic factory. Returns the handle + the field count. `ValueNone` ⇒ the union (or the case)
+    /// is unknown to the provider, in which case the caller falls back to its hard error.
+    let externalUnionFactory (fullName: string) (caseName: string) (args: SemType list) : (EntityHandle * int) voption =
+        let arity = List.length args
+
+        match externalUnionRef fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(tref, cases) ->
+            match cases |> Array.tryFind (fun c -> c.Name = caseName) with
+            | None -> ValueNone
+            | Some case ->
+                let parent = externalTypeSpec tref (List.map zonk args)
+
+                let markers = [ for _ in 1..arity -> TypeVar() ]
+                let markerRoots = markers |> List.map UnionFind.find
+                let markerTys = markers |> List.map TyVar |> List.toArray
+                let paramTys = [ for b in case.BuildFieldTypes -> b markerTys ]
+                let retTy = TyUnion(fullName, EqArray.ofArray markerTys)
+
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = false)
+                    .Parameters(
+                        List.length paramTys,
+                        (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) retTy),
+                        (fun (pars: ParametersEncoder) ->
+                            for p in paramTys do
+                                encodeOpen markerRoots (pars.AddParameter().Type()) p
+                        )
+                    )
+
+                ValueSome(toEntity (ctx.MemberRef(parent, caseName, s)), List.length paramTys)
+
+    /// Mint the `_tag : int` field `MemberRef` on a referenced-package union, instantiated at `args`, and
+    /// return it with the discriminator value for `caseName` (its zero-based index in declaration order).
+    /// The discriminator a cross-package `match` reads (vesper-lib-test-plan Gap 2 Layer C): the field name
+    /// + type mirror the union emitter (`NominalEmit.fs`: a public `_tag` of type `int`, and tags assigned
+    /// by case declaration order). `_tag` is non-generic, so its signature needs no marker typars even on a
+    /// generic union. `ValueNone` ⇒ the union (or the case) is unknown to the provider.
+    let externalUnionTag (fullName: string) (args: SemType list) (caseName: string) : (EntityHandle * int) voption =
+        let arity = List.length args
+
+        match externalUnionRef fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(tref, cases) ->
+            match cases |> Array.tryFindIndex (fun c -> c.Name = caseName) with
+            | None -> ValueNone
+            | Some tag ->
+                let parent = externalTypeSpec tref (List.map zonk args)
+                let s = BlobBuilder()
+                encodeType (BlobEncoder(s).FieldSignature()) (TyConst "int")
+                ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
+
+    /// Mint the `MemberRef` for one field of one case on a referenced-package union — the `<caseName>_<i>`
+    /// public field the union emitter writes (`NominalEmit.fs`), instantiated at `args`. The field-extract
+    /// slot a cross-package `match … Some x` reads (Gap 2 Layer C); the mirror of `externalRecordField`.
+    /// The field's *open* type (its declaring-typar form, `!i`) drives the signature blob so it matches the
+    /// generic field definition; the returned `SemType` is that type after the use-site substitution.
+    /// `ValueNone` ⇒ unknown union / case / field index.
+    let externalUnionCaseField
+        (fullName: string)
+        (args: SemType list)
+        (caseName: string)
+        (fieldIndex: int)
+        : (EntityHandle * SemType) voption =
+        let arity = List.length args
+
+        match externalUnionRef fullName arity with
+        | ValueNone -> ValueNone
+        | ValueSome(tref, cases) ->
+            match cases |> Array.tryFind (fun c -> c.Name = caseName) with
+            | Some case when fieldIndex >= 0 && fieldIndex < case.BuildFieldTypes.Length ->
+                let parent = externalTypeSpec tref (List.map zonk args)
+                let markers = [ for _ in 1..arity -> TypeVar() ]
+                let markerRoots = markers |> List.map UnionFind.find
+                let markerTys = markers |> List.map TyVar |> List.toArray
+                let openFieldTy = case.BuildFieldTypes.[fieldIndex] markerTys
+
+                let s = BlobBuilder()
+                encodeOpen markerRoots (BlobEncoder(s).FieldSignature()) openFieldTy
+
+                let handle =
+                    toEntity (ctx.MemberRef(parent, sprintf "%s_%d" caseName fieldIndex, s))
+
+                let substitutedTy = case.BuildFieldTypes.[fieldIndex](List.toArray args)
+                ValueSome(handle, substitutedTy)
+            | _ -> ValueNone
 
     /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs` and
     /// picked by call-site arity **and argument types**. Two ctors of the same arity (e.g.
@@ -374,6 +471,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         externalMemberRefOn key declTy isProperty isStatic memberTy
 
     member _.ExternalRecordCtor(fullName, args) = externalRecordCtor fullName args
+
+    member _.ExternalUnionFactory(fullName, caseName, args) =
+        externalUnionFactory fullName caseName args
+
+    member _.ExternalUnionTag(fullName, args, caseName) = externalUnionTag fullName args caseName
+
+    member _.ExternalUnionCaseField(fullName, args, caseName, fieldIndex) =
+        externalUnionCaseField fullName args caseName fieldIndex
+
     member _.ExternalCtor(fullName, tyArgs, argTypes) = externalCtor fullName tyArgs argTypes
 
     member _.ExternalRecordField(fullName, args, fieldName) =

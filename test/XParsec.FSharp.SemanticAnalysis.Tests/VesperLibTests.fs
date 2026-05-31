@@ -445,7 +445,7 @@ let tests =
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.Result" with
                 | ValueNone -> failtest "Result shape not found"
-                | ValueSome(ExternalTypeShape.Union(arity, cases)) ->
+                | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
                     Expect.equal arity 2 "Result has two typars"
 
                     let names = cases |> Array.map (fun c -> c.Name) |> Array.sort

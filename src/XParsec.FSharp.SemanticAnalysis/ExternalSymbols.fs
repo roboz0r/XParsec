@@ -287,8 +287,13 @@ type ExternalTypeShape =
     /// Records-handoff Phase 2 follow-up F2 reads it to mint a `TypeRef` for
     /// cross-package record emission (an external `RecordCons` / field access).
     | Record of arity: int * fields: ExternalFieldShape[] * origin: SymbolOrigin
-    /// Case order matches source.
-    | Union of arity: int * cases: ExternalCaseShape[]
+    /// Case order matches source. `origin` is filled by the layer that knows
+    /// where the type lives (`ReferencedProject.wrap` from the manifest's
+    /// assembly + namespace); the inner extractor records `SymbolOrigin.Empty`.
+    /// Codegen reads it to mint a `TypeRef` for the case factories on a
+    /// cross-package `Some`/`None` construction (vesper-lib-test-plan Gap 2
+    /// Layer B), exactly as `Record` does for `RecordCons`.
+    | Union of arity: int * cases: ExternalCaseShape[] * origin: SymbolOrigin
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
     /// `ValueNone` today). The members / interfaces / base-type / flags ride
     /// inside `ExternalClassShape`, lifted out of the DU header so the sprint's
@@ -338,6 +343,17 @@ type IExternalSymbolProvider =
     /// single-pick collapse).
     abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
 
+    /// Reverse case-name lookup: a (bare) union-case name → its declaring
+    /// union's compiled name, the union's typar arity, and the case shape. The
+    /// mirror of `TryLookupMember` for union construction: it lets a consumer
+    /// type `Some 5` / `None` against an external union without a type
+    /// annotation, exactly as F# brings a non-`RequireQualifiedAccess` union's
+    /// cases into scope when its namespace is opened (vesper-lib-test-plan Gap 2
+    /// Layer B). v1 is first-declaration-wins on a name collision (the same rule
+    /// the short-name type index uses); providers that don't model unions return
+    /// `ValueNone`.
+    abstract TryLookupUnionCase: caseName: string -> (string * int * ExternalCaseShape) voption
+
     /// The *ambient* (implicit) open-prefix set this provider contributes — the
     /// prelude / referenced-contract `[<AutoOpen>]` modules. The pipeline seeds
     /// `PassContext.Resolution.AmbientOpenScope` from it, where it is probed
@@ -353,6 +369,62 @@ type IExternalSymbolProvider =
     abstract AmbientOpenPrefixes: string list
 
 module ExternalSymbols =
+
+    /// Re-resolve every nominal head of `ty` through `lookup` so the type's
+    /// shapes match the forms a *use-site* type resolves to. The symbol /
+    /// abbreviation extractor (`VesperLibTypeTranslate`) bakes EVERY nominal
+    /// generic reference as a kind-agnostic `TyRecord(compiled, …)` placeholder.
+    /// It has to: each package is extracted into its own isolated `ExtractCtx`
+    /// (`ReferencedProject.buildProvider`) holding only that package's own type
+    /// shapes — its dependencies are separate providers, stacked into a composite
+    /// only later — so at bake time the kind of a *cross-package* type, and the
+    /// expansion of an abbreviation, simply aren't knowable. (The real defect is
+    /// that per-package scope; see `docs/package-type-extraction-plan.md`.) A
+    /// module function's `'T option` parameter therefore comes back as the
+    /// unexpanded, mis-kinded `TyRecord("Vesper.option", …)`, which unifies with
+    /// neither the `TyUnion("Vesper.Option", …)` a use site resolves to nor
+    /// anything else. This walk is the reconciliation step: run at the *consumer*,
+    /// where the full composite provider stack IS in scope, it consults `lookup`
+    /// per nominal head — a transparent abbreviation expands (then re-normalizes),
+    /// a union/class/record re-kinds, an intrinsic collapses to its unqualified
+    /// `TyConst` (so an external `int`/`exn` matches the literal-typed form), and
+    /// an unknown head keeps its written kind. It brings baked val signatures up
+    /// to the parity that type *annotations* already enjoy (those resolve fresh at
+    /// the consumer via `tryResolveExternalType`). Shared by the front-end
+    /// (`UnificationTranslate.normalizeExternalValueTy` / the abbrev-body
+    /// re-kind in `tryResolveExternalType`) and codegen (`ClrRecipes.normalizeSig`),
+    /// each passing its own provider's `TryLookupType` (vesper-lib-test-plan Gap 2).
+    let rec normalizeNominal (lookup: string -> ExternalTypeShape voption) (ty: SemType) : SemType =
+        let resolveNominal (name: string) (args: EqArray<SemType>) (fallback: unit -> SemType) : SemType =
+            match lookup name with
+            | ValueSome(ExternalTypeShape.Abbrev(_, build)) -> normalizeNominal lookup (build (args.AsSpan().ToArray()))
+            | ValueSome(ExternalTypeShape.Union _) -> TyUnion(name, args)
+            | ValueSome(ExternalTypeShape.Class _) -> TyClass(name, args)
+            | ValueSome(ExternalTypeShape.Record _) -> TyRecord(name, args)
+            | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(name.Substring(name.LastIndexOf('.') + 1))
+            | ValueNone -> fallback ()
+
+        match ty with
+        | TyRecord(name, args) ->
+            let args' = EqArray.map (normalizeNominal lookup) args
+            resolveNominal name args' (fun () -> TyRecord(name, args'))
+        | TyUnion(name, args) ->
+            let args' = EqArray.map (normalizeNominal lookup) args
+            resolveNominal name args' (fun () -> TyUnion(name, args'))
+        | TyClass(name, args) ->
+            let args' = EqArray.map (normalizeNominal lookup) args
+            resolveNominal name args' (fun () -> TyClass(name, args'))
+        | TyTuple items -> TyTuple(EqArray.map (normalizeNominal lookup) items)
+        | TyFun(a, b) -> TyFun(normalizeNominal lookup a, normalizeNominal lookup b)
+        | TyVar _
+        | TyConst _ -> ty
+
+    /// The last `.`-separated segment of a compiled name (`Vesper.Option` ⇒
+    /// `Option`), i.e. the simple name with any namespace / declaring-module
+    /// prefix dropped. Used to test a union's declaring type against a written
+    /// qualifier (`Option.Some`). A name with no `.` is returned unchanged.
+    let shortName (compiled: string) : string =
+        compiled.Substring(compiled.LastIndexOf '.' + 1)
 
     /// Mint a `SymbolKey.ValueKey` from an assembly + fully-qualified compiled
     /// name by splitting at the last `.`: everything before becomes the
@@ -408,6 +480,7 @@ module ExternalSymbols =
             member _.TryLookupType _ = ValueNone
             member _.TryLookupMember(_, _) = ValueNone
             member _.TryLookupMembers(_, _) = [||]
+            member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
         }
 
@@ -457,8 +530,8 @@ module ExternalSymbols =
             | ValueSome o -> fun (m: ExternalMember) -> { m with Origin = o }
 
         // The single place that decides which `ExternalTypeShape` cases carry
-        // their `Origin`. Class/Record do today; Abbrev/Union don't (their
-        // cross-package emit paths land later, with the same shape). Extend
+        // their `Origin`. Class/Record/Union do today; Abbrev doesn't (its
+        // cross-package emit path lands later, with the same shape). Extend
         // this match — not three call sites — when a new case learns origin.
         let stampType =
             match stampOrigin with
@@ -468,8 +541,8 @@ module ExternalSymbols =
                     match shape with
                     | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
+                    | ExternalTypeShape.Union(arity, cases, _) -> ExternalTypeShape.Union(arity, cases, o)
                     | ExternalTypeShape.Abbrev _
-                    | ExternalTypeShape.Union _
                     | ExternalTypeShape.Intrinsic _ -> shape
 
         { new IExternalSymbolProvider with
@@ -524,6 +597,20 @@ module ExternalSymbols =
                 match stampOrigin with
                 | ValueNone -> result
                 | ValueSome _ -> result |> Array.map stampMember
+
+            // First source that knows a case of this name wins. The result is a
+            // bare name + arity + case shape — no `Origin` rides it, so (unlike
+            // the type/member lookups) there is nothing to re-stamp; the union's
+            // origin is recovered later via `TryLookupType` on the returned name.
+            member _.TryLookupUnionCase caseName =
+                let mutable result = ValueNone
+                let mutable i = 0
+
+                while result.IsNone && i < sources.Length do
+                    result <- sources.[i].TryLookupUnionCase caseName
+                    i <- i + 1
+
+                result
 
             member _.AmbientOpenPrefixes = ambient
         }

@@ -113,6 +113,20 @@ module FreezeExpr =
         | Constant.Literal t -> parseLiteral t
         | Constant.MeasuredLiteral(value = t) -> parseLiteral t
 
+    /// Does `caseName` (optionally written with `qualifier`) name a case of an
+    /// *external* (referenced-package) union the provider knows? Mirrors the
+    /// Unification recogniser (`tryExternalCasePattern`) for the Freeze pattern
+    /// path, so a cross-package `match o with Some x -> …` lowers to `TPat.Union`
+    /// exactly as the local-union arm does (vesper-lib-test-plan Gap 2 Layer C).
+    /// The lowering is identical to the local case — only the recognition differs.
+    let private isExternalUnionCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : bool =
+        match ctx.Provider.TryLookupUnionCase caseName with
+        | ValueSome(unionName, _, _) ->
+            match qualifier with
+            | ValueNone -> true
+            | ValueSome q -> ExternalSymbols.shortName unionName = q
+        | ValueNone -> false
+
     /// Patterns Unification doesn't understand yet fall through loudly so the
     /// gap surfaces at translation time.
     let rec translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
@@ -122,10 +136,16 @@ module FreezeExpr =
         match p with
         | Pat.NamedSimple t when
             let n = ctx.NameOf t
-            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n
+
+            n.Length > 0
+            && System.Char.IsUpper n.[0]
+            && (ctx.Types.CtorIndex.ContainsKey n || isExternalUnionCase ctx ValueNone n)
             ->
-            // Nullary ctor in pattern position. Must precede the plain
-            // NamedSimple arm.
+            // Nullary ctor in pattern position — a local union or an external
+            // referenced-package one (`None`). Must precede the plain NamedSimple
+            // arm. Both lower to the same `TPat.Union`; the node's type
+            // (`typeOfKey`) already carries the right `TyUnion`, so the backend
+            // routes local vs external off that.
             TPat.Union(ctx.NameOf t, EqArray.empty, ty)
         | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
         | Pat.Wildcard _ -> TPat.Wildcard ty
@@ -161,8 +181,11 @@ module FreezeExpr =
 
                 last.Length > 0
                 && System.Char.IsUpper last.[0]
-                && (li.Idents.Length = 1 && ctx.Types.CtorIndex.ContainsKey last
-                    || li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])))
+                && (li.Idents.Length = 1
+                    && (ctx.Types.CtorIndex.ContainsKey last || isExternalUnionCase ctx ValueNone last)
+                    || li.Idents.Length = 2
+                       && (ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
+                           || isExternalUnionCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) last)))
             ->
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
@@ -204,6 +227,21 @@ module FreezeExpr =
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
+            // `new`-less ctor sugar on an *external* class (`InvalidOperationException
+            // "x"`): resolve the head through the active `open`s to its metadata name
+            // so the `App(ClassRef …)` arm emits the same `TExpr.New` as `new T(…)`.
+            // Mirrors `Infer.tryInferExternalCtorApp`; without it Freeze's generic
+            // application path trips on the head's external `TyClass` type.
+            let tryExternal (n: string) : string voption =
+                OpenScope.tryQualify
+                    ctx.Resolution.OpenScope
+                    (fun c ->
+                        match ctx.Provider.TryLookupType c with
+                        | ValueSome(ExternalTypeShape.Class _) -> true
+                        | _ -> false
+                    )
+                    n
+
             match e with
             | Expr.Ident t ->
                 let n = ctx.NameOf t
@@ -211,14 +249,16 @@ module FreezeExpr =
                 if ctx.Types.Class.ContainsKey n then
                     ValueSome n
                 else
-                    ValueNone
+                    tryExternal n
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
                 if ctx.Types.Class.ContainsKey n then
                     ValueSome n
                 else
-                    ValueNone
+                    tryExternal n
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
+                tryExternal (li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
@@ -312,30 +352,32 @@ module FreezeExpr =
             |> ValueOption.filter (fun m -> m.IsStatic)
             |> ValueOption.map (fun m -> className, m)
 
-    /// DU ctor reference (`Circle`, `Result2.Ok`), returning the case name.
-    /// Excludes local bindings whose names happen to match a ctor — they have a
-    /// `Binding` entry.
+    /// DU ctor reference (`Circle`, `Result2.Ok`, or an external `Some` / `None`),
+    /// returning the case name. Excludes local bindings whose names happen to
+    /// match a ctor — they have a `Binding` entry. An external case is recognised
+    /// through the provider's reverse index; the case name alone is returned (the
+    /// CtorRef arms read the declaring union off the node's resolved `TyUnion`
+    /// type), so the local and external paths emit `TExpr.UnionCons` identically
+    /// (vesper-lib-test-plan Gap 2 Layer B).
     let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
+            // A local *or* external union declares `n` as a case.
+            let isCase (n: string) =
+                ctx.Types.CtorIndex.ContainsKey n || (ctx.Provider.TryLookupUnionCase n).IsSome
+
             match e with
             | Expr.Ident t ->
                 let n = ctx.NameOf t
 
-                if ctx.Types.CtorIndex.ContainsKey n then
-                    ValueSome n
-                else
-                    ValueNone
+                if isCase n then ValueSome n else ValueNone
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
-                if ctx.Types.CtorIndex.ContainsKey n then
-                    ValueSome n
-                else
-                    ValueNone
+                if isCase n then ValueSome n else ValueNone
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
                 ->
@@ -347,6 +389,16 @@ module FreezeExpr =
                     ValueSome caseName
                 else
                     ValueNone
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 ->
+                // Qualified external union case (`Option.Some`): the head is an
+                // external union, not a local one. Accept only when the resolved
+                // union's short name matches the written qualifier.
+                let typeName = ctx.NameOf li.Idents.[0]
+                let caseName = ctx.NameOf li.Idents.[1]
+
+                match ctx.Provider.TryLookupUnionCase caseName with
+                | ValueSome(unionName, _, _) when ExternalSymbols.shortName unionName = typeName -> ValueSome caseName
+                | _ -> ValueNone
             | _ -> ValueNone
 
     // Active patterns wrap the four `try*` helpers so each `translateExpr` arm

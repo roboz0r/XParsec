@@ -49,6 +49,11 @@ type ILInstr =
     | Box of EntityHandle
     /// `unbox.any <type>` — unbox / checked cast to a value type (`:?>`). Net 0.
     | UnboxAny of EntityHandle
+    /// `initobj <type>` — zero-initialise the value-type instance whose managed
+    /// pointer is on the stack (net −1: pops the address). Materialising the
+    /// `unit` value (`()`) — `System.ValueTuple` is a zero-field struct, so
+    /// `ldloca; initobj; ldloc` reifies it where F# would `ldnull` a `Unit`.
+    | Initobj of EntityHandle
     /// `constrained. <type>` — prefix on the next `callvirt`, dispatching a value-type
     /// receiver (managed pointer) without boxing. Net 0 (the `callvirt` adjusts). The
     /// duck-typed struct enumerator's member calls (§4.4).
@@ -153,6 +158,7 @@ module private InstrDelta =
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
+        | ILInstr.Initobj _ -> -1
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -243,6 +249,7 @@ module IlIr =
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
+        | ILInstr.Initobj _ -> -1
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -461,6 +468,7 @@ module IlIr =
             | ILInstr.Castclass t -> Cil.emitCastclass il t
             | ILInstr.Box t -> Cil.emitBox il t
             | ILInstr.UnboxAny t -> Cil.emitUnboxAny il t
+            | ILInstr.Initobj t -> Cil.emitInitobj il t
             | ILInstr.Constrained t -> Cil.emitConstrained il t
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes

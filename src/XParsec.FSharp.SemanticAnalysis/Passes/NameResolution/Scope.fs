@@ -66,11 +66,17 @@ module NameResolutionScope =
                 // DU ctors resolve via ctx.Types.CtorIndex in Unification; class
                 // names used as ctor-functions live in ctx.Types.Class; external
                 // type names used as static-access receivers resolve via the
-                // provider in Unification. Suppress the unresolved diagnostic for all three.
+                // provider in Unification; an external union *case* (`Some` /
+                // `None`) resolves via the provider's reverse case index in
+                // Unification/Freeze (vesper-lib-test-plan Gap 2 Layer B), so it is
+                // suppressed here the same way (it is ambient, like the `option`
+                // abbreviation, rather than open-gated in v1). Suppress the
+                // unresolved diagnostic for all four.
                 if
                     ctx.Types.CtorIndex.ContainsKey name
                     || ctx.Types.Class.ContainsKey name
                     || resolvesAsExternalType ctx name
+                    || (ctx.Provider.TryLookupUnionCase name).IsSome
                 then
                     ()
                 else
@@ -84,12 +90,18 @@ module NameResolutionScope =
 
     /// True if `name` is a ctor reference in pattern position. F# spec treats
     /// uppercase-leading pattern idents as ctor references; we additionally
-    /// require a registry hit so unrelated uppercase binders still bind. Empty
-    /// strings (virtual tokens) never match.
+    /// require a registry hit so unrelated uppercase binders still bind. A local
+    /// union case lives in `ctx.Types.CtorIndex`; an *external* (referenced-
+    /// package) one resolves through the provider's reverse case index, so a
+    /// cross-package `Some x` pattern treats `Some` as a ctor head (binding
+    /// nothing) and its sub-patterns as binders, not the whole thing as a binder
+    /// (vesper-lib-test-plan Gap 2 Layer C). Empty strings (virtual tokens) never
+    /// match.
     let private isCtorName (ctx: PassContext) (name: string) : bool =
         name.Length > 0
         && System.Char.IsUpper name.[0]
-        && ctx.Types.CtorIndex.ContainsKey name
+        && (ctx.Types.CtorIndex.ContainsKey name
+            || (ctx.Provider.TryLookupUnionCase name).IsSome)
 
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
     /// bind nothing (Wildcard, Const, nullary ctors).

@@ -249,9 +249,18 @@ type ClrProvider
                 if isCanonicalPrintfn then
                     ValueSome(recipes.EmitPrintfn(env.Zonk fnTy))
                 else
-                    // Arithmetic / equality / comparison operators no longer reach here: `Emit.lower`
-                    // expands them to `TExpr.ILIntrinsic` from their inline-IL bodies before emission.
-                    ValueNone
+                    // General external module-function call (vesper-lib-test-plan Gap 2 Layer D): route
+                    // by the Freeze-stamped key to the declaring module (`ns`) + method (`name`), and mint
+                    // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
+                    // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
+                    // function; a bare key (an operator-as-value) is not, and operators are expanded to
+                    // `TExpr.ILIntrinsic` by `Emit.lower` before emission anyway. `EmitExternalCall`
+                    // returns `ValueNone` when the symbol is unknown to the provider, falling through to
+                    // the caller's hard error.
+                    match key with
+                    | ValueSome(SymbolKey.ValueKey(_, ns, name)) when ns <> "" ->
+                        recipes.EmitExternalCall(ns, name, env.Zonk fnTy)
+                    | _ -> ValueNone
 
         member _.TryEmitCtor(className, tyArgs, argTypes) =
             if className = PrintfSpec.printfFormatName then
@@ -276,7 +285,20 @@ type ClrProvider
                 | "Nil" -> ValueSome(recipes.EmitVesperListNil(elem ()))
                 | _ -> ValueNone
             else
-                ValueNone
+                // A referenced-package union case (`Some` / `None`): `call` the
+                // emitted static case factory `<caseName>(fields…) : Union<…>` on
+                // the instantiated `TypeSpec` (vesper-lib-test-plan Gap 2 Layer B).
+                // The fields are already on the stack in declaration order, so the
+                // recipe is a static `call` pushing the one union value back.
+                match ext.ExternalUnionFactory(typeName, caseName, List.map env.Zonk tyArgs) with
+                | ValueSome(handle, argCount) ->
+                    ValueSome
+                        {
+                            Emit = fun il -> il.Encoder.Call handle
+                            ArgCount = argCount
+                            Pushes = 1
+                        }
+                | ValueNone -> ValueNone
 
         member _.UserGenericMemberRef(name, args, kind) =
             let zonkedArgs = List.map env.Zonk args
@@ -302,6 +324,12 @@ type ClrProvider
 
         member _.TryResolveExternalRecordField(typeName, tyArgs, fieldName) =
             ext.ExternalRecordField(typeName, List.map env.Zonk tyArgs, fieldName)
+
+        member _.ExternalUnionTag(unionName, tyArgs, caseName) =
+            ext.ExternalUnionTag(unionName, List.map env.Zonk tyArgs, caseName)
+
+        member _.ExternalUnionCaseField(unionName, tyArgs, caseName, fieldIndex) =
+            ext.ExternalUnionCaseField(unionName, List.map env.Zonk tyArgs, caseName, fieldIndex)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

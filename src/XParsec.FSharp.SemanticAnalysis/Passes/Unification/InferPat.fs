@@ -68,6 +68,37 @@ module UnificationInferPat =
 
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
+        | Pat.NamedSimple t when
+            let n = ctx.NameOf t
+
+            n.Length > 0
+            && System.Char.IsUpper n.[0]
+            && (ctx.Provider.TryLookupUnionCase n).IsSome
+            ->
+            // Nullary case of an *external* (referenced-package) union (`None`),
+            // resolved through the provider's reverse case index — the cross-
+            // package analogue of the local nullary-ctor arm above (Gap 2 Layer C).
+            let n = ctx.NameOf t
+
+            match tryExternalCasePattern ctx ValueNone n with
+            | ValueSome(unionTy, fields) ->
+                if fields.Length <> 0 then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message =
+                                sprintf
+                                    "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
+                                    n
+                                    fields.Length
+                            Code = ""
+                            Severity = Error
+                        }
+
+                let nodeTv = freshTv ctx key
+                nodeTv.Link <- ValueSome unionTy
+                unionTy
+            | ValueNone -> TyVar(tvOf ctx key)
         | Pat.NamedSimple _ ->
             // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
             // by a forward reference (or pre-allocated by inferBindingGroup)
@@ -162,6 +193,71 @@ module UnificationInferPat =
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
+        | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length >= 1
+            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                last.Length > 0 && System.Char.IsUpper last.[0])
+            && (li.Idents.Length = 1
+                && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[0])).IsSome
+                || li.Idents.Length = 2
+                   && (tryExternalCasePattern ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1]))
+                       .IsSome)
+            ->
+            // A case (with fields) of an *external* union (`Some x`), bare or
+            // qualified — the cross-package analogue of the local-ctor `Pat.Named`
+            // arm above (Gap 2 Layer C). Sub-patterns unify against the case's
+            // declared field types in the union's fresh instantiation.
+            let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+            let resolved =
+                if li.Idents.Length = 1 then
+                    tryExternalCasePattern ctx ValueNone caseName
+                else
+                    tryExternalCasePattern ctx (ValueSome(ctx.NameOf li.Idents.[0])) caseName
+
+            match resolved with
+            | ValueNone ->
+                for sub in args do
+                    inferPat ctx sub |> ignore
+
+                TyVar(freshTv ctx key)
+            | ValueSome(unionTy, fields) ->
+                // The parser wraps multi-arg ctor patterns in
+                // `EnclosedBlock(Tuple [...])`; flatten to the field list.
+                let subPats =
+                    if args.Length = 1 then
+                        unwrapCtorArgPattern args.[0]
+                    else
+                        List.ofSeq args
+
+                if subPats.Length <> fields.Length then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = key
+                            Message =
+                                sprintf
+                                    "Constructor '%s' expects %d argument(s) but got %d"
+                                    caseName
+                                    fields.Length
+                                    subPats.Length
+                            Code = ""
+                            Severity = Error
+                        }
+
+                let m = min subPats.Length fields.Length
+
+                for j = 0 to m - 1 do
+                    let sub = subPats.[j]
+                    let subTy = inferPat ctx sub
+                    unify ctx (CstKeys.ofPat sub) subTy fields.[j]
+
+                // Walk any extra sub-patterns so binders still register.
+                for j = m to subPats.Length - 1 do
+                    inferPat ctx subPats.[j] |> ignore
+
+                let nodeTv = freshTv ctx key
+                nodeTv.Link <- ValueSome unionTy
+                unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.EnclosedBlock(pat = inner) ->
             let innerTy = inferPat ctx inner
