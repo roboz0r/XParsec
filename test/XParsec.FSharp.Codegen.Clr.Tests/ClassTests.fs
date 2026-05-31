@@ -1096,3 +1096,71 @@ let interfaceImplTests =
                     "the required 'CompareTo' is reported missing"
             }
         ]
+
+[<Tests>]
+let interfaceImplCodegenTests =
+    // vesper-set-sprint-phase-5 §5.3 test gate: a class implementing the generic
+    // `IEnumerable<int>` and the non-generic `IEnumerable` loads with both
+    // `InterfaceImpl` rows; reflecting `GetInterfaces()` shows both; and calling
+    // through each interface succeeds at runtime, the generic one yielding an
+    // `IEnumerator<int>`. The class stores an `IEnumerator<int>` ctor param and
+    // each `GetEnumerator` returns it (the non-generic one `:>`-upcast to the
+    // base `IEnumerator`) — no external enumerator construction (that's Phase 6),
+    // so the test exercises interface-impl emission, not enumeration machinery.
+    let src =
+        String.concat
+            "\n"
+            [
+                "type C(e: System.Collections.Generic.IEnumerator<int>) ="
+                "    interface System.Collections.Generic.IEnumerable<int> with"
+                "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<int> = e"
+                "    interface System.Collections.IEnumerable with"
+                "        member this.GetEnumerator() : System.Collections.IEnumerator = e :> System.Collections.IEnumerator"
+            ]
+
+    // A fresh `IEnumerator<int>` over [1;2;3] (the BCL list's own), reused per
+    // construction below — each test path builds its own so enumeration state
+    // doesn't bleed across assertions.
+    let freshEnumerator () : System.Collections.Generic.IEnumerator<int> =
+        (System.Collections.Generic.List<int>([ 1; 2; 3 ]) :> seq<int>).GetEnumerator()
+
+    testList
+        "ClassInterfaceImplCodegen"
+        [
+            test "a class implementing IEnumerable<int> + IEnumerable emits both InterfaceImpl rows and enumerates" {
+                let _, artifact = compileSource "ClsIEnum" src
+                let bytes = Codegen.toBytes artifact
+
+                // Both `InterfaceImpl` rows land in the PE metadata.
+                Expect.equal
+                    (peInterfaceImplCount bytes)
+                    2
+                    "C carries two InterfaceImpl rows (IEnumerable<int> + IEnumerable)"
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "C"
+                Expect.isNotNull ty "the assembly contains the class type C"
+
+                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaceNames.Contains "IEnumerable`1") "C reflects as implementing IEnumerable<int>"
+
+                Expect.isTrue
+                    (ifaceNames.Contains "IEnumerable")
+                    "C reflects as implementing the non-generic IEnumerable"
+
+                // `(c :> IEnumerable<int>).GetEnumerator()` yields an IEnumerator<int>.
+                let asGeneric =
+                    Activator.CreateInstance(ty, [| box (freshEnumerator ()) |])
+                    :?> System.Collections.Generic.IEnumerable<int>
+
+                Expect.equal (asGeneric |> Seq.toList) [ 1; 2; 3 ] "enumerating through IEnumerable<int> yields 1,2,3"
+
+                // `(c :> IEnumerable).GetEnumerator()` succeeds through the non-generic slot.
+                let asNonGeneric =
+                    Activator.CreateInstance(ty, [| box (freshEnumerator ()) |]) :?> System.Collections.IEnumerable
+
+                let nonGenericEnum = asNonGeneric.GetEnumerator()
+                Expect.isTrue (nonGenericEnum.MoveNext()) "the non-generic enumerator advances to the first element"
+                Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
+            }
+        ]

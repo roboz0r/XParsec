@@ -389,6 +389,19 @@ let peAssemblyRefs (bytes: byte[]) : string list =
             md.GetString r.Name
     ]
 
+/// Total number of `InterfaceImpl` rows across every type-def in the PE — the
+/// count of `: IFace` entries the metadata carries (one per implemented
+/// interface, vesper-set-sprint-phase-5 §5.3). Reflection's `GetInterfaces`
+/// folds in transitively-inherited interfaces, so this raw count is what
+/// distinguishes "emitted both `IEnumerable<int>` and `IEnumerable`" from
+/// "emitted only the generic one and inherited the non-generic".
+let peInterfaceImplCount (bytes: byte[]) : int =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    md.TypeDefinitions
+    |> Seq.sumBy (fun h -> (md.GetTypeDefinition h).GetInterfaceImplementations().Count)
+
 /// Read the IL byte stream of a method by `(declaringType, methodName)` —
 /// useful for asserting a specific opcode sequence (e.g., "the closure body
 /// emits stfld, ldnull, ret") or printing a hex dump in a failing test. Returns

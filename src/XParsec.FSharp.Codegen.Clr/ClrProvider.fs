@@ -107,6 +107,27 @@ type ClrProvider
 
     member _.FunInterfaceSpec(a: SemType, b: SemType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
+    /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type, honouring the
+    /// ambient `SetTypeTypars` set — so a user class's `interface IEnumerable<'T>`
+    /// (B-2, §5.3) encodes its `'T` arg against the declaring type's generic
+    /// parameters. Drives each class `InterfaceImpl` row's interface handle.
+    member _.TypeSpecOf(ty: SemType) : EntityHandle = enc.TypeSpecOf ty
+
+    /// The `InterfaceImpl.Interface` handle for a user class's implemented
+    /// interface (B-2, §5.3). A *generic* interface (`IEnumerable<int>`) needs a
+    /// `TypeSpec` carrying its instantiation; a *non-generic* one (`IEnumerable`,
+    /// `IComparable`) references its `TypeRef` directly — the runtime rejects a
+    /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
+    /// structural-equality path uses the bare `IComparable` `TypeRef` for the same
+    /// reason). The generic case rides the ambient `SetTypeTypars` window.
+    member _.InterfaceHandleOf(ty: SemType) : EntityHandle =
+        match env.Zonk ty with
+        | TyClass(name, args) when args.IsEmpty ->
+            match env.ExternalClassRef name with
+            | ValueSome tref -> tref
+            | ValueNone -> enc.TypeSpecOf ty
+        | _ -> enc.TypeSpecOf ty
+
     member _.InvokeSignature(a: SemType, b: SemType) : BlobBuilder = enc.InvokeSignature(a, b)
 
     member _.ClosureCtorSignature(captures: SemType list) : BlobBuilder = enc.ClosureCtorSignature captures

@@ -146,6 +146,7 @@ type internal Assembler
                             ctorParams,
                             _members,
                             _baseType,
+                            _interfaces,
                             _isSealed,
                             _staticLets,
                             _secondaryCtors,
@@ -207,14 +208,16 @@ type internal Assembler
             1 + List.length members + triple + pair
         )
 
-    // Per class: `.ctor` + per member + one synthesised `.cctor` when the class
-    // has `static let`s + one `.ctor` overload per secondary constructor (B-11).
+    // Per class: `.ctor` + per member + one virtual method per interface-impl
+    // member (B-2, §5.3) + one synthesised `.cctor` when the class has
+    // `static let`s + one `.ctor` overload per secondary constructor (B-11).
     // Static-let *fields* add to the field table, not here.
     let classMethodTotal =
         classDecls
-        |> List.sumBy (fun (_, _, _, members, _, _, staticLets, secondaryCtors, _) ->
+        |> List.sumBy (fun (_, _, _, members, _, interfaces, _, staticLets, secondaryCtors, _) ->
             1
             + List.length members
+            + List.sumBy (fun (_, ms) -> List.length ms) interfaces
             + (if List.isEmpty staticLets then 0 else 1)
             + List.length secondaryCtors
         )

@@ -306,7 +306,13 @@ and [<RequireQualifiedAccess>] TTypeKind =
     /// `baseType` is `ValueNone` in B-1 (codegen defaults the IL
     /// `TypeDefinition.BaseType` to `Object`); Phase 2 (B-4) fills it from
     /// `ClassTypeInfo.BaseType`. `interfaces` is empty in B-1; Phase 5 (B-2)
-    /// fills it from the interface-impl registry.
+    /// fills it from the interface-impl registry — each entry pairs the
+    /// resolved interface type (a `TyClass`, remapped onto this class's typar
+    /// markers so a generic interface arg like `IEnumerable<'T>` encodes against
+    /// the declaring type's generic parameters) with its already-typed member
+    /// bodies. Codegen emits one `InterfaceImpl` row per entry and one
+    /// `MethodDefinition` per member (implicit impl — bound by name + signature;
+    /// explicit `.override` rows are deferred with the `MethodImpl` table).
     /// `isSealed` reflects `[<Sealed>]` (B-8): when `true`, codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition` — derivation
     /// is rejected at use sites (Phase 2's `subsumes` already excludes
@@ -327,7 +333,7 @@ and [<RequireQualifiedAccess>] TTypeKind =
         ctorParams: EqArray<TRecordField> *
         members: EqArray<TTypeMember> *
         baseType: SemType voption *
-        interfaces: EqArray<string * EqArray<TTypeMember>> *
+        interfaces: EqArray<SemType * EqArray<TTypeMember>> *
         isSealed: bool *
         staticLets: EqArray<TStaticLet> *
         secondaryCtors: EqArray<TSecondaryCtor> *

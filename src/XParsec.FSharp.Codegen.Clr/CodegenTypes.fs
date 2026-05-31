@@ -64,6 +64,7 @@ type internal PartitionedTypeDecls =
             TRecordField list *
             TTypeMember list *
             SemType voption *
+            (SemType * TTypeMember list) list *
             bool *
             TStaticLet list *
             TSecondaryCtor list *
@@ -81,6 +82,9 @@ type internal NominalEmissionInput =
     /// (`ValueNone`); the `fields` slot is reserved for future mutable instance
     /// fields. `isSealed` reflects `[<Sealed>]`. Each `staticLets` entry becomes
     /// a private static field + an entry in the synthesised `.cctor`.
+    /// `interfaces` (B-2, §5.3) pairs each implemented interface type with its
+    /// already-typed member bodies: codegen emits one `InterfaceImpl` row per
+    /// entry and one virtual `MethodDefinition` per member (implicit impl).
     | Class of
         fields: TRecordField list *
         ctorParams: TRecordField list *
@@ -88,7 +92,8 @@ type internal NominalEmissionInput =
         isSealed: bool *
         staticLets: TStaticLet list *
         secondaryCtors: TSecondaryCtor list *
-        baseCtorCall: TBaseCtorCall voption
+        baseCtorCall: TBaseCtorCall voption *
+        interfaces: (SemType * TTypeMember list) list
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

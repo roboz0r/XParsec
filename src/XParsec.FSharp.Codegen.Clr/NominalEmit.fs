@@ -262,7 +262,8 @@ module internal NominalEmit =
                                          _isSealed,
                                          staticLets,
                                          secondaryCtors,
-                                         baseCtorCall) ->
+                                         baseCtorCall,
+                                         _interfaces) ->
                 // Resolve the parent handle for the IL `TypeDefinition.BaseType`
                 // (B-4 Step 2.5). A non-generic parent (`Shape`) is the parent's
                 // `TypeDefinition` token directly — the base-type column rejects a
@@ -517,13 +518,31 @@ module internal NominalEmit =
 
                 classCtor, registerClass
 
+        // Interface implementations (B-2, §5.3): each `(ifaceTy, members)` entry's
+        // member bodies are already-typed `TTypeMember`s, flattened here. They
+        // emit as virtual methods (`ifaceEqualsAttrs` — a new slot, `Final` since
+        // classes are sealed) that the runtime binds to the `InterfaceImpl` row by
+        // name + signature. Emitted *after* the class's own members so prediction
+        // order matches emission order below.
+        let classInterfaces =
+            match input with
+            | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces) -> interfaces
+            | _ -> []
+
+        let ifaceMembers =
+            [
+                for (_, ms) in classInterfaces do
+                    yield! ms
+            ]
+
         // Predict each member's handle from the running row count *before*
         // building any body, so a member body can reference a sibling
         // (`this.Length`) or a case factory (`Empty = Nil`). `postCtorInit`
-        // then registers the union/record/class so those resolve.
+        // then registers the union/record/class so those resolve. The class's own
+        // members lead, interface-impl members trail.
         let emittedMembers = Dictionary<string, Emit.EmittedMember>()
 
-        members
+        (members @ ifaceMembers)
         |> List.iteri (fun i (mem: TTypeMember) ->
             let handle = MetadataTokens.MethodDefinitionHandle(asm.MethodCount + 1 + i)
 
@@ -540,7 +559,10 @@ module internal NominalEmit =
 
         postCtorInit emittedMembers
 
-        for mem in members do
+        // `isIfaceImpl` forces `ifaceEqualsAttrs` (virtual / new-slot / final) so
+        // the runtime maps the method to the implemented interface; the class's
+        // own members keep their natural static/instance attrs.
+        let emitMember (isIfaceImpl: bool) (mem: TTypeMember) =
             // A *generic* member (B-12) carries its own typars as union-find roots.
             // Install them as the ambient `!!i` context for the duration of this
             // member's body / locals / signature encoding, so a `TyVar` leaf naming
@@ -590,10 +612,9 @@ module internal NominalEmit =
                     | false, false -> provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
 
             let attrs =
-                if mem.IsStatic then
-                    staticMethodAttrs
-                else
-                    instanceMethodAttrs
+                if isIfaceImpl then ifaceEqualsAttrs
+                elif mem.IsStatic then staticMethodAttrs
+                else instanceMethodAttrs
 
             let memHandle =
                 ctx.AddMethodWithParamList(
@@ -614,6 +635,12 @@ module internal NominalEmit =
                 provider.ClearMethodTypars()
 
             asm.MethodCount <- asm.MethodCount + 1 // each member-method row
+
+        for mem in members do
+            emitMember false mem
+
+        for mem in ifaceMembers do
+            emitMember true mem
 
         let emitsEqualityTriple = td.EqualitySupport = EqualityVerdict.Structural
 
@@ -955,8 +982,14 @@ module internal NominalEmit =
             | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Name, EqArray.ofList ts)
             | NominalEmissionInput.Class _ -> fun (ts: SemType list) -> TyClass(td.Name, EqArray.ofList ts)
 
+        // One `InterfaceImpl` entity handle per implemented interface. The
+        // synthesised structural-equality / comparison interfaces (unions /
+        // records) and the user-declared `interface … with` impls (B-2, §5.3,
+        // classes) share the one ambient `SetTypeTypars` window: a generic
+        // interface arg (`IEnumerable<'T>`) encodes its `'T` against this type's
+        // generic parameters. `TypeSpecOf` mints the user interfaces' handles.
         let interfaces =
-            if emitsEqualityTriple || emitsComparisonPair then
+            if emitsEqualityTriple || emitsComparisonPair || not (List.isEmpty classInterfaces) then
                 provider.SetTypeTypars(EqArray.toList td.TypeParams)
                 let selfMarkers = [ for t in td.TypeParams -> TyConst t ]
 
@@ -967,6 +1000,8 @@ module internal NominalEmit =
                         if emitsComparisonPair then
                             provider.ComparableInterfaceSpec(selfTy selfMarkers)
                             provider.IComparableType
+                        for (ifaceTy, _) in classInterfaces do
+                            provider.InterfaceHandleOf ifaceTy
                     ]
 
                 provider.ClearTypeTypars()
@@ -978,7 +1013,7 @@ module internal NominalEmit =
             match input with
             | NominalEmissionInput.Union _
             | NominalEmissionInput.Record _ -> true
-            | NominalEmissionInput.Class(_, _, _, isSealed, _, _, _) -> isSealed
+            | NominalEmissionInput.Class(_, _, _, isSealed, _, _, _, _) -> isSealed
 
         rows.Add(
             {

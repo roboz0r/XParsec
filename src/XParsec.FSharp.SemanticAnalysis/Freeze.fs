@@ -591,9 +591,10 @@ module Freeze =
     /// `TDecl.Type` from the resolved `ClassTypeInfo`. Ctor params and member
     /// signatures are remapped through the declaring-type typars (the same
     /// `mkTypeMarkers` + `remapDeclTypars` pipeline records / unions use).
-    /// Phase 1 (B-1) leaves `fields` empty (no mutable instance fields yet),
-    /// `baseType` `ValueNone` (codegen defaults to `Object`), and `interfaces`
-    /// empty — Phases 2 and 5 fill those slots.
+    /// Phase 1 (B-1) leaves `fields` empty (no mutable instance fields yet) and
+    /// `baseType` `ValueNone` (codegen defaults to `Object`); Phase 2 fills the
+    /// base type and Phase 5 (§5.3) projects `info.InterfaceImpls` onto
+    /// `interfaces`.
     let private tryClassType
         (ctx: PassContext)
         (ns: string option)
@@ -670,6 +671,39 @@ module Freeze =
             // since `this` isn't constructed yet) and the translated arg expressions.
             let baseType = info.BaseType |> ValueOption.map (remapDeclTypars markers)
 
+            // Interface implementations (B-2, vesper-set-sprint-phase-5 §5.3).
+            // Each registered `interface IFace with member …` block becomes an
+            // `(ifaceTy, members)` entry: the resolved interface `TyClass`
+            // (remapped onto the declaring-type typar markers so a generic arg
+            // like `IEnumerable<'T>` encodes against this class's typars) paired
+            // with its already-typed member bodies. The bodies translate through
+            // the *class* `info` exactly like the class's own members — `this`
+            // and ctor-param references rewrite identically — but read their
+            // elements from the impl's own `Elements`. Impls whose interface
+            // failed to resolve (`Resolved = ValueNone`, the §5.1 diagnostic
+            // already fired) are dropped.
+            let interfaces =
+                EqArray.ofSeq (
+                    seq {
+                        for impl in info.InterfaceImpls do
+                            match impl.Resolved with
+                            | ValueSome ifaceTy ->
+                                let implMembers =
+                                    EqArray.ofSeq (
+                                        seq {
+                                            for el in impl.Elements do
+                                                match translateClassMember ctx info el with
+                                                | ValueSome m ->
+                                                    yield (if List.isEmpty declTypars then m else remapMember m)
+                                                | ValueNone -> ()
+                                        }
+                                    )
+
+                                yield (remapDeclTypars markers ifaceTy, implMembers)
+                            | ValueNone -> ()
+                    }
+                )
+
             let baseCtorCall =
                 match info.BaseType, info.BaseCtorArgs with
                 | ValueSome _, ValueSome argExpr ->
@@ -702,7 +736,7 @@ module Freeze =
                         ctorParams,
                         members,
                         baseType,
-                        EqArray.empty,
+                        interfaces,
                         info.IsSealed,
                         staticLets,
                         secondaryCtors,
