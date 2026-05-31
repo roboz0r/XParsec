@@ -143,9 +143,37 @@ module VesperLibTyparCapture =
         /// (symbol-resolution-handoff.md, open-resolution). The hardcoded FSharp.Core prelude list
         /// stays separate (compiler-magic opens not expressible as `[<AutoOpen>]`).
         member val AutoOpenPrefixes = ResizeArray<string>() with get
+        /// Type shapes contributed by already-extracted dependency packages
+        /// (dependency-ordered, see package-type-extraction-plan.md Phase 2).
+        /// Read-only here: extraction never writes a dependency's shape, only
+        /// consults it (through `shapeOf`) to kind a cross-package nominal head.
+        /// `ReferencedProject.buildProviderWith` seeds it from the composite
+        /// `TryLookupType` of this package's dependency providers — the same
+        /// shapes the consumer would see, minus this package. The default
+        /// (`fun _ -> ValueNone`) is the dependency-free case: a package with no
+        /// `depends-on`, or any caller that builds a context in isolation.
+        member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
 
     module ExtractCtx =
         let empty () = ExtractCtx()
+
+        /// The in-scope type shape for compiled name `compiled` during
+        /// extraction: this package's own shapes first (registered as its files
+        /// are walked), then the dependency-contributed `AmbientShapes`. The
+        /// single lookup Phase 3's `translateType` kinding consults — own shapes
+        /// shadow a dependency's on a name clash, matching the consumer composite's
+        /// first-source-wins priority.
+        ///
+        /// A *forward* reference within this package (a name whose shape is
+        /// registered later in the file walk) misses here unless it is legal: an
+        /// intra-package forward reference is only valid inside a `type … and …`
+        /// group or a `rec` namespace/module, and those shapes are registered
+        /// together before any signature body is kinded. Any other unresolved name
+        /// is a genuine `TyUnknown` (Phase 4), not an ordering artefact.
+        let shapeOf (ctx: ExtractCtx) (compiled: string) : ExternalTypeShape voption =
+            match ctx.TypeShapes.TryGetValue compiled with
+            | true, s -> ValueSome s
+            | _ -> ctx.AmbientShapes compiled
 
         /// Provider over the extracted symbol / type-shape tables, exposing
         /// `ctx.AutoOpenPrefixes` as its ambient. The pipeline seeds the

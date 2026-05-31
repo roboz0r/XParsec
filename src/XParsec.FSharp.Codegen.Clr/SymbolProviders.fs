@@ -56,19 +56,37 @@ module SymbolProviders =
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
     /// Compose the layer-1 providers for an *already dependency-ordered* manifest
-    /// list ahead of the layer-2 metadata provider.
+    /// list ahead of the layer-2 metadata provider. Each package is built bottom-up
+    /// with read access to the type shapes of the packages already built — its
+    /// dependencies, which dependency order guarantees precede it
+    /// (package-type-extraction-plan Phase 2). This is what lets extraction kind a
+    /// cross-package nominal head at bake time (Phase 3), instead of leaving a
+    /// placeholder for the consumer to reconcile.
+    ///
+    /// Builds via `buildProviderWith` rather than the per-path `ReferencedProject.provider`
+    /// cache, because a package's extraction now depends on its dependency shapes;
+    /// the whole composite is still memoised per manifest set by `buildContract`'s
+    /// `contractCache`, so each set is built once.
     let private composeProviders (orderedManifestPaths: string list) : IExternalSymbolProvider =
-        let layer1 =
-            orderedManifestPaths
-            |> List.map (fun path ->
-                // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
-                // brings `Severity.Error` into scope, shadowing the bare cases.
-                match ReferencedProject.provider path with
-                | Result.Ok(provider, _) -> provider
-                | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
-            )
+        let built = ResizeArray<IExternalSymbolProvider>()
 
-        ExternalSymbols.composite (layer1 @ [ MetadataSymbols.provider ])
+        for path in orderedManifestPaths do
+            // The dependency shapes in scope = the composite `TryLookupType` of the
+            // packages already built. Empty for the first (dependency-free) package.
+            let ambientShapes =
+                match List.ofSeq built with
+                | [] -> (fun _ -> ValueNone)
+                | deps ->
+                    let depComposite = ExternalSymbols.composite deps
+                    (fun name -> depComposite.TryLookupType name)
+
+            // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
+            // brings `Severity.Error` into scope, shadowing the bare cases.
+            match ReferencedProject.buildProviderWith ambientShapes path with
+            | Result.Ok(provider, _) -> built.Add provider
+            | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
+
+        ExternalSymbols.composite (List.ofSeq built @ [ MetadataSymbols.provider ])
 
     let build (manifestPaths: string list) : IExternalSymbolProvider =
         composeProviders (orderedManifests manifestPaths)

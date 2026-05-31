@@ -229,12 +229,18 @@ module ReferencedProject =
         : IExternalSymbolProvider =
         ExternalSymbols.stack (ValueSome origin) ambient [ inner ]
 
-    /// Stand up a referenced project (layer 1) from its `manifest.toml`: parse
-    /// each contract `.fsi` in `files` order into one accumulating `ExtractCtx`,
-    /// then expose it as a provider whose symbols carry the package `Origin`.
+    /// Stand up a referenced project (layer 1) from its `manifest.toml`, with
+    /// read access to its dependencies' already-built type shapes
+    /// (`ambientShapes`, package-type-extraction-plan Phase 2). Parse each
+    /// contract `.fsi` in `files` order into one accumulating `ExtractCtx` seeded
+    /// with `ambientShapes`, then expose it as a provider whose symbols carry the
+    /// package `Origin`. The ambient is consulted during extraction (through
+    /// `ExtractCtx.shapeOf`) to kind a cross-package nominal head; it MUST be set
+    /// before the file walk, since signature translation runs inside it.
     /// Returns per-file parse diagnostics alongside the provider (a file that
     /// fails to parse contributes no symbols but does not abort the build).
-    let buildProvider
+    let buildProviderWith
+        (ambientShapes: string -> ExternalTypeShape voption)
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
         match loadManifest manifestPath with
@@ -242,6 +248,7 @@ module ReferencedProject =
         | Ok manifest ->
             let dir = Path.GetDirectoryName manifestPath
             let ctx = VesperLib.ExtractCtx.empty ()
+            ctx.AmbientShapes <- ambientShapes
 
             // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the per-target
             // intrinsic reprs from each contract's sibling `.fs` companion FIRST,
@@ -297,6 +304,16 @@ module ReferencedProject =
                        [])
 
             Ok(wrap origin ambient (VesperLib.ExtractCtx.toProvider ctx), List.ofSeq ctx.Diagnostics)
+
+    /// Stand up a referenced project in isolation — no dependency shapes in scope
+    /// (`AmbientShapes` defaults to "resolve nothing"). The dependency-free path:
+    /// a package with no `depends-on`, and the entry point tests build a single
+    /// package from. Dependency-aware composition uses `buildProviderWith`
+    /// directly (`SymbolProviders.composeProviders`, Phase 2).
+    let buildProvider
+        (manifestPath: string)
+        : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
+        buildProviderWith (fun _ -> ValueNone) manifestPath
 
     /// Lazy cache keyed by the (normalised) manifest path so repeated callers
     /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.
