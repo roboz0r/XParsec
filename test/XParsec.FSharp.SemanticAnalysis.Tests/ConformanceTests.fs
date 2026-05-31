@@ -12,10 +12,12 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Path to a `src/Vesper.Core/<fileName>` source file (mirrors
+/// Path to a `src/<package>/<fileName>` source file (mirrors
 /// VesperCoreContractTests' resolution from the test project root).
-let private vesperCorePath (fileName: string) =
-    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Core", fileName)
+let private vesperPath (package: string) (fileName: string) =
+    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", package, fileName)
+
+let private vesperCorePath (fileName: string) = vesperPath "Vesper.Core" fileName
 
 let private readNormalised (path: string) =
     (File.ReadAllText path).Replace("\r\n", "\n")
@@ -142,4 +144,123 @@ let tests =
                     ]
                     "all three drifts, sig-order then impl-only"
             }
+        ]
+
+// ---- Phase 1 (vesper-lib-test-plan.md): conformance over every package -------
+//
+// The conformance check is codegen-independent (CST-level, not rung-gated), so it
+// runs on all the Vesper.* packages — Set included — and is the cheapest way to
+// catch `.fsi`/`.fs` drift the parser alone can't see. Each row conforms one
+// `.fsi` against its same-base `.fs` companion; the two tables together *are* the
+// per-package drift map. Signature-only `.fsi` files with no `.fs` companion
+// (`compiler-attributes.fsi`, `ops-std.fsi`) are omitted — there is nothing to
+// conform against. A green row = the contract and its implementation declare the
+// same types with matching extern↔intrinsic pairing; a known-drift row asserts an
+// *expected* divergence with the exact `ConformanceError`s pinned (`Expect.equal`,
+// not skipped), so the divergence is locked in rather than silently tolerated and
+// goes red the moment the contract or impl shape changes.
+
+/// Conform one `.fsi`/`.fs` pair from a package directory.
+let private conformPair (package: string) (sigName: string) (implName: string) =
+    let sigSrc = readNormalised (vesperPath package sigName)
+    let implSrc = readNormalised (vesperPath package implName)
+    conform sigSrc implSrc
+
+/// (`.fsi`, `.fs`) pairs that conform with zero drift — the green rows. One per
+/// package base file; signature-only `.fsi` (no `.fs`) omitted.
+let private conformingPairs: (string * (string * string) list) list =
+    [
+        "Vesper.Core",
+        [
+            "prim-types-min.fsi", "prim-types-min.fs"
+            "prim-types-int.fsi", "prim-types-int.fs"
+            "prim-types-float.fsi", "prim-types-float.fs"
+            "prim-types-string.fsi", "prim-types-string.fs"
+            "prim-types-object.fsi", "prim-types-object.fs"
+            "prim-types-exn.fsi", "prim-types-exn.fs"
+            "prim-types-decimal.fsi", "prim-types-decimal.fs"
+            "prim-types-nativeint.fsi", "prim-types-nativeint.fs"
+            "prim-types-nd-array.fsi", "prim-types-nd-array.fs"
+            "prim-types-attr.fsi", "prim-types-attr.fs"
+            "ops-platform.fsi", "ops-platform.fs"
+        ]
+        "Vesper.Option", [ "option.fsi", "option.fs" ]
+        "Vesper.Result", [ "result.fsi", "result.fs" ]
+        "Vesper.Choice", [ "choice.fsi", "choice.fs" ]
+        "Vesper.Comparison", [ "comparison.fsi", "comparison.fs" ]
+        "Vesper.Array", [ "array.fsi", "array.fs" ]
+        "Vesper.Seq", [ "seq.fsi", "seq.fs" ]
+    ]
+
+/// (`.fsi`, `.fs`) pairs with a known, *expected* divergence — the contract and
+/// impl deliberately declare different type sets, so the strict 1:1 conformance
+/// check reports it. Each row pins the exact `ConformanceError`s; if the
+/// divergence ever changes, the row goes red and must be re-justified. These are
+/// abbreviation aliases (a lowercase `.fsi` alias / BCL alias with no companion
+/// impl type) and private implementation types (not surfaced in the contract) —
+/// not sig/impl mistakes.
+let private knownDriftPairs: (string * string * string * string * Conformance.ConformanceError list) list =
+    [
+        // `ref` is a signature-only lowercase abbreviation alias for `Ref<'T>`
+        // (core-types.fsi:19, "Same backing record as Ref<'T>"); the impl defines
+        // only the `Ref<'T>` record it aliases, so the alias has no companion type.
+        "Vesper.Core",
+        "core-types.fsi",
+        "core-types.fs",
+        "ref is a sig-only alias of Ref<'T>",
+        [ Conformance.ConformanceError.MissingInImpl "ref" ]
+
+        // `ResizeArray<'T>` and `seq<'T>` are abbreviations of BCL types
+        // (`System.Collections.Generic.List<'T>` / `IEnumerable<'T>`, list.fsi:126/135);
+        // they alias the runtime BCL type directly, so there is no companion type
+        // in `List.fs` (which defines only the cons-list `List<'T>`).
+        "Vesper.List",
+        "list.fsi",
+        "List.fs",
+        "ResizeArray/seq are BCL abbreviations",
+        [
+            Conformance.ConformanceError.MissingInImpl "ResizeArray"
+            Conformance.ConformanceError.MissingInImpl "seq"
+        ]
+
+        // `SetTree` / `SetTreeNode` / `SetIterator` are the private AVL-tree
+        // implementation types in `set.fs`, deliberately not surfaced in the public
+        // `set.fsi` contract (which exposes only `Set<'T>` and the `Set` module).
+        "Vesper.Set",
+        "set.fsi",
+        "set.fs",
+        "SetTree/SetTreeNode/SetIterator are private impl types",
+        [
+            Conformance.ConformanceError.MissingInSig "SetTree"
+            Conformance.ConformanceError.MissingInSig "SetTreeNode"
+            Conformance.ConformanceError.MissingInSig "SetIterator"
+        ]
+    ]
+
+[<Tests>]
+let packageConformanceTests =
+    testList
+        "PackageConformance"
+        [
+            for package, pairs in conformingPairs do
+                for sigName, implName in pairs do
+                    test $"{package}: {sigName} conforms to {implName}" {
+                        let errors = conformPair package sigName implName
+
+                        Expect.isEmpty errors (sprintf "%s/%s should conform to %s: %A" package sigName implName errors)
+                    }
+
+            for package, sigName, implName, why, expected in knownDriftPairs do
+                test $"{package}: {sigName} vs {implName} — known drift ({why})" {
+                    let errors = conformPair package sigName implName
+
+                    Expect.equal
+                        errors
+                        expected
+                        (sprintf
+                            "%s/%s known drift against %s should be exactly the pinned set"
+                            package
+                            sigName
+                            implName)
+                }
         ]
