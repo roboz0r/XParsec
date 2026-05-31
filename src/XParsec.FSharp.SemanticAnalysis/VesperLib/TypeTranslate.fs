@@ -219,13 +219,23 @@ module VesperLibTypeTranslate =
     /// can attach a per-file diagnostic and skip the val.
     ///
     /// Resolution order:
-    ///   1. Direct hit on the qualified name as written.
+    ///   1. Direct hit on the qualified name as written (own package, then a
+    ///      dependency's fully-qualified name via `ctx.AmbientShapes`).
     ///   2. Short-name lookup in `ctx.Types`. Arity mismatch still resolves
     ///      (cross-file disagreements shouldn't block extraction) but uses
     ///      the recorded compiled name.
     ///   3. For each open prefix in newest-first order, try
-    ///      `prefix + "." + name` against the qualified-name set, then
-    ///      strip that to a short name and re-check `ctx.Types`.
+    ///      `prefix + "." + name` against the qualified-name set, then the
+    ///      dependency shapes (`ctx.AmbientShapes`).
+    ///
+    /// Dependency packages contribute their type shapes through `ctx.AmbientShapes`
+    /// (package-type-extraction-plan Phase 2/3), keyed by qualified compiled name —
+    /// not the per-package `ctx.Types` / `ctx.QualifiedTypes` index, which holds
+    /// only this package's own declarations. A cross-package reference is written
+    /// either fully-qualified or as a short name resolved through an open prefix
+    /// (the package's own namespace is one such prefix), so each candidate is tried
+    /// against the local qualified set first, then the ambient shapes. Own-package
+    /// names always win: a same-short-name local type shadows a dependency's.
     let resolveTypeName
         (ctx: ExtractCtx)
         (openPrefixes: string list)
@@ -237,6 +247,12 @@ module VesperLibTypeTranslate =
             if dot < 0 then name else name.Substring(dot + 1)
 
         if ctx.QualifiedTypes.Contains name then
+            Ok name
+        elif name.IndexOf '.' >= 0 && (ctx.AmbientShapes name).IsSome then
+            // A fully-qualified reference to a dependency's type (`Vesper.Option`).
+            // Restricted to dotted names: a bare name is a *short* name that the
+            // own-package index (below) must get first, so a local type isn't
+            // hijacked by a same-named dependency type at the root.
             Ok name
         else
             match ctx.Types.TryGetValue short with
@@ -252,7 +268,7 @@ module VesperLibTypeTranslate =
                     if hit.IsNone then
                         let candidate = prefix + "." + name
 
-                        if ctx.QualifiedTypes.Contains candidate then
+                        if ctx.QualifiedTypes.Contains candidate || (ctx.AmbientShapes candidate).IsSome then
                             hit <- ValueSome candidate
 
                 match hit with
@@ -397,6 +413,39 @@ module VesperLibTypeTranslate =
                 // v1 silently drops; Phase 5b extends as needed.
                 ()
 
+    /// Bake a nominal reference (`compiled` head + already-translated `args`) to
+    /// its kind-correct `SemType`, consulting the in-scope type shapes
+    /// (`ExtractCtx.shapeOf`: this package's own shapes, then its dependencies'
+    /// via `ctx.AmbientShapes`; package-type-extraction-plan Phase 3)
+    /// A transparent abbreviation expands (then re-kinds its body), and a referenced-package
+    /// intrinsic collapses to its short `TyConst` (so an external `int` / `exn`
+    /// matches the literal-typed form).
+    ///
+    /// Called *inside the deferred builder* (at `Instantiate` time), so
+    /// `ctx.TypeShapes` is fully populated and an intra-package forward reference
+    /// — legal only inside a `type … and …` group or a `rec` scope, whose shapes
+    /// register together before any body is kinded — resolves.
+    ///
+    /// A head that resolves to no in-scope shape (an `enum` / `delegate` the
+    /// extractor records by name only, or a not-yet-modelled type) keeps the
+    /// `TyRecord(compiled, args)` placeholder for now: the consumer's
+    /// `normalizeNominal` still reconciles it. Phase 4 turns this miss into a
+    /// `TyUnknown` use-site diagnostic; Phase 5 then retires the consumer pass.
+    let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<SemType>) : SemType =
+        match ExtractCtx.shapeOf ctx compiled with
+        | ValueSome(ExternalTypeShape.Union _) -> TyUnion(compiled, args)
+        | ValueSome(ExternalTypeShape.Class _) -> TyClass(compiled, args)
+        | ValueSome(ExternalTypeShape.Record _) -> TyRecord(compiled, args)
+        | ValueSome(ExternalTypeShape.Abbrev(_, build)) ->
+            // Expand the abbreviation, then re-kind its body: the body's nominal
+            // heads were baked when the *defining* package was extracted (possibly
+            // before a sibling shape registered, or with fewer dependencies in
+            // scope), so re-running the kinding under this package's wider scope
+            // upgrades any head it can while keeping the rest.
+            ExternalSymbols.normalizeNominal (ExtractCtx.shapeOf ctx) (build (args.AsSpan().ToArray()))
+        | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(ExternalSymbols.shortName compiled)
+        | ValueNone -> TyRecord(compiled, args)
+
     let rec translateType
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -459,9 +508,10 @@ module VesperLibTypeTranslate =
             else
                 match resolveTypeName ctx opens name 0 with
                 | Error e -> Error e
-                | Ok compiled ->
-                    let ty = TyConst compiled
-                    Ok(fun _ -> ty)
+                // Kind the bare nominal against the in-scope shapes (a zero-arity
+                // union bakes `TyUnion(compiled, [])`, etc.); `mkNominal` runs in
+                // the deferred builder so forward references resolve.
+                | Ok compiled -> Ok(fun _ -> mkNominal ctx compiled EqArray.empty)
 
         | Type.GenericType(li, _, args, _, _) ->
             let name = longIdentName lexed input li
@@ -484,16 +534,9 @@ module VesperLibTypeTranslate =
 
                 match resolveTypeName ctx opens name bs.Length with
                 | Error e -> Error e
-                // `TyRecord` here is a KIND-AGNOSTIC PLACEHOLDER, not a claim that
-                // `compiled` is a record. Extraction runs per-package in an isolated
-                // `ExtractCtx` (`ReferencedProject.buildProvider`) that holds only this
-                // package's own type shapes, so the actual kind of `compiled` (union /
-                // class / record) — and whether it's a transparent abbreviation to
-                // expand — isn't knowable here for a cross-package reference. The
-                // consumer reconciles the head against the full composite provider via
-                // `ExternalSymbols.normalizeNominal`. (The per-package scope is the real
-                // defect; see `docs/package-type-extraction-plan.md`.)
-                | Ok compiled -> Ok(fun ts -> TyRecord(compiled, EqArray.ofSeq (seq { for b in bs -> b ts })))
+                // Kind the head against the in-scope shapes (own + dependency
+                // packages) at `Instantiate` time — see `mkNominal`.
+                | Ok compiled -> Ok(fun ts -> mkNominal ctx compiled (EqArray.ofSeq (seq { for b in bs -> b ts })))
 
         | Type.SuffixedType(baseTy, li) ->
             // `'T list` ≡ `List<'T>`.
@@ -504,9 +547,9 @@ module VesperLibTypeTranslate =
             | Ok fb ->
                 match resolveTypeName ctx opens name 1 with
                 | Error e -> Error e
-                // Kind-agnostic placeholder, as in the `GenericType` arm above —
-                // `'T list` ≡ `List<'T>` and the consumer re-kinds `compiled`.
-                | Ok compiled -> Ok(fun ts -> TyRecord(compiled, EqArray.singleton (fb ts)))
+                // `'T list` ≡ `List<'T>`; kind the head against the in-scope
+                // shapes at `Instantiate` time — see `mkNominal`.
+                | Ok compiled -> Ok(fun ts -> mkNominal ctx compiled (EqArray.singleton (fb ts)))
 
         | Type.ArrayType(baseTy, _, commas, _) ->
             // rank = commas + 1; key by `array<rank>` so unification stays simple.

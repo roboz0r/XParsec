@@ -266,7 +266,17 @@ let tests =
                     let inst1 = sym.Instantiate 0
                     let inst2 = sym.Instantiate 0
 
-                    let optionName = "Microsoft.FSharp.Core.option"
+                    // `option<'T>` is a transparent abbreviation for `Option<'T>`;
+                    // dependency-aware extraction now expands it at bake time
+                    // (package-type-extraction-plan Phase 3), so the head is the
+                    // union name `Option`, not the abbreviation `option`. The
+                    // FSharp.Core port declares `Option` with GADT-style cases
+                    // (`| Some: Value:'T -> 'T option`), which the extractor skips
+                    // ("GADT cases not supported"), so no `Union` shape is registered
+                    // and the kinded head stays the `TyRecord` placeholder (the
+                    // consumer's `normalizeNominal` still reconciles it). `Result`
+                    // below uses ordinary cases and bakes a proper `TyUnion`.
+                    let optionName = "Microsoft.FSharp.Core.Option"
 
                     // Two TyVars share identity iff they're the same object — fresh
                     // instantiations must produce disjoint TyVars.
@@ -309,9 +319,13 @@ let tests =
                     let inst = sym.Instantiate 0
                     let resultName = "Microsoft.FSharp.Core.Result"
 
-                    // val map: ('T -> 'U) -> Result<'T, 'TError> -> Result<'U, 'TError>
+                    // val map: ('T -> 'U) -> Result<'T, 'TError> -> Result<'U, 'TError>.
+                    // `Result` is declared with ordinary cases, so dependency-aware
+                    // extraction kinds the head as a proper `TyUnion`
+                    // (package-type-extraction-plan Phase 3), not the old kind-agnostic
+                    // `TyRecord` placeholder.
                     match inst with
-                    | TyFun(TyFun(TyVar t, TyVar u), TyFun(TyRecord(n1, args1), TyRecord(n2, args2))) when
+                    | TyFun(TyFun(TyVar t, TyVar u), TyFun(TyUnion(n1, args1), TyUnion(n2, args2))) when
                         n1 = resultName && n2 = resultName && args1.Length = 2 && args2.Length = 2
                         ->
                         match args1.[0], args1.[1], args2.[0], args2.[1] with
@@ -324,6 +338,88 @@ let tests =
                                 "TError is shared across both Results"
                         | _ -> failtestf "Result.Map shape unexpected: %A" inst
                     | _ -> failtestf "Result.Map shape unexpected: %A" inst
+            }
+
+            test "cross-package nominal resolves through ambient shapes and bakes kind-correct" {
+                // Phase 3 (package-type-extraction-plan): a dependency package
+                // contributes its type shapes through `ExtractCtx.AmbientShapes`
+                // (Phase 2), keyed by qualified compiled name. A downstream
+                // package's signature that references one of those types — by its
+                // fully-qualified name and, separately, via an `open` — must (a)
+                // RESOLVE (the reference is no longer silently skipped because the
+                // name is absent from this package's own index) and (b) bake the
+                // correct kind (`TyUnion` here, since the dependency contributes a
+                // `Union` shape) at extraction time, *before* any consumer's
+                // `normalizeNominal` runs. The corpus's real cross-package
+                // references are all abbreviations to unresolvable BCL/GADT types,
+                // so this synthetic fixture is what exercises the path directly.
+                let widgetShape = ExternalTypeShape.Union(1, [||], SymbolOrigin.Empty)
+
+                let ambient name =
+                    if name = "Dep.Widget" then
+                        ValueSome widgetShape
+                    else
+                        ValueNone
+
+                let input =
+                    "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                ctx.AmbientShapes <- ambient
+                VesperLib.extractSymbols ctx parsed
+
+                // Locate each val by its source name suffix so the assertion does
+                // not hinge on the exact module-path compilation.
+                let instOf (suffix: string) : SemType =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.Symbols do
+                        if found.IsNone && kv.Key.EndsWith("." + suffix) then
+                            found <- ValueSome(kv.Value.Instantiate 0)
+
+                    match found with
+                    | ValueSome ty -> ty
+                    | ValueNone ->
+                        failtestf
+                            "val '%s' was not extracted (cross-package reference skipped?). Symbols: %A"
+                            suffix
+                            (Seq.toList ctx.Symbols.Keys)
+
+                let assertWidgetIntToInt (label: string) (ty: SemType) =
+                    match ty with
+                    | TyFun(TyUnion("Dep.Widget", args), TyConst "int") when args.Length = 1 ->
+                        match args.[0] with
+                        | TyConst "int" -> ()
+                        | other -> failtestf "%s: expected Dep.Widget<int>, got arg %A" label other
+                    | other -> failtestf "%s: expected (Dep.Widget<int> -> int) with TyUnion head, got %A" label other
+
+                assertWidgetIntToInt "fully-qualified reference" (instOf "qualified")
+                assertWidgetIntToInt "reference via open" (instOf "viaOpen")
             }
 
             test "ModuleSuffix flag applied to the innermost module" {
