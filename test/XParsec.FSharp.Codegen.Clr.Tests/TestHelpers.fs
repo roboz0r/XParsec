@@ -269,6 +269,20 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  let lexed, file = parseFile src
                  let tast = Pipeline.analyse provider src lexed file
+
+                 // A package that doesn't type-check hasn't built: `Pipeline.analyse`
+                 // collects diagnostics rather than throwing, so surface any
+                 // error-severity ones here instead of emitting a degraded DLL.
+                 let analysisErrors =
+                     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                 if not (List.isEmpty analysisErrors) then
+                     failwithf
+                         "buildPackage %s: %d analysis error(s):\n%s"
+                         pkg
+                         (List.length analysisErrors)
+                         (analysisErrors |> List.map (fun d -> d.Message) |> String.concat "\n")
+
                  let artifact = Codegen.compileWithInlines inlines provider project tast
                  Codegen.materialise artifact
 
