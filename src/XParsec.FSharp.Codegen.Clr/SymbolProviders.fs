@@ -50,9 +50,13 @@ module SymbolProviders =
     /// manifest is a hard error. Both `build` and `buildContract` thread the same
     /// ordered list so the composite provider and the inline-body loader agree on
     /// the package set.
-    let private orderedManifests (manifestPaths: string list) : string list =
-        match ReferencedProject.buildClosure manifestPaths with
-        | Result.Ok ordered -> ordered
+    /// Dependency-ordered manifests plus each package's transitive `depends-on`
+    /// closure (`transitiveDeps key` → its normalised dependency manifest paths).
+    /// `composeProviders` scopes a package's ambient to these declared dependencies
+    /// rather than all topological predecessors.
+    let private orderedManifestsWithDeps (manifestPaths: string list) : string list * (string -> string list) =
+        match ReferencedProject.buildClosureWithDeps manifestPaths with
+        | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
     /// Compose the layer-1 providers for an *already dependency-ordered* manifest
@@ -67,35 +71,58 @@ module SymbolProviders =
     /// cache, because a package's extraction now depends on its dependency shapes;
     /// the whole composite is still memoised per manifest set by `buildContract`'s
     /// `contractCache`, so each set is built once.
-    let private composeProviders (orderedManifestPaths: string list) : IExternalSymbolProvider =
+    let private composeProviders
+        (orderedManifestPaths: string list)
+        (transitiveDeps: string -> string list)
+        : IExternalSymbolProvider =
+        // Final stack, in build (topological) order; `byPath` indexes each built
+        // provider by its normalised manifest path so a package's dependency
+        // providers resolve in O(closure).
         let built = ResizeArray<IExternalSymbolProvider>()
 
+        let byPath =
+            System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
+
         for path in orderedManifestPaths do
-            // The shapes in scope = the composite `TryLookupType` of the packages
-            // already built (this package's dependencies) *and* layer-2 metadata
-            // (the BCL via `MetadataSymbols.provider`). Layer-2 must be in scope so a
+            let key = Path.GetFullPath path
+            // The shapes in scope = the composite `TryLookupType` of *this package's
+            // transitive `depends-on` closure* and layer-2 metadata (the BCL
+            // via `MetadataSymbols.provider`). Scoping to declared dependencies — not
+            // every topological predecessor — keeps a package from silently kinding a
+            // cross-package head it never declared a `depends-on` for. The closure is
+            // dependency-ordered and every member is already built (dependency order),
+            // so this indexed lookup is O(closure). Layer-2 must be in scope too so a
             // contract naming a raw BCL nominal head not aliased in its own package
             // (e.g. `System.Text.StringBuilder` with no `extern` companion) kinds
             // correctly at bake time, rather than baking a spurious `TyUnknown` for a
-            // type the consumer resolves through layer-2 anyway. With layer-2
-            // folded in, the ambient is literally "the same `TryLookupType` the
-            // consumer would see, minus this package". Even the first
-            // (dependency-free) package gets layer-2.
+            // type the consumer resolves through layer-2 anyway. So the ambient is
+            // literally "the same `TryLookupType` the consumer would see, restricted
+            // to this package's dependency closure".
+            let depProviders =
+                transitiveDeps key
+                |> List.choose (fun dep ->
+                    match byPath.TryGetValue dep with
+                    | true, p -> Some p
+                    | _ -> None)
+
             let depComposite =
-                ExternalSymbols.composite (List.ofSeq built @ [ MetadataSymbols.provider ])
+                ExternalSymbols.composite (depProviders @ [ MetadataSymbols.provider ])
 
             let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
             // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
             // brings `Severity.Error` into scope, shadowing the bare cases.
             match ReferencedProject.buildProviderWith ambientShapes path with
-            | Result.Ok(provider, _) -> built.Add provider
+            | Result.Ok(provider, _) ->
+                built.Add provider
+                byPath.[key] <- provider
             | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
 
         ExternalSymbols.composite (List.ofSeq built @ [ MetadataSymbols.provider ])
 
     let build (manifestPaths: string list) : IExternalSymbolProvider =
-        composeProviders (orderedManifests manifestPaths)
+        let ordered, transitiveDeps = orderedManifestsWithDeps manifestPaths
+        composeProviders ordered transitiveDeps
 
     /// The inline `val` bindings a referenced project contributes whose `.fs`
     /// bodies must be *spliced* at the consumer's use site — a cross-package
@@ -255,8 +282,8 @@ module SymbolProviders =
                         // inline-body loader, so both see the full `depends-on`
                         // closure (a root's transitive dependency contributes its
                         // contract symbols AND its cross-package inline bodies).
-                        (let ordered = orderedManifests normalised
-                         let provider = composeProviders ordered
+                        (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
+                         let provider = composeProviders ordered transitiveDeps
                          let inlines = inlineBodies provider ordered
                          provider, inlines)
             )

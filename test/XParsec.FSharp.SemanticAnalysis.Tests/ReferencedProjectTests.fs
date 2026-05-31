@@ -247,5 +247,39 @@ let tests =
                         | Result.Ok ordered -> failtestf "expected a missing-dependency error, got Ok %A" ordered
                         | Result.Error e -> Expect.stringContains e "buildClosure" "error is surfaced from buildClosure"
                     }
+
+                    // `buildClosureWithDeps` also reports each package's *transitive*
+                    // `depends-on` closure, so `composeProviders` can scope a package's
+                    // ambient to its declared dependencies (not all topological predecessors).
+                    test "buildClosureWithDeps reports the transitive depends-on closure" {
+                        // A → B → C: A names only B, B names only C. A's transitive
+                        // closure must include C even though A never names it directly.
+                        writeSyntheticManifest "ClosureC" [] |> ignore
+                        writeSyntheticManifest "ClosureB" [ "ClosureC" ] |> ignore
+                        let a = writeSyntheticManifest "ClosureA" [ "ClosureB" ]
+
+                        match ReferencedProject.buildClosureWithDeps [ a ] with
+                        | Result.Error e -> failtestf "buildClosureWithDeps failed: %s" e
+                        | Result.Ok(_, transitiveDeps) ->
+                            let pathOf name = Path.GetFullPath(Path.Combine(tmpSrc, name, "manifest.toml"))
+                            let depsA = transitiveDeps (pathOf "ClosureA")
+                            Expect.contains depsA (pathOf "ClosureB") "A's direct dependency B"
+                            Expect.contains depsA (pathOf "ClosureC") "A's transitive dependency C"
+                            Expect.equal (transitiveDeps (pathOf "ClosureB")) [ pathOf "ClosureC" ] "B depends on C only"
+                            Expect.equal (transitiveDeps (pathOf "ClosureC")) [] "C is dependency-free"
+                    }
+
+                    test "buildClosureWithDeps excludes a non-dependency that merely sorts earlier" {
+                        // D and E are independent roots (neither depends on the other);
+                        // D sorts earlier in the closure, but must NOT appear in E's deps.
+                        writeSyntheticManifest "IndepD" [] |> ignore
+                        let e = writeSyntheticManifest "IndepE" []
+
+                        match ReferencedProject.buildClosureWithDeps [ Path.Combine(tmpSrc, "IndepD", "manifest.toml"); e ] with
+                        | Result.Error err -> failtestf "buildClosureWithDeps failed: %s" err
+                        | Result.Ok(_, transitiveDeps) ->
+                            let pathOf name = Path.GetFullPath(Path.Combine(tmpSrc, name, "manifest.toml"))
+                            Expect.equal (transitiveDeps (pathOf "IndepE")) [] "E declares no dependency on D despite D sorting earlier"
+                    }
                 ]
         ]

@@ -130,7 +130,15 @@ module ReferencedProject =
     /// read its dependencies' already-built type shapes. For an
     /// input that is already dependency-ordered the order is returned unchanged
     /// (the sort is stable over the discovery order).
-    let buildClosure (rootManifests: string list) : Result<string list, string> =
+    ///
+    /// Core closure: returns the dependency-ordered paths **and** the direct
+    /// `depends-on` adjacency (normalised path → its direct dependency paths) so a
+    /// caller can scope a package's ambient to its declared dependencies rather
+    /// than all topological predecessors. `buildClosure` /
+    /// `buildClosureWithDeps` are the public projections.
+    let private closeAndOrder
+        (rootManifests: string list)
+        : Result<string list * System.Collections.Generic.Dictionary<string, string list>, string> =
         let norm (p: string) = Path.GetFullPath p
 
         // key (normalised path) → its dependency keys (adjacency) and package name.
@@ -208,7 +216,61 @@ module ReferencedProject =
 
             match cycle with
             | Some e -> Error e
-            | None -> Ok(List.ofSeq ordered)
+            | None -> Ok(List.ofSeq ordered, dependencies)
+
+    /// Close `rootManifests` over `[core] depends-on` and return every reachable
+    /// manifest path in dependency order (see `closeAndOrder`).
+    let buildClosure (rootManifests: string list) : Result<string list, string> =
+        closeAndOrder rootManifests |> Result.map fst
+
+    /// Like `buildClosure`, but also returns each package's **transitive**
+    /// `depends-on` closure: a function from a normalised manifest path to the
+    /// normalised paths it depends on, directly or transitively (excluding itself).
+    /// Lets a caller scope a package's extraction ambient to exactly its declared
+    /// dependencies instead of every topological predecessor (F-C). A path with no
+    /// dependencies (or an unknown path) maps to the empty list.
+    let buildClosureWithDeps
+        (rootManifests: string list)
+        : Result<string list * (string -> string list), string> =
+        match closeAndOrder rootManifests with
+        | Error e -> Error e
+        | Ok(ordered, adjacency) ->
+            // Transitive closure computed in dependency order: each package's
+            // closure is the union of its direct deps and those deps' already-
+            // computed closures. Each closure is itself **topologically ordered**
+            // (a dependency precedes anything that depends on it) — for a direct
+            // dep we emit that dep's own closure *before* the dep, so the indexed
+            // lookup in `composeProviders` yields a deterministic, dependency-first
+            // provider list. Each path appears once.
+            let transitive =
+                System.Collections.Generic.Dictionary<string, string list>(System.StringComparer.Ordinal)
+
+            for key in ordered do
+                let acc = ResizeArray<string>()
+                let seen = System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+
+                let add p =
+                    if seen.Add p then
+                        acc.Add p
+
+                match adjacency.TryGetValue key with
+                | true, directDeps ->
+                    for dep in directDeps do
+                        match transitive.TryGetValue dep with
+                        | true, depClosure -> List.iter add depClosure
+                        | _ -> ()
+
+                        add dep
+                | _ -> ()
+
+                transitive.[key] <- List.ofSeq acc
+
+            let lookup (key: string) =
+                match transitive.TryGetValue key with
+                | true, v -> v
+                | _ -> []
+
+            Ok(ordered, lookup)
 
     /// Wrap the extractor's provider so (a) every resolved descriptor carries
     /// the package `Origin` (the extractor records `SymbolOrigin.Empty`; the
