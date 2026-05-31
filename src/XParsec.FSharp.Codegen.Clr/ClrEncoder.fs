@@ -163,6 +163,16 @@ type internal ClrEncoder(env: ClrEnv) =
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
+            | TyUnknown name ->
+                // A nominal head that resolved to no in-scope type shape during
+                // dependency-aware extraction. The front end refuses it at `unify`
+                // with a use-site diagnostic, so it must never reach the backend;
+                // this explicit arm makes that boundary self-documenting rather than
+                // relying on the catch-all. The message mirrors the unify-time
+                // string and flags that the front end should have errored first.
+                failwithf
+                    "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
+                    name
             | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
     /// Encode for the executable path. The only leaf hook is the ambient generic-method-typar resolver
