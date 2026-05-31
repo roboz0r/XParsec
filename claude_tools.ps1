@@ -112,7 +112,7 @@ try {
 
             if (-not [string]::IsNullOrWhiteSpace($Filter)) {
                 # Use dotnet run with Expecto's --filter for targeted tests
-                $testArgs = @("run", "--project", $TestPath, "--no-build", "--", "--filter", $Filter)
+                $testArgs = @("run", "--project", $TestPath, "--", "--filter", $Filter)
             }
             else {
                 $testArgs = @("test", $TestPath)
