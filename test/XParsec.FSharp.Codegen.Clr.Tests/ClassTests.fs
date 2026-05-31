@@ -924,3 +924,175 @@ let inheritanceTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 2 "base.M() (= 1) + 1 = 2; no infinite recursion"
             }
         ]
+
+[<Tests>]
+let interfaceImplTests =
+    // vesper-set-sprint-phase-5 §5.1 test gate: a user class implementing an
+    // external BCL interface front-end-resolves the interface and its member
+    // body without diagnostic. Front-end only — the interface type resolves
+    // against the metadata provider in the default contract stack, the impl is
+    // registered on the class's `ClassTypeInfo`, and the member body type-checks.
+    // The TAST shape + codegen emit (`.override` rows, `TypeDefinition.Interfaces`)
+    // are Step 5.3, deferred.
+    testList
+        "ClassInterfaceImpl"
+        [
+            test "a class implementing System.IComparable resolves the interface + CompareTo without diagnostic" {
+                let provider, _ = SymbolProviders.buildContract defaultManifests
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    interface System.IComparable with"
+                            "        member this.CompareTo(o: obj) = 0"
+                        ]
+
+                let lexed, file = parseFile src
+                let ctx, tast = Pipeline.analyseWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on C"
+                    let impl = info.InterfaceImpls.[0]
+
+                    match impl.Resolved with
+                    | ValueSome(TyClass(name, _)) ->
+                        Expect.stringContains name "IComparable" "the impl resolved to the IComparable interface"
+                    | other -> failtestf "interface impl did not resolve to an interface TyClass: %A" other
+
+                    Expect.equal impl.Members.Length 1 "the CompareTo member is registered on the impl"
+                | false, _ -> failtest "class C was not registered"
+            }
+
+            test "implementing a non-interface type is rejected with a diagnostic" {
+                let provider, _ = SymbolProviders.buildContract defaultManifests
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Base() ="
+                            "    member this.M () = 1"
+                            "type C() ="
+                            "    interface Base with"
+                            "        member this.M () = 2"
+                        ]
+
+                let lexed, file = parseFile src
+                let _, tast = Pipeline.analyseWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                Expect.isNonEmpty errors "implementing a concrete class as an interface diagnoses"
+
+                Expect.isTrue
+                    (errors |> List.exists (fun d -> d.Message.Contains "not an interface"))
+                    "the diagnostic explains the target is not an interface"
+            }
+
+            // vesper-set-sprint-phase-5 §5.2 test gate: a user class implementing
+            // the generic `IEnumerable<int>` and the non-generic `IEnumerable`
+            // type-checks both `GetEnumerator` methods independently. Each
+            // `interface … with` block resolves *its own* declared `GetEnumerator`
+            // overload (the metadata walk is `DeclaredOnly`), so the generic one
+            // conforms to `unit -> IEnumerator<int>` and the non-generic one to
+            // `unit -> IEnumerator` with no cross-talk. Bodies are `failwith` so the
+            // front-end test needs no concrete enumerator — only the signatures matter.
+            test "implementing IEnumerable<int> and IEnumerable conforms both GetEnumerator methods" {
+                let provider, _ = SymbolProviders.buildContract defaultManifests
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    interface System.Collections.Generic.IEnumerable<int> with"
+                            "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<int> = failwith \"x\""
+                            "    interface System.Collections.IEnumerable with"
+                            "        member this.GetEnumerator() : System.Collections.IEnumerator = failwith \"x\""
+                        ]
+
+                let lexed, file = parseFile src
+                let ctx, tast = Pipeline.analyseWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.equal info.InterfaceImpls.Length 2 "two interface impls registered on C"
+
+                    Expect.isTrue
+                        (info.InterfaceImpls
+                         |> Array.forall (fun impl ->
+                             match impl.Resolved with
+                             | ValueSome(TyClass _) -> true
+                             | _ -> false
+                         ))
+                        "both interface impls resolved to an interface TyClass"
+                | false, _ -> failtest "class C was not registered"
+            }
+
+            // §5.2 step 2: argument + return types must match the interface
+            // signature. `CompareTo` returning a `string` where `IComparable`
+            // promises an `int` is a conformance failure.
+            test "a member whose signature does not match the interface is diagnosed" {
+                let provider, _ = SymbolProviders.buildContract defaultManifests
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    interface System.IComparable with"
+                            "        member this.CompareTo(o: obj) = \"wrong\""
+                        ]
+
+                let lexed, file = parseFile src
+                let _, tast = Pipeline.analyseWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                Expect.isNonEmpty errors "a return-type mismatch against the interface diagnoses"
+
+                Expect.isTrue
+                    (errors |> List.exists (fun d -> d.Message.Contains "mismatch"))
+                    "the diagnostic reports a type mismatch"
+            }
+
+            // §5.2 step 1 + 3: a member the interface does not declare is rejected,
+            // and the required-but-unimplemented member is reported missing.
+            test "a wrongly-named member is rejected and the required member reported missing" {
+                let provider, _ = SymbolProviders.buildContract defaultManifests
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    interface System.IComparable with"
+                            "        member this.Nope(o: obj) = 0"
+                        ]
+
+                let lexed, file = parseFile src
+                let _, tast = Pipeline.analyseWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                Expect.isTrue
+                    (errors |> List.exists (fun d -> d.Message.Contains "does not define a member"))
+                    "the unknown member 'Nope' is rejected"
+
+                Expect.isTrue
+                    (errors
+                     |> List.exists (fun d ->
+                         d.Message.Contains "No implementation given" && d.Message.Contains "CompareTo"
+                     ))
+                    "the required 'CompareTo' is reported missing"
+            }
+        ]

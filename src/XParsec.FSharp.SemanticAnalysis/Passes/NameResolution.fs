@@ -195,9 +195,12 @@ module NameResolution =
 
             walkCtorBody [ scScope ] sc.Body
 
-        for el in w.Elements do
-            match el with
-            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+        // Body walk shared by a class/union's own members and by each
+        // `interface IFace with member …` block's members (B-2): an interface
+        // member is an ordinary instance member whose body sees `this`.
+        let walkMemberDefn (md: MemberDefn<SyntaxToken>) =
+            match md with
+            | MemberDefn.Member(staticToken = s; defn = d) ->
                 let scope = if s.IsSome then staticScope else instanceScope
 
                 match d with
@@ -213,6 +216,15 @@ module NameResolution =
                     CstWalk.iterExpr walker inner b.expr
                 | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker scope e
                 | _ -> ()
+            | _ -> ()
+
+        for el in w.Elements do
+            match el with
+            | TypeDefnElement.Member md -> walkMemberDefn md
+            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(
+                objectMembers = ValueSome(ObjectMembers(memberDefns = mds)))) ->
+                for md in mds do
+                    walkMemberDefn md
             | _ -> ()
 
     let private walkClassBodies

@@ -214,11 +214,50 @@ module NameResolutionMemberRegistration =
                 // A union augmentation has no primary ctor to chain to, so one here
                 // is meaningless and silently dropped (the parser permits it).
                 ()
-            | TypeDefnElement.InterfaceImpl _ -> diagnose "Interface implementations are not yet supported"
-            | TypeDefnElement.InterfaceSpec _ -> diagnose "Interface specifications are not yet supported"
+            | TypeDefnElement.InterfaceImpl _ ->
+                // `interface IFace with member …` blocks (B-2) are *not* part of
+                // the class's own member set — they're collected separately by
+                // `extractInterfaceImpls` and resolved against the external
+                // interface in Unification's `fillClassMembers`.
+                ()
+            | TypeDefnElement.InterfaceSpec _ ->
+                // A bare `interface IFace` spec (no inline members) carries no
+                // bodies to register. B-2's spec-only conformance is deferred.
+                ()
             | TypeDefnElement.Inherit _ -> diagnose "Inheritance is not yet supported"
 
         memberInfos.ToArray()
+
+    /// Collect the `interface IFace with member …` blocks (B-2,
+    /// vesper-set-sprint-phase-5 §5.1) declared in a class body. Each interface
+    /// member is re-wrapped as a `TypeDefnElement.Member` so the existing member
+    /// machinery (`extractMembers`, plus the NameResolution / Unification
+    /// member-body walks) consumes it unchanged. The interface *type* is kept as
+    /// raw CST — the external provider that resolves it isn't reachable until
+    /// Unification, which links each impl's `Resolved` and types its bodies.
+    let private extractInterfaceImpls
+        (ctx: PassContext)
+        (elements: TypeDefnElement<SyntaxToken> seq)
+        : ClassInterfaceImplInfo[] =
+        let acc = ResizeArray<ClassInterfaceImplInfo>()
+
+        for el in elements do
+            match el with
+            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(
+                interfaceToken = ifaceTok; typ = ifaceTyp; objectMembers = objMembersOpt)) ->
+                let declKey = NodeKey.ofToken ifaceTok NodeKind.TypeNamed
+
+                let memberEls: TypeDefnElements<SyntaxToken> =
+                    match objMembersOpt with
+                    | ValueSome(ObjectMembers(memberDefns = mds)) ->
+                        ImmutableArray.CreateRange(seq { for md in mds -> TypeDefnElement.Member md })
+                    | ValueNone -> ImmutableArray.Empty
+
+                let members = extractMembers ctx declKey memberEls
+                acc.Add(ClassInterfaceImplInfo(ifaceTyp, members, memberEls, declKey))
+            | _ -> ()
+
+        acc.ToArray()
 
     /// `ClassStaticLetInfo` placeholders for a class body's `static let` preamble
     /// (B-10). Only simple `static let x = …` (single named binder) is supported.
@@ -325,6 +364,7 @@ module NameResolutionMemberRegistration =
 
                     info.IsSealed <- classAttrs.IsSealed
                     info.AllowNullLiteral <- classAttrs.AllowNullLiteral
+                    info.InterfaceImpls <- extractInterfaceImpls ctx body.elements
 
                     ctx.Types.Class.[name] <- info
 

@@ -237,6 +237,33 @@ type ClassSecondaryCtorInfo
     member val ParamPat = paramPat
     member val Body = body
 
+/// A registered `interface IFace with member …` block on a class (B-2,
+/// vesper-set-sprint-phase-5 §5.1). `InterfaceCst` is the parsed interface
+/// `Type` — re-read by Unification's `fillClassMembers` (the external provider
+/// isn't available at NameResolution time) to resolve + verify the target is an
+/// interface, linking `Resolved`. `Members` are the impl's method / property
+/// placeholders (same shape as a class augmentation member, types linked by
+/// `fillTypeMembers`); their bodies live in `Elements` — each interface
+/// `MemberDefn` re-wrapped as a `TypeDefnElement.Member` so the NameResolution /
+/// Unification member walks consume them unchanged. `DeclKey` anchors a
+/// "not an interface" diagnostic at the interface type's name token.
+[<Sealed>]
+type ClassInterfaceImplInfo
+    (
+        interfaceCst: Type<SyntaxToken>,
+        members: TypeMemberInfo[],
+        elements: TypeDefnElements<SyntaxToken>,
+        declKey: NodeKey
+    ) =
+    member val InterfaceCst = interfaceCst
+    member val Members = members
+    member val Elements = elements
+    member val DeclKey = declKey
+    /// Resolved interface type, filled by Unification's `fillClassMembers` once
+    /// the external provider can map `InterfaceCst`. `ValueNone` until then, and
+    /// left `ValueNone` if resolution fails (the diagnostic already fired).
+    member val Resolved: SemType voption = ValueNone with get, set
+
 [<Sealed>]
 type ClassTypeInfo
     (
@@ -296,6 +323,13 @@ type ClassTypeInfo
     /// read only by Unification's `Expr.Null` arm so `null` unifies with the
     /// class. Never reaches codegen (no IL flag for it).
     member val AllowNullLiteral: bool = false with get, set
+    /// `interface IFace with member …` blocks (B-2, vesper-set-sprint-phase-5).
+    /// Stamped by `NameResolution.registerClassTypeDefn`; each impl's interface
+    /// type is resolved + verified, and its member bodies typed, by Unification's
+    /// `fillClassMembers`. Empty unless the class declares an `interface … with`
+    /// block. `Freeze` projects them onto `TTypeKind.Class.interfaces` for codegen
+    /// (Step 5.3, deferred).
+    member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. Promoted from a 2-tuple ahead of

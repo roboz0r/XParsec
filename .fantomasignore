@@ -14,5 +14,9 @@ src/Vesper.Comparison/
 # parse in Vesper.Core / Vesper.Comparison. Authored to a fixed shape; parser
 # coverage is the golden `.parsed` snapshots.
 src/Vesper.Array/
+# Vesper.Seq — the golden `.parsed` snapshots embed `pos=`/`tok=` offsets, so any
+# reformat that shifts characters breaks them. Authored to a fixed shape; parser
+# coverage is the golden snapshots, not Fantomas (same stance as the siblings).
+src/Vesper.Seq/
 # Vesper.Set — verbatim FSharp.Core copy; preserve upstream formatting/comments.
 src/Vesper.Set/

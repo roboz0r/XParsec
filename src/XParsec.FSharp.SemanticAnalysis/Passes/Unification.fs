@@ -546,6 +546,128 @@ module Unification =
             ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)
         | ValueNone -> ()
 
+    /// Map the only modelled reference supertype `System.Object` to the front-end
+    /// primitive `obj` so a user member annotated `obj` conforms to an external
+    /// interface signature that surfaces `System.Object` (the two are
+    /// interchangeable — `InferOverload.isObjectTy`). The metadata layer renders
+    /// `System.Object` as `TyClass("System.Object", [])` (it isn't in
+    /// `IntrinsicRepr.defaults`), while `translateType` renders the user's `obj` as
+    /// `TyConst "obj"`; without this bridge `IComparable.CompareTo(obj)` would fail
+    /// to unify. Recurses structurally; every other nominal is left untouched.
+    let rec private normalizeObj (t: SemType) : SemType =
+        match t with
+        | TyClass("System.Object", args) when args.IsEmpty -> TyConst "obj"
+        | TyClass(n, args) -> TyClass(n, EqArray.map normalizeObj args)
+        | TyFun(a, r) -> TyFun(normalizeObj a, normalizeObj r)
+        | TyTuple xs -> TyTuple(EqArray.map normalizeObj xs)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map normalizeObj args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map normalizeObj args)
+        | other -> other
+
+    /// Type-check the member bodies of one resolved `interface IFace with member …`
+    /// block against the interface's external signatures (B-2,
+    /// vesper-set-sprint-phase-5 §5.2). For each impl member, unify its
+    /// already-inferred signature with the matching `ExternalMember` looked up by
+    /// name on `iface` (`TyClass(ifaceName, ifaceArgs)`), substituting the impl's
+    /// interface type-args so a generic `IEnumerable<'T>::GetEnumerator() :
+    /// IEnumerator<'T>` binds the class typar through. The metadata member walk is
+    /// `DeclaredOnly`, so a base interface's members (e.g. `IEnumerable<'T>`'s
+    /// inherited non-generic `IEnumerable::GetEnumerator`) live in their *own*
+    /// `interface …` block — each block therefore resolves its own `GetEnumerator`
+    /// overload unambiguously, which is the §5.2 multiple-`GetEnumerator`
+    /// disambiguation. Every declared interface member is required: a missing one
+    /// diagnoses at the interface name token.
+    let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
+        match impl.Resolved with
+        | ValueSome(TyClass(ifaceName, ifaceArgs)) ->
+            match ctx.Provider.TryLookupType ifaceName with
+            | ValueSome(ExternalTypeShape.Class shape) ->
+                let argArr = ifaceArgs.AsSpan().ToArray()
+
+                // Interfaces declare no constructors; the `.ctor` guard is
+                // belt-and-suspenders against a provider that surfaces one.
+                let required = shape.Members |> Array.filter (fun em -> em.Name <> ".ctor")
+
+                for mInfo in impl.Members do
+                    match required |> Array.tryFind (fun em -> em.Name = mInfo.Name) with
+                    | Some em ->
+                        let expected = normalizeObj (em.BuildSignature argArr)
+                        unify ctx mInfo.DeclKey mInfo.Type expected
+                    | None ->
+                        ctx.Error(
+                            mInfo.DeclKey,
+                            sprintf "Interface '%s' does not define a member '%s'" ifaceName mInfo.Name
+                        )
+
+                for em in required do
+                    if not (impl.Members |> Array.exists (fun m -> m.Name = em.Name)) then
+                        ctx.Error(
+                            impl.DeclKey,
+                            sprintf "No implementation given for '%s' required by interface '%s'" em.Name ifaceName
+                        )
+            | _ -> ()
+        | _ -> ()
+
+    /// Resolve + verify each `interface IFace with member …` block (B-2,
+    /// vesper-set-sprint-phase-5 §5.1) on a class, then type its member bodies.
+    /// The interface type resolves under the class's typar scope (so a generic
+    /// interface arg like `IEnumerable<'T>` binds to the class's typar); it must
+    /// map to a type the provider reports as an interface, else a diagnostic fires
+    /// and `Resolved` stays `ValueNone`. Member bodies type-check through
+    /// `fillTypeMembers` exactly like the class's own members — `this` re-binds to
+    /// the class instance via `info.ThisKey`. Once typed, each body's signature is
+    /// conformance-checked against the interface (§5.2, `checkInterfaceConformance`).
+    /// Runs after the class's own `fillTypeMembers` / `fillSecondaryCtors`, so ctor
+    /// params and the base call are already seeded and `PrelinkExtras` is a no-op here.
+    let private fillInterfaceImpls (ctx: PassContext) (info: ClassTypeInfo) : unit =
+        for impl in info.InterfaceImpls do
+            let resolved =
+                let savedScope = ctx.Resolution.TyparScope
+                let savedStrict = ctx.Resolution.TyparScopeStrict
+                ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
+                ctx.Resolution.TyparScopeStrict <- true
+
+                try
+                    translateType ctx impl.InterfaceCst
+                finally
+                    ctx.Resolution.TyparScope <- savedScope
+                    ctx.Resolution.TyparScopeStrict <- savedStrict
+
+            let isInterface =
+                match resolved with
+                | TyClass(ifaceName, _) ->
+                    match ctx.Provider.TryLookupType ifaceName with
+                    | ValueSome(ExternalTypeShape.Class shape) -> shape.IsInterface
+                    | _ -> false
+                | _ -> false
+
+            if isInterface then
+                impl.Resolved <- ValueSome resolved
+            else
+                let shown =
+                    match zonk resolved with
+                    | TyClass(n, _) -> n
+                    | other -> sprintf "%A" other
+
+                ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)
+
+            fillTypeMembers
+                ctx
+                {
+                    TypeParams = info.TypeParams
+                    Members = impl.Members
+                    ThisKey = info.ThisKey
+                    MkSelfType = fun args -> TyClass(info.Name, args)
+                    PrelinkExtras = ignore
+                    Elements = impl.Elements
+                    AllowAbstractSig = false
+                }
+
+            // §5.2: now the bodies are typed, conform each member's signature to
+            // the interface's external signature. Skipped when resolution failed
+            // (`Resolved = ValueNone`) — that diagnostic already fired.
+            checkInterfaceConformance ctx impl
+
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         let common (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with
@@ -621,6 +743,7 @@ module Unification =
                             }
 
                         fillSecondaryCtors ctx info
+                        fillInterfaceImpls ctx info
                     | false, _ -> ()
                 | ValueNone -> ()
         | _ -> ()
