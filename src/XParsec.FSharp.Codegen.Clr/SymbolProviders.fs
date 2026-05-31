@@ -71,14 +71,20 @@ module SymbolProviders =
         let built = ResizeArray<IExternalSymbolProvider>()
 
         for path in orderedManifestPaths do
-            // The dependency shapes in scope = the composite `TryLookupType` of the
-            // packages already built. Empty for the first (dependency-free) package.
-            let ambientShapes =
-                match List.ofSeq built with
-                | [] -> (fun _ -> ValueNone)
-                | deps ->
-                    let depComposite = ExternalSymbols.composite deps
-                    (fun name -> depComposite.TryLookupType name)
+            // The shapes in scope = the composite `TryLookupType` of the packages
+            // already built (this package's dependencies) *and* layer-2 metadata
+            // (the BCL via `MetadataSymbols.provider`). Layer-2 must be in scope so a
+            // contract naming a raw BCL nominal head not aliased in its own package
+            // (e.g. `System.Text.StringBuilder` with no `extern` companion) kinds
+            // correctly at bake time, rather than baking a spurious `TyUnknown` for a
+            // type the consumer resolves through layer-2 anyway. With layer-2
+            // folded in, the ambient is literally "the same `TryLookupType` the
+            // consumer would see, minus this package". Even the first
+            // (dependency-free) package gets layer-2.
+            let depComposite =
+                ExternalSymbols.composite (List.ofSeq built @ [ MetadataSymbols.provider ])
+
+            let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
             // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
             // brings `Severity.Error` into scope, shadowing the bare cases.

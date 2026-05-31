@@ -147,10 +147,13 @@ module VesperLibTyparCapture =
         /// Read-only here: extraction never writes a dependency's shape, only
         /// consults it (through `shapeOf`) to kind a cross-package nominal head.
         /// `ReferencedProject.buildProviderWith` seeds it from the composite
-        /// `TryLookupType` of this package's dependency providers — the same
-        /// shapes the consumer would see, minus this package. The default
-        /// (`fun _ -> ValueNone`) is the dependency-free case: a package with no
-        /// `depends-on`, or any caller that builds a context in isolation.
+        /// `TryLookupType` of this package's dependency providers *and* layer-2
+        /// metadata (the BCL) — the same shapes the consumer would see, minus this
+        /// package. Layer-2 is included so a contract naming a raw BCL nominal head
+        /// not aliased in its own package kinds correctly at bake time instead of
+        /// baking a spurious `TyUnknown`.
+        /// The default (`fun _ -> ValueNone`) is the dependency-free, no-metadata
+        /// case: any caller that builds a context in isolation.
         member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
 
     module ExtractCtx =
