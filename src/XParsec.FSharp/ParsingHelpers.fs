@@ -427,13 +427,16 @@ module Parsing =
 
             // 15.1.10.2 (if/then/else + paren/begin undentation) and 15.1.10.3 (module/class
             // body undentation inside begin/end) are intentionally omitted. Both spec rules
-            // exist because F#'s Lexical Filtering step retrofits offside onto a token stream
-            // after lexing, requiring special cases for paren-like frames. XParsec.FSharp is
-            // offside-aware by construction: Paren and Begin are pushed (by pEnclosed and
-            // withContextAt) with Indent=0 as pure stack markers, so they can never be the
-            // head context in an offside check (tokenCol < 0 is impossible). Content inside
-            // `(...)` or `begin...end` is bounded by the SeqBlock inside pInner, which is
-            // handled by the SeqBlockParen arm of tryCollectionUndent below.
+            // exist because FCS's LexFilter is a separate token-stream pass with no back-channel
+            // from the parser: it reconstructs nesting from tokens alone, so it pushes a paren
+            // context (CtxtParen) recording the bracket's own column as the offside line, then
+            // undentationLimit must walk the stack to re-anchor the body at the enclosing
+            // construct's column. XParsec.FSharp fuses offside tracking into the recursive-descent
+            // parser: Paren and Begin are pushed (by pEnclosed and withContextAt) with Indent=0
+            // as pure stack markers, so they can never be the head context in an offside check
+            // (tokenCol < 0 is impossible). Content inside `(...)` or `begin...end` is bounded by
+            // the SeqBlock inside pInner, which is handled by the SeqBlockParen arm of
+            // tryCollectionUndent below.
 
             // 15.1.10.4: Collection/CE undentation for Bracket, BracketBar, Brace contexts
             elif
