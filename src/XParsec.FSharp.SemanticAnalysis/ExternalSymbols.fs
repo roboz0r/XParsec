@@ -311,22 +311,21 @@ type ExternalTypeShape =
     /// referenced package; arity is always 0 (primitives are non-generic).
     | Intrinsic of repr: string
     /// A nominal type whose *name + arity* the extractor registered but whose
-    /// body shape it does not (yet) model: a GADT-cased union
-    /// (`Vesper.Collections.List`), an enum / delegate / type-extension (v1
-    /// defers the body), or a union / record / abbreviation whose body failed to
-    /// translate (an unsupported field form, a typar-arity overflow). The skip
+    /// body shape it does not (yet) model: an enum / delegate / type-extension
+    /// (v1 defers the body), or a union / record / abbreviation whose body failed
+    /// to translate (an unsupported field form, a typar-arity overflow). The skip
     /// reason, when it is an error rather than a deferral, is recorded in
-    /// `ExtractCtx.Skipped`; this shape is the *referenceable* residue, so a
-    /// signature mentioning the type still resolves instead of vanishing.
+    /// `ExtractCtx.Skipped`; this shape is the *referenceable* residue, so the
+    /// name still has a shape (`TryLookupType` is total) instead of leaving the
+    /// accidental `ValueNone -> TyRecord` gap.
     ///
-    /// `mkNominal` kinds it as the `TyRecord(compiled, args)` placeholder codegen
-    /// special-cases (`isVesperListName`, `userTypes`, external refs). Crucially
-    /// it is a *registered* shape, not the absence of one: every name
-    /// `resolveTypeName` can resolve now has a shape, so `mkNominal` is total and
-    /// the old name-without-shape gap (the accidental `ValueNone -> TyRecord`
-    /// fallthrough) is unrepresentable. Distinct from a genuinely *unresolved*
-    /// name, which never registers and bakes `TyUnknown`
-    /// (package-type-extraction-plan Phase 6).
+    /// It is a body-*less* residue: it carries no kind, so `mkNominal` **refuses**
+    /// a signature that names one (a loud `failwith`) rather than minting a
+    /// kind-agnostic `TyRecord` placeholder that would flow to codegen. No
+    /// shipping contract names an `Opaque` type; modelling its kind
+    /// turns it into a real shape
+    /// (`Union` / `Class` / …) and a normal `mkNominal` arm. Distinct from a
+    /// genuinely *unresolved* name, which never registers and bakes `TyUnknown`.
     | Opaque of arity: int
 
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call

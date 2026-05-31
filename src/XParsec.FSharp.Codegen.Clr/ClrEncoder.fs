@@ -92,10 +92,10 @@ type internal ClrEncoder(env: ClrEnv) =
             | TyRecord(name, args) when name = listTypeName && args.Length = 1 ->
                 let elem = args.[0]
                 encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
-            | TyRecord(name, args) when isVesperListName name && args.Length = 1 ->
+            | TyUnion(name, args) when isVesperListName name && args.Length = 1 ->
                 // The Vesper cons-list (R3) ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
-                // The abbreviation name reaches here from the contract-typed literal, the union name
-                // from the self-host path; both map to the same `List`1`.
+                // This dedicated arm precedes the generic external-union arm so the list maps to the cached
+                // `eVesperList1` handle directly rather than re-resolving through the origin.
                 let elem = args.[0]
                 let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) elem

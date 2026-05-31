@@ -269,17 +269,14 @@ let tests =
                     // `option<'T>` is a transparent abbreviation for `Option<'T>`;
                     // so the head is the union name `Option`, not the abbreviation `option`. The
                     // FSharp.Core port declares `Option` with GADT-style cases
-                    // (`| Some: Value:'T -> 'T option`), which the extractor skips
-                    // ("GADT cases not supported"), so no `Union` shape is registered
-                    // and the kinded head stays the `TyRecord` placeholder (codegen
-                    // special-cases it). `Result` below uses ordinary
-                    // cases and bakes a proper `TyUnion`.
+                    // (`| Some: Value:'T -> 'T option`); GADT-case extraction
+                    // registers a genuine `Union` shape, so the kinded head bakes a proper `TyUnion`.
                     let optionName = "Microsoft.FSharp.Core.Option"
 
                     // Two TyVars share identity iff they're the same object — fresh
                     // instantiations must produce disjoint TyVars.
                     match inst1, inst2 with
-                    | TyFun(TyFun(TyVar a1, TyVar b1), TyFun(TyRecord(n1, args1), TyRecord(n2, args2))),
+                    | TyFun(TyFun(TyVar a1, TyVar b1), TyFun(TyUnion(n1, args1), TyUnion(n2, args2))),
                       TyFun(TyFun(TyVar a2, _), _) when
                         n1 = optionName && n2 = optionName && args1.Length = 1 && args2.Length = 1
                         ->
@@ -472,17 +469,14 @@ let tests =
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
 
-            test "Phase 6: a GADT-cased union registers an Opaque residue shape, not absence" {
-                // A union whose cases carry explicit return types (`| Empty: Thing<'T>`)
-                // is GADT-form — `extractUnionBody` defers it. Pre-Phase-6 it registered
-                // the *name* but no shape, leaving a name-without-shape gap that
-                // `mkNominal` papered over with a `ValueNone -> TyRecord` fallthrough. Now
-                // the deferral registers an explicit `Opaque` residue, so every registered
-                // name carries a shape and `TryLookupType` returns `ValueSome(Opaque)`
-                // rather than absence. (The skip *reason* is still recorded in
-                // `ctx.Skipped`.)
+            test "A body-less type registers an Opaque residue shape, not absence" {
+                // An `enum` carries no front-end-modelled body shape
+                // (enum/delegate kinds are deferred). The
+                // deferral registers an explicit `Opaque` residue, so every
+                // registered name carries a shape and `TryLookupType` returns
+                // `ValueSome(Opaque)` rather than absence.
                 let input =
-                    "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | Empty: Thing<'T>\n        | Box: 'T -> Thing<'T>\n"
+                    "namespace App\n\nmodule M =\n    type Thing =\n        | Red = 0\n        | Green = 1\n"
 
                 let lexed =
                     match Lexing.lexString input with
@@ -522,21 +516,84 @@ let tests =
                     found
 
                 match thingShape with
-                | ValueSome(ExternalTypeShape.Opaque arity) -> Expect.equal arity 1 "Opaque carries the declared arity"
-                | ValueSome other -> failtestf "expected an Opaque shape for the GADT union; got %A" other
+                | ValueSome(ExternalTypeShape.Opaque arity) -> Expect.equal arity 0 "Opaque carries the declared arity"
+                | ValueSome other -> failtestf "expected an Opaque shape for the enum; got %A" other
                 | ValueNone ->
                     failtestf
-                        "GADT union registered no shape (name-without-shape gap). Shapes: %A"
+                        "enum registered no shape (name-without-shape gap). Shapes: %A"
                         (Seq.toList ctx.TypeShapes.Keys)
             }
 
-            test "Phase 6: a reference to an Opaque-shaped type bakes the TyRecord placeholder" {
+            test "A GADT-cased union extracts as a genuine Union shape" {
+                // The cons-list shape (operator cases with explicit return types):
+                // `([])` and `(::)` are GADT-syntax. GADT-case extraction
+                // registers a real `Union` — cases named by their compiled-op form
+                // (`op_Nil` / `op_ColonColon`, kept distinct from a user union's
+                // `Cons` / `Nil`), fields drawn from the `(::)` signature's args, the
+                // return type ignored. (`Thing<'T>` stands in for `'T list` to keep
+                // the fixture self-contained — the self-referential field resolves
+                // because the type's name is registered before its body is kinded.)
+                let input =
+                    "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+
+                let thingShape =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "Thing" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match thingShape with
+                | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
+                    Expect.equal arity 1 "Union carries the declared arity"
+                    Expect.equal cases.Length 2 "two cases extracted"
+                    Expect.equal cases.[0].Name "op_Nil" "`([])` names the nullary case by its op form"
+                    Expect.equal cases.[0].BuildFieldTypes.Length 0 "the nullary case has no fields"
+                    Expect.equal cases.[1].Name "op_ColonColon" "`(::)` names the cons case by its op form"
+                    Expect.equal cases.[1].BuildFieldTypes.Length 2 "cons has Head + Tail fields"
+                    Expect.equal cases.[1].FieldNames [| ValueSome "Head"; ValueSome "Tail" |] "cons field names"
+                | ValueSome other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
+                | ValueNone -> failtestf "GADT union registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+            }
+
+            test "A reference to an Opaque-shaped type is refused at bake time" {
                 // The consumer half of the residue: a signature naming a type whose
-                // in-scope shape is `Opaque` (a GADT union / enum / unmodelled body)
-                // bakes the `TyRecord(name, args)` placeholder codegen keys off — via
-                // `mkNominal`'s `Opaque` arm — *not* `TyUnknown` (the name resolved) and
-                // not a crash. Seeded through the ambient so the path is exercised
-                // directly, the same way the Union cross-package test above is.
+                // in-scope shape is `Opaque` (an enum / delegate / unmodelled body)
+                // has no kind to bake.
+                // The argless val's builder runs at extraction
+                // (`extractValSig` bakes a typar-free signature eagerly), so the
+                // refusal surfaces there. Seeded through the ambient so the path is
+                // exercised directly.
                 let ambient name =
                     if name = "Dep.Widget" then
                         ValueSome(ExternalTypeShape.Opaque 1)
@@ -573,21 +630,13 @@ let tests =
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.AmbientShapes <- ambient
-                VesperLib.extractSymbols ctx parsed
 
-                let mutable inst = ValueNone
-
-                for kv in ctx.Symbols do
-                    if inst.IsNone && kv.Key.EndsWith ".qualified" then
-                        inst <- ValueSome(kv.Value.Instantiate 0)
-
-                match inst with
-                | ValueNone -> failtestf "val 'qualified' was skipped. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
-                | ValueSome(TyFun(TyRecord("Dep.Widget", args), TyConst "int")) when args.Length = 1 ->
-                    match args.[0] with
-                    | TyConst "int" -> ()
-                    | other -> failtestf "expected Dep.Widget<int> placeholder arg; got %A" other
-                | ValueSome other -> failtestf "expected (TyRecord(\"Dep.Widget\", [int]) -> int); got %A" other
+                // The name resolves through the ambient shape, but baking the
+                // argless signature runs `mkNominal`'s `Opaque` arm, which refuses
+                // it — so extraction itself throws rather than minting a placeholder.
+                Expect.throws
+                    (fun () -> VesperLib.extractSymbols ctx parsed)
+                    "baking a signature with an Opaque head throws"
             }
 
             test "ModuleSuffix flag applied to the innermost module" {
@@ -691,7 +740,7 @@ let tests =
                     let body = build [| TyConst "int" |]
 
                     match body with
-                    | TyRecord(name, args) when
+                    | TyUnion(name, args) when
                         args.Length = 1
                         && (
                             match args.[0] with
@@ -700,7 +749,7 @@ let tests =
                         )
                         ->
                         Expect.stringContains name "Option" "abbreviation expands to Option"
-                    | other -> failtestf "Expected TyRecord(...Option, [int]); got %A" other
+                    | other -> failtestf "Expected TyUnion(...Option, [int]); got %A" other
                 | other -> failtestf "Expected Abbrev shape; got %A" other
             }
 

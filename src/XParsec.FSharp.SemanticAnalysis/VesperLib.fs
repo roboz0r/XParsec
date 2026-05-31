@@ -451,10 +451,10 @@ module VesperLib =
 
     /// A body extractor bailed (an unsupported field/case/RHS form, a typar-arity
     /// overflow): record *why* in `ctx.Skipped` AND register the `Opaque` residue
-    /// shape, so the type — whose name+arity are known — stays referenceable. A
-    /// signature mentioning it then resolves to the `TyRecord` placeholder
-    /// `mkNominal` bakes for `Opaque`, instead of leaving a name-without-shape
-    /// gap. (package-type-extraction-plan Phase 6.)
+    /// shape, so the type — whose name+arity are known — keeps a shape (no
+    /// name-without-shape gap) and `TryLookupType` stays total. A signature that
+    /// actually *names* such a body-less type is refused at bake time by
+    /// `mkNominal`'s `Opaque` arm.
     let private skipBodyOpaque
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -547,8 +547,13 @@ module VesperLib =
             match ioo with
             | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
             | _ ->
-                // Operator-named cases (FSharp.Core list's `([])`/`(::)`) are
-                // named by their compiled-op form to stay uniquely identified.
+                // Operator-named cases (the cons-list's `([])` → `op_Nil`,
+                // `(::)` → `op_ColonColon`) keep their *compiled-op* form, NOT the
+                // source ctor name (`Empty`/`Cons`). The cons-list is special-cased
+                // throughout construction/literals (`FreezeExpr`, `TryEmitUnionCons`),
+                // so its case names are never resolved through the generic
+                // `TryLookupUnionCase` path; the op-form keeps them from colliding
+                // with a user union's `Cons` / `Nil` in ctor-name resolution.
                 identOrOpName lexed input ioo
 
         for i in 0 .. cases.Length - 1 do
@@ -596,11 +601,55 @@ module VesperLib =
                                     BuildFieldTypes = builds.ToArray()
                                 }
 
-                | UnionTypeCaseData.GadtNary _
-                | UnionTypeCaseData.GadtNullary _ ->
-                    // GADT cases need richer machinery (return-type binding
-                    // of typars). Phase 4 v1 skips.
-                    err <- Some "GADT cases not supported"
+                | UnionTypeCaseData.GadtNullary(name = ident) ->
+                    // GADT-syntax nullary (`([]): 'T list`): the explicit return
+                    // type is the declaring union and carries no field, so it
+                    // models exactly as an ordinary nullary case. A true
+                    // type-refining return type is out of scope — the same stance
+                    // the front-end's `TypeRegistration.inspectCaseData` takes.
+                    match caseName ident with
+                    | ValueNone -> err <- Some "unnamed case"
+                    | ValueSome n ->
+                        caseShapes.Add
+                            {
+                                Name = n
+                                FieldNames = [||]
+                                BuildFieldTypes = [||]
+                            }
+
+                | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(specs, _))) ->
+                    // GADT-syntax n-ary (`(::): Head: 'T * Tail: 'T list -> 'T list`):
+                    // the fields are the signature's args; the return type names the
+                    // declaring union and is ignored (true type-refining GADTs are
+                    // out of scope, exactly as in the front-end).
+                    match caseName ident with
+                    | ValueNone -> err <- Some "unnamed case"
+                    | ValueSome n ->
+                        let names = ResizeArray<string voption>(specs.Length)
+                        let builds = ResizeArray<SemBuilder>(specs.Length)
+
+                        for j in 0 .. specs.Length - 1 do
+                            if err.IsNone then
+                                let (ArgSpec(_, nameSpec, fieldTy)) = specs.[j]
+
+                                let nameOpt =
+                                    match nameSpec with
+                                    | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(nameOfTok lexed input id)
+                                    | ValueNone -> ValueNone
+
+                                match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
+                                | Error e -> err <- Some(sprintf "case %s field: %s" n e)
+                                | Ok b ->
+                                    names.Add nameOpt
+                                    builds.Add b
+
+                        if err.IsNone then
+                            caseShapes.Add
+                                {
+                                    Name = n
+                                    FieldNames = names.ToArray()
+                                    BuildFieldTypes = builds.ToArray()
+                                }
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -787,11 +836,11 @@ module VesperLib =
         | TypeSignature.Enum(typeName = typeName)
         | TypeSignature.Delegate(typeName = typeName)
         | TypeSignature.TypeExtension(typeName = typeName) ->
-            // Enum / delegate / type-extension body shapes land later; v1
-            // registers the name+arity plus an `Opaque` residue shape so other
-            // types can reference them nominally (the `TyRecord` placeholder
-            // `mkNominal` bakes) and every registered name carries a shape — no
-            // name-without-shape gap. (package-type-extraction-plan Phase 6.)
+            // Enum / delegate / type-extension body shapes land later
+            // v1 registers the name+arity plus an `Opaque` residue shape so every registered name
+            // carries a shape — no name-without-shape gap, `TryLookupType` total.
+            // A contract that actually *names* one is refused at bake time by
+            // `mkNominal`'s `Opaque` arm (none does today).
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity

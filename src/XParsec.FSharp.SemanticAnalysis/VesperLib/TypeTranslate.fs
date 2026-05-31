@@ -52,6 +52,7 @@ module VesperLibTypeTranslate =
         | Token.OpPipeLeft -> ValueSome "op_PipeLeft"
         | Token.OpComposeRight -> ValueSome "op_ComposeRight"
         | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
+        | Token.KWColonColon -> ValueSome "op_ColonColon"
         | _ ->
             // Only operators that appear inside `.fsi` val sigs need to land
             // here; the type checker picks them up by compiled name.
@@ -426,22 +427,18 @@ module VesperLibTypeTranslate =
     /// — legal only inside a `type … and …` group or a `rec` scope, whose shapes
     /// register together before any body is kinded — resolves.
     ///
-    /// A head whose *name* resolved (so we reach here) but whose body the
-    /// extractor models by name only registered an `Opaque` shape and bakes the
-    /// `TyRecord(compiled, args)` placeholder, args preserved. These are real,
-    /// name-known types — a GADT-cased union whose cases were skipped
-    /// (`Vesper.Collections.List`), an `enum` / `delegate`, or a not-yet-modelled
-    /// type. Codegen special-cases the placeholder (`isVesperListName`,
-    /// `userTypes`, external refs).
-    ///
-    /// `ValueNone` is unreachable: `mkNominal` runs only on a `compiled` name
-    /// `resolveTypeName` already resolved, and every resolvable name now carries
-    /// a shape (own decls register one for *every* `registerTypeDecl`, including
-    /// the `Opaque` deferrals — package-type-extraction-plan Phase 6; a
-    /// dependency name resolves *through* its ambient shape). A genuine
-    /// *unresolved name* never reaches here — `resolveTypeName` fails first and
-    /// that arm bakes the `TyUnknown` leaf. So `ValueNone` here is a registration
-    /// bug, asserted loudly rather than papered over with a placeholder.
+    /// Two arms are loud invariant assertions, not fall-throughs:
+    /// - `Opaque` is a body-less residue (`enum` / `delegate` / type-extension,
+    ///   or a body the extractor couldn't model). Referencing one in a signature
+    ///   has no kind to bake; rather than mint a `TyRecord` placeholder that flows
+    ///   to codegen, refuse it here. Modelling such a kind turns
+    ///   it into a real shape and an arm above; until then no shipping contract
+    ///   names one.
+    /// - `ValueNone` means *name resolved but no shape registered* — impossible,
+    ///   since every `registerTypeDecl` registers a shape (incl. the `Opaque`
+    ///   deferrals) and a dependency name resolves *through* its ambient shape. A
+    ///   genuine *unresolved name* never reaches here — `resolveTypeName` fails
+    ///   first and that arm bakes the `TyUnknown` leaf.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<SemType>) : SemType =
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union _) -> TyUnion(compiled, args)
@@ -455,8 +452,10 @@ module VesperLibTypeTranslate =
             // correct and needs no further reconciliation.
             build (args.AsSpan().ToArray())
         | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(ExternalSymbols.shortName compiled)
-        // Name + arity known, body unmodelled — the placeholder codegen keys off.
-        | ValueSome(ExternalTypeShape.Opaque _) -> TyRecord(compiled, args)
+        | ValueSome(ExternalTypeShape.Opaque _) ->
+            failwithf
+                "mkNominal: '%s' is an Opaque (body-less) shape — an enum / delegate / type-extension or an unmodelled body. Model its kind before a contract names it"
+                compiled
         | ValueNone ->
             failwithf
                 "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape (see package-type-extraction-plan Phase 6)"

@@ -318,7 +318,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let sT = TyVar stateTv
         let eT = TyVar tTv
         let folderT = TyFun(sT, TyFun(eT, sT))
-        let listT = TyRecord(vesperListName, EqArray.singleton eT)
+        let listT = TyUnion(vesperListName, EqArray.singleton eT)
 
         let foldSig =
             let saved = env.MethodTyparRoots
