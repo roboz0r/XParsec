@@ -261,11 +261,18 @@ let tests =
                         match ReferencedProject.buildClosureWithDeps [ a ] with
                         | Result.Error e -> failtestf "buildClosureWithDeps failed: %s" e
                         | Result.Ok(_, transitiveDeps) ->
-                            let pathOf name = Path.GetFullPath(Path.Combine(tmpSrc, name, "manifest.toml"))
+                            let pathOf name =
+                                Path.GetFullPath(Path.Combine(tmpSrc, name, "manifest.toml"))
+
                             let depsA = transitiveDeps (pathOf "ClosureA")
                             Expect.contains depsA (pathOf "ClosureB") "A's direct dependency B"
                             Expect.contains depsA (pathOf "ClosureC") "A's transitive dependency C"
-                            Expect.equal (transitiveDeps (pathOf "ClosureB")) [ pathOf "ClosureC" ] "B depends on C only"
+
+                            Expect.equal
+                                (transitiveDeps (pathOf "ClosureB"))
+                                [ pathOf "ClosureC" ]
+                                "B depends on C only"
+
                             Expect.equal (transitiveDeps (pathOf "ClosureC")) [] "C is dependency-free"
                     }
 
@@ -275,11 +282,50 @@ let tests =
                         writeSyntheticManifest "IndepD" [] |> ignore
                         let e = writeSyntheticManifest "IndepE" []
 
-                        match ReferencedProject.buildClosureWithDeps [ Path.Combine(tmpSrc, "IndepD", "manifest.toml"); e ] with
+                        match
+                            ReferencedProject.buildClosureWithDeps
+                                [ Path.Combine(tmpSrc, "IndepD", "manifest.toml"); e ]
+                        with
                         | Result.Error err -> failtestf "buildClosureWithDeps failed: %s" err
                         | Result.Ok(_, transitiveDeps) ->
-                            let pathOf name = Path.GetFullPath(Path.Combine(tmpSrc, name, "manifest.toml"))
-                            Expect.equal (transitiveDeps (pathOf "IndepE")) [] "E declares no dependency on D despite D sorting earlier"
+                            let pathOf name =
+                                Path.GetFullPath(Path.Combine(tmpSrc, name, "manifest.toml"))
+
+                            Expect.equal
+                                (transitiveDeps (pathOf "IndepE"))
+                                []
+                                "E declares no dependency on D despite D sorting earlier"
+                    }
+
+                    // The directory name is the package identity (`depends-on`
+                    // resolves against it). An explicit `[core] name` that diverges from
+                    // the directory is rejected at parse time so the two identities
+                    // can't drift unnoticed.
+                    test "a [core] name diverging from the directory name is rejected" {
+                        // Hand-write a manifest whose `name` ("Mismatch") differs from
+                        // its directory ("DivergeDir") — `writeSyntheticManifest` always
+                        // matches them, so build this one directly.
+                        let dir = Path.Combine(tmpSrc, "DivergeDir")
+                        Directory.CreateDirectory dir |> ignore
+                        let path = Path.Combine(dir, "manifest.toml")
+                        File.WriteAllText(path, "[core]\nname = \"Mismatch\"\nnamespace = \"X\"\nfiles = []\n")
+
+                        match ReferencedProject.loadManifest path with
+                        | Result.Ok m -> failtestf "expected a name/dir mismatch error, got Ok %A" m
+                        | Result.Error e ->
+                            Expect.stringContains e "Mismatch" "error names the declared name"
+                            Expect.stringContains e "DivergeDir" "error names the directory"
+                    }
+
+                    test "an omitted [core] name falls back to the directory name (no divergence)" {
+                        let dir = Path.Combine(tmpSrc, "NoName")
+                        Directory.CreateDirectory dir |> ignore
+                        let path = Path.Combine(dir, "manifest.toml")
+                        File.WriteAllText(path, "[core]\nnamespace = \"X\"\nfiles = []\n")
+
+                        match ReferencedProject.loadManifest path with
+                        | Result.Ok m -> Expect.equal m.Name "NoName" "name falls back to directory name"
+                        | Result.Error e -> failtestf "expected Ok, got Error %s" e
                     }
                 ]
         ]

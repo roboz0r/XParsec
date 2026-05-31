@@ -103,7 +103,8 @@ module SymbolProviders =
                 |> List.choose (fun dep ->
                     match byPath.TryGetValue dep with
                     | true, p -> Some p
-                    | _ -> None)
+                    | _ -> None
+                )
 
             let depComposite =
                 ExternalSymbols.composite (depProviders @ [ MetadataSymbols.provider ])

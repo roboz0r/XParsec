@@ -77,21 +77,38 @@ module ReferencedProject =
             | None, _ -> Error "manifest.toml: [core] missing `namespace`"
             | _, None -> Error "manifest.toml: [core] missing `files = [...]`"
             | Some ns, Some files ->
-                let impl = findStringList core "impl" |> Option.defaultValue []
+                // The directory name *is* the package identity — it is what a
+                // sibling's `depends-on` resolves against (`dependencyManifestPath`)
+                // and what `buildClosure` would otherwise report via `Name`. If an
+                // explicit `[core] name` diverged from the directory, a `depends-on`
+                // would be resolved by directory but reported by `Name` (and a
+                // `depends-on` written against `Name` would silently miss). Reject
+                // the divergence at parse time so the two identities can't drift
+                // unnoticed; an omitted `name` trivially matches via the fallback.
+                match findString core "name" with
+                | Some explicit when explicit <> dirName ->
+                    Error(
+                        sprintf
+                            "manifest.toml: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against (package-type-extraction-plan.md F-E)"
+                            explicit
+                            dirName
+                    )
+                | nameOpt ->
+                    let impl = findStringList core "impl" |> Option.defaultValue []
 
-                Ok
-                    {
-                        Name = findString core "name" |> Option.defaultValue dirName
-                        Namespace = ns
-                        DependsOn = findStringList core "depends-on" |> Option.defaultValue []
-                        Files = files
-                        Impl = impl
-                        // `inline-bodies` defaults to the impl files: the common case
-                        // is that a package's implementation *is* its inline-body
-                        // source. Operator packages override it (their DLL compile
-                        // target and inline-splice source differ).
-                        InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue impl
-                    }
+                    Ok
+                        {
+                            Name = nameOpt |> Option.defaultValue dirName
+                            Namespace = ns
+                            DependsOn = findStringList core "depends-on" |> Option.defaultValue []
+                            Files = files
+                            Impl = impl
+                            // `inline-bodies` defaults to the impl files: the common case
+                            // is that a package's implementation *is* its inline-body
+                            // source. Operator packages override it (their DLL compile
+                            // target and inline-splice source differ).
+                            InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue impl
+                        }
 
     /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).
     let loadManifest (manifestPath: string) : Result<Manifest, string> =
@@ -227,11 +244,9 @@ module ReferencedProject =
     /// `depends-on` closure: a function from a normalised manifest path to the
     /// normalised paths it depends on, directly or transitively (excluding itself).
     /// Lets a caller scope a package's extraction ambient to exactly its declared
-    /// dependencies instead of every topological predecessor (F-C). A path with no
+    /// dependencies instead of every topological predecessor. A path with no
     /// dependencies (or an unknown path) maps to the empty list.
-    let buildClosureWithDeps
-        (rootManifests: string list)
-        : Result<string list * (string -> string list), string> =
+    let buildClosureWithDeps (rootManifests: string list) : Result<string list * (string -> string list), string> =
         match closeAndOrder rootManifests with
         | Error e -> Error e
         | Ok(ordered, adjacency) ->
