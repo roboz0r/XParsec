@@ -337,6 +337,73 @@ let tests =
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
 
+            test "Phase 1: stamped *TypeInfo.Key is the arity-qualified TypeKey(None, \"\", name)" {
+                // symbol-key-refactor.md Phase 1: every registered type carries a
+                // project-local `SymbolKey`. Non-generic types key on the bare name;
+                // generic types carry the `` `N `` arity suffix that matches the emitted
+                // metadata name and codegen's `userTypes` keying (`TypeRegistry.keyFor`).
+                let ctx =
+                    analyse (
+                        "type R = { X: int }\n"
+                        + "type Box<'a> = { Value: 'a }\n"
+                        + "type Color = | Red | Green\n"
+                        + "type Choice<'a, 'b> = | C1 of 'a | C2 of 'b\n"
+                        + "type Pair<'a, 'b> = 'a * 'b\n"
+                        + "type Name = string"
+                    )
+
+                let recordKey n =
+                    match ctx.Types.Record.TryGetValue n with
+                    | true, info -> info.Key
+                    | false, _ -> failtestf "record %s not registered" n
+
+                let unionKey n =
+                    match ctx.Types.Union.TryGetValue n with
+                    | true, info -> info.Key
+                    | false, _ -> failtestf "union %s not registered" n
+
+                let abbrevKey n =
+                    match ctx.Types.Abbreviation.TryGetValue n with
+                    | true, info -> info.Key
+                    | false, _ -> failtestf "abbreviation %s not registered" n
+
+                Expect.equal (recordKey "R") (SymbolKey.TypeKey(None, "", "R")) "non-generic record → bare key"
+
+                Expect.equal
+                    (recordKey "Box")
+                    (SymbolKey.TypeKey(None, "", "Box`1"))
+                    "generic record → arity-suffixed key"
+
+                Expect.equal (unionKey "Color") (SymbolKey.TypeKey(None, "", "Color")) "non-generic union → bare key"
+
+                Expect.equal
+                    (unionKey "Choice")
+                    (SymbolKey.TypeKey(None, "", "Choice`2"))
+                    "generic union → arity-suffixed key"
+
+                Expect.equal
+                    (abbrevKey "Pair")
+                    (SymbolKey.TypeKey(None, "", "Pair`2"))
+                    "generic abbrev → arity-suffixed key"
+
+                Expect.equal (abbrevKey "Name") (SymbolKey.TypeKey(None, "", "Name")) "non-generic abbrev → bare key"
+
+                // The key's name component is exactly what codegen keys `userTypes` on.
+                Expect.equal
+                    (unionKey "Choice")
+                    (SymbolKey.TypeKey(None, "", TypeRegistry.keyFor "Choice" 2))
+                    "union key name matches TypeRegistry.keyFor"
+            }
+
+            test "Phase 1: generic class Key is arity-suffixed" {
+                let ctx = analyse "type C<'a>(x: 'a) =\n    member this.X = x"
+
+                match ctx.Types.Class.TryGetValue "C" with
+                | true, info ->
+                    Expect.equal info.Key (SymbolKey.TypeKey(None, "", "C`1")) "generic class → arity-suffixed key"
+                | false, _ -> failtest "class C not registered"
+            }
+
             test "class type registers in ctx.Types.Class with ctor params and members" {
                 let ctx = analyse "type C(x: int) =\n    member this.X = x"
 

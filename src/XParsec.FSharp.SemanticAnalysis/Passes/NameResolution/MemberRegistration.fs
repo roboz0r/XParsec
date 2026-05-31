@@ -318,10 +318,10 @@ module NameResolutionMemberRegistration =
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
                 if
-                    ctx.Types.Record.ContainsKey name
+                    TypeRegistry.containsRecord ctx.Types name
                     || ctx.Types.Union.ContainsKey name
-                    || ctx.Types.Abbreviation.ContainsKey name
-                    || ctx.Types.Class.ContainsKey name
+                    || TypeRegistry.containsAbbrev ctx.Types name
+                    || TypeRegistry.containsClass ctx.Types name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -366,7 +366,7 @@ module NameResolutionMemberRegistration =
                     info.AllowNullLiteral <- classAttrs.AllowNullLiteral
                     info.InterfaceImpls <- extractInterfaceImpls ctx body.elements
 
-                    ctx.Types.Class.[name] <- info
+                    TypeRegistry.registerClass ctx.Types name info
 
                     for m in members do
                         let entry = { Class = info; Member = m }

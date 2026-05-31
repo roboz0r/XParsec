@@ -88,9 +88,9 @@ module NameResolutionTypeRegistration =
                 let name = ctx.NameOf nameTok
 
                 if
-                    ctx.Types.Record.ContainsKey name
+                    TypeRegistry.containsRecord ctx.Types name
                     || ctx.Types.Union.ContainsKey name
-                    || ctx.Types.Abbreviation.ContainsKey name
+                    || TypeRegistry.containsAbbrev ctx.Types name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -143,7 +143,7 @@ module NameResolutionTypeRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    ctx.Types.Record.[name] <- info
+                    TypeRegistry.registerRecord ctx.Types name info
 
                     for fi in fieldInfos do
                         match ctx.Types.FieldIndex.TryGetValue fi.Name with
@@ -243,7 +243,7 @@ module NameResolutionTypeRegistration =
 
                 if
                     TypeRegistry.containsUnion ctx.Types name typeArity
-                    || ctx.Types.Record.ContainsKey name
+                    || TypeRegistry.containsRecord ctx.Types name
                 then
                     ctx.Diagnostics.Add
                         {
@@ -348,9 +348,9 @@ module NameResolutionTypeRegistration =
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
                 if
-                    ctx.Types.Record.ContainsKey name
+                    TypeRegistry.containsRecord ctx.Types name
                     || ctx.Types.Union.ContainsKey name
-                    || ctx.Types.Abbreviation.ContainsKey name
+                    || TypeRegistry.containsAbbrev ctx.Types name
                     || ctx.Types.IntrinsicReprTypes.ContainsKey name
                 then
                     ctx.Diagnostics.Add
@@ -370,7 +370,7 @@ module NameResolutionTypeRegistration =
                         let info =
                             AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn)
 
-                        ctx.Types.Abbreviation.[name] <- info
+                        TypeRegistry.registerAbbrev ctx.Types name info
         | _ -> ()
 
     let registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =

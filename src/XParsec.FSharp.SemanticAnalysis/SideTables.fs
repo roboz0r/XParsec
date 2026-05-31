@@ -8,6 +8,28 @@ open XParsec.FSharp.Parser
 // Side tables hold all in-flight semantic information. CST is never mutated.
 // See docs/architecture.md.
 
+/// Project-local nominal identity for a type definition (symbol-key-refactor.md
+/// Phase 1). `asm = None` marks "defined in this compilation"; `name` is the .NET
+/// arity-qualified simple name (`Choice\`2`) so it matches the emitted metadata
+/// type name and codegen's `userTypes` keying (`TypeRegistry.keyFor`). `ns` is ""
+/// until a later phase threads the declaring namespace through registration
+/// (mirrors `SymbolOrigin.Empty`). Stamped onto each `*TypeInfo.Key` at
+/// construction (i.e. in NameResolution); nothing reads it yet — Phase 1 is
+/// additive groundwork for the SymbolKey-first resolution the doc describes.
+module internal LocalSymbolKey =
+
+    /// The .NET-style arity-qualified name: the bare name for a non-generic type,
+    /// ``name`N`` for arity N>0. The single definition of the rule — both
+    /// `TypeRegistry.keyFor` (the registry/metadata key) and `ofType` (the
+    /// `SymbolKey` mint) delegate here so the two can't drift.
+    let arityName (name: string) (arity: int) : string =
+        if arity <= 0 then name else name + "`" + string arity
+
+    /// The project-local `SymbolKey.TypeKey` for `name` at `arity`, declared in
+    /// namespace `ns` (today always "", see the module remark).
+    let ofType (ns: string) (name: string) (arity: int) : SymbolKey =
+        SymbolKey.TypeKey(None, ns, arityName name arity)
+
 /// Where a module-level `let` should be emitted: a *named* holder type (an F#
 /// module compiles to a static class) rather than the anonymous "Program" holder
 /// the backend uses for top-level functions. Recorded for every binding inside a
@@ -48,6 +70,10 @@ type RecordTypeInfo
     ) =
     new(name, typeParams, fields, declKey) = RecordTypeInfo(name, typeParams, fields, declKey, ValueNone)
     member val Name = name
+    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
+    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)`; settable so
+    /// a later phase can re-stamp the declaring namespace. Nothing reads it yet.
+    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
     member val TypeParams = typeParams
     member val Fields = fields
     member val DeclKey = declKey
@@ -138,6 +164,10 @@ type UnionTypeInfo
     ) =
     new(name, typeParams, cases, declKey) = UnionTypeInfo(name, typeParams, cases, declKey, ValueNone)
     member val Name = name
+    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
+    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)` — e.g.
+    /// `Choice\`2` — matching the emitted metadata name. Settable; nothing reads it yet.
+    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
     member val TypeParams = typeParams
     member val Cases = cases
     member val DeclKey = declKey
@@ -190,6 +220,11 @@ type AbbreviationInfo
     ) =
     new(name, typeParams, rhsCst, declKey) = AbbreviationInfo(name, typeParams, rhsCst, declKey, ValueNone)
     member val Name = name
+    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
+    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)`; settable.
+    /// Abbreviations are transparent (never emitted), so this is for symmetry —
+    /// nothing reads it yet.
+    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
     member val DeclKey = declKey
@@ -284,6 +319,10 @@ type ClassTypeInfo
         baseKey: NodeKey
     ) =
     member val Name = name
+    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
+    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)`, matching the
+    /// emitted metadata name. Settable; nothing reads it yet.
+    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
     member val TypeParams = typeParams
     member val CtorParams = ctorParams
     member val Members = members
@@ -485,9 +524,47 @@ module PassContextTypes =
 module TypeRegistry =
 
     /// The .NET-style key: the bare name for a non-generic type, ``name`N`` for
-    /// arity N>0. Matches the emitted metadata type name.
-    let keyFor (name: string) (arity: int) : string =
-        if arity <= 0 then name else name + "`" + string arity
+    /// arity N>0. Matches the emitted metadata type name. Delegates to
+    /// `LocalSymbolKey.arityName` so the registry key and the stamped `SymbolKey`
+    /// name share one rule.
+    let keyFor (name: string) (arity: int) : string = LocalSymbolKey.arityName name arity
+
+    // --- Records / classes / abbreviations --------------------------------------
+    // These aren't arity-overloaded today (unlike unions), so the key is the bare
+    // short name. The wrappers exist so project-local *identity creation* for every
+    // type kind funnels through one place — the single seam an arity key (or a
+    // declaring-namespace) would be threaded through if these ever overload
+    // (symbol-key-refactor.md Phase 0). The bare-name reads scattered downstream
+    // stay direct for now, exactly as the union bare-alias reads do.
+
+    let registerRecord (types: PassContextTypes) (name: string) (info: RecordTypeInfo) : unit =
+        types.Record.[name] <- info
+
+    let containsRecord (types: PassContextTypes) (name: string) : bool = types.Record.ContainsKey name
+
+    let tryRecord (types: PassContextTypes) (name: string) : RecordTypeInfo voption =
+        match types.Record.TryGetValue name with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
+
+    let registerClass (types: PassContextTypes) (name: string) (info: ClassTypeInfo) : unit = types.Class.[name] <- info
+
+    let containsClass (types: PassContextTypes) (name: string) : bool = types.Class.ContainsKey name
+
+    let tryClass (types: PassContextTypes) (name: string) : ClassTypeInfo voption =
+        match types.Class.TryGetValue name with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
+
+    let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
+        types.Abbreviation.[name] <- info
+
+    let containsAbbrev (types: PassContextTypes) (name: string) : bool = types.Abbreviation.ContainsKey name
+
+    let tryAbbrev (types: PassContextTypes) (name: string) : AbbreviationInfo voption =
+        match types.Abbreviation.TryGetValue name with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
 
     /// Register a union under its arity-key, maintaining the bare-name alias while
     /// the short name is single-arity and withdrawing it once a second arity
