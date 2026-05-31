@@ -370,56 +370,6 @@ type IExternalSymbolProvider =
 
 module ExternalSymbols =
 
-    /// Re-resolve every nominal head of `ty` through `lookup` so the type's
-    /// shapes match the forms a *use-site* type resolves to. The symbol /
-    /// abbreviation extractor (`VesperLibTypeTranslate`) bakes EVERY nominal
-    /// generic reference as a kind-agnostic `TyRecord(compiled, …)` placeholder.
-    /// It has to: each package is extracted into its own isolated `ExtractCtx`
-    /// (`ReferencedProject.buildProvider`) holding only that package's own type
-    /// shapes — its dependencies are separate providers, stacked into a composite
-    /// only later — so at bake time the kind of a *cross-package* type, and the
-    /// expansion of an abbreviation, simply aren't knowable. (The real defect is
-    /// that per-package scope; see `docs/package-type-extraction-plan.md`.) A
-    /// module function's `'T option` parameter therefore comes back as the
-    /// unexpanded, mis-kinded `TyRecord("Vesper.option", …)`, which unifies with
-    /// neither the `TyUnion("Vesper.Option", …)` a use site resolves to nor
-    /// anything else. This walk is the reconciliation step: run at the *consumer*,
-    /// where the full composite provider stack IS in scope, it consults `lookup`
-    /// per nominal head — a transparent abbreviation expands (then re-normalizes),
-    /// a union/class/record re-kinds, an intrinsic collapses to its unqualified
-    /// `TyConst` (so an external `int`/`exn` matches the literal-typed form), and
-    /// an unknown head keeps its written kind. It brings baked val signatures up
-    /// to the parity that type *annotations* already enjoy (those resolve fresh at
-    /// the consumer via `tryResolveExternalType`). Shared by the front-end
-    /// (`UnificationTranslate.normalizeExternalValueTy` / the abbrev-body
-    /// re-kind in `tryResolveExternalType`) and codegen (`ClrRecipes.normalizeSig`),
-    /// each passing its own provider's `TryLookupType` (vesper-lib-test-plan Gap 2).
-    let rec normalizeNominal (lookup: string -> ExternalTypeShape voption) (ty: SemType) : SemType =
-        let resolveNominal (name: string) (args: EqArray<SemType>) (fallback: unit -> SemType) : SemType =
-            match lookup name with
-            | ValueSome(ExternalTypeShape.Abbrev(_, build)) -> normalizeNominal lookup (build (args.AsSpan().ToArray()))
-            | ValueSome(ExternalTypeShape.Union _) -> TyUnion(name, args)
-            | ValueSome(ExternalTypeShape.Class _) -> TyClass(name, args)
-            | ValueSome(ExternalTypeShape.Record _) -> TyRecord(name, args)
-            | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(name.Substring(name.LastIndexOf('.') + 1))
-            | ValueNone -> fallback ()
-
-        match ty with
-        | TyRecord(name, args) ->
-            let args' = EqArray.map (normalizeNominal lookup) args
-            resolveNominal name args' (fun () -> TyRecord(name, args'))
-        | TyUnion(name, args) ->
-            let args' = EqArray.map (normalizeNominal lookup) args
-            resolveNominal name args' (fun () -> TyUnion(name, args'))
-        | TyClass(name, args) ->
-            let args' = EqArray.map (normalizeNominal lookup) args
-            resolveNominal name args' (fun () -> TyClass(name, args'))
-        | TyTuple items -> TyTuple(EqArray.map (normalizeNominal lookup) items)
-        | TyFun(a, b) -> TyFun(normalizeNominal lookup a, normalizeNominal lookup b)
-        | TyVar _
-        | TyConst _
-        | TyUnknown _ -> ty
-
     /// The last `.`-separated segment of a compiled name (`Vesper.Option` ⇒
     /// `Option`), i.e. the simple name with any namespace / declaring-module
     /// prefix dropped. Used to test a union's declaring type against a written

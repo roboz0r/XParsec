@@ -267,15 +267,13 @@ let tests =
                     let inst2 = sym.Instantiate 0
 
                     // `option<'T>` is a transparent abbreviation for `Option<'T>`;
-                    // dependency-aware extraction now expands it at bake time,
-                    // so the head is the
-                    // union name `Option`, not the abbreviation `option`. The
+                    // so the head is the union name `Option`, not the abbreviation `option`. The
                     // FSharp.Core port declares `Option` with GADT-style cases
                     // (`| Some: Value:'T -> 'T option`), which the extractor skips
                     // ("GADT cases not supported"), so no `Union` shape is registered
-                    // and the kinded head stays the `TyRecord` placeholder (the
-                    // consumer's `normalizeNominal` still reconciles it). `Result`
-                    // below uses ordinary cases and bakes a proper `TyUnion`.
+                    // and the kinded head stays the `TyRecord` placeholder (codegen
+                    // special-cases it). `Result` below uses ordinary
+                    // cases and bakes a proper `TyUnion`.
                     let optionName = "Microsoft.FSharp.Core.Option"
 
                     // Two TyVars share identity iff they're the same object — fresh
@@ -347,10 +345,9 @@ let tests =
                 // RESOLVE (the reference is no longer silently skipped because the
                 // name is absent from this package's own index) and (b) bake the
                 // correct kind (`TyUnion` here, since the dependency contributes a
-                // `Union` shape) at extraction time, *before* any consumer's
-                // `normalizeNominal` runs. The corpus's real cross-package
-                // references are all abbreviations to unresolvable BCL/GADT types,
-                // so this synthetic fixture is what exercises the path directly.
+                // `Union` shape) at extraction time. The corpus's
+                // real cross-package references are all abbreviations to unresolvable
+                // BCL/GADT types, so this synthetic fixture exercises the path directly.
                 let widgetShape = ExternalTypeShape.Union(1, [||], SymbolOrigin.Empty)
 
                 let ambient name =

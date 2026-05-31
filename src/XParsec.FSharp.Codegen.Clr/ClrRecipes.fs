@@ -388,21 +388,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         go retTy
         List.ofSeq acc
 
-    /// Normalize the nominal heads of a raw contract signature to the forms `encodeType` /
-    /// `recoverTypeArgs` expect. The symbol extractor bakes every nominal reference as a
-    /// kind-agnostic `TyRecord(compiled, …)` placeholder and never expands an abbreviation,
-    /// because it extracts each package in isolation (cross-package kinds / abbreviations
-    /// aren't knowable at bake time),
-    /// so a module function's `'T option` parameter comes back from `Instantiate` as the
-    /// unexpanded, mis-kinded `TyRecord("Vesper.option", …)`. Binds the codegen provider into
-    /// the shared `ExternalSymbols.normalizeNominal` walk (the same one the front-end's
-    /// `normalizeExternalValueTy` uses): per nominal head a transparent abbreviation expands, a
-    /// union/class/record re-kinds, an intrinsic collapses to its unqualified `TyConst` (the
-    /// `reprs`-keyed encoder form). Without this the option parameter fails to encode and
-    /// `recoverTypeArgs` can't structurally match the producer's emitted `TyUnion` signature.
-    let normalizeSig (t: SemType) : SemType =
-        ExternalSymbols.normalizeNominal symbols.TryLookupType t
-
     /// The member-ref parent `TypeRef` for an external module's compiled holder type — `declFullName`
     /// is the holder's fully-qualified compiled name (`Vesper.OptionModule`), `metaNs` its metadata
     /// namespace (the package namespace, `Vesper`). A nested holder (`Outer.Inner`) chains through the
@@ -448,10 +433,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             match sym.Origin.Assembly with
             | None -> ValueNone
             | Some _ ->
-                // The symbol's full curried monotype, with one fresh `TypeVar` per declared typar,
-                // re-kinded so its nominal heads (`'T option` ⇒ `TyUnion`, not the extractor's `TyRecord`)
-                // encode + recover against the producer's emitted signature.
-                let monoSig = normalizeSig (sym.Instantiate 0)
+                // The symbol's full curried monotype, with one fresh `TypeVar` per declared typar.
+                // Its nominal heads are already kind-correct (`'T option` ⇒ `TyUnion`) — dependency-
+                // aware extraction bakes them so (package-type-extraction-plan Phase 3) — so they
+                // encode + recover against the producer's emitted signature with no reconciliation.
+                let monoSig = sym.Instantiate 0
                 let paramTys, retTy = decurryTy monoSig
                 let markerRoots = signatureTypars paramTys retTy
 

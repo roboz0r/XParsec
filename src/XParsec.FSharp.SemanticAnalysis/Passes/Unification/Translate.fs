@@ -422,16 +422,11 @@ module UnificationTranslate =
                         // "int32"` the IL encoder doesn't key. Mirrors the *local*
                         // abbrev expansion (`expandAbbreviation`); the `build` closure
                         // substitutes the type args into the (already-translated) RHS.
-                        // The RHS is re-kinded: the extractor bakes every nominal head
-                        // as `TyRecord` (it has no provider handle), so a union/class
-                        // alias (`'T option = Option<'T>`) would otherwise dealias to a
-                        // mis-kinded record — `normalizeNominal` re-resolves it.
-                        | ExternalTypeShape.Abbrev(_, build) ->
-                            Some(
-                                ExternalSymbols.normalizeNominal
-                                    ctx.Provider.TryLookupType
-                                    (build (translatedArgs.AsSpan().ToArray()))
-                            )
+                        // The RHS is already kind-correct: the extractor's `mkNominal`
+                        // baked every head against the defining package's scope
+                        // so a union/class alias (`'T option = Option<'T>`)
+                        // expands to a properly-kinded body.
+                        | ExternalTypeShape.Abbrev(_, build) -> Some(build (translatedArgs.AsSpan().ToArray()))
                     | _ -> None
                 )
 
@@ -440,23 +435,6 @@ module UnificationTranslate =
             | None -> ValueNone
 
         OpenScope.tryResolve ctx.Resolution.OpenScope lookup qualName
-
-    /// Normalize a `SemType` produced by `ExternalSymbol.Instantiate` so its nominal
-    /// heads match the forms a *use-site* type resolves to. The symbol extractor
-    /// (`VesperLibTypeTranslate`) bakes every nominal reference as a kind-agnostic
-    /// `TyRecord(compiled, …)` placeholder and never expands an abbreviation — it
-    /// extracts each package in isolation (`ReferencedProject.buildProvider`), so a
-    /// cross-package kind / abbreviation isn't knowable at bake time.
-    /// A module function's `'T option`
-    /// parameter therefore comes back as `TyRecord("Vesper.option", …)` — which unifies
-    /// with neither the `TyUnion("Vesper.Option", …)` a use-site `int option` resolves to
-    /// (the abbreviation is unexpanded *and* the head is mis-kinded) nor anything else.
-    /// Binds the front-end's composite provider into the shared
-    /// `ExternalSymbols.normalizeNominal` walk; applied to every provider-resolved value
-    /// reference. The abbrev-body
-    /// re-kind in `tryResolveExternalType` uses the same walk.
-    and normalizeExternalValueTy (ctx: PassContext) (ty: SemType) : SemType =
-        ExternalSymbols.normalizeNominal ctx.Provider.TryLookupType ty
 
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.Resolution.TyparScope`. Unsupported kinds (Coercion, MemberTrait, etc.) are

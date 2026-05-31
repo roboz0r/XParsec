@@ -175,12 +175,7 @@ module UnificationInfer =
             let name = qualifiedNameOf ctx e
 
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
-            // Normalize the instantiated signature's nominal heads (expand external
-            // abbreviations + re-kind), so a module function's `'T option` parameter
-            // (baked by the extractor as a mis-kinded `TyRecord("Vesper.option", …)`)
-            // unifies with the `TyUnion("Vesper.Option", …)` a use-site option resolves
-            // to (vesper-lib-test-plan Gap 2 Layer D, front-end half).
-            | ValueSome sym -> normalizeExternalValueTy ctx (sym.Instantiate ctx.CurrentLevel)
+            | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
             | ValueNone ->
 
                 match tryExternalStaticLongIdent ctx key e with

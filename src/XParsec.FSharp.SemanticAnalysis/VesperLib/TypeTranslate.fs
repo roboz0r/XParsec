@@ -417,7 +417,7 @@ module VesperLibTypeTranslate =
     /// its kind-correct `SemType`, consulting the in-scope type shapes
     /// (`ExtractCtx.shapeOf`: this package's own shapes, then its dependencies'
     /// via `ctx.AmbientShapes`)
-    /// A transparent abbreviation expands (then re-kinds its body), and a referenced-package
+    /// A transparent abbreviation expands to its body, and a referenced-package
     /// intrinsic collapses to its short `TyConst` (so an external `int` / `exn`
     /// matches the literal-typed form).
     ///
@@ -431,22 +431,21 @@ module VesperLibTypeTranslate =
     /// preserved. These are real, name-known types the extractor models by name
     /// only — a GADT-cased union whose cases were skipped (`Vesper.Collections.List`,
     /// FSharp.Core's `Option`), an `enum` / `delegate`, or a not-yet-modelled type.
-    /// The consumer reconciles the placeholder (`normalizeNominal`) or codegen
-    /// special-cases it (`isVesperListName`, `userTypes`, external refs). A genuine
-    /// *unresolved name* never reaches here: `resolveTypeName` fails first and that
-    /// arm bakes the `TyUnknown` leaf.
+    /// Codegen special-cases the placeholder (`isVesperListName`, `userTypes`,
+    /// external refs). A genuine *unresolved name* never reaches here:
+    /// `resolveTypeName` fails first and that arm bakes the `TyUnknown` leaf.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<SemType>) : SemType =
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union _) -> TyUnion(compiled, args)
         | ValueSome(ExternalTypeShape.Class _) -> TyClass(compiled, args)
         | ValueSome(ExternalTypeShape.Record _) -> TyRecord(compiled, args)
         | ValueSome(ExternalTypeShape.Abbrev(_, build)) ->
-            // Expand the abbreviation, then re-kind its body: the body's nominal
-            // heads were baked when the *defining* package was extracted (possibly
-            // before a sibling shape registered, or with fewer dependencies in
-            // scope), so re-running the kinding under this package's wider scope
-            // upgrades any head it can while keeping the rest.
-            ExternalSymbols.normalizeNominal (ExtractCtx.shapeOf ctx) (build (args.AsSpan().ToArray()))
+            // Expand the abbreviation to its body. `build` is the *defining*
+            // package's `translateType` builder, whose nominal heads already kind
+            // through `mkNominal` against that package's scope (its own shapes plus
+            // its dependencies) — so the expanded body is already kind-
+            // correct and needs no further reconciliation.
+            build (args.AsSpan().ToArray())
         | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(ExternalSymbols.shortName compiled)
         | ValueNone -> TyRecord(compiled, args)
 
