@@ -313,6 +313,65 @@ let runEntryPoint (bytes: byte[]) : int * string =
                 Console.SetOut original
         )
 
+// ---- Layer 1 behavioral corpus helpers --------------------------------------
+// The one-liners the suite was missing (docs/codegen-test-strategy-plan.md):
+// the dominant assertion — "run this source, get this stdout, exit 0" — had no
+// short form, so the cheap broad cases never got written. These wrap the
+// existing `compileSource` + `runEntryPoint` machinery and carry `src` in every
+// failure message so a red row inside a table is self-identifying. They raise
+// (via `failwithf`) rather than depend on `Expecto.Expect`, which Expecto still
+// reports as an ordinary test failure — keeping `TestHelpers` free of an Expecto
+// reference.
+
+/// Compile `src` as a bare program, run it in-process, and assert exit 0 and
+/// that trimmed, CRLF-normalised stdout equals `expected`.
+let runs (expected: string) (src: string) : unit =
+    let _, artifact = compileSource "Layer1Corpus" src
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// Like `runs` but for a multi-line expected block (joined with "\n"); spares
+/// callers the `\n` plumbing in the table.
+let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
+
+/// Analyse `src` through the default contract stack (no codegen) and return the
+/// error-severity diagnostics — the front-end-only half of the corpus.
+/// `Pipeline.analyse` collects diagnostics rather than throwing, so both
+/// `failsWith` and `typeChecks` read off the returned `TastFile.Diagnostics`.
+let private analyseErrors (src: string) : Diagnostic list =
+    let provider, _ = SymbolProviders.buildContract defaultManifests
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// Analyse `src`; assert it produced an error diagnostic whose message contains
+/// `fragment`. The negative direction the suite was missing — pins that bad
+/// input is *rejected*, and rejected for the stated reason.
+let failsWith (fragment: string) (src: string) : unit =
+    match analyseErrors src with
+    | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
+    | errors ->
+        if not (errors |> List.exists (fun d -> d.Message.Contains fragment)) then
+            failwithf
+                "expected an error containing %A but got %A for:\n%s"
+                fragment
+                (errors |> List.map (fun d -> d.Message))
+                src
+
+/// Analyse `src`; assert it produced NO error diagnostics, without running it —
+/// for front-end-only coverage where codegen is deferred (cf. the duck-typed
+/// for-in test in ForInTests.fs).
+let typeChecks (src: string) : unit =
+    match analyseErrors src with
+    | [] -> ()
+    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
 // `System.Reflection.Metadata` so a test can read raw metadata (Method/Field
