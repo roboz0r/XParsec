@@ -48,13 +48,21 @@ files = [
     "ops-std.fsi",
 ]
 
+# The `.fs` files compiled into Vesper.Core.dll (the package's runtime DLL). These
+# define the extern primitive types bound to `(# "..." #)` intrinsics (`Fun`, `unit`,
+# `int`, array, …) and the captured-mutable `Ref` cell — the actual emitted members.
+# (Not every `prim-types-*.fs` is listed: the minimal BCL-only DLL is built from
+# `prim-types-min.fs` + `core-types.fs`, matching the codegen test fixture.)
+impl = [
+    "prim-types-min.fs",
+    "core-types.fs",
+]
+
 # Per-target `.fs` bodies the codegen inline-body loader reads across the package
 # boundary (symbol-resolution-plan §5.2/§5.3). `ops-platform.fs` carries the
 # operator + `hash` inline bodies (the equality / arithmetic / bitwise / unary
-# families). Every `prim-types-*.fsi` now has a companion `prim-types-*.fs` (the
-# extern types bound to `(# "..." #)` intrinsics), but those are compiled into
-# Vesper.Core.dll separately — they bind extern *types*, not inline values, so they
-# are NOT inline-body sources and stay out of this list.
-impl = [
+# families). These are signature-only (`let inline` spliced at the use site, no
+# emitted method), so they are NOT a DLL compile target — distinct from `impl`.
+inline-bodies = [
     "ops-platform.fs",
 ]

@@ -192,6 +192,92 @@ let defaultManifests: string list =
         vesperPrintfManifest
     ]
 
+/// The load context the package-build harness (`buildPackage`) loads its own DLLs
+/// into. Its `Load` override resolves sibling `Vesper.*` packages it has built from
+/// an internal registry, so a package loaded here binds against *this harness's*
+/// copy of its dependencies — not whatever the Default context holds. (The
+/// `vesperCoreDll`/`vesperListDll` lazies load a *different* `Vesper.Core` into the
+/// Default context; resolving the harness's `Vesper.List` against that one would
+/// trip the same-name / distinct-identity trap.) Everything else — FSharp.Core,
+/// `Vesper.Printf`, the BCL — returns `null` to fall through to Default.
+type private PackageLoadContext() =
+    inherit AssemblyLoadContext("xparsec-package-build", isCollectible = false)
+
+    let built =
+        Collections.Concurrent.ConcurrentDictionary<string, Assembly>(StringComparer.Ordinal)
+
+    member _.Register(name: string, asm: Assembly) = built.[name] <- asm
+
+    override _.Load(name: AssemblyName) : Assembly =
+        match built.TryGetValue name.Name with
+        | true, asm -> asm
+        | _ -> null
+
+let private packageAlc = PackageLoadContext()
+
+let private packageBuildCache =
+    Collections.Concurrent.ConcurrentDictionary<string, Lazy<Assembly * ClrArtifact>>(StringComparer.Ordinal)
+
+/// Pre-1 (vesper-lib-test-plan.md): compile `src/<package>/`'s `impl` `.fs` files
+/// (in manifest order) to a DLL through our own backend, resolving `depends-on`
+/// recursively — each dependency is built + loaded first, its DLL added to
+/// `References` and its `manifest.toml` to the contract stack. Caches per package
+/// (`Lazy`), generalizing the hand-written `vesperCoreDll`/`vesperListDll` fixtures
+/// into one manifest-driven function. Returns the loaded `Assembly` (in the shared
+/// `packageAlc`) and the `ClrArtifact` (so a caller can assert
+/// `FSharpCoreDependencies` is empty — the BCL-only bar).
+let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
+    packageBuildCache.GetOrAdd(
+        package,
+        fun pkg ->
+            lazy
+                (let manifestPath = srcManifest pkg
+
+                 let manifest =
+                     match ReferencedProject.loadManifest manifestPath with
+                     | Result.Ok m -> m
+                     | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
+
+                 // Force each dependency's build first (recursively, shared cache):
+                 // this loads + registers it in `packageAlc`, so the current package
+                 // resolves against it at load time. Collect each dep's on-disk DLL
+                 // for `References` (the emit-time AssemblyRef) and its manifest for
+                 // the contract provider / inline bodies.
+                 let depArtifacts =
+                     manifest.DependsOn |> List.map (fun d -> (buildPackage d).Value |> snd)
+
+                 let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
+                 let depManifests = manifest.DependsOn |> List.map srcManifest
+
+                 let provider, inlines = SymbolProviders.buildContract depManifests
+
+                 let dir = IO.Path.GetDirectoryName manifestPath
+
+                 let src =
+                     manifest.Impl
+                     |> List.map (fun rel -> IO.File.ReadAllText(IO.Path.Combine(dir, rel)))
+                     |> String.concat "\n\n"
+
+                 let outDir = tmpDir (sprintf "pkg-%s" pkg)
+                 let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")
+
+                 let project =
+                     { ProjectInfo.library manifest.Name with
+                         OutputPath = Some outPath
+                         References = depDlls
+                     }
+
+                 let lexed, file = parseFile src
+                 let tast = Pipeline.analyse provider src lexed file
+                 let artifact = Codegen.compileWithInlines inlines provider project tast
+                 Codegen.materialise artifact
+
+                 use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
+                 let asm = packageAlc.LoadFromStream ms
+                 packageAlc.Register(manifest.Name, asm)
+                 asm, artifact)
+    )
+
 /// Build the symbol-resolution stack + its cross-package inline bodies once
 /// (cached per manifest set by `SymbolProviders.buildContract`) and run *both*
 /// phases against it (symbol-resolution-plan P1 / handoff option A): a use-site

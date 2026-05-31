@@ -147,7 +147,7 @@ module SymbolProviders =
             | Result.Ok manifest ->
                 let dir = Path.GetDirectoryName manifestPath
 
-                for rel in manifest.Impl do
+                for rel in manifest.InlineBodies do
                     let file: VesperLib.LibFile =
                         {
                             BucketName = manifest.Name

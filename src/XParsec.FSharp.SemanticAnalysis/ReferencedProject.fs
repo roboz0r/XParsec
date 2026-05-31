@@ -28,12 +28,24 @@ module ReferencedProject =
             /// `[core] namespace` — the namespace the package's symbols live in
             /// (and the implicit auto-open prefix for short-name resolution).
             Namespace: string
+            /// Other packages this one depends on (`[core] depends-on`) — the
+            /// package names whose DLLs/contracts must be built/referenced first.
+            /// Drives the package-build harness's recursive dependency resolution.
+            DependsOn: string list
             /// Contract `.fsi` files in compile order (`[core] files`).
             Files: string list
-            /// Target-binding `.fs` files (`[core] impl`) — the per-target bodies.
-            /// Carried for the codegen layer (the missing-`.fs` gap, §5.3); not
-            /// needed to resolve symbols.
+            /// The `.fs` files compiled into the package DLL (`[core] impl`) — the
+            /// compile target. For most packages these are also the inline-body
+            /// source (see `InlineBodies`); they diverge for signature-only operator
+            /// packages (Vesper.Core's DLL is the prim-types/`Ref` bodies, its inline
+            /// bodies live in `ops-platform.fs`; Vesper.Comparison has no DLL at all).
             Impl: string list
+            /// The `.fs` files whose module-level `let inline` bindings are spliced
+            /// across the package boundary at consumer use sites (`[core]
+            /// inline-bodies`), consumed by `SymbolProviders.inlineBodies`. Defaults
+            /// to `Impl` when the key is absent — the common case where the impl
+            /// files are themselves the inline-body source.
+            InlineBodies: string list
         }
 
     let private asString (v: TomlValue) : string option =
@@ -65,12 +77,20 @@ module ReferencedProject =
             | None, _ -> Error "manifest.toml: [core] missing `namespace`"
             | _, None -> Error "manifest.toml: [core] missing `files = [...]`"
             | Some ns, Some files ->
+                let impl = findStringList core "impl" |> Option.defaultValue []
+
                 Ok
                     {
                         Name = findString core "name" |> Option.defaultValue dirName
                         Namespace = ns
+                        DependsOn = findStringList core "depends-on" |> Option.defaultValue []
                         Files = files
-                        Impl = findStringList core "impl" |> Option.defaultValue []
+                        Impl = impl
+                        // `inline-bodies` defaults to the impl files: the common case
+                        // is that a package's implementation *is* its inline-body
+                        // source. Operator packages override it (their DLL compile
+                        // target and inline-splice source differ).
+                        InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue impl
                     }
 
     /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).

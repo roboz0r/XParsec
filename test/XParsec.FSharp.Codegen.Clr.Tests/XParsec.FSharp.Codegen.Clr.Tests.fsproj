@@ -42,6 +42,7 @@
     <Compile Include="ExceptionTests.fs" />
     <Compile Include="UseTests.fs" />
     <Compile Include="ForInTests.fs" />
+    <Compile Include="PackageBuildTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
