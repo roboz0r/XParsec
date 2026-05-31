@@ -576,6 +576,106 @@ let failsWithOption (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
+// ---- Vesper.Result runtime harness (vesper-lib-test-plan Phase 2) -----------
+// Mirrors the Vesper.Option harness above. `Vesper.Result` is *not* in
+// `defaultManifests` (its `Ok`/`Error`/`Result` would shadow resolution in every
+// other test), so driver programs opt in by stacking the Result contract and
+// referencing a once-built `Vesper.Result.dll`. Unlike Option, Result is BCL-only
+// (Gap 1 closed), so the emitted DLL pulls no FSharp.Core — but the harness is
+// otherwise identical (the in-process run resolves any dep against the test
+// process regardless).
+
+let vesperResultSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Result", fileName)
+
+let vesperResultManifest: string = srcManifest "Vesper.Result"
+
+/// Compile `Vesper.Result.dll` from `src/Vesper.Result/result.fs` against the
+/// Vesper.Core contract (so `Fun` / `unit` / `raise` resolve from source), load
+/// it into the Default `AssemblyLoadContext`, and return its path. Depends on
+/// `Vesper.Core` only, so just the core DLL is in `References`. (Loaded into the
+/// Default ALC — not the `buildPackage` `packageAlc` — so a `runEntryPoint` driver
+/// program, which runs in a fresh ALC that falls back to Default, can resolve it.)
+let vesperResultDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-result"
+         let resultPath = IO.Path.Combine(outDir, "Vesper.Result.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Result" with
+                 OutputPath = Some resultPath
+                 References = [ vesperCoreDll.Value ]
+             }
+
+         let src = IO.File.ReadAllText(vesperResultSource "result.fs")
+         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyse provider src lexed file
+         let artifact = Codegen.compileWithInlines inlines provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath resultPath |> ignore
+         resultPath)
+
+/// Compile a driver program that `open`s `Vesper` and exercises the `Result`
+/// type/module, run it in-process, and assert exit 0 with trimmed stdout equal to
+/// `expected`. The `Result`-module counterpart of `runsOption`.
+let runsResult (expected: string) (src: string) : unit =
+    let provider, inlines =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperResultManifest ])
+
+    let baseProject = withCore (ProjectInfo.defaults "ResultCorpus")
+
+    let project =
+        { baseProject with
+            References = baseProject.References @ [ vesperResultDll.Value ]
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    let artifact = Codegen.compileWithInlines inlines provider project tast
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsResult` for a multi-line expected block.
+let runsResultLines (expected: string list) (src: string) : unit =
+    runsResult (String.concat "\n" expected) src
+
+/// `analyseErrors` against the default contract stack PLUS the `Vesper.Result`
+/// contract — the front-end-only probe for cross-package Result use.
+let private analyseResultErrors (src: string) : Diagnostic list =
+    let provider, _ =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperResultManifest ])
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// Analyse `src` against the Result contract; assert NO error diagnostics —
+/// `typeChecks`'s Result-aware twin.
+let typeChecksResult (src: string) : unit =
+    match analyseResultErrors src with
+    | [] -> ()
+    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
+/// Analyse `src` against the Result contract; assert an error diagnostic whose
+/// message contains `fragment`. `failsWith`'s Result-aware twin.
+let failsWithResult (fragment: string) (src: string) : unit =
+    match analyseResultErrors src with
+    | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
+    | errors ->
+        if not (errors |> List.exists (fun d -> d.Message.Contains fragment)) then
+            failwithf
+                "expected an error containing %A but got %A for:\n%s"
+                fragment
+                (errors |> List.map (fun d -> d.Message))
+                src
+
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
 // `System.Reflection.Metadata` so a test can read raw metadata (Method/Field

@@ -217,7 +217,18 @@ module UnificationInfer =
                                 // ctor as a function value so `inferApp` types the
                                 // call through the normal function arm.
                                 classCtorAsFunction ctx n
-                    | ValueNone -> TyVar(freshTyVar ctx)
+                    | ValueNone ->
+                        // A multi-segment qualified name that resolved to nothing.
+                        // If its qualifier names a known external union/record, the
+                        // tail is a missing member (`Result.Nope` / `Option.Nope`):
+                        // diagnose it rather than minting a fresh TyVar that unifies
+                        // with anything and hides the typo deep in codegen — the
+                        // symmetric front-end miss to `resolveFieldStep`'s instance-
+                        // member arm.
+                        match tryQualifiedExternalMemberMiss ctx e with
+                        | ValueSome(qual, memberName) ->
+                            errorTy ctx key (sprintf "Type '%s' has no value or member '%s'" qual memberName)
+                        | ValueNone -> TyVar(freshTyVar ctx)
 
     and private qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with

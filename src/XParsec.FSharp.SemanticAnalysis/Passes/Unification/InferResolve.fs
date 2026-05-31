@@ -187,6 +187,51 @@ module UnificationInferResolve =
         | ValueSome(ExternalTypeShape.Class _) -> true
         | _ -> false
 
+    /// Does `n` resolve — through the active `open`s, at any small arity — to an
+    /// external *union* or *record* type? Unlike a class, a union/record exposes
+    /// no static fields: the only valid `n.tail` forms are a module function (a
+    /// value) and a union case (a ctor), both tried *before* this probe is
+    /// consulted. So an unresolved `tail` under such a qualifier is a genuine
+    /// missing-member reference, not the unmodelled-static-field silence a class
+    /// qualifier warrants.
+    let private resolvesAsExternalUnionOrRecord (ctx: PassContext) (n: string) : bool =
+        let isUnionOrRecord (name: string) =
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Union _)
+            | ValueSome(ExternalTypeShape.Record _) -> true
+            | _ -> false
+
+        let probe (name: string) =
+            isUnionOrRecord name
+            || [ 1; 2; 3; 4 ]
+               |> List.exists (fun a -> isUnionOrRecord (sprintf "%s`%d" name a))
+
+        OpenScope.tryQualify ctx.Resolution.OpenScope probe n |> ValueOption.isSome
+
+    /// A 2+-segment qualified reference `Q.member` whose qualifier `Q` (every
+    /// segment but the last) names a known external union/record, but whose
+    /// `member` resolved to neither a value (module function) nor a case nor a
+    /// static member. Those are the only valid forms under such a qualifier and
+    /// every one is tried ahead of this probe, so the reference is an unresolved
+    /// member — returns `(qualifier, member)` to diagnose. `ValueNone` when the
+    /// head isn't such a qualifier (a class qualifier or an unknown one stays a
+    /// fresh TyVar: see `tryExternalStaticLongIdent`'s intentional class silence
+    /// and the `NameResolution` "Unresolved qualified name" path respectively).
+    let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : (string * string) voption =
+        match e with
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
+            let qualifier =
+                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                |> String.concat "."
+
+            let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+            if resolvesAsExternalUnionOrRecord ctx qualifier then
+                ValueSome(qualifier, memberName)
+            else
+                ValueNone
+        | _ -> ValueNone
+
     /// Split a multi-segment LongIdent into `(resolvedPrefix, lastTok)` where the
     /// prefix (every segment but the last) resolves — through the active `open`s —
     /// to an external class. `ValueNone` if it doesn't. The folded-LongIdent

@@ -208,6 +208,14 @@ let frontEndTests =
             test "absent member on int option is a clean instance-member error" {
                 failsWithOption "has no instance member" "let f (o: int option) : bool = o.Nope"
             }
+
+            // The module-qualified twin: an unknown `Option.X` function is an
+            // unresolved-member error, not a silently-accepted fresh TyVar — the
+            // qualified external-module path matching the bare-ident path
+            // (vesper-result-handoff.md).
+            test "an unknown Option function is unresolved" {
+                failsWithOption "Nope" "let f (o: int option) : int = Option.Nope o"
+            }
         ]
 
 // vesper-lib-test-plan Gap 2 **Layer B** — cross-package construction of an
