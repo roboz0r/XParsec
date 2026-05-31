@@ -278,7 +278,7 @@ module SymbolProviders =
                         // `.fsi` extern with its sibling `.fs` `(# … #)` binding);
                         // no codegen-layer harvest wrap is needed
                         // (intrinsic-repr-handoff.md — first-cut teardown).
-                        // Close + order the manifest set ONCE (Phase 1) and thread
+                        // Close + order the manifest set ONCE and thread
                         // the same ordered list into the provider stack and the
                         // inline-body loader, so both see the full `depends-on`
                         // closure (a root's transitive dependency contributes its

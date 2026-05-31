@@ -162,7 +162,7 @@ module VesperLibTyparCapture =
         /// The in-scope type shape for compiled name `compiled` during
         /// extraction: this package's own shapes first (registered as its files
         /// are walked), then the dependency-contributed `AmbientShapes`. The
-        /// single lookup Phase 3's `translateType` kinding consults — own shapes
+        /// single lookup `translateType`'s kinding consults — own shapes
         /// shadow a dependency's on a name clash, matching the consumer composite's
         /// first-source-wins priority.
         ///
@@ -171,7 +171,7 @@ module VesperLibTyparCapture =
         /// intra-package forward reference is only valid inside a `type … and …`
         /// group or a `rec` namespace/module, and those shapes are registered
         /// together before any signature body is kinded. Any other unresolved name
-        /// is a genuine `TyUnknown` (Phase 4), not an ordering artefact.
+        /// is a genuine `TyUnknown`, not an ordering artefact.
         let shapeOf (ctx: ExtractCtx) (compiled: string) : ExternalTypeShape voption =
             match ctx.TypeShapes.TryGetValue compiled with
             | true, s -> ValueSome s

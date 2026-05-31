@@ -435,8 +435,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             | Some _ ->
                 // The symbol's full curried monotype, with one fresh `TypeVar` per declared typar.
                 // Its nominal heads are already kind-correct (`'T option` ⇒ `TyUnion`) — dependency-
-                // aware extraction bakes them so (package-type-extraction-plan Phase 3) — so they
-                // encode + recover against the producer's emitted signature with no reconciliation.
+                // aware extraction bakes them so — so they encode + recover against the producer's
+                // emitted signature with no reconciliation.
                 let monoSig = sym.Instantiate 0
                 let paramTys, retTy = decurryTy monoSig
                 let markerRoots = signatureTypars paramTys retTy

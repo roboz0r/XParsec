@@ -414,9 +414,9 @@ let tests =
                 assertWidgetIntToInt "reference via open" (instOf "viaOpen")
             }
 
-            test "Phase 4: a signature naming an out-of-scope type bakes TyUnknown" {
+            test "a signature naming an out-of-scope type bakes TyUnknown" {
                 // No ambient shape and no local type declares `Missing.Thing`, so
-                // `resolveTypeName` fails. Instead of the pre-Phase-4 silent skip
+                // `resolveTypeName` fails. Instead of a silent skip
                 // (the val landing in `ctx.Skipped`), extraction retains the val and
                 // bakes a `TyUnknown` leaf carrying the unresolved name — which a
                 // consumer surfaces as a use-site diagnostic (see the unify arm in

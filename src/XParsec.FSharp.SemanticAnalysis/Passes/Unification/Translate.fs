@@ -428,8 +428,8 @@ module UnificationTranslate =
                         // so a union/class alias (`'T option = Option<'T>`)
                         // expands to a properly-kinded body.
                         | ExternalTypeShape.Abbrev(_, build) -> Some(build (translatedArgs.AsSpan().ToArray()))
-                        // An `Opaque` residue (a GADT union / enum / unmodelled body,
-                        // Phase 6) has no kind to resolve a *type annotation* to — skip
+                        // An `Opaque` residue (a GADT union / enum / unmodelled body)
+                        // has no kind to resolve a *type annotation* to — skip
                         // this candidate, exactly as a name with no shape did before the
                         // residue was registered. The val-signature path that needs the
                         // `TyRecord` placeholder goes through `mkNominal`, not here.

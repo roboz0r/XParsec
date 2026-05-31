@@ -458,7 +458,7 @@ module VesperLibTypeTranslate =
                 compiled
         | ValueNone ->
             failwithf
-                "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape (see package-type-extraction-plan Phase 6)"
+                "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"
                 compiled
 
     let rec translateType
@@ -523,7 +523,7 @@ module VesperLibTypeTranslate =
             else
                 match resolveTypeName ctx opens name 0 with
                 // A name that resolves to nothing in scope bakes a `TyUnknown`
-                // leaf rather than skipping the val (Phase 4): it surfaces as a
+                // leaf rather than skipping the val: it surfaces as a
                 // use-site diagnostic instead of a silent drop.
                 | Error _ -> Ok(fun _ -> TyUnknown name)
                 // Kind the bare nominal against the in-scope shapes (a zero-arity
@@ -551,7 +551,7 @@ module VesperLibTypeTranslate =
                 let bs = builders.ToArray()
 
                 match resolveTypeName ctx opens name bs.Length with
-                // Unresolved head ⇒ `TyUnknown` leaf (Phase 4). The arg builders
+                // Unresolved head ⇒ `TyUnknown` leaf. The arg builders
                 // are dropped: an unknown head has no kind to carry them into, and
                 // the use-site diagnostic only needs the name.
                 | Error _ -> Ok(fun _ -> TyUnknown name)
@@ -567,7 +567,7 @@ module VesperLibTypeTranslate =
             | Error e -> Error e
             | Ok fb ->
                 match resolveTypeName ctx opens name 1 with
-                // Unresolved suffix head ⇒ `TyUnknown` leaf (Phase 4).
+                // Unresolved suffix head ⇒ `TyUnknown` leaf.
                 | Error _ -> Ok(fun _ -> TyUnknown name)
                 // `'T list` ≡ `List<'T>`; kind the head against the in-scope
                 // shapes at `Instantiate` time — see `mkNominal`.

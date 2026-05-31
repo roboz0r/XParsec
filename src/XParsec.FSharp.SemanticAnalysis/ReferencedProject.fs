@@ -89,7 +89,7 @@ module ReferencedProject =
                 | Some explicit when explicit <> dirName ->
                     Error(
                         sprintf
-                            "manifest.toml: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against (package-type-extraction-plan.md F-E)"
+                            "manifest.toml: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against"
                             explicit
                             dirName
                     )
@@ -386,7 +386,7 @@ module ReferencedProject =
     /// (`AmbientShapes` defaults to "resolve nothing"). The dependency-free path:
     /// a package with no `depends-on`, and the entry point tests build a single
     /// package from. Dependency-aware composition uses `buildProviderWith`
-    /// directly (`SymbolProviders.composeProviders`, Phase 2).
+    /// directly (`SymbolProviders.composeProviders`).
     let buildProvider
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
