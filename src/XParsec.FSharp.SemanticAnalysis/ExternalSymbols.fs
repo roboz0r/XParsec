@@ -276,8 +276,7 @@ type ExternalClassShape =
 
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.
 /// `arity` is the number of declared typars (same length the builder
-/// arrays expect at instantiation). enum/delegate types are deferred and
-/// currently return `ValueNone` from the provider.
+/// arrays expect at instantiation).
 [<RequireQualifiedAccess>]
 type ExternalTypeShape =
     | Abbrev of arity: int * body: (SemType[] -> SemType)
@@ -311,6 +310,24 @@ type ExternalTypeShape =
     /// mirrors the *local* `IntrinsicReprTypes` semantics (SideTables.fs) for a
     /// referenced package; arity is always 0 (primitives are non-generic).
     | Intrinsic of repr: string
+    /// A nominal type whose *name + arity* the extractor registered but whose
+    /// body shape it does not (yet) model: a GADT-cased union
+    /// (`Vesper.Collections.List`), an enum / delegate / type-extension (v1
+    /// defers the body), or a union / record / abbreviation whose body failed to
+    /// translate (an unsupported field form, a typar-arity overflow). The skip
+    /// reason, when it is an error rather than a deferral, is recorded in
+    /// `ExtractCtx.Skipped`; this shape is the *referenceable* residue, so a
+    /// signature mentioning the type still resolves instead of vanishing.
+    ///
+    /// `mkNominal` kinds it as the `TyRecord(compiled, args)` placeholder codegen
+    /// special-cases (`isVesperListName`, `userTypes`, external refs). Crucially
+    /// it is a *registered* shape, not the absence of one: every name
+    /// `resolveTypeName` can resolve now has a shape, so `mkNominal` is total and
+    /// the old name-without-shape gap (the accidental `ValueNone -> TyRecord`
+    /// fallthrough) is unrepresentable. Distinct from a genuinely *unresolved*
+    /// name, which never registers and bakes `TyUnknown`
+    /// (package-type-extraction-plan Phase 6).
+    | Opaque of arity: int
 
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call
 /// concurrently from multiple threads. Implementations that cache lazily must
@@ -494,7 +511,8 @@ module ExternalSymbols =
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
                     | ExternalTypeShape.Union(arity, cases, _) -> ExternalTypeShape.Union(arity, cases, o)
                     | ExternalTypeShape.Abbrev _
-                    | ExternalTypeShape.Intrinsic _ -> shape
+                    | ExternalTypeShape.Intrinsic _
+                    | ExternalTypeShape.Opaque _ -> shape
 
         { new IExternalSymbolProvider with
             member _.TryLookup name =

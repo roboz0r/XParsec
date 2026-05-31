@@ -449,6 +449,22 @@ module VesperLib =
         else
             Error(sprintf "body references %d typars but only %d declared" collector.Count declaredArity)
 
+    /// A body extractor bailed (an unsupported field/case/RHS form, a typar-arity
+    /// overflow): record *why* in `ctx.Skipped` AND register the `Opaque` residue
+    /// shape, so the type — whose name+arity are known — stays referenceable. A
+    /// signature mentioning it then resolves to the `TyRecord` placeholder
+    /// `mkNominal` bakes for `Opaque`, instead of leaving a name-without-shape
+    /// gap. (package-type-extraction-plan Phase 6.)
+    let private skipBodyOpaque
+        (ctx: ExtractCtx)
+        (file: LibFile)
+        (compiled: string)
+        (arity: int)
+        (reason: string)
+        : unit =
+        ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled reason)
+        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity
+
     let private extractAbbrevBody
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -464,10 +480,10 @@ module VesperLib =
         let throwawayConstraints = ConstraintCollector()
 
         match translateType ctx lexed input opens collector throwawayConstraints rhs with
-        | Error e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
+        | Error e -> skipBodyOpaque ctx file compiled arity e
         | Ok build ->
             match bodyTyparsOk collector arity with
-            | Error e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
+            | Error e -> skipBodyOpaque ctx file compiled arity e
             | Ok() -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, build)
 
     let private extractRecordBody
@@ -501,10 +517,10 @@ module VesperLib =
                         }
 
         match err with
-        | Some e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
+        | Some e -> skipBodyOpaque ctx file compiled arity e
         | None ->
             match bodyTyparsOk collector arity with
-            | Error e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
+            | Error e -> skipBodyOpaque ctx file compiled arity e
             | Ok() ->
                 // `Origin` is filled later by `ReferencedProject.wrap` (which
                 // knows the package's assembly + namespace from the manifest);
@@ -587,10 +603,10 @@ module VesperLib =
                     err <- Some "GADT cases not supported"
 
         match err with
-        | Some e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
+        | Some e -> skipBodyOpaque ctx file compiled arity e
         | None ->
             match bodyTyparsOk collector arity with
-            | Error e -> ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled e)
+            | Error e -> skipBodyOpaque ctx file compiled arity e
             // `Origin` is filled later by `ReferencedProject.wrap` (which knows
             // the package's assembly + namespace from the manifest); the
             // extractor itself records `Empty`.
@@ -771,9 +787,14 @@ module VesperLib =
         | TypeSignature.Enum(typeName = typeName)
         | TypeSignature.Delegate(typeName = typeName)
         | TypeSignature.TypeExtension(typeName = typeName) ->
-            // Enum / delegate / type-extension body shapes land later; v1 only
-            // registers the name+arity so other types can reference them nominally.
-            registerTypeDecl ctx lexed input path typeName |> ignore
+            // Enum / delegate / type-extension body shapes land later; v1
+            // registers the name+arity plus an `Opaque` residue shape so other
+            // types can reference them nominally (the `TyRecord` placeholder
+            // `mkNominal` bakes) and every registered name carries a shape — no
+            // name-without-shape gap. (package-type-extraction-plan Phase 6.)
+            match registerTypeDecl ctx lexed input path typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity
 
     /// Harvest the `open Foo.Bar` clauses from a flat element list. The
     /// caller prepends to its inherited list so a scope's own opens are

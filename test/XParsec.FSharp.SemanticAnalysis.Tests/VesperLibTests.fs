@@ -472,6 +472,124 @@ let tests =
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
 
+            test "Phase 6: a GADT-cased union registers an Opaque residue shape, not absence" {
+                // A union whose cases carry explicit return types (`| Empty: Thing<'T>`)
+                // is GADT-form — `extractUnionBody` defers it. Pre-Phase-6 it registered
+                // the *name* but no shape, leaving a name-without-shape gap that
+                // `mkNominal` papered over with a `ValueNone -> TyRecord` fallthrough. Now
+                // the deferral registers an explicit `Opaque` residue, so every registered
+                // name carries a shape and `TryLookupType` returns `ValueSome(Opaque)`
+                // rather than absence. (The skip *reason* is still recorded in
+                // `ctx.Skipped`.)
+                let input =
+                    "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | Empty: Thing<'T>\n        | Box: 'T -> Thing<'T>\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+
+                let thingShape =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "Thing" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match thingShape with
+                | ValueSome(ExternalTypeShape.Opaque arity) -> Expect.equal arity 1 "Opaque carries the declared arity"
+                | ValueSome other -> failtestf "expected an Opaque shape for the GADT union; got %A" other
+                | ValueNone ->
+                    failtestf
+                        "GADT union registered no shape (name-without-shape gap). Shapes: %A"
+                        (Seq.toList ctx.TypeShapes.Keys)
+            }
+
+            test "Phase 6: a reference to an Opaque-shaped type bakes the TyRecord placeholder" {
+                // The consumer half of the residue: a signature naming a type whose
+                // in-scope shape is `Opaque` (a GADT union / enum / unmodelled body)
+                // bakes the `TyRecord(name, args)` placeholder codegen keys off — via
+                // `mkNominal`'s `Opaque` arm — *not* `TyUnknown` (the name resolved) and
+                // not a crash. Seeded through the ambient so the path is exercised
+                // directly, the same way the Union cross-package test above is.
+                let ambient name =
+                    if name = "Dep.Widget" then
+                        ValueSome(ExternalTypeShape.Opaque 1)
+                    else
+                        ValueNone
+
+                let input =
+                    "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                ctx.AmbientShapes <- ambient
+                VesperLib.extractSymbols ctx parsed
+
+                let mutable inst = ValueNone
+
+                for kv in ctx.Symbols do
+                    if inst.IsNone && kv.Key.EndsWith ".qualified" then
+                        inst <- ValueSome(kv.Value.Instantiate 0)
+
+                match inst with
+                | ValueNone -> failtestf "val 'qualified' was skipped. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
+                | ValueSome(TyFun(TyRecord("Dep.Widget", args), TyConst "int")) when args.Length = 1 ->
+                    match args.[0] with
+                    | TyConst "int" -> ()
+                    | other -> failtestf "expected Dep.Widget<int> placeholder arg; got %A" other
+                | ValueSome other -> failtestf "expected (TyRecord(\"Dep.Widget\", [int]) -> int); got %A" other
+            }
+
             test "ModuleSuffix flag applied to the innermost module" {
                 let provider, _ = builtProvider.Value
 
