@@ -148,7 +148,7 @@ let tests =
                 Expect.isFalse (hasMessage ctx "Cannot resolve member") "no deferred-dot diagnostic"
             }
 
-            // O4 (symbol-resolution-handoff.md, open-resolution): FS3200 — in a recursive declaration
+            // FS3200 — in a recursive declaration
             // group, `open`s must come first in each module/namespace scope.
             test "module rec: an open after a binding is rejected (FS3200)" {
                 let ctx = analyse "module rec R\n\nlet a = 1\nopen Q\nlet b = 2"

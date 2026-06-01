@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
 // `ExternalSymbols.composite` is the first-hit-wins composition primitive
-// (symbol-resolution-plan §5 / P1). These tests pin the priority semantics
+// These tests pin the priority semantics
 // with trivial in-line providers, independent of any real `.fsi` extraction.
 
 /// A provider that answers exactly `name` (value, type, and member channels)

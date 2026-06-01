@@ -73,7 +73,7 @@ type TExpr =
     /// name so target plugins can dispatch (`op_Addition` -> CIL `add` on
     /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
     /// `key` interns the resolved `SymbolKey` so codegen reads the binding off the
-    /// node instead of re-resolving by name (symbol-resolution-plan §7.2);
+    /// node instead of re-resolving by name;
     /// `ValueNone` until Freeze stamps it (P3) — every site is name-only today.
     | External of compiledName: string * key: SymbolKey voption * ty: SemType
     | Lambda of param: TPat * body: TExpr * ty: SemType
@@ -174,7 +174,7 @@ type TExpr =
     /// `MemberKind` has no `Field` case).
     | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: SemType
     /// Member access on an *external* type resolved through `IExternalSymbolProvider`
-    /// (symbol-resolution-plan §7.2). `key` interns the resolved `SymbolKey` so
+    /// `key` interns the resolved `SymbolKey` so
     /// codegen (P4) mints the ref off the node's identity instead of re-resolving by
     /// name — the external analogue of `TExpr.Var`'s `BindingSite`. `receiver` is
     /// `ValueNone` for a static member (`EqualityComparer<int>.Default`) and

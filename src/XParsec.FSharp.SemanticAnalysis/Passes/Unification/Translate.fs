@@ -152,7 +152,7 @@ module UnificationTranslate =
                 // resolve uniformly through this local check, the external provider
                 // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque
                 // fallback below — all of which yield `TyConst name`, identical to
-                // the retired anchors (intrinsic-repr-handoff.md Goal 2).
+                // the retired hardcoded arms.
                 TyConst(name, EqArray.empty)
             | _ ->
                 match ctx.Types.Abbreviation.TryGetValue name with
@@ -389,7 +389,7 @@ module UnificationTranslate =
     /// referenced at the wrong arity isn't this type, and guards the abbrev/record
     /// builders against a wrong-length arg array). Abbreviations are left to the
     /// caller's opaque fallback rather than expanded here — expanding would discard
-    /// the abbrev name the extractor convention pins (symbol-resolution-handoff.md).
+    /// the abbrev name the extractor convention pins.
     and private tryResolveExternalType
         (ctx: PassContext)
         (qualName: string)
@@ -438,7 +438,7 @@ module UnificationTranslate =
                         // the same way a locally-declared one does. (The qualified `key`
                         // is what `subsumes.canonName` re-resolves through the ambient to
                         // recover the repr.) The repr is consumed by codegen / subsumes,
-                        // never by dealiasing here (intrinsic-repr-handoff.md Goal 2).
+                        // never by dealiasing here.
                         | ExternalTypeShape.Intrinsic _ ->
                             let short = key.Substring(key.LastIndexOf('.') + 1)
                             Some(TyConst(short, EqArray.empty))

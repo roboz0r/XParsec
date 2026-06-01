@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// O1 (docs/symbol-resolution-handoff.md (open-resolution)): NameResolution routes its provider-probe
+// NameResolution routes its provider-probe
 // sites through `OpenScope.tryQualify`, so a short name resolves against the
 // `open`s in scope — and only those declared before it (running accumulator).
 
@@ -77,10 +77,7 @@ let tests =
                 Expect.isTrue (hasUnresolved ctx) "Foo is unresolved with no open"
             }
 
-            // O3 gate (symbol-resolution-handoff.md, open-resolution), the inheritance half: a nested
-            // module sees an `open` declared in its enclosing scope. (The
-            // referenced-contract ambient prelude — `hash` with no `open` — is the
-            // deferred half; see the plan's Status note.)
+            // A nested module sees an `open` declared in its enclosing scope.
             test "a nested module inherits an enclosing open" {
                 let ctx = analyse "open A.B\nmodule M =\n    let x = thing"
                 Expect.isFalse (hasUnresolved ctx) "thing resolves inside nested M via the enclosing open A.B"

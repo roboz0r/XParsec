@@ -3,12 +3,11 @@ namespace Vesper
 open System.Collections.Generic
 
 // ops-platform.fs — the per-target *implementation* of `ops-platform.fsi`
-// (symbol-resolution-plan §5.2: the `.fsi` is the target-agnostic contract, the
+// (the `.fsi` is the target-agnostic contract, the
 // `.fs` is the binding). Each inline body here is read across the package
 // boundary by the codegen inline-body loader (`SymbolProviders.inlineBodies`)
 // and spliced at each use site by `Emit.lowerWith`'s `External`→inline-body
-// routing — the same cross-package-inline mechanism `hash` introduced
-// (milestone M, symbol-resolution-handoff.md).
+// routing — the same cross-package-inline mechanism `hash` introduced.
 //
 // The EQUALITY family (`=` / `<>`) is the first OPERATOR family sourced from here
 // rather than the codegen `Emit.BuiltinOps` stopgap (operators-plan.md
@@ -24,8 +23,8 @@ open System.Collections.Generic
 // operand) is the structural `EqualityComparer<^T>.Default.Equals(x, y)` — the
 // same family `hash` and the generated DU triple use, so `=`/`hash` agree by
 // construction. (This routes a 2-arg external instance call through the
-// cross-package inline; the tupled-arg member-emit + `recoverTypeArgs` fixes that
-// makes it work are type-args-bug.md Layers 1+3.) An **unpinned** generic operand
+// cross-package inline; the tupled-arg member-emit + `recoverTypeArgs` handle it.)
+// An **unpinned** generic operand
 // (`let f a b = a = b`, where `^T` is a free typar `EqualityComparer<!0>` can't
 // encode) falls back to `Emit.BuiltinOps`'s `ceq` via the codegen `isGround` guard
 // — the comparer can't encode a free `!0` without the deferred generic-member

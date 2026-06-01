@@ -21,7 +21,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // site — the same cross-package-inline path `hash` uses. The collection test below
 // pins that the body is sourced from the contract; the run tests pin behaviour.
 // The static-opt *base* is now the structural `EqualityComparer<^T>.Default.Equals`
-// fall-clause (type-args-bug.md Layers 1+3): a distinct-but-equal aggregate
+// fall-clause: a distinct-but-equal aggregate
 // compares structurally, not by reference — see the "DU `=` is structural" test.
 // (An unpinned generic operand still falls back to `BuiltinOps`'s `ceq` via the
 // codegen `isGround` guard — `let f a b = a = b`, below.)
@@ -163,8 +163,8 @@ let tests =
 
             test
                 "DU `=` is structural: a distinct-but-equal pair returns true via the comparer (where `ceq` gives false)" {
-                // The headline of the restored structural fall-clause
-                // (type-args-bug.md). `x` and `y` are two *distinct* heap instances
+                // The headline of the restored structural fall-clause.
+                // `x` and `y` are two *distinct* heap instances
                 // with equal payloads; the static-opt base routes `^T = Tag` to
                 // `EqualityComparer<Tag>.Default.Equals(x, y)` — structural — so
                 // `x = y` is true. A reference `ceq` (the old stopgap base) would give

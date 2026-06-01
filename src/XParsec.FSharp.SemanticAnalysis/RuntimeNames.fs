@@ -11,8 +11,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 ///
 /// Identity is the `SymbolKey`, not a string. Each singleton has exactly one
 /// canonical key (the cons-list additionally has its lowercase abbreviation key —
-/// the abbreviation name is load-bearing for contract extraction,
-/// symbol-resolution-handoff.md — so it's the one type with two accepted nominal
+/// the abbreviation name is load-bearing for contract extraction
+/// — so it's the one type with two accepted nominal
 /// forms). Recognition is asm-blind structural field comparison against those keys
 /// (`sameTypeAsmBlind`): same namespace + same bare simple name, home assembly
 /// ignored, no qualified-string rebuild. The former parallel fully-qualified string

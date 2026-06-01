@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.IO
 open XParsec.Toml
 
-/// Layer 1 of the symbol-resolution stack (symbol-resolution-plan §5): a
+/// Layer 1 of the symbol-resolution stack: a
 /// *referenced project*, declared by its `manifest.toml`. A package's `[core]`
 /// table names the namespace and lists its contract `.fsi` files in compile
 /// order; this module parses each into one accumulating `ExtractCtx` (reusing
@@ -13,7 +13,7 @@ open XParsec.Toml
 /// The `.fsi` is the *target-agnostic contract* (`type int = extern`); the
 /// matching `.fs` is the *per-target binding* (`type int = (# "System.Int32" #)`).
 /// Resolution needs only the `.fsi`; the absent `.fs` is a codegen-side concern
-/// (symbol-resolution-plan §5.2/§5.3), not a resolution failure here.
+/// not a resolution failure here.
 module ReferencedProject =
 
     /// A parsed package `manifest.toml`'s `[core]` table. Mirrors the schema used
@@ -289,13 +289,13 @@ module ReferencedProject =
 
     /// Wrap the extractor's provider so (a) every resolved descriptor carries
     /// the package `Origin` (the extractor records `SymbolOrigin.Empty`; the
-    /// manifest knows the assembly + namespace — symbol-resolution-plan §5.1),
+    /// manifest knows the assembly + namespace),
     /// and (b) the package's implicit prelude — its `[<AutoOpen>]` modules plus
     /// the namespace itself — is surfaced as `IAmbientOpenScope`. Short-name
     /// resolution is *not* a provider-internal retry any more: the pipeline
     /// seeds these `ambient` prefixes into the open scope and probes them
     /// BEHIND explicit `open`s, so an explicit `open` can shadow a prelude
-    /// name (symbol-resolution-handoff.md, open-resolution). The actual
+    /// name. The actual
     /// composition / stamping / `IAmbientOpenScope` plumbing is the shared
     /// `ExternalSymbols.stack` primitive — `wrap` is a 1-source instantiation
     /// of it with origin stamping.
@@ -337,7 +337,7 @@ module ReferencedProject =
             // matched primitive as `ExternalTypeShape.Intrinsic repr` rather than
             // an opaque `Class`. The `.fs` is the only place the repr lives
             // (the `.fsi` commits `type exn = extern`, no repr) —
-            // intrinsic-repr-handoff.md (moved here from the codegen-layer harvest).
+            // Moved here from the codegen-layer harvest.
             for rel in manifest.Files do
                 let fsRel = Path.ChangeExtension(rel, ".fs")
                 let abs = Path.Combine(dir, fsRel)
@@ -376,7 +376,7 @@ module ReferencedProject =
             // The contract's implicit prelude: its `[<AutoOpen>]` modules (most
             // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the package
             // namespace itself (`Vesper`, so `int` finds `Vesper.int`). Both are
-            // probed behind explicit `open`s (symbol-resolution-handoff.md, open-resolution).
+            // probed behind explicit `open`s.
             let ambient =
                 List.ofSeq ctx.AutoOpenPrefixes
                 @ (if manifest.Namespace.Length > 0 then

@@ -425,7 +425,7 @@ type ClassMemberIndexEntry =
     }
 
 /// A member access on an *external* type that resolved through the provider
-/// (symbol-resolution-plan §7.2). Recorded by `Unification` keyed by the
+/// Recorded by `Unification` keyed by the
 /// member-access node's `NodeKey`; `Freeze` reads it to mint a
 /// `TExpr.ExternalMember` carrying the interned `SymbolKey`. `IsStatic`
 /// distinguishes `Type.Member` from `value.Member` (drives whether Freeze keeps
@@ -747,8 +747,7 @@ type PassContextResolution =
         /// (from `CstWalk.walkModuleTree`), then read by the provider-probe sites
         /// (`tryQualify`) so a short name resolves against the opens in scope.
         /// Constant inside any one expression (`open` is a declaration-level node).
-        /// See docs/symbol-resolution-handoff.md (open-resolution). Seeded to the
-        /// provider's ambient prelude (below) so a pass that reads it before the
+        /// Seeded to the provider's ambient prelude (below) so a pass that reads it before the
         /// walk sets a per-element scope still sees the auto-opens.
         mutable OpenScope: OpenScope
         /// The *stable* ambient prelude each pass seeds its `walkModuleTree` from —
@@ -782,7 +781,7 @@ type PassContextResolution =
         /// Keyed by a member-access node's `NodeKey` (`Expr.DotLookup`): the resolved
         /// external member (`TryLookupMember` hit) for a `<externalType>.Member` or
         /// static `Type.Member` access. Freeze reads it to mint a `TExpr.ExternalMember`
-        /// stamping the resolved `SymbolKey` (symbol-resolution-plan §7.2, P3). Absent
+        /// stamping the resolved `SymbolKey` (P3). Absent
         /// for project-local member access (resolved via `Types.Class` / `Types.Union`).
         ExternalAccess: SideTable<ResolvedExternalMember>
         /// Keyed by an external-value use-site's `NodeKey` (the `Expr.Ident` /
@@ -864,8 +863,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     // `PassContext` (the pipeline and the direct-construction tests alike) picks
     // it up here. Providers without an implicit prelude return `[]`, so
     // resolution is unchanged for them. The ambient sits at the tail of the
-    // prefix list, so explicit `open`s the pass walk prepends are tried first
-    // (symbol-resolution-handoff.md, open-resolution).
+    // prefix list, so explicit `open`s the pass walk prepends are tried first.
     let ambientOpenScope =
         { OpenScope.empty with
             Prefixes = provider.AmbientOpenPrefixes
@@ -875,8 +873,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     // bindings (`type int = (# "System.Int32" #)`), registered by NameResolution.
     // A *referenced* package's intrinsics are no longer seeded here: they ride
     // the provider as `ExternalTypeShape.Intrinsic` shapes, read local-first /
-    // provider-fallback by `subsumes.canonName`, `translateType`, and codegen
-    // (intrinsic-repr-handoff.md — first-cut teardown).
+    // provider-fallback by `subsumes.canonName`, `translateType`, and codegen.
     let types = PassContextTypes.empty ()
 
     member val Provider = provider
@@ -897,7 +894,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// round-trip the composite provider / MetadataLoadContext per node to read
     /// an `ExternalTypeShape.Intrinsic` repr; the set is tiny and bounded, so a
     /// per-context cache keyed by name suffices. A name that is neither a local
-    /// nor a provider intrinsic caches its own identity. See intrinsic-repr-handoff.md.
+    /// nor a provider intrinsic caches its own identity.
     member val IntrinsicCanonCache = Dictionary<string, string>() with get
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get

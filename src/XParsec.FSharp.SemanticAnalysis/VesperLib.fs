@@ -805,7 +805,7 @@ module VesperLib =
                 // resolved separately via `TryLookupMember`), but registering it
                 // here is what makes a nominal external type — `Vesper.Fun`,
                 // `EqualityComparer<_>` — resolve through `TryLookupType` instead
-                // of `ValueNone` (symbol-resolution-plan §4). `Origin` is stamped
+                // of `ValueNone`. `Origin` is stamped
                 // by the resolving source (e.g. `ReferencedProject`), not here.
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
@@ -818,7 +818,7 @@ module VesperLib =
             // NON-transparent `Intrinsic repr` (a use site resolves to the
             // nominal `TyConst name`, the repr feeding codegen / `subsumes`); the
             // latter falls through to `Class` exactly as a non-extern nominal
-            // does (intrinsic-repr-handoff.md — `.fsi`/`.fs` pairing).
+            // does.
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
@@ -921,7 +921,7 @@ module VesperLib =
                 let modulePath = String.concat "." (List.rev childPath)
 
                 // An `[<AutoOpen>]` module contributes its qualified path to the
-                // contract's ambient prefix set (symbol-resolution-handoff.md, open-resolution).
+                // contract's ambient prefix set.
                 if isAutoOpen lexed input attrs then
                     ctx.AutoOpenPrefixes.Add modulePath
 
@@ -1043,7 +1043,7 @@ module VesperLib =
     /// `.fsi`/`.fs` pairing: the `.fsi` `type exn = extern` deliberately omits
     /// the repr, so the identity lives only here. Run BEFORE the `.fsi`
     /// extraction so the `extern` arm of `extractTypeSig` can publish
-    /// `ExternalTypeShape.Intrinsic` (intrinsic-repr-handoff.md).
+    /// `ExternalTypeShape.Intrinsic`.
     ///
     /// A direct CST scrape — NOT `Pipeline.analyse` — because (a) all we need is
     /// the `type <name> = (# "<repr>" #)` shape, and (b) the prim-types `.fs`

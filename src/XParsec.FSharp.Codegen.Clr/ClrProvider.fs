@@ -13,9 +13,9 @@ open XParsec.FSharp.SemanticAnalysis
 ///   `ClrExternalMembers`— external member/ctor/field refs and generic-static-method specs;
 ///   `ClrRecipes`        — call/ctor/format recipes and the structural equality/comparison member refs.
 ///
-/// `reprs` is the Vesper-primitive-name → IL-representation map (G7); `references` maps an assembly's
-/// simple name to the identity read off its file (R4), so an emitted `AssemblyRef` matches that exact
-/// artifact; `symbols` is the front end's resolution provider (symbol-resolution-plan §3, P4) — pass
+/// `reprs` is the Vesper-primitive-name → IL-representation map; `references` maps an assembly's
+/// simple name to the identity read off its file, so an emitted `AssemblyRef` matches that exact
+/// artifact; `symbols` is the front end's resolution provider — pass
 /// `ExternalSymbols.nullProvider` on paths that emit no external member access.
 type ClrProvider
     (

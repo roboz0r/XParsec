@@ -243,7 +243,7 @@ let tests =
             }
         ]
 
-// C-Eq1 tail / equality §6 S4 (docs/operators-plan.md, type-args-bug.md):
+// C-Eq1 tail / equality §6 S4 (docs/operators-plan.md):
 // a *generic* user DU now emits the same equality triple as a monomorphic one,
 // written in its own `!0` — field/tag access through `MemberRef`s on the type's
 // `TypeSpec`, `EqualityComparer<!0>` / `HashCode.Add<!0>` for a typar-typed field

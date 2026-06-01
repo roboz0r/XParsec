@@ -4,8 +4,7 @@ open XParsec.FSharp.SemanticAnalysis.BuiltinTypes
 
 /// Test fixture: the symbol-provider `provider` plus its op / printf / list /
 /// core tables. The contract-as-provider demotion removed this module from the
-/// codegen stack entirely (see `project_contract_demotion` /
-/// docs/symbol-resolution-handoff.md); it now lives in the test assembly so
+/// codegen stack entirely (see `project_contract_demotion`); it now lives in the test assembly so
 /// production code can no longer import it. Tests that need real-world
 /// behaviour should wire `VesperLib.buildProvider` or
 /// `ReferencedProject.buildProvider` directly.

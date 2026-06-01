@@ -253,8 +253,8 @@ module UnificationInferResolve =
         | ValueNone -> ValueNone
 
     /// Static member access on an external type, recording the resolved member's
-    /// interned `SymbolKey` so Freeze stamps a `TExpr.ExternalMember`
-    /// (symbol-resolution-plan §7.2). `typeArgs` instantiate the declaring type's
+    /// interned `SymbolKey` so Freeze stamps a `TExpr.ExternalMember`.
+    /// `typeArgs` instantiate the declaring type's
     /// typars, so `EqualityComparer<int>.Default` types as `EqualityComparer<int>`.
     let inferExternalStaticMember
         (ctx: PassContext)
@@ -308,7 +308,7 @@ module UnificationInferResolve =
 
             // `tryQualify` applies the `open` prefixes, so a short
             // `EqualityComparer<int>` receiver resolves to its qualified metadata
-            // name (symbol-resolution-handoff.md, open-resolution).
+            // name.
             match
                 OpenScope.tryQualify ctx.Resolution.OpenScope (fun n -> isExternalClass ctx (metaNameOf n)) qualName
             with
@@ -323,8 +323,8 @@ module UnificationInferResolve =
     /// receiver is either a local binding (the field-chain arm) or a `DotLookup`.
     /// A resolved prefix whose last segment is *not* an accessible static member
     /// (e.g. a const field, not modelled yet) falls through silently rather than
-    /// diagnosing — it's valid F#, just unsupported (symbol-resolution-handoff.md:
-    /// static fields are a later phase).
+    /// diagnosing — it's valid F#, just unsupported (static fields are a later
+    /// phase).
     let tryExternalStaticLongIdent (ctx: PassContext) (key: NodeKey) (e: Expr<SyntaxToken>) : SemType voption =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->

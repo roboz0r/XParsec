@@ -5,8 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Wiring (symbol-resolution-plan §5 / handoff §6) + contract-as-provider demotion
-// (handoff): the `SymbolProviders.build` composite stack is the single declaration
+// Wiring + contract-as-provider demotion: the `SymbolProviders.build` composite stack is the single declaration
 // threaded through both phases. The demotion is now TOTAL — `MockBuiltins` is gone
 // from the stack entirely (no `List.fold` backstop). Operators / `hash` / `failwith`
 // / printf / `List.fold` all resolve from the `Vesper.*` `.fsi` contracts. These
@@ -54,7 +53,7 @@ let tests =
                 // (O3), so the provider answers the qualified name. `int` is an
                 // `extern` paired with its `.fs` `(# "System.Int32" #)` binding, so
                 // the manifest layer surfaces it as an `Intrinsic` shape carrying the
-                // CLI repr — NOT an opaque `Class` (intrinsic-repr-handoff.md).
+                // CLI repr — NOT an opaque `Class`.
                 match provider.TryLookupType "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic repr) ->
                     Expect.equal repr "System.Int32" "int surfaces its prim-types-min `.fs` representation"

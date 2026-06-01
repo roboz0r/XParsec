@@ -209,7 +209,7 @@ module VesperLibTypeTranslate =
 
     /// True iff the module-level attributes carry `[<AutoOpen>]` — the module's
     /// members are in scope unqualified for a consumer of the package. Recorded
-    /// as an ambient open prefix (symbol-resolution-handoff.md, open-resolution).
+    /// as an ambient open prefix.
     let isAutoOpen (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed input attrs [ "AutoOpen" ] |> ValueOption.isSome
 

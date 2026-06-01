@@ -812,7 +812,7 @@ module Unification =
 
         // Set `ctx.Resolution.OpenScope` per element so the provider-probe sites
         // (`inferIdent`, `tryExternalTypeReceiver`) resolve short external names
-        // against the `open`s in scope at that element (symbol-resolution-handoff.md, open-resolution).
+        // against the `open`s in scope at that element.
         for (m, openScope) in pairs do
             ctx.Resolution.OpenScope <- openScope
             fillRecordFieldTypes ctx m
@@ -857,6 +857,6 @@ module Unification =
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
         // same stable ambient seed (`AmbientOpenScope`, not the per-element
-        // `OpenScope` the walk mutates — symbol-resolution-handoff.md, open-resolution).
+        // `OpenScope` the walk mutates).
         walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx

@@ -914,7 +914,7 @@ module FreezeExpr =
             TExpr.RecordClone(translateExpr ctx src, overrides, ty)
         // Member access on an *external* type (static `Type.Member` or instance
         // `value.Member`) that Unification resolved through the provider — emit a
-        // keyed `TExpr.ExternalMember` (symbol-resolution-plan §7.2, P3). A static
+        // keyed `TExpr.ExternalMember`. A static
         // access drops the type-name receiver (`info.IsStatic`).
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when
             li.Idents.Length = 1

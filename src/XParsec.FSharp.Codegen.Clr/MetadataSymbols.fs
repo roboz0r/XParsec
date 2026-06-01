@@ -7,22 +7,22 @@ open System.IO
 open System.Reflection
 open XParsec.FSharp.SemanticAnalysis
 
-// Layer 2 of the symbol-resolution stack (symbol-resolution-plan §6): the
+// Layer 2 of the symbol-resolution stack: the
 // referenced *assemblies* (BCL + binary deps), read through a
 // `System.Reflection.MetadataLoadContext` over a `PathAssemblyResolver`. This is
 // the ".NET provider" of the layered stack ([[project_dotnet_provider_stack]]):
 // reflection-only metadata, never FCS. It resolves a BCL type
 // (`System.Collections.Generic.EqualityComparer`1`) to an `ExternalTypeShape.Class`
 // and its members (`Default`, `GetHashCode`) to target-agnostic `SemType`
-// signatures — the substrate the `hash` milestone (M) needs (P2 → P3 → P4 → M).
+// signatures.
 
-/// `System.Type` → `SemType` mapping (symbol-resolution-plan §6.1). Each builder is
+/// `System.Type` → `SemType` mapping. Each builder is
 /// written over the *declaring type's* generic parameters: callers pass a
 /// `SemType[]` (one entry per declared typar) and the builder substitutes them
 /// through, exactly like `ExternalFieldShape.BuildType`. Shapes the milestone
 /// doesn't model (arrays, pointers, by-refs, method-owned generic params, a
 /// generic argument that itself can't map) yield `None`: the symbol is skipped,
-/// never faked into a wrong `TyConst` (§6.1). The closures capture only plain data
+/// never faked into a wrong `TyConst`. The closures capture only plain data
 /// (typar positions, primitive names, type names) — no live `Type` escapes, so a
 /// `BuildSignature` call is pure and safe off the `MetadataLoadContext` gate.
 module private MetadataMapping =
@@ -100,7 +100,7 @@ module private MetadataMapping =
     /// `unit → ret`; a one-parameter method as `p → ret` (curried and tupled
     /// coincide at arity ≤ 1). Modelling N ≥ 2 tupled makes the existing front-end
     /// `unify`/`recoverTypeArgs` TyTuple arms recover the declaring typar from the
-    /// element, not the whole tuple (type-args-bug.md Layer 1). `None` if any
+    /// element, not the whole tuple. `None` if any
     /// parameter or the return type doesn't map, or the method has its own generic
     /// parameters (P2 resolves no method-owned typars).
     let tryMethodSignature (m: MethodInfo) : (SemType[] -> SemType) option =
@@ -162,7 +162,7 @@ module private MetadataMapping =
             )
 
     /// A type rendered in OPEN typars for a `SymbolKey.MemberKey.argSig`
-    /// (symbol-resolution-plan §7.3): the declaring type's i-th typar is `!i`, a
+    /// the declaring type's i-th typar is `!i`, a
     /// method-owned typar `!!i`, a constructed generic recurses, everything else is
     /// its metadata full name. The argSig only *disambiguates overloads* and is
     /// never re-parsed, so an exotic shape rendering by `Name` is harmless.
@@ -183,7 +183,7 @@ module private MetadataMapping =
 
     /// The declaring type's `SymbolKey.TypeKey` — `(assembly, namespace,
     /// name`arity)` with the namespace stripped off the metadata name so the key's
-    /// `name` is the simple `` EqualityComparer`1 `` (symbol-resolution-plan §7.3).
+    /// `name` is the simple `` EqualityComparer`1 ``.
     let declTypeKey (t: Type) : SymbolKey =
         let asm = t.Assembly.GetName().Name |> Option.ofObj
         let full = metadataName t
@@ -199,8 +199,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
 
-    // `MetadataLoadContext` is NOT safe for concurrent loads (symbol-resolution-plan
-    // §6); every metadata access serialises through `gate`. Results are immutable
+    // `MetadataLoadContext` is NOT safe for concurrent loads; every metadata access
+    // serialises through `gate`. Results are immutable
     // `SemType`-only descriptors (no live `Type` is captured — §6.1/§7.1), so the
     // result caches are read lock-free and only a miss takes the gate.
     let gate = obj ()
@@ -437,7 +437,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             )
 
     /// All overloads of `memberName` whose signature maps — the candidate set for
-    /// application-site overload resolution (type-args-bug.md Layer 2). A property
+    /// application-site overload resolution. A property
     /// wins as a singleton (a property and a like-named method don't coexist as a
     /// call group — `Default` is a property). Methods are sorted most-parameters
     /// first so the singular `computeMember` reading (`Array.head`) keeps its
@@ -566,15 +566,14 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
 
         // The BCL metadata layer contributes no implicit prelude — the ambient
         // `[<AutoOpen>]` / namespace prefixes come from the contract layer
-        // (`ReferencedProject`), so this returns `[]` (intrinsic-repr-handoff.md
-        // — `IAmbientOpenScope` folded into `IExternalSymbolProvider`).
+        // (`ReferencedProject`), so this returns `[]`.
         member _.AmbientOpenPrefixes = []
 
 module MetadataSymbols =
 
     /// The host runtime's trusted-platform assemblies — the BCL the codegen host
     /// was launched with. **First-cut host-runtime fallback**
-    /// (symbol-resolution-plan §6/§9): correct `AssemblyRef` identity wants the
+    /// correct `AssemblyRef` identity wants the
     /// *target* TFM's reference pack, not the host's implementation assemblies
     /// (so `Origin.Assembly` here reads `System.Private.CoreLib`, the impl, not
     /// `System.Runtime`, the ref). TODO: take the ref-pack / `ProjectInfo.References`

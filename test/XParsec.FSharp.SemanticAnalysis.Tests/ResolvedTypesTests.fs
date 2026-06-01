@@ -141,8 +141,8 @@ let tests =
                 Expect.equal added 0 "TyVar bound by the matching scheme is allowed"
             }
 
-            // No-provider regression (intrinsic-repr-handoff.md Goal 2): with the
-            // hardcoded `"int" -> BuiltinTypes.tyInt` arms deleted from
+            // No-provider regression: with the hardcoded `"int" -> BuiltinTypes.tyInt`
+            // arms deleted from
             // `translateType`, a primitive type annotation must still pin to
             // `TyConst("int", EqArray.empty)` even when NO provider supplies an `Intrinsic` shape —
             // via the step-6 opaque fallback (`TyConst name`). Uses the true

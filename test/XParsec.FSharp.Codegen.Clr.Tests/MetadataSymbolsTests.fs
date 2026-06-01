@@ -4,12 +4,6 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
-// P2 gate (symbol-resolution-plan §6 / phase table): the MetadataLoadContext-backed
-// referenced-assembly provider resolves a BCL generic type to a `Class` shape and
-// its members to target-agnostic `SemType` signatures (the §6.1 mapping). This is
-// the substrate the `hash` milestone (M) needs: it types
-// `EqualityComparer<'T>.Default.GetHashCode`.
-
 let private provider = MetadataSymbols.provider
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"

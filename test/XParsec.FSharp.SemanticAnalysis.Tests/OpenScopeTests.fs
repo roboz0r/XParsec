@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// O0 (docs/symbol-resolution-handoff.md (open-resolution)): the scope-preserving module walk
+// the scope-preserving module walk
 // (`CstWalk.walkModuleTree`) and the qualification primitive (`OpenScope.tryQualify`
 // / `tryResolve`). No pass consumes the scope yet — these pin the computed scope
 // directly.

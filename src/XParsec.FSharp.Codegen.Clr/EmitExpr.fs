@@ -1132,8 +1132,8 @@ module EmitExpr =
             // consumes a single spine element — the argument list — and the
             // parameter count comes from the chosen key's `argSig` length
             // (authoritative: `memberTy` alone can't tell a flattened 2-param
-            // method from a genuine single `(int*int)` param — type-args-bug.md
-            // Layer 3). A literal `TExpr.Tuple` argument is pushed element-wise
+            // method from a genuine single `(int*int)` param). A literal
+            // `TExpr.Tuple` argument is pushed element-wise
             // (no tuple object is constructed).
             let isStatic = ValueOption.isNone receiver
 

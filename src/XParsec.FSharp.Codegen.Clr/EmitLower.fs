@@ -374,7 +374,7 @@ module EmitLower =
     /// codegen can encode it. The cross-package equality/`hash` inline bodies reach
     /// `EqualityComparer<^T>`, which can only be emitted when `^T` is ground; an
     /// unpinned operand (`let f a b = a = b`) leaves it free and must fall back to
-    /// `BuiltinOps` instead (type-args-bug.md DoD §3).
+    /// `BuiltinOps` instead.
     let rec private isGroundType (t: SemType) : bool =
         match zonk t with
         | TyVar _ -> false
@@ -610,7 +610,7 @@ module EmitLower =
         // when the call site pins `^T` to a ground type — otherwise the comparer
         // can't encode the free `!0`. An unpinned operand (`let f a b = a = b`)
         // leaves the External call head in place so the closing `expandBuiltinOps`
-        // routes it to `Emit.BuiltinOps`'s `ceq` instead (type-args-bug.md DoD §3).
+        // routes it to `Emit.BuiltinOps`'s `ceq` instead.
         let externalInlineArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
             match decl with
             | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
@@ -631,8 +631,8 @@ module EmitLower =
                     ->
                     // Splice the inline body unless an *un-ground* operand could
                     // still benefit from the `BuiltinOps` fallback (the
-                    // `EqualityComparer<^T>` encoding issue — type-args-bug.md
-                    // DoD §3). An inline with no `BuiltinOps` recipe (`failwith`,
+                    // `EqualityComparer<^T>` encoding issue). An inline with no
+                    // `BuiltinOps` recipe (`failwith`,
                     // `raise`) splices unconditionally: its body lowers to an
                     // `ILIntrinsic "throw"` whose IL doesn't reference the
                     // result typar, so an unground call-site type is fine.

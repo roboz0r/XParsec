@@ -263,7 +263,7 @@ type ICodegenProvider =
     abstract EqualityComparerGetHashCode: elem: SemType -> EntityHandle
 
     /// Mint a `MemberRef` for a `TExpr.ExternalMember` from its interned
-    /// `SymbolKey` (the P4 identity bridge — symbol-resolution-plan §7.2). The key
+    /// `SymbolKey` (the P4 identity bridge). The key
     /// pins the declaring type + member (assembly/namespace/name + member name +
     /// overload `argSig`); `memberTy` is the access's *instantiated* type (a
     /// property's type, or a method's curried `arg → … → ret`), from which the

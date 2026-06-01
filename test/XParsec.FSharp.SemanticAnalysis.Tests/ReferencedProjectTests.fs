@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// P1 layer-1 gate (symbol-resolution-plan §5.1): stand up `Vesper.Core` from its
+// Stand up `Vesper.Core` from its
 // real `manifest.toml` and confirm the contract resolves with a non-empty
 // `Origin` stamped from the manifest — the first consumer of the P0 identity
 // surface.
@@ -101,7 +101,7 @@ let tests =
                 // binding, so it surfaces as an `Intrinsic` carrying the CLI repr —
                 // NOT an opaque `Class`. The repr is what codegen / `subsumes`
                 // consume; an intrinsic carries no `Origin` (it keys off the repr
-                // string, not an assembly ref) — intrinsic-repr-handoff.md.
+                // string, not an assembly ref).
                 match provider.TryLookupType "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic repr) ->
                     Expect.equal repr "System.Int32" "int carries its prim-types-min `.fs` representation"
@@ -153,7 +153,7 @@ let tests =
                 Expect.isTrue (provider.TryLookupType "NoSuchType" |> ValueOption.isNone) "unknown type miss"
             }
 
-            // O3 contract-ambient proof (symbol-resolution-handoff.md, open-resolution) and the
+            // O3 contract-ambient proof and the
             // first step off MockBuiltins: a program resolves `+` and `hash`
             // purely through the contract's `[<AutoOpen>]` operator modules — the
             // `.fsi` source of truth — via the ambient open scope. No MockBuiltins

@@ -15,8 +15,7 @@ open System.Numerics
 
 /// Where a resolved symbol physically lives — enough for codegen to mint a ref
 /// without re-resolving. `Assembly` is a simple name keyed into a `ProjectInfo`'s
-/// resolved reference set; `None` ⇒ defined in the project being compiled. See
-/// symbol-resolution-plan §4.
+/// resolved reference set; `None` ⇒ defined in the project being compiled.
 type SymbolOrigin =
     {
         Assembly: string option
@@ -52,8 +51,8 @@ type SymbolOrigin =
         else
             fullName
 
-/// Platform-agnostic, scope-unambiguous symbol identity (symbol-resolution-plan
-/// §7.3). All strings/ints — never a CLR `EntityHandle` or `System.Type` (those
+/// Platform-agnostic, scope-unambiguous symbol identity. All strings/ints —
+/// never a CLR `EntityHandle` or `System.Type` (those
 /// are per-context and target-specific). The discriminator is the *origin*
 /// (assembly, namespace[, declaring type]), not the bare name, so a project-local
 /// `List` and `System.Collections.Generic.List`1` get different keys by

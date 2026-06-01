@@ -3,7 +3,7 @@ namespace Vesper
 open System.Collections.Generic
 
 // comparison.fs — the per-target *implementation* of `comparison.fsi`
-// (symbol-resolution-plan §5.2: the `.fsi` is the target-agnostic contract,
+// (the `.fsi` is the target-agnostic contract,
 // the `.fs` is the binding). The four bare ordering operators (`<` / `>` /
 // `<=` / `>=`) live here as F# static-optimization over inline IL, exactly
 // the same pattern as `(=)` / `(<>)` in `Vesper.Core/ops-platform.fs`.

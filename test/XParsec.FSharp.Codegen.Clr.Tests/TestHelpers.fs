@@ -90,7 +90,7 @@ let vesperListSource (fileName: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.List", fileName)
 
 /// `src/Vesper.Core/manifest.toml` — the Vesper.Core layer-1 referenced-project
-/// manifest (symbol-resolution-plan §5.1). Declared up here (above the
+/// manifest. Declared up here (above the
 /// `vesperListDll` fixture, which references it) rather than in the
 /// downstream manifest block.
 let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
@@ -209,7 +209,6 @@ let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
 let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
 /// The default contract stack the demoted compile path resolves through
-/// (symbol-resolution-handoff.md "contract-as-provider demotion", Phase 1).
 /// `MockBuiltins` stays the lowest-priority backstop inside `SymbolProviders.build`
 /// for anything the contract does not yet own (operators still *emit* via
 /// `Emit.BuiltinOps` regardless — emission is resolution-source-agnostic).
@@ -327,7 +326,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
 /// Build the symbol-resolution stack + its cross-package inline bodies once
 /// (cached per manifest set by `SymbolProviders.buildContract`) and run *both*
-/// phases against it (symbol-resolution-plan P1 / handoff option A): a use-site
+/// phases against it: a use-site
 /// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
 /// `ops-platform.fs`) is spliced in by `Emit.lowerWith` rather than served by a
 /// codegen stopgap. `[]` manifests ⇒ `composite [MetadataSymbols; MockBuiltins]`
@@ -345,7 +344,7 @@ let private compileContract
 
 /// The default compile path — now resolved through the contract stack
 /// (`defaultManifests`) with `MockBuiltins` only as the backstop. This is the
-/// contract-as-provider demotion (symbol-resolution-handoff.md): the same source
+/// contract-as-provider demotion: the same source
 /// types the same way, but `int`/`hash`/the operators now resolve from the
 /// `Vesper.Core` `.fsi` contract rather than the hand-curated mock.
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =

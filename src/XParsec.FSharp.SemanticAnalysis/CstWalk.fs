@@ -7,8 +7,7 @@ open XParsec.FSharp.Parser
 /// later `open` shadows an earlier one on a name collision — F# semantics).
 /// Drives short-name resolution: a bare `EqualityComparer` (under
 /// `open System.Collections.Generic`) becomes the qualified
-/// `System.Collections.Generic.EqualityComparer` before a provider probe. See
-/// docs/symbol-resolution-handoff.md (open-resolution).
+/// `System.Collections.Generic.EqualityComparer` before a provider probe.
 type OpenScope =
     {
         /// Each entry is a dotted namespace/module prefix (`"System.Collections.Generic"`),
@@ -444,8 +443,7 @@ module CstWalk =
     /// elements, but pairs each with the `OpenScope` active at its position. Where
     /// `implFileElems` erases the module boundaries open-scoping needs, this
     /// recomputes the running open-accumulator per element so a consumer can resolve
-    /// a short name against the `open`s actually in scope there
-    /// (docs/symbol-resolution-handoff.md, open-resolution).
+    /// a short name against the `open`s actually in scope there.
     ///
     /// `nameOf` reads a token's source text (the pass's `ctx.NameOf`); `ambient` is
     /// the seed prefix set (empty today, the referenced-contract prelude later, §6).

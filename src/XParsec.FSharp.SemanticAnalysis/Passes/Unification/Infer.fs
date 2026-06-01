@@ -246,8 +246,7 @@ module UnificationInfer =
         | ValueNone ->
             // A .NET static method is tupled: `String.Concat ("a", "b")` is one
             // tuple argument. Resolve a multi-overload static method by its arg
-            // types at the call site (type-args-bug.md Layer 2) before the generic
-            // curried application path.
+            // types at the call site before the generic curried application path.
             match
                 (if args.Length = 1 then
                      tryInferExternalStaticMethodCall ctx key fn args.[0]
@@ -993,7 +992,7 @@ module UnificationInfer =
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
                 // access). Resolve the instance member through the provider and
-                // record it for Freeze (symbol-resolution-plan §7.2, P3).
+                // record it for Freeze.
                 let clsQual = ExternalSymbols.qualifiedName clsKey
 
                 match ctx.Provider.TryLookupMember(clsQual, memberName) with
@@ -1328,7 +1327,7 @@ module UnificationInfer =
     /// family's `bool`); it wrongly fuses the distinct clause results of an
     /// `^T`-returning op — `byte`/`int16`/`^T` for `(+)` — and fails to unify them.
     /// We omit that check (a fully sound version would speculatively unify under
-    /// the assumed constraint and undo — out of scope, type-args-bug.md's
+    /// the assumed constraint and undo — out of scope, by the
     /// no-speculative-unification stop); soundness rides on the clause being
     /// selected (and its body substituted) at expansion, where `^T` is concrete.
     ///

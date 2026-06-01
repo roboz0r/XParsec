@@ -131,16 +131,15 @@ module VesperLibTyparCapture =
         /// Populated BEFORE `.fsi` extraction so the `extern` arm of
         /// `extractTypeSig` can publish a matching extern as
         /// `ExternalTypeShape.Intrinsic repr` instead of an opaque `Class`
-        /// (intrinsic-repr-handoff.md — the `.fsi`/`.fs` pairing moves here from
-        /// the codegen-layer harvest). Empty for callers with no `.fs` companions
+        /// Empty for callers with no `.fs` companions
         /// (e.g. `VesperLib.buildProvider` over the signature-only FSharp.Core
         /// port), so every extern stays a `Class` exactly as before.
         member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
         /// Qualified names of `[<AutoOpen>]` modules encountered during
         /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
         /// referenced contract surfaces these as its ambient open-prefix set so a
-        /// consumer resolves `op_Addition` / `hash` with no explicit `open`
-        /// (symbol-resolution-handoff.md, open-resolution). The hardcoded FSharp.Core prelude list
+        /// consumer resolves `op_Addition` / `hash` with no explicit `open`.
+        /// The hardcoded FSharp.Core prelude list
         /// stays separate (compiler-magic opens not expressible as `[<AutoOpen>]`).
         member val AutoOpenPrefixes = ResizeArray<string>() with get
         /// Type shapes contributed by already-extracted dependency packages (dependency-ordered).
@@ -194,7 +193,7 @@ module VesperLibTyparCapture =
         /// ambient into the open scope and probes it BEHIND explicit
         /// `open`s — `1 + 2`'s desugared `op_Addition` lives in
         /// `Microsoft.FSharp.Core.Operators`, not at the root, and resolves
-        /// through the ambient (symbol-resolution-handoff.md, open-resolution).
+        /// through the ambient.
         /// The extractor populates `ctx.AutoOpenPrefixes` from `[<AutoOpen>]`
         /// attributes on modules; `buildProvider` supplements it with any
         /// library-specific prelude (e.g. F#'s implicit `Microsoft.FSharp.*`

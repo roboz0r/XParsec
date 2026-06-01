@@ -5,7 +5,7 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// The identity bridge (symbol-resolution-plan §3/§7.2): a resolved external symbol's
+/// The identity bridge: a resolved external symbol's
 /// `Origin`/`SymbolKey` → an `AssemblyRef`/`TypeRef`/`TypeSpec`/`MemberRef`, with no per-member
 /// hand-coding. Mints member / constructor / field references and generic-static-method specs against
 /// referenced-assembly types.
@@ -58,8 +58,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         else
             let rawParams, retTy = decurryTy openSig
 
-            // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`, type-args-bug.md
-            // Layer 1), so the lone decurried "parameter" is the argument `TyTuple` — flatten it back
+            // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`),
+            // so the lone decurried "parameter" is the argument `TyTuple` — flatten it back
             // to N parameters, driven by the chosen key's `argSig` length (authoritative: a genuine
             // single `(int*int)` param has argSig length 1 and stays one parameter). Arity ≤ 1 unchanged.
             let paramTys =
@@ -120,8 +120,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             // Build the open signature from the *exact* overload the front end committed (its key, incl.
             // `argSig`, matches `key`) — NOT a singular re-pick, which would re-collapse a resolved
-            // overload back to the most-params one and disagree with the node's `memberTy`
-            // (type-args-bug.md Layer 2). The singular `TryLookupMember` is the fallback for providers
+            // overload back to the most-params one and disagree with the node's `memberTy`.
+            // The singular `TryLookupMember` is the fallback for providers
             // exposing only that surface.
             let openSig =
                 let chosen =

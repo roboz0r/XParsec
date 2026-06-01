@@ -42,7 +42,7 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <!-- Layer 2 of the symbol-resolution stack: read referenced assemblies'
-         metadata reflection-only (symbol-resolution-plan §6 / MetadataSymbols.fs). -->
+         metadata reflection-only (MetadataSymbols.fs). -->
     <PackageReference Include="System.Reflection.MetadataLoadContext" />
   </ItemGroup>
 </Project>

@@ -280,7 +280,7 @@ module UnificationEngine =
         // `exn === System.Exception` therefore originates from prim-types-exn.fs,
         // not a literal baked into the unifier — retarget the core lib and this follows.
         //
-        // Resolution order (intrinsic-repr-handoff.md, local-first / provider-fallback):
+        // Resolution order (local-first / provider-fallback):
         //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`,
         //      keyed by the unqualified name it declared);
         //   2. a *referenced* package's intrinsics, riding the provider as

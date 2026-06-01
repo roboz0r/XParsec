@@ -42,7 +42,7 @@ files = [
 impl = []
 
 # Per-target `.fs` body the codegen inline-body loader reads across the package
-# boundary (symbol-resolution-plan §5.2/§5.3): the static-optimization over
+# boundary: the static-optimization over
 # inline IL for each of the four bare ordering operators.
 inline-bodies = [
     "comparison.fs",

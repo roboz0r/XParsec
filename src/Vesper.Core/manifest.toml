@@ -59,7 +59,7 @@ impl = [
 ]
 
 # Per-target `.fs` bodies the codegen inline-body loader reads across the package
-# boundary (symbol-resolution-plan §5.2/§5.3). `ops-platform.fs` carries the
+# boundary. `ops-platform.fs` carries the
 # operator + `hash` inline bodies (the equality / arithmetic / bitwise / unary
 # families). These are signature-only (`let inline` spliced at the use site, no
 # emitted method), so they are NOT a DLL compile target — distinct from `impl`.

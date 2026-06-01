@@ -4,13 +4,13 @@ open System.IO
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-/// Builds the symbol-resolution provider stack (symbol-resolution-plan §5, P1).
+/// Builds the symbol-resolution provider stack.
 /// This is the **single declaration** consumed by *both* the front end and the
 /// back end (option A in the P1 handoff): a driver builds the stack once and
 /// threads the same `IExternalSymbolProvider` through `Pipeline.analyse` and
 /// `Codegen.compile`, replacing today's split where each phase reached for
-/// `MockBuiltins.provider` independently. Codegen still ignores the provider in
-/// P1 (it reads it in P4); passing it now is what proves the wiring.
+/// `MockBuiltins.provider` independently. Codegen still ignores the provider in;
+/// passing it now is what proves the wiring.
 module SymbolProviders =
 
     /// Compose the layer-1 referenced-project providers (each stood up from its
@@ -23,7 +23,7 @@ module SymbolProviders =
     /// type like `EqualityComparer`1` and its members resolve here when no manifest
     /// owns them. It answers only namespace-qualified metadata names (and no values).
     ///
-    /// **Contract-as-provider demotion is now total (symbol-resolution-handoff.md).**
+    /// **Contract-as-provider demotion is now total.**
     /// `MockBuiltins` is GONE from this stack entirely — its bare-name registrations
     /// (operators, `hash`, `failwith`, the printf family) used to shadow the contract
     /// from behind, and the final `List.fold` backstop is retired too. Every symbol
@@ -127,7 +127,7 @@ module SymbolProviders =
 
     /// The inline `val` bindings a referenced project contributes whose `.fs`
     /// bodies must be *spliced* at the consumer's use site — a cross-package
-    /// inline (milestone M, symbol-resolution-handoff.md). Keyed by the binding's
+    /// inline (milestone M). Keyed by the binding's
     /// source name (the same name the use-site `TExpr.External` carries); the
     /// value is the frozen `TDecl.Let(isInline=true)` the codegen `Emit.lower`
     /// expands in place of an `External(name)` call head.
@@ -250,8 +250,7 @@ module SymbolProviders =
 
     /// Lazy cache keyed by the normalised manifest set so a *suite* of compiles
     /// parses + analyses each contract `.fsi`/`.fs` once, not once per compile
-    /// (symbol-resolution-handoff.md "cache the contract analysis before
-    /// flipping"). `ReferencedProject.provider` already caches each manifest's
+    /// `ReferencedProject.provider` already caches each manifest's
     /// `.fsi` parse and `MetadataSymbols.provider` is process-wide, so the only
     /// previously-uncached cost was `inlineBodies` re-analysing each `impl` `.fs`
     /// against the stack on every call — this caches that, plus the per-set
@@ -279,8 +278,7 @@ module SymbolProviders =
                         // intrinsic reprs as `ExternalTypeShape.Intrinsic` shapes
                         // (the SA-layer `ReferencedProject` extractor pairs each
                         // `.fsi` extern with its sibling `.fs` `(# … #)` binding);
-                        // no codegen-layer harvest wrap is needed
-                        // (intrinsic-repr-handoff.md — first-cut teardown).
+                        // no codegen-layer harvest wrap is needed.
                         // Close + order the manifest set ONCE and thread
                         // the same ordered list into the provider stack and the
                         // inline-body loader, so both see the full `depends-on`

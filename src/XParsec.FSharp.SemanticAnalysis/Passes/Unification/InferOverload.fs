@@ -41,7 +41,7 @@ module UnificationInferOverload =
         | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
         | _ -> 0
 
-    /// Flattens the tupled signature back to N parameters (type-args-bug.md Layer 1/3).
+    /// Flattens the tupled signature back to N parameters.
     and memberParamTypes (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
         let n = memberParamCount m
 

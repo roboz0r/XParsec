@@ -60,8 +60,8 @@ type ExternalSymbol =
         /// closure for diagnostic introspection and to let future passes audit
         /// which constraints are still unimplemented.
         Constraints: ExternalConstraint list
-        /// Where the symbol lives — the bridge to codegen (symbol-resolution-plan
-        /// §4). `SymbolOrigin.Empty` until a resolving source fills it.
+        /// Where the symbol lives — the bridge to codegen. `SymbolOrigin.Empty`
+        /// until a resolving source fills it.
         Origin: SymbolOrigin
         /// Interned identity: a `SymbolKey.ValueKey` over the symbol's resolved
         /// origin + simple name (vesper-set-sprint-plan §0.1 / M1). Front-end
@@ -118,7 +118,7 @@ type ExternalUnionCase =
     }
 
 /// A resolved member (static/instance method or property getter) on an external
-/// type (symbol-resolution-plan §4). `BuildSignature` is parameterised over the
+/// type. `BuildSignature` is parameterised over the
 /// *enclosing type's* typars, exactly like `ExternalFieldShape.BuildType`:
 /// callers pass a `SemType[]` (one entry per declared typar) and the builder
 /// substitutes them through, yielding the **tupled** `(p1 * … * pN) → ret`
@@ -131,7 +131,7 @@ type ExternalMember =
         IsProperty: bool
         BuildSignature: SemType[] -> SemType
         Origin: SymbolOrigin
-        /// The interned identity (symbol-resolution-plan §7.2/§7.3): a
+        /// The interned identity: a
         /// `SymbolKey.MemberKey` over the *open* declaring type (its `argSig` in
         /// `!0`-typars), minted by the resolving source. Freeze stamps it into
         /// `TExpr.ExternalMember` so codegen reads the binding off the node.
@@ -286,15 +286,14 @@ type IExternalSymbolProvider =
     /// type's compiled name and the member name. This is what types
     /// `EqualityComparer<'T>.Default` (static property) and `.GetHashCode`
     /// (instance method). Defaults to `ValueNone` for providers that don't model
-    /// members (symbol-resolution-plan §4). When several overloads share a name
+    /// members. When several overloads share a name
     /// this collapses to a single best-by-arity pick; the *call site* uses
-    /// `TryLookupMembers` instead to resolve by argument types (type-args-bug.md
-    /// Layer 2).
+    /// `TryLookupMembers` instead to resolve by argument types.
     abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
 
     /// Look up **all** overloads of a member by name — the candidate set the
     /// application-site overload resolver picks from (by arity, then argument-type
-    /// betterness; type-args-bug.md Layer 2). Providers that don't model members
+    /// betterness). Providers that don't model members
     /// return `[||]`. A provider that models members SHOULD return every overload
     /// whose signature maps (the same filter `TryLookupMember` applies, minus the
     /// single-pick collapse).
@@ -316,13 +315,12 @@ type IExternalSymbolProvider =
     /// `PassContext.Resolution.AmbientOpenScope` from it, where it is probed
     /// strictly BEHIND explicit `open`s: a short name tries its bare form and
     /// every explicit open first, and only then these ambient prefixes
-    /// (symbol-resolution-handoff.md, open-resolution). Dotted prefixes in
+    /// Dotted prefixes in
     /// priority order (earliest wins on a collision), e.g.
     /// `["Vesper.ArithmeticOperators"; "Vesper"]`. Providers with no implicit
     /// prelude (`MockBuiltins`, inline test fakes) return `[]`. Required (was the
     /// optional `IAmbientOpenScope` cast); folded in alongside the intrinsic
-    /// surface, which now rides `TryLookupType` via `ExternalTypeShape.Intrinsic`
-    /// (intrinsic-repr-handoff.md — first-cut teardown).
+    /// surface, which rides `TryLookupType` via `ExternalTypeShape.Intrinsic`.
     abstract AmbientOpenPrefixes: string list
 
 module ExternalSymbols =
@@ -671,8 +669,8 @@ module ExternalSymbols =
 
     /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
     /// provider unwrapped. Priority encodes shadowing among *external* sources
-    /// (a referenced project beats a referenced assembly — symbol-resolution-plan
-    /// §5). Project-local symbols are not here: `PassContext` resolves them
+    /// (a referenced project beats a referenced assembly). Project-local symbols
+    /// are not here: `PassContext` resolves them
     /// before the provider is ever consulted. Just `stack` with no origin
     /// stamping and ambient computed from each source's `AmbientOpenPrefixes`.
     let composite (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =

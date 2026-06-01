@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// P3 gate (symbol-resolution-plan §8 / handoff): front-end member access on an
+// P3 gate: front-end member access on an
 // *external* type. `EqualityComparer<int>.Default.GetHashCode 5` type-checks and
 // freezes through the metadata-backed provider (P2), each member-access node
 // carrying its resolved `SymbolKey` (§7.2) — the first front-end consumer of the
@@ -60,7 +60,7 @@ let tests =
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     // GetHashCode(T) — an instance method on the open type, its
-                    // argSig the declaring typar `!0` (symbol-resolution-plan §7.3).
+                    // argSig the declaring typar `!0`.
                     match ghKey with
                     | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig, MemberKind.Method) ->
                         Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
@@ -98,7 +98,7 @@ let tests =
             test "the frozen key matches the provider's own resolved member key" {
                 // The node's interned key must equal what the provider resolves the
                 // member to directly — Freeze stamps the resolver's verdict, it does
-                // not re-derive a key (symbol-resolution-plan §7.2).
+                // not re-derive a key.
                 let provider = SymbolProviders.build []
 
                 let expected =
@@ -119,7 +119,7 @@ let tests =
                 Expect.equal frozen expected "frozen key = provider's resolved key"
             }
 
-            // O2 gate (symbol-resolution-handoff.md, open-resolution): the *short* name under its `open`
+            // O2 gate: the *short* name under its `open`
             // type-checks and freezes the same keyed node as the fully-qualified
             // form — short-name resolution flows through `OpenScope.tryQualify` in
             // both NameResolution and Unification.
@@ -201,7 +201,7 @@ let tests =
                 Expect.equal frozen (ValueSome expected) "frozen key (short name) = provider's resolved key"
             }
 
-            // P4 gate (symbol-resolution-plan §8 / handoff): the codegen identity
+            // The codegen identity
             // bridge. The frozen `TExpr.ExternalMember` nodes (a static property
             // `Default`, an instance method `GetHashCode`) are emitted from their
             // interned `SymbolKey` through `ClrProvider.ExternalMemberRef` — the
@@ -210,7 +210,7 @@ let tests =
             // emitted call runs: `Int32.GetHashCode` is the identity, so
             // `EqualityComparer<int>.Default.GetHashCode 5 = 5`. (`compileSource`'s
             // provider is `composite [ metadata ; MockBuiltins ]`, so the member
-            // access resolves to the keyed node — P3 — and now emits — P4.)
+            // access resolves to the keyed node.
             test "an emitted call to a metadata-resolved member runs (EqualityComparer<int>.Default.GetHashCode 5 = 5)" {
                 let src =
                     "printfn \"%d\" (System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5)"
@@ -228,8 +228,7 @@ let tests =
                     (sprintf "BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // `translateType` external-type resolution (symbol-resolution-handoff.md
-            // open item): a *type annotation* naming an external type used to land as
+            // `translateType` external-type resolution: a *type annotation* naming an external type used to land as
             // an opaque `TyConst` (single-segment, args dropped) or a fresh `TyVar`
             // (multi-segment) — only static-member *receivers* resolved
             // (`tryExternalTypeReceiver`). Now `translateType` probes the provider too,
@@ -272,8 +271,9 @@ let tests =
                         (errs |> List.map (fun d -> d.Message)))
             }
 
-            // type-args-bug.md regression (Layers 1+3): a 2-arg external *instance*
-            // method. `EqualityComparer<int>.Default.Equals(x, y)` is the first
+            // Tupled-member regression (member-emit + recoverTypeArgs): a 2-arg
+            // external *instance* method.
+            // `EqualityComparer<int>.Default.Equals(x, y)` is the first
             // arity-≥2 external method to flow through `buildExpr` + `externalMemberRef`
             // (the DU triple hand-rolls its IL and bypasses this path). The member is
             // modelled tupled (`(int*int)→bool`), so the front-end `unify`/`recoverTypeArgs`
@@ -301,7 +301,7 @@ let tests =
                     (sprintf "2-arg BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // type-args-bug.md regression (Layer 2): a 2-arg external *static*
+            // Overload-resolution regression: a 2-arg external *static*
             // method with overloads. `System.String.Concat` has many overloads
             // (`(string,string)`, `(object,object)`, `(ReadOnlySpan<char>,…)`, …);
             // the call-site resolver filters by arity (2), then applicability
@@ -331,8 +331,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "GetHashCode of int 42 is 42"
             }
 
-            // Non-generic external static access (symbol-resolution-handoff.md open
-            // item). `System.Console.Out` folds into a single LongIdent (no `<>` to
+            // Non-generic external static access. `System.Console.Out` folds into a single LongIdent (no `<>` to
             // keep a `TypeApp` receiver), so the generic DotLookup arm never sees it;
             // `tryExternalStaticLongIdent` recovers the type-prefix / static-member
             // split, types it, and freezes a keyed `TExpr.ExternalMember`.

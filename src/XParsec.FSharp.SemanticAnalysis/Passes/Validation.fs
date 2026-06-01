@@ -195,7 +195,7 @@ module Validation =
     /// constant-prelude shape the rec branch of `CstWalk.walkModuleTree` assumes
     /// actually hold — without it, an interspersed open in a rec group would
     /// silently get whole-scope (position-insensitive) semantics that fsc
-    /// rejects (symbol-resolution-handoff.md, open-resolution).
+    /// rejects.
     ///
     /// Rides on `CstWalk.walkModuleTreeWith`'s per-scope hook so the rec-flag
     /// propagation lives in one place. The hook receives the *propagated*
@@ -303,7 +303,7 @@ module Validation =
                 "Nested `module` reached Validation; `implFileElems` flattening invariant drifted"
         // `open` / `module R = …` are declaration-level nodes consumed by
         // open-resolution (NameResolution/Unification build the `OpenScope` from
-        // them, symbol-resolution-handoff.md, open-resolution); they carry no expression to validate.
+        // them); they carry no expression to validate.
         | ModuleElem.ModuleAbbrev _ -> ()
         | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
