@@ -1,4 +1,4 @@
-# 12. Taming the stack: tracing, probing, and a second operator rewrite
+# 15. Taming the stack: tracing, probing, and a second operator rewrite
 
 ## Hook
 

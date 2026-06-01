@@ -1,4 +1,4 @@
-# 9. Error recovery you can actually ship
+# 12. Error recovery you can actually ship
 
 ## Hook
 

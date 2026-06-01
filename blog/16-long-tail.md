@@ -1,4 +1,4 @@
-# 13. The long tail of bugs
+# 16. The long tail of bugs
 
 ## Hook
 

@@ -1,0 +1,30 @@
+# 10. Type parsing — where the lexer's deferred decisions cash in
+
+## Hook
+
+Post 2 fused `>>`, `>]`, and `>.` into single tokens. Post 4 set up the split-flag plumbing — `SplitRAttrBracket`, `SplitPowerMinus`, `CharsConsumedAfterTypeParams` — so the parser could peel them apart on demand. The type parser is where that machinery actually pays rent. `Foo<int>.Bar` arrives at the parser as a stream that includes `>.` as one custom-operator token; closing the type parameter list peels the `>` off and leaves the `.` for the postfix-type loop to consume on the next read. The type parser is also where `*` and `|` and `:` each mean three different things depending on which calling context invoked it, and the answer is three separate entry points rather than one parser with three flags. Types are non-Pratt, but every page is a different surface F# decided to keep.
+
+## What this post covers
+
+- **Non-Pratt by design.** `pPostfixType` is a hand-rolled left-recursive loop. `pSubtypeType` ⊃ `pUnionType` ⊃ `pTupleType` ⊃ `pFunctionType` is a chain of dedicated parsers, each running one operator family. Pratt would have worked, but the type operators don't share precedence space cleanly with expression operators (the `>` overload alone makes a unified table painful), and Pratt's setup overhead wasn't paying for itself when the shape is already a fixed chain.
+- **Three entry points: `parse`, `parseField`, `parseNoUnion`.** Each excludes the operator that means "next field" or "next case" in its calling context. `parseField` (used inside union case fields and arg specs) doesn't consume `*` because `*` is the field separator there. `parseNoUnion` (used in GADT return types) doesn't consume `|` because `|` is the case separator. Same parser code, three exclusions, three callers.
+- **`pPostfixType`'s dotted case is where the split-flag lands.** `Foo<int>.Bar` lexes the `>.` as a single custom operator. When `pCloseTypeParams` consumes the `>`, it sets `CharsConsumedAfterTypeParams` to 1. The postfix loop's dotted case calls `reprocessedOperatorAfterTypeParams`, which retrieves the operator with the consumed prefix elided, checks it's `OpDot`, and continues. Post 4 introduced the mechanism abstractly; this is the worked example.
+- **Constraint parsing is a contextual-identifier table.** `equality`, `comparison`, `unmanaged`, `not struct`, `not null`, `enum`, `delegate` — none are reserved F# keywords. They're identifiers the parser distinguishes via `tokenStringIs`. The match in `Constraint.pTyparConstraints` reads like a string lookup table because that's exactly what it is. The cleanest example in the codebase of where the F# spec's "keyword" and the parser's `Token` enum diverge — and why post 2's "selective semantic erasure" had to leave the source span recoverable.
+- **The measure-vs-abbreviation retry.** `parseAbbrevOrImplicitClass` tries `Type.parse` first. If the parse leaves a dangling `/`, `^`, `*`, or fused `^-` operator (which the lexer merges into a single Append-precedence custom op), the parser fails, backtracks, and retries as `Measure.parse`. This is the cost of post 2's fuse-and-defer policy: at lex time you can't tell `kg / s` from `Foo / Bar`, and the parser pays for the deferral by trying both shapes when the first dangles.
+- **GADT return types collide with nullable-reference unions.** F# 8 added nullable-reference type unions (`string | null`); F# 8 also added GADT-style DU case syntax (`| Some : Value:'T -> 'T option`). Their grammars overlap on `|`. Without a fix, `| Some : … -> 'T option | None : 'T option` would parse the `'T option | None` as a nullable-ref union and lose the second case. The fix is `Type.parseNoUnion` for GADT return types: same parser, no `|` arm. A real example of two recently-added language features colliding at the parser layer.
+- **`Typar.parse`'s two-and-a-half arms.** `'T` lexes as a single `TypeParameter` token in the common case, but `' (* comment *) T` lexes as `KWSingleQuote` followed by an identifier, with arbitrary trivia between them — and both must produce the same AST. `^T` is a third path for static typars. Three lexical shapes, one syntactic node, one dispatch table.
+- **Anonymous records sit on a separate brace context.** `{| field: Type; … |}` is *not* the same `Brace` context the offside post mentions — it has its own `KWLBraceBar` / `KWRBraceBar` token pair and its own parser arm in `parseAtomic`. The atomic-type tour also covers IL intrinsic types (`(# "iltype" #)` — `FSharp.Core` only) and flexible types (`#Foo`).
+
+## Anchor commits / files
+
+- `src/XParsec.FSharp/TypeParsing.fs` (~560 lines: `Type.parseAtomic`, `pPostfixType`, the chain to `parse`, `Constraint.pTyparConstraints`)
+- `src/XParsec.FSharp/TypeDefnParsing.fs` (`parseAbbrevOrImplicitClass`'s measure retry; `parseField` and `parseNoUnion` callers)
+- `feedback_peek_dispatch_type_params` (memory: type-adjacent peek dispatchers must handle `CharsConsumedAfterTypeParams > 0`)
+- `project_ppostfix_peek_dispatch_apr22` (memory: the perf refactor on this exact path)
+- `ee120cc Parse GADT-style DUs`, `c63f3c0 Parse GADT style operators as case names for F# list`
+- `7eeb559 Parse measure type aliases`, `46c8616 Parse negative exponents with fused operator token`
+- `65d7336 Parse SRTP member constraints`, `f4c2d95 Parse SRTP default constraint`
+
+## Takeaway
+
+The type parser is where decisions made elsewhere finally cash in. Fuse-and-defer in the lexer (post 2) lands in `pPostfixType`'s dotted case. The split-flag plumbing in the filter (post 4) lands in `reprocessedOperatorAfterTypeParams`. `Operators` as an interface (post 5) makes constraint dispatch clean. The "parse syntax, not semantics" rule (post 11) shows up as contextual identifiers reading their spelling out of the source span. And the same operator (`*`, `|`, `:`) means three different things depending on the calling context, with three separate entry points serving each — because three parsers with no flags is more honest than one parser with three flags.
