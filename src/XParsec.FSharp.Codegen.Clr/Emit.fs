@@ -44,9 +44,9 @@ module Emit =
             Ctx: MetadataContext
             ClosureByNode: Dictionary<TExpr, Closure>
             CtorHandleByNode: Dictionary<TExpr, EntityHandle>
-            Unions: Dictionary<string, EmittedUnion>
-            Records: Dictionary<string, EmittedRecord>
-            Classes: Dictionary<string, EmittedClass>
+            Unions: Dictionary<SymbolKey, EmittedUnion>
+            Records: Dictionary<SymbolKey, EmittedRecord>
+            Classes: Dictionary<SymbolKey, EmittedClass>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
@@ -694,7 +694,7 @@ module Emit =
     /// comparison was equal, so it returns `0`.
     let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
         let b = IlBuilder()
-        let c = b.Local(TyConst "int")
+        let c = b.Local(TyConst("int", EqArray.empty))
         let nullLabel = b.Label()
         let returnLabel = b.Label()
 
@@ -787,7 +787,7 @@ module Emit =
     /// (returns `1`); otherwise the shared field lex walk.
     let buildRecordCompareTo (s: RecordComparisonSupport) : ILBody =
         let b = IlBuilder()
-        let c = b.Local(TyConst "int")
+        let c = b.Local(TyConst("int", EqArray.empty))
         let nullLabel = b.Label()
         let returnLabel = b.Label()
 

@@ -142,7 +142,7 @@ module Regions =
     /// constructors (Fun, Tuple).
     let rec private isAllocation (t: SemType) : bool =
         match resolveLink t with
-        | TyConst name ->
+        | TyConst(name, _) ->
             match name with
             | "int"
             | "int64"

@@ -4,6 +4,114 @@ open System.Numerics
 
 // See docs/typevar.md for the 3-axis design.
 
+// --- Symbol identity ---------------------------------------------------------
+//
+// `SymbolOrigin` / `SymbolKey` / `MemberKind` live here (ahead of `SemType`)
+// because the nominal `SemType` cases (`TyUnion` / `TyRecord` / `TyClass`) now
+// carry a `SymbolKey` as their identity. They
+// are pure string/EqArray records with no `SemType` dependency, so the ordering
+// is one-way: identity first, then the type graph that references it.
+// `ExternalSymbols.fs` (which mints/decomposes these) compiles after this file.
+
+/// Where a resolved symbol physically lives — enough for codegen to mint a ref
+/// without re-resolving. `Assembly` is a simple name keyed into a `ProjectInfo`'s
+/// resolved reference set; `None` ⇒ defined in the project being compiled. See
+/// symbol-resolution-plan §4.
+type SymbolOrigin =
+    {
+        Assembly: string option
+        Namespace: string
+        DeclaringType: string option
+    }
+
+    /// The default carried by symbols that don't (yet) record an origin —
+    /// project-local, root namespace, no declaring type. P0 stamps this
+    /// everywhere; later phases fill it from the resolving source.
+    static member Empty =
+        {
+            Assembly = None
+            Namespace = ""
+            DeclaringType = None
+        }
+
+    /// Strip the namespace prefix off a fully-qualified compiled name to
+    /// produce the simple type/value name the metadata layer keys on. Given
+    /// the symbol's declared namespace `ns` (from manifest / `Type.Namespace`)
+    /// and its full compiled name (`Foo.Bar.Baz`), returns `Baz` when
+    /// `Foo.Bar` is the recorded namespace and the prefix matches; otherwise
+    /// returns `fullName` unchanged. Treats `null`/empty `ns` as "no prefix
+    /// to strip" — the metadata `declTypeKey` path passes a possibly-null
+    /// `Type.Namespace`, so this hides the null check at the seam. Used by
+    /// codegen `TypeRef` minting (`externalClassRef` / `externalRecordRef`)
+    /// and metadata `SymbolKey.TypeKey` decomposition (`declTypeKey`) —
+    /// vesper-set-sprint-plan §0.4 / M5. Phase 1's user-class emit needs
+    /// the same split for its `TypeDefinition` row construction.
+    static member StripNamespace (ns: string) (fullName: string) : string =
+        if not (System.String.IsNullOrEmpty ns) && fullName.StartsWith(ns + ".") then
+            fullName.Substring(ns.Length + 1)
+        else
+            fullName
+
+/// Platform-agnostic, scope-unambiguous symbol identity (symbol-resolution-plan
+/// §7.3). All strings/ints — never a CLR `EntityHandle` or `System.Type` (those
+/// are per-context and target-specific). The discriminator is the *origin*
+/// (assembly, namespace[, declaring type]), not the bare name, so a project-local
+/// `List` and `System.Collections.Generic.List`1` get different keys by
+/// construction. Keyed on the open generic *definition* (`name` includes the
+/// `` `arity `` suffix); instantiation is the cheap per-use substitution.
+[<RequireQualifiedAccess>]
+type SymbolKey =
+    /// A type definition. `name` includes the arity suffix (`` IEnumerable`1 ``).
+    | TypeKey of asm: string option * ns: string * name: string
+    /// A value (module-level binding / operator).
+    | ValueKey of asm: string option * ns: string * name: string
+    /// A member on a type. `argSig` is written in the declaring type's OPEN
+    /// typars (`!0`, …) and disambiguates overloads (`GetHashCode()` vs
+    /// `GetHashCode(!0)`). `EqArray` (not `list` / not `string[]`) so the
+    /// containing `SymbolKey` keeps the structural `=` interning relies on.
+    /// `kind` distinguishes a plain method from a property or an
+    /// interface-method / explicit interface implementation (the latter two
+    /// carry the interface's own `SymbolKey` so codegen can write the matching
+    /// `.override` row — pre-sprint-recommendations H3).
+    ///
+    /// TODO (method overloading): `argSig` is currently a *lossy* string rendering
+    /// — it only disambiguates overloads and is **never re-parsed** (see
+    /// `MetadataSymbols.openTyparSig`), and project-local `MemberKey`s are minted
+    /// with it **empty** (`LocalSymbolKey.ofMember`) because locals have no
+    /// overload set yet. Resolving real overloads — externals *by argument-type
+    /// betterness*, and local overloaded members at all — needs argument-type
+    /// *identity*, not a display string. A per-arg `EqArray<SymbolKey>` is the
+    /// natural candidate (it would carry the full nominal identity of each
+    /// parameter type instead of a name), **but** is insufficient on its own: a
+    /// parameter can be a typar (`!0`), a function/tuple/array, or a constructed
+    /// generic — shapes a single `SymbolKey` can't express. The genuinely complete
+    /// representation is `SemType`, which can't be embedded here directly (`SemType`
+    /// already references `SymbolKey` — that would be a definitional cycle). So the
+    /// eventual shape is an open design question (a structural arg-type encoding, a
+    /// `SemType`-keyed side table, or breaking the cycle), not a drop-in field swap.
+    | MemberKey of decl: SymbolKey * memberName: string * argSig: EqArray<string> * kind: MemberKind
+
+/// What kind of member a `SymbolKey.MemberKey` denotes (pre-sprint-recommendations
+/// H3). `Method` and `Property` are the today-resolvable shapes; `InterfaceMethod`
+/// and `ExplicitInterfaceImpl` land their consumers with B-2 (interface conformance
+/// + `(this :> iface).M()` syntax) — until then both are unused, but the field
+/// is wide enough to carry the interface's `SymbolKey` so B-2 doesn't have to
+/// re-shape the key.
+and [<RequireQualifiedAccess>] MemberKind =
+    | Method
+    | Property
+    /// An abstract method on an interface; `iface` is the declaring interface's
+    /// `SymbolKey.TypeKey`. Distinct from `Method` so a call site can resolve
+    /// the right vtable slot when several interfaces inherit a like-named
+    /// method (`IEnumerable<'T>::GetEnumerator()` vs
+    /// `IEnumerable::GetEnumerator()`).
+    | InterfaceMethod of iface: SymbolKey
+    /// An explicit interface implementation on a class (B-2):
+    /// `Set<'T>::System.Collections.IEnumerable.GetEnumerator`. `iface` pins
+    /// which interface's slot is being overridden, the token codegen needs to
+    /// emit the `.override` row.
+    | ExplicitInterfaceImpl of iface: SymbolKey
+
 /// Revisit if region analysis ever wants union-find (it shouldn't — regions
 /// are inequality, not equality).
 [<Struct>]
@@ -132,24 +240,34 @@ type ComparisonVerdict =
 type SemType =
     /// Call UnionFind.find then read the representative's Link to dereference.
     | TyVar of TypeVar
-    | TyConst of name: string
+    /// A nominal constant spanning three roles: (a) an argless primitive /
+    /// intrinsic binding (`TyConst("int", [])`), (b) a declaring-type typar
+    /// marker the backend's typar encoder consumes (`TyConst("'A", [])` — always
+    /// argless), and (c) a *generic intrinsic* that forwards its type arguments
+    /// (`'T[]` ≡ `TyConst("[]", [elem])` — the array repr `!0[]` is a
+    /// backend-specific encoding, the args are backend-agnostic structure). So `args ≠ []` does NOT
+    /// imply a registry nominal — arrays are the only generic intrinsic in v1.
+    /// Args participate in unification (same arity rule as `TyRecord`).
+    | TyConst of name: string * args: EqArray<SemType>
     /// Curried; multi-arg functions nest TyFun.
     | TyFun of arg: SemType * result: SemType
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
     /// mismatch is a diagnostic in Unification.
     | TyTuple of items: EqArray<SemType>
-    /// Field types are not stored inline — look up `ctx.Types.Record[name]` for
-    /// the field-shape (and the declared `TypeParams` used to substitute `args`
-    /// into each field). Two TyRecords unify iff their names match AND their
-    /// args unify pairwise. v1 single-segment names; qualified names land with
-    /// namespaces.
-    | TyRecord of name: string * args: EqArray<SemType>
-    /// Same shape as TyRecord. Cases / TypeParams live in `ctx.Types.Union[name]`.
-    | TyUnion of name: string * args: EqArray<SemType>
+    /// Field types are not stored inline — look up the record's shape via its
+    /// `key` (and the declared `TypeParams` used to substitute `args` into each
+    /// field). Two TyRecords unify iff their `key`s are equal AND their args
+    /// unify pairwise. Identity is the resolved `SymbolKey` (minted once in
+    /// NameResolution / Translate), not a bare string. The `key`'s `ns` distinguishes same-named records in different
+    /// namespaces; its `name` carries the arity suffix.
+    | TyRecord of key: SymbolKey * args: EqArray<SemType>
+    /// Same shape as TyRecord. Cases / TypeParams live in the union registry,
+    /// reachable by `key` (`TypeRegistry.tryUnionByKey`).
+    | TyUnion of key: SymbolKey * args: EqArray<SemType>
     /// Same shape as `TyRecord` / `TyUnion`; member lookup is a side-channel on
-    /// `ctx.Types.Class`. Two `TyClass` unify iff their names match AND their
-    /// args unify pairwise.
-    | TyClass of name: string * args: EqArray<SemType>
+    /// the class registry. Two `TyClass` unify iff their `key`s are equal AND
+    /// their args unify pairwise.
+    | TyClass of key: SymbolKey * args: EqArray<SemType>
     /// A nominal reference that resolved to no in-scope type shape during extraction.
     /// It never unifies with anything; Unification reports it at the use site and
     /// recovers, so one broken contract head doesn't cascade. Distinct from

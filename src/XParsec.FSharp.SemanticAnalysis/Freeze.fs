@@ -27,7 +27,7 @@ module Freeze =
 
     /// The decl-site `NodeKey` for a single-segment `TypeName` — the same key
     /// `NameResolution` mints (`NodeKey.ofToken <first ident> DeclType`) and stamps
-    /// into `Resolution.ResolvedType` (symbol-key-refactor.md Phase 2). `ValueNone`
+    /// into `Resolution.ResolvedType`. `ValueNone`
     /// for a multi-segment name, which is never a project-local type and so never
     /// registered. Used to recover an arity-overloaded union (`Choice\`2`…`Choice\`7`)
     /// by its stamped `SymbolKey` instead of re-deriving the `(name, arity)` key.
@@ -51,9 +51,9 @@ module Freeze =
                     markers
                     |> List.tryPick (fun (r, n) -> if Object.ReferenceEquals(r, tv) then Some n else None)
                 with
-                | Some n -> TyConst n
+                | Some n -> TyConst(n, EqArray.empty)
                 | None -> t
-            | TyConst _ -> t
+            | TyConst(n, args) -> TyConst(n, EqArray.map go args)
             | TyFun(a, b) -> TyFun(go a, go b)
             | TyTuple ts -> TyTuple(EqArray.map go ts)
             | TyRecord(n, args) -> TyRecord(n, EqArray.map go args)
@@ -216,7 +216,7 @@ module Freeze =
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                             // Unions are not inheritable — `base` never in scope.
                             BaseKey = ValueNone
-                            ThisTy = TyUnion(info.Name, EqArray.empty)
+                            ThisTy = TyUnion(info.Key, EqArray.empty)
                             Params = memberParams ctx b
                             Body = translateExpr ctx b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
@@ -237,7 +237,7 @@ module Freeze =
                         Kind = TMemberKind.Property
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         BaseKey = ValueNone
-                        ThisTy = TyUnion(info.Name, EqArray.empty)
+                        ThisTy = TyUnion(info.Key, EqArray.empty)
                         Params = EqArray.empty
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
@@ -251,7 +251,7 @@ module Freeze =
     /// name)` (vesper-set-sprint-plan §1.8 / B-10) — the static analogue of the
     /// primary-ctor-param → `FieldGet` rewrite. Applies to instance and static
     /// member bodies alike (a `static let` is in scope for both).
-    let private rewriteStaticLetRefs (staticLetByKey: Map<NodeKey, string>) (className: string) (body: TExpr) : TExpr =
+    let private rewriteStaticLetRefs (staticLetByKey: Map<NodeKey, string>) (declKey: SymbolKey) (body: TExpr) : TExpr =
         if Map.isEmpty staticLetByKey then
             body
         else
@@ -262,7 +262,7 @@ module Freeze =
                             match e with
                             | TExpr.Var(k, ty) ->
                                 match Map.tryFind k staticLetByKey with
-                                | Some name -> ValueSome(TExpr.StaticFieldGet(className, name, ty))
+                                | Some name -> ValueSome(TExpr.StaticFieldGet(declKey, name, ty))
                                 | None -> ValueNone
                             | _ -> ValueNone
                 }
@@ -288,7 +288,7 @@ module Freeze =
         // the markers in place (it rewrites prototype `TyVar` roots, not
         // `TyConst` markers — see `remapDeclTypars`).
         let classTy =
-            TyClass(info.Name, EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> TyConst n }))
+            TyClass(info.Key, EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> TyConst(n, EqArray.empty) }))
 
         // `base` is in scope only when the class has an `inherit` clause; an
         // instance member then carries the shared `BaseKey` so codegen maps a
@@ -328,7 +328,7 @@ module Freeze =
             let isStatic = s.IsSome
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
-                let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Name
+                let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Key
                 if isStatic then body else rewriteCtorParamRefs body
 
             // The member's own generic parameters (B-12), recovered from the
@@ -369,7 +369,7 @@ module Freeze =
                             Kind = kind
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                             BaseKey = (if isStatic then ValueNone else baseKey)
-                            ThisTy = TyClass(info.Name, EqArray.empty)
+                            ThisTy = TyClass(info.Key, EqArray.empty)
                             Params = memberParams ctx b
                             Body = lowerBody b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
@@ -388,7 +388,7 @@ module Freeze =
                         Kind = TMemberKind.Property
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         BaseKey = (if isStatic then ValueNone else baseKey)
-                        ThisTy = TyClass(info.Name, EqArray.empty)
+                        ThisTy = TyClass(info.Key, EqArray.empty)
                         Params = EqArray.empty
                         Body = lowerBody e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
@@ -477,6 +477,7 @@ module Freeze =
     /// `tryInterfaceMethods` projections both flow through here unchanged).
     let private mkTypeDecl
         (name: string)
+        (key: SymbolKey)
         (ns: string option)
         (typars: EqArray<string>)
         (kind: TTypeKind)
@@ -486,6 +487,7 @@ module Freeze =
         TDecl.Type
             {
                 Name = name
+                Key = key
                 Namespace = ns
                 TypeParams = typars
                 Kind = kind
@@ -504,7 +506,7 @@ module Freeze =
         (declKey: NodeKey voption)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         : TDecl option =
-        // symbol-key-refactor.md Phase 2: resolve the union by the `SymbolKey`
+        // Resolve the union by the `SymbolKey`
         // `NameResolution` stamped at the decl site, rather than re-deriving the
         // `(name, arity)` key here. The stamp is co-populated with `ctx.Types.Union`
         // (same registration branch), so this is exactly as total as the former
@@ -554,7 +556,7 @@ module Freeze =
 
             let remapMember =
                 let selfTy =
-                    TyUnion(info.Name, EqArray.ofSeq (seq { for n in declTypars -> TyConst n }))
+                    TyUnion(info.Key, EqArray.ofSeq (seq { for n in declTypars -> TyConst(n, EqArray.empty) }))
 
                 remapMemberTypes selfTy markers
 
@@ -574,6 +576,7 @@ module Freeze =
             Some(
                 mkTypeDecl
                     name
+                    info.Key
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Union(cases, members))
@@ -609,6 +612,7 @@ module Freeze =
             Some(
                 mkTypeDecl
                     name
+                    info.Key
                     ns
                     (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
                     (TTypeKind.Record(fields, EqArray.empty))
@@ -651,7 +655,7 @@ module Freeze =
 
             let remapMember =
                 let selfTy =
-                    TyClass(info.Name, EqArray.ofSeq (seq { for n in declTypars -> TyConst n }))
+                    TyClass(info.Key, EqArray.ofSeq (seq { for n in declTypars -> TyConst(n, EqArray.empty) }))
 
                 remapMemberTypes selfTy markers
 
@@ -680,7 +684,7 @@ module Freeze =
                             {
                                 Name = sl.Name
                                 Type = Unification.zonk sl.Type
-                                Init = translateExpr ctx sl.Init |> rewriteStaticLetRefs staticLetByKey info.Name
+                                Init = translateExpr ctx sl.Init |> rewriteStaticLetRefs staticLetByKey info.Key
                             }
                     }
                 )
@@ -758,6 +762,7 @@ module Freeze =
             Some(
                 mkTypeDecl
                     name
+                    info.Key
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Class(
@@ -785,9 +790,17 @@ module Freeze =
 
             match tryInterfaceMethods ctx name body with
             | Some(typars, methods) ->
+                // Interfaces aren't in the codegen emitted-type tables (their own
+                // `interfaceDecls` path), but `TTypeDecl.Key` is total — mint the
+                // same `(asm, ns, name\`arity)` identity registration would, so a
+                // reference to the interface compares equal to this decl's key.
+                let key =
+                    LocalSymbolKey.ofType (ExternalSymbols.asmOf ctx.AssemblyName) (defaultArg ns "") name typars.Length
+
                 Some(
                     mkTypeDecl
                         name
+                        key
                         ns
                         typars
                         (TTypeKind.Interface methods)

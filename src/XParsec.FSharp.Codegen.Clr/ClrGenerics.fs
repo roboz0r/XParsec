@@ -18,10 +18,10 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let encodeType te t = enc.EncodeType(te, t)
     let encodeUnionType typeIx te t = enc.EncodeUnionType(typeIx, te, t)
 
-    // Unions are keyed by arity (`Choice\`2`), so the use-site arg count selects the
-    // right same-named overload in `genericUnions` / `userTypes`.
-    let genericUnionTypeSpec (name: string) (args: SemType list) : EntityHandle =
-        let key = TypeRegistry.keyFor name (List.length args)
+    // Unions are keyed by their nominal `SymbolKey` (which embeds the arity, so
+    // same-named overloads `Choice\`2`…`Choice\`7` don't collide) in `genericUnions`
+    // / `userTypes`.
+    let genericUnionTypeSpec (key: SymbolKey) (args: SemType list) : EntityHandle =
         let typars, _ = genericUnions.[key]
         let typeIx = typarIx typars
         let tsB = BlobBuilder()
@@ -33,10 +33,10 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericUnionMemberRef (name: string) (args: SemType list) (which: UnionMember) : EntityHandle =
-        let typars, cases = genericUnions.[TypeRegistry.keyFor name (List.length args)]
+    let genericUnionMemberRef (key: SymbolKey) (args: SemType list) (which: UnionMember) : EntityHandle =
+        let typars, cases = genericUnions.[key]
         let typeIx = typarIx typars
-        let parent = genericUnionTypeSpec name args
+        let parent = genericUnionTypeSpec key args
 
         let caseFields cn =
             cases |> List.find (fun (n, _) -> n = cn) |> snd
@@ -61,7 +61,10 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(parent, metaName, s))
         | UnionMember.Factory caseName ->
             let paramTys = caseFields caseName |> List.map snd
-            let retTy = TyUnion(name, EqArray.ofSeq (seq { for t in typars -> TyConst t }))
+
+            let retTy =
+                TyUnion(key, EqArray.ofSeq (seq { for t in typars -> TyConst(t, EqArray.empty) }))
+
             let s = BlobBuilder()
 
             BlobEncoder(s)
@@ -92,22 +95,22 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(parent, metaName, s))
 
-    let genericRecordTypeSpec (name: string) (args: SemType list) : EntityHandle =
-        let typars, _ = genericRecords.[name]
+    let genericRecordTypeSpec (key: SymbolKey) (args: SemType list) : EntityHandle =
+        let typars, _ = genericRecords.[key]
         let typeIx = typarIx typars
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(userTypes.[name], List.length typars, false)
+        let g = te.GenericInstantiation(userTypes.[key], List.length typars, false)
 
         for a in args do
             encodeUnionType typeIx (g.AddArgument()) a
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericRecordMemberRef (name: string) (args: SemType list) (which: RecordMember) : EntityHandle =
-        let typars, fields = genericRecords.[name]
+    let genericRecordMemberRef (key: SymbolKey) (args: SemType list) (which: RecordMember) : EntityHandle =
+        let typars, fields = genericRecords.[key]
         let typeIx = typarIx typars
-        let parent = genericRecordTypeSpec name args
+        let parent = genericRecordTypeSpec key args
 
         match which with
         | RecordMember.Ctor ->
@@ -132,24 +135,24 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 let s = BlobBuilder()
                 encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
-            | None -> failwithf "ClrProvider: generic record '%s' has no field '%s'" name fieldName
+            | None -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
 
-    let genericClassTypeSpec (name: string) (args: SemType list) : EntityHandle =
-        let typars, _ = genericClasses.[name]
+    let genericClassTypeSpec (key: SymbolKey) (args: SemType list) : EntityHandle =
+        let typars, _ = genericClasses.[key]
         let typeIx = typarIx typars
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(userTypes.[name], List.length typars, false)
+        let g = te.GenericInstantiation(userTypes.[key], List.length typars, false)
 
         for a in args do
             encodeUnionType typeIx (g.AddArgument()) a
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericClassMemberRef (name: string) (args: SemType list) (which: ClassMember) : EntityHandle =
-        let typars, fields = genericClasses.[name]
+    let genericClassMemberRef (key: SymbolKey) (args: SemType list) (which: ClassMember) : EntityHandle =
+        let typars, fields = genericClasses.[key]
         let typeIx = typarIx typars
-        let parent = genericClassTypeSpec name args
+        let parent = genericClassTypeSpec key args
 
         match which with
         | ClassMember.Ctor ->
@@ -174,7 +177,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 let s = BlobBuilder()
                 encodeUnionType typeIx (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
-            | None -> failwithf "ClrProvider: generic class '%s' has no field '%s'" name fieldName
+            | None -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
         | ClassMember.Member(metaName, isStatic, paramTys, retTy) ->
             let s = BlobBuilder()
 
@@ -262,22 +265,23 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         env.MethodTyparRoots <- savedMethod
         handle
 
-    member _.GenericUnionMemberRef(name, args, which) = genericUnionMemberRef name args which
-    member _.GenericRecordMemberRef(name, args, which) = genericRecordMemberRef name args which
-    member _.GenericClassMemberRef(name, args, which) = genericClassMemberRef name args which
+    member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which
+    member _.GenericRecordMemberRef(key, args, which) = genericRecordMemberRef key args which
+    member _.GenericClassMemberRef(key, args, which) = genericClassMemberRef key args which
     member _.GenericClosureTypeSpec(name, args) = genericClosureTypeSpec name args
     member _.GenericClosureMemberRef(name, args, which) = genericClosureMemberRef name args which
 
     /// A generic union's own instantiation `TypeSpec` over its declaring typars (`List`1<!0>`) — the
     /// `isinst` target / `other`-local / typed-`Equals` self for its synthesised equality triple.
-    /// `arity` disambiguates same-named overloads (`Choice\`2`…`Choice\`7`) in `genericUnions`.
-    member _.GenericUnionSelfSpec(name: string, arity: int) : EntityHandle =
-        let typars, _ = genericUnions.[TypeRegistry.keyFor name arity]
-        genericUnionTypeSpec name [ for t in typars -> TyConst t ]
+    /// Keyed by the union's nominal `SymbolKey` (which embeds the arity, disambiguating
+    /// same-named overloads `Choice\`2`…`Choice\`7`) in `genericUnions`.
+    member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle =
+        let typars, _ = genericUnions.[key]
+        genericUnionTypeSpec key [ for t in typars -> TyConst(t, EqArray.empty) ]
 
-    member _.GenericRecordSelfSpec(name: string) : EntityHandle =
-        let typars, _ = genericRecords.[name]
-        genericRecordTypeSpec name [ for t in typars -> TyConst t ]
+    member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle =
+        let typars, _ = genericRecords.[key]
+        genericRecordTypeSpec key [ for t in typars -> TyConst(t, EqArray.empty) ]
 
     /// A capture-field signature for a *generic* closure, encoded in the closure's own typars (`!i`).
     /// `closureTypars` are installed for the duration of one `encodeType` call so a free `TyVar` whose

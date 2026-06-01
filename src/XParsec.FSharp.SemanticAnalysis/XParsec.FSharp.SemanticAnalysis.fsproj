@@ -9,9 +9,9 @@
     <Compile Include="CstKeys.fs" />
     <Compile Include="CstWalk.fs" />
     <Compile Include="Conformance.fs" />
-    <Compile Include="RuntimeNames.fs" />
     <Compile Include="SemanticInfo.fs" />
     <Compile Include="ExternalSymbols.fs" />
+    <Compile Include="RuntimeNames.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="VesperLib\Manifest.fs" />
     <Compile Include="VesperLib\TyparCapture.fs" />

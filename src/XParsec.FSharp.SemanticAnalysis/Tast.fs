@@ -154,19 +154,25 @@ type TExpr =
     | New of className: string * args: EqArray<TExpr> * ty: SemType
     /// Instance method invocation: `r.M(args)`. `args` is the
     /// per-parameter list (peeled the same way as `New`). `ty` is the
-    /// method's declared return type.
-    | MethodCall of receiver: TExpr * methodName: string * via: CallVia * args: EqArray<TExpr> * ty: SemType
-    | PropertyGet of receiver: TExpr * propertyName: string * via: CallVia * ty: SemType
-    /// Same arg-peeling as `MethodCall`; no receiver.
-    | StaticMethodCall of className: string * methodName: string * args: EqArray<TExpr> * ty: SemType
-    | StaticPropertyGet of className: string * propertyName: string * ty: SemType
+    /// method's declared return type. `key` is the resolved local
+    /// `SymbolKey.MemberKey` (declaring type + member name) — codegen reads the declaring type off `key.decl` and the member
+    /// name off `key.memberName` instead of re-deriving from a class-name string.
+    | MethodCall of receiver: TExpr * key: SymbolKey * via: CallVia * args: EqArray<TExpr> * ty: SemType
+    | PropertyGet of receiver: TExpr * key: SymbolKey * via: CallVia * ty: SemType
+    /// Same arg-peeling as `MethodCall`; no receiver. `key` is the resolved local
+    /// `SymbolKey.MemberKey`.
+    | StaticMethodCall of key: SymbolKey * args: EqArray<TExpr> * ty: SemType
+    | StaticPropertyGet of key: SymbolKey * ty: SemType
     /// Read of a class-level `static let` backing field (vesper-set-sprint-plan
     /// §1.8 / B-10). Lowered from a `static let`-bound name reference in a member
     /// body (Freeze rewrites the resolved `Var` exactly as a primary-ctor param
     /// becomes a `FieldGet`). Codegen emits `ldsfld` against the class's private
     /// static field — there is no method call (a static *property* would be a
-    /// `StaticPropertyGet`). `ty` is the field's declared/inferred type.
-    | StaticFieldGet of className: string * fieldName: string * ty: SemType
+    /// `StaticPropertyGet`). `ty` is the field's declared/inferred type. `declKey`
+    /// is the declaring class's `SymbolKey.TypeKey` (NOT a `MemberKey` — a backing
+    /// field is a field, resolved through the class's `StaticFields`, and
+    /// `MemberKind` has no `Field` case).
+    | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: SemType
     /// Member access on an *external* type resolved through `IExternalSymbolProvider`
     /// (symbol-resolution-plan §7.2). `key` interns the resolved `SymbolKey` so
     /// codegen (P4) mints the ref off the node's identity instead of re-resolving by
@@ -264,6 +270,12 @@ and TTypeDecl =
         /// Simple (unqualified) type name, e.g. `"Fun"`. The metadata name gets
         /// the arity suffix (`` Fun`2 ``) from `TypeParams.Length`.
         Name: string
+        /// The type's stable nominal identity:
+        /// the registry `info.Key` (`TypeKey(Some homeAsm, declNs, name\`arity)`),
+        /// carried into the backend so the emitted-type tables key off it directly
+        /// instead of re-deriving a string. Codegen branches local-vs-external on
+        /// its home `asm` (= the assembly being emitted).
+        Key: SymbolKey
         /// `None` for a module-level type.
         Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).

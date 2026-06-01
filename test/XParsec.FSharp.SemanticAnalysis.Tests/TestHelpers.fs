@@ -5,6 +5,44 @@ open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
+// The nominal `SemType` cases now carry a
+// `SymbolKey`, but tests construct and assert them by *string* name. These shadow
+// the three constructors (minting the key the production pipeline mints for an
+// `ns`-less test type — `qualifiedTypeKey` splits a qualified name and arity-
+// qualifies it, matching `LocalSymbolKey.ofType` / `externalTypeKey`) and expose
+// name-projecting active patterns (the arity-stripped qualified name — the legacy
+// string form every assertion was written against). Existing `TyUnion("X", args)`
+// construction *and* `| TyUnion("X", args)` match sites compile unchanged. A file
+// gets these only when it `open`s `TestHelpers` after `open …SemanticAnalysis`.
+let TyUnion (name: string, args: EqArray<SemType>) =
+    SemType.TyUnion(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+
+let TyRecord (name: string, args: EqArray<SemType>) =
+    SemType.TyRecord(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+
+let TyClass (name: string, args: EqArray<SemType>) =
+    SemType.TyClass(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+
+// The arity-qualified qualified name (`Microsoft.FSharp.Core.Result`2`,
+// `Choice`2`) — the new canonical convention. Assertions that pinned the old
+// non-suffixed / bare form were updated to match (the doc's "convention ripple").
+let private nominalDisplayName (k: SymbolKey) : string = ExternalSymbols.qualifiedName k
+
+let (|TyUnion|_|) (t: SemType) =
+    match t with
+    | SemType.TyUnion(k, args) -> Some(nominalDisplayName k, args)
+    | _ -> None
+
+let (|TyRecord|_|) (t: SemType) =
+    match t with
+    | SemType.TyRecord(k, args) -> Some(nominalDisplayName k, args)
+    | _ -> None
+
+let (|TyClass|_|) (t: SemType) =
+    match t with
+    | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
+    | _ -> None
+
 /// Project an `EqArray<'T>` as a plain `'T list` inside a pattern match — lets
 /// tests written against the pre-EqArray TAST keep their list-literal arms
 /// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip

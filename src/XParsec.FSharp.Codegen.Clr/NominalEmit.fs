@@ -46,7 +46,7 @@ module internal NominalEmit =
         let firstField = MetadataTokens.FieldDefinitionHandle(asm.FieldCount + 1)
 
         let isGeneric = not td.TypeParams.IsEmpty
-        let typarMarkers = [ for n in td.TypeParams -> TyConst n ]
+        let typarMarkers = [ for n in td.TypeParams -> TyConst(n, EqArray.empty) ]
 
         // Local-signature encoder honouring the declaring type's typars: a member
         // (or secondary-ctor) body local of a generic type needs the generic
@@ -68,7 +68,13 @@ module internal NominalEmit =
             match input with
             | NominalEmissionInput.Union cases ->
                 let tagField =
-                    toEntity (ctx.AddField(FieldAttributes.Public, "_tag", provider.FieldSignature(TyConst "int")))
+                    toEntity (
+                        ctx.AddField(
+                            FieldAttributes.Public,
+                            "_tag",
+                            provider.FieldSignature(TyConst("int", EqArray.empty))
+                        )
+                    )
 
                 asm.FieldCount <- asm.FieldCount + 1
 
@@ -118,19 +124,19 @@ module internal NominalEmit =
                     let ctorRef, tagRef, fieldRefs =
                         if isGeneric then
                             icodegen.UserGenericMemberRef(
-                                td.Name,
+                                td.Key,
                                 typarMarkers,
                                 UserMemberKind.UnionMember UnionMember.Ctor
                             ),
                             icodegen.UserGenericMemberRef(
-                                td.Name,
+                                td.Key,
                                 typarMarkers,
                                 UserMemberKind.UnionMember UnionMember.Tag
                             ),
                             [
                                 for fi in 0 .. List.length fieldHandles - 1 ->
                                     icodegen.UserGenericMemberRef(
-                                        td.Name,
+                                        td.Key,
                                         typarMarkers,
                                         UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))
                                     )
@@ -151,10 +157,10 @@ module internal NominalEmit =
                             provider.GenericStaticMethodSignature(
                                 EqArray.toList td.TypeParams,
                                 paramTys,
-                                TyUnion(td.Name, EqArray.ofList typarMarkers)
+                                TyUnion(td.Key, EqArray.ofList typarMarkers)
                             )
                         else
-                            provider.StaticMethodSignature(paramTys, TyUnion(td.Name, EqArray.empty))
+                            provider.StaticMethodSignature(paramTys, TyUnion(td.Key, EqArray.empty))
 
                     let factory =
                         ctx.AddMethodWithParamList(
@@ -176,7 +182,7 @@ module internal NominalEmit =
                 )
 
                 let registerUnion (emittedMembers: Dictionary<string, Emit.EmittedMember>) =
-                    unions.[td.Name] <-
+                    unions.[td.Key] <-
                         {
                             Name = td.Name
                             Typars = EqArray.toList td.TypeParams
@@ -213,7 +219,7 @@ module internal NominalEmit =
                         [
                             for (name, _, _) in fieldHandles ->
                                 icodegen.UserGenericMemberRef(
-                                    td.Name,
+                                    td.Key,
                                     typarMarkers,
                                     UserMemberKind.RecordMember(RecordMember.Field name)
                                 )
@@ -246,7 +252,7 @@ module internal NominalEmit =
                 asm.MethodCount <- asm.MethodCount + 1
 
                 let registerRecord (_: Dictionary<string, Emit.EmittedMember>) =
-                    records.[td.Name] <-
+                    records.[td.Key] <-
                         {
                             Name = td.Name
                             Typars = EqArray.toList td.TypeParams
@@ -272,8 +278,8 @@ module internal NominalEmit =
                 // `TypeSpec`, encoded with this class's typars ambient so an open
                 // parent arg resolves to `!i`. Parent-less ⇒ `Object` (the default).
                 match baseType with
-                | ValueSome(TyClass(baseName, baseArgs)) when baseArgs.IsEmpty ->
-                    baseTypeHandle <- provider.UserTypeHandle baseName
+                | ValueSome(TyClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
+                    baseTypeHandle <- provider.UserTypeHandle baseKey
                 | ValueSome bt ->
                     if isGeneric then
                         provider.SetTypeTypars(EqArray.toList td.TypeParams)
@@ -332,7 +338,7 @@ module internal NominalEmit =
                         [
                             for (name, _, _) in fieldHandles ->
                                 icodegen.UserGenericMemberRef(
-                                    td.Name,
+                                    td.Key,
                                     typarMarkers,
                                     UserMemberKind.ClassMember(ClassMember.Field name)
                                 )
@@ -350,13 +356,13 @@ module internal NominalEmit =
                 let ctorBody =
                     match baseCtorCall with
                     | ValueSome bcc ->
-                        let baseName, baseArgs =
+                        let baseKey, baseArgs =
                             match baseType with
                             | ValueSome(TyClass(n, xs)) -> n, EqArray.toList xs
                             | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
                         let baseCtorHandle =
-                            match classes.TryGetValue baseName with
+                            match classes.TryGetValue baseKey with
                             | true, bc when List.isEmpty bc.Typars -> bc.Ctor
                             | true, _ ->
                                 if isGeneric then
@@ -364,7 +370,7 @@ module internal NominalEmit =
 
                                 let h =
                                     icodegen.UserGenericMemberRef(
-                                        baseName,
+                                        baseKey,
                                         baseArgs,
                                         UserMemberKind.ClassMember ClassMember.Ctor
                                     )
@@ -375,8 +381,8 @@ module internal NominalEmit =
                                 h
                             | false, _ ->
                                 failwithf
-                                    "Emit: base class '%s' of '%s' is not an emitted project-local class"
-                                    baseName
+                                    "Emit: base class '%A' of '%s' is not an emitted project-local class"
+                                    baseKey
                                     td.Name
 
                         Emit.buildClassBaseCtor
@@ -416,7 +422,7 @@ module internal NominalEmit =
                 // earlier `static let` (lowered to `StaticFieldGet`) resolves
                 // through `resolveStaticField`.
                 if not (List.isEmpty staticLets) then
-                    classes.[td.Name] <-
+                    classes.[td.Key] <-
                         {
                             Name = td.Name
                             Typars = EqArray.toList td.TypeParams
@@ -460,7 +466,7 @@ module internal NominalEmit =
                         let primaryCtorRef =
                             if isGeneric then
                                 icodegen.UserGenericMemberRef(
-                                    td.Name,
+                                    td.Key,
                                     typarMarkers,
                                     UserMemberKind.ClassMember ClassMember.Ctor
                                 )
@@ -505,7 +511,7 @@ module internal NominalEmit =
                         ]
 
                 let registerClass (emittedMembers: Dictionary<string, Emit.EmittedMember>) =
-                    classes.[td.Name] <-
+                    classes.[td.Key] <-
                         {
                             Name = td.Name
                             Typars = EqArray.toList td.TypeParams
@@ -649,7 +655,7 @@ module internal NominalEmit =
 
             match input with
             | NominalEmissionInput.Union cases ->
-                let emitted = unions.[td.Name]
+                let emitted = unions.[td.Key]
                 let tagField = emitted.TagField
 
                 // Flat walk across every case's fields, declaration order: sound
@@ -664,7 +670,7 @@ module internal NominalEmit =
                                 let fieldHandle =
                                     if isGeneric then
                                         icodegen.UserGenericMemberRef(
-                                            td.Name,
+                                            td.Key,
                                             typarMarkers,
                                             UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))
                                         )
@@ -678,21 +684,21 @@ module internal NominalEmit =
                     {
                         SelfType =
                             if isGeneric then
-                                provider.GenericUnionSelfSpec(td.Name, td.TypeParams.Length)
+                                provider.GenericUnionSelfSpec td.Key
                             else
-                                provider.UserTypeHandle td.Name
-                        SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
+                                provider.UserTypeHandle td.Key
+                        SelfSemType = TyUnion(td.Key, EqArray.ofList typarMarkers)
                         TagField =
                             if isGeneric then
                                 icodegen.UserGenericMemberRef(
-                                    td.Name,
+                                    td.Key,
                                     typarMarkers,
                                     UserMemberKind.UnionMember UnionMember.Tag
                                 )
                             else
                                 tagField
                         Fields = allFields
-                        IntType = TyConst "int"
+                        IntType = TyConst("int", EqArray.empty)
                         ComparerDefault = fun t -> provider.EqualityComparerDefault t
                         ComparerEquals = fun t -> provider.EqualityComparerEquals t
                         HashCodeLocal = provider.HashCodeType
@@ -734,7 +740,7 @@ module internal NominalEmit =
                 ctx.AddMethodWithParamList(
                     ifaceEqualsAttrs,
                     "Equals",
-                    provider.EqualsTypedSignature(TyUnion(td.Name, EqArray.ofList typarMarkers)),
+                    provider.EqualsTypedSignature(TyUnion(td.Key, EqArray.ofList typarMarkers)),
                     equalsTypedBody,
                     addParams [ "other" ]
                 )
@@ -743,7 +749,7 @@ module internal NominalEmit =
                 asm.MethodCount <- asm.MethodCount + 1
 
             | NominalEmissionInput.Record _ ->
-                let emitted = records.[td.Name]
+                let emitted = records.[td.Key]
 
                 let allFields =
                     [
@@ -751,7 +757,7 @@ module internal NominalEmit =
                             let fieldHandle =
                                 if isGeneric then
                                     icodegen.UserGenericMemberRef(
-                                        td.Name,
+                                        td.Key,
                                         typarMarkers,
                                         UserMemberKind.RecordMember(RecordMember.Field name)
                                     )
@@ -765,10 +771,10 @@ module internal NominalEmit =
                     {
                         SelfType =
                             if isGeneric then
-                                provider.GenericRecordSelfSpec td.Name
+                                provider.GenericRecordSelfSpec td.Key
                             else
-                                provider.UserTypeHandle td.Name
-                        SelfSemType = TyRecord(td.Name, EqArray.ofList typarMarkers)
+                                provider.UserTypeHandle td.Key
+                        SelfSemType = TyRecord(td.Key, EqArray.ofList typarMarkers)
                         Fields = allFields
                         ComparerDefault = fun t -> provider.EqualityComparerDefault t
                         ComparerEquals = fun t -> provider.EqualityComparerEquals t
@@ -811,7 +817,7 @@ module internal NominalEmit =
                 ctx.AddMethodWithParamList(
                     ifaceEqualsAttrs,
                     "Equals",
-                    provider.EqualsTypedSignature(TyRecord(td.Name, EqArray.ofList typarMarkers)),
+                    provider.EqualsTypedSignature(TyRecord(td.Key, EqArray.ofList typarMarkers)),
                     equalsTypedBody,
                     addParams [ "other" ]
                 )
@@ -830,7 +836,7 @@ module internal NominalEmit =
 
             match input with
             | NominalEmissionInput.Union cases ->
-                let emitted = unions.[td.Name]
+                let emitted = unions.[td.Key]
                 let tagField = emitted.TagField
 
                 let allFieldsForCmp =
@@ -842,7 +848,7 @@ module internal NominalEmit =
                                 let fieldHandle =
                                     if isGeneric then
                                         icodegen.UserGenericMemberRef(
-                                            td.Name,
+                                            td.Key,
                                             typarMarkers,
                                             UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi))
                                         )
@@ -856,14 +862,14 @@ module internal NominalEmit =
                     {
                         SelfType =
                             if isGeneric then
-                                provider.GenericUnionSelfSpec(td.Name, td.TypeParams.Length)
+                                provider.GenericUnionSelfSpec td.Key
                             else
-                                provider.UserTypeHandle td.Name
-                        SelfSemType = TyUnion(td.Name, EqArray.ofList typarMarkers)
+                                provider.UserTypeHandle td.Key
+                        SelfSemType = TyUnion(td.Key, EqArray.ofList typarMarkers)
                         TagField =
                             if isGeneric then
                                 icodegen.UserGenericMemberRef(
-                                    td.Name,
+                                    td.Key,
                                     typarMarkers,
                                     UserMemberKind.UnionMember UnionMember.Tag
                                 )
@@ -883,7 +889,7 @@ module internal NominalEmit =
                     ctx.AddMethodWithParamList(
                         ifaceEqualsAttrs,
                         "CompareTo",
-                        provider.CompareToTypedSignature(TyUnion(td.Name, EqArray.ofList typarMarkers)),
+                        provider.CompareToTypedSignature(TyUnion(td.Key, EqArray.ofList typarMarkers)),
                         compareToTypedBody,
                         addParams [ "other" ]
                     )
@@ -908,7 +914,7 @@ module internal NominalEmit =
                 asm.MethodCount <- asm.MethodCount + 1
 
             | NominalEmissionInput.Record _ ->
-                let emitted = records.[td.Name]
+                let emitted = records.[td.Key]
 
                 let allFieldsForCmp =
                     [
@@ -916,7 +922,7 @@ module internal NominalEmit =
                             let fieldHandle =
                                 if isGeneric then
                                     icodegen.UserGenericMemberRef(
-                                        td.Name,
+                                        td.Key,
                                         typarMarkers,
                                         UserMemberKind.RecordMember(RecordMember.Field name)
                                     )
@@ -930,10 +936,10 @@ module internal NominalEmit =
                     {
                         SelfType =
                             if isGeneric then
-                                provider.GenericRecordSelfSpec td.Name
+                                provider.GenericRecordSelfSpec td.Key
                             else
-                                provider.UserTypeHandle td.Name
-                        SelfSemType = TyRecord(td.Name, EqArray.ofList typarMarkers)
+                                provider.UserTypeHandle td.Key
+                        SelfSemType = TyRecord(td.Key, EqArray.ofList typarMarkers)
                         Fields = allFieldsForCmp
                         ComparerDefault = fun t -> provider.ComparerDefault t
                         ComparerCompare = fun t -> provider.ComparerCompare t
@@ -948,7 +954,7 @@ module internal NominalEmit =
                     ctx.AddMethodWithParamList(
                         ifaceEqualsAttrs,
                         "CompareTo",
-                        provider.CompareToTypedSignature(TyRecord(td.Name, EqArray.ofList typarMarkers)),
+                        provider.CompareToTypedSignature(TyRecord(td.Key, EqArray.ofList typarMarkers)),
                         compareToTypedBody,
                         addParams [ "other" ]
                     )
@@ -978,9 +984,9 @@ module internal NominalEmit =
 
         let selfTy =
             match input with
-            | NominalEmissionInput.Union _ -> fun (ts: SemType list) -> TyUnion(td.Name, EqArray.ofList ts)
-            | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Name, EqArray.ofList ts)
-            | NominalEmissionInput.Class _ -> fun (ts: SemType list) -> TyClass(td.Name, EqArray.ofList ts)
+            | NominalEmissionInput.Union _ -> fun (ts: SemType list) -> TyUnion(td.Key, EqArray.ofList ts)
+            | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Key, EqArray.ofList ts)
+            | NominalEmissionInput.Class _ -> fun (ts: SemType list) -> TyClass(td.Key, EqArray.ofList ts)
 
         // One `InterfaceImpl` entity handle per implemented interface. The
         // synthesised structural-equality / comparison interfaces (unions /
@@ -991,7 +997,7 @@ module internal NominalEmit =
         let interfaces =
             if emitsEqualityTriple || emitsComparisonPair || not (List.isEmpty classInterfaces) then
                 provider.SetTypeTypars(EqArray.toList td.TypeParams)
-                let selfMarkers = [ for t in td.TypeParams -> TyConst t ]
+                let selfMarkers = [ for t in td.TypeParams -> TyConst(t, EqArray.empty) ]
 
                 let acc =
                     [

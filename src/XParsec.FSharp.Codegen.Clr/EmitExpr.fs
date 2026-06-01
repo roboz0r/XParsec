@@ -60,7 +60,10 @@ module EmitExpr =
 
             b.Add(ILInstr.BneUn nextLabel)
         | TPat.Union(caseName, subPats, ty) ->
-            let typeName, tyArgs = nominalShape "union pattern" ty
+            // Local union table keys by the nominal `SymbolKey`; the external union
+            // provider lookups take the qualified compiled name derived from it (Phase 6D).
+            let key, tyArgs = nominalShape "union pattern" ty
+            let qualName = ExternalSymbols.qualifiedName key
 
             // The discriminator field + its value for this case, and a per-index
             // field-ref source, resolved from either the local emitted union or a
@@ -70,7 +73,7 @@ module EmitExpr =
             // refs minted off the external union shape, which keeps the field names +
             // declaration-order tagging in lockstep with the union emitter).
             let tagRef, tagValue, fieldRef =
-                match env.Unions.TryGetValue typeName with
+                match env.Unions.TryGetValue key with
                 | true, u ->
                     let c = u.Cases.[caseName]
 
@@ -78,29 +81,29 @@ module EmitExpr =
                     // a `MemberRef` on the instantiated `TypeSpec` for a generic one
                     // (`List<int>::_tag` etc.) — see `EmittedUnion.Typars`
                     let tagRef =
-                        memberRef env u.Typars typeName tyArgs (UserMemberKind.UnionMember UnionMember.Tag) u.TagField
+                        memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.Tag) u.TagField
 
                     let fieldRef i =
                         memberRef
                             env
                             u.Typars
-                            typeName
+                            key
                             tyArgs
                             (UserMemberKind.UnionMember(UnionMember.Field(caseName, i)))
                             c.Fields.[i]
 
                     tagRef, c.Tag, fieldRef
                 | false, _ ->
-                    match env.Provider.ExternalUnionTag(typeName, tyArgs, caseName) with
+                    match env.Provider.ExternalUnionTag(qualName, tyArgs, caseName) with
                     | ValueSome(tagRef, tagValue) ->
                         let fieldRef i =
-                            match env.Provider.ExternalUnionCaseField(typeName, tyArgs, caseName, i) with
+                            match env.Provider.ExternalUnionCaseField(qualName, tyArgs, caseName, i) with
                             | ValueSome(fieldRef, _) -> fieldRef
                             | ValueNone ->
-                                failwithf "Emit: external union '%s' case '%s' has no field %d" typeName caseName i
+                                failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
 
                         tagRef, tagValue, fieldRef
-                    | ValueNone -> failwithf "Emit: no emitted union for match on '%s'" typeName
+                    | ValueNone -> failwithf "Emit: no emitted union for match on '%s'" qualName
 
             // Skip the arm unless `scrut._tag = case.Tag`.
             b.Add(ILInstr.Ldloc scrutSlot)
@@ -120,9 +123,9 @@ module EmitExpr =
             // — only the sub-patterns themselves can branch to `nextLabel`. A
             // wildcard sub-pattern is skipped (it would always match), exactly
             // like the union arm above.
-            let typeName, tyArgs = nominalShape "record pattern" ty
+            let key, tyArgs = nominalShape "record pattern" ty
 
-            match env.Records.TryGetValue typeName with
+            match env.Records.TryGetValue key with
             | true, r ->
                 for (fieldName, subPat) in fields do
                     match subPat with
@@ -134,14 +137,14 @@ module EmitExpr =
                                 memberRef
                                     env
                                     r.Typars
-                                    typeName
+                                    key
                                     tyArgs
                                     (UserMemberKind.RecordMember(RecordMember.Field fieldName))
                                     handle
 
                             extractField fieldRef subPat
-                        | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
-            | false, _ -> failwithf "Emit: no emitted record for pattern on '%s'" typeName
+                        | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
+            | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
         | other -> failwithf "Emit: match pattern is out of scope: %A" other
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
@@ -172,7 +175,7 @@ module EmitExpr =
     /// reference types despite being `TyConst`.
     let private isValueType (ty: SemType) : bool =
         match zonk ty with
-        | TyConst n ->
+        | TyConst(n, _) ->
             match n with
             | "int"
             | "int64"
@@ -292,10 +295,24 @@ module EmitExpr =
                 // Reuse the standard instance-call path for `x.Dispose()`: it resolves
                 // the member handle and emits the `callvirt`. `Dispose` returns unit
                 // (one `Unit` value), popped so the finally handler ends empty-stacked.
+                let disposeKey =
+                    SymbolKey.MemberKey(
+                        fst (nominalShape "use-dispose receiver" varTy),
+                        "Dispose",
+                        EqArray.empty,
+                        MemberKind.Method
+                    )
+
                 buildExpr
                     env
                     b
-                    (TExpr.MethodCall(TExpr.Var(binding, varTy), "Dispose", CallVia.Self, EqArray.empty, TyConst "unit"))
+                    (TExpr.MethodCall(
+                        TExpr.Var(binding, varTy),
+                        disposeKey,
+                        CallVia.Self,
+                        EqArray.empty,
+                        TyConst("unit", EqArray.empty)
+                    ))
 
                 b.Add ILInstr.Pop
             | ValueSome key ->
@@ -306,7 +323,12 @@ module EmitExpr =
                 // member carries a real `void` return (the §4.2 fix), so it pushes
                 // nothing: a receiver-only `callvirt`, no `pop`.
                 let dispHandle =
-                    env.Provider.ExternalMemberRef(key, false, false, TyFun(TyConst "unit", TyConst "unit"))
+                    env.Provider.ExternalMemberRef(
+                        key,
+                        false,
+                        false,
+                        TyFun(TyConst("unit", EqArray.empty), TyConst("unit", EqArray.empty))
+                    )
 
                 b.Add(ILInstr.Ldloc slot)
                 b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
@@ -346,7 +368,7 @@ module EmitExpr =
             // §4.2-style null-checked `Dispose`. `GetEnumerator` is on the (reference)
             // source, so its ref recovers normally (its return mentions the typar).
             let geHandle =
-                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst "unit", enumeratorTy))
+                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst("unit", EqArray.empty), enumeratorTy))
 
             let mnHandle =
                 env.Provider.ExternalMemberRefOn(
@@ -354,7 +376,7 @@ module EmitExpr =
                     enumeratorTy,
                     false,
                     false,
-                    TyFun(TyConst "unit", TyConst "bool")
+                    TyFun(TyConst("unit", EqArray.empty), TyConst("bool", EqArray.empty))
                 )
 
             let curHandle =
@@ -412,7 +434,12 @@ module EmitExpr =
             match disposeOpt with
             | ValueSome dispKey ->
                 let dispHandle =
-                    env.Provider.ExternalMemberRef(dispKey, false, false, TyFun(TyConst "unit", TyConst "unit"))
+                    env.Provider.ExternalMemberRef(
+                        dispKey,
+                        false,
+                        false,
+                        TyFun(TyConst("unit", EqArray.empty), TyConst("unit", EqArray.empty))
+                    )
 
                 b.Add(ILInstr.Leave endLabel)
                 b.Add ILInstr.BeginFinally
@@ -471,7 +498,10 @@ module EmitExpr =
             // IL-IR exception region (H5) is the same `Try` / `BeginFinally` /
             // `EndFinally` shape as `TExpr.Use`'s disposal.
             let enumTy =
-                TyClass("System.Collections.Generic.IEnumerator`1", EqArray.singleton elemTy)
+                TyClass(
+                    SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerator`1"),
+                    EqArray.singleton elemTy
+                )
 
             let geKey =
                 SymbolKey.MemberKey(
@@ -482,7 +512,7 @@ module EmitExpr =
                 )
 
             let geHandle =
-                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst "unit", enumTy))
+                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst("unit", EqArray.empty), enumTy))
 
             let mnKey =
                 SymbolKey.MemberKey(
@@ -493,7 +523,12 @@ module EmitExpr =
                 )
 
             let mnHandle =
-                env.Provider.ExternalMemberRef(mnKey, false, false, TyFun(TyConst "unit", TyConst "bool"))
+                env.Provider.ExternalMemberRef(
+                    mnKey,
+                    false,
+                    false,
+                    TyFun(TyConst("unit", EqArray.empty), TyConst("bool", EqArray.empty))
+                )
 
             let curKey =
                 SymbolKey.MemberKey(
@@ -514,7 +549,12 @@ module EmitExpr =
                 )
 
             let dispHandle =
-                env.Provider.ExternalMemberRef(dispKey, false, false, TyFun(TyConst "unit", TyConst "unit"))
+                env.Provider.ExternalMemberRef(
+                    dispKey,
+                    false,
+                    false,
+                    TyFun(TyConst("unit", EqArray.empty), TyConst("unit", EqArray.empty))
+                )
 
             // `e = src.GetEnumerator()` — at statement position, so the stack is
             // empty here and the enumerator local is the only live value.
@@ -656,10 +696,10 @@ module EmitExpr =
                         | false, _ ->
                             failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
                     else
-                        env.Provider.UserGenericMemberRef(
+                        env.Provider.UserClosureMemberRef(
                             closure.Name,
                             closure.Typars |> List.map TyVar,
-                            UserMemberKind.ClosureMember ClosureMember.Ctor
+                            ClosureMember.Ctor
                         )
 
                 b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
@@ -678,8 +718,20 @@ module EmitExpr =
             // overloads (v1 picker is arity-only — see `ClrProvider.externalCtor`).
             let argTypes = [ for a in args -> typeOfExpr a ]
 
-            match env.Classes.TryGetValue className with
-            | true, c ->
+            // A project-local class is identified by the nominal `SymbolKey` on the
+            // construction's `TyClass` result type; an external ctor (no `TyClass`
+            // result, or a key not in `env.Classes`) routes through the provider by
+            // `className` (Phase 6D).
+            let localClass =
+                match ty with
+                | TyClass(k, _) ->
+                    match env.Classes.TryGetValue k with
+                    | true, c -> ValueSome(k, c)
+                    | _ -> ValueNone
+                | _ -> ValueNone
+
+            match localClass with
+            | ValueSome(classKey, c) ->
                 // A user class emitted into this assembly (vesper-set-sprint-plan
                 // Phase 1 / B-1). The primary ctor's arity equals its field count;
                 // a different arg count selects a secondary ctor (B-11) by arity —
@@ -691,7 +743,7 @@ module EmitExpr =
                     // Generic: a `MemberRef` on the receiver's instantiated
                     // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
                     let ctorRef =
-                        memberRef env c.Typars className tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
+                        memberRef env c.Typars classKey tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
 
                     b.Add(ILInstr.Newobj(ctorRef, argCount))
                 else
@@ -704,7 +756,7 @@ module EmitExpr =
                         // ref variant lands.
                         failwithf "Emit: generic secondary-constructor call sites not yet supported ('%s')" className
                     | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
-            | false, _ ->
+            | ValueNone ->
                 match env.Provider.TryEmitCtor(className, tyArgs, argTypes) with
                 | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
@@ -719,9 +771,9 @@ module EmitExpr =
             // lines up. A generic record's `.ctor` is a `MemberRef` on its own
             // `TypeSpec` (`Box\`1<!0>::.ctor`), exactly like a generic union's
             // factory.
-            let typeName, tyArgs = nominalShape "RecordCons" ty
+            let key, tyArgs = nominalShape "RecordCons" ty
 
-            match env.Records.TryGetValue typeName with
+            match env.Records.TryGetValue key with
             | true, r ->
                 let srcMap = Map.ofSeq srcFields.Underlying
 
@@ -729,16 +781,14 @@ module EmitExpr =
                     match Map.tryFind fieldName srcMap with
                     | Some e -> buildExpr env b e
                     | None ->
-                        failwithf
-                            "Emit: record literal for '%s' is missing initialiser for field '%s'"
-                            typeName
-                            fieldName
+                        failwithf "Emit: record literal for '%A' is missing initialiser for field '%s'" key fieldName
 
                 let ctor =
-                    memberRef env r.Typars typeName tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
+                    memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ ->
+                let qualName = ExternalSymbols.qualifiedName key
                 // Records-handoff Phase 2 follow-up F2: the record lives in a
                 // referenced assembly (`Vesper.Ref\`1` in `Vesper.Core.dll`,
                 // routed here from `RefCellPromotion`). The provider mints a
@@ -749,13 +799,13 @@ module EmitExpr =
                 // `Ref<'T>` shape — multi-field external records will revisit).
                 let fieldNames = [ for (n, _) in srcFields -> n ]
 
-                match env.Provider.TryEmitRecordCons(typeName, tyArgs, fieldNames) with
+                match env.Provider.TryEmitRecordCons(qualName, tyArgs, fieldNames) with
                 | ValueSome recipe ->
                     for (_, e) in srcFields do
                         buildExpr env b e
 
                     b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
-                | ValueNone -> failwithf "Emit: no emitted record for '%s'" typeName
+                | ValueNone -> failwithf "Emit: no emitted record for '%s'" qualName
 
         | TExpr.FieldGet(receiver, name, _) ->
             // `r.X` — load the receiver and `ldfld` the field. The field handle is
@@ -786,9 +836,9 @@ module EmitExpr =
             // the override list, else `ldloc; ldfld` from the saved source. Then
             // `newobj` the ctor. Direct field reads (no `MemberwiseClone`) keeps
             // it BCL-only and works identically for a generic record.
-            let typeName, tyArgs = nominalShape "RecordClone" ty
+            let key, tyArgs = nominalShape "RecordClone" ty
 
-            match env.Records.TryGetValue typeName with
+            match env.Records.TryGetValue key with
             | true, r ->
                 let overrideMap = Map.ofSeq overrides.Underlying
                 let srcSlot = b.Local ty
@@ -803,7 +853,7 @@ module EmitExpr =
                             memberRef
                                 env
                                 r.Typars
-                                typeName
+                                key
                                 tyArgs
                                 (UserMemberKind.RecordMember(RecordMember.Field fieldName))
                                 handle
@@ -812,18 +862,21 @@ module EmitExpr =
                         b.Add(ILInstr.Ldfld fieldRef)
 
                 let ctor =
-                    memberRef env r.Typars typeName tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
+                    memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
-            | false, _ -> failwithf "Emit: no emitted record for '%s'" typeName
+            | false, _ -> failwithf "Emit: no emitted record for '%A'" key
 
         | TExpr.UnionCons(caseName, args, ty) ->
-            let typeName, tyArgs = nominalShape "UnionCons" ty
+            // Local union table keys by the nominal `SymbolKey`; the provider's
+            // cons recipe (FSharp.Core / Vesper list) selects on the same key.
+            let key, tyArgs = nominalShape "UnionCons" ty
+            let qualName = ExternalSymbols.qualifiedName key
 
             for a in args do
                 buildExpr env b a
 
-            match env.Unions.TryGetValue typeName with
+            match env.Unions.TryGetValue key with
             | true, u ->
                 // Our own emitted union: `call` the case's static factory (the
                 // fields are already on the stack in declaration order). A
@@ -833,7 +886,7 @@ module EmitExpr =
                     memberRef
                         env
                         u.Typars
-                        typeName
+                        key
                         tyArgs
                         (UserMemberKind.UnionMember(UnionMember.Factory caseName))
                         u.Cases.[caseName].Factory
@@ -841,11 +894,12 @@ module EmitExpr =
                 b.Add(ILInstr.Call(factoryRef, args.Length, 1))
             | false, _ ->
                 // The provider's special-case (FSharp.Core list) for `[]` / `::`.
-                match env.Provider.TryEmitUnionCons(typeName, caseName, tyArgs) with
+                match env.Provider.TryEmitUnionCons(key, caseName, tyArgs) with
                 | ValueSome recipe -> b.Add(ILInstr.Recipe recipe)
-                | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" typeName caseName
+                | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" qualName caseName
 
-        | TExpr.PropertyGet(receiver, name, via, _) ->
+        | TExpr.PropertyGet(receiver, key, via, _) ->
+            let name = ExternalSymbols.simpleName key
             // Instance property read: load the receiver, then dispatch.
             // Unions/records are sealed (rung 2) so `call` is safe and avoids
             // the null check. User classes (vesper-set-sprint-plan §1.7 /
@@ -862,7 +916,8 @@ module EmitExpr =
             | CallVia.Self, TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
             | _ -> b.Add(ILInstr.Call(handle, 1, 1))
 
-        | TExpr.MethodCall(receiver, name, via, args, _) ->
+        | TExpr.MethodCall(receiver, key, via, args, _) ->
+            let name = ExternalSymbols.simpleName key
             // Instance method call: receiver then args. Unions/records use
             // `call` (sealed, no virtual dispatch needed). User classes
             // (vesper-set-sprint-plan §1.7 / B-1) emit `callvirt` uniformly
@@ -880,16 +935,16 @@ module EmitExpr =
             | CallVia.Self, TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
             | _ -> b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
 
-        | TExpr.StaticPropertyGet(className, name, _) ->
-            let handle = resolveStaticMember env className name
+        | TExpr.StaticPropertyGet(key, _) ->
+            let handle = resolveStaticMember env key
             b.Add(ILInstr.Call(handle, 0, 1))
 
-        | TExpr.StaticFieldGet(className, name, _) ->
-            let handle = resolveStaticField env className name
+        | TExpr.StaticFieldGet(declKey, name, _) ->
+            let handle = resolveStaticField env declKey name
             b.Add(ILInstr.Ldsfld handle)
 
-        | TExpr.StaticMethodCall(className, name, args, _) ->
-            let handle = resolveStaticMember env className name
+        | TExpr.StaticMethodCall(key, args, _) ->
+            let handle = resolveStaticMember env key
 
             for a in args do
                 buildExpr env b a

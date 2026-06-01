@@ -302,7 +302,7 @@ module NameResolutionMemberRegistration =
     /// parser emits Anon for the bare `type C(...) = member ...` form without an
     /// explicit `class`/`end`). Member types are placeholder TyVars; Unification's
     /// fillClassMembers links them once each member body is inferred.
-    let private registerClassTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerClassTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
         | ValueSome d ->
@@ -350,8 +350,10 @@ module NameResolutionMemberRegistration =
                     let staticLets =
                         extractStaticLets ctx declKey (not typeParams.IsEmpty) body.classPreamble
 
+                    let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
+
                     let info =
-                        ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey)
+                        ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey, key)
 
                     info.StaticLets <- staticLets
                     info.SecondaryCtors <- extractSecondaryCtors ctx declKey body.elements
@@ -382,11 +384,11 @@ module NameResolutionMemberRegistration =
                             ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
                         | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
 
-    let registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerClassTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerClassTypeDefn ctx td
+                registerClassTypeDefn ctx declNs td
         | _ -> ()
 
     // --- Phase 2 / B-4: inheritance registration (`registerInheritedSlots`) -----
@@ -455,11 +457,19 @@ module NameResolutionMemberRegistration =
         | "string" -> BuiltinTypes.tyString
         | "int64" -> BuiltinTypes.tyInt64
         | "byte" -> BuiltinTypes.tyByte
-        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst name
-        | _ when ctx.Types.Record.ContainsKey name -> TyRecord(name, args)
-        | _ when ctx.Types.Union.ContainsKey name -> TyUnion(name, args)
-        | _ when ctx.Types.Class.ContainsKey name -> TyClass(name, args)
-        | _ -> TyConst name
+        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(name, args)
+        | _ ->
+            // Nominal heads carry their resolved `SymbolKey` (Phase 5.4); take it
+            // off the registry `info` rather than re-stringing the name.
+            match TypeRegistry.tryRecord ctx.Types name with
+            | ValueSome info -> TyRecord(info.Key, args)
+            | ValueNone ->
+                match ctx.Types.Union.TryGetValue name with
+                | true, info -> TyUnion(info.Key, args)
+                | false, _ ->
+                    match TypeRegistry.tryClass ctx.Types name with
+                    | ValueSome info -> TyClass(info.Key, args)
+                    | ValueNone -> TyConst(name, EqArray.empty)
 
     /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived
     /// class's typar scope. Diagnoses (and returns `ValueNone`) when the parent is
@@ -514,7 +524,7 @@ module NameResolutionMemberRegistration =
                 let name = ctx.NameOf nameTok
 
                 match ctx.Types.Class.TryGetValue name with
-                | true, _ -> ValueSome(TyClass(name, EqArray.ofList targs))
+                | true, info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
                 | false, _ ->
                     if
                         ctx.Types.Record.ContainsKey name
@@ -569,7 +579,10 @@ module NameResolutionMemberRegistration =
 
             let rec walk (visited: Set<string>) (info: ClassTypeInfo) =
                 match info.BaseType with
-                | ValueSome(TyClass(parentName, _)) ->
+                | ValueSome(TyClass(parentKey, _)) ->
+                    // Project the parent class's bare registry name off its key.
+                    let parentName = ExternalSymbols.simpleName parentKey
+
                     if parentName = start.Name then
                         ctx.Diagnostics.Add
                             {

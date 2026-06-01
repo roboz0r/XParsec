@@ -43,7 +43,7 @@ type internal Assembler
         |> Map.ofList
 
     let provider =
-        ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references, symbols)
+        ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references, symbols, project.AssemblyName)
 
     let icodegen = provider :> ICodegenProvider
     let encodeLocals (locals: SemType list) = icodegen.EncodeLocalSignature locals
@@ -112,11 +112,11 @@ type internal Assembler
     do
         unionDecls
         |> List.iteri (fun i (td, cases, _) ->
-            // Unions are keyed by arity so same-named overloads (`Choice\`2`…
-            // `Choice\`7`) don't collide in `userTypes` / `genericUnions`; the
-            // arity-0 key is the bare name, so monomorphic unions are unchanged.
-            let key = TypeRegistry.keyFor td.Name td.TypeParams.Length
-            provider.RegisterUserType(key, toEntity (predictTypeDef typeCounts NominalKind.Union i))
+            // Types are keyed by their nominal `SymbolKey` (which embeds namespace,
+            // arity, and home assembly) so same-named overloads (`Choice\`2`…
+            // `Choice\`7`) and same-name-different-namespace types don't collide in
+            // `userTypes` / `genericUnions`.
+            provider.RegisterUserType(td.Key, toEntity (predictTypeDef typeCounts NominalKind.Union i))
 
             if not td.TypeParams.IsEmpty then
                 let shape =
@@ -128,17 +128,17 @@ type internal Assembler
                             ]
                     ]
 
-                provider.RegisterGenericUnion(key, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericUnion(td.Key, EqArray.toList td.TypeParams, shape)
         )
 
     do
         recordDecls
         |> List.iteri (fun i (td, fields, _) ->
-            provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Record i))
+            provider.RegisterUserType(td.Key, toEntity (predictTypeDef typeCounts NominalKind.Record i))
 
             if not td.TypeParams.IsEmpty then
                 let shape = [ for f in fields -> f.Name, f.Type ]
-                provider.RegisterGenericRecord(td.Name, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericRecord(td.Key, EqArray.toList td.TypeParams, shape)
         )
 
     do
@@ -155,11 +155,11 @@ type internal Assembler
                             _staticLets,
                             _secondaryCtors,
                             _baseCtorCall) ->
-            provider.RegisterUserType(td.Name, toEntity (predictTypeDef typeCounts NominalKind.Class i))
+            provider.RegisterUserType(td.Key, toEntity (predictTypeDef typeCounts NominalKind.Class i))
 
             if not td.TypeParams.IsEmpty then
                 let shape = [ for p in ctorParams -> p.Name, p.Type ]
-                provider.RegisterGenericClass(td.Name, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, shape)
         )
 
     // A *generic* closure is a real generic `TypeDefinition` after the nominal
@@ -174,9 +174,9 @@ type internal Assembler
                 provider.RegisterClosure(c.Name, c.Typars, c.Captures |> List.map snd, c.ParamTy, c.ResultTy, handle)
         )
 
-    let unions = Dictionary<string, Emit.EmittedUnion>()
-    let records = Dictionary<string, Emit.EmittedRecord>()
-    let classes = Dictionary<string, Emit.EmittedClass>()
+    let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
+    let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
+    let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
 
     // Per union: `.ctor` + per-case factory + per member + the optional
     // equality triple (C-Attr `Structural`) + the optional comparison pair.
@@ -480,11 +480,7 @@ type internal Assembler
                     // monomorphic keeps the `Def` token.
                     let handleForUse =
                         if isGenericClosure then
-                            icodegen.UserGenericMemberRef(
-                                c.Name,
-                                selfArgs,
-                                UserMemberKind.ClosureMember(ClosureMember.CaptureField i)
-                            )
+                            icodegen.UserClosureMemberRef(c.Name, selfArgs, ClosureMember.CaptureField i)
                         else
                             toEntity h
 
@@ -644,11 +640,7 @@ type internal Assembler
                 | Some n -> n
                 | None -> ""
 
-            let metaName =
-                if td.TypeParams.IsEmpty then
-                    td.Name
-                else
-                    sprintf "%s`%d" td.Name td.TypeParams.Length
+            let metaName = ExternalSymbols.arityName td.Name td.TypeParams.Length
 
             let typeHandle =
                 ctx.AddInterfaceType(ns, metaName, emptyFirstField, firstIfaceMethod)
@@ -663,11 +655,7 @@ type internal Assembler
         // Unions first, then records, then classes — keeps the `InterfaceImpl` /
         // `GenericParam` rows ascending (sorted by `Class` / `TypeOrMethodDef`).
         for row in Seq.append unionTypes (Seq.append recordTypes classTypes) do
-            let metaName =
-                if List.isEmpty row.Typars then
-                    row.Name
-                else
-                    sprintf "%s`%d" row.Name (List.length row.Typars)
+            let metaName = ExternalSymbols.arityName row.Name (List.length row.Typars)
 
             let attrs = classAttrsOf row.IsSealed
 
@@ -683,11 +671,7 @@ type internal Assembler
         // Each closure derives from `System.Object` and implements its
         // `Vesper.Fun\`2<param, result>` interface (R1).
         for row in closureTypes do
-            let metaName =
-                if List.isEmpty row.Typars then
-                    row.Name
-                else
-                    sprintf "%s`%d" row.Name (List.length row.Typars)
+            let metaName = ExternalSymbols.arityName row.Name (List.length row.Typars)
 
             let closureHandle =
                 ctx.AddClass(

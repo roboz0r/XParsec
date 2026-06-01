@@ -16,7 +16,7 @@ let private provider: IExternalSymbolProvider =
     { new IExternalSymbolProvider with
         member _.TryLookup n =
             if n = "A.B.thing" then
-                ValueSome(ExternalSymbols.mono "thing" (TyConst "int"))
+                ValueSome(ExternalSymbols.mono "thing" (TyConst("int", EqArray.empty)))
             else
                 ValueNone
 

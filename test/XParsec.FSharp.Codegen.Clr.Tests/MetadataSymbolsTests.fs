@@ -64,7 +64,10 @@ let tests =
             test "the Class shape exposes the type's declared interfaces" {
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let impls = info.Interfaces [| TyConst "int" |] |> Array.map fst |> Set.ofArray
+                    let impls =
+                        info.Interfaces [| TyConst("int", EqArray.empty) |]
+                        |> Array.map fst
+                        |> Set.ofArray
 
                     Expect.isTrue (Set.contains "System.Collections.Generic.IList`1" impls) "List<T> declares IList<T>"
 
@@ -78,7 +81,8 @@ let tests =
                     match info.BaseType with
                     | ValueSome build ->
                         match build [||] with
-                        | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
+                        | TyClass(k, args) when ExternalSymbols.qualifiedName k = "System.IO.TextWriter" && args.IsEmpty ->
+                            ()
                         | other -> failtestf "expected StringWriter base = TextWriter, got %A" other
                     | ValueNone -> failtest "expected StringWriter to record a base type"
                 | other -> failtestf "expected StringWriter as a Class shape, got %A" other
@@ -112,16 +116,16 @@ let tests =
 
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).
-                    match m.BuildSignature [| TyConst "int" |] with
-                    | TyClass(name, args) when
+                    match m.BuildSignature [| TyConst("int", EqArray.empty) |] with
+                    | TyClass(key, args) when
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst "int" -> true
+                            | TyConst("int", _) -> true
                             | _ -> false
                         )
                         ->
-                        Expect.equal name eqComparer "Default : EqualityComparer<int>"
+                        Expect.equal (ExternalSymbols.qualifiedName key) eqComparer "Default : EqualityComparer<int>"
                     | other -> failtestf "unexpected Default signature %A" other
                 | ValueNone -> failtest "Default did not resolve"
             }
@@ -133,8 +137,8 @@ let tests =
                     Expect.isFalse m.IsProperty "a method, not a property"
 
                     // Instantiated at `'T = int`: `int -> int`.
-                    match m.BuildSignature [| TyConst "int" |] with
-                    | TyFun(TyConst "int", TyConst "int") -> ()
+                    match m.BuildSignature [| TyConst("int", EqArray.empty) |] with
+                    | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
                     | other -> failtestf "expected int -> int, got %A" other
                 | ValueNone -> failtest "GetHashCode did not resolve"
             }

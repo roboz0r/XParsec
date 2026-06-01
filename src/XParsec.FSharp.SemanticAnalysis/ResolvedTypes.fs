@@ -29,7 +29,9 @@ module ResolvedTypes =
                 | ValueNone ->
                     if not (allowed.Contains root) then
                         acc.Add(root) |> ignore
-            | TyConst _ -> ()
+            | TyConst(_, args) ->
+                for a in args do
+                    go a
             | TyFun(a, r) ->
                 go a
                 go r

@@ -46,17 +46,25 @@ let private opSym =
 
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
+/// The declaring type's simple name for a member key — `StaticMethodCall` /
+/// `StaticPropertyGet` carry a `SymbolKey.MemberKey` (Phase 4), whose `decl` is
+/// the class. Falls back to the key's own simple name for any other shape.
+let private memberDeclName (key: SymbolKey) : string =
+    match key with
+    | SymbolKey.MemberKey(decl, _, _, _) -> ExternalSymbols.simpleName decl
+    | _ -> ExternalSymbols.simpleName key
+
 /// Minimal `SemType` → readable name, for rendering cast targets (`:>` / `:?` /
 /// `:?>`). Nominal types render as their name; structural ones approximate.
 let rec private tyName (t: SemType) : string =
     match t with
-    | TyConst n -> n
+    | TyConst(n, _) -> n
     | TyVar _ -> "_"
     | TyFun(a, b) -> tyName a + " -> " + tyName b
     | TyTuple ts -> [ for t in ts -> tyName t ] |> String.concat " * "
     | TyRecord(n, _)
     | TyUnion(n, _)
-    | TyClass(n, _) -> n
+    | TyClass(n, _) -> ExternalSymbols.simpleName n
     | TyUnknown n -> "?" + n
 
 let private (|InfixOp|_|) (e: TExpr) =
@@ -364,7 +372,7 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.MethodCall(receiver, methodName, via, args, _) ->
+        | TExpr.MethodCall(receiver, key, via, args, _) ->
             this.Expr receiver
             // `base.M(...)` renders with a `^` dot so it reads distinctly from a
             // virtual `this.M(...)` (inheritance-plan §Subtle migrations).
@@ -374,7 +382,7 @@ type private Renderer() =
                 | CallVia.Self -> "."
             )
 
-            push methodName
+            push (ExternalSymbols.simpleName key)
             push "("
 
             args
@@ -387,7 +395,7 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.PropertyGet(receiver, name, via, _) ->
+        | TExpr.PropertyGet(receiver, key, via, _) ->
             this.Expr receiver
 
             push (
@@ -396,12 +404,12 @@ type private Renderer() =
                 | CallVia.Self -> "."
             )
 
-            push name
+            push (ExternalSymbols.simpleName key)
 
-        | TExpr.StaticMethodCall(className, methodName, args, _) ->
-            push className
+        | TExpr.StaticMethodCall(key, args, _) ->
+            push (memberDeclName key)
             push "."
-            push methodName
+            push (ExternalSymbols.simpleName key)
             push "("
 
             args
@@ -414,13 +422,13 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.StaticPropertyGet(className, name, _) ->
-            push className
+        | TExpr.StaticPropertyGet(key, _) ->
+            push (memberDeclName key)
             push "."
-            push name
+            push (ExternalSymbols.simpleName key)
 
-        | TExpr.StaticFieldGet(className, name, _) ->
-            push className
+        | TExpr.StaticFieldGet(declKey, name, _) ->
+            push (ExternalSymbols.simpleName declKey)
             push "."
             push name
 
@@ -593,13 +601,13 @@ type private Renderer() =
         | TDecl.Type td ->
             let rec tyStr t =
                 match t with
-                | TyConst n -> n
+                | TyConst(n, _) -> n
                 | TyVar _ -> "_"
                 | TyFun(a, b) -> tyStr a + " -> " + tyStr b
                 | TyTuple ts -> [ for t in ts -> tyStr t ] |> String.concat " * "
                 | TyRecord(n, _)
                 | TyUnion(n, _)
-                | TyClass(n, _) -> n
+                | TyClass(n, _) -> ExternalSymbols.simpleName n
                 | TyUnknown n -> "?" + n
 
             push "type "

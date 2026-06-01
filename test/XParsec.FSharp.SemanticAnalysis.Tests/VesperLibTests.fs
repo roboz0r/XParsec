@@ -251,7 +251,7 @@ let tests =
                     let ty = sym.Instantiate 0
 
                     match ty with
-                    | TyFun(TyConst "bool", TyConst "bool") -> ()
+                    | TyFun(TyConst("bool", _), TyConst("bool", _)) -> ()
                     | other -> failtestf "Expected bool -> bool, got %A" other
             }
 
@@ -407,9 +407,9 @@ let tests =
 
                 let assertWidgetIntToInt (label: string) (ty: SemType) =
                     match ty with
-                    | TyFun(TyUnion("Dep.Widget", args), TyConst "int") when args.Length = 1 ->
+                    | TyFun(TyUnion("Dep.Widget`1", args), TyConst("int", _)) when args.Length = 1 ->
                         match args.[0] with
-                        | TyConst "int" -> ()
+                        | TyConst("int", _) -> ()
                         | other -> failtestf "%s: expected Dep.Widget<int>, got arg %A" label other
                     | other -> failtestf "%s: expected (Dep.Widget<int> -> int) with TyUnion head, got %A" label other
 
@@ -467,7 +467,7 @@ let tests =
                         (Seq.toList ctx.Symbols.Keys)
                 | ValueSome ty ->
                     match ty with
-                    | TyFun(TyUnknown name, TyConst "int") ->
+                    | TyFun(TyUnknown name, TyConst("int", _)) ->
                         Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
@@ -741,14 +741,14 @@ let tests =
                 | ValueNone -> failtest "Microsoft.FSharp.Core.option shape not found"
                 | ValueSome(ExternalTypeShape.Abbrev(arity, build)) ->
                     Expect.equal arity 1 "option has one typar"
-                    let body = build [| TyConst "int" |]
+                    let body = build [| TyConst("int", EqArray.empty) |]
 
                     match body with
                     | TyUnion(name, args) when
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst "int" -> true
+                            | TyConst("int", _) -> true
                             | _ -> false
                         )
                         ->
@@ -772,10 +772,11 @@ let tests =
                     let okCase = cases |> Array.find (fun c -> c.Name = "Ok")
                     Expect.equal okCase.BuildFieldTypes.Length 1 "Ok carries one field"
 
-                    let okFieldType = okCase.BuildFieldTypes.[0] [| TyConst "int"; TyConst "string" |]
+                    let okFieldType =
+                        okCase.BuildFieldTypes.[0] [| TyConst("int", EqArray.empty); TyConst("string", EqArray.empty) |]
 
                     match okFieldType with
-                    | TyConst "int" -> ()
+                    | TyConst("int", _) -> ()
                     | _ ->
                         match okFieldType with
                         | TyVar tv when tv.Level = 0 -> ()
@@ -833,6 +834,9 @@ let tests =
                                 yield! collectTyVars x
                         | TyConst _ -> ()
                         | TyUnknown _ -> ()
+                        // The nominal arms above go through `TestHelpers`' partial
+                        // active patterns, so the match isn't provably exhaustive.
+                        | _ -> ()
                     }
 
                 let anyEquality =
@@ -861,7 +865,7 @@ let tests =
                 | ValueNone ->
                     // Acceptable for v1 — Sum's signature includes the
                     // bare typar `^T` used in a way that today translates
-                    // as a `TyConst "T"`. The capture path itself is
+                    // as a `TyConst("T", _)`. The capture path itself is
                     // exercised by Seq.Contains above.
                     ()
                 | ValueSome sym ->
@@ -905,7 +909,7 @@ let tests =
                 match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyConst "int" -> ()
+                    | TyConst("int", _) -> ()
                     | other -> failtestf "Expected int, got %A" other
                 | ValueNone -> failtest "no TypeVar for x"
             }
@@ -934,7 +938,7 @@ let tests =
                 match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyConst "int" -> ()
+                    | TyConst("int", _) -> ()
                     | other -> failtestf "Expected int, got %A" other
                 | ValueNone -> failtest "no TypeVar for x"
             }

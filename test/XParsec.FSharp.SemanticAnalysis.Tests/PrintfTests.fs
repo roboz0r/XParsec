@@ -64,7 +64,7 @@ let tests =
             }
 
             test "argType: every integer base types as int" {
-                let fresh () = TyConst "FRESH"
+                let fresh () = TyConst("FRESH", EqArray.empty)
 
                 for t in
                     [
@@ -78,13 +78,21 @@ let tests =
             }
 
             test "argType: %A and %O both consume a fresh (polymorphic) arg" {
-                let fresh () = TyConst "FRESH"
-                Expect.equal (PrintfSpec.argType fresh FormatType.Structured) (ValueSome(TyConst "FRESH")) "%A poly"
-                Expect.equal (PrintfSpec.argType fresh FormatType.Object) (ValueSome(TyConst "FRESH")) "%O poly"
+                let fresh () = TyConst("FRESH", EqArray.empty)
+
+                Expect.equal
+                    (PrintfSpec.argType fresh FormatType.Structured)
+                    (ValueSome(TyConst("FRESH", EqArray.empty)))
+                    "%A poly"
+
+                Expect.equal
+                    (PrintfSpec.argType fresh FormatType.Object)
+                    (ValueSome(TyConst("FRESH", EqArray.empty)))
+                    "%O poly"
             }
 
             test "argType: %a / %t are not typed in v1" {
-                let fresh () = TyConst "FRESH"
+                let fresh () = TyConst("FRESH", EqArray.empty)
                 Expect.equal (PrintfSpec.argType fresh FormatType.FormatFunction) ValueNone "%a deferred"
                 Expect.equal (PrintfSpec.argType fresh FormatType.Text) ValueNone "%t deferred"
             }
@@ -150,7 +158,12 @@ let tests =
 
             test "fprintf takes the writer first, then the format" {
                 let tast = analyse "let f w = fprintf w \"%d\" 42"
-                Expect.equal (lastDeclType tast) (TyFun(TyConst "System.IO.TextWriter", tyUnit)) "TextWriter -> unit"
+
+                Expect.equal
+                    (lastDeclType tast)
+                    (TyFun(TyConst("System.IO.TextWriter", EqArray.empty), tyUnit))
+                    "TextWriter -> unit"
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 

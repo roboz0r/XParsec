@@ -26,7 +26,7 @@ module Validation =
             match root.Link with
             | ValueSome target -> hasFreeTyVar target
             | ValueNone -> true
-        | TyConst _ -> false
+        | TyConst(_, args) -> args |> EqArray.exists hasFreeTyVar
         | TyFun(a, r) -> hasFreeTyVar a || hasFreeTyVar r
         | TyTuple items -> items |> EqArray.exists hasFreeTyVar
         | TyRecord(_, args) -> args |> EqArray.exists hasFreeTyVar
@@ -78,11 +78,11 @@ module Validation =
                     match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                     | ValueSome tv ->
                         match Unification.zonk (TyVar tv) with
-                        | TyRecord(recName, _) ->
+                        | TyRecord(recKey, _) ->
                             let fieldName = ctx.NameOf li.Idents.[1]
 
-                            match ctx.Types.Record.TryGetValue recName with
-                            | true, info ->
+                            match TypeRegistry.tryRecordByKey ctx.Types recKey with
+                            | ValueSome info ->
                                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                                 | Some field when not field.IsMutable ->
                                     ctx.Diagnostics.Add
@@ -93,7 +93,7 @@ module Validation =
                                             Severity = Error
                                         }
                                 | _ -> ()
-                            | false, _ -> ()
+                            | ValueNone -> ()
                         | _ -> ()
                     | ValueNone -> ()
                 | ValueNone -> ()
@@ -119,11 +119,11 @@ module Validation =
             match ctx.Bindings.TypeVar.TryGetValue rKey with
             | ValueSome tv ->
                 match Unification.zonk (TyVar tv) with
-                | TyRecord(recName, _) ->
+                | TyRecord(recKey, _) ->
                     let fieldName = ctx.NameOf li.Idents.[0]
 
-                    match ctx.Types.Record.TryGetValue recName with
-                    | true, info ->
+                    match TypeRegistry.tryRecordByKey ctx.Types recKey with
+                    | ValueSome info ->
                         match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                         | Some field when not field.IsMutable ->
                             ctx.Diagnostics.Add
@@ -134,7 +134,7 @@ module Validation =
                                     Severity = Error
                                 }
                         | _ -> ()
-                    | false, _ -> ()
+                    | ValueNone -> ()
                 | _ -> ()
             | ValueNone -> ()
         | _ -> ()

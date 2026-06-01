@@ -144,7 +144,7 @@ let tests =
             // No-provider regression (intrinsic-repr-handoff.md Goal 2): with the
             // hardcoded `"int" -> BuiltinTypes.tyInt` arms deleted from
             // `translateType`, a primitive type annotation must still pin to
-            // `TyConst "int"` even when NO provider supplies an `Intrinsic` shape —
+            // `TyConst("int", EqArray.empty)` even when NO provider supplies an `Intrinsic` shape —
             // via the step-6 opaque fallback (`TyConst name`). Uses the true
             // `nullProvider` (every `TryLookupType` is `ValueNone`) so nothing but
             // the fallback can produce the type.
@@ -157,11 +157,14 @@ let tests =
                     | EqList [ TDecl.Let(TPat.NamedSimple(_, ty), _, _, _) ] -> ty
                     | other -> failwithf "expected a single annotated let, got %A" other
 
-                Expect.equal (bindingTy "let x : int = 1") (TyConst "int") "int annotation pins to TyConst \"int\""
+                Expect.equal
+                    (bindingTy "let x : int = 1")
+                    (TyConst("int", EqArray.empty))
+                    "int annotation pins to TyConst \"int\""
 
                 Expect.equal
                     (bindingTy "let b : bool = true")
-                    (TyConst "bool")
+                    (TyConst("bool", EqArray.empty))
                     "bool annotation pins to TyConst \"bool\""
             }
         ]

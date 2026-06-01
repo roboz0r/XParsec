@@ -608,8 +608,8 @@ let tests =
                     | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
 
                 match body with
-                | TExpr.PropertyGet(_, name, _, ty) ->
-                    Expect.equal name "X" "property name"
+                | TExpr.PropertyGet(_, key, _, ty) ->
+                    Expect.equal (ExternalSymbols.simpleName key) "X" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "property type"
                 | _ -> failtestf "expected PropertyGet, got %A" body
 
@@ -637,8 +637,8 @@ let tests =
                     | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
 
                 match body with
-                | TExpr.MethodCall(_, name, _, args, ty) ->
-                    Expect.equal name "Magnitude" "method name"
+                | TExpr.MethodCall(_, key, _, args, ty) ->
+                    Expect.equal (ExternalSymbols.simpleName key) "Magnitude" "method name"
                     Expect.equal args.Length 0 "no args (unit-arg fold)"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
                 | _ -> failtestf "expected MethodCall, got %A" body
@@ -660,8 +660,8 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticPropertyGet(className, name, ty) ->
-                    Expect.equal className "C" "class name"
+                | TExpr.StaticPropertyGet(SymbolKey.MemberKey(decl, name, _, _), ty) ->
+                    Expect.equal (ExternalSymbols.simpleName decl) "C" "class name"
                     Expect.equal name "Origin" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "ty is int"
                 | _ -> failtestf "expected StaticPropertyGet, got %A" valExpr
@@ -684,8 +684,8 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticMethodCall(className, methodName, args, ty) ->
-                    Expect.equal className "C" "class name"
+                | TExpr.StaticMethodCall(SymbolKey.MemberKey(decl, methodName, _, _), args, ty) ->
+                    Expect.equal (ExternalSymbols.simpleName decl) "C" "class name"
                     Expect.equal methodName "M" "method name"
                     Expect.equal args.Length 1 "one arg"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
@@ -768,12 +768,12 @@ let tests =
                 | TTypeKind.Class(_, ctorParams, members, _, _, _, _, _, _) ->
                     Expect.equal ctorParams.Length 1 "one ctor param"
                     Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
-                    // The declaring typar is remapped to the `TyConst "'a"` marker
+                    // The declaring typar is remapped to the `TyConst("'a", EqArray.empty)` marker
                     // the backend reads as a `GenericTypeParameter` index.
-                    Expect.equal (ctorParams.[0].Type) (TyConst "'a") "ctor param type marker"
+                    Expect.equal (ctorParams.[0].Type) (TyConst("'a", EqArray.empty)) "ctor param type marker"
                     Expect.equal members.Length 1 "one member"
                     Expect.equal (members.[0].Name) "Value" "member name"
-                    Expect.equal (members.[0].ReturnTy) (TyConst "'a") "member returns the typar"
+                    Expect.equal (members.[0].ReturnTy) (TyConst("'a", EqArray.empty)) "member returns the typar"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -805,8 +805,8 @@ let tests =
                     let getBody = members.[0].Body
 
                     match getBody with
-                    | TExpr.StaticFieldGet(className, name, _) ->
-                        Expect.equal className "C" "static-field class"
+                    | TExpr.StaticFieldGet(declKey, name, _) ->
+                        Expect.equal (ExternalSymbols.simpleName declKey) "C" "static-field class"
                         Expect.equal name "x" "static-field name"
                     | other -> failtestf "expected StaticFieldGet body, got %A" other
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
@@ -873,7 +873,8 @@ let tests =
                         VisitExpr =
                             fun _ e ->
                                 match e with
-                                | TExpr.MethodCall(_, "M", via, _, _) -> vias.Add via
+                                | TExpr.MethodCall(_, key, via, _, _) when ExternalSymbols.simpleName key = "M" ->
+                                    vias.Add via
                                 | _ -> ()
 
                                 true

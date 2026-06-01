@@ -440,10 +440,26 @@ module VesperLibTypeTranslate =
     ///   genuine *unresolved name* never reaches here — `resolveTypeName` fails
     ///   first and that arm bakes the `TyUnknown` leaf.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<SemType>) : SemType =
+        // Mint the nominal head's key with the type's **home assembly** so a type
+        // baked here carries the SAME home a consumer's `Translate` mints for it —
+        // the unification-equality invariant. The
+        // `ns`/`name` come from splitting the fully-qualified `compiled` name (the
+        // shape's `origin.Namespace` is Empty for this package's own types during
+        // extraction); the home assembly is the shape's `origin.Assembly` when
+        // filled (a dependency, via `AmbientShapes`) else this package's
+        // `HomeAssembly` (its own types, whose extraction-time origin is Empty).
+        let homeOf (originAsm: string option) =
+            match originAsm with
+            | Some _ -> originAsm
+            | None -> ctx.HomeAssembly
+
         match ExtractCtx.shapeOf ctx compiled with
-        | ValueSome(ExternalTypeShape.Union _) -> TyUnion(compiled, args)
-        | ValueSome(ExternalTypeShape.Class _) -> TyClass(compiled, args)
-        | ValueSome(ExternalTypeShape.Record _) -> TyRecord(compiled, args)
+        | ValueSome(ExternalTypeShape.Union(_, _, origin)) ->
+            TyUnion(ExternalSymbols.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Class info) ->
+            TyClass(ExternalSymbols.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
+            TyRecord(ExternalSymbols.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Abbrev(_, build)) ->
             // Expand the abbreviation to its body. `build` is the *defining*
             // package's `translateType` builder, whose nominal heads already kind
@@ -451,7 +467,7 @@ module VesperLibTypeTranslate =
             // its dependencies) — so the expanded body is already kind-
             // correct and needs no further reconciliation.
             build (args.AsSpan().ToArray())
-        | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(ExternalSymbols.shortName compiled)
+        | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(ExternalSymbols.shortName compiled, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) ->
             failwithf
                 "mkNominal: '%s' is an Opaque (body-less) shape — an enum / delegate / type-extension or an unmodelled body. Model its kind before a contract names it"
@@ -518,7 +534,7 @@ module VesperLibTypeTranslate =
             let name = longIdentName lexed input li
 
             if isPrimitiveName name then
-                let ty = TyConst name
+                let ty = TyConst(name, EqArray.empty)
                 Ok(fun _ -> ty)
             else
                 match resolveTypeName ctx opens name 0 with
@@ -579,9 +595,7 @@ module VesperLibTypeTranslate =
 
             match translateType ctx lexed input opens typars constraints baseTy with
             | Error e -> Error e
-            | Ok fb ->
-                let name = if rank = 1 then "array" else sprintf "array%d" rank
-                Ok(fun ts -> TyRecord(name, EqArray.singleton (fb ts)))
+            | Ok fb -> Ok(fun ts -> TyConst(RuntimeNames.arrayName rank, EqArray.singleton (fb ts)))
 
         | Type.WhenConstrainedType(inner, clauses) ->
             // Capture clauses now; the collector is resolved (name -> index)
@@ -618,7 +632,7 @@ module VesperLibTypeTranslate =
         let (ArgsSpec(args, _)) = argsSpec
 
         if args.Length = 0 then
-            Ok(fun _ -> TyConst "unit")
+            Ok(fun _ -> TyConst("unit", EqArray.empty))
         elif args.Length = 1 then
             let (ArgSpec(_, _, t)) = args.[0]
             translateType ctx lexed input opens typars constraints t

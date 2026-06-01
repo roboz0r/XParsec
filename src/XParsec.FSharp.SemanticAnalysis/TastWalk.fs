@@ -163,11 +163,11 @@ module TastWalk =
             | TExpr.FieldSet(r, n, v, ty) -> TExpr.FieldSet(pe r, n, pe v, f ty)
             | TExpr.UnionCons(c, args, ty) -> TExpr.UnionCons(c, EqArray.map pe args, f ty)
             | TExpr.New(c, args, ty) -> TExpr.New(c, EqArray.map pe args, f ty)
-            | TExpr.MethodCall(r, n, via, args, ty) -> TExpr.MethodCall(pe r, n, via, EqArray.map pe args, f ty)
-            | TExpr.PropertyGet(r, n, via, ty) -> TExpr.PropertyGet(pe r, n, via, f ty)
-            | TExpr.StaticMethodCall(c, n, args, ty) -> TExpr.StaticMethodCall(c, n, EqArray.map pe args, f ty)
-            | TExpr.StaticPropertyGet(c, n, ty) -> TExpr.StaticPropertyGet(c, n, f ty)
-            | TExpr.StaticFieldGet(c, n, ty) -> TExpr.StaticFieldGet(c, n, f ty)
+            | TExpr.MethodCall(r, k, via, args, ty) -> TExpr.MethodCall(pe r, k, via, EqArray.map pe args, f ty)
+            | TExpr.PropertyGet(r, k, via, ty) -> TExpr.PropertyGet(pe r, k, via, f ty)
+            | TExpr.StaticMethodCall(k, args, ty) -> TExpr.StaticMethodCall(k, EqArray.map pe args, f ty)
+            | TExpr.StaticPropertyGet(k, ty) -> TExpr.StaticPropertyGet(k, f ty)
+            | TExpr.StaticFieldGet(k, n, ty) -> TExpr.StaticFieldGet(k, n, f ty)
             | TExpr.ExternalMember(r, k, n, isProp, ty) ->
                 TExpr.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty)
             | TExpr.Format(sink, segs, ty) ->
@@ -339,7 +339,7 @@ module TastWalk =
                 walk v
             | TExpr.UnionCons(_, args, _)
             | TExpr.New(_, args, _)
-            | TExpr.StaticMethodCall(_, _, args, _)
+            | TExpr.StaticMethodCall(_, args, _)
             | TExpr.ILIntrinsic(_, args, _) ->
                 for x in args do
                     walk x

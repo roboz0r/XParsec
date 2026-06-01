@@ -466,8 +466,14 @@ module CstWalk =
         (ambient: OpenScope)
         (onScope: ModuleElems<SyntaxToken> -> bool -> unit)
         (file: ImplementationFile<SyntaxToken>)
-        : (ModuleElem<SyntaxToken> * OpenScope) list =
-        let out = ResizeArray<ModuleElem<SyntaxToken> * OpenScope>()
+        : (ModuleElem<SyntaxToken> * OpenScope * string) list =
+        // The third tuple slot is the *declaring namespace* of each surfaced element
+        // — the enclosing `namespace` group's
+        // longident, "" for an anonymous/global/named-module file. It mirrors
+        // `Freeze.run`'s `ns` exactly (a nested `module` is a holder, not a namespace
+        // segment, so it passes the enclosing ns through unchanged), so a local
+        // `SymbolKey` minted from it equals the type's emitted `TDecl.Namespace`.
+        let out = ResizeArray<ModuleElem<SyntaxToken> * OpenScope * string>()
 
         let longIdentText (li: LongIdent<SyntaxToken>) : string =
             li.Idents |> Seq.map nameOf |> String.concat "."
@@ -504,7 +510,13 @@ module CstWalk =
         // constant-prelude shape); `inRec` is the *propagated* flag (true if
         // this scope or any enclosing scope is rec) — drives FS3200, which
         // fires in non-rec submodules of a rec namespace too.
-        let rec processElems (elems: ModuleElems<SyntaxToken>) (start: OpenScope) (isRec: bool) (inRec: bool) : unit =
+        let rec processElems
+            (elems: ModuleElems<SyntaxToken>)
+            (start: OpenScope)
+            (isRec: bool)
+            (inRec: bool)
+            (declNs: string)
+            : unit =
             onScope elems inRec
 
             if isRec then
@@ -513,35 +525,40 @@ module CstWalk =
                 let constScope = (start, elems) ||> Seq.fold accumulate
 
                 for e in elems do
-                    emit e constScope inRec
+                    emit e constScope inRec declNs
             else
                 let mutable s = start
 
                 for e in elems do
-                    emit e s inRec
+                    emit e s inRec declNs
                     s <- accumulate s e
 
-        and emit (e: ModuleElem<SyntaxToken>) (scope: OpenScope) (inRec: bool) : unit =
+        and emit (e: ModuleElem<SyntaxToken>) (scope: OpenScope) (inRec: bool) (declNs: string) : unit =
             match e with
             | ModuleElem.Module(ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) ->
                 // The wrapper is dropped (as in `implFileElems`); the body is walked
-                // with the enclosing scope inherited as its seed.
+                // with the enclosing scope inherited as its seed. A module is a *holder*,
+                // not a namespace segment, so `declNs` passes through unchanged — this is
+                // the rule `Freeze.run` applies (the module name becomes the let-holder,
+                // never part of a nested type's `Namespace`).
                 match inner with
-                | ValueSome innerElems -> processElems innerElems scope innerRec.IsSome (inRec || innerRec.IsSome)
+                | ValueSome innerElems ->
+                    processElems innerElems scope innerRec.IsSome (inRec || innerRec.IsSome) declNs
                 | ValueNone -> ()
-            | _ -> out.Add(e, scope)
+            | _ -> out.Add(e, scope, declNs)
 
         match file with
-        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false false
+        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false false ""
         | ImplementationFile.NamedModule(NamedModule.NamedModule(isRec = isRec; elements = elems)) ->
-            processElems elems ambient isRec.IsSome isRec.IsSome
+            processElems elems ambient isRec.IsSome isRec.IsSome ""
         | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
                 | NamespaceDeclGroup.Named(isRec = isRec; longIdent = nsLi; elements = elems) ->
-                    // The namespace's own name is an implicit prefix for its body.
-                    processElems elems (addOpen ambient nsLi) isRec.IsSome isRec.IsSome
-                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false false
+                    // The namespace's own name is an implicit prefix for its body, and the
+                    // declaring namespace its types are emitted into (`Freeze.run`).
+                    processElems elems (addOpen ambient nsLi) isRec.IsSome isRec.IsSome (longIdentText nsLi)
+                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false false ""
 
         List.ofSeq out
 
@@ -553,7 +570,10 @@ module CstWalk =
         (ambient: OpenScope)
         (file: ImplementationFile<SyntaxToken>)
         : (ModuleElem<SyntaxToken> * OpenScope) list =
+        // Drop the declaring-namespace slot — consumers that don't mint local
+        // `SymbolKey`s (Unification's walkElems, VesperLib) keep the pair shape.
         walkModuleTreeWith nameOf ambient (fun _ _ -> ()) file
+        |> List.map (fun (e, s, _) -> e, s)
 
     /// The signature elements a pass walks for a signature (`.fsi`) file — the
     /// `.fsi` analogue of `implFileElems`. A `namespace`-headed file contributes

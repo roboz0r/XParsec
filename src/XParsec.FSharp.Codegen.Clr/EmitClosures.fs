@@ -286,13 +286,13 @@ module EmitClosures =
             | TyFun(a, b) ->
                 go a
                 go b
+            | TyConst(_, xs)
             | TyTuple xs
             | TyRecord(_, xs)
             | TyUnion(_, xs)
             | TyClass(_, xs) ->
                 for x in xs do
                     go x
-            | TyConst _ -> ()
             | TyUnknown _ -> ()
 
         for (_, pty) in fn.Params do

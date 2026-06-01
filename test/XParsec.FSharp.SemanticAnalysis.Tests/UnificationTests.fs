@@ -584,7 +584,7 @@ let tests =
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 let expected =
-                    TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton BuiltinTypes.tyInt)
+                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton BuiltinTypes.tyInt)
 
                 Expect.equal (typeOf ctx patKey) expected "xs : list<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -595,7 +595,7 @@ let tests =
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 let expected =
-                    TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton BuiltinTypes.tyInt)
+                    TyConst(RuntimeNames.arrayName 1, EqArray.singleton BuiltinTypes.tyInt)
 
                 Expect.equal (typeOf ctx patKey) expected "xs : int[]"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -606,7 +606,7 @@ let tests =
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match typeOf ctx patKey with
-                | TyRecord("Microsoft.FSharp.Collections.list", args) when
+                | TyRecord("Microsoft.FSharp.Collections.list`1", args) when
                     args.Length = 1
                     && (
                         match args.[0] with

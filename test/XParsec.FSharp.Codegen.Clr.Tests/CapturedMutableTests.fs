@@ -124,7 +124,7 @@ let tests =
 
                 let isRecordConsOfRef =
                     function
-                    | TExpr.RecordCons(_, TyRecord("Vesper.Ref", _)) -> true
+                    | TExpr.RecordCons(_, TyRecord("Vesper.Ref`1", _)) -> true
                     | _ -> false
 
                 let scan p =

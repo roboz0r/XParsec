@@ -341,35 +341,37 @@ module NameResolution =
     let private walkElems
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
-        (pairs: (ModuleElem<SyntaxToken> * OpenScope) list)
+        (pairs: (ModuleElem<SyntaxToken> * OpenScope * string) list)
         =
         // Pre-pass: register every type so subsequent expression walks (and
         // Unification) resolve against the registry. Records and unions must both
         // finish before bindingsOfPat runs on any pattern, since the
         // ctor-vs-binder disambiguation reads ctx.Types.CtorIndex. Registration
         // resolves no external short names, so it ignores the per-element scope.
-        for (m, _) in pairs do
-            registerRecordTypes ctx m
+        // The third slot is the declaring namespace, threaded into each type's
+        // minted `SymbolKey`.
+        for (m, _, declNs) in pairs do
+            registerRecordTypes ctx declNs m
 
-        for (m, _) in pairs do
-            registerUnionTypes ctx m
+        for (m, _, declNs) in pairs do
+            registerUnionTypes ctx declNs m
 
-        for (m, _) in pairs do
-            registerAbbreviationTypes ctx m
+        for (m, _, declNs) in pairs do
+            registerAbbreviationTypes ctx declNs m
 
-        for (m, _) in pairs do
-            registerClassTypes ctx m
+        for (m, _, declNs) in pairs do
+            registerClassTypes ctx declNs m
 
         // Inheritance (B-4): stamp each class's BaseType / BaseCtorArgs after
         // every class is registered (so a parent declared later resolves), then
         // sweep for cycles once the whole graph is populated.
-        for (m, _) in pairs do
+        for (m, _, _) in pairs do
             registerInheritedSlots ctx m
 
         checkInheritanceCycles ctx
 
         // Union augmentation members (P3d.3) register after the union itself.
-        for (m, _) in pairs do
+        for (m, _, _) in pairs do
             registerUnionMembers ctx m
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
@@ -377,17 +379,17 @@ module NameResolution =
         // member-body idents Binding entries before Unification types them.
         // ctx.Resolution.OpenScope is set per element so a member body resolves
         // short external names against the `open`s in scope at that element.
-        for (m, openScope) in pairs do
+        for (m, openScope, _) in pairs do
             ctx.Resolution.OpenScope <- openScope
             walkClassBodies ctx walker m
 
-        for (m, openScope) in pairs do
+        for (m, openScope, _) in pairs do
             ctx.Resolution.OpenScope <- openScope
             walkUnionBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 
-        for (m, openScope) in pairs do
+        for (m, openScope, _) in pairs do
             ctx.Resolution.OpenScope <- openScope
             scope <- walkModuleElem ctx walker scope m
 
@@ -396,4 +398,9 @@ module NameResolution =
         // Seed the walk from the stable ambient prelude. walkElems overwrites
         // ctx.Resolution.OpenScope per element, so the seed is read from
         // AmbientOpenScope, not the scope it mutates.
-        walkElems ctx walker (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
+        // walkModuleTreeWith keeps the declaring-namespace slot walkElems threads into
+        // each minted local `SymbolKey`; the no-op onScope hook is the plain walk.
+        walkElems
+            ctx
+            walker
+            (CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file)

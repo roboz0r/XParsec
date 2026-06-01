@@ -106,7 +106,9 @@ let tests =
             test "`let xs = [1; 2; 3]` freezes as nested Cons / Nil over `list<int>`" {
                 let tast = analyse "let xs = [1; 2; 3]"
                 let intTy = BuiltinTypes.tyInt
-                let listTy = TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton intTy)
+
+                let listTy =
+                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) listTy "xs : list<int>"
@@ -139,7 +141,7 @@ let tests =
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty), _, _) ->
                     match ty with
-                    | TyRecord("Microsoft.FSharp.Collections.list", args) when args.Length = 1 -> ()
+                    | TyRecord("Microsoft.FSharp.Collections.list`1", args) when args.Length = 1 -> ()
                     | _ -> failtestf "expected list<_> Nil, got %A" ty
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
@@ -147,8 +149,11 @@ let tests =
             test "`let xs = [|1; 2|]` wraps the Cons chain in Array.ofList" {
                 let tast = analyse "let xs = [|1; 2|]"
                 let intTy = BuiltinTypes.tyInt
-                let listTy = TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton intTy)
-                let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton intTy)
+
+                let listTy =
+                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton intTy)
+
+                let arrayTy = TyConst(RuntimeNames.arrayName 1, EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) arrayTy "xs : int[]"
@@ -305,7 +310,7 @@ let nestedModuleTests =
 // An interface-shaped `TypeDefn.Anon` surfaces as
 // `TDecl.Type` whose method signatures are read from the *resolved* member types
 // in `ctx.Types.Class` (NameResolution registers the abstract member; Unification
-// fills its signature), with the declaring typars remapped to the `TyConst "'A"`
+// fills its signature), with the declaring typars remapped to the `TyConst("'A", EqArray.empty)`
 // markers the backend consumes. Freeze no longer re-translates the CST signature.
 [<Tests>]
 let interfaceTests =
@@ -332,7 +337,10 @@ let interfaceTests =
                         Expect.equal m.Name "Invoke" "method name"
                         Expect.isTrue m.MethodTypeParams.IsEmpty "Invoke has no method typars"
                         // 'A -> 'B, declaring typars as TyConst markers.
-                        Expect.equal m.Signature (TyFun(TyConst "'A", TyConst "'B")) "Invoke signature"
+                        Expect.equal
+                            m.Signature
+                            (TyFun(TyConst("'A", EqArray.empty), TyConst("'B", EqArray.empty)))
+                            "Invoke signature"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
             }
@@ -340,7 +348,7 @@ let interfaceTests =
             // An abstract method may carry its *own* generic parameters
             // (`abstract Map<'B> : 'A -> 'B`). Its `'B`
             // is no longer diagnosed as a free typar; it surfaces on the method as
-            // `MethodTypeParams` and rides the signature as a `TyConst "'B"` marker,
+            // `MethodTypeParams` and rides the signature as a `TyConst("'B", EqArray.empty)` marker,
             // distinct from the declaring type's `'A`.
             test "generic abstract method surfaces its own typars distinct from the declaring type's" {
                 let tast =
@@ -358,7 +366,10 @@ let interfaceTests =
                         Expect.equal m.Name "Map" "method name"
                         Expect.equal (EqArray.toList m.MethodTypeParams) [ "'B" ] "method's own typar 'B"
                         // 'A is the declaring typar, 'B the method's own — both markers.
-                        Expect.equal m.Signature (TyFun(TyConst "'A", TyConst "'B")) "Map signature 'A -> 'B"
+                        Expect.equal
+                            m.Signature
+                            (TyFun(TyConst("'A", EqArray.empty), TyConst("'B", EqArray.empty)))
+                            "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
             }
@@ -430,10 +441,13 @@ let unionCaseSyntaxTests =
                     | EqList [ (hn, ht); (tn, tt) ] ->
                         Expect.equal hn (ValueSome "Head") "first field named Head"
                         // The element typar surfaces as the backend marker.
-                        Expect.equal ht (TyConst "'T") "Head : 'T"
+                        Expect.equal ht (TyConst("'T", EqArray.empty)) "Head : 'T"
                         Expect.equal tn (ValueSome "Tail") "second field named Tail"
                         // Tail refers back to the declaring union, applied to 'T.
-                        Expect.equal tt (TyUnion("List", EqArray.singleton (TyConst "'T"))) "Tail : List<'T>"
+                        Expect.equal
+                            tt
+                            (TyUnion("List", EqArray.singleton (TyConst("'T", EqArray.empty))))
+                            "Tail : List<'T>"
                     | other -> failtestf "expected two named Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
             }
@@ -485,11 +499,11 @@ let listAbbrevTests =
 
                     match cons.Fields with
                     | EqList [ (_, ht); (_, tt) ] ->
-                        Expect.equal ht (TyConst "'T") "Head : 'T"
+                        Expect.equal ht (TyConst("'T", EqArray.empty)) "Head : 'T"
                         // `'T list` resolved through the abbrev back to the union.
                         Expect.equal
                             tt
-                            (TyUnion("List", EqArray.singleton (TyConst "'T")))
+                            (TyUnion("List", EqArray.singleton (TyConst("'T", EqArray.empty))))
                             "Tail : List<'T> via the abbrev"
                     | other -> failtestf "expected two Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
@@ -520,7 +534,7 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (TyUnion("List", EqArray.singleton (TyConst "int")))
+                        (TyUnion("List", EqArray.singleton (TyConst("int", EqArray.empty))))
                         "xs : List<int> (the declared union)"
 
                     Expect.equal
@@ -551,7 +565,7 @@ let listAbbrevTests =
 
                 match e with
                 | ValueSome(value, ty) ->
-                    Expect.equal ty (TyUnion("List", EqArray.singleton (TyConst "int"))) "e : List<int>"
+                    Expect.equal ty (TyUnion("List", EqArray.singleton (TyConst("int", EqArray.empty)))) "e : List<int>"
                     Expect.equal (TastShape.prettyExpr value) "Empty" "the bare `[]` is the union's Empty case"
                 | ValueNone -> failtest "no `let e` binding surfaced"
             }
@@ -580,7 +594,10 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton (TyConst "int")))
+                        (SemType.TyRecord(
+                            RuntimeNames.fsharpCoreListKey,
+                            EqArray.singleton (TyConst("int", EqArray.empty))
+                        ))
                         "xs : Microsoft.FSharp.Collections.list<int> (the FSharp.Core default)"
 
                     Expect.equal
@@ -646,10 +663,10 @@ let unionMemberTests =
                     let isEmpty = find "IsEmpty"
                     Expect.isFalse isEmpty.IsStatic "IsEmpty is an instance member"
                     Expect.equal isEmpty.Kind TMemberKind.Property "IsEmpty is a property"
-                    Expect.equal isEmpty.ReturnTy (TyConst "bool") "IsEmpty : bool"
+                    Expect.equal isEmpty.ReturnTy (TyConst("bool", EqArray.empty)) "IsEmpty : bool"
                     Expect.isTrue (ValueOption.isSome isEmpty.ThisKey) "an instance member carries a `this` binder"
 
-                    Expect.equal (find "Head").ReturnTy (TyConst "int") "Head : int"
+                    Expect.equal (find "Head").ReturnTy (TyConst("int", EqArray.empty)) "Head : int"
 
                     let empty = find "Empty"
                     Expect.isTrue empty.IsStatic "Empty is static"

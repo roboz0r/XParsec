@@ -9,6 +9,36 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
+// The nominal `SemType` cases carry a
+// `SymbolKey`; these shadow the constructors + expose name-projecting active
+// patterns so codegen tests keep constructing / matching them by string name.
+// See the SemanticAnalysis.Tests `TestHelpers` twin for the rationale.
+let TyUnion (name: string, args: EqArray<SemType>) =
+    SemType.TyUnion(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+
+let TyRecord (name: string, args: EqArray<SemType>) =
+    SemType.TyRecord(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+
+let TyClass (name: string, args: EqArray<SemType>) =
+    SemType.TyClass(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+
+let private nominalDisplayName (k: SymbolKey) : string = ExternalSymbols.qualifiedName k
+
+let (|TyUnion|_|) (t: SemType) =
+    match t with
+    | SemType.TyUnion(k, args) -> Some(nominalDisplayName k, args)
+    | _ -> None
+
+let (|TyRecord|_|) (t: SemType) =
+    match t with
+    | SemType.TyRecord(k, args) -> Some(nominalDisplayName k, args)
+    | _ -> None
+
+let (|TyClass|_|) (t: SemType) =
+    match t with
+    | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
+    | _ -> None
+
 /// Project an `EqArray<'T>` as a plain `'T list` inside a pattern match — lets
 /// tests written against the pre-EqArray TAST keep their list-literal arms
 /// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip
@@ -97,7 +127,10 @@ let vesperCoreDll: Lazy<string> =
              |> String.concat "\n\n"
 
          let lexed, file = parseFile src
-         let tast = Pipeline.analyse MockBuiltins.provider src lexed file
+
+         let tast =
+             Pipeline.analyseFor project.AssemblyName MockBuiltins.provider src lexed file
+
          let artifact = Codegen.compile MockBuiltins.provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
@@ -132,7 +165,7 @@ let vesperListDll: Lazy<string> =
          // own) is excluded; the package is *defining* its types here.
          let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
-         let tast = Pipeline.analyse provider src lexed file
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
          let artifact = Codegen.compileWithInlines inlines provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
@@ -268,7 +301,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let lexed, file = parseFile src
-                 let tast = Pipeline.analyse provider src lexed file
+                 let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
 
                  // A package that doesn't type-check hasn't built: `Pipeline.analyse`
                  // collects diagnostics rather than throwing, so surface any
@@ -306,7 +339,7 @@ let private compileContract
     : TastFile * ClrArtifact =
     let provider, inlines = SymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
-    let tast = Pipeline.analyse provider input lexed file
+    let tast = Pipeline.analyseFor project.AssemblyName provider input lexed file
     let artifact = Codegen.compileWithInlines inlines provider (withCore project) tast
     tast, artifact
 
@@ -474,7 +507,7 @@ let vesperOptionDll: Lazy<string> =
          let src = IO.File.ReadAllText(vesperOptionSource "option.fs")
          let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
-         let tast = Pipeline.analyse provider src lexed file
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
          let artifact = Codegen.compileWithInlines inlines provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath optionPath |> ignore
@@ -497,7 +530,7 @@ let runsOption (expected: string) (src: string) : unit =
         }
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
     let artifact = Codegen.compileWithInlines inlines provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
@@ -610,7 +643,7 @@ let vesperResultDll: Lazy<string> =
          let src = IO.File.ReadAllText(vesperResultSource "result.fs")
          let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
-         let tast = Pipeline.analyse provider src lexed file
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
          let artifact = Codegen.compileWithInlines inlines provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath resultPath |> ignore
@@ -631,7 +664,7 @@ let runsResult (expected: string) (src: string) : unit =
         }
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
     let artifact = Codegen.compileWithInlines inlines provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
@@ -710,7 +743,7 @@ let vesperChoiceDll: Lazy<string> =
          let src = IO.File.ReadAllText(vesperChoiceSource "choice.fs")
          let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
-         let tast = Pipeline.analyse provider src lexed file
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
          let artifact = Codegen.compileWithInlines inlines provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath choicePath |> ignore
@@ -731,7 +764,7 @@ let runsChoice (expected: string) (src: string) : unit =
         }
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
     let artifact = Codegen.compileWithInlines inlines provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()

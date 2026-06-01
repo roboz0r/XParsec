@@ -8,27 +8,33 @@ open XParsec.FSharp.Parser
 // Side tables hold all in-flight semantic information. CST is never mutated.
 // See docs/architecture.md.
 
-/// Project-local nominal identity for a type definition (symbol-key-refactor.md
-/// Phase 1). `asm = None` marks "defined in this compilation"; `name` is the .NET
-/// arity-qualified simple name (`Choice\`2`) so it matches the emitted metadata
-/// type name and codegen's `userTypes` keying (`TypeRegistry.keyFor`). `ns` is ""
-/// until a later phase threads the declaring namespace through registration
-/// (mirrors `SymbolOrigin.Empty`). Stamped onto each `*TypeInfo.Key` at
-/// construction (i.e. in NameResolution); nothing reads it yet — Phase 1 is
-/// additive groundwork for the SymbolKey-first resolution the doc describes.
+/// Project-local nominal identity for a type definition. `asm` is the type's **home assembly** — `Some <thisAsm>`
+/// when the compilation knows its target assembly (`PassContext.AssemblyName`),
+/// `None` only on the front-end-only / contract-scrape paths that never emit. It
+/// is invariant per type: a consumer mints the SAME key for this type from its
+/// `SymbolOrigin.Assembly`, so a project-local key equals the cross-package
+/// reference key (the property the codegen local/external branch reads). `name`
+/// is the .NET arity-qualified simple name (`Choice\`2`); `ns` is the declaring
+/// namespace, threaded through registration (`stampLocalTypeKey`).
 module internal LocalSymbolKey =
 
-    /// The .NET-style arity-qualified name: the bare name for a non-generic type,
-    /// ``name`N`` for arity N>0. The single definition of the rule — both
-    /// `TypeRegistry.keyFor` (the registry/metadata key) and `ofType` (the
-    /// `SymbolKey` mint) delegate here so the two can't drift.
-    let arityName (name: string) (arity: int) : string =
-        if arity <= 0 then name else name + "`" + string arity
-
     /// The project-local `SymbolKey.TypeKey` for `name` at `arity`, declared in
-    /// namespace `ns` (today always "", see the module remark).
-    let ofType (ns: string) (name: string) (arity: int) : SymbolKey =
-        SymbolKey.TypeKey(None, ns, arityName name arity)
+    /// namespace `ns`, with home assembly `asm` (`Some <thisAsm>` for an emitting
+    /// compilation, `None` for the front-end-only paths). The arity-name rule is
+    /// `ExternalSymbols.arityName` — the one shared definition, so the registry key
+    /// (`TypeRegistry.keyFor`) and the stamped `SymbolKey` name can't drift.
+    let ofType (asm: string option) (ns: string) (name: string) (arity: int) : SymbolKey =
+        SymbolKey.TypeKey(asm, ns, ExternalSymbols.arityName name arity)
+
+    /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
+    /// type identified by `declKey`. `argSig` is
+    /// always empty: project-local members carry no overload set (overload
+    /// resolution is a separate future feature), so `(declKey, name)` is unique. The
+    /// local analogue of the external `MemberKey` minted by `MetadataSymbols` /
+    /// `VesperLib`; carried on the local member-call TAST nodes so codegen reads the
+    /// declaring type off `decl` instead of re-deriving it from a class-name string.
+    let ofMember (declKey: SymbolKey) (name: string) (kind: MemberKind) : SymbolKey =
+        SymbolKey.MemberKey(declKey, name, EqArray.empty, kind)
 
 /// Where a module-level `let` should be emitted: a *named* holder type (an F#
 /// module compiles to a static class) rather than the anonymous "Program" holder
@@ -66,14 +72,26 @@ type RecordTypeInfo
         typeParams: EqArray<string * TypeVar>,
         fields: RecordFieldInfo[],
         declKey: NodeKey,
-        typarConstraints: TyparConstraints<SyntaxToken> voption
+        typarConstraints: TyparConstraints<SyntaxToken> voption,
+        key: SymbolKey
     ) =
-    new(name, typeParams, fields, declKey) = RecordTypeInfo(name, typeParams, fields, declKey, ValueNone)
+    new(name, typeParams, fields, declKey) =
+        RecordTypeInfo(
+            name,
+            typeParams,
+            fields,
+            declKey,
+            ValueNone,
+            LocalSymbolKey.ofType None "" name typeParams.Length
+        )
+
     member val Name = name
-    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
-    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)`; settable so
-    /// a later phase can re-stamp the declaring namespace. Nothing reads it yet.
-    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
+    /// Stable project-local nominal identity — the arity-qualified
+    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
+    /// (`asm`/`declNs` = the type's home assembly + declaring namespace). The
+    /// convenience constructor (synthesis / test paths with no namespace in scope)
+    /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
+    member val Key: SymbolKey = key
     member val TypeParams = typeParams
     member val Fields = fields
     member val DeclKey = declKey
@@ -160,14 +178,19 @@ type UnionTypeInfo
         typeParams: EqArray<string * TypeVar>,
         cases: UnionCaseInfo[],
         declKey: NodeKey,
-        typarConstraints: TyparConstraints<SyntaxToken> voption
+        typarConstraints: TyparConstraints<SyntaxToken> voption,
+        key: SymbolKey
     ) =
-    new(name, typeParams, cases, declKey) = UnionTypeInfo(name, typeParams, cases, declKey, ValueNone)
+    new(name, typeParams, cases, declKey) =
+        UnionTypeInfo(name, typeParams, cases, declKey, ValueNone, LocalSymbolKey.ofType None "" name typeParams.Length)
+
     member val Name = name
-    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
-    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)` — e.g.
-    /// `Choice\`2` — matching the emitted metadata name. Settable; nothing reads it yet.
-    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
+    /// Stable project-local nominal identity — the arity-qualified
+    /// `TypeKey(asm, declNs, name\`arity)` (e.g. `Choice\`2`) minted by `stampLocalTypeKey`
+    /// at registration to match the emitted metadata name. The convenience constructor
+    /// (synthesis / test paths with no namespace in scope) defaults to the
+    /// `TypeKey(None, "", name\`arity)` placeholder.
+    member val Key: SymbolKey = key
     member val TypeParams = typeParams
     member val Cases = cases
     member val DeclKey = declKey
@@ -216,15 +239,26 @@ type AbbreviationInfo
         typeParams: EqArray<string * TypeVar>,
         rhsCst: Type<SyntaxToken>,
         declKey: NodeKey,
-        typarConstraints: TyparConstraints<SyntaxToken> voption
+        typarConstraints: TyparConstraints<SyntaxToken> voption,
+        key: SymbolKey
     ) =
-    new(name, typeParams, rhsCst, declKey) = AbbreviationInfo(name, typeParams, rhsCst, declKey, ValueNone)
+    new(name, typeParams, rhsCst, declKey) =
+        AbbreviationInfo(
+            name,
+            typeParams,
+            rhsCst,
+            declKey,
+            ValueNone,
+            LocalSymbolKey.ofType None "" name typeParams.Length
+        )
+
     member val Name = name
-    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
-    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)`; settable.
-    /// Abbreviations are transparent (never emitted), so this is for symmetry —
-    /// nothing reads it yet.
-    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
+    /// Stable project-local nominal identity — the arity-qualified
+    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration.
+    /// Abbreviations are transparent (never emitted), so this is for symmetry. The
+    /// convenience constructor (synthesis / test paths with no namespace in scope)
+    /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
+    member val Key: SymbolKey = key
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
     member val DeclKey = declKey
@@ -316,13 +350,14 @@ type ClassTypeInfo
         declKey: NodeKey,
         thisName: string,
         thisKey: NodeKey,
-        baseKey: NodeKey
+        baseKey: NodeKey,
+        key: SymbolKey
     ) =
     member val Name = name
-    /// Stable project-local nominal identity (symbol-key-refactor.md Phase 1).
-    /// Defaults to the arity-qualified `TypeKey(None, "", name\`arity)`, matching the
-    /// emitted metadata name. Settable; nothing reads it yet.
-    member val Key: SymbolKey = LocalSymbolKey.ofType "" name typeParams.Length with get, set
+    /// Stable project-local nominal identity — the arity-qualified
+    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
+    /// to match the emitted metadata name.
+    member val Key: SymbolKey = key
     member val TypeParams = typeParams
     member val CtorParams = ctorParams
     member val Members = members
@@ -497,6 +532,14 @@ type PassContextTypes =
         /// withdrawn (the name is then only resolvable by its arity-key). Internal to
         /// `TypeRegistry.registerUnion`; not read elsewhere.
         UnionBareArity: Dictionary<string, int>
+        /// Uniqueness witness for project-local `SymbolKey`s.
+        /// Maps each minted `TypeKey(None, ns, name\`arity)` → the decl-site
+        /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
+        /// as each type registers; a second *distinct* declaration minting the same key
+        /// is a uniqueness violation (a missing/҂wrong `ns` in the mint, not a user
+        /// duplicate, which is caught earlier and never reaches the stamp). The gate
+        /// that proves a local `SymbolKey` is unique enough to become the TAST identity.
+        SymbolKeyOrigins: Dictionary<SymbolKey, NodeKey>
     }
 
 module PassContextTypes =
@@ -511,6 +554,7 @@ module PassContextTypes =
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
             UnionBareArity = Dictionary<_, _>()
+            SymbolKeyOrigins = Dictionary<_, _>()
         }
 
 /// Arity-aware access to the project-local *union* registry. F# (and .NET) let a
@@ -525,16 +569,16 @@ module TypeRegistry =
 
     /// The .NET-style key: the bare name for a non-generic type, ``name`N`` for
     /// arity N>0. Matches the emitted metadata type name. Delegates to
-    /// `LocalSymbolKey.arityName` so the registry key and the stamped `SymbolKey`
+    /// `ExternalSymbols.arityName` so the registry key and the stamped `SymbolKey`
     /// name share one rule.
-    let keyFor (name: string) (arity: int) : string = LocalSymbolKey.arityName name arity
+    let keyFor (name: string) (arity: int) : string = ExternalSymbols.arityName name arity
 
     // --- Records / classes / abbreviations --------------------------------------
     // These aren't arity-overloaded today (unlike unions), so the key is the bare
     // short name. The wrappers exist so project-local *identity creation* for every
     // type kind funnels through one place — the single seam an arity key (or a
-    // declaring-namespace) would be threaded through if these ever overload
-    // (symbol-key-refactor.md Phase 0). The bare-name reads scattered downstream
+    // declaring-namespace) would be threaded through if these ever overload.
+    // The bare-name reads scattered downstream
     // stay direct for now, exactly as the union bare-alias reads do.
 
     let registerRecord (types: PassContextTypes) (name: string) (info: RecordTypeInfo) : unit =
@@ -547,6 +591,14 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
+    /// Resolve a record by its `SymbolKey` — the reader-side companion to
+    /// `tryUnionByKey`. Records aren't arity-overloaded, so the table is keyed by the
+    /// bare simple name; this projects the key's simple name internally so a consumer
+    /// holding a `TyRecord(key, _)` carries the key straight through instead of
+    /// re-projecting it to a string at every use site.
+    let tryRecordByKey (types: PassContextTypes) (key: SymbolKey) : RecordTypeInfo voption =
+        tryRecord types (ExternalSymbols.simpleName key)
+
     let registerClass (types: PassContextTypes) (name: string) (info: ClassTypeInfo) : unit = types.Class.[name] <- info
 
     let containsClass (types: PassContextTypes) (name: string) : bool = types.Class.ContainsKey name
@@ -555,6 +607,12 @@ module TypeRegistry =
         match types.Class.TryGetValue name with
         | true, info -> ValueSome info
         | false, _ -> ValueNone
+
+    /// Resolve a class by its `SymbolKey` — the class analogue of `tryRecordByKey`.
+    /// Classes aren't arity-overloaded; the table is keyed by the bare simple name,
+    /// projected from the key internally.
+    let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption =
+        tryClass types (ExternalSymbols.simpleName key)
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info
@@ -599,9 +657,9 @@ module TypeRegistry =
 
     /// Resolve a union by its project-local `SymbolKey` — the arity-qualified
     /// `TypeKey(None, _, name\`arity)` minted onto `UnionTypeInfo.Key` and stamped
-    /// into `Resolution.ResolvedType` (symbol-key-refactor.md Phase 2). The key's
-    /// `name` component *is* the registry key: both it (`LocalSymbolKey.arityName`)
-    /// and `keyFor` delegate to one rule, so this is a direct `Union` lookup with
+    /// into `Resolution.ResolvedType`. The key's
+    /// `name` component *is* the registry key: both it and `keyFor` use the one
+    /// `ExternalSymbols.arityName` rule, so this is a direct `Union` lookup with
     /// no arity re-derivation. A non-`TypeKey` key (a value / member) never names a
     /// union, so it misses. The reader-side seam for SymbolKey-first resolution.
     let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption =
@@ -629,6 +687,22 @@ module TypeRegistry =
         match types.CtorIndex.TryGetValue caseName with
         | true, infos -> infos |> EqArray.exists (fun c -> c.UnionName = qualifier)
         | false, _ -> false
+
+    /// Record the decl-site origin of a freshly-minted project-local `SymbolKey` and
+    /// report a uniqueness violation. Returns the
+    /// *prior* declaration's `NodeKey` when `key` was already minted by a **different**
+    /// declaration — the caller turns that into a diagnostic. `ValueNone` on the first
+    /// mint or an idempotent re-stamp of the same decl. A collision here means two
+    /// distinct types collapsed onto one key, i.e. the mint dropped a distinguishing
+    /// `ns` — never a user duplicate (those are rejected before the stamp). When the
+    /// corpus registers clean, the local key is unique enough to carry TAST identity.
+    let recordKeyOrigin (types: PassContextTypes) (declKey: NodeKey) (key: SymbolKey) : NodeKey voption =
+        match types.SymbolKeyOrigins.TryGetValue key with
+        | true, prior when prior <> declKey -> ValueSome prior
+        | true, _ -> ValueNone
+        | false, _ ->
+            types.SymbolKeyOrigins.[key] <- declKey
+            ValueNone
 
 /// Per-binding side tables: the resolved binder / inferred scheme / TyVar
 /// graph / escape-classification entries indexed by `NodeKey`, plus the
@@ -741,7 +815,7 @@ type PassContextResolution =
         /// `GetEnumerator()` (vesper-set-sprint-phase-4 §4.4).
         ForInShape: SideTable<ForInEnumerator>
         /// Keyed by a *type-reference* `NodeKey`: the project-local `SymbolKey`
-        /// that reference resolves to (symbol-key-refactor.md Phase 2). Two minting
+        /// that reference resolves to. Two minting
         /// sites populate it: `NameResolution.registerUnionTypeDefn` stamps the
         /// *decl* site (`DeclType` key) from the union's minted `Key`, and
         /// `translateType` / `resolveNamedGeneric` stamp *use* sites (`TypeNamed` /
@@ -808,6 +882,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member val Provider = provider
     member val Input = input
     member val Lexed = lexed
+    /// The simple name of the assembly this compilation unit emits into — the
+    /// **home assembly** stamped onto every locally-minted nominal `SymbolKey`
+    /// (`LocalSymbolKey.ofType`), so a project-local type's key equals the key a
+    /// *consumer* mints for the same type from its `SymbolOrigin` (asm = the
+    /// declaring assembly, invariant per type).
+    /// `""` for the front-end-only / contract-scrape paths that never emit and so
+    /// have no home assembly to stamp; set by `Pipeline.analyse*For`.
+    member val AssemblyName = "" with get, set
     member val Diagnostics = ResizeArray<Diagnostic>() with get
     member val Types = types with get
     /// PassContext-lifetime memo of intrinsic-name → canonical repr, populated

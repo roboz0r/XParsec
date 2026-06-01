@@ -75,7 +75,48 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    let private registerRecordTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    /// Mint a project-local `SymbolKey` for a type declaration and assert it is
+    /// unique across the compilation. `declNs` is
+    /// the declaring namespace threaded from the module walk, so the key —
+    /// `TypeKey(None, declNs, name\`arity)` — equals the identity the type emits as
+    /// (its `TDecl.Namespace` + arity-suffixed metadata name). A collision means two
+    /// distinct declarations minted the same key, i.e. the walk dropped a
+    /// distinguishing namespace; it is reported as an internal error (a user
+    /// duplicate is rejected before the stamp and never reaches here). Callers
+    /// pass the result into the registered info's constructor as its `Key`.
+    let stampLocalTypeKey
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (declNs: string)
+        (name: string)
+        (arity: int)
+        : SymbolKey =
+        // The home assembly is this compilation's target (`ctx.AssemblyName`);
+        // `None` on the front-end-only paths that pass no assembly name. Invariant
+        // per type, so this local key equals the key a consumer mints for the same
+        // type from its `SymbolOrigin.Assembly`.
+        let key =
+            LocalSymbolKey.ofType (ExternalSymbols.asmOf ctx.AssemblyName) declNs name arity
+
+        match TypeRegistry.recordKeyOrigin ctx.Types declKey key with
+        | ValueSome _ ->
+            ctx.Diagnostics.Add
+                {
+                    Key = declKey
+                    Message =
+                        sprintf
+                            "Internal error: project-local SymbolKey collision for '%s' (namespace '%s', arity %d)"
+                            name
+                            declNs
+                            arity
+                    Code = ""
+                    Severity = Error
+                }
+        | ValueNone -> ()
+
+        key
+
+    let private registerRecordTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Record(typeName = tn; fields = fields) ->
             let (TypeName(ident = nameLi)) = tn
@@ -114,14 +155,11 @@ module NameResolutionTypeRegistration =
                                 yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken id NodeKind.DeclType)
                         |]
 
+                    let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+                    let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
+
                     let info =
-                        RecordTypeInfo(
-                            name,
-                            typeParams,
-                            fieldInfos,
-                            NodeKey.ofToken nameTok NodeKind.DeclType,
-                            typarConstraintsOfTypeName tn
-                        )
+                        RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, key)
 
                     // C-Attr: explicit equality attribute wins; absent, records-plan
                     // §B4 default ⇒ Structural when every field is immutable,
@@ -158,11 +196,11 @@ module NameResolutionTypeRegistration =
                         | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
         | _ -> ()
 
-    let registerRecordTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerRecordTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerRecordTypeDefn ctx td
+                registerRecordTypeDefn ctx declNs td
         | _ -> ()
 
     /// Map a union-case head to its case name. The operator-named cases that
@@ -224,7 +262,7 @@ module NameResolutionTypeRegistration =
             else
                 ValueSome(n, specs.Length, gadtNames specs)
 
-    let private registerUnionTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerUnionTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Union(typeName = tn; cases = cases) ->
             let (TypeName(ident = nameLi)) = tn
@@ -271,8 +309,10 @@ module NameResolutionTypeRegistration =
                                 | ValueNone -> ()
                         |]
 
+                    let key = stampLocalTypeKey ctx declKey declNs name typeArity
+
                     let info =
-                        UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn)
+                        UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, key)
 
                     // C-Attr: union equality defaults to Structural (records-plan
                     // §B4 / brainstorm §8); explicit attribute overrides.
@@ -290,13 +330,12 @@ module NameResolutionTypeRegistration =
 
                     TypeRegistry.registerUnion ctx.Types name typeArity info
 
-                    // symbol-key-refactor.md Phase 2: record the decl-site identity
+                    // Record the decl-site identity
                     // so the type-decl emitter (`Freeze.tryUnionType`) recovers the
                     // union by key rather than re-deriving `(name, arity)`. `info.Key`
-                    // is the arity-qualified `TypeKey(None, "", name\`arity)` minted at
-                    // construction; this stamp is co-populated with `ctx.Types.Union`,
-                    // so the emitter's key lookup is exactly as total as the former
-                    // `(name, arity)` one.
+                    // is the arity-qualified `TypeKey(None, declNs, name\`arity)`; this
+                    // stamp is co-populated with `ctx.Types.Union`, so the emitter's key
+                    // lookup is exactly as total as the former `(name, arity)` one.
                     ctx.Resolution.ResolvedType.Set(declKey, info.Key)
 
                     for c in caseInfos do
@@ -312,11 +351,11 @@ module NameResolutionTypeRegistration =
                         | false, _ -> ctx.Types.CtorIndex.[c.Name] <- EqArray.singleton c
         | _ -> ()
 
-    let registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerUnionTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerUnionTypeDefn ctx td
+                registerUnionTypeDefn ctx declNs td
         | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
@@ -343,7 +382,7 @@ module NameResolutionTypeRegistration =
     /// `TyConst name` rather than expanding the RHS. Other bodies are left
     /// unfilled; Unification's fillAbbreviationBodies forces each later, so an
     /// RHS can reference any other same-file type.
-    let private registerAbbreviationDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerAbbreviationDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
             let (TypeName(ident = nameLi)) = tn
@@ -375,16 +414,17 @@ module NameResolutionTypeRegistration =
                         ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
                     | _ ->
                         let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                        let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
 
                         let info =
-                            AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn)
+                            AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn, key)
 
                         TypeRegistry.registerAbbrev ctx.Types name info
         | _ -> ()
 
-    let registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerAbbreviationTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerAbbreviationDefn ctx td
+                registerAbbreviationDefn ctx declNs td
         | _ -> ()

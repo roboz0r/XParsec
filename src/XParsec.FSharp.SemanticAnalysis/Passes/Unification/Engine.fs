@@ -35,7 +35,7 @@ module UnificationEngine =
             match root.Link with
             | ValueSome t' when root.Units.IsNone -> zonk t'
             | _ -> TyVar root
-        | TyConst _ -> t
+        | TyConst(n, args) -> TyConst(n, EqArray.map zonk args)
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
         | TyTuple items -> TyTuple(EqArray.map zonk items)
         | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
@@ -50,7 +50,7 @@ module UnificationEngine =
     let argElemsOf (argTy: SemType) : SemType list =
         match zonk argTy with
         | TyTuple xs -> EqArray.toList xs
-        | TyConst "unit" -> []
+        | TyConst("unit", _) -> []
         | single -> [ single ]
 
     /// The single SemType a parameter list presents as a function argument:
@@ -122,7 +122,7 @@ module UnificationEngine =
                     root.Level <- target.Level
 
                 false
-        | TyConst _ -> false
+        | TyConst(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
         | TyTuple items -> EqArray.exists (occursAndAdjust target) items
         | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
@@ -173,7 +173,7 @@ module UnificationEngine =
                 match root.Link with
                 | ValueSome target when root.Units.IsNone -> substituteWith subst target
                 | _ -> TyVar root
-        | TyConst _ -> t
+        | TyConst(n, args) -> TyConst(n, EqArray.map (substituteWith subst) args)
         | TyFun(a, r) -> TyFun(substituteWith subst a, substituteWith subst r)
         | TyTuple xs -> TyTuple(EqArray.map (substituteWith subst) xs)
         | TyRecord(n, args) -> TyRecord(n, EqArray.map (substituteWith subst) args)
@@ -244,7 +244,7 @@ module UnificationEngine =
                         match info.BaseType with
                         | ValueSome parentTy ->
                             match resolveStep (instantiateMember (info.TypeParams, args) parentTy) with
-                            | TyClass(parentName, parentArgs) -> walk parentName parentArgs
+                            | TyClass(parentKey, parentArgs) -> walk (ExternalSymbols.simpleName parentKey) parentArgs
                             | _ -> ValueNone
                         | ValueNone -> ValueNone
                 | false, _ -> ValueNone
@@ -318,8 +318,12 @@ module UnificationEngine =
         // (so the `exn` bound participates), not just `TyClass`.
         let nominalOf (ty: SemType) : struct (string * EqArray<SemType>) voption =
             match resolveStep ty with
-            | TyClass(n, args) -> ValueSome(struct (canonName n, args))
-            | TyConst n -> ValueSome(struct (canonName n, EqArray.empty))
+            // Surface the *qualified* canonical name so an external `TyClass`
+            // (`System.Exception`) reconciles with the `exn` `TyConst` through
+            // `canonName`'s repr map. `parentOf` splits the simple segment back off
+            // for the project-local class lookup.
+            | TyClass(n, args) -> ValueSome(struct (canonName (ExternalSymbols.qualifiedName n), args))
+            | TyConst(n, args) -> ValueSome(struct (canonName n, args))
             | _ -> ValueNone
 
         // The instantiated declared base of nominal `(name, args)`: the
@@ -333,7 +337,16 @@ module UnificationEngine =
         // the read-only query the `:>` / `:?` / `:?>` coercion sites and the
         // constraint checker rely on (no undo trace).
         let parentOf (name: string) (args: EqArray<SemType>) : SemType voption =
-            match ctx.Types.Class.TryGetValue name with
+            // `name` is the qualified canonical name `nominalOf` surfaces (so it feeds
+            // `canonName`'s repr map); the project-local class table is keyed by the
+            // bare simple segment, the provider by the qualified name. Re-derive the
+            // simple segment through the shared `shortName` rule rather than a
+            // hand-rolled last-`.` split — `shortName` also strips the `` `N `` arity
+            // suffix the qualified name retains, so a generic local class
+            // (`MyNs.Box`1`) resolves to its bare table key (`Box`) instead of missing.
+            let simple = ExternalSymbols.shortName name
+
+            match ctx.Types.Class.TryGetValue simple with
             | true, info ->
                 match info.BaseType with
                 | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
@@ -395,9 +408,11 @@ module UnificationEngine =
     /// type's typars when resolving deferred field / member accesses.
     let rec private tryResolveNominal (t: SemType) : (NominalKind * string * EqArray<SemType>) voption =
         match t with
-        | TyRecord(n, args) -> ValueSome(NominalKind.Record, n, args)
-        | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)
-        | TyUnion(n, args) -> ValueSome(NominalKind.Union, n, args)
+        // Bare simple name: `resolveDotSource` looks each up in the project-local
+        // tables (`ctx.Types.Record` bare, `tryUnion` re-deriving arity from args).
+        | TyRecord(n, args) -> ValueSome(NominalKind.Record, ExternalSymbols.simpleName n, args)
+        | TyClass(n, args) -> ValueSome(NominalKind.Class, ExternalSymbols.simpleName n, args)
+        | TyUnion(n, args) -> ValueSome(NominalKind.Union, ExternalSymbols.simpleName n, args)
         | TyVar tv ->
             match (UnionFind.find tv).Link with
             | ValueSome target -> tryResolveNominal target
@@ -483,6 +498,42 @@ module UnificationEngine =
         | SemanticConstraintKind.NotNull -> "not null"
         | SemanticConstraintKind.Coercion target -> sprintf "subtype of %A" target
 
+    /// Decompose a nominal `SemType` into its `(kind, key, arity)` — the
+    /// key-preserving companion to `tryResolveNominal` (which projects to a simple
+    /// string). Used by the DEBUG asm-invariant guard, which needs the full
+    /// `SymbolKey` (incl. home assembly) the unify arms compare on.
+    let private nominalKey (t: SemType) : struct (NominalKind * SymbolKey * int) voption =
+        match t with
+        | TyRecord(k, a) -> ValueSome(struct (NominalKind.Record, k, a.Length))
+        | TyUnion(k, a) -> ValueSome(struct (NominalKind.Union, k, a.Length))
+        | TyClass(k, a) -> ValueSome(struct (NominalKind.Class, k, a.Length))
+        | _ -> ValueNone
+
+#if DEBUG
+    /// Invariant guard. The nominal arms in `unify`
+    /// compare the *full* `SymbolKey` (incl. `asm`, the home assembly), so two
+    /// nominals of the same kind / namespace / name / arity that still fail to unify
+    /// can only differ in `asm` — the silent failure mode where one mint path stamped
+    /// `asm = None`/`Some "X"` and another `Some "Y"` for the same type.
+    /// `recordKeyOrigin` polices local uniqueness but not cross-producer asm
+    /// agreement, so surface a drifting mint path loudly in DEBUG rather than letting
+    /// it read as a bare "type mismatch". Compiled out of release builds.
+    let private checkAsmInvariant (a: SemType) (b: SemType) : unit =
+        match nominalKey a, nominalKey b with
+        | ValueSome(struct (kind1, k1, ar1)), ValueSome(struct (kind2, k2, ar2)) when
+            kind1 = kind2
+            && ar1 = ar2
+            && k1 <> k2
+            && ExternalSymbols.qualifiedName k1 = ExternalSymbols.qualifiedName k2
+            ->
+            failwithf
+                "SymbolKey asm-invariant violated: %A and %A name the same type (%s) but carry different home assemblies — a mint path disagrees on the home assembly."
+                k1
+                k2
+                (ExternalSymbols.qualifiedName k1)
+        | _ -> ()
+#endif
+
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -499,22 +550,14 @@ module UnificationEngine =
                     "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
                     name
             )
-        | TyConst n1, TyConst n2 when n1 = n2 -> ()
-        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
-            for i in 0 .. a1.Length - 1 do
-                unify ctx key a1.[i] a2.[i]
-        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
-            for i in 0 .. a1.Length - 1 do
-                unify ctx key a1.[i] a2.[i]
-        | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length ->
-            for i in 0 .. a1.Length - 1 do
-                unify ctx key a1.[i] a2.[i]
+        | TyConst(n1, a1), TyConst(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
-        | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
-            for i in 0 .. xs.Length - 1 do
-                unify ctx key xs.[i] ys.[i]
+        | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> unifyArgs ctx key xs ys
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -566,7 +609,19 @@ module UnificationEngine =
 
                 root.Link <- ValueSome other
                 drainAll ctx key root other
-        | _ -> ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b))
+        | _ ->
+#if DEBUG
+            checkAsmInvariant a b
+#endif
+            ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b))
+
+    /// Unify two same-length type-argument vectors positionally — the shared body
+    /// of the `TyConst` / `TyRecord` / `TyUnion` / `TyClass` / `TyTuple` arms (each
+    /// already guards `length` equality). In the `unify` rec group so it stays a
+    /// direct call with no per-`unify` closure allocation on the hot path.
+    and private unifyArgs (ctx: PassContext) (key: NodeKey) (xs: EqArray<SemType>) (ys: EqArray<SemType>) : unit =
+        for i in 0 .. xs.Length - 1 do
+            unify ctx key xs.[i] ys.[i]
 
     /// When a TyVar's Link resolves to a `TyRecord`/`TyClass`/`TyUnion`,
     /// resolve any dot-access constraints parked on it. When `T` is generic,
@@ -683,7 +738,7 @@ module UnificationEngine =
             | SubsumeOutcome.Equal
             | SubsumeOutcome.Subtype -> Satisfied
             | SubsumeOutcome.Unrelated -> Violated
-        | k, TyConst name ->
+        | k, TyConst(name, _) ->
             match primitiveSupports k name with
             | ValueSome true -> Satisfied
             | ValueSome false -> Violated
@@ -694,9 +749,9 @@ module UnificationEngine =
             Violated
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyTuple items ->
             reduceOutcome (checkConstraint ctx c) items
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(name, args) ->
-            match ctx.Types.Record.TryGetValue name with
-            | true, info ->
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(recKey, args) ->
+            match TypeRegistry.tryRecordByKey ctx.Types recKey with
+            | ValueSome info ->
                 // C-Attr verdict overrides the field-walk. Equality: a
                 // `[<NoEquality>]` record at a `=` / `<>` use site is a
                 // diagnostic; a `[<ReferenceEquality>]` record satisfies the
@@ -715,9 +770,9 @@ module UnificationEngine =
                     |> Array.map (fun f -> substituteWith subst f.Type)
                     |> EqArray.ofArray
                     |> reduceOutcome (checkConstraint ctx c)
-            | false, _ -> Defer
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(name, args) ->
-            match TypeRegistry.tryUnion ctx.Types name args.Length with
+            | ValueNone -> Defer
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(unionKey, args) ->
+            match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
@@ -794,7 +849,7 @@ module UnificationEngine =
 
                 if not (root.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
                     root.Constraints <- c :: root.Constraints
-            | TyConst _ -> ()
+            | TyConst(_, args) -> EqArray.iter walk args
             | TyFun(a, r) ->
                 walk a
                 walk r
@@ -883,18 +938,18 @@ module UnificationEngine =
             && (Set.contains memberName arithmeticBinaryOps
                 || Set.contains memberName bitwiseBinaryOps)
         then
-            let t = TyConst primName
+            let t = TyConst(primName, EqArray.empty)
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif argCount = 2 && Set.contains memberName shiftOps then
             // `value: ^T -> shift: int32 -> ^T` — the shift amount is always int32.
-            let t = TyConst primName
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst "int" ]), t))
+            let t = TyConst(primName, EqArray.empty)
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst("int", EqArray.empty) ]), t))
         elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
-            let t = TyConst primName
+            let t = TyConst(primName, EqArray.empty)
             ValueSome(TyFun(t, t))
         elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
-            let t = TyConst primName
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst "bool"))
+            let t = TyConst(primName, EqArray.empty)
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst("bool", EqArray.empty)))
         else
             ValueNone
 
@@ -947,7 +1002,7 @@ module UnificationEngine =
                     ()
                 else
                     match resolveStep linkTarget with
-                    | TyConst primName ->
+                    | TyConst(primName, _) ->
                         match tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length with
                         | ValueSome candTy ->
                             b.Resolved <- true
@@ -955,18 +1010,25 @@ module UnificationEngine =
                         | ValueNone ->
                             ctx.Error(key, sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName)
                             b.Resolved <- true
-                    | TyClass(className, classArgs) ->
-                        match ctx.Types.Class.TryGetValue className with
-                        | true, info ->
+                    | TyClass(classKey, classArgs) ->
+                        match TypeRegistry.tryClassByKey ctx.Types classKey with
+                        | ValueSome info ->
                             match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
                             | Some m ->
                                 let candTy = instantiateMember (info.TypeParams, classArgs) m.Type
                                 b.Resolved <- true
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
-                                ctx.Error(key, sprintf "Type '%s' has no static member '%s'" className b.MemberName)
+                                ctx.Error(
+                                    key,
+                                    sprintf
+                                        "Type '%s' has no static member '%s'"
+                                        (ExternalSymbols.simpleName classKey)
+                                        b.MemberName
+                                )
+
                                 b.Resolved <- true
-                        | false, _ ->
+                        | ValueNone ->
                             // Unknown class — keep the bound so a later
                             // pass might still be able to dispatch.
                             remaining <- b :: remaining

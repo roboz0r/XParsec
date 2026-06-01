@@ -22,19 +22,74 @@ module NameResolutionScope =
 
     type Scope = Map<string, NodeKey * bool>
 
-    /// True if `name` (possibly dotted) resolves as an external *type* at some
-    /// small arity — i.e. a static-member-access receiver
-    /// (`EqualityComparer<int>.Default`), not an unresolved value. The receiver's
-    /// arity lives on the enclosing `Expr.TypeApp`, which this name's own visit
-    /// can't see, so probe a bounded arity range (provider-cached). `tryQualify`
-    /// applies the in-scope `open` prefixes. symbol-resolution-plan §7.2, P3.
-    let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
-        let probe n =
-            (ctx.Provider.TryLookupType n |> ValueOption.isSome)
-            || [ 1; 2; 3; 4 ]
-               |> List.exists (fun a -> ctx.Provider.TryLookupType(sprintf "%s`%d" n a) |> ValueOption.isSome)
+    /// Resolve `name` (possibly dotted) as an external *type* at exactly `arity` —
+    /// the receiver's type-arg count, supplied by the enclosing `Expr.TypeApp`
+    /// (0 for a non-generic static-access receiver like `System.Console`). Applies
+    /// the in-scope `open` prefixes (`tryResolve`'s candidate order: bare/abbrev-
+    /// expanded then each prefix); per qualified candidate it probes the arity-
+    /// suffixed compiled name first (metadata keys a generic `Name`arity`; the
+    /// contract layer keys it bare). Returns the use-site `SymbolKey` minted from
+    /// the matched shape's origin + compiled name. This replaces the former bounded
+    /// `[1;2;3;4]` arity scan: the arity is now exact because the TypeApp visit
+    /// resolves receiver+arity together.
+    let private tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : SymbolKey voption =
+        let keysFor (n: string) =
+            if arity = 0 then
+                [ n ]
+            else
+                [ ExternalSymbols.arityName n arity; n ]
 
-        OpenScope.tryQualify ctx.Resolution.OpenScope probe name |> ValueOption.isSome
+        let shapeArity (shape: ExternalTypeShape) =
+            match shape with
+            | ExternalTypeShape.Class info -> info.Arity
+            | ExternalTypeShape.Intrinsic _ -> 0
+            | ExternalTypeShape.Record(arity = a)
+            | ExternalTypeShape.Union(arity = a)
+            | ExternalTypeShape.Abbrev(arity = a)
+            | ExternalTypeShape.Opaque(arity = a) -> a
+
+        // Mint from the matched shape's origin where one exists (Class/Union/Record
+        // carry the home assembly + namespace); the origin-less shapes fall back to
+        // splitting the qualified compiled name. Mirrors `Translate`'s nominal mint.
+        let keyOf (compiled: string) (shape: ExternalTypeShape) =
+            match shape with
+            | ExternalTypeShape.Class info -> ExternalSymbols.externalTypeKey info.Origin compiled arity
+            | ExternalTypeShape.Record(origin = o)
+            | ExternalTypeShape.Union(origin = o) -> ExternalSymbols.externalTypeKey o compiled arity
+            | ExternalTypeShape.Abbrev _
+            | ExternalTypeShape.Intrinsic _
+            | ExternalTypeShape.Opaque _ -> ExternalSymbols.qualifiedTypeKey compiled arity
+
+        let lookup (candidate: string) : SymbolKey voption =
+            let rec go keys =
+                match keys with
+                | [] -> ValueNone
+                | key :: rest ->
+                    match ctx.Provider.TryLookupType key with
+                    | ValueSome shape when shapeArity shape = arity -> ValueSome(keyOf key shape)
+                    | _ -> go rest
+
+            go (keysFor candidate)
+
+        OpenScope.tryResolve ctx.Resolution.OpenScope lookup name
+
+    /// True if `name` (possibly dotted) resolves as a *non-generic* external type —
+    /// the arity-0 static-member-access receiver (`System.Console.Out`,
+    /// `Math.Pi`). Generic receivers (`EqualityComparer<int>.Default`) are no longer
+    /// probed here: the TypeApp visit resolves them at exact arity and stamps the
+    /// receiver's `ResolvedType`, which the suppression sites check directly.
+    let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
+        (tryResolveExternalTypeKey ctx name 0).IsSome
+
+    /// The dotted receiver name of an `Expr.TypeApp`, when it is an identifier /
+    /// long-identifier the provider could know as a type. `ValueNone` for receiver
+    /// shapes that are never an external type name (e.g. an applied expression).
+    let private typeAppReceiverName (ctx: PassContext) (receiver: Expr<SyntaxToken>) : string voption =
+        match receiver with
+        | Expr.Ident tok -> ValueSome(ctx.NameOf tok)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
+            ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
+        | _ -> ValueNone
 
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
         let name = ctx.NameOf tok
@@ -75,6 +130,11 @@ module NameResolutionScope =
                 if
                     ctx.Types.CtorIndex.ContainsKey name
                     || ctx.Types.Class.ContainsKey name
+                    // A generic external-type receiver (`EqualityComparer<int>`) was
+                    // resolved at exact arity by the enclosing TypeApp visit, which
+                    // stamped this use site's `ResolvedType`; a non-generic one falls
+                    // to the arity-0 `resolvesAsExternalType`.
+                    || ctx.Resolution.ResolvedType.ContainsKey useKey
                     || resolvesAsExternalType ctx name
                     || (ctx.Provider.TryLookupUnionCase name).IsSome
                 then
@@ -236,12 +296,28 @@ module NameResolutionScope =
                             || (ctx.Types.Union.ContainsKey typeName
                                 && staticIn ctx.Types.Union.[typeName].Members))
 
+                    // `Result.Ok` / `Option.Some` — a qualified *external* union case.
+                    // The declaring union may be generic (`Result\`2`), but it is
+                    // written without type args, so there is no `Expr.TypeApp` to
+                    // recover the arity from. The case name is globally unique in the
+                    // provider's reverse index, so resolve it arity-free instead of
+                    // probing the union type at a guessed arity — this is what the old
+                    // `isExternalStaticMember` prefix arity-scan was doing for these by
+                    // accident. Mirrors the single-ident `TryLookupUnionCase`
+                    // suppression and the local `isQualifiedCtor` arm; Unification /
+                    // Freeze resolve the case.
+                    let isExternalQualifiedCase =
+                        li.Idents.Length >= 2
+                        && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
+
                     // A non-generic external static member folds into one LongIdent
                     // (`System.Console.Out`), so the receiver type is the *prefix*
                     // (all but the last segment). If that resolves as an external
                     // type, leave the member to Unification's tryExternalStaticLongIdent
                     // (which falls through silently when the tail isn't accessible, so
                     // suppression here doesn't manufacture a member that isn't there).
+                    // A *generic* receiver requires explicit type args (a TypeApp,
+                    // handled by `ResolvedType` above), so the prefix probe is arity-0.
                     let isExternalStaticMember =
                         li.Idents.Length >= 2
                         && (let prefix =
@@ -253,6 +329,12 @@ module NameResolutionScope =
                     if
                         isQualifiedCtor
                         || isQualifiedStatic
+                        || isExternalQualifiedCase
+                        // A generic external-type receiver written qualified
+                        // (`System.Collections.Generic.List<int>.Empty`) was resolved
+                        // at exact arity by the enclosing TypeApp visit, stamping this
+                        // LongIdent's `ResolvedType`.
+                        || ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
                         || resolvesAsExternalType ctx qualName
                         || isExternalStaticMember
                     then
@@ -284,6 +366,20 @@ module NameResolutionScope =
                     Code = ""
                     Severity = Error
                 }
+        | Expr.TypeApp(expr = receiver; types = types) ->
+            // The receiver's arity (its type-arg count) lives on this node, not on
+            // the receiver's own visit. Resolve receiver+arity together so a generic
+            // external-type receiver (`EqualityComparer<int>.Default`) resolves at the
+            // *exact* arity, mint the use-site key, and stamp `ResolvedType` on the
+            // receiver — the receiver's `resolveIdent` / the multi-segment LongIdent
+            // arm then suppress the unresolved diagnostic by a key hit instead of the
+            // old bounded `[1;2;3;4]` arity scan.
+            match typeAppReceiverName ctx receiver with
+            | ValueSome name ->
+                match tryResolveExternalTypeKey ctx name types.Length with
+                | ValueSome key -> ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr receiver, key)
+                | ValueNone -> ()
+            | ValueNone -> ()
         | _ -> ()
 
     let mkWalker (ctx: PassContext) : CstWalk.ExprWalker<Scope list> =

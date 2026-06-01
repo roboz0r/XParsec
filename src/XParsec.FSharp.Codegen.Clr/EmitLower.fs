@@ -33,8 +33,8 @@ module EmitLower =
         | TExpr.New(_, _, ty) -> ty
         | TExpr.MethodCall(_, _, _, _, ty) -> ty
         | TExpr.PropertyGet(_, _, _, ty) -> ty
-        | TExpr.StaticMethodCall(_, _, _, ty) -> ty
-        | TExpr.StaticPropertyGet(_, _, ty) -> ty
+        | TExpr.StaticMethodCall(_, _, ty) -> ty
+        | TExpr.StaticPropertyGet(_, ty) -> ty
         | TExpr.StaticFieldGet(_, _, ty) -> ty
         | TExpr.ExternalMember(_, _, _, _, ty) -> ty
         | TExpr.Format(_, _, ty) -> ty
@@ -53,12 +53,14 @@ module EmitLower =
         | TPat.Record(_, ty)
         | TPat.Union(_, _, ty) -> ty
 
-    /// Resolve a nominal receiver type to its (declared-name, type-args) pair.
-    /// Returns `ValueNone` if the type isn't a user-defined or external nominal
-    /// type (e.g., a `TyVar` that should have been zonked away by now). The
-    /// `TyClass` arm passes through so future class receivers reach the right
-    /// downstream lookup without revisiting every call site (H6).
-    let inline receiverShape (ty: SemType) : (string * SemType list) voption =
+    /// Resolve a nominal receiver type to its `(SymbolKey, type-args)` pair
+    /// (was a projected string name). The
+    /// project-local emitted-type tables key by this `SymbolKey` directly; the
+    /// external provider lookups derive the qualified compiled name from it via
+    /// `ExternalSymbols.qualifiedName`. Returns `ValueNone` if the type isn't a
+    /// user-defined or external nominal type (e.g. a `TyVar` that should have been
+    /// zonked away by now).
+    let inline receiverShape (ty: SemType) : (SymbolKey * SemType list) voption =
         match ty with
         | TyUnion(n, args)
         | TyRecord(n, args)
@@ -80,7 +82,7 @@ module EmitLower =
         | TyRecord(n, xs) -> TyRecord(n, EqArray.map zonk xs)
         | TyUnion(n, xs) -> TyUnion(n, EqArray.map zonk xs)
         | TyClass(n, xs) -> TyClass(n, EqArray.map zonk xs)
-        | TyConst _ -> t
+        | TyConst(n, xs) -> TyConst(n, EqArray.map zonk xs)
         | TyUnknown _ -> t
 
     /// Recover a generic static method's per-typar instantiation at a call site
@@ -181,9 +183,9 @@ module EmitLower =
         | TExpr.FieldSet(r, n, v, t) -> TExpr.FieldSet(f r, n, f v, t)
         | TExpr.UnionCons(c, args, t) -> TExpr.UnionCons(c, EqArray.map f args, t)
         | TExpr.New(c, args, t) -> TExpr.New(c, EqArray.map f args, t)
-        | TExpr.MethodCall(r, n, via, args, t) -> TExpr.MethodCall(f r, n, via, EqArray.map f args, t)
-        | TExpr.PropertyGet(r, n, via, t) -> TExpr.PropertyGet(f r, n, via, t)
-        | TExpr.StaticMethodCall(c, n, args, t) -> TExpr.StaticMethodCall(c, n, EqArray.map f args, t)
+        | TExpr.MethodCall(r, k, via, args, t) -> TExpr.MethodCall(f r, k, via, EqArray.map f args, t)
+        | TExpr.PropertyGet(r, k, via, t) -> TExpr.PropertyGet(f r, k, via, t)
+        | TExpr.StaticMethodCall(k, args, t) -> TExpr.StaticMethodCall(k, EqArray.map f args, t)
         | TExpr.ExternalMember(r, k, n, isProp, t) -> TExpr.ExternalMember(ValueOption.map f r, k, n, isProp, t)
         | TExpr.Format(sink, segs, t) ->
             let sink =
@@ -376,7 +378,7 @@ module EmitLower =
     let rec private isGroundType (t: SemType) : bool =
         match zonk t with
         | TyVar _ -> false
-        | TyConst _ -> true
+        | TyConst(_, xs) -> EqArray.forall isGroundType xs
         | TyFun(a, b) -> isGroundType a && isGroundType b
         | TyTuple xs -> EqArray.forall isGroundType xs
         | TyRecord(_, xs)

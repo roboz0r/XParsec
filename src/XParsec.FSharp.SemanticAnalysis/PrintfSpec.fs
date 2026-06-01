@@ -49,9 +49,9 @@ module PrintfSpec =
         | ValueSome "printfn" -> true
         | _ -> false
 
-    let private tyUnit: SemType = TyConst "unit"
-    let private tyString: SemType = TyConst "string"
-    let private tyTextWriter: SemType = TyConst "System.IO.TextWriter"
+    let private tyUnit: SemType = TyConst("unit", EqArray.empty)
+    let private tyString: SemType = TyConst("string", EqArray.empty)
+    let private tyTextWriter: SemType = TyConst("System.IO.TextWriter", EqArray.empty)
 
     /// Target-agnostic classification of a printf entry point's output sink,
     /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
@@ -302,18 +302,18 @@ module PrintfSpec =
     /// inference.
     let argType (fresh: unit -> SemType) (t: FormatType) : SemType voption =
         match t with
-        | FormatType.Bool -> ValueSome(TyConst "bool")
+        | FormatType.Bool -> ValueSome(TyConst("bool", EqArray.empty))
         | FormatType.String -> ValueSome tyString
-        | FormatType.Char -> ValueSome(TyConst "char")
+        | FormatType.Char -> ValueSome(TyConst("char", EqArray.empty))
         | FormatType.DecimalInt
         | FormatType.UnsignedDecimalInt
         | FormatType.UnsignedHex
         | FormatType.UnsignedOctal
-        | FormatType.UnsignedBinary -> ValueSome(TyConst "int")
+        | FormatType.UnsignedBinary -> ValueSome(TyConst("int", EqArray.empty))
         | FormatType.FloatExponential
         | FormatType.FloatDecimal
-        | FormatType.FloatCompact -> ValueSome(TyConst "float")
-        | FormatType.Decimal -> ValueSome(TyConst "decimal")
+        | FormatType.FloatCompact -> ValueSome(TyConst("float", EqArray.empty))
+        | FormatType.Decimal -> ValueSome(TyConst("decimal", EqArray.empty))
         | FormatType.Object
         | FormatType.Structured -> ValueSome(fresh ())
         | FormatType.FormatFunction
@@ -381,7 +381,7 @@ module PrintfSpec =
         | None -> ValueNone
 
     let formatType (printer: SemType) (fam: Family) : SemType =
-        TyClass(printfFormatName, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
+        TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
 
     /// Curry resolved argument types onto the family's tail.
     let printerType (argTypes: SemType list) (fam: Family) : SemType =

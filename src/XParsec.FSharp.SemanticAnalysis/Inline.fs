@@ -40,7 +40,9 @@ module Inline =
                 | ValueNone ->
                     if seen.Add root then
                         acc.Add root
-            | TyConst _ -> ()
+            | TyConst(_, args) ->
+                for a in args do
+                    go a
             | TyFun(a, r) ->
                 go a
                 go r
@@ -68,7 +70,7 @@ module Inline =
             match subst.TryGetValue root with
             | true, repl -> repl
             | _ -> TyVar root
-        | TyConst _ -> t
+        | TyConst(n, args) -> TyConst(n, EqArray.map (substType subst) args)
         | TyFun(a, r) -> TyFun(substType subst a, substType subst r)
         | TyTuple xs -> TyTuple(EqArray.map (substType subst) xs)
         | TyRecord(n, args) -> TyRecord(n, EqArray.map (substType subst) args)
@@ -102,7 +104,8 @@ module Inline =
     let rec private staticOptTypesMatch (a: SemType) (b: SemType) : bool =
         match a, b with
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyConst n1, TyConst n2 -> canonPrimName n1 = canonPrimName n2
+        | TyConst(n1, xs), TyConst(n2, ys) ->
+            canonPrimName n1 = canonPrimName n2 && EqArray.forall2 staticOptTypesMatch xs ys
         | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch a1 a2 && staticOptTypesMatch r1 r2
         | TyTuple xs, TyTuple ys -> EqArray.forall2 staticOptTypesMatch xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
@@ -115,8 +118,8 @@ module Inline =
     /// detection on user types awaits the attribute walker (C-Attr).
     let private isStructType (t: SemType) : bool =
         match t with
-        | TyConst("int" | "int32" | "int64" | "byte" | "uint8" | "float" | "double" | "float64" | "bool" | "char" | "decimal") ->
-            true
+        | TyConst(("int" | "int32" | "int64" | "byte" | "uint8" | "float" | "double" | "float64" | "bool" | "char" | "decimal"),
+                  _) -> true
         | _ -> false
 
     /// Build the typar-substituting mapper for one inline expansion. The

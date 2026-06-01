@@ -338,7 +338,7 @@ let tests =
             }
 
             test "Phase 1: stamped *TypeInfo.Key is the arity-qualified TypeKey(None, \"\", name)" {
-                // symbol-key-refactor.md Phase 1: every registered type carries a
+                // Every registered type carries a
                 // project-local `SymbolKey`. Non-generic types key on the bare name;
                 // generic types carry the `` `N `` arity suffix that matches the emitted
                 // metadata name and codegen's `userTypes` keying (`TypeRegistry.keyFor`).
@@ -522,7 +522,7 @@ let tests =
                 | true, info ->
                     Expect.equal
                         info.BaseType
-                        (ValueSome(TyClass("Box", EqArray.singleton (TyConst "int"))))
+                        (ValueSome(TyClass("Box", EqArray.singleton (TyConst("int", EqArray.empty)))))
                         "IntBox inherits Box<int>"
                 | false, _ -> failtest "class type IntBox not registered"
             }
@@ -599,9 +599,7 @@ let tests =
                 Expect.isTrue cyclic "cyclic-inheritance diagnostic emitted"
             }
 
-            // --- symbol-key-refactor.md Phase 2: ResolvedType side table ----------
-
-            test "Phase 2: union decl sites stamp ResolvedType with arity-qualified keys" {
+            test "Union decl sites stamp ResolvedType with arity-qualified keys" {
                 // NameResolution stamps each union's decl-site NodeKey → the union's
                 // minted `SymbolKey`; the type-decl emitter (`Freeze.tryUnionType`)
                 // reads it back by key rather than re-deriving `(name, arity)`.
@@ -623,7 +621,7 @@ let tests =
                 | ValueNone -> failtest "Choice`2 key did not resolve via tryUnionByKey"
             }
 
-            test "Phase 2: union annotation use site stamps ResolvedType" {
+            test "Union annotation use site stamps ResolvedType" {
                 // `translateType` (via Unification) stamps the use-site type-reference
                 // NodeKey as the `Choice<int, string>` annotation resolves — the
                 // populate half a Phase 3 consumer will key off.
@@ -644,5 +642,45 @@ let tests =
                     )
 
                 Expect.isTrue useStamp "Choice<int, string> annotation stamped at its TypeGeneric use site"
+            }
+
+            test "Declaring namespace is threaded into the minted SymbolKey" {
+                // A type under `namespace Foo.Bar` mints `TypeKey(None, "Foo.Bar", name\`arity)`
+                // — the identity it emits as (`TDecl.Namespace` + arity-suffixed metadata
+                // name) — not the ns="" construction-time placeholder. Proves the
+                // declaring path actually survives the module-tree flatten (which used to
+                // drop it) and reaches the registry mint.
+                let ctx =
+                    analyse "namespace Foo.Bar\n\ntype Rec = { x: int }\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b"
+
+                match TypeRegistry.tryRecord ctx.Types "Rec" with
+                | ValueSome info ->
+                    Expect.equal info.Key (SymbolKey.TypeKey(None, "Foo.Bar", "Rec")) "record key carries namespace"
+                | ValueNone -> failtest "Rec not registered"
+
+                match TypeRegistry.tryUnion ctx.Types "Choice" 2 with
+                | ValueSome info ->
+                    Expect.equal
+                        info.Key
+                        (SymbolKey.TypeKey(None, "Foo.Bar", "Choice`2"))
+                        "union key carries namespace + arity"
+                | ValueNone -> failtest "Choice`2 not registered"
+            }
+
+            test "Arity-overloaded types under one namespace mint unique keys" {
+                // The uniqueness gate: every accepted type mints a distinct key, so
+                // `recordKeyOrigin` reports no collision. `Choice\`2` / `Choice\`3` share a
+                // namespace and short name yet stay distinct by arity-suffix.
+                let ctx =
+                    analyse
+                        "namespace Foo\n\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b\ntype Choice<'a, 'b, 'c> = | D1 of 'a | D2 of 'b | D3 of 'c"
+
+                let collision =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "SymbolKey collision")
+
+                Expect.isFalse collision "no SymbolKey collision for arity-overloaded Choice"
+                Expect.isTrue (TypeRegistry.containsUnion ctx.Types "Choice" 2) "Choice`2 registered"
+                Expect.isTrue (TypeRegistry.containsUnion ctx.Types "Choice" 3) "Choice`3 registered"
             }
         ]

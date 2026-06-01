@@ -33,7 +33,7 @@ module UnificationInferPat =
             | ValueSome i when i.Fields.Length = 0 ->
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
-                let ty = TyUnion(i.UnionName, args)
+                let ty = TyUnion(unionInfo.Key, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
@@ -52,7 +52,7 @@ module UnificationInferPat =
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
-                let ty = TyUnion(i.UnionName, args)
+                let ty = TyUnion(unionInfo.Key, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
@@ -189,7 +189,7 @@ module UnificationInferPat =
                 for j = m to subPats.Length - 1 do
                     inferPat ctx subPats.[j] |> ignore
 
-                let ty = TyUnion(i.UnionName, args)
+                let ty = TyUnion(unionInfo.Key, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
@@ -387,7 +387,7 @@ module UnificationInferPat =
                                 Severity = Error
                             }
 
-                let recTy = TyRecord(info.Name, args)
+                let recTy = TyRecord(info.Key, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome recTy
                 recTy

@@ -66,7 +66,7 @@ module UnificationInferGeneralize =
                 match root.Link with
                 | ValueSome target -> hasPendingDotAccess target
                 | ValueNone -> false
-        | TyConst _ -> false
+        | TyConst(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyFun(a, r) -> hasPendingDotAccess a || hasPendingDotAccess r
         | TyTuple xs -> EqArray.exists hasPendingDotAccess xs
         | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
@@ -100,7 +100,9 @@ module UnificationInferGeneralize =
                         match root.Link with
                         | ValueSome target -> go target
                         | ValueNone -> ()
-                | TyConst _ -> ()
+                | TyConst(_, args) ->
+                    for a in args do
+                        go a
                 | TyFun(a, r) ->
                     go a
                     go r
@@ -202,19 +204,19 @@ module UnificationInferGeneralize =
                                 match zonk elemTy with
                                 | TyVar _ ->
                                     root.Link <-
-                                        ValueSome(TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy))
+                                        ValueSome(TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy))
                                 | _ -> root.Level <- outerLevel
                             | _ -> ()
                 | TyFun(a, b) ->
                     walk a
                     walk b
+                | TyConst(_, xs)
                 | TyTuple xs
                 | TyRecord(_, xs)
                 | TyUnion(_, xs)
                 | TyClass(_, xs) ->
                     for x in xs do
                         walk x
-                | TyConst _ -> ()
                 | TyUnknown _ -> ()
 
             walk ty
@@ -236,7 +238,9 @@ module UnificationInferGeneralize =
 
                 if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
                     quantified.Add(root)
-            | TyConst _ -> ()
+            | TyConst(_, args) ->
+                for a in args do
+                    walk a
             | TyFun(a, r) ->
                 walk a
                 walk r

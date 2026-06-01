@@ -22,7 +22,7 @@ module EmitResolve =
     let memberRef
         (env: EmitEnv)
         (typars: 'a list)
-        (typeName: string)
+        (key: SymbolKey)
         (tyArgs: SemType list)
         (kind: UserMemberKind)
         (monoHandle: EntityHandle)
@@ -30,14 +30,14 @@ module EmitResolve =
         if List.isEmpty typars then
             monoHandle
         else
-            env.Provider.UserGenericMemberRef(typeName, tyArgs, kind)
+            env.Provider.UserGenericMemberRef(key, tyArgs, kind)
 
-    /// Destructure a nominal receiver type into its `(typeName, tyArgs)`, failing
+    /// Destructure a nominal receiver type into its `(SymbolKey, tyArgs)`, failing
     /// with a `what`-tagged diagnostic for a non-nominal one. `what` names the
     /// construct being emitted (`"RecordCons"`, `"field 'X' access"`, …).
-    let nominalShape (what: string) (ty: SemType) : string * SemType list =
+    let nominalShape (what: string) (ty: SemType) : SymbolKey * SemType list =
         match receiverShape ty with
-        | ValueSome(n, xs) -> n, xs
+        | ValueSome(k, xs) -> k, xs
         | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
 
     /// Resolve the member-call handle for an instance access on `receiverTy`
@@ -46,34 +46,37 @@ module EmitResolve =
     /// a *generic* one goes through a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
     let resolveInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EntityHandle =
-        let typeName, tyArgs = nominalShape (sprintf "member '%s' access" name) receiverTy
+        // This resolver only serves project-local receivers (external instance
+        // members route through `externalInstanceMemberRef`), so the table key is
+        // the receiver's nominal `SymbolKey` directly (Phase 6D).
+        let key, tyArgs = nominalShape (sprintf "member '%s' access" name) receiverTy
 
-        match env.Unions.TryGetValue typeName with
+        match env.Unions.TryGetValue key with
         | true, u ->
             match u.Members.TryGetValue name with
             | true, m ->
                 memberRef
                     env
                     u.Typars
-                    typeName
+                    key
                     tyArgs
                     (UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)))
                     m.Handle
-            | false, _ -> failwithf "Emit: union '%s' has no emitted member '%s'" typeName name
+            | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
         | false, _ ->
-            match env.Classes.TryGetValue typeName with
+            match env.Classes.TryGetValue key with
             | true, c ->
                 match c.Members.TryGetValue name with
                 | true, m ->
                     memberRef
                         env
                         c.Typars
-                        typeName
+                        key
                         tyArgs
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)))
                         m.Handle
-                | false, _ -> failwithf "Emit: class '%s' has no emitted member '%s'" typeName name
-            | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%s'" typeName
+                | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
+            | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
 
     /// Member handle for an instance access on an *external* (referenced-package)
     /// type. A union/record receiver carries its instantiation in its own type
@@ -104,45 +107,54 @@ module EmitResolve =
     /// fails here loudly rather than minting a malformed `Def` call. Classes
     /// route through the same `Member` arm as instances; a generic class's
     /// static member uses the class `MemberRef` instead of the union one.
-    let resolveStaticMember (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
-        match env.Unions.TryGetValue typeName with
+    let resolveStaticMember (env: EmitEnv) (memberKey: SymbolKey) : EntityHandle =
+        // The call site carries the resolved local `SymbolKey.MemberKey`: the
+        // declaring type is `decl`, the
+        // member name is `memberName` — the emitted tables are keyed by `SymbolKey`
+        // directly, so no class-name reverse index is needed.
+        let key, name =
+            match memberKey with
+            | SymbolKey.MemberKey(decl, n, _, _) -> decl, n
+            | _ -> failwithf "Emit: expected a MemberKey for a static member call, got %A" memberKey
+
+        match env.Unions.TryGetValue key with
         | true, u ->
             match u.Members.TryGetValue name with
             | true, m ->
                 if List.isEmpty u.Typars then
                     m.Handle
                 else
-                    failwithf
-                        "Emit: generic-union static augmentation member '%s.%s' is out of scope (R2)"
-                        typeName
-                        name
-            | false, _ -> failwithf "Emit: union '%s' has no emitted static member '%s'" typeName name
+                    failwithf "Emit: generic-union static augmentation member '%A.%s' is out of scope (R2)" key name
+            | false, _ -> failwithf "Emit: union '%A' has no emitted static member '%s'" key name
         | false, _ ->
-            match env.Classes.TryGetValue typeName with
+            match env.Classes.TryGetValue key with
             | true, c ->
                 match c.Members.TryGetValue name with
                 | true, m ->
                     memberRef
                         env
                         c.Typars
-                        typeName
-                        [ for t in c.Typars -> TyConst t ]
+                        key
+                        [ for t in c.Typars -> TyConst(t, EqArray.empty) ]
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy)))
                         m.Handle
-                | false, _ -> failwithf "Emit: class '%s' has no emitted static member '%s'" typeName name
-            | false, _ -> failwithf "Emit: no emitted type carrying static members for '%s'" typeName
+                | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
+            | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key
 
     /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle
     /// (vesper-set-sprint-plan §1.8 / B-10). Only monomorphic classes declare
     /// `static let`s (generic `static let` is deferred), so the field handle is
     /// always a `Def` token — no `MemberRef`-on-`TypeSpec` path.
-    let resolveStaticField (env: EmitEnv) (typeName: string) (name: string) : EntityHandle =
-        match env.Classes.TryGetValue typeName with
+    let resolveStaticField (env: EmitEnv) (declKey: SymbolKey) (name: string) : EntityHandle =
+        // `declKey` is the declaring class's nominal `SymbolKey.TypeKey`, carried on
+        // the `StaticFieldGet` node (Phase 4) — the emitted class table is keyed by
+        // it directly.
+        match env.Classes.TryGetValue declKey with
         | true, c ->
             match c.StaticFields.TryGetValue name with
             | true, h -> h
-            | false, _ -> failwithf "Emit: class '%s' has no emitted static field '%s'" typeName name
-        | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%s'" typeName
+            | false, _ -> failwithf "Emit: class '%A' has no emitted static field '%s'" declKey name
+        | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%A'" declKey
 
     /// Resolve a field by name on a record / class receiver to its emit handle.
     /// A monomorphic type returns the field's `Def` token; a *generic* one
@@ -154,23 +166,27 @@ module EmitResolve =
     /// name)` by `Freeze.translateClassMember` (vesper-set-sprint-plan Phase 1 /
     /// B-1).
     let resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle =
-        let typeName, tyArgs =
-            nominalShape (sprintf "field '%s' access" fieldName) receiverTy
+        // Project-local tables key by the receiver's nominal `SymbolKey`; the
+        // external record-field lookup derives the qualified compiled name from it
+        // (Phase 6D).
+        let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) receiverTy
 
-        match env.Records.TryGetValue typeName with
+        match env.Records.TryGetValue key with
         | true, r ->
             match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
             | Some(_, h, _) ->
-                memberRef env r.Typars typeName tyArgs (UserMemberKind.RecordMember(RecordMember.Field fieldName)) h
-            | None -> failwithf "Emit: record '%s' has no field '%s'" typeName fieldName
+                memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember(RecordMember.Field fieldName)) h
+            | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
         | false, _ ->
-            match env.Classes.TryGetValue typeName with
+            match env.Classes.TryGetValue key with
             | true, c ->
                 match c.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
                 | Some(_, h, _) ->
-                    memberRef env c.Typars typeName tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h
-                | None -> failwithf "Emit: class '%s' has no field '%s'" typeName fieldName
+                    memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h
+                | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
             | false, _ ->
-                match env.Provider.TryResolveExternalRecordField(typeName, tyArgs, fieldName) with
+                let qualName = ExternalSymbols.qualifiedName key
+
+                match env.Provider.TryResolveExternalRecordField(qualName, tyArgs, fieldName) with
                 | ValueSome(handle, _) -> handle
-                | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" typeName
+                | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" qualName

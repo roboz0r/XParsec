@@ -113,7 +113,6 @@ type ClassMember =
 type UserMemberKind =
     | UnionMember of UnionMember
     | RecordMember of RecordMember
-    | ClosureMember of ClosureMember
     | ClassMember of ClassMember
 
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
@@ -170,19 +169,28 @@ type ICodegenProvider =
     /// `tyArgs` are the union type's instantiation arguments; the field values
     /// are already on the stack in declaration order beneath the call. The list
     /// constructors are static `call`s, so a `CallRecipe` fits — no new shape.
-    abstract TryEmitUnionCons: typeName: string * caseName: string * tyArgs: SemType list -> CallRecipe voption
+    /// The receiver is identified by its nominal `SymbolKey`: the FSharp.Core
+    /// `list` vs the Vesper cons-list are recognised by key identity
+    /// (`RuntimeNames.isFsharpCoreListKey` / `isVesperListKey`), not by string name.
+    abstract TryEmitUnionCons: key: SymbolKey * caseName: string * tyArgs: SemType list -> CallRecipe voption
 
-    /// A `MemberRef` to one member of an emitted *generic* user-defined type
-    /// (union / record / closure, with classes joining in Phase 1) `name`,
+    /// A `MemberRef` to one member of an emitted *generic* nominal user type
+    /// (union / record / class) identified by its nominal `SymbolKey` `key`,
     /// instantiated at `args`. The type must have been registered with the
     /// matching `ClrProvider.RegisterGeneric*` call. A monomorphic instance
     /// never reaches here — its `Def` tokens are used directly. `kind`
     /// picks the family + the specific member (union case factory,
-    /// record field, closure capture, …); internal `ClrProvider` dispatches
-    /// it to the existing per-family helpers, so the seam narrows but the
-    /// implementations don't (vesper-set-sprint-plan §0.3 / M3,
-    /// records-plan §B2, function-representation-plan §Generic closures C2/C3).
-    abstract UserGenericMemberRef: name: string * args: SemType list * kind: UserMemberKind -> EntityHandle
+    /// record field, …); internal `ClrProvider` dispatches it to the existing
+    /// per-family helpers (was keyed by a
+    /// string `name`; closures, which have no `SymbolKey`, split off onto
+    /// `UserClosureMemberRef`).
+    abstract UserGenericMemberRef: key: SymbolKey * args: SemType list * kind: UserMemberKind -> EntityHandle
+
+    /// A `MemberRef` to one member of an emitted *generic* closure `name`
+    /// (a synthetic `<closure>$n` name — closures carry no `SymbolKey`, so they
+    /// ride their own seam rather than `UserGenericMemberRef`), instantiated at
+    /// `args` (function-representation-plan §Generic closures C2/C3).
+    abstract UserClosureMemberRef: name: string * args: SemType list * which: ClosureMember -> EntityHandle
 
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
     /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when

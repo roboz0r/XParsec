@@ -71,15 +71,27 @@ module private MetadataMapping =
                 None
             else
                 let builders = argBuilders |> Array.map Option.get
-                Some(fun args -> TyClass(name, EqArray.ofSeq (seq { for b in builders -> b args })))
+                // Stamp the type's home assembly (its defining assembly's simple
+                // name) so this key unifies with the same BCL type resolved via a
+                // provider shape's origin.
+                let key =
+                    ExternalSymbols.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name builders.Length
+
+                Some(fun args -> TyClass(key, EqArray.ofSeq (seq { for b in builders -> b args })))
         else
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
-            | "System.Void" -> Some(fun _ -> TyConst "unit")
+            | "System.Void" -> Some(fun _ -> TyConst("unit", EqArray.empty))
             | fullName when reprToName.ContainsKey fullName ->
                 let name = reprToName.[fullName]
-                Some(fun _ -> TyConst name)
-            | fullName -> Some(fun _ -> TyClass(fullName, EqArray.empty))
+                Some(fun _ -> TyConst(name, EqArray.empty))
+            | fullName ->
+                Some(fun _ ->
+                    TyClass(
+                        ExternalSymbols.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0,
+                        EqArray.empty
+                    )
+                )
 
     /// **Tupled** member signature `(p1 * … * pN) → ret` over the declaring type's
     /// typars — the .NET calling convention (`m(a, b)` is one application to the
@@ -110,7 +122,7 @@ module private MetadataMapping =
                     let ret = rb args
 
                     match pbs.Length with
-                    | 0 -> TyFun(TyConst "unit", ret)
+                    | 0 -> TyFun(TyConst("unit", EqArray.empty), ret)
                     | 1 -> TyFun(pbs.[0] args, ret)
                     | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
                 )
@@ -144,7 +156,7 @@ module private MetadataMapping =
                 let ret = rb args
 
                 match pbs.Length with
-                | 0 -> TyFun(TyConst "unit", ret)
+                | 0 -> TyFun(TyConst("unit", EqArray.empty), ret)
                 | 1 -> TyFun(pbs.[0] args, ret)
                 | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
             )

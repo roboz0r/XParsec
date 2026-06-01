@@ -45,7 +45,7 @@ let tests =
                                      TExpr.Lambda(_,
                                                   TExpr.StaticOptimization(clauses,
                                                                            TExpr.Const(TConstValue.Int -1, _),
-                                                                           TyConst "int"),
+                                                                           TyConst("int", _)),
                                                   _),
                                      true,
                                      _) ] ->

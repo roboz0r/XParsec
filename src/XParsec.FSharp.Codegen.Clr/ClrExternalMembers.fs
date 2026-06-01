@@ -64,7 +64,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             // single `(int*int)` param has argSig length 1 and stays one parameter). Arity ≤ 1 unchanged.
             let paramTys =
                 match rawParams with
-                | [ TyConst "unit" ] -> []
+                | [ TyConst("unit", _) ] -> []
                 | [ TyTuple elems ] when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
                 | ps -> ps
 
@@ -81,7 +81,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     // `void` directly here (`IDisposable.Dispose`, `List.Add`).
                     (fun (ret: ReturnTypeEncoder) ->
                         match retTy with
-                        | TyConst "unit" -> ret.Void()
+                        | TyConst("unit", _) -> ret.Void()
                         | _ -> encodeOpen markerRoots (ret.Type()) retTy
                     ),
                     (fun (pars: ParametersEncoder) ->
@@ -277,7 +277,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let markerRoots = markers |> List.map UnionFind.find
                 let markerTys = markers |> List.map TyVar |> List.toArray
                 let paramTys = [ for b in case.BuildFieldTypes -> b markerTys ]
-                let retTy = TyUnion(fullName, EqArray.ofArray markerTys)
+
+                let retTy =
+                    TyUnion(ExternalSymbols.qualifiedTypeKey fullName arity, EqArray.ofArray markerTys)
 
                 let s = BlobBuilder()
 
@@ -311,7 +313,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | Some tag ->
                 let parent = externalTypeSpec tref (List.map zonk args)
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) (TyConst "int")
+                encodeType (BlobEncoder(s).FieldSignature()) (TyConst("int", EqArray.empty))
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
 
     /// Mint the `MemberRef` for one field of one case on a referenced-package union — the `<caseName>_<i>`
@@ -399,7 +401,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 let paramTys =
                     match rawParams with
-                    | [ TyConst "unit" ] -> []
+                    | [ TyConst("unit", _) ] -> []
                     | [ TyTuple elems ] when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
                     | ps -> ps
 

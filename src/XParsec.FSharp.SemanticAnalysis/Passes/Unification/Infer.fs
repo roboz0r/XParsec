@@ -547,7 +547,7 @@ module UnificationInfer =
             unify ctx key itemTy elemTy
 
         if isArray then
-            TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton elemTy)
+            TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy)
         else
             listLiteralTy ctx key elemTy
 
@@ -556,7 +556,7 @@ module UnificationInfer =
         let elemTy = TyVar(freshTyVar ctx)
 
         if isArray then
-            TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton elemTy)
+            TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy)
         else
             listLiteralTy ctx key elemTy
 
@@ -613,8 +613,8 @@ module UnificationInfer =
             // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's
             // own instantiation (`List`1+Enumerator` over the source's `'T`).
             match ge.BuildSignature srcArgs with
-            | TyFun(_, (TyClass(enumName, enumArgsEq) as enumTy)) ->
-                match ctx.Provider.TryLookupType enumName with
+            | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
+                match ExternalSymbols.tryLookupType ctx.Provider enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
                     let enumArgs = enumArgsEq.AsSpan().ToArray()
 
@@ -629,7 +629,7 @@ module UnificationInfer =
                     match moveNext, current with
                     | Some mn, Some cur ->
                         match mn.BuildSignature enumArgs with
-                        | TyFun(_, TyConst "bool") ->
+                        | TyFun(_, TyConst("bool", _)) ->
                             let elemTy = cur.BuildSignature enumArgs
 
                             // The enumerator only needs disposing — and the `finally`
@@ -677,9 +677,10 @@ module UnificationInfer =
         let ienumName = "System.Collections.Generic.IEnumerable`1"
 
         match zonk srcTy with
-        | TyClass(name, args) when name = ienumName && args.Length = 1 -> ValueSome(args.[0], ForInEnumerator.Interface)
-        | TyClass(name, args) ->
-            match ctx.Provider.TryLookupType name with
+        | TyClass(nameKey, args) when ExternalSymbols.qualifiedName nameKey = ienumName && args.Length = 1 ->
+            ValueSome(args.[0], ForInEnumerator.Interface)
+        | TyClass(nameKey, args) ->
+            match ExternalSymbols.tryLookupType ctx.Provider nameKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 let argArr = args.AsSpan().ToArray()
 
@@ -795,7 +796,7 @@ module UnificationInfer =
         // patterns carry an unresolved TyVar into the TAST, which
         // `ResolvedTypes` correctly flags.
         let resultTy = infer ctx body
-        let exnTy = TyConst "exn"
+        let exnTy = TyConst("exn", EqArray.empty)
         inferRules ctx key exnTy resultTy rules
         resultTy
 
@@ -889,7 +890,7 @@ module UnificationInfer =
                 | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
                 | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
 
-            TyRecord(info.Name, args)
+            TyRecord(info.Key, args)
 
     and private inferRecordClone
         (ctx: PassContext)
@@ -900,9 +901,9 @@ module UnificationInfer =
         let srcTy = infer ctx src
 
         match resolveStep srcTy with
-        | TyRecord(recName, srcArgs) ->
-            match ctx.Types.Record.TryGetValue recName with
-            | true, info ->
+        | TyRecord(recKey, srcArgs) ->
+            match TypeRegistry.tryRecordByKey ctx.Types recKey with
+            | ValueSome info ->
                 // Clone preserves the source's arg list — overrides unify
                 // against the substituted field type (`'a` → source's arg).
                 let subst = mkNamedTypeSubst info.TypeParams srcArgs
@@ -913,16 +914,16 @@ module UnificationInfer =
 
                     match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                     | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
-                    | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" recName fieldName)
+                    | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
 
-                TyRecord(recName, srcArgs)
-            | false, _ ->
-                ctx.Error(key, sprintf "Unknown record type '%s'" recName)
+                TyRecord(recKey, srcArgs)
+            | ValueNone ->
+                ctx.Error(key, sprintf "Unknown record type '%s'" (ExternalSymbols.simpleName recKey))
 
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
 
-                TyRecord(recName, srcArgs)
+                TyRecord(recKey, srcArgs)
         | _ ->
             ctx.Error(key, "Record clone requires the source expression to be a record")
 
@@ -966,30 +967,36 @@ module UnificationInfer =
 
     and private resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         match resolveStep rTy with
-        | TyRecord(recName, args) ->
-            match ctx.Types.Record.TryGetValue recName with
-            | true, info ->
+        | TyRecord(recKey, args) ->
+            match TypeRegistry.tryRecordByKey ctx.Types recKey with
+            | ValueSome info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember (info.TypeParams, args) field.Type
-                | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" recName memberName)
-            | false, _ -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" recName)
-        | TyClass(clsName, args) ->
-            match ctx.Types.Class.TryGetValue clsName with
-            | true, info ->
+                | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" info.Name memberName)
+            | ValueNone -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" (ExternalSymbols.simpleName recKey))
+        | TyClass(clsKey, args) ->
+            // Local lookup by the bare simple name; the external provider by the
+            // qualified compiled name (an external `TyClass` carries a qualified key).
+            let clsSimple = ExternalSymbols.simpleName clsKey
+
+            match TypeRegistry.tryClass ctx.Types clsSimple with
+            | ValueSome info ->
                 // Walk the inheritance chain (derived members shadow inherited).
                 // On a total miss, fall back to the single-class diagnostic so
                 // the static-access hint still references the receiver's own
                 // class rather than some ancestor.
-                match tryClassChainMember ctx clsName args memberName with
+                match tryClassChainMember ctx clsSimple args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
-                    resolveLocalInstanceMember ctx diagKey clsName info.TypeParams args info.Members memberName
-            | false, _ ->
+                    resolveLocalInstanceMember ctx diagKey clsSimple info.TypeParams args info.Members memberName
+            | ValueNone ->
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
                 // access). Resolve the instance member through the provider and
                 // record it for Freeze (symbol-resolution-plan §7.2, P3).
-                match ctx.Provider.TryLookupMember(clsName, memberName) with
+                let clsQual = ExternalSymbols.qualifiedName clsKey
+
+                match ctx.Provider.TryLookupMember(clsQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
@@ -1001,20 +1008,29 @@ module UnificationInfer =
                     )
 
                     m.BuildSignature(args.AsSpan().ToArray())
-                | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsName)
-        | TyUnion(unionName, args) ->
+                | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
+        | TyUnion(unionKey, args) ->
             // Union instance member access (P3d.3) — mirrors the `TyClass` arm
             // against the union's augmentation members.
-            match ctx.Types.Union.TryGetValue unionName with
-            | true, info ->
-                resolveLocalInstanceMember ctx diagKey unionName info.TypeParams args info.Members memberName
-            | false, _ ->
+            match TypeRegistry.tryUnionByKey ctx.Types unionKey with
+            | ValueSome info ->
+                resolveLocalInstanceMember
+                    ctx
+                    diagKey
+                    (ExternalSymbols.simpleName unionKey)
+                    info.TypeParams
+                    args
+                    info.Members
+                    memberName
+            | ValueNone ->
                 // Not a project-local union — an *external* one (e.g. a referenced
                 // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation
                 // members the contract provider publishes). Resolve through the
                 // provider and record it for Freeze, exactly as the external
                 // `TyClass` arm does (vesper-lib-test-plan Gap 2 Layer A).
-                match ctx.Provider.TryLookupMember(unionName, memberName) with
+                let unionQual = ExternalSymbols.qualifiedName unionKey
+
+                match ctx.Provider.TryLookupMember(unionQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
@@ -1029,10 +1045,10 @@ module UnificationInfer =
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.
-                    match ctx.Provider.TryLookupType unionName with
+                    match ctx.Provider.TryLookupType unionQual with
                     | ValueSome(ExternalTypeShape.Union _) ->
-                        errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionName memberName)
-                    | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionName)
+                        errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
+                    | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionQual)
         | TyVar tv ->
             let root = UnionFind.find tv
             let resultTv = freshTyVar ctx
@@ -1125,9 +1141,9 @@ module UnificationInfer =
         let receiverTy = translateType ctx t
 
         match resolveStep receiverTy with
-        | TyClass(name, args) ->
-            match ctx.Types.Class.TryGetValue name with
-            | true, info ->
+        | TyClass(clsKey, args) ->
+            match TypeRegistry.tryClassByKey ctx.Types clsKey with
+            | ValueSome info ->
                 let subst = mkNamedTypeSubst info.TypeParams args
 
                 let expected =
@@ -1139,13 +1155,15 @@ module UnificationInfer =
                 let argTy = infer ctx argExpr
                 unify ctx (CstKeys.ofExpr argExpr) argTy expected
                 receiverTy
-            | false, _ ->
+            | ValueNone ->
                 // Fall through to the external-class path: `new System.Exception(msg)`
                 // inside an inline body (the `failwith` body, `raise (System.Exception
                 // message)`) — the type was named through `tryResolveExternalType` so
                 // `name` is the metadata full name, and the symbol provider already
                 // owns the ctor catalogue (`MetadataSymbols.extractMembers` /
                 // `computeMembers` surfaces them under `.ctor`).
+                let name = ExternalSymbols.qualifiedName clsKey
+
                 match ctx.Provider.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Class _) -> inferExternalCtorOn ctx key name args receiverTy argExpr
                 | _ ->
@@ -1228,8 +1246,17 @@ module UnificationInfer =
             | ValueSome name ->
                 match OpenScope.tryQualify ctx.Resolution.OpenScope (isExternalClass ctx) name with
                 | ValueSome resolved ->
+                    // Mint the ctor's result class with the resolved type's home
+                    // assembly (its provider shape's `origin`) so it unifies with the
+                    // same type resolved elsewhere.
+                    let classKey =
+                        match ctx.Provider.TryLookupType resolved with
+                        | ValueSome(ExternalTypeShape.Class info) ->
+                            ExternalSymbols.externalTypeKey info.Origin resolved 0
+                        | _ -> ExternalSymbols.qualifiedTypeKey resolved 0
+
                     ValueSome(
-                        inferExternalCtorOn ctx key resolved EqArray.empty (TyClass(resolved, EqArray.empty)) args.[0]
+                        inferExternalCtorOn ctx key resolved EqArray.empty (TyClass(classKey, EqArray.empty)) args.[0]
                     )
                 | ValueNone -> ValueNone
 
@@ -1404,7 +1431,7 @@ module UnificationInfer =
     /// `set.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
     and private isObjTy (t: SemType) : bool =
         match resolveStep t with
-        | TyConst "obj" -> true
+        | TyConst("obj", _) -> true
         | _ -> false
 
     /// `e :> T` — explicit upcast. `subsumes src tgt` must be `Equal`
@@ -1520,23 +1547,27 @@ module UnificationInfer =
             let binderTy = zonk (TyVar(tvOf ctx patKey))
 
             match resolveStep binderTy with
-            | TyClass(name, args) ->
-                match ctx.Types.Class.TryGetValue name with
-                | true, _ ->
-                    match tryClassChainMember ctx name args "Dispose" with
+            | TyClass(clsKey, args) ->
+                let simple = ExternalSymbols.simpleName clsKey
+
+                match TypeRegistry.tryClass ctx.Types simple with
+                | ValueSome _ ->
+                    match tryClassChainMember ctx simple args "Dispose" with
                     | ValueSome _ -> ()
                     | ValueNone ->
                         ctx.Error(
                             patKey,
-                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" name
+                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" simple
                         )
-                | false, _ ->
-                    match tryExternalDispose ctx name args with
+                | ValueNone ->
+                    let qual = ExternalSymbols.qualifiedName clsKey
+
+                    match tryExternalDispose ctx qual args with
                     | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
                     | ValueNone ->
                         ctx.Error(
                             patKey,
-                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" name
+                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" qual
                         )
             | _ -> ()
         | _ -> ()

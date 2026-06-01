@@ -12,7 +12,7 @@ module UnificationInferOverload =
 
     let rec semTypeEq (a: SemType) (b: SemType) : bool =
         match zonk a, zonk b with
-        | TyConst x, TyConst y -> x = y
+        | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2
         | TyTuple xs, TyTuple ys -> EqArray.forall2 semTypeEq xs ys
@@ -25,8 +25,8 @@ module UnificationInferOverload =
     /// hierarchy, so a non-`object` param only matches an arg it equals.
     and isObjectTy (t: SemType) : bool =
         match zonk t with
-        | TyClass("System.Object", args) when args.IsEmpty -> true
-        | TyConst "obj" -> true
+        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> true
+        | TyConst("obj", _) -> true
         | _ -> false
 
     and argAssignable (argTy: SemType) (paramTy: SemType) : bool =
@@ -47,7 +47,7 @@ module UnificationInferOverload =
 
         match zonk (m.BuildSignature typeArgs) with
         | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
-        | TyFun(TyConst "unit", _) when n = 0 -> []
+        | TyFun(TyConst("unit", _), _) when n = 0 -> []
         | TyFun(p, _) -> [ p ]
         | _ -> []
 

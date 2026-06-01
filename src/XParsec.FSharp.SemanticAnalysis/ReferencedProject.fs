@@ -326,6 +326,10 @@ module ReferencedProject =
             let dir = Path.GetDirectoryName manifestPath
             let ctx = VesperLib.ExtractCtx.empty ()
             ctx.AmbientShapes <- ambientShapes
+            // The package's own home assembly, so `mkNominal` stamps it onto own-type
+            // keys whose extraction-time origin is still Empty (Phase 6) — matching
+            // the `Some manifest.Name` origin the `wrap` below stamps for consumers.
+            ctx.HomeAssembly <- Some manifest.Name
 
             // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the per-target
             // intrinsic reprs from each contract's sibling `.fs` companion FIRST,

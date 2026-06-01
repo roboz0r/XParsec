@@ -22,7 +22,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let listTy =
-                    TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton (TyConst "int"))
+                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton (TyConst("int", EqArray.empty)))
 
                 match tast.Decls with
                 | EqList [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _, _), TExpr.New _, _),

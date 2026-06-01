@@ -52,11 +52,11 @@ let tests =
                     // The instance access is a method value `int -> int`; applying
                     // `5` yields `int`.
                     match Unification.zonk ghTy with
-                    | TyFun(TyConst "int", TyConst "int") -> ()
+                    | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
                     match Unification.zonk resultTy with
-                    | TyConst "int" -> ()
+                    | TyConst("int", _) -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     // GetHashCode(T) — an instance method on the open type, its
@@ -78,7 +78,7 @@ let tests =
                             args.Length = 1
                             && (
                                 match args.[0] with
-                                | TyConst "int" -> true
+                                | TyConst("int", _) -> true
                                 | _ -> false
                             )
                             ->
@@ -151,11 +151,11 @@ let tests =
                                       TExpr.Const(TConstValue.Int 5, _),
                                       resultTy)) ->
                     match Unification.zonk ghTy with
-                    | TyFun(TyConst "int", TyConst "int") -> ()
+                    | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
                     match Unification.zonk resultTy with
-                    | TyConst "int" -> ()
+                    | TyConst("int", _) -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     match ghKey with
@@ -240,7 +240,7 @@ let tests =
 
                 // The annotation `EqualityComparer<int>` must unify with the resolved
                 // `Default` receiver type. Before the fix the single-segment annotation
-                // dropped its args to `TyConst "EqualityComparer"`, which clashes with
+                // dropped its args to `TyConst("EqualityComparer", _)`, which clashes with
                 // the receiver's `TyClass` → a spurious type error; an empty error list
                 // is the decisive observable.
                 let tast =

@@ -36,8 +36,14 @@ type internal ClrEnv
         ctx: MetadataContext,
         reprs: Map<string, string>,
         references: Map<string, AssemblyName>,
-        symbols: IExternalSymbolProvider
+        symbols: IExternalSymbolProvider,
+        assemblyName: string
     ) =
+
+    /// The home assembly of the unit being emitted (`None` only on the no-emit
+    /// scaffold path). A nominal `SymbolKey` is project-local iff its `keyAsm`
+    /// equals this — the codegen local/external branch (asm-discrimination).
+    let envAsm = ExternalSymbols.asmOf assemblyName
 
     let refOrHost (simpleName: string) (hostFallback: unit -> AssemblyName) : AssemblyName =
         match references.TryFind simpleName with
@@ -115,20 +121,6 @@ type internal ClrEnv
 
     let eListModule =
         lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "ListModule")))
-
-    let listTypeName = RuntimeNames.fsharpCoreList
-    let vesperListName = RuntimeNames.vesperListUnion
-
-    /// The cons-list's *abbreviation* name (lowercase). `Vesper.List` types `List.fold`'s
-    /// `'T list` parameter with this, whereas the self-host `'T list = List<'T>` path expands to the
-    /// union name — both denote the one cons-list, so recognition accepts either.
-    let vesperListAbbrevName = RuntimeNames.vesperListAbbrev
-
-    // Recognition of the cons-list (bare / arity-suffixed union name, or the
-    // lowercase abbreviation) now lives in one place — `RuntimeNames.isVesperList`
-    // (symbol-key-refactor.md Phase 3a) — shared with `FreezeExpr`'s list-retarget
-    // so the `` `N ``-strip isn't re-derived per consumer.
-    let isVesperListName (name: string) = RuntimeNames.isVesperList name
 
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
 
@@ -244,19 +236,24 @@ type internal ClrEnv
     let fsharpCoreDeps = HashSet<string>()
     let markFSharpCoreDep (construct: string) : unit = fsharpCoreDeps.Add construct |> ignore
 
-    /// User types emitted into *this* assembly, by simple name → predicted `TypeDefinition` handle, so
-    /// a field / factory / local signature can reference the type before its row is added.
-    let userTypes = Dictionary<string, EntityHandle>()
+    /// User types emitted into *this* assembly, by their nominal `SymbolKey` →
+    /// predicted `TypeDefinition` handle, so a field / factory / local signature
+    /// can reference the type before its row is added (was string-keyed by
+    /// simple/arity name).
+    let userTypes = Dictionary<SymbolKey, EntityHandle>()
 
-    /// Generic user unions by name → (typar names, cases); a case is
+    /// Generic user unions by `SymbolKey` → (typar names, cases); a case is
     /// `(caseName, [(fieldMetaName, declTy)])` with `declTy` carrying declaring-typar markers
     /// (`TyConst "'T"`). Holds the shape needed to mint `MemberRef`s on the type's `TypeSpec`.
     /// Monomorphic unions are not registered (their `Def` tokens suffice).
     let genericUnions =
-        Dictionary<string, string list * (string * (string * SemType) list) list>()
+        Dictionary<SymbolKey, string list * (string * (string * SemType) list) list>()
 
-    let genericRecords = Dictionary<string, string list * (string * SemType) list>()
-    let genericClasses = Dictionary<string, string list * (string * SemType) list>()
+    let genericRecords = Dictionary<SymbolKey, string list * (string * SemType) list>()
+    let genericClasses = Dictionary<SymbolKey, string list * (string * SemType) list>()
+    // Closures have no `SymbolKey` (synthetic names), so they stay string-keyed —
+    // the "closures wrinkle" (Phase 6D); the nominal seam is key-based, closures
+    // ride their own provider methods.
     let genericClosures = Dictionary<string, GenericClosureShape>()
 
     /// Resolve a `SemType` to its concrete representative, chasing union-find links. After
@@ -274,7 +271,7 @@ type internal ClrEnv
         | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
-        | TyConst _ -> t
+        | TyConst(n, args) -> TyConst(n, EqArray.map zonk args)
         | TyUnknown _ -> t
 
     let externalAsmRef (asm: string option) : EntityHandle =
@@ -296,9 +293,21 @@ type internal ClrEnv
 
             toEntity (ctx.AssemblyRef an)
 
-    let externalClassRef (fullName: string) : EntityHandle voption =
+    // The carried `SymbolKey` is projected to its arity-qualified qualified name
+    // (`Vesper.Option`1`), but a provider may key the type bare (`Vesper.Option`,
+    // contract layer) or arity-suffixed (metadata layer). Probe both so the lookup
+    // is insensitive to which form the projection produced (Phase 5.4).
+    let lookupClassShape (fullName: string) : ExternalClassShape voption =
         match symbols.TryLookupType fullName with
-        | ValueSome(ExternalTypeShape.Class info) ->
+        | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
+        | _ ->
+            match symbols.TryLookupType(ExternalSymbols.bareName fullName) with
+            | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
+            | _ -> ValueNone
+
+    let externalClassRef (fullName: string) : EntityHandle voption =
+        match lookupClassShape fullName with
+        | ValueSome info ->
             let ns = info.Origin.Namespace
             let simple = SymbolOrigin.StripNamespace ns fullName
             let asm = externalAsmRef info.Origin.Assembly
@@ -328,8 +337,8 @@ type internal ClrEnv
     /// value-receiver dispatch for the duck-typed struct enumerator
     /// (`List`1+Enumerator`, vesper-set-sprint-phase-4 §4.4).
     let externalIsValueType (fullName: string) : bool =
-        match symbols.TryLookupType fullName with
-        | ValueSome(ExternalTypeShape.Class info) -> info.Flags.IsValueType
+        match lookupClassShape fullName with
+        | ValueSome info -> info.Flags.IsValueType
         | _ -> false
 
     /// Referenced-assembly record shape by name + arity. The contract layer keys generic records by
@@ -339,18 +348,23 @@ type internal ClrEnv
         let probe (key: string) =
             match symbols.TryLookupType key with
             | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Assembly.IsSome ->
-                ValueSome(fields, origin)
-            | _ -> ValueNone
+                Some(fields, origin)
+            | _ -> None
 
-        let suffixed =
+        // Probe the as-given name, its bare form, and the arity-suffixed bare form
+        // so the lookup matches whether the caller passed a bare or arity-qualified
+        // name and whether the provider keyed it bare or suffixed (Phase 5.4).
+        let bare = ExternalSymbols.bareName fullName
+
+        let candidates =
             if arity > 0 then
-                sprintf "%s`%d" fullName arity
+                [ fullName; bare; ExternalSymbols.arityName bare arity ]
             else
-                fullName
+                [ fullName; bare ]
 
-        match probe fullName with
-        | ValueSome v -> ValueSome v
-        | ValueNone -> probe suffixed
+        match candidates |> List.tryPick probe with
+        | Some v -> ValueSome v
+        | None -> ValueNone
 
     let externalRecordRef (fullName: string) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
         match externalRecordShape fullName arity with
@@ -361,11 +375,7 @@ type internal ClrEnv
 
             // Metadata `TypeRef` simple names carry the `` `n `` arity suffix; the contract-layer key
             // (`Vesper.Ref`) lacks it, the metadata-layer key (`Vesper.Ref`1`) has it. Add when absent.
-            let simple =
-                if arity > 0 && not (bareSimple.Contains '`') then
-                    sprintf "%s`%d" bareSimple arity
-                else
-                    bareSimple
+            let simple = ExternalSymbols.arityName bareSimple arity
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
 
@@ -378,18 +388,20 @@ type internal ClrEnv
         let probe (key: string) =
             match symbols.TryLookupType key with
             | ValueSome(ExternalTypeShape.Union(a, cases, origin)) when a = arity && origin.Assembly.IsSome ->
-                ValueSome(cases, origin)
-            | _ -> ValueNone
+                Some(cases, origin)
+            | _ -> None
 
-        let suffixed =
+        let bare = ExternalSymbols.bareName fullName
+
+        let candidates =
             if arity > 0 then
-                sprintf "%s`%d" fullName arity
+                [ fullName; bare; ExternalSymbols.arityName bare arity ]
             else
-                fullName
+                [ fullName; bare ]
 
-        match probe fullName with
-        | ValueSome v -> ValueSome v
-        | ValueNone -> probe suffixed
+        match candidates |> List.tryPick probe with
+        | Some v -> ValueSome v
+        | None -> ValueNone
 
     let externalUnionRef (fullName: string) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
         match externalUnionShape fullName arity with
@@ -398,11 +410,7 @@ type internal ClrEnv
             let ns = origin.Namespace
             let bareSimple = SymbolOrigin.StripNamespace ns fullName
 
-            let simple =
-                if arity > 0 && not (bareSimple.Contains '`') then
-                    sprintf "%s`%d" bareSimple arity
-                else
-                    bareSimple
+            let simple = ExternalSymbols.arityName bareSimple arity
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
 
@@ -438,7 +446,7 @@ type internal ClrEnv
             false
         else
             match zt with
-            | TyConst name ->
+            | TyConst(name, _) ->
                 match Map.tryFind name typeTyparIx with
                 | Some i ->
                     te.GenericTypeParameter i
@@ -521,11 +529,9 @@ type internal ClrEnv
     member _.EDecimalCtor = eDecimalCtor
     member _.EHashCodeToHashCode = eHashCodeToHashCode
 
-    member _.ListTypeName = listTypeName
-    member _.VesperListName = vesperListName
-    member _.VesperListAbbrevName = vesperListAbbrevName
     member _.FormatterTypeName = formatterTypeName
-    member _.IsVesperListName name = isVesperListName name
+
+    member _.EnvAsm = envAsm
 
     member _.UserTypes = userTypes
     member _.GenericUnions = genericUnions

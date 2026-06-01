@@ -154,9 +154,9 @@ module EmitTypes =
             Args: Dictionary<NodeKey, int>
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
-            Unions: Dictionary<string, EmittedUnion>
-            Records: Dictionary<string, EmittedRecord>
-            Classes: Dictionary<string, EmittedClass>
+            Unions: Dictionary<SymbolKey, EmittedUnion>
+            Records: Dictionary<SymbolKey, EmittedRecord>
+            Classes: Dictionary<SymbolKey, EmittedClass>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
         }
 
@@ -168,7 +168,7 @@ module EmitTypes =
     /// `printfn` flush — funnels through here so the BCL-only representation stays
     /// consistent (and the local's `unit` type encodes off the same repr).
     let buildUnitValue (env: EmitEnv) (b: IlBuilder) : unit =
-        let slot = b.Local(TyConst "unit")
+        let slot = b.Local(TyConst("unit", EqArray.empty))
         b.Add(ILInstr.Ldloca slot)
-        b.Add(ILInstr.Initobj(env.Provider.TypeToken(TyConst "unit")))
+        b.Add(ILInstr.Initobj(env.Provider.TypeToken(TyConst("unit", EqArray.empty))))
         b.Add(ILInstr.Ldloc slot)

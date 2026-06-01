@@ -517,9 +517,9 @@ module Unification =
     /// (`registerInheritedSlots` already diagnosed those).
     let private fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType, info.BaseCtorArgs with
-        | ValueSome(TyClass(baseName, baseArgs)), ValueSome argExpr ->
-            match ctx.Types.Class.TryGetValue baseName with
-            | true, baseInfo ->
+        | ValueSome(TyClass(baseKey, baseArgs)), ValueSome argExpr ->
+            match TypeRegistry.tryClassByKey ctx.Types baseKey with
+            | ValueSome baseInfo ->
                 let subst = mkNamedTypeSubst baseInfo.TypeParams baseArgs
 
                 let expected =
@@ -535,7 +535,7 @@ module Unification =
                     unify ctx (CstKeys.ofExpr argExpr) argTy expected
                 finally
                     exitLevel ctx
-            | false, _ -> ()
+            | ValueNone -> ()
         | _ -> ()
 
     /// Mint the `base` TyVar (Step 2.2) pre-linked to the parent's instantiated
@@ -562,12 +562,13 @@ module Unification =
     /// to unify. Recurses structurally; every other nominal is left untouched.
     let rec private normalizeObj (t: SemType) : SemType =
         match t with
-        | TyClass("System.Object", args) when args.IsEmpty -> TyConst "obj"
+        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> TyConst("obj", EqArray.empty)
         | TyClass(n, args) -> TyClass(n, EqArray.map normalizeObj args)
         | TyFun(a, r) -> TyFun(normalizeObj a, normalizeObj r)
         | TyTuple xs -> TyTuple(EqArray.map normalizeObj xs)
         | TyRecord(n, args) -> TyRecord(n, EqArray.map normalizeObj args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map normalizeObj args)
+        | TyConst(n, args) -> TyConst(n, EqArray.map normalizeObj args)
         | other -> other
 
     /// Type-check the member bodies of one resolved `interface IFace with member …`
@@ -585,7 +586,9 @@ module Unification =
     /// diagnoses at the interface name token.
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
         match impl.Resolved with
-        | ValueSome(TyClass(ifaceName, ifaceArgs)) ->
+        | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
+            let ifaceName = ExternalSymbols.qualifiedName ifaceKey
+
             match ctx.Provider.TryLookupType ifaceName with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
@@ -641,8 +644,8 @@ module Unification =
 
             let isInterface =
                 match resolved with
-                | TyClass(ifaceName, _) ->
-                    match ctx.Provider.TryLookupType ifaceName with
+                | TyClass(ifaceKey, _) ->
+                    match ExternalSymbols.tryLookupType ctx.Provider ifaceKey with
                     | ValueSome(ExternalTypeShape.Class shape) -> shape.IsInterface
                     | _ -> false
                 | _ -> false
@@ -652,7 +655,7 @@ module Unification =
             else
                 let shown =
                     match zonk resolved with
-                    | TyClass(n, _) -> n
+                    | TyClass(n, _) -> ExternalSymbols.qualifiedName n
                     | other -> sprintf "%A" other
 
                 ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)
@@ -663,7 +666,7 @@ module Unification =
                     TypeParams = info.TypeParams
                     Members = impl.Members
                     ThisKey = info.ThisKey
-                    MkSelfType = fun args -> TyClass(info.Name, args)
+                    MkSelfType = fun args -> TyClass(info.Key, args)
                     PrelinkExtras = ignore
                     Elements = impl.Elements
                     AllowAbstractSig = false
@@ -742,7 +745,7 @@ module Unification =
                                 TypeParams = info.TypeParams
                                 Members = info.Members
                                 ThisKey = info.ThisKey
-                                MkSelfType = fun args -> TyClass(info.Name, args)
+                                MkSelfType = fun args -> TyClass(info.Key, args)
                                 PrelinkExtras = prelinkExtras
                                 Elements = body.elements
                                 AllowAbstractSig = true
@@ -775,7 +778,7 @@ module Unification =
                                 TypeParams = info.TypeParams
                                 Members = info.Members
                                 ThisKey = info.ThisKey
-                                MkSelfType = fun args -> TyUnion(info.Name, args)
+                                MkSelfType = fun args -> TyUnion(info.Key, args)
                                 PrelinkExtras = ignore
                                 Elements = elems
                                 AllowAbstractSig = false
@@ -843,7 +846,8 @@ module Unification =
             let root = UnionFind.find lv
 
             match root.Link with
-            | ValueNone -> unify ctx key (TyVar root) (TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy))
+            | ValueNone ->
+                unify ctx key (TyVar root) (TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy))
             | ValueSome target ->
                 match zonk target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy

@@ -13,8 +13,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let reprs = env.Reprs
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let userTypes = env.UserTypes
-    let listTypeName = env.ListTypeName
-    let isVesperListName n = env.IsVesperListName n
+    let envAsm = env.EnvAsm
     let zonk t = env.Zonk t
     let externalClassRef n = env.ExternalClassRef n
     let externalIsValueType n = env.ExternalIsValueType n
@@ -43,6 +42,40 @@ type internal ClrEncoder(env: ClrEnv) =
         let g = te.GenericInstantiation(eFSharpList1.Value, 1, false)
         inner (g.AddArgument())
 
+    // Referenced-assembly nominal recognisers. Each
+    // projects the key to the string the (fundamentally string-keyed)
+    // `IExternalSymbolProvider` is keyed by and looks the `TypeRef` up *once*,
+    // replacing the prior `(externalXxxRef …).IsSome` guard + `.Value` body
+    // double-call (which re-projected `qualifiedName key` on each side). Matching on
+    // the whole node lets the pattern read `args` for the arity probe.
+    let (|ExternalClass|_|) (t: SemType) =
+        match t with
+        | TyClass(key, args) ->
+            let qual = ExternalSymbols.qualifiedName key
+
+            match externalClassRef qual with
+            // A struct external type (`List`1+Enumerator`, §4.4) must encode as a
+            // `VALUETYPE` element; every reference type stays `false`.
+            | ValueSome tref -> Some(tref, externalIsValueType qual, args)
+            | ValueNone -> None
+        | _ -> None
+
+    let (|ExternalRecord|_|) (t: SemType) =
+        match t with
+        | TyRecord(key, args) ->
+            match externalRecordRef (ExternalSymbols.qualifiedName key, args.Length) with
+            | ValueSome(tref, _) -> Some(tref, args)
+            | ValueNone -> None
+        | _ -> None
+
+    let (|ExternalUnion|_|) (t: SemType) =
+        match t with
+        | TyUnion(key, args) ->
+            match externalUnionRef (ExternalSymbols.qualifiedName key, args.Length) with
+            | ValueSome(tref, _) -> Some(tref, args)
+            | ValueNone -> None
+        | _ -> None
+
     /// Encode a (zonked) `SemType` into a metadata signature slot. `tryLeaf` gets first crack at each
     /// zonked node before the structural match: when it encodes the node (returns `true`) recursion
     /// stops there. The executable path passes a no-op; the library path passes a typar-marker resolver.
@@ -62,10 +95,14 @@ type internal ClrEncoder(env: ClrEnv) =
             // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
             // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
             // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly), R9.
-            | TyConst "System.IO.TextWriter" -> te.Type(eTextWriter.Value, false)
-            | TyConst "Vesper.Formatter" -> te.Type(eFormatter.Value, true)
-            | TyConst "System.HashCode" -> te.Type(eHashCode.Value, true)
-            | TyConst name when reprs.ContainsKey name ->
+            | TyConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
+            | TyConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
+            | TyConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)
+            // Only scalar (argless) intrinsics rekey off their repr string. A generic
+            // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
+            // yet, so it falls through to
+            // the catch-all "cannot encode" error — the green suite proves none reaches here.
+            | TyConst(name, args) when args.IsEmpty && reprs.ContainsKey name ->
                 // Key the IL type off the representation string the name maps to (`"int"` →
                 // `"System.Int32"` → `i4`), not the Vesper name (G7).
                 let repr = reprs.[name]
@@ -83,26 +120,23 @@ type internal ClrEncoder(env: ClrEnv) =
                 let g = te.GenericInstantiation(eFun2.Value, 2, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) a
                 encodeTypeCore tryLeaf (g.AddArgument()) b
-            | TyClass(name, args) when name = PrintfSpec.printfFormatName ->
+            | TyClass(key, args) when RuntimeNames.isPrintfFormatKey key ->
                 markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
                 let g = te.GenericInstantiation(ePrintfFormat4.Value, args.Length, false)
 
                 for a in args do
                     encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyRecord(name, args) when name = listTypeName && args.Length = 1 ->
+            | TyRecord(key, args) when RuntimeNames.isFsharpCoreListKey key && args.Length = 1 ->
                 let elem = args.[0]
                 encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
-            | TyUnion(name, args) when isVesperListName name && args.Length = 1 ->
-                // The Vesper cons-list (R3) ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
-                // This dedicated arm precedes the generic external-union arm so the list maps to the cached
-                // `eVesperList1` handle directly rather than re-resolving through the origin.
-                let elem = args.[0]
-                let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
-                encodeTypeCore tryLeaf (g.AddArgument()) elem
-            | TyUnion(name, args) when userTypes.ContainsKey(TypeRegistry.keyFor name args.Length) ->
-                // Unions are registered by arity-key (`Choice\`2`), so the same short
-                // name at different arities resolves to distinct `TypeDefinition`s.
-                let handle = userTypes.[TypeRegistry.keyFor name args.Length]
+            // A nominal is project-local iff its home `asm` is the assembly being
+            // emitted (asm-discrimination). This
+            // arm precedes the cons-list arm so a *self-host*
+            // `Vesper.Collections.List` (asm = the emitted `Vesper.List`) resolves
+            // to its emitted `TypeDef`, while a *referenced* cons-list (same key,
+            // asm ≠ emitted) falls through to the cached external `eVesperList1`.
+            | TyUnion(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+                let handle = userTypes.[key]
 
                 if args.IsEmpty then
                     te.Type(handle, false)
@@ -111,31 +145,38 @@ type internal ClrEncoder(env: ClrEnv) =
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyRecord(name, args) when userTypes.ContainsKey name ->
+            | TyUnion(key, args) when RuntimeNames.isVesperListKey key && args.Length = 1 ->
+                // The Vesper cons-list (R3) ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
+                // This arm follows the project-local arm above so a referenced (not self-host)
+                // cons-list maps to the cached `eVesperList1` handle directly.
+                let elem = args.[0]
+                let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
+                encodeTypeCore tryLeaf (g.AddArgument()) elem
+            | TyRecord(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+                let handle = userTypes.[key]
+
                 if args.IsEmpty then
-                    te.Type(userTypes.[name], false)
+                    te.Type(handle, false)
                 else
-                    let g = te.GenericInstantiation(userTypes.[name], args.Length, false)
+                    let g = te.GenericInstantiation(handle, args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyClass(name, args) when userTypes.ContainsKey name ->
+            | TyClass(key, args) when ExternalSymbols.keyAsm key = envAsm ->
                 // Checked *before* the external-class arm so a project-local class wins over an
-                // accidental same-named external one.
+                // accidental same-named external one (asm-discrimination, Phase 6D).
+                let handle = userTypes.[key]
+
                 if args.IsEmpty then
-                    te.Type(userTypes.[name], false)
+                    te.Type(handle, false)
                 else
-                    let g = te.GenericInstantiation(userTypes.[name], args.Length, false)
+                    let g = te.GenericInstantiation(handle, args.Length, false)
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyClass(name, args) when (externalClassRef name).IsSome ->
-                let tref = (externalClassRef name).Value
-                // A struct external type (`List`1+Enumerator`, §4.4) must encode as a
-                // `VALUETYPE` element, not a class ref; every reference type stays
-                // `false` (the cached `TryLookupType` is cheap on the hot encoder arm).
-                let vt = externalIsValueType name
-
+            | ExternalClass(tref, vt, args) ->
+                // `vt` is the `VALUETYPE`-vs-`CLASS` flag from `externalIsValueType`;
+                // the lookup + key projection happen once, in the active pattern.
                 if args.IsEmpty then
                     te.Type(tref, vt)
                 else
@@ -143,9 +184,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyRecord(name, args) when (externalRecordRef (name, args.Length)).IsSome ->
-                let tref, _ = (externalRecordRef (name, args.Length)).Value
-
+            | ExternalRecord(tref, args) ->
                 if args.IsEmpty then
                     te.Type(tref, false)
                 else
@@ -153,13 +192,11 @@ type internal ClrEncoder(env: ClrEnv) =
 
                     for a in args do
                         encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyUnion(name, args) when (externalUnionRef (name, args.Length)).IsSome ->
+            | ExternalUnion(tref, args) ->
                 // A referenced-package union (`Vesper.Option<int>`) — the case
                 // factories' return type and any field typed in the union itself
                 // (vesper-lib-test-plan Gap 2 Layer B). Same shape as the external
                 // record arm; the union is a reference type, so never `VALUETYPE`.
-                let tref, _ = (externalUnionRef (name, args.Length)).Value
-
                 if args.IsEmpty then
                     te.Type(tref, false)
                 else
@@ -193,7 +230,7 @@ type internal ClrEncoder(env: ClrEnv) =
             let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
             encodeFSharpFunc (g.AddArgument()) a
             encodeFSharpFunc (g.AddArgument()) b
-        | TyConst "unit" ->
+        | TyConst("unit", _) ->
             // This encoder is exclusively the FSharp.Core interop island (the cold-printf printer, R9):
             // FSharp.Core's printf machinery types its result/state slots in `FSharp.Core.Unit`, so a
             // `unit` here must stay `Unit` — NOT the general `System.ValueTuple` the rest of the backend
@@ -285,7 +322,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let encodeUnionType (typeIx: Map<string, int>) (te: SignatureTypeEncoder) (t: SemType) : unit =
         let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
             match zt with
-            | TyConst name when typeIx.ContainsKey name ->
+            | TyConst(name, _) when typeIx.ContainsKey name ->
                 te.GenericTypeParameter(typeIx.[name])
                 true
             // A `List<!!i>` member-ref instantiation arg inside a generic static method body resolves
@@ -598,10 +635,10 @@ type internal ClrEncoder(env: ClrEnv) =
         : unit =
         let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
             match zt with
-            | TyConst name when methodIx.ContainsKey name ->
+            | TyConst(name, _) when methodIx.ContainsKey name ->
                 te.GenericMethodTypeParameter(methodIx.[name])
                 true
-            | TyConst name when typeIx.ContainsKey name ->
+            | TyConst(name, _) when typeIx.ContainsKey name ->
                 te.GenericTypeParameter(typeIx.[name])
                 true
             | _ -> false

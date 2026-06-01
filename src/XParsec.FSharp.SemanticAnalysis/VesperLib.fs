@@ -431,11 +431,7 @@ module VesperLib =
                 // metadata name (`TypeRegistry.keyFor`) and the consumer's arity-
                 // suffixed `keysFor` probe in `tryResolveExternalType`. Non-generic
                 // types keep their bare name.
-                let compiled =
-                    if arity = 0 then
-                        baseName
-                    else
-                        sprintf "%s`%d" baseName arity
+                let compiled = ExternalSymbols.arityName baseName arity
 
                 // First declaration wins on a *short-name* collision; arity-overloaded
                 // types share the short name, so only the first arity is reachable by

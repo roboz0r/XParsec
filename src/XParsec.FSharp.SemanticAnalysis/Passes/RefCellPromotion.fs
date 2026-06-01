@@ -15,15 +15,6 @@ open XParsec.FSharp.SemanticAnalysis
 
 module RefCellPromotion =
 
-    /// Canonical compiled name of the cell type as the contract layer surfaces
-    /// it (the qualified compiled name keyed by `VesperLib.extractRecordBody`).
-    /// Codegen's `externalRecordRef` probes this name (and its arity-suffixed
-    /// form) against the symbol provider stack.
-    // The cons-list / ref-cell runtime names live in one place (`RuntimeNames`,
-    // symbol-key-refactor.md Phase 3a) so the literal isn't duplicated across the
-    // front end and codegen.
-    let private RefTypeName = RuntimeNames.vesperRef
-
     /// The cell's single field. F# convention; the `.fsi` declaration uses the
     /// same name.
     [<Literal>]
@@ -31,7 +22,7 @@ module RefCellPromotion =
 
     /// Wrap a value's underlying type in `Vesper.Ref<_>`.
     let private refType (inner: SemType) : SemType =
-        TyRecord(RefTypeName, EqArray.singleton inner)
+        TyRecord(RuntimeNames.vesperRefKey, EqArray.singleton inner)
 
     /// Walk `decls` collecting binding-site `NodeKey`s for every `let mutable`
     /// whose `ctx.Bindings.Escape` is `HeapShared`. The value bound at each key is the

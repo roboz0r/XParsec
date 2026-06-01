@@ -19,7 +19,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
         member _.TryLookup n =
             if n = name then
                 ValueSome
-                    { ExternalSymbols.mono name (TyConst tag) with
+                    { ExternalSymbols.mono name (TyConst(tag, EqArray.empty)) with
                         Origin = origin
                     }
             else
@@ -38,7 +38,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                         Name = name
                         IsStatic = true
                         IsProperty = false
-                        BuildSignature = fun _ -> TyConst tag
+                        BuildSignature = fun _ -> TyConst(tag, EqArray.empty)
                         Origin = origin
                         Key =
                             SymbolKey.MemberKey(
@@ -66,7 +66,7 @@ let private valueTag (provider: IExternalSymbolProvider) (name: string) : string
     match provider.TryLookup name with
     | ValueSome sym ->
         match sym.Instantiate 0 with
-        | TyConst tag -> ValueSome tag
+        | TyConst(tag, _) -> ValueSome tag
         | _ -> ValueNone
     | ValueNone -> ValueNone
 

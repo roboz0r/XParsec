@@ -70,7 +70,7 @@ let tests =
                     | EqList [ TDecl.Let(TPat.NamedSimple(kSucc, _),
                                          TExpr.Lambda _,
                                          true,
-                                         TyFun(TyConst "int", TyConst "int"))
+                                         TyFun(TyConst("int", _), TyConst("int", _)))
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_, TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 41, _), _)) ] ->

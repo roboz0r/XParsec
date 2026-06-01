@@ -22,10 +22,11 @@ type ClrProvider
         ctx: MetadataContext,
         reprs: Map<string, string>,
         references: Map<string, AssemblyName>,
-        symbols: IExternalSymbolProvider
+        symbols: IExternalSymbolProvider,
+        assemblyName: string
     ) =
 
-    let env = ClrEnv(ctx, reprs, references, symbols)
+    let env = ClrEnv(ctx, reprs, references, symbols, assemblyName)
     let enc = ClrEncoder(env)
     let generics = ClrGenerics(env, enc)
     let ext = ClrExternalMembers(env, enc)
@@ -38,20 +39,20 @@ type ClrProvider
 
     /// Register a user type emitted into this assembly so `encodeType` can reference it (by its
     /// predicted `TypeDefinition` handle) before its row is added.
-    member _.RegisterUserType(name: string, handle: EntityHandle) : unit = env.UserTypes.[name] <- handle
+    member _.RegisterUserType(key: SymbolKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
 
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
     /// `TypeSpec`. A no-op for a monomorphic union (its `Def` tokens are used).
     member _.RegisterGenericUnion
-        (name: string, typars: string list, cases: (string * (string * SemType) list) list)
+        (key: SymbolKey, typars: string list, cases: (string * (string * SemType) list) list)
         : unit =
-        env.GenericUnions.[name] <- (typars, cases)
+        env.GenericUnions.[key] <- (typars, cases)
 
-    member _.RegisterGenericRecord(name: string, typars: string list, fields: (string * SemType) list) : unit =
-        env.GenericRecords.[name] <- (typars, fields)
+    member _.RegisterGenericRecord(key: SymbolKey, typars: string list, fields: (string * SemType) list) : unit =
+        env.GenericRecords.[key] <- (typars, fields)
 
-    member _.RegisterGenericClass(name: string, typars: string list, fields: (string * SemType) list) : unit =
-        env.GenericClasses.[name] <- (typars, fields)
+    member _.RegisterGenericClass(key: SymbolKey, typars: string list, fields: (string * SemType) list) : unit =
+        env.GenericClasses.[key] <- (typars, fields)
 
     member _.GenericFieldSignature(typars: string list, declTy: SemType) : BlobBuilder =
         enc.GenericFieldSignature(typars, declTy)
@@ -92,10 +93,9 @@ type ClrProvider
 
     member _.ClearTypeTypars() : unit = env.TypeTyparIx <- Map.empty
 
-    member _.GenericUnionSelfSpec(name: string, arity: int) : EntityHandle =
-        generics.GenericUnionSelfSpec(name, arity)
+    member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericUnionSelfSpec key
 
-    member _.GenericRecordSelfSpec(name: string) : EntityHandle = generics.GenericRecordSelfSpec name
+    member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericRecordSelfSpec key
 
     member _.GenericStaticFnSignature(typarCount: int, paramTys: SemType list, retTy: SemType) : BlobBuilder =
         enc.GenericStaticFnSignature(typarCount, paramTys, retTy)
@@ -123,8 +123,8 @@ type ClrProvider
     /// reason). The generic case rides the ambient `SetTypeTypars` window.
     member _.InterfaceHandleOf(ty: SemType) : EntityHandle =
         match env.Zonk ty with
-        | TyClass(name, args) when args.IsEmpty ->
-            match env.ExternalClassRef name with
+        | TyClass(key, args) when args.IsEmpty ->
+            match env.ExternalClassRef(ExternalSymbols.qualifiedName key) with
             | ValueSome tref -> tref
             | ValueNone -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
@@ -178,7 +178,7 @@ type ClrProvider
         enc.EncodeAbstractType(typeIx, methodIx, te, t)
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
-    member _.HashCodeType: SemType = TyConst "System.HashCode"
+    member _.HashCodeType: SemType = TyConst("System.HashCode", EqArray.empty)
 
     member _.EqualityComparerDefault(elem: SemType) : EntityHandle = recipes.EqualityComparerDefault elem
 
@@ -191,7 +191,7 @@ type ClrProvider
 
     member _.HashCodeToHashCode: EntityHandle = env.EHashCodeToHashCode.Value
 
-    member _.UserTypeHandle(name: string) : EntityHandle = env.UserTypes.[name]
+    member _.UserTypeHandle(key: SymbolKey) : EntityHandle = env.UserTypes.[key]
 
     member _.EqualsOverrideSignature() : BlobBuilder = enc.EqualsOverrideSignature()
 
@@ -269,18 +269,21 @@ type ClrProvider
             else
                 ext.ExternalCtor(className, List.map env.Zonk tyArgs, List.map env.Zonk argTypes)
 
-        member _.TryEmitUnionCons(typeName, caseName, tyArgs) =
+        member _.TryEmitUnionCons(key, caseName, tyArgs) =
             let elem () =
                 match List.map env.Zonk tyArgs with
                 | [ e ] -> e
                 | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
 
-            if typeName = env.ListTypeName then
+            // The cons recipe is selected by the receiver's nominal `SymbolKey`:
+            // FSharp.Core's `list` vs the Vesper cons-list, recognised by key
+            // identity rather than by string name.
+            if RuntimeNames.isFsharpCoreListKey key then
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitListCons(elem ()))
                 | "Nil" -> ValueSome(recipes.EmitListNil(elem ()))
                 | _ -> ValueNone
-            elif env.IsVesperListName typeName then
+            elif RuntimeNames.isVesperListKey key then
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitVesperListCons(elem ()))
                 | "Nil" -> ValueSome(recipes.EmitVesperListNil(elem ()))
@@ -291,6 +294,8 @@ type ClrProvider
                 // the instantiated `TypeSpec` (vesper-lib-test-plan Gap 2 Layer B).
                 // The fields are already on the stack in declaration order, so the
                 // recipe is a static `call` pushing the one union value back.
+                let typeName = ExternalSymbols.qualifiedName key
+
                 match ext.ExternalUnionFactory(typeName, caseName, List.map env.Zonk tyArgs) with
                 | ValueSome(handle, argCount) ->
                     ValueSome
@@ -301,14 +306,16 @@ type ClrProvider
                         }
                 | ValueNone -> ValueNone
 
-        member _.UserGenericMemberRef(name, args, kind) =
+        member _.UserGenericMemberRef(key, args, kind) =
             let zonkedArgs = List.map env.Zonk args
 
             match kind with
-            | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(name, zonkedArgs, which)
-            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(name, zonkedArgs, which)
-            | UserMemberKind.ClosureMember which -> generics.GenericClosureMemberRef(name, zonkedArgs, which)
-            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(name, zonkedArgs, which)
+            | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, zonkedArgs, which)
+            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(key, zonkedArgs, which)
+            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, zonkedArgs, which)
+
+        member _.UserClosureMemberRef(name, args, which) =
+            generics.GenericClosureMemberRef(name, List.map env.Zonk args, which)
 
         member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
             let zonkedArgs = List.map env.Zonk tyArgs

@@ -90,9 +90,9 @@ let tests =
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
                 // every position concrete int.
                 match expanded with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst "int"),
-                               TExpr.Var(_, TyConst "int"),
-                               TyFun(TyConst "int", TyConst "int")) -> ()
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _)),
+                               TExpr.Var(_, TyConst("int", _)),
+                               TyFun(TyConst("int", _), TyConst("int", _))) -> ()
                 | other -> failtestf "expected fully-int `fun x -> x`, got %A" other
             }
 
@@ -110,7 +110,7 @@ let tests =
                     let again = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
 
                     match again with
-                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst "bool"), _, _) -> ()
+                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst("bool", _)), _, _) -> ()
                     | other -> failtestf "second expansion at bool failed: %A" other
                 | other -> failtestf "unexpected %A" other
             }
@@ -131,7 +131,10 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst "int", TyConst "int"))
+                | EqList [ TDecl.Let(TPat.NamedSimple _,
+                                     TExpr.Lambda _,
+                                     true,
+                                     TyFun(TyConst("int", _), TyConst("int", _)))
                            TDecl.Expression(TExpr.App(TExpr.Var _, TExpr.Const(TConstValue.Int 41, _), _), _) ] -> ()
                 | _ -> failtestf "unexpected shape: %A" tast.Decls
             }
@@ -143,11 +146,13 @@ let tests =
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
                 match Inline.inlineExpand succDecl [||] with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst "int"),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _), TExpr.Var(_, TyConst "int"), _),
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _)),
+                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                   TExpr.Var(_, TyConst("int", _)),
+                                                   _),
                                          TExpr.Const(TConstValue.Int 1, _),
                                          _),
-                               TyFun(TyConst "int", TyConst "int")) -> ()
+                               TyFun(TyConst("int", _), TyConst("int", _))) -> ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
 

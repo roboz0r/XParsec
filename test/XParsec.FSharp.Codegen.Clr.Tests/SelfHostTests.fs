@@ -462,7 +462,12 @@ let tests =
 
                 let src = "printfn \"%A\" 42"
                 let lexed, file = parseFile src
-                let tast = Pipeline.analyse MockBuiltins.provider src lexed file
+                // Front-end assembly name must equal codegen's `project.AssemblyName`
+                // so a local type's home-assembly key matches its `userTypes`
+                // registration (asm-discrimination).
+                let tast =
+                    Pipeline.analyseFor project.AssemblyName MockBuiltins.provider src lexed file
+
                 let artifact = Codegen.compile MockBuiltins.provider project tast
 
                 Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the %A cold path references FSharp.Core"

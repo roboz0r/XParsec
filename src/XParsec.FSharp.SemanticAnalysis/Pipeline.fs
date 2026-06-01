@@ -9,14 +9,17 @@ module Pipeline =
     /// Runs every pass and returns both the populated `PassContext` and
     /// the frozen `TastFile`. Tests that need to inspect side tables (e.g.
     /// `ctx.Bindings.Escape`) call this; `analyse` is the production entry point
-    /// that discards `ctx`.
-    let analyseWithContext
+    /// that discards `ctx`. `assemblyName` is the home assembly stamped onto
+    /// locally-minted nominal keys (`PassContext.AssemblyName`); `""` for the front-end-only paths that never emit.
+    let analyseWithContextFor
+        (assemblyName: string)
         (provider: IExternalSymbolProvider)
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
         let ctx = PassContext(provider, input, lexed)
+        ctx.AssemblyName <- assemblyName
         Desugar.run ctx file
         NameResolution.run ctx file
         Unification.run ctx file
@@ -39,11 +42,33 @@ module Pipeline =
 
         ctx, tast
 
+    /// `analyseWithContextFor` with no home assembly — the front-end-only entry
+    /// (side-table inspection tests, contract scrapes). Local nominal keys mint
+    /// with `asm = Some ""`, self-consistent within the one compilation.
+    let analyseWithContext
+        (provider: IExternalSymbolProvider)
+        (input: string)
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : PassContext * TastFile =
+        analyseWithContextFor "" provider input lexed file
+
+    /// The production entry point: like `analyseWithContextFor` but discards the
+    /// `PassContext`. `assemblyName` is the home assembly for local keys.
+    let analyseFor
+        (assemblyName: string)
+        (provider: IExternalSymbolProvider)
+        (input: string)
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : TastFile =
+        let _, tast = analyseWithContextFor assemblyName provider input lexed file
+        tast
+
     let analyse
         (provider: IExternalSymbolProvider)
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        let _, tast = analyseWithContext provider input lexed file
-        tast
+        analyseFor "" provider input lexed file

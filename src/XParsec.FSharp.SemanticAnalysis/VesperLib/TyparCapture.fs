@@ -155,6 +155,18 @@ module VesperLibTyparCapture =
         /// The default (`fun _ -> ValueNone`) is the dependency-free, no-metadata
         /// case: any caller that builds a context in isolation.
         member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
+        /// This package's own **home assembly** simple name (`Some "Vesper.Option"`),
+        /// set by the wrapped builder (`ReferencedProject.buildProviderWith`) from
+        /// `manifest.Name`. During extraction a
+        /// package's own type shapes carry an *Empty* origin (the wrap layer fills
+        /// it only for the consumer-facing provider), so `mkNominal` — which runs
+        /// against this extraction context, including inside captured abbreviation
+        /// `build` closures — falls back to this when a shape's `origin.Assembly` is
+        /// `None`, so a baked own-type key carries the same home assembly the
+        /// consumer's direct resolution mints. `None` on the unwrapped path
+        /// (`VesperLib.buildProvider`), whose shapes stay Empty-origin for the
+        /// consumer too, so both sides agree at `asm = None`.
+        member val HomeAssembly: string option = None with get, set
 
     module ExtractCtx =
         let empty () = ExtractCtx()
@@ -197,14 +209,20 @@ module VesperLibTyparCapture =
             // actual Vesper packages have disjoint case names across unions, so
             // collisions don't arise in practice.
             let unionCaseIndex =
-                let d = Dictionary<string, string * int * ExternalCaseShape>(StringComparer.Ordinal)
+                let d = Dictionary<string, ExternalUnionCase>(StringComparer.Ordinal)
 
                 for kv in ctx.TypeShapes do
                     match kv.Value with
-                    | ExternalTypeShape.Union(arity, cases, _) ->
+                    | ExternalTypeShape.Union(arity, cases, origin) ->
                         for case in cases do
                             if not (d.ContainsKey case.Name) then
-                                d.[case.Name] <- (kv.Key, arity, case)
+                                d.[case.Name] <-
+                                    {
+                                        UnionName = kv.Key
+                                        Arity = arity
+                                        Origin = origin
+                                        Case = case
+                                    }
                     | _ -> ()
 
                 d

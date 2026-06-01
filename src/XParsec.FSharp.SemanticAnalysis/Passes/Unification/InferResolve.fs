@@ -54,7 +54,7 @@ module UnificationInferResolve =
         match ctx.Types.Class.TryGetValue name with
         | true, info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
-            let receiverTy = TyClass(info.Name, args)
+            let receiverTy = TyClass(info.Key, args)
 
             let arg =
                 info.CtorParams
@@ -77,7 +77,7 @@ module UnificationInferResolve =
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
         let unionInfo = TypeRegistry.unionOfCase ctx.Types info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
-        let unionTy = TyUnion(info.UnionName, args)
+        let unionTy = TyUnion(unionInfo.Key, args)
 
         let walkedFields = info.Fields |> Array.map (substituteWith subst)
 
@@ -102,14 +102,17 @@ module UnificationInferResolve =
         (caseName: string)
         : (SemType * SemType[]) voption =
         match ctx.Provider.TryLookupUnionCase caseName with
-        | ValueSome(unionName, arity, case) when
+        | ValueSome uc when
             (match qualifier with
              | ValueNone -> true
-             | ValueSome q -> ExternalSymbols.shortName unionName = q)
+             | ValueSome q -> ExternalSymbols.shortName uc.UnionName = q)
             ->
-            let freshArgs = Array.init arity (fun _ -> TyVar(freshTyVar ctx))
-            let unionTy = TyUnion(unionName, EqArray.ofArray freshArgs)
-            let fields = case.BuildFieldTypes |> Array.map (fun b -> b freshArgs)
+            let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
+
+            let unionTy =
+                TyUnion(ExternalSymbols.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
+
+            let fields = uc.Case.BuildFieldTypes |> Array.map (fun b -> b freshArgs)
             ValueSome(unionTy, fields)
         | _ -> ValueNone
 
@@ -206,7 +209,7 @@ module UnificationInferResolve =
         let probe (name: string) =
             isUnionOrRecord name
             || [ 1; 2; 3; 4 ]
-               |> List.exists (fun a -> isUnionOrRecord (sprintf "%s`%d" name a))
+               |> List.exists (fun a -> isUnionOrRecord (ExternalSymbols.arityName name a))
 
         OpenScope.tryQualify ctx.Resolution.OpenScope probe n |> ValueOption.isSome
 
@@ -301,8 +304,7 @@ module UnificationInferResolve =
         | ValueSome(qualName, typeArgs) ->
             let arity = typeArgs.Length
             // The arity-suffixed metadata name for a candidate (`EqualityComparer`1`).
-            let metaNameOf (n: string) =
-                if arity = 0 then n else sprintf "%s`%d" n arity
+            let metaNameOf (n: string) = ExternalSymbols.arityName n arity
 
             // `tryQualify` applies the `open` prefixes, so a short
             // `EqualityComparer<int>` receiver resolves to its qualified metadata

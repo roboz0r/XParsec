@@ -21,7 +21,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let encodeType te t = enc.EncodeType(te, t)
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
-    let vesperListName = env.VesperListName
     let formatterTypeName = env.FormatterTypeName
 
     let ePrintfFormat4 = env.EPrintfFormat4
@@ -318,7 +317,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let sT = TyVar stateTv
         let eT = TyVar tTv
         let folderT = TyFun(sT, TyFun(eT, sT))
-        let listT = TyUnion(vesperListName, EqArray.singleton eT)
+        let listT = TyUnion(RuntimeNames.vesperListKey, EqArray.singleton eT)
 
         let foldSig =
             let saved = env.MethodTyparRoots
@@ -373,13 +372,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             | TyFun(a, b) ->
                 go a
                 go b
+            | TyConst(_, xs)
             | TyTuple xs
             | TyRecord(_, xs)
             | TyUnion(_, xs)
             | TyClass(_, xs) ->
                 for x in xs do
                     go x
-            | TyConst _ -> ()
             | TyUnknown _ -> ()
 
         for p in paramTys do
@@ -644,7 +643,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
         {
-            HandlerLocal = TyConst formatterTypeName
+            HandlerLocal = TyConst(formatterTypeName, EqArray.empty)
             CtorWriter = ctorWriter
             CtorString = ctorString
             AppendLiteral = appendLiteral

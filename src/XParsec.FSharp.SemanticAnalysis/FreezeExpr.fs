@@ -121,10 +121,10 @@ module FreezeExpr =
     /// The lowering is identical to the local case — only the recognition differs.
     let private isExternalUnionCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : bool =
         match ctx.Provider.TryLookupUnionCase caseName with
-        | ValueSome(unionName, _, _) ->
+        | ValueSome uc ->
             match qualifier with
             | ValueNone -> true
-            | ValueSome q -> ExternalSymbols.shortName unionName = q
+            | ValueSome q -> ExternalSymbols.shortName uc.UnionName = q
         | ValueNone -> false
 
     /// Patterns Unification doesn't understand yet fall through loudly so the
@@ -291,19 +291,36 @@ module FreezeExpr =
         | Expr.EmptyBlock _ -> EqArray.empty
         | a -> EqArray.singleton (translate a)
 
+    /// The declaring nominal `SymbolKey` of a class/union receiver type — the
+    /// `decl` slot of the `MemberKey` minted for an instance member access. Only
+    /// called where the receiver is already known to be nominal (the active
+    /// patterns / `InstanceMethodCall` guard on `TyClass`/`TyUnion`), so a
+    /// non-nominal type is a Freeze invariant break.
+    let private nominalDeclKey (ty: SemType) : SymbolKey =
+        match Unification.zonk ty with
+        | TyClass(key, _)
+        | TyUnion(key, _) -> key
+        | other -> failwithf "Freeze: expected a class/union receiver for a member access, got %A" other
+
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
-    /// augmentation.
-    let private tryClassMember (ctx: PassContext) (typeName: string) (memberName: string) : TypeMemberInfo voption =
-        let pick (members: TypeMemberInfo[]) =
+    /// augmentation. Returns the declaring type's `SymbolKey` (`info.Key`)
+    /// alongside the member so the static-member path can mint a local
+    /// `SymbolKey.MemberKey` off the resolved type (Phase 4).
+    let private tryClassMember
+        (ctx: PassContext)
+        (typeName: string)
+        (memberName: string)
+        : (SymbolKey * TypeMemberInfo) voption =
+        let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
             match members |> Array.tryFind (fun m -> m.Name = memberName) with
-            | Some m -> ValueSome m
+            | Some m -> ValueSome(key, m)
             | None -> ValueNone
 
         match ctx.Types.Class.TryGetValue typeName with
-        | true, info -> pick info.Members
+        | true, info -> pick info.Key info.Members
         | false, _ ->
             match ctx.Types.Union.TryGetValue typeName with
-            | true, info -> pick info.Members
+            | true, info -> pick info.Key info.Members
             | false, _ -> ValueNone
 
     /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`
@@ -326,12 +343,13 @@ module FreezeExpr =
                 | ValueNone -> ValueNone
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyClass(typeName, _)
-                    | TyUnion(typeName, _) ->
+                    | TyClass(typeKey, _)
+                    | TyUnion(typeKey, _) ->
+                        let typeName = ExternalSymbols.simpleName typeKey
                         let memberName = ctx.NameOf li.Idents.[1]
 
                         match tryClassMember ctx typeName memberName with
-                        | ValueSome m -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
+                        | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
 
@@ -341,7 +359,7 @@ module FreezeExpr =
     let private tryLongIdentStaticMember
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (string * TypeMemberInfo) voption =
+        : (SymbolKey * TypeMemberInfo) voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
@@ -349,8 +367,7 @@ module FreezeExpr =
             let memberName = ctx.NameOf li.Idents.[1]
 
             tryClassMember ctx className memberName
-            |> ValueOption.filter (fun m -> m.IsStatic)
-            |> ValueOption.map (fun m -> className, m)
+            |> ValueOption.filter (fun (_, m) -> m.IsStatic)
 
     /// DU ctor reference (`Circle`, `Result2.Ok`, or an external `Some` / `None`),
     /// returning the case name. Excludes local bindings whose names happen to
@@ -393,7 +410,7 @@ module FreezeExpr =
                 let caseName = ctx.NameOf li.Idents.[1]
 
                 match ctx.Provider.TryLookupUnionCase caseName with
-                | ValueSome(unionName, _, _) when ExternalSymbols.shortName unionName = typeName -> ValueSome caseName
+                | ValueSome uc when ExternalSymbols.shortName uc.UnionName = typeName -> ValueSome caseName
                 | _ -> ValueNone
             | _ -> ValueNone
 
@@ -429,16 +446,16 @@ module FreezeExpr =
         | _ -> ValueNone
 
     [<return: Struct>]
-    let private (|StaticMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (string * string) voption =
+    let private (|StaticMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (SymbolKey * string) voption =
         match tryLongIdentStaticMember ctx li with
-        | ValueSome(className, m) when m.Kind = ClassMemberKind.Method ->
-            ValueSome(className, ctx.NameOf li.Idents.[li.Idents.Length - 1])
+        | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method ->
+            ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | _ -> ValueNone
 
     [<return: Struct>]
-    let private (|StaticMember|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (string * string) voption =
+    let private (|StaticMember|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (SymbolKey * string) voption =
         match tryLongIdentStaticMember ctx li with
-        | ValueSome(className, _) -> ValueSome(className, ctx.NameOf li.Idents.[li.Idents.Length - 1])
+        | ValueSome(declKey, _) -> ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | ValueNone -> ValueNone
 
     /// `[1; 2; 3]` parses as `EnclosedBlock(ParenKind.List, Sequential [...])`;
@@ -513,9 +530,9 @@ module FreezeExpr =
 
         let resolved =
             match Unification.zonk recvTy with
-            | TyRecord(recName, args) ->
-                match ctx.Types.Record.TryGetValue recName with
-                | true, info ->
+            | TyRecord(recKey, args) ->
+                match TypeRegistry.tryRecordByKey ctx.Types recKey with
+                | ValueSome info ->
                     info.Fields
                     |> Array.tryPick (fun f ->
                         if f.Name = segName then
@@ -523,15 +540,15 @@ module FreezeExpr =
                         else
                             None
                     )
-                | false, _ -> None
-            | TyUnion(unionName, args) ->
-                match TypeRegistry.tryUnion ctx.Types unionName args.Length with
+                | ValueNone -> None
+            | TyUnion(unionKey, args) ->
+                match TypeRegistry.tryUnionByKey ctx.Types unionKey with
                 | ValueSome info -> memberTy (info.TypeParams, args) info.Members
                 | ValueNone -> None
-            | TyClass(clsName, args) ->
-                match ctx.Types.Class.TryGetValue clsName with
-                | true, info -> memberTy (info.TypeParams, args) info.Members
-                | false, _ -> None
+            | TyClass(clsKey, args) ->
+                match TypeRegistry.tryClassByKey ctx.Types clsKey with
+                | ValueSome info -> memberTy (info.TypeParams, args) info.Members
+                | ValueNone -> None
             | _ -> None
 
         match resolved with
@@ -552,15 +569,17 @@ module FreezeExpr =
             members |> Array.exists (fun m -> m.Name = segName)
 
         match Unification.zonk recvTy with
-        | TyClass(clsName, _) ->
-            match ctx.Types.Class.TryGetValue clsName with
-            | true, info when isMember info.Members ->
-                TExpr.PropertyGet(receiver, segName, viaOfReceiver ctx receiver, stepTy)
-            | _ -> TExpr.FieldGet(receiver, segName, stepTy)
-        | TyUnion(unionName, args) ->
-            match TypeRegistry.tryUnion ctx.Types unionName args.Length with
+        | TyClass(clsKey, _) ->
+            match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
-                TExpr.PropertyGet(receiver, segName, viaOfReceiver ctx receiver, stepTy)
+                let key = LocalSymbolKey.ofMember clsKey segName MemberKind.Property
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
+            | _ -> TExpr.FieldGet(receiver, segName, stepTy)
+        | TyUnion(unionKey, args) ->
+            match TypeRegistry.tryUnionByKey ctx.Types unionKey with
+            | ValueSome info when isMember info.Members ->
+                let key = LocalSymbolKey.ofMember unionKey segName MemberKind.Property
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy)
         | _ -> TExpr.FieldGet(receiver, segName, stepTy)
 
@@ -573,16 +592,16 @@ module FreezeExpr =
     let private (|InstanceMethodCall|_|)
         (ctx: PassContext)
         (funcExpr: Expr<SyntaxToken>)
-        : (Expr<SyntaxToken> * string) voption =
+        : (Expr<SyntaxToken> * SymbolKey * string) voption =
         match funcExpr with
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
 
             match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
-            | TyClass(typeName, _)
-            | TyUnion(typeName, _) ->
-                match tryClassMember ctx typeName memberName with
-                | ValueSome m when m.Kind = ClassMemberKind.Method -> ValueSome(r, memberName)
+            | TyClass(typeKey, _)
+            | TyUnion(typeKey, _) ->
+                match tryClassMember ctx (ExternalSymbols.simpleName typeKey) memberName with
+                | ValueSome(_, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, typeKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
@@ -621,7 +640,10 @@ module FreezeExpr =
         | Expr.New(typ = t; expr = argExpr) ->
             let className =
                 match Unification.zonk ty with
-                | TyClass(n, _) -> n
+                // Qualified so the backend's external-ctor recipe (`new
+                // System.Exception(...)`) resolves; the backend strips to the bare
+                // simple name for the project-local class lookup.
+                | TyClass(n, _) -> ExternalSymbols.qualifiedName n
                 | _ ->
                     let rec nameOf t =
                         match t with
@@ -645,14 +667,16 @@ module FreezeExpr =
             TExpr.New(className, argsList, ty)
         // Class instance method invocation: `r.M(args)` →
         // `App(DotLookup(r, ., M), args)`.
-        | Expr.App(funcExpr = InstanceMethodCall ctx (r, memberName); argExprs = args) ->
+        | Expr.App(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExprs = args) ->
             let receiver = translateExpr ctx r
             let argsList = peelCtorArgs (translateExpr ctx) args
-            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
-        | Expr.HighPrecedenceApp(funcExpr = InstanceMethodCall ctx (r, memberName); argExpr = arg) ->
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+        | Expr.HighPrecedenceApp(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExpr = arg) ->
             let receiver = translateExpr ctx r
             let argsList = peelOneArg (translateExpr ctx) arg
-            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
         // the long ident rather than emitting `DotLookup` when the head is a
@@ -664,7 +688,11 @@ module FreezeExpr =
             argExprs = args) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
             let argsList = peelCtorArgs (translateExpr ctx) args
-            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
+
+            let key =
+                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName MemberKind.Method
+
+            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
                                                                                        receiverTy,
@@ -672,26 +700,37 @@ module FreezeExpr =
             argExpr = arg) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
             let argsList = peelOneArg (translateExpr ctx) arg
-            TExpr.MethodCall(receiver, memberName, viaOfReceiver ctx receiver, argsList, ty)
+
+            let key =
+                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName MemberKind.Method
+
+            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
-            TExpr.PropertyGet(receiver, memberName, viaOfReceiver ctx receiver, ty)
+
+            let key =
+                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName MemberKind.Property
+
+            TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
         | Expr.App(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (className, memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
             argExprs = args) ->
             let argsList = peelCtorArgs (translateExpr ctx) args
-            TExpr.StaticMethodCall(className, memberName, argsList, ty)
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+            TExpr.StaticMethodCall(key, argsList, ty)
         | Expr.HighPrecedenceApp(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (className, memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
             argExpr = arg) ->
             let argsList = peelOneArg (translateExpr ctx) arg
-            TExpr.StaticMethodCall(className, memberName, argsList, ty)
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+            TExpr.StaticMethodCall(key, argsList, ty)
         // `ClassName.X` — static property read (or method-as-value).
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (className, memberName))) ->
-            TExpr.StaticPropertyGet(className, memberName, ty)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Property
+            TExpr.StaticPropertyGet(key, ty)
         | CtorRef ctx caseName ->
             // Bare or qualified ctor reference outside an App. v1 distinguishes
             // nullary ctor (→ `UnionCons`) from ctor-as-value (`let f = Circle`,
@@ -899,7 +938,11 @@ module FreezeExpr =
             // anything else reads a record/tuple field.
             match rTy with
             | TyClass _
-            | TyUnion _ -> TExpr.PropertyGet(receiver, memberName, viaOfReceiver ctx receiver, ty)
+            | TyUnion _ ->
+                let key =
+                    LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName MemberKind.Property
+
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
             | _ -> TExpr.FieldGet(receiver, memberName, ty)
         | Expr.Null _ -> TExpr.Null ty
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
@@ -963,12 +1006,12 @@ module FreezeExpr =
         match e with
         | Expr.String(parts = parts) ->
             match Unification.zonk ty with
-            | TyClass(name, _) when name = PrintfSpec.printfFormatName ->
+            | TyClass(key, _) when RuntimeNames.isPrintfFormatKey key ->
                 // Format literal at a printf call site (typed by
                 // `Unification.tryInferPrintfApp`). It denotes `new
                 // PrintfFormat<…>(text)` — the single `value: string` ctor.
                 TExpr.New(
-                    name,
+                    PrintfSpec.printfFormatName,
                     EqArray.singleton (
                         TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), BuiltinTypes.tyString)
                     ),
@@ -1339,6 +1382,10 @@ module FreezeExpr =
 
         let elemTy =
             match zonked with
+            // An array literal's zonked type is the generic intrinsic
+            // `TyConst("[]", [elem])`; a list
+            // literal's is `TyRecord`/`TyUnion`. Pull the element out of whichever.
+            | TyConst(_, args) when args.Length = 1 -> args.[0]
             | TyRecord(_, args) when args.Length = 1 -> args.[0]
             | TyUnion(_, args) when args.Length = 1 -> args.[0]
             | _ -> TyVar(TypeVar())
@@ -1351,14 +1398,14 @@ module FreezeExpr =
         // Arrays never retarget — always the list chain + `Array.ofList` boundary.
         let listTy, consName, nilName =
             match zonked with
-            | TyUnion(unionName, _) when not isArray && ctx.Types.Union.ContainsKey unionName ->
-                let info = ctx.Types.Union.[unionName]
+            | TyUnion(unionKey, _) when not isArray && (TypeRegistry.tryUnionByKey ctx.Types unionKey).IsSome ->
+                let info = (TypeRegistry.tryUnionByKey ctx.Types unionKey).Value
                 let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
                 let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
 
                 match nilCase, consCase with
                 | Some n, Some c -> zonked, c.Name, n.Name
-                | _ -> TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy), "Cons", "Nil"
+                | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
             // The external Vesper list: a bare-program literal a consumer drove
             // onto the Vesper cons-list (`Unification.listLiteralTy` /
             // `resolveListLiterals`). Its `Cons` / `Nil` factories are minted by the
@@ -1366,10 +1413,9 @@ module FreezeExpr =
             // It is an *external* union, so it is absent from `ctx.Types.Union` and
             // is not caught by the user-union arm above. Recognition (bare /
             // arity-suffixed union name, or the lowercase abbreviation) is shared
-            // with codegen via `RuntimeNames.isVesperList` (symbol-key-refactor.md
-            // Phase 3a), so the `` `N ``-strip isn't re-derived here.
-            | TyUnion(listName, _) when not isArray && RuntimeNames.isVesperList listName -> zonked, "Cons", "Nil"
-            | _ -> TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy), "Cons", "Nil"
+            // with codegen via `RuntimeNames.isVesperListKey`, so the `` `N ``-strip isn't re-derived here.
+            | TyUnion(listKey, _) when not isArray && RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Nil"
+            | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
 
         let listExpr =
             let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy)
@@ -1381,7 +1427,7 @@ module FreezeExpr =
             <| nil
 
         if isArray then
-            let arrayTy = TyRecord("Microsoft.FSharp.Core.[]", EqArray.singleton elemTy)
+            let arrayTy = TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy)
             // Codegen resolves `Array.ofList` against its target; alternate
             // targets are free to swap the wrapper.
             let opName = "Microsoft.FSharp.Collections.ArrayModule.OfList"

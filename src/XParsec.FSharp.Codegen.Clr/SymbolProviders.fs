@@ -34,7 +34,7 @@ module SymbolProviders =
     /// members to be addressable by their *source* name (`List.fold`, not the
     /// compiled `ListModule.fold`; `VesperLib.extractValSig`) and codegen to accept
     /// the contract's `'T list` abbreviation name alongside the union name
-    /// (`ClrProvider.isVesperListName`).
+    /// (both resolve to the one cons-list `SymbolKey` — `RuntimeNames.isVesperListKey`).
     ///
     /// `ProjectInfo.References` is not yet classified (a flat DLL-path list with no
     /// link to its source manifest), so the layer-1 manifests are supplied
@@ -237,7 +237,10 @@ module SymbolProviders =
                         match implFile with
                         | None -> ()
                         | Some f ->
-                            let tast = Pipeline.analyse provider parsed.Input parsed.Lexed f
+                            // The inline bodies belong to the referenced package, so its
+                            // own assembly name (`manifest.Name`) is the home assembly for
+                            // any local nominal keys minted while analysing them.
+                            let tast = Pipeline.analyseFor manifest.Name provider parsed.Input parsed.Lexed f
 
                             for (name, decl) in collectInlineBodies tast do
                                 acc <- Map.add name decl acc

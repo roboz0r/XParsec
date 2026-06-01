@@ -153,7 +153,7 @@ module UnificationTranslate =
                 // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque
                 // fallback below — all of which yield `TyConst name`, identical to
                 // the retired anchors (intrinsic-repr-handoff.md Goal 2).
-                TyConst name
+                TyConst(name, EqArray.empty)
             | _ ->
                 match ctx.Types.Abbreviation.TryGetValue name with
                 | true, info ->
@@ -174,28 +174,28 @@ module UnificationTranslate =
                         // unifies the args with whatever `r`'s usage pins).
                         let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
-                        TyRecord(name, args)
+                        TyRecord(info.Key, args)
                     | false, _ ->
                         match ctx.Types.Union.TryGetValue name with
                         | true, info ->
                             let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                            // symbol-key-refactor.md Phase 2: record the resolved
+                            // Record the resolved
                             // union identity at this use site (populate-only for now).
                             ctx.Resolution.ResolvedType.Set(NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed, info.Key)
-                            TyUnion(name, args)
+                            TyUnion(info.Key, args)
                         | false, _ ->
                             match ctx.Types.Class.TryGetValue name with
                             | true, info ->
                                 let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
-                                TyClass(name, args)
+                                TyClass(info.Key, args)
                             | false, _ ->
                                 // Not project-local: probe the external provider
                                 // (a short BCL name under its `open`) before the
                                 // opaque fallback. See `tryResolveExternalType`.
                                 match tryResolveExternalType ctx name EqArray.empty with
                                 | ValueSome ty -> ty
-                                | ValueNone -> TyConst name
+                                | ValueNone -> TyConst(name, EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
@@ -326,8 +326,12 @@ module UnificationTranslate =
                 diagnoseArity expected
 
         if ctx.Types.IntrinsicReprTypes.ContainsKey name then
-            // Generic primitive binding: nominal, not transparent.
-            TyConst name
+            // Generic primitive binding: nominal, not transparent. A *generic*
+            // intrinsic (the array `[]`, repr `!0[]`) forwards its type args so the
+            // element type stays structural;
+            // an argless primitive referenced with stray args degenerates to the
+            // same `TyConst(name, [])` an argless reference produces.
+            TyConst(name, translatedArgs)
         else
             match ctx.Types.Abbreviation.TryGetValue name with
             | true, info ->
@@ -338,14 +342,14 @@ module UnificationTranslate =
                 match ctx.Types.Record.TryGetValue name with
                 | true, info ->
                     checkArity (info.TypeParams.Length)
-                    TyRecord(name, translatedArgs)
+                    TyRecord(info.Key, translatedArgs)
                 | false, _ ->
                     match TypeRegistry.tryUnion ctx.Types name argCount with
                     | ValueSome info ->
                         // Exact arity-key match (`Choice\`2`): no diagnostic.
-                        // symbol-key-refactor.md Phase 2: stamp the use site (populate-only).
+                        // Stamp the use site (populate-only).
                         ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                        TyUnion(name, translatedArgs)
+                        TyUnion(info.Key, translatedArgs)
                     | ValueNone ->
                         // No union of this exact arity. If the bare alias resolves (a
                         // single-arity union of a *different* arity), keep the legacy
@@ -354,19 +358,19 @@ module UnificationTranslate =
                         | true, info ->
                             checkArity (info.TypeParams.Length)
                             ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                            TyUnion(name, translatedArgs)
+                            TyUnion(info.Key, translatedArgs)
                         | false, _ ->
                             match ctx.Types.Class.TryGetValue name with
                             | true, info ->
                                 checkArity (info.TypeParams.Length)
-                                TyClass(name, translatedArgs)
+                                TyClass(info.Key, translatedArgs)
                             | false, _ ->
                                 match tryResolveExternalType ctx name translatedArgs with
                                 | ValueSome ty -> ty
                                 | ValueNone ->
                                     // Unknown name with type args — opaque TyConst,
                                     // args ignored (matches the bare-name arm).
-                                    TyConst name
+                                    TyConst(name, EqArray.empty)
 
     /// Resolve a named/generic type reference that missed every project-local
     /// registry against the external provider — the type-annotation analogue of
@@ -396,7 +400,10 @@ module UnificationTranslate =
         // Metadata keys generic types `Name`arity`; the contract layer keys them
         // bare. Probe the suffixed form first so it wins when both could match.
         let keysFor (n: string) : string list =
-            if arity = 0 then [ n ] else [ sprintf "%s`%d" n arity; n ]
+            if arity = 0 then
+                [ n ]
+            else
+                [ ExternalSymbols.arityName n arity; n ]
 
         let shapeArity (shape: ExternalTypeShape) : int =
             match shape with
@@ -413,10 +420,15 @@ module UnificationTranslate =
                 |> List.tryPick (fun key ->
                     match ctx.Provider.TryLookupType key with
                     | ValueSome shape when shapeArity shape = arity ->
+                        // Mint the nominal's `SymbolKey` from the resolved shape's
+                        // origin + the matched compiled name. `asm = Some` marks it external.
                         match shape with
-                        | ExternalTypeShape.Class _ -> Some(TyClass(key, translatedArgs))
-                        | ExternalTypeShape.Record _ -> Some(TyRecord(key, translatedArgs))
-                        | ExternalTypeShape.Union _ -> Some(TyUnion(key, translatedArgs))
+                        | ExternalTypeShape.Class info ->
+                            Some(TyClass(ExternalSymbols.externalTypeKey info.Origin key arity, translatedArgs))
+                        | ExternalTypeShape.Record(origin = origin) ->
+                            Some(TyRecord(ExternalSymbols.externalTypeKey origin key arity, translatedArgs))
+                        | ExternalTypeShape.Union(origin = origin) ->
+                            Some(TyUnion(ExternalSymbols.externalTypeKey origin key arity, translatedArgs))
                         // A referenced intrinsic (`exn = (# "System.Exception" #)`):
                         // NON-transparent, resolves to the nominal `TyConst <short>` —
                         // the *unqualified* name, identical to the local arm
@@ -429,7 +441,7 @@ module UnificationTranslate =
                         // never by dealiasing here (intrinsic-repr-handoff.md Goal 2).
                         | ExternalTypeShape.Intrinsic _ ->
                             let short = key.Substring(key.LastIndexOf('.') + 1)
-                            Some(TyConst short)
+                            Some(TyConst(short, EqArray.empty))
                         // A transparent abbreviation dealiases to its body: `int32 =
                         // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
                         // "int"`, the form codegen actually encodes — without this an
