@@ -19,8 +19,10 @@ module RefCellPromotion =
     /// it (the qualified compiled name keyed by `VesperLib.extractRecordBody`).
     /// Codegen's `externalRecordRef` probes this name (and its arity-suffixed
     /// form) against the symbol provider stack.
-    [<Literal>]
-    let private RefTypeName = "Vesper.Ref"
+    // The cons-list / ref-cell runtime names live in one place (`RuntimeNames`,
+    // symbol-key-refactor.md Phase 3a) so the literal isn't duplicated across the
+    // front end and codegen.
+    let private RefTypeName = RuntimeNames.vesperRef
 
     /// The cell's single field. F# convention; the `.fsi` declaration uses the
     /// same name.

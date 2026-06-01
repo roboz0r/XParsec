@@ -843,8 +843,7 @@ module Unification =
             let root = UnionFind.find lv
 
             match root.Link with
-            | ValueNone ->
-                unify ctx key (TyVar root) (TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy))
+            | ValueNone -> unify ctx key (TyVar root) (TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy))
             | ValueSome target ->
                 match zonk target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy

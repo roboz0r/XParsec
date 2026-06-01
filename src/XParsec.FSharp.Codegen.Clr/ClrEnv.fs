@@ -116,25 +116,19 @@ type internal ClrEnv
     let eListModule =
         lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "ListModule")))
 
-    let listTypeName = "Microsoft.FSharp.Collections.list"
-    let vesperListName = "Vesper.Collections.List"
+    let listTypeName = RuntimeNames.fsharpCoreList
+    let vesperListName = RuntimeNames.vesperListUnion
 
     /// The cons-list's *abbreviation* name (lowercase). `Vesper.List` types `List.fold`'s
     /// `'T list` parameter with this, whereas the self-host `'T list = List<'T>` path expands to the
     /// union name — both denote the one cons-list, so recognition accepts either.
-    let vesperListAbbrevName = "Vesper.Collections.list"
+    let vesperListAbbrevName = RuntimeNames.vesperListAbbrev
 
-    let isVesperListName (name: string) =
-        // The contract layer now arity-suffixes generic compiled names
-        // (`Vesper.Collections.List`1`), so strip a trailing `` `N `` before
-        // comparing — recognition must accept both the bare and suffixed forms
-        // (a self-host expansion may still carry the bare union name).
-        let bare =
-            let tick = name.IndexOf '`'
-
-            if tick < 0 then name else name.Substring(0, tick)
-
-        bare = vesperListName || bare = vesperListAbbrevName
+    // Recognition of the cons-list (bare / arity-suffixed union name, or the
+    // lowercase abbreviation) now lives in one place — `RuntimeNames.isVesperList`
+    // (symbol-key-refactor.md Phase 3a) — shared with `FreezeExpr`'s list-retarget
+    // so the `` `N ``-strip isn't re-derived per consumer.
+    let isVesperListName (name: string) = RuntimeNames.isVesperList name
 
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
 

@@ -1358,26 +1358,18 @@ module FreezeExpr =
 
                 match nilCase, consCase with
                 | Some n, Some c -> zonked, c.Name, n.Name
-                | _ -> TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy), "Cons", "Nil"
+                | _ -> TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy), "Cons", "Nil"
             // The external Vesper list: a bare-program literal a consumer drove
             // onto the Vesper cons-list (`Unification.listLiteralTy` /
             // `resolveListLiterals`). Its `Cons` / `Nil` factories are minted by the
             // backend's `TryEmitUnionCons` Vesper case — BCL-only, no FSharp.Core.
-            // It is an *external* union, so it is absent from
-            // `ctx.Types.Union` and is not caught by the user-union arm above.
-            // The contract layer arity-suffixes generic compiled names, so the
-            // external cons-list now arrives as `Vesper.Collections.List`1` (or its
-            // `list`1` abbreviation). Strip a trailing `` `N `` before comparing.
-            | TyUnion(listName, _) when
-                not isArray
-                && (let bare =
-                        let tick = listName.IndexOf '`'
-                        if tick < 0 then listName else listName.Substring(0, tick)
-
-                    bare = "Vesper.Collections.List" || bare = "Vesper.Collections.list")
-                ->
-                zonked, "Cons", "Nil"
-            | _ -> TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy), "Cons", "Nil"
+            // It is an *external* union, so it is absent from `ctx.Types.Union` and
+            // is not caught by the user-union arm above. Recognition (bare /
+            // arity-suffixed union name, or the lowercase abbreviation) is shared
+            // with codegen via `RuntimeNames.isVesperList` (symbol-key-refactor.md
+            // Phase 3a), so the `` `N ``-strip isn't re-derived here.
+            | TyUnion(listName, _) when not isArray && RuntimeNames.isVesperList listName -> zonked, "Cons", "Nil"
+            | _ -> TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy), "Cons", "Nil"
 
         let listExpr =
             let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy)

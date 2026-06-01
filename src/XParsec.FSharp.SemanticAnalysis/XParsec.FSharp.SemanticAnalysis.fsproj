@@ -9,6 +9,7 @@
     <Compile Include="CstKeys.fs" />
     <Compile Include="CstWalk.fs" />
     <Compile Include="Conformance.fs" />
+    <Compile Include="RuntimeNames.fs" />
     <Compile Include="SemanticInfo.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="PrintfSpec.fs" />

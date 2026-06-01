@@ -202,9 +202,7 @@ module UnificationInferGeneralize =
                                 match zonk elemTy with
                                 | TyVar _ ->
                                     root.Link <-
-                                        ValueSome(
-                                            TyRecord("Microsoft.FSharp.Collections.list", EqArray.singleton elemTy)
-                                        )
+                                        ValueSome(TyRecord(RuntimeNames.fsharpCoreList, EqArray.singleton elemTy))
                                 | _ -> root.Level <- outerLevel
                             | _ -> ()
                 | TyFun(a, b) ->
