@@ -293,6 +293,16 @@ module UnificationTranslate =
             let inner = translateType ctx inner
             translateConstraints ctx cs
             inner
+        | Type.ArrayType(baseType = baseTy; commas = commas) ->
+            // `'T[]` / `'T[,]` → Vesper's array intrinsic
+            // `TyConst(arrayName rank, [elem])` (rank = comma count + 1), the same
+            // repr the value side uses (`Infer.fs` array literals). The element goes
+            // through `translateType`, so it shares the binding's `TyparScope`: a
+            // `'T[]` return / body annotation resolves its `'T` to the *same*
+            // signature typar rather than a fresh var (which left the annotation
+            // unable to constrain the element and broke `Seq.toArray`'s `'T`).
+            let rank = commas.Length + 1
+            TyConst(RuntimeNames.arrayName rank, EqArray.singleton (translateType ctx baseTy))
         | _ ->
             // Multi-segment named/generic types and other shapes (arrays,
             // anonymous records, etc.) aren't modelled yet. Hand back a free
@@ -627,3 +637,13 @@ module UnificationTranslate =
         match info.Body with
         | ValueSome body -> instantiateMember (info.TypeParams, args) body
         | ValueNone -> TyVar(freshTyVar ctx)
+
+    /// Public entry to the external-type resolver, for the no-`new` external
+    /// generic-class construction probe (`ResizeArray<int>()` →
+    /// `inferExternalGenericCtorApp`). Resolves a written type name + already-
+    /// translated type args to its external nominal `SemType` — a class, or an
+    /// abbreviation expanded to its underlying class (`ResizeArray<int>` →
+    /// `TyClass(System.Collections.Generic.List`1, [int])`) — through the open
+    /// scope. `ValueNone` when the name is not an in-scope external type.
+    let tryResolveExternalNominal (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType voption =
+        tryResolveExternalType ctx name args

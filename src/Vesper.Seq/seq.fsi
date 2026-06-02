@@ -18,10 +18,12 @@ namespace Vesper.Collections
 // just the four operations `set.fs` consumes — `fold` (line 820), `reduce`
 // (line 823), `truncate` (line 961), plus `toArray` for symmetry. The full
 // zero-allocation, struct-chaining, deforesting `Seq` design lives in
-// brainstorm-seq-module.md and is a future sprint; these are eager,
-// explicit-enumerator reference impls. The rest of the FSharp.Core `Seq` surface
-// is additive later, the same "grow the module additively" stance as
-// Vesper.List / Vesper.Array.
+// brainstorm-seq-module.md and is a future sprint; the eager terminals (`fold` /
+// `reduce` / `toArray`) are explicit-enumerator reference impls, while the lazy
+// `truncate` delegates to `System.Linq.Enumerable.Take` (BCL-correct laziness with
+// no `seq { }` state machine). The rest of the FSharp.Core `Seq` surface is
+// additive later, the same "grow the module additively" stance as Vesper.List /
+// Vesper.Array.
 
 open System.Collections.Generic
 

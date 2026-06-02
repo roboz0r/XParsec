@@ -262,26 +262,77 @@ module FreezeExpr =
     /// (`Set<'T>(args)`) wraps the name in `Expr.TypeApp`; peel it so the
     /// construction lowers to `TExpr.New` exactly like the inference-pinned
     /// `Set(args)` form (the node's inferred type already carries the instantiation).
-    let rec private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
+    ///
+    /// `arity` is the type-argument count from an enclosing `Expr.TypeApp`
+    /// (`ResizeArray<'T>()` → 1; a bare head → 0). Generic external types are keyed
+    /// arity-suffixed in the provider (`ResizeArray\`1`), so the external lookup must
+    /// try the suffixed name before the bare one — exactly the candidate order
+    /// NameResolution uses.
+    let rec private tryClassRef (ctx: PassContext) (arity: int) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
+            // Look an external type up by its arity-suffixed name first, then bare.
+            let lookupShape (c: string) : ExternalTypeShape voption =
+                let rec go names =
+                    match names with
+                    | [] -> ValueNone
+                    | k :: rest ->
+                        match ctx.Provider.TryLookupType k with
+                        | ValueSome _ as found -> found
+                        | ValueNone -> go rest
+
+                go (
+                    if arity > 0 then
+                        [ ExternalSymbols.arityName c arity; c ]
+                    else
+                        [ c ]
+                )
+
             // `new`-less ctor sugar on an *external* class (`InvalidOperationException
             // "x"`): resolve the head through the active `open`s to its metadata name
             // so the `App(ClassRef …)` arm emits the same `TExpr.New` as `new T(…)`.
-            // Mirrors `Infer.tryInferExternalCtorApp`; without it Freeze's generic
-            // application path trips on the head's external `TyClass` type.
+            // An abbreviation that expands to a class (`ResizeArray<'T>` →
+            // `System.Collections.Generic.List<'T>`) resolves to the *underlying*
+            // class's qualified name: the abbreviation itself is not a constructible
+            // metadata type, so construction must lower to `new List<'T>()`. The
+            // expansion args are irrelevant to the head name, so we apply the body
+            // with `unit` placeholders. Mirrors `Infer.tryInferExternalCtorApp`;
+            // without it Freeze's generic application path trips on the head's
+            // external `TyClass`/abbrev type.
+            // The returned name must match what the `Expr.New` arm derives from the
+            // node's `TyClass` key (`qualifiedName key`) so codegen's member lookup
+            // hits: that key is arity-suffixed for a generic type (`List\`1`). For a
+            // class we re-suffix the bare qualified name (`arityName` is a no-op at
+            // arity 0, so non-generic exceptions stay bare); an abbreviation's
+            // expanded key already carries the suffix.
+            let underlyingClassName (shape: ExternalTypeShape) (qualified: string) : string voption =
+                match shape with
+                | ExternalTypeShape.Class _ -> ValueSome(ExternalSymbols.arityName qualified arity)
+                | ExternalTypeShape.Abbrev(a, build) ->
+                    match build (Array.create a BuiltinTypes.tyUnit) with
+                    | TyClass(key, _) -> ValueSome(ExternalSymbols.qualifiedName key)
+                    | _ -> ValueNone
+                | _ -> ValueNone
+
             let tryExternal (n: string) : string voption =
-                OpenScope.tryQualify
-                    ctx.Resolution.OpenScope
-                    (fun c ->
-                        match ctx.Provider.TryLookupType c with
-                        | ValueSome(ExternalTypeShape.Class _) -> true
-                        | _ -> false
-                    )
-                    n
+                match
+                    OpenScope.tryQualify
+                        ctx.Resolution.OpenScope
+                        (fun c ->
+                            match lookupShape c with
+                            | ValueSome shape -> (underlyingClassName shape c).IsSome
+                            | ValueNone -> false
+                        )
+                        n
+                with
+                | ValueSome c ->
+                    match lookupShape c with
+                    | ValueSome shape -> underlyingClassName shape c
+                    | ValueNone -> ValueNone
+                | ValueNone -> ValueNone
 
             match e with
             | Expr.Ident t ->
@@ -300,7 +351,7 @@ module FreezeExpr =
                     tryExternal n
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
                 tryExternal (li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
-            | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
+            | Expr.TypeApp(expr = inner; types = types) -> tryClassRef ctx types.Length inner
             | _ -> ValueNone
 
     /// Peel an `Expr.App` argument that may be a single `EnclosedBlock`
@@ -461,7 +512,7 @@ module FreezeExpr =
     // "unreachable"` fall-through.
 
     [<return: Struct>]
-    let private (|ClassRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryClassRef ctx e
+    let private (|ClassRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryClassRef ctx 0 e
 
     [<return: Struct>]
     let private (|CtorRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryCtorRef ctx e
@@ -666,7 +717,11 @@ module FreezeExpr =
             ->
             // `r.X` (or chained `r.X.Y`) parsed as a single multi-segment
             // LongIdent: head resolved as a local binding, rest field accesses.
-            translateLongIdentFieldChain ctx li ty
+            // If the final segment is an *external* instance member (e.g.
+            // `e.Current` on a BCL `IEnumerator<'T>`), Unification recorded it in
+            // `ExternalAccess` on this chain's key — pass it so the last step emits
+            // a keyed `TExpr.ExternalMember` rather than a project-local `FieldGet`.
+            translateLongIdentFieldChain ctx li ty (ctx.Resolution.ExternalAccess.TryGetValue key)
         // Static member on an *external* type reached through a folded LongIdent
         // (`System.Console.Out`, `Console.Out`) — Unification resolved the prefix
         // as a type and recorded the member in `ExternalAccess`. Emit the same
@@ -1205,6 +1260,7 @@ module FreezeExpr =
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
         (finalTy: SemType)
+        (lastExternal: ResolvedExternalMember voption)
         : TExpr =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
@@ -1241,8 +1297,16 @@ module FreezeExpr =
                     | ValueNone -> finalTy
 
             // PropertyGet for a class/union member (codegen calls its `get_<name>`,
-            // eta-expanding a method-as-value if needed), FieldGet otherwise.
-            curr <- fieldStep ctx curr currTy segName stepTy
+            // eta-expanding a method-as-value if needed), FieldGet otherwise. The
+            // last segment of an external instance access (`e.Current`) emits a
+            // keyed `TExpr.ExternalMember` against the receiver built so far — the
+            // BCL interface/class member-ref path, not a project-local field.
+            curr <-
+                match lastExternal with
+                | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
+                    TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.IsProperty, stepTy)
+                | _ -> fieldStep ctx curr currTy segName stepTy
+
             currTy <- stepTy
 
         curr
@@ -1490,13 +1554,14 @@ module FreezeExpr =
         (elseB: ElseBranch<SyntaxToken> voption)
         (resultTy: SemType)
         : TExpr =
-        let elseExpr =
-            match elseB with
-            | ValueSome(ElseBranch(expr = e)) -> e
-            | ValueNone -> failwith "Freeze: if-then without else not yet supported"
-
         // Fold elifs right-to-left, each nested as the else-branch of the previous.
-        let mutable nestedElse = translateExpr ctx elseExpr
+        // A missing else is `else ()` (F# spec): inference has already constrained
+        // the then/elif branches and the whole expression to `unit`, so synthesize a
+        // `unit` constant as the innermost else.
+        let mutable nestedElse =
+            match elseB with
+            | ValueSome(ElseBranch(expr = e)) -> translateExpr ctx e
+            | ValueNone -> TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit)
 
         for i = elifs.Length - 1 downto 0 do
             let elifCond, elifThen =

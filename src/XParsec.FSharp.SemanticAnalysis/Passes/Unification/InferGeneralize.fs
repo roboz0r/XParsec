@@ -270,6 +270,26 @@ module UnificationInferGeneralize =
 
         TypeScheme(List.ofSeq quantified, zonkedTy, constraints)
 
+    /// The value restriction: a *parameterless* binding may only generalise when
+    /// its RHS is a syntactic value — a non-expansive expression. An *expansive*
+    /// RHS (a function/method application or an allocation, e.g.
+    /// `let res = ResizeArray<'T>()`) must NOT generalise: doing so quantifies the
+    /// binding's own free typar (`res`'s element), so every use site instantiates
+    /// a *fresh* element that unifies with its context while the binding's typar is
+    /// left dangling — exactly the unsound generalisation the restriction forbids,
+    /// and which `ResolvedTypes` flags as a stray unresolved TyVar. Keeping such a
+    /// binding monomorphic lets a use site (`res.Add(e.Current)`) unify the
+    /// binding's own typar into the enclosing function's, where it generalises
+    /// soundly. A binding *with* parameters is a function — itself a syntactic
+    /// value — so it always generalises regardless of its body.
+    let rec private isExpansive (e: Expr<SyntaxToken>) : bool =
+        match e with
+        | Expr.App _
+        | Expr.HighPrecedenceApp _
+        | Expr.New _ -> true
+        | Expr.TypeAnnotation(expr = inner) -> isExpansive inner
+        | _ -> false
+
     /// Single-name `let` generalises unless the binding is `mutable`.
     /// Mutable bindings stay monomorphic: every use of the name unifies
     /// against the binding's own TyVar (no instantiation), so a free TyVar
@@ -282,6 +302,10 @@ module UnificationInferGeneralize =
     /// abstractions, and the scheme table is keyed by a single NodeKey.
     let shouldGeneralise (b: Binding<SyntaxToken>) : bool =
         if b.mutableToken.IsSome then
+            false
+        // A parameterless binding with an expansive RHS is value-restricted
+        // (above); only function bindings and non-expansive values generalise.
+        elif b.argumentPats.IsEmpty && isExpansive b.expr then
             false
         else
             match b.headPat with

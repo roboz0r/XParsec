@@ -178,6 +178,14 @@ module Operators =
     /// runtime library).
     let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj
 
+    /// Boolean negation. No dedicated opcode: `ceq(value, false)` yields `true`
+    /// exactly when `value` is `false` — the same `(# "ceq" … false : bool #)`
+    /// shape the `(<>)` base uses to negate a comparison. A plain identifier (not
+    /// operator-named), so it resolves through the ambient open scope like `hash` /
+    /// `failwith`, and as a cross-package inline its body splices at each use site
+    /// (`SymbolProviders.inlineBodies`) — no Vesper runtime dependency.
+    let inline not (value: bool) : bool = (# "ceq" value false : bool #)
+
     /// Raise the given exception. The parameter is a typar bounded by `:> exn`,
     /// matching F#'s `raise: 'e :> exn -> 'a` — only an exception type can be
     /// passed. The contract extractor captures the `:> exn` coercion constraint

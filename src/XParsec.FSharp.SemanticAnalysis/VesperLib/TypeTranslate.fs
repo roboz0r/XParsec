@@ -247,34 +247,66 @@ module VesperLibTypeTranslate =
             let dot = name.LastIndexOf '.'
             if dot < 0 then name else name.Substring(dot + 1)
 
-        if ctx.QualifiedTypes.Contains name then
-            Ok name
-        elif name.IndexOf '.' >= 0 && (ctx.AmbientShapes name).IsSome then
-            // A fully-qualified reference to a dependency's type (`Vesper.Option`).
-            // Restricted to dotted names: a bare name is a *short* name that the
-            // own-package index (below) must get first, so a local type isn't
-            // hijacked by a same-named dependency type at the root.
-            Ok name
-        else
-            match ctx.Types.TryGetValue short with
-            | true, (_, compiled) ->
-                // Short-name hit. Arity disagreement is tolerated; the
-                // recorded compiled name still beats a placeholder.
-                ignore arity
-                Ok compiled
-            | _ ->
-                let mutable hit = ValueNone
+        let isQualified = name.IndexOf '.' >= 0
 
-                for prefix in openPrefixes do
-                    if hit.IsNone then
-                        let candidate = prefix + "." + name
+        // The own-package qualified set and the metadata / dependency provider both
+        // key a *generic* type by its arity-suffixed compiled name (`List`1`,
+        // `Vesper.Choice`2`); source writes the bare head (`List`). Probe the
+        // suffixed form first (so an arity-overloaded type is unambiguous), then the
+        // bare name (arity-0 types). The matched form is the canonical compiled name
+        // `mkNominal`'s `shapeOf` re-resolves through.
+        let forms (n: string) : string list =
+            if arity > 0 then
+                [ ExternalSymbols.arityName n arity; n ]
+            else
+                [ n ]
 
-                        if ctx.QualifiedTypes.Contains candidate || (ctx.AmbientShapes candidate).IsSome then
-                            hit <- ValueSome candidate
+        let inQualified (n: string) : string option =
+            forms n |> List.tryFind ctx.QualifiedTypes.Contains
 
-                match hit with
-                | ValueSome c -> Ok c
-                | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
+        let inAmbient (n: string) : string option =
+            forms n |> List.tryFind (fun k -> (ctx.AmbientShapes k).IsSome)
+
+        match inQualified name with
+        | Some k -> Ok k
+        | None ->
+            // A fully-qualified reference to a dependency's or the BCL's type
+            // (`Vesper.Option.Option`, `System.Collections.Generic.List`) — resolved
+            // through the ambient shapes (dependency providers + the layer-2
+            // metadata provider). Restricted to dotted names: a bare name is a
+            // *short* name that the own-package index (below) must get first, so a
+            // local type isn't hijacked by a same-named dependency type at the root.
+            match (if isQualified then inAmbient name else None) with
+            | Some k -> Ok k
+            | None ->
+                match ctx.Types.TryGetValue short with
+                // Short-name index hit — only for a *bare* name. A *qualified* name
+                // (`System.Collections.Generic.List`) must NOT collapse onto a local
+                // type sharing the last segment (`List`, the cons-list union): the
+                // written qualifier names a different type the index can't speak for.
+                // It falls through to the open-prefix / ambient resolution below, and
+                // failing that to `Error` (a `TyUnknown` leaf) — never the local short.
+                | true, (_, compiled) when not isQualified ->
+                    // Arity disagreement is tolerated; the recorded compiled name still
+                    // beats a placeholder.
+                    Ok compiled
+                | _ ->
+                    let mutable hit = ValueNone
+
+                    for prefix in openPrefixes do
+                        if hit.IsNone then
+                            let candidate = prefix + "." + name
+
+                            match inQualified candidate with
+                            | Some k -> hit <- ValueSome k
+                            | None ->
+                                match inAmbient candidate with
+                                | Some k -> hit <- ValueSome k
+                                | None -> ()
+
+                    match hit with
+                    | ValueSome c -> Ok c
+                    | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
 
     let isPrimitiveName (s: string) =
         match s with

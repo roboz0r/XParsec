@@ -133,4 +133,32 @@ let forInTests =
 
                 Expect.isEmpty errors (sprintf "duck-typed for-in should type-check; got %A" errors)
             }
+
+            // vesper-seq-handoff.md (§Already landed) — constructing an external *generic*
+            // class through the no-`new` sugar `ResizeArray<int>()`. `ResizeArray<'T>`
+            // is the `Vesper.List` abbreviation `= System.Collections.Generic.List<'T>`
+            // (now that contract extraction resolves the qualified BCL head against
+            // the metadata provider instead of collapsing onto the local cons-list
+            // `List` union). The explicit `<int>` pins the element type up front, so
+            // the construction node carries `TyClass(List`1, [int])` — driving the
+            // parameterless-ctor overload pick and emitting `newobj List`1<int>::.ctor()`.
+            // Iterating the (empty) result proves it's a genuine BCL `List<int>`, not
+            // a free TyVar or the wrong nominal type.
+            test "no-`new` ResizeArray<int>() constructs the BCL List<int> and iterates" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let xs = ResizeArray<int>()"
+                            "for x in xs do"
+                            "    printfn \"%d\" x"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "ResizeArrayCtor" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "done" "empty ResizeArray yields no iterations"
+            }
         ]

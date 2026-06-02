@@ -34,6 +34,22 @@ let tests =
                     "printfn \"%d\" (if false then 1 else (if true then 2 else 3))", "2"
                 ] -> test src { runs expected src }
 
+            // if-then with NO else: the missing else is `else ()`, so the whole
+            // expression is `unit` and the then-branch must be `unit`. Freeze
+            // synthesizes the `unit` else; codegen reuses the ordinary IfThenElse arm.
+            yield
+                test "if-then (no else): taken branch runs the side effect" { runs "1" "if true then printfn \"%d\" 1" }
+            yield
+                test "if-then (no else): untaken branch skipped, sequencing continues" {
+                    runsLines [ "after" ] "if false then printfn \"skip\"\nprintfn \"after\""
+                }
+            yield
+                // elif with no final else exercises the no-else fold: the synthesized
+                // `unit` is the innermost else, each elif nests around it.
+                test "if-then/elif (no else): middle arm runs" {
+                    runs "mid" "if false then printfn \"a\" elif true then printfn \"mid\""
+                }
+
             // top-level sequencing: two statements run in order
             yield
                 test "two top-level printfn run in source order" {

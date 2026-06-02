@@ -46,9 +46,19 @@ module private MetadataMapping =
             t.FullName
 
     let rec tryBuildType (t: Type) : (SemType[] -> SemType) option =
-        if t.IsByRef || t.IsPointer || t.IsArray then
-            // No `SemType` array/pointer case yet — skip rather than fake (§6.1).
+        if t.IsByRef || t.IsPointer then
+            // No `SemType` by-ref / pointer case — skip rather than fake (§6.1).
             None
+        elif t.IsArray then
+            // A reflection array maps onto Vesper's generic array intrinsic
+            // `TyConst(arrayName rank, [elem])` (rank 1 → `"[]"`), the same repr the
+            // front end uses for `'T[]`. This lets array-returning BCL members (e.g.
+            // `List`1::ToArray() : T[]`) resolve instead of being dropped.
+            match tryBuildType (t.GetElementType()) with
+            | Some elem ->
+                let name = RuntimeNames.arrayName (t.GetArrayRank())
+                Some(fun args -> TyConst(name, EqArray.singleton (elem args)))
+            | None -> None
         elif t.IsGenericParameter then
             // A declaring-type typar substitutes the instance's i-th argument; a
             // method-owned generic parameter (`DeclaringMethod` set) has no
@@ -449,72 +459,106 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 match resolveTypeLocked typeName with
                 | None -> [||]
                 | Some t ->
-                    let origin = originOf t (Some(MetadataMapping.metadataName t))
-                    let declKey = MetadataMapping.declTypeKey t
-
                     // A property wins over a like-named method (`Default` is a property).
                     // `.ctor` is asked of `GetConstructors`, not `GetMethods` — an
                     // instance ctor isn't a `MethodInfo`, so it never appears in the
                     // method walk. Most-params-wins ordering still applies.
-                    match t.GetProperty(memberName, declaredFlags) with
-                    | (null: PropertyInfo) when memberName = ".ctor" ->
-                        t.GetConstructors declaredFlags
-                        |> Array.sortByDescending (fun c -> c.GetParameters().Length)
-                        |> Array.choose (fun c ->
-                            MetadataMapping.tryCtorSignature c
-                            |> Option.map (fun build ->
-                                let argSig =
-                                    c.GetParameters()
-                                    |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                    |> EqArray.ofArray
+                    //
+                    // `declaredFlags` carries `DeclaredOnly`, correct for classes (a
+                    // class's `GetMethods` walks its inheritance chain, but the BCL
+                    // milestone types keep their members where queried). An *interface*,
+                    // though, does not inherit members through `DeclaredOnly`:
+                    // `IEnumerator`1` declares `Current` but inherits `MoveNext`/`Reset`
+                    // from the non-generic `IEnumerator` and `Dispose` from
+                    // `IDisposable`. So for an interface, search `t` then its full
+                    // transitive interface set, taking the first that has the member.
+                    // Each matched member's `declKey`/`origin` come from *its* declaring
+                    // interface (`IEnumerator` for `MoveNext`), so codegen mints the
+                    // `callvirt` against the correct interface slot.
+                    let lookupOn (st: Type) : ExternalMember[] =
+                        let origin = originOf st (Some(MetadataMapping.metadataName st))
+                        let declKey = MetadataMapping.declTypeKey st
 
-                                {
-                                    Name = ".ctor"
-                                    IsStatic = false
-                                    IsProperty = false
-                                    BuildSignature = build
-                                    Origin = origin
-                                    Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
-                                }
-                            )
-                        )
-                    | (null: PropertyInfo) ->
-                        t.GetMethods declaredFlags
-                        |> Array.filter (fun m -> m.Name = memberName)
-                        |> Array.sortByDescending (fun m -> m.GetParameters().Length)
-                        |> Array.choose (fun m ->
-                            MetadataMapping.tryMethodSignature m
-                            |> Option.map (fun build ->
-                                let argSig =
-                                    m.GetParameters()
-                                    |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                    |> EqArray.ofArray
+                        match st.GetProperty(memberName, declaredFlags) with
+                        | (null: PropertyInfo) when memberName = ".ctor" ->
+                            st.GetConstructors declaredFlags
+                            |> Array.sortByDescending (fun c -> c.GetParameters().Length)
+                            |> Array.choose (fun c ->
+                                MetadataMapping.tryCtorSignature c
+                                |> Option.map (fun build ->
+                                    let argSig =
+                                        c.GetParameters()
+                                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                        |> EqArray.ofArray
 
-                                {
-                                    Name = memberName
-                                    IsStatic = m.IsStatic
-                                    IsProperty = false
-                                    BuildSignature = build
-                                    Origin = origin
-                                    Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
-                                }
+                                    {
+                                        Name = ".ctor"
+                                        IsStatic = false
+                                        IsProperty = false
+                                        BuildSignature = build
+                                        Origin = origin
+                                        Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+                                    }
+                                )
                             )
+                        | (null: PropertyInfo) ->
+                            st.GetMethods declaredFlags
+                            |> Array.filter (fun m -> m.Name = memberName)
+                            |> Array.sortByDescending (fun m -> m.GetParameters().Length)
+                            |> Array.choose (fun m ->
+                                MetadataMapping.tryMethodSignature m
+                                |> Option.map (fun build ->
+                                    let argSig =
+                                        m.GetParameters()
+                                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                        |> EqArray.ofArray
+
+                                    {
+                                        Name = memberName
+                                        IsStatic = m.IsStatic
+                                        IsProperty = false
+                                        BuildSignature = build
+                                        Origin = origin
+                                        Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
+                                    }
+                                )
+                            )
+                        | p ->
+                            match MetadataMapping.tryPropertySignature p with
+                            | Some build ->
+                                [|
+                                    {
+                                        Name = memberName
+                                        IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
+                                        IsProperty = true
+                                        BuildSignature = build
+                                        Origin = origin
+                                        // A property carries no parameters → empty argSig.
+                                        Key =
+                                            SymbolKey.MemberKey(
+                                                declKey,
+                                                memberName,
+                                                EqArray.empty,
+                                                MemberKind.Property
+                                            )
+                                    }
+                                |]
+                            | None -> [||]
+
+                    // Classes: members live where queried (DeclaredOnly is correct).
+                    // Interfaces: union `t` with its transitive base interfaces and take
+                    // the first that resolves the member (`GetInterfaces` returns the
+                    // full set — `IEnumerator`1` → `IEnumerator` + `IDisposable`).
+                    if t.IsInterface then
+                        Array.append [| t |] (t.GetInterfaces())
+                        |> Array.tryPick (fun st ->
+                            match lookupOn st with
+                            | [||] -> None
+                            | arr -> Some arr
                         )
-                    | p ->
-                        match MetadataMapping.tryPropertySignature p with
-                        | Some build ->
-                            [|
-                                {
-                                    Name = memberName
-                                    IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
-                                    IsProperty = true
-                                    BuildSignature = build
-                                    Origin = origin
-                                    // A property carries no parameters → empty argSig.
-                                    Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, MemberKind.Property)
-                                }
-                            |]
-                        | None -> [||]
+                        |> Option.defaultValue [||]
+                    else
+                        lookupOn t
             )
 
     /// The single best member by the legacy name + arity heuristic (most-params

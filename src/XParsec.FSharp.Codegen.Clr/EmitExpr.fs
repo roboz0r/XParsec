@@ -625,6 +625,31 @@ module EmitExpr =
                         b.Add ILInstr.Pop
             )
 
+        | TExpr.While(cond, body, _) ->
+            // `while <cond> do <body>` — a unit expression. Shape:
+            //   loopStart: <cond>; brfalse loopEnd; <body>; pop…; br loopStart; loopEnd:
+            // The condition leaves a `bool` the `brfalse` consumes; the body is a
+            // unit statement whose value is discarded each iteration (popped back to
+            // the loop-top base, as `Sequential` does). The depth tracker is reset to
+            // that base before the exit label so post-loop statement discards stay
+            // correct — `IlIr.analyze` re-derives the buffer's merge depths across the
+            // back-edge. `while` itself leaves the single reified `unit`.
+            let loopStart = b.Label()
+            let loopEnd = b.Label()
+            let baseDepth = b.Depth
+            b.Add(ILInstr.Mark loopStart)
+            buildExpr env b cond
+            b.Add(ILInstr.Brfalse loopEnd)
+            buildExpr env b body
+
+            while b.Depth > baseDepth do
+                b.Add ILInstr.Pop
+
+            b.Add(ILInstr.Br loopStart)
+            b.SetDepth baseDepth
+            b.Add(ILInstr.Mark loopEnd)
+            EmitTypes.buildUnitValue env b
+
         | TExpr.IfThenElse(cond, thenExpr, elseExpr, _) ->
             // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
             // arms leave one value; the builder's linear depth tracker (which
@@ -817,6 +842,19 @@ module EmitExpr =
             let handle = resolveRecordField env (typeOfExpr receiver) name
             buildExpr env b receiver
             b.Add(ILInstr.Ldfld handle)
+
+        | TExpr.Assignment(TExpr.Var(binding, _), value, _) ->
+            // `x <- v` on a non-promoted `mutable` local — store into its slot.
+            // (A `HeapShared` mutable local was already rewritten by
+            // `RefCellPromotion` into a `contents` FieldSet, so any `Assignment`
+            // surviving to codegen targets a plain stack local.) Unit-typed, so
+            // reify `unit` for the consumer — same convention as `FieldSet`.
+            match env.Slots.TryGetValue binding with
+            | true, slot ->
+                buildExpr env b value
+                b.Add(ILInstr.Stloc slot)
+                EmitTypes.buildUnitValue env b
+            | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
 
         | TExpr.FieldSet(receiver, name, value, _) ->
             // `r.X <- v` on a `mutable` field. Validation has rejected the

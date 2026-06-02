@@ -265,15 +265,24 @@ module UnificationInfer =
                 | ValueSome ty -> ty
                 | ValueNone ->
 
-                    let mutable currTy = infer ctx fn
+                    match
+                        (if args.Length = 1 then
+                             tryInferExternalGenericCtorApp ctx key fn args.[0]
+                         else
+                             ValueNone)
+                    with
+                    | ValueSome ty -> ty
+                    | ValueNone ->
 
-                    for a in args do
-                        let argTy = infer ctx a
-                        let resultTy = TyVar(freshTyVar ctx)
-                        unify ctx key currTy (TyFun(argTy, resultTy))
-                        currTy <- resultTy
+                        let mutable currTy = infer ctx fn
 
-                    currTy
+                        for a in args do
+                            let argTy = infer ctx a
+                            let resultTy = TyVar(freshTyVar ctx)
+                            unify ctx key currTy (TyFun(argTy, resultTy))
+                            currTy <- resultTy
+
+                        currTy
 
     /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
     /// printf entry point with a plain-literal format argument, the format spec
@@ -364,11 +373,14 @@ module UnificationInfer =
         match tryInferExternalStaticMethodCall ctx key fn arg with
         | ValueSome ty -> ty
         | ValueNone ->
-            let fnTy = infer ctx fn
-            let argTy = infer ctx arg
-            let resultTy = TyVar(freshTyVar ctx)
-            unify ctx key fnTy (TyFun(argTy, resultTy))
-            resultTy
+            match tryInferExternalGenericCtorApp ctx key fn arg with
+            | ValueSome ty -> ty
+            | ValueNone ->
+                let fnTy = infer ctx fn
+                let argTy = infer ctx arg
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key fnTy (TyFun(argTy, resultTy))
+                resultTy
 
     and private inferRange
         (ctx: PassContext)
@@ -470,9 +482,12 @@ module UnificationInfer =
             unify ctx key thenTy elseTy
             thenTy
         | ValueNone ->
-            // `if c then e` (no else) requires e : unit — not yet supported.
-            ctx.Error(key, "if-then without else not yet supported")
-            thenTy
+            // `if c then e` (no else): the then-branch must be `unit` and the whole
+            // expression is `unit` (F# spec — a missing else is `else ()`). The elif
+            // branches above were already unified with `thenTy`, so this one `unify`
+            // forces all branches to `unit`.
+            unify ctx key thenTy BuiltinTypes.tyUnit
+            BuiltinTypes.tyUnit
 
     and private inferFun
         (ctx: PassContext)
@@ -1267,6 +1282,52 @@ module UnificationInfer =
                     )
                 | ValueNone -> ValueNone
 
+    /// Construction of an external *generic* class through an explicit type
+    /// application: `ResizeArray<int>()`, `List<string>(cap)` — the no-`new`
+    /// sugar whose CST is `App`/`HighPrecedenceApp(TypeApp(head, tyArgs), valueArgs)`.
+    /// The generic sibling of `tryInferExternalCtorApp`: the head's explicit type
+    /// arguments pin the element type up front (`ResizeArray<int>` →
+    /// `TyClass(System.Collections.Generic.List`1, [int])`, an abbreviation expanded
+    /// to its underlying class) so the constructed node carries `TyClass(List, [int])`
+    /// rather than a free TyVar the value-args alone can't resolve for a
+    /// parameterless ctor. The pinned class then drives `inferExternalCtorOn`'s
+    /// overload pick (so `List()` vs `List(IEnumerable<int>)` resolves) and gives
+    /// Freeze/codegen the `tyArgs` to emit `newobj List`1<!!T>::.ctor()`. A *local*
+    /// generic class (`Box<int>(x)`) isn't an in-scope external type, so the resolver
+    /// returns `ValueNone` and this declines — the local path (`inferTypeApp`'s
+    /// nominal-unify arm) handles it.
+    and private tryInferExternalGenericCtorApp
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType voption =
+        match fn with
+        | Expr.TypeApp(expr = headExpr; types = tyArgs) ->
+            let headName =
+                match headExpr with
+                | Expr.Ident tok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent)) ->
+                    ValueSome(ctx.NameOf tok)
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                    li.Idents.Length >= 1
+                    && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
+                    ->
+                    ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
+                | _ -> ValueNone
+
+            match headName with
+            | ValueNone -> ValueNone
+            | ValueSome name ->
+                let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
+
+                match tryResolveExternalNominal ctx name explicit with
+                | ValueSome(TyClass(clsKey, args) as receiverTy) ->
+                    ValueSome(
+                        inferExternalCtorOn ctx key (ExternalSymbols.qualifiedName clsKey) args receiverTy argExpr
+                    )
+                | _ -> ValueNone
+        | _ -> ValueNone
+
     /// Explicit type application on a value/constructor head: `Set<'T>(args)`
     /// (`set.fs` construction sites), `Box<int>(x)`, etc. The CST shape is
     /// `HighPrecedenceApp(TypeApp(head, [tyArgs]), valueArgs)`, so this types the
@@ -1649,27 +1710,31 @@ module UnificationInfer =
         try
             let patTy = inferPat ctx b.headPat
 
+            // Typar order is explicit `<'T>` → args → return → body, all sharing
+            // one TyparScope. The return annotation is translated *before* the
+            // body so a return-only typar (`let f () : 'T list = …`) seeds the
+            // scope first; otherwise the body would mint a fresh `'T` and the
+            // return would translate into a different one.
             let rhsTy =
                 if b.argumentPats.IsEmpty then
-                    let bodyTy = infer ctx b.expr
-
                     match b.returnType with
                     | ValueSome(ReturnType(typ = t)) ->
                         let annTy = translateType ctx t
+                        let bodyTy = infer ctx b.expr
                         unify ctx (CstKeys.ofBinding b) bodyTy annTy
                         annTy
-                    | ValueNone -> bodyTy
+                    | ValueNone -> infer ctx b.expr
                 else
                     let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
-                    let bodyTy = infer ctx b.expr
 
                     let bodyTy =
                         match b.returnType with
                         | ValueSome(ReturnType(typ = t)) ->
                             let annTy = translateType ctx t
+                            let bodyTy = infer ctx b.expr
                             unify ctx (CstKeys.ofBinding b) bodyTy annTy
                             annTy
-                        | ValueNone -> bodyTy
+                        | ValueNone -> infer ctx b.expr
 
                     List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 

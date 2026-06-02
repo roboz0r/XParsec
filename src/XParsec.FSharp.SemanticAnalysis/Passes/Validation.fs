@@ -13,25 +13,31 @@ open XParsec.FSharp.SemanticAnalysis
 module Validation =
 
     /// True if `t` has any reachable TyVar whose union-find root carries no
-    /// `Link`. Mirrors the resolve semantics of `Unification.zonk`: follow a
-    /// pinned root through its `Link`, return `true` at any unpinned root.
+    /// `Link` *and* is not quantified by some enclosing binding's scheme.
+    /// Mirrors the resolve semantics of `Unification.zonk` (follow a pinned
+    /// root through its `Link`); at an unpinned root, a root present in
+    /// `quantified` is rigidly polymorphic — bound by an enclosing
+    /// generalisation — not unresolved. So `let f (state: 'State) = let mutable
+    /// acc = state in …` is legal: `acc : 'State` is quantified by `f`'s scheme
+    /// even though its root has no `Link`, whereas a true value-restriction case
+    /// (`let mutable r = []` at module scope) has a free root no scheme owns.
     /// Used by the mutable-binding value-restriction check, which fires at
     /// end of analysis — by then every use site has had a chance to pin
     /// free TyVars via the unification of LHS and RHS types.
-    let rec private hasFreeTyVar (t: SemType) : bool =
+    let rec private hasFreeTyVar (quantified: System.Collections.Generic.HashSet<TypeVar>) (t: SemType) : bool =
         match t with
         | TyVar tv ->
             let root = UnionFind.find tv
 
             match root.Link with
-            | ValueSome target -> hasFreeTyVar target
-            | ValueNone -> true
-        | TyConst(_, args) -> args |> EqArray.exists hasFreeTyVar
-        | TyFun(a, r) -> hasFreeTyVar a || hasFreeTyVar r
-        | TyTuple items -> items |> EqArray.exists hasFreeTyVar
-        | TyRecord(_, args) -> args |> EqArray.exists hasFreeTyVar
-        | TyUnion(_, args) -> args |> EqArray.exists hasFreeTyVar
-        | TyClass(_, args) -> args |> EqArray.exists hasFreeTyVar
+            | ValueSome target -> hasFreeTyVar quantified target
+            | ValueNone -> not (quantified.Contains root)
+        | TyConst(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
+        | TyFun(a, r) -> hasFreeTyVar quantified a || hasFreeTyVar quantified r
+        | TyTuple items -> items |> EqArray.exists (hasFreeTyVar quantified)
+        | TyRecord(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
+        | TyUnion(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
+        | TyClass(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyUnknown _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
@@ -167,6 +173,17 @@ module Validation =
     // one instantiation — the bookkeeping isn't worth it for v1.
 
     let private checkValueRestriction (ctx: PassContext) : unit =
+        // A free TyVar that some enclosing binding generalised into its scheme is
+        // a legitimate type parameter of that function/method, not an unresolved
+        // var — `let f (state: 'State) = let mutable acc = state` is sound. Collect
+        // every scheme-quantified root up front so `hasFreeTyVar` can exclude them;
+        // only a free root no scheme owns is the classic value-restriction hole.
+        let quantified = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
+
+        for kv in ctx.Bindings.Scheme.AsDictionary() do
+            for q in kv.Value.Quantified do
+                quantified.Add(UnionFind.find q) |> ignore
+
         // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
         // whose binding is mutable. NameResolution writes one self-entry
         // per binding *and* one entry per use-site; filtering on
@@ -176,7 +193,7 @@ module Validation =
 
             if rb.IsMutable && kv.Key = rb.BindingSite then
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
-                | ValueSome tv when hasFreeTyVar (TyVar tv) ->
+                | ValueSome tv when hasFreeTyVar quantified (TyVar tv) ->
                     ctx.Diagnostics.Add
                         {
                             Key = rb.BindingSite

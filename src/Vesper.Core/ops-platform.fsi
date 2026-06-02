@@ -259,6 +259,29 @@ module Operators =
         ///
         val inline hash: obj: 'T -> int when 'T: equality
 
+        /// <summary>Negate a boolean value.</summary>
+        ///
+        /// <param name="value">The value to negate.</param>
+        ///
+        /// <returns><c>true</c> if the input is <c>false</c>, otherwise <c>false</c>.</returns>
+        ///
+        /// <remarks>Inline — lowers to <c>ceq(value, false)</c>, the same
+        /// <c>(# "ceq" … false : bool #)</c> shape the <c>(&lt;&gt;)</c> base uses to
+        /// negate a comparison. A plain identifier (not operator-named), so it
+        /// resolves through the ambient open scope like <c>hash</c> /
+        /// <c>failwith</c>; the cross-package inline-body splice
+        /// (<c>SymbolProviders.inlineBodies</c>) delivers the body to each use site,
+        /// so this pins no Vesper runtime dependency.</remarks>
+        ///
+        /// <example id="not-example">
+        /// <code lang="fsharp">
+        /// not true    // Evaluates to false
+        /// not false   // Evaluates to true
+        /// </code>
+        /// </example>
+        ///
+        val inline not: value: bool -> bool
+
         /// <summary>Raise the given exception.</summary>
         ///
         /// <param name="exn">The exception to raise.</param>

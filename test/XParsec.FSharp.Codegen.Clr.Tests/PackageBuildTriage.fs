@@ -70,9 +70,19 @@ let tests =
             // "CstKeys.firstTokenOfExpr: TODO IndexedLookup" during Unification.
             ptest "Vesper.Array builds BCL-only (front-end: IndexedLookup CstKey)" { buildsBclOnly "Vesper.Array" }
 
-            // PENDING — gated on enumeration over a project-local `seq<'T>`
-            // (get-enumerator-gaps.md Gap 2); pulls in Vesper.List. The first wall
-            // is a `while`-loop body hitting "CstKeys.firstTokenOfExpr: TODO Error:
-            // Multiple CompilationMappingAttributes, expected at most one".
-            ptest "Vesper.Seq builds BCL-only (front-end: CstKeys TODO in while)" { buildsBclOnly "Vesper.Seq" }
+            // PENDING — the handoff's two gaps (vesper-seq-handoff.md) are CLOSED:
+            // the explicit-enumerator terminals `fold` / `reduce` / `toArray` now
+            // compile BCL-only. The metadata provider surfaces interface members
+            // through base interfaces (so `source.GetEnumerator()` / `e.MoveNext()` /
+            // `e.Current` / the `use` `IDisposable.Dispose` resolve against
+            // `IEnumerator`1`/`IEnumerator`/`IDisposable`), `not` is in the Core
+            // `Operators` contract, and the supporting backend gaps closed along the
+            // way (value restriction on expansive lets, `while`/local-assignment IL,
+            // `'T[]` type translation + SZArray encoding + array-return members). The
+            // lone remaining blocker is `truncate`'s `Enumerable.Take<TSource>(…)` — a
+            // *generic external static method* (method-owned typars), still deferred
+            // in P2. Flip to `test` once that lands.
+            ptest "Vesper.Seq builds BCL-only (only `truncate`'s generic Enumerable.Take`<T>` remains)" {
+                buildsBclOnly "Vesper.Seq"
+            }
         ]

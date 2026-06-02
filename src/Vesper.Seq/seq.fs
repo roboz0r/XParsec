@@ -6,17 +6,23 @@ namespace Vesper.Collections
 // representation gives the module the `SeqModule` holder name, matching the
 // FSharp.Core surface). BCL-only — no `FSharp.Core`.
 //
-// These are the *minimal* reference impls (vesper-set-sprint-phase-8.md §8.4):
-// eager, explicit-enumerator loops, not the zero-allocation struct-chaining
-// design of brainstorm-seq-module.md (a future sprint). Each pulls a
-// `IEnumerator<'T>` from `source.GetEnumerator()` under a `use` (so the
-// enumerator is disposed — Phase 4's `IDisposable` support) and drives it with
-// `MoveNext` / `Current`. The functional arguments are `Vesper.Fun`s, so each
-// application lowers to `callvirt Fun::Invoke`. A focused starter surface (just
-// what `set.fs` consumes); the rest of the FSharp.Core `Seq` surface is additive
-// later.
+// These are the *minimal* reference impls (vesper-set-sprint-phase-8.md §8.4),
+// not the zero-allocation struct-chaining design of brainstorm-seq-module.md (a
+// future sprint). The split follows operation shape:
+//   - The eager terminals (`fold` / `reduce` / `toArray`) are explicit-enumerator
+//     loops: each pulls an `IEnumerator<'T>` from `source.GetEnumerator()` under a
+//     `use` (so the enumerator is disposed — Phase 4's `IDisposable` support) and
+//     drives it with `MoveNext` / `Current`. Their functional arguments are
+//     `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
+//   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take`, which yields
+//     BCL-correct lazy semantics without an F# `seq { }` state machine (the backend
+//     does not lower sequence expressions). `Take` takes no delegate, so this needs
+//     no `Vesper.Fun → System.Func` bridge.
+// A focused starter surface (just what `set.fs` consumes); the rest of the
+// FSharp.Core `Seq` surface is additive later.
 
 open System.Collections.Generic
+open System.Linq
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -45,14 +51,7 @@ module Seq =
         acc
 
     let truncate (count: int) (source: seq<'T>) : seq<'T> =
-        seq {
-            use e = source.GetEnumerator()
-            let mutable i = 0
-
-            while i < count && e.MoveNext() do
-                yield e.Current
-                i <- i + 1
-        }
+        Enumerable.Take(source, count)
 
     let toArray (source: seq<'T>) : 'T[] =
         let res = ResizeArray<'T>()

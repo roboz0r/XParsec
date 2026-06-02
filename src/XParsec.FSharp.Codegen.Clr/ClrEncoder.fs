@@ -116,6 +116,9 @@ type internal ClrEncoder(env: ClrEnv) =
                     te.Type(eValueTuple.Value, true)
                 else
                     failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+            // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
+            // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
+            | TyConst("[]", args) when args.Length = 1 -> encodeTypeCore tryLeaf (te.SZArray()) args.[0]
             | TyFun(a, b) ->
                 let g = te.GenericInstantiation(eFun2.Value, 2, false)
                 encodeTypeCore tryLeaf (g.AddArgument()) a
@@ -287,6 +290,12 @@ type internal ClrEncoder(env: ClrEnv) =
                 for i in 0 .. xs.Length - 1 do
                     go xs.[i] ys.[i]
             | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            // A generic intrinsic carries its args structurally — notably the array
+            // `[]<!0>` (`List`1::ToArray() : T[]`): recurse so the element marker is
+            // recovered, same as the nominal arms above.
+            | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
                 for i in 0 .. xs.Length - 1 do
                     go xs.[i] ys.[i]
             | _ -> ()
