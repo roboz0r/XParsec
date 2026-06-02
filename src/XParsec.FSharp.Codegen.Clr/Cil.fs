@@ -26,6 +26,14 @@ module Cil =
         il.Encoder.LoadConstantI4(n)
         il.Adjust 1
 
+    let emitLdcI8 (il: Il) (n: int64) : unit =
+        il.Encoder.LoadConstantI8(n)
+        il.Adjust 1
+
+    let emitLdcR4 (il: Il) (x: single) : unit =
+        il.Encoder.LoadConstantR4(x)
+        il.Adjust 1
+
     let emitLdcR8 (il: Il) (x: double) : unit =
         il.Encoder.LoadConstantR8(x)
         il.Adjust 1

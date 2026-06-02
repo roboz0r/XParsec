@@ -111,6 +111,9 @@ type private Renderer() =
             push (string n)
             push "uy"
         | TExpr.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        | TExpr.Const(TConstValue.Float32 n, _) ->
+            push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            push "f"
         | TExpr.Const(TConstValue.Bool true, _) -> push "true"
         | TExpr.Const(TConstValue.Bool false, _) -> push "false"
         | TExpr.Const(TConstValue.Char c, _) ->
@@ -525,6 +528,9 @@ type private Renderer() =
             push (string n)
             push "uy"
         | TPat.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        | TPat.Const(TConstValue.Float32 n, _) ->
+            push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            push "f"
         | TPat.Const(TConstValue.Bool true, _) -> push "true"
         | TPat.Const(TConstValue.Bool false, _) -> push "false"
         | TPat.Const(TConstValue.Char c, _) ->

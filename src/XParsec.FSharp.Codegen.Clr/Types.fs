@@ -66,6 +66,7 @@ module IntrinsicRepr =
                 "int64", "System.Int64"
                 "byte", "System.Byte"
                 "float", "System.Double"
+                "float32", "System.Single"
                 "bool", "System.Boolean"
                 "char", "System.Char"
                 "decimal", "System.Decimal"
@@ -93,6 +94,9 @@ module IntrinsicRepr =
             true
         | "System.Double" ->
             te.Double()
+            true
+        | "System.Single" ->
+            te.Single()
             true
         | "System.Boolean" ->
             te.Boolean()

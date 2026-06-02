@@ -13,6 +13,7 @@ type TConstValue =
     | Int64 of int64
     | Byte of byte
     | Float of double
+    | Float32 of single
     | Bool of bool
     | Char of char
     | Decimal of decimal

@@ -47,6 +47,7 @@
     <Compile Include="OptionTests.fs" />
     <Compile Include="ResultTests.fs" />
     <Compile Include="ChoiceTests.fs" />
+    <Compile Include="ComparisonModuleTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

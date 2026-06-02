@@ -16,24 +16,66 @@ module UnificationInferLiterals =
         match t.Token with
         | Token.KWTrue
         | Token.KWFalse -> BuiltinTypes.tyBool
-        | Token.NumIEEE64
-        | Token.NumIEEE64Hex
-        | Token.NumIEEE64Octal
-        | Token.NumIEEE64Binary -> BuiltinTypes.tyFloat
-        | Token.NumInt64
-        | Token.NumInt64Hex
-        | Token.NumInt64Octal
-        | Token.NumInt64Binary -> BuiltinTypes.tyInt64
+        | Token.CharLiteral -> BuiltinTypes.tyChar
+        | Token.NumSByte
+        | Token.NumSByteHex
+        | Token.NumSByteOctal
+        | Token.NumSByteBinary -> BuiltinTypes.tySByte
         | Token.NumByte
         | Token.NumByteHex
         | Token.NumByteOctal
         | Token.NumByteBinary -> BuiltinTypes.tyByte
-        | Token.CharLiteral -> BuiltinTypes.tyChar
+        | Token.NumInt16
+        | Token.NumInt16Hex
+        | Token.NumInt16Octal
+        | Token.NumInt16Binary -> BuiltinTypes.tyInt16
+        | Token.NumUInt16
+        | Token.NumUInt16Hex
+        | Token.NumUInt16Octal
+        | Token.NumUInt16Binary -> BuiltinTypes.tyUInt16
+        | Token.NumInt32
+        | Token.NumInt32Hex
+        | Token.NumInt32Octal
+        | Token.NumInt32Binary -> BuiltinTypes.tyInt
+        | Token.NumUInt32
+        | Token.NumUInt32Hex
+        | Token.NumUInt32Octal
+        | Token.NumUInt32Binary -> BuiltinTypes.tyUInt32
+        | Token.NumInt64
+        | Token.NumInt64Hex
+        | Token.NumInt64Octal
+        | Token.NumInt64Binary -> BuiltinTypes.tyInt64
+        | Token.NumUInt64
+        | Token.NumUInt64Hex
+        | Token.NumUInt64Octal
+        | Token.NumUInt64Binary -> BuiltinTypes.tyUInt64
+        | Token.NumNativeInt
+        | Token.NumNativeIntHex
+        | Token.NumNativeIntOctal
+        | Token.NumNativeIntBinary -> BuiltinTypes.tyNativeInt
+        | Token.NumUNativeInt
+        | Token.NumUNativeIntHex
+        | Token.NumUNativeIntOctal
+        | Token.NumUNativeIntBinary -> BuiltinTypes.tyUNativeInt
+        | Token.NumIEEE32
+        | Token.NumIEEE32Hex
+        | Token.NumIEEE32Octal
+        | Token.NumIEEE32Binary -> BuiltinTypes.tyFloat32
+        | Token.NumIEEE64
+        | Token.NumIEEE64Hex
+        | Token.NumIEEE64Octal
+        | Token.NumIEEE64Binary -> BuiltinTypes.tyFloat
         | Token.NumDecimal
         | Token.NumDecimalHex
         | Token.NumDecimalOctal
         | Token.NumDecimalBinary -> BuiltinTypes.tyDecimal
-        | _ -> BuiltinTypes.tyInt
+        | Token.NumBigIntegerQ
+        | Token.NumBigIntegerR
+        | Token.NumBigIntegerZ
+        | Token.NumBigIntegerI
+        | Token.NumBigIntegerN
+        | Token.NumBigIntegerG -> BuiltinTypes.tyBigInt
+        | _ -> TyUnknown(sprintf "non-literal token %A in literal position" t.Token)
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
         match c with

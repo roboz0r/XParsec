@@ -82,6 +82,16 @@ module FreezeExpr =
             | Token.NumIEEE64Octal
             | Token.NumIEEE64Binary ->
                 TConstValue.Float(System.Double.Parse(text, System.Globalization.CultureInfo.InvariantCulture))
+            | Token.NumIEEE32
+            | Token.NumIEEE32Hex
+            | Token.NumIEEE32Octal
+            | Token.NumIEEE32Binary ->
+                // `f` suffix (case-insensitive via `stripSuffix`) stripped before
+                // the invariant-culture single parse — the float32 twin of the
+                // `float` arm above.
+                TConstValue.Float32(
+                    System.Single.Parse(stripSuffix "f" text, System.Globalization.CultureInfo.InvariantCulture)
+                )
             | Token.NumInt64
             | Token.NumInt64Hex
             | Token.NumInt64Octal

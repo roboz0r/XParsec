@@ -29,6 +29,8 @@ type ILInstr =
     | Stloc of int
     | Ldloca of int
     | LdcI4 of int
+    | LdcI8 of int64
+    | LdcR4 of single
     | LdcR8 of double
     | Ldstr of UserStringHandle
     | Ldnull
@@ -142,6 +144,8 @@ module private InstrDelta =
         | ILInstr.Ldloc _
         | ILInstr.Ldloca _
         | ILInstr.LdcI4 _
+        | ILInstr.LdcI8 _
+        | ILInstr.LdcR4 _
         | ILInstr.LdcR8 _
         | ILInstr.Ldstr _
         | ILInstr.Ldnull
@@ -233,6 +237,8 @@ module IlIr =
         | ILInstr.Ldloc _
         | ILInstr.Ldloca _
         | ILInstr.LdcI4 _
+        | ILInstr.LdcI8 _
+        | ILInstr.LdcR4 _
         | ILInstr.LdcR8 _
         | ILInstr.Ldstr _
         | ILInstr.Ldnull
@@ -455,6 +461,8 @@ module IlIr =
             | ILInstr.Stloc n -> Cil.emitStloc il n
             | ILInstr.Ldloca n -> Cil.emitLdloca il n
             | ILInstr.LdcI4 n -> Cil.emitLdcI4 il n
+            | ILInstr.LdcI8 n -> Cil.emitLdcI8 il n
+            | ILInstr.LdcR4 x -> Cil.emitLdcR4 il x
             | ILInstr.LdcR8 x -> Cil.emitLdcR8 il x
             | ILInstr.Ldstr h -> Cil.emitLdstr il h
             | ILInstr.Ldnull -> Cil.emitLdnull il

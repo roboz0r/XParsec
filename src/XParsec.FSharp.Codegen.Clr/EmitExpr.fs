@@ -201,9 +201,11 @@ module EmitExpr =
         match e with
         | TExpr.Const(TConstValue.String s, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
         | TExpr.Const(TConstValue.Int n, _) -> b.Add(ILInstr.LdcI4 n)
+        | TExpr.Const(TConstValue.Int64 n, _) -> b.Add(ILInstr.LdcI8 n)
         | TExpr.Const(TConstValue.Bool v, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
         | TExpr.Const(TConstValue.Byte n, _) -> b.Add(ILInstr.LdcI4(int n))
         | TExpr.Const(TConstValue.Float x, _) -> b.Add(ILInstr.LdcR8 x)
+        | TExpr.Const(TConstValue.Float32 x, _) -> b.Add(ILInstr.LdcR4 x)
         | TExpr.Const(TConstValue.Char c, _) -> b.Add(ILInstr.LdcI4(int c))
         | TExpr.Const(TConstValue.Decimal d, _) ->
             // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
