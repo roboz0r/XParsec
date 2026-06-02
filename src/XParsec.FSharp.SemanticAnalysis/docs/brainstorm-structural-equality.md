@@ -286,7 +286,11 @@ All BCL-only; no slice needs a runtime intrinsic.
 3. **S3 — `Block<'T>`.** Author the type (C# interim), Tier 1. Independent of
    S1/S2; needed before any structural-array field is useful.
 4. **S4 — Generic DUs/records.** Equality member sigs in the declaring typar
-   (`!0`), via R2 generic-member machinery.
+   (`!0`), via R2 generic-member machinery. **Generic DUs: DONE (2026-05-25)** —
+   the full triple + `IEquatable<List<!0>>`, an ambient `!0`-leaf on `encodeType`
+   reusing the existing generic-member machinery (see
+   [operators-plan](operators-plan.md) "Implementation status"). Generic
+   records ride S2 (R6 record backend) + the same ambient machinery.
 5. **S5 — ValueTuple compile-time unroll.** Once tuple emission settles.
 
 `[|…|]` array-literal surface (does a literal mean `T[]` or `Block`?) is a

@@ -158,6 +158,6 @@ and lowered as intrinsics, no runtime body on the happy path.
 - [backend-design-plan](backend-design-plan.md) §"Lowering split" — format-spec
   resolution as a universal canonicalisation feeding per-target lowering.
 - `PrintfSpec.fs` — the existing format parser that derives the typed holes.
-- [codegen-clr-part-5](codegen-clr-part-5.md) / `RunnableAppTests.fs` — slice 1
-  (`printfn "hi"`) and slice 4 (`printfn "%A" [1;2;3]`); the `%A` cutover (P3)
-  gates re-greening slice 4 against `Vesper.Printf`.
+- `RunnableAppTests.fs` — slice 1 (`printfn "hi"`) and slice 4
+  (`printfn "%A" [1;2;3]`); the `%A` cutover (P3) gates re-greening slice 4
+  against `Vesper.Printf`.

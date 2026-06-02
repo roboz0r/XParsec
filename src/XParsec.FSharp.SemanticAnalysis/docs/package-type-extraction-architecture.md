@@ -7,8 +7,7 @@ dependencies, so a consumer reads a contract whose `val` signatures are already
 correct and needs no reconciliation pass of its own.
 
 This document describes the steady-state design. For the layering it sits inside
-(layer 1 = referenced projects, layer 2 = referenced assemblies) see
-[symbol-resolution-plan.md](symbol-resolution-plan.md) §5 and the broader
+(layer 1 = referenced projects, layer 2 = referenced assemblies) see the broader
 [architecture.md](architecture.md).
 
 ## The problem this solves

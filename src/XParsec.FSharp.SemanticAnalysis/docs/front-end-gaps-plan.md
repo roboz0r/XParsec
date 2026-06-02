@@ -4,8 +4,7 @@ Concrete in-repo work to close before IL emission can sensibly start.
 Scope is the TAST surface (Desugar / Unification / Freeze) — nothing
 here touches codegen. Order is **locked**: `A → D → C → B`.
 
-The driving requirement is the canonical sample in
-[il-emission-roadmap](il-emission-roadmap.md):
+The driving requirement is the canonical sample:
 
 ```fsharp
 let inline sum xs = List.fold (+) 0 xs
@@ -202,8 +201,7 @@ TAST had stabilised before the `TDecl.Let` arity bump.
   own `TDecl.Expression` — so the marker covers it. A *genuinely
   nested* `let inline` inside an expression body would freeze to
   `TExpr.Let`, which doesn't carry the flag yet; deferred until a
-  codegen thin-slice needs it ([il-emission-roadmap](il-emission-roadmap.md)
-  thin-slice 3).
+  codegen thin-slice needs it (the `inline`-expansion slice).
 
 **Where the work landed:**
 
@@ -357,8 +355,6 @@ typing, and freeze shape).
 
 ## Cross-references
 
-- [il-emission-roadmap](il-emission-roadmap.md) — the surrounding
-  roadmap; this plan is the in-scope-for-this-project chunk.
 - [function-representation-plan](function-representation-plan.md) —
   why §C's "retain bodies" decision is non-negotiable.
 - [passes.md](passes.md) — current pipeline; §C adds the `Inline`

@@ -6,14 +6,48 @@ Larger scope than [`mutable-plan.md`](mutable-plan.md) and
 new named-type registry the pipeline doesn't currently have, and push us
 to think about field-name-driven type inference for the first time.
 
-The status quo is silent on records. `TypeDefn.Record` declarations are
-parsed but never read by any pass — they fall off the side of
-`walkModuleElem` in NameResolution, Unification, and now Validation
-(which `failwith`s on `ModuleElem.Type` after the [`mutable-plan.md`]
-follow-up). `Expr.Record` / `Expr.RecordClone` / `Expr.DotLookup` /
-`Pat.Record` route through the conservative-`HeapShared` fallback in
-Regions and emit nothing in Unification, so any code that touches a
-record explodes downstream.
+> **Status (2026-05-25): FRONT END *and* BACKEND are DONE.** The front end
+> shipped earlier (everything in "The algorithm" below: `TypeDefn.Record`
+> declarations register into `ctx.RecordTypes` / `ctx.FieldIndex`, literals
+> infer by field set, `r.X` / `r.X <- v` / `{ r with … }` / record patterns type
+> and freeze, and the generic surface — `TyRecord of name * args` carrying type
+> args, `RecordTypeInfo.TypeParams` — works); the **record backend (B1–B5)**
+> shipped immediately after. Freeze now surfaces a record `TypeDefn` as
+> `TDecl.Type { Kind = TTypeKind.Record (fields, members) }`; codegen emits a
+> sealed reference class with one public field per record field and one ctor
+> taking them in declaration order; the value-level IL for
+> `RecordCons` / `FieldGet` / `FieldSet` / `RecordClone` / `TPat.Record` is in
+> `Emit.fs`; and the structural-equality triple
+> (`Equals(object)` + `GetHashCode()` + `IEquatable<Self>::Equals(Self)`) is
+> built off the union triple minus the tag. Generic records reuse the union's
+> `!0`-ambient machinery (`SetTypeTypars`, the generic-record `TypeSpec` /
+> `MemberRef` channel, `GenericFieldSignature`). Equality emission is driven by
+> the `EqualitySupport` verdict on each `TTypeDecl` (filled by
+> `Passes/Attributes.fs` from `[<StructuralEquality>]` / `[<ReferenceEquality>]`
+> / `[<NoEquality>]`; default is `Structural` for all-immutable records and any
+> union, `Reference` for a mutable record); the comparison parallel is opt-in
+> via `[<StructuralComparison>]` and ships through the `ComparisonSupport`
+> verdict (see §B6). Records declared in *referenced assemblies* (e.g.
+> `Vesper.Ref<'T>` from `Vesper.Core.dll`) compile against the codegen provider
+> via `externalRecordRef` / `TryEmitRecordCons` / `TryResolveExternalRecordField`
+> — the symmetric of the external-union path. Tests live in `RecordTests.fs`,
+> `EqualityAttributeTests.fs`, `StructuralComparisonTests.fs`, and (for the
+> captured-mutable case that piggybacks on the records backend)
+> `CapturedMutableTests.fs`. The happy-path end-to-end (literal → field access
+> → clone → pattern → equality) runs through the same `runEntryPoint` path the
+> union and slice tests use. (This is the C-S2 record-equality prerequisite the
+> [`operators-plan.md`](operators-plan.md) and
+> [`brainstorm-structural-equality.md`](brainstorm-structural-equality.md) §5.1
+> both gate on, plus the C-Attr verdict slice
+> [`brainstorm-structural-equality.md`](brainstorm-structural-equality.md) §8
+> describes; structural comparison rides
+> [`brainstorm-comparison.md`](brainstorm-comparison.md) §9.)
+
+The original status quo (now historical): records were silent on every pass —
+`TypeDefn.Record` declarations were parsed but never read, and `Expr.Record` /
+`Expr.RecordClone` / `Expr.DotLookup` / `Pat.Record` routed through the
+conservative-`HeapShared` fallback in Regions and emitted nothing in Unification.
+That front-end gap is **closed**; the algorithm below is what closed it.
 
 The canonical examples we want to handle after this lands:
 
@@ -96,15 +130,31 @@ After the pipeline finishes:
 | `ImplementationFile` walker            | `Passes/Validation.fs`, `Unification.fs`, etc.  | `walkModuleElem` ignores `ModuleElem.Type` today; needs a real arm. |
 | Conservative `HeapShared` fallback     | `Passes/Regions.fs:300`                         | Today catches `Expr.Record` etc. Stays as the safe net but precise rules replace it for records. |
 
-The pieces missing are:
+The pieces below were the front-end build — **all DONE (and tested)** as of
+2026-05-25. They are listed with their as-built locations so the backend knows what
+it consumes:
 
-1. **`RecordTypeInfo` registry**. A new `ctx.RecordTypes : Dictionary<string, RecordTypeInfo>` plus a `FieldIndex : Dictionary<string, RecordTypeInfo list>` reverse index for field-set inference. Built by NameResolution from `TypeDefn.Record`s.
-2. **`SemType.TyRecord`** — new variant. Every `SemType`-consumer (zonk, occurs, unify, isAllocation, hasFreeTyVar) gains an arm. Field-content is a side-channel on `ctx.RecordTypes`; not stored inline on `TyRecord`.
-3. **Unification rules**: literal inference (field-set → record name → unify), field access (receiver-type-driven), record clone, record patterns. Each adds an `inferExpr` / `inferPat` arm.
-4. **Regions rules**: a record is an allocation with one outgoing edge per field initialiser; mutable fields mint a cell region each. Record clone shares regions with the cloned-from record where fields are reused.
-5. **Validation**: assignment-to-immutable-field diagnostic; deferred-field-resolution diagnostic.
-6. **Freeze + TAST**: new `TExpr` / `TPat` cases.
-7. **Tests across all five passes**.
+1. **`RecordTypeInfo` registry** — **DONE.** `ctx.RecordTypes : Dictionary<string, RecordTypeInfo>` + `ctx.FieldIndex : Dictionary<string, RecordTypeInfo list>` (`SideTables.fs:287,289`), built by NameResolution's `registerRecordTypes` (`NameResolution.fs:473`). `RecordTypeInfo` (`SideTables.fs:41`) carries `TypeParams` too (generic records).
+2. **`SemType.TyRecord`** — **DONE, generic-aware.** Shipped as `TyRecord of name: string * args: SemType list` (`SemanticInfo.fs:103`) — args, not just a name, so a record's type parameters are carried. Every `SemType`-consumer has its arm; field content stays a side-channel on `ctx.RecordTypes`.
+3. **Unification rules** — **DONE.** Literal field-set inference, receiver-driven field access (with the `PendingFieldAccess` deferred-resolution channel on `TypeVar`), record clone, record patterns.
+4. **Regions rules** — **DONE.** Record allocation edges + per-mutable-field cell regions; clone shares regions with the source.
+5. **Validation** — **DONE.** Assignment-to-immutable-field + deferred-field-resolution diagnostics.
+6. **Freeze + TAST (value level)** — **DONE.** `TExpr.RecordCons` / `RecordClone` / `FieldGet` / `FieldSet` and `TPat.Record` (`Tast.fs:93–104`) are produced by Freeze (`Freeze.fs:712–729,147–155`).
+7. **Tests across all five passes** — **DONE** (record cases in `FreezeTests`, `UnificationTests`, `NameResolutionTests`, `RegionsTests`, …).
+
+**Backend (records-plan §B1–B5): DONE.** `TTypeKind.Record(fields, members)`
+ships in `Tast.fs`; Freeze's `tryRecordType` (`Freeze.fs`, sibling of
+`tryUnionType`) produces a `TDecl.Type` for every `TypeDefn.Record`; codegen
+emits the sealed reference class + ctor + the per-field public field rows; the
+value-level IL covers `RecordCons` (declaration-order reorder + `newobj`),
+`FieldGet` (`ldfld`), `FieldSet` (`stfld`), `RecordClone` (per declared field:
+override expr else `ldloc src; ldfld`, then `newobj`), and `TPat.Record` (no
+tag test; `ldfld` each named field and recurse). The C-Eq1 triple
+(`buildRecordEquals` / `buildRecordEqualsTyped` / `buildRecordGetHashCode`)
+mirrors the union triple minus the tag; generic records reuse the union's
+ambient `!0` mapping (`SetTypeTypars` + `GenericFieldSignature` +
+`EncodeGenericLocalSignature`) plus a dedicated `RecordMember` /
+`GenericRecordMemberRef` channel on `ICodegenProvider`.
 
 ## Why records need a registry
 
@@ -746,22 +796,175 @@ Each test follows the existing pattern — `analyse` → `declType` →
   region (not just an Ident lookup). Captured by the precise-region
   rule for `RecordClone` above.
 
+## The record backend (R6/P3e) — DONE
+
+The front end above produces a fully-typed record program; **codegen now emits
+it.** It mirrors the DU backend almost exactly
+(`project_self_host_p3d4_backend`, `project_du_structural_equality_ceq1`,
+`project_generic_du_equality_s4`) — a record is "a union with one nameless case and no
+tag" — so most of it is reuse, not new machinery. The B1–B5 subsections below
+describe the as-built shape; each is checked off where the implementation
+lives.
+
+### B1 — TAST representation for a record type declaration
+
+There is **no `TTypeKind.Record`** today, and `TastFile` carries no record layout —
+Freeze (`Freeze.fs:1737`) emits `TDecl.Type` only for `Union`/`Interface`, so record
+*declarations* fall on the floor. Add:
+
+- **`TTypeKind.Record of fields: (string * SemType) list * members: TTypeMember list`**
+  (`Tast.fs:227`), mirroring `Union`. `members` carries augmentation members (records
+  can have `member`s) exactly like unions.
+- A **Freeze arm** that produces `TDecl.Type { Kind = TTypeKind.Record … }` for each
+  `TypeDefn.Record`, reading the field list + `TypeParams` off `ctx.RecordTypes` (the
+  same registry NameResolution filled). This is the analogue of the union freeze that
+  already exists.
+- Codegen then finds the layout from the `TDecl.Type` in `tast.Decls` (no new
+  `TastFile` field needed — same as unions, which carry their cases in the decl).
+
+### B2 — Record `TypeDef` emission (mono + generic)
+
+In `Codegen.assemble`, add a `recordDecls` filter beside `unionDecls`
+(`Codegen.fs:302`) and a per-record emission loop modelled on the union loop:
+
+- A sealed reference class (`unionAttrs` shape) with **one field per record field**
+  (`FieldAttributes.Public`; a `mutable` field is the same — F# records expose the
+  field, mutability is a setter concern). No `_tag`.
+- A **constructor** taking the fields in declaration order and storing each (the
+  union `.ctor` is parameterless + factories; a record is simpler — one ctor that
+  sets the fields, like the closure ctor `Emit.buildClosureCtor` but with N fields).
+- **Generic records reuse the generic-union machinery verbatim**: `GenericFieldSignature`,
+  `GenericInstanceMethodSignature`, `RegisterGenericUnion` (rename/generalise to a
+  shared "register generic type shape"), `genericUnionMemberRef` (field/ctor refs on
+  the type's `TypeSpec`), and the **ambient `!0` type-typar set**
+  (`ClrProvider.SetTypeTypars`) the generic-DU equality pass added. Register the
+  predicted `TypeDefinition` handle up front (`RegisterUserType`) like unions.
+- Augmentation members emit through the same `Emit.buildMember` path unions use.
+
+### B3 — Value-level IL (`buildExpr` arms)
+
+`Emit.buildExpr` has no record arms today (only `typeOfExpr`/`mapChildren` carry the
+nodes). Add:
+
+- **`TExpr.RecordCons(fields, ty)`** → push each field initialiser in *declaration*
+  order (reorder from source order using `ctx.RecordTypes`), then `newobj` the ctor.
+  (Generic: ctor ref via the `TypeSpec`.)
+- **`TExpr.FieldGet(r, name, ty)`** → emit `r`, then `ldfld` the field handle.
+- **`TExpr.FieldSet(r, name, v, ty)`** → emit `r`, `v`, `stfld`.
+- **`TExpr.RecordClone(src, overrides, ty)`** → load `src`, read each field via
+  `ldfld` (or stash `src` in a local), substitute the overridden ones, `newobj`. (No
+  BCL `MemberwiseClone` — emit the field reads directly so it stays BCL-only and
+  works for generic records.)
+- **`TPat.Record(fields, ty)`** in the match compiler (`Emit`'s pattern path) →
+  `ldfld` each named field and recurse into its sub-pattern (no tag test; a record
+  match never fails on shape, only on its field sub-patterns).
+
+Field references: `Def` handles for a mono record; `MemberRef`s on the record's
+`TypeSpec` for a generic one (the `genericUnionMemberRef` `Field` path generalises).
+
+### B4 — The structural-equality triple
+
+Records are Data, so a record gets the same triple as a DU
+(brainstorm §5.1): `Equals(object)` + `GetHashCode()` + typed `IEquatable<Self>`. This
+is **mostly reuse** of `Emit.build{UnionEquals,UnionEqualsTyped,UnionGetHashCode}` —
+a record is the DU walk **minus the `_tag`**: drop the tag-compare in
+`buildTagAndFieldEquality` and the tag-seed in `buildUnionGetHashCode` (factor the tag
+out as optional, or add thin `buildRecordEquals*` twins). Field compare/hash is the
+identical §3.2 rule (`EqualityComparer<F>.Default` / `HashCode.Add`), and **generic
+records reuse the ambient `!0` machinery** the generic-DU pass added — no new
+encoding work. `unionMethodTotal`'s `+3` triple-count logic extends to records.
+
+- **Attribute-driven gating (C-Attr).** Emission is gated on the `EqualitySupport`
+  verdict on `TTypeDecl`, filled by `Passes/Attributes.fs` from any
+  `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<NoEquality>]` on the type
+  (brainstorm §8, operators-plan O8/O10). Default per the §8 rule: all-immutable record
+  / any union ⇒ `Structural`, mutable record ⇒ `Reference`. `Codegen.fs`'s record loop
+  reads the verdict; `Reference` / `NoEquality` emit no triple. `NoEquality` also feeds
+  the `Equality` typar-constraint in `Unification.checkConstraint` so a use-site `r1 = r2`
+  diagnoses.
+- **Records & `EqualitySupport` (§5.3).** The same verdict drives the recursive
+  `support` derivation brainstorm §5.3 describes — the rejection side already lives in
+  the typar-constraint system (`Unification.checkConstraint`); the generation side
+  reads the verdict in `Codegen.fs`.
+
+### B5 — Tests
+
+Model on `StructuralEqualityTests` (DU triple, mono + generic) and the Slice/Rung2
+runtime tests: a record constructs + field-gets at runtime; `{ r with X = v }`
+overrides one field and shares the rest; a `mutable` field round-trips through
+`FieldSet`; record equality is structural (distinct-but-equal records compare true);
+a generic record (`Box<'T>`) works at `int` and `string`; and the no-FSharp.Core-dep
+assertion holds. C-Attr coverage lives in `EqualityAttributeTests.fs`; the
+captured-mutable cross-cut (a record that lands because `let mutable` was promoted
+into `Vesper.Ref<'T>`) lives in `CapturedMutableTests.fs`.
+
+### B6 — Structural comparison (`<`, `>`, `<=`, `>=`)
+
+The comparison parallel of B4: `int CompareTo(Self)` + `int CompareTo(object)` plus
+`InterfaceImpl` rows for `IComparable<Self>` and `IComparable`. Per
+[`brainstorm-comparison.md`](brainstorm-comparison.md) §9 comparison is **opt-in**:
+an unannotated record / union gets `ComparisonVerdict.NoComparison` (use sites
+`r1 < r2` diagnose through the `Comparison` typar-constraint), and only an explicit
+`[<StructuralComparison>]` produces the pair. The decoder lives alongside the
+equality one in `Passes/Attributes.fs` (`decodeComparisonAttributes`); the verdict
+sits on `TTypeDecl.ComparisonSupport`.
+
+The emit shape mirrors equality minus the tag: per-field
+`Comparer<F>.Default.Compare(a, b)`, short-circuit on the first non-zero, return the
+last result. Builders live in `Emit.fs` (`buildRecordCompareTo*` /
+`buildUnionCompareTo*`); the provider surface in `ClrProvider.fs` (`Comparer<'T>` /
+`IComparable<Self>` / `CompareTo` signatures, plus the `ArgumentException` ctor the
+`CompareTo(object)` non-`Self` branch throws); the consumer-side ordering
+operators (`<` / `>` / `<=` / `>=`) ship from the `Vesper.Comparison` package via
+the same cross-package inline path `Vesper.Core`'s `=` / `<>` / `hash` use
+(`Comparer<^T>.Default.Compare` base + per-primitive `clt` / `cgt` clauses).
+Float / string posture matches equality's: both route through `Comparer<T>.Default`
+and inherit its NaN / ordinal-string rules. Tests live in
+`StructuralComparisonTests.fs`.
+
+### B7 — Records from referenced assemblies
+
+The captured-mutable promotion ([`mutable-plan.md`](mutable-plan.md)
+target-lowering decision; live in `Passes/RefCellPromotion.fs`) rewrites every
+`let mutable x = init` whose binding `Escape = HeapShared` into
+`{ contents = init } : Vesper.Ref<'T>`. The cell type is a real
+`Vesper.Ref\`1` `TypeDefinition` in `Vesper.Core.dll`, not a synthesised copy in
+the consumer PE; the codegen reaches it through the cross-package generic-record
+path. The interface surface on `ICodegenProvider`:
+
+- `TryEmitRecordCons : typeName * tyArgs * fieldNames -> CtorRecipe voption`
+  (sibling of `TryEmitUnionCons`),
+- `TryResolveExternalRecordField : typeName * tyArgs * fieldName -> EntityHandle voption`
+  (sibling of `GenericRecordMemberRef` but for an external record).
+
+`ClrProvider` drives both off the existing external-symbol stack
+(`tryResolveExternalType`); `ExternalTypeShape.Record(arity, fields, origin)` carries
+the package `Origin` through `ReferencedProject.wrap`. `Emit.fs`'s `RecordCons` /
+`FieldGet` / `FieldSet` fall through to the provider when `env.Records` misses, so
+any user package can publish a generic record without further compiler changes. The
+construction- and access-site keying is by the resolved external symbol's `Origin`,
+not by name — `"Vesper.Ref"` is not special-cased.
+
+This closes the cross-package half of "external named types as records" — the BCL
+half (treating an arbitrary `.NET` type that happens to be record-shaped as a
+TyRecord) remains out of scope.
+
 ## Out of scope for this plan
 
-- **Generic records** (`type Box<'a> = …`). Lands with typar scoping.
 - **Anonymous records** (`{| … |}`). Different runtime shape.
 - **Record-pattern exhaustiveness.** Part of the broader pattern-match
   exhaustiveness work in Validation.
 - **Cross-file record resolution.** Lands with namespaces / modules.
-- **External (BCL-defined) named types as records.** Lands with the .NET
-  provider's named-type catalogue.
+  (Cross-*package* user records are in scope — see §B7.)
+- **BCL-defined types treated as records.** Records authored in *referenced
+  user packages* (e.g. `Vesper.Ref<'T>` from `Vesper.Core.dll`) ship through
+  §B7. Surfacing an arbitrary `.NET` type that happens to be record-shaped
+  as a `TyRecord` is a separate question that lands with the .NET provider's
+  named-type catalogue.
 - **Struct records** (`[<Struct>] type R = …`). Same field-resolution
   story; different region treatment (struct allocation is inline, not
   heap). Lands with structs.
 - **Field-level access modifiers** (`private mutable X: int`). v1
   ignores `access` token; lands when module visibility does.
-- **Reference-equality on records.** F# records are value-equal by
-  default; `[<ReferenceEquality>]` flips it. Validation diagnostic for
-  attribute-disallowed shapes lands with attributes in general.
 - **`{| r with X = 5 |}` anonymous-record clone.** With anonymous
   records.

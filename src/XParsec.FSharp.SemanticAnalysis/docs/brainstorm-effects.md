@@ -175,4 +175,4 @@ consume it, don't ship it.
 - [package-split-plan](package-split-plan.md) — PS2 one-DLL-per-package is why EF6 (cross-assembly effect summary) is load-bearing rather than a nicety.
 - [function-representation-plan](function-representation-plan.md) — `Fun` and closure devirtualisation; the other half of erasing the combinator-call cost.
 - [minimal-core-lib-plan](minimal-core-lib-plan.md) — `ops-platform` inline-IL operators (`(+)`), the EF7 boundary where a trusted annotation survives.
-- `Conformance.fs` / [self-host conformance (P4)](self-host-rung2-plan.md) — the model EF7.1/EF-Q4 extend to check trusted intrinsic purity.
+- `Conformance.fs` (self-host conformance) — the model EF7.1/EF-Q4 extend to check trusted intrinsic purity.

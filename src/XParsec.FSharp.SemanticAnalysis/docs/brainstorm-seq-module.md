@@ -15,7 +15,7 @@ This specification redesigns the `Seq` module to emit deeply nested **concrete g
 1. **No Interface Return Types:** Functions in the `Seq` module must return compiler-generated concrete struct types, never `IEnumerable<'T>`.
 2. **Duck-Typed Enumeration:** Sequences must expose a public `GetEnumerator()` method that returns a concrete struct enumerator. The compiler will lower `for..in` loops directly to these methods, ignoring `IEnumerable`.
 3. **Explicit Interface Fallback:** All sequence structs must implement `IEnumerable<'T>` explicitly. This serves as an escape hatch; if the sequence is passed to a standard C# API, it will transparently box itself.
-4. **Closure Integration:** Sequence combinators must accept closures using the `in TClosure where TClosure : IFunction<TIn, TOut>` pattern established in the closure specification.
+4. **Closure Integration:** Sequence combinators must accept closures using the `in TClosure where TClosure : Fun<TIn, TOut>` pattern established in the closure specification.
 
 ## 3. Core Types & Interfaces
 
@@ -45,7 +45,7 @@ public readonly struct MapSeq<TSourceSeq, TEnum, TIn, TOut, TFunc>
     : IStructSeq<TOut, MapSeq<...>.Enumerator>
     where TSourceSeq : IStructSeq<TIn, TEnum>
     where TEnum : struct, IEnumerator<TIn>
-    where TFunc : allows ref struct, IFunction<TIn, TOut>
+    where TFunc : allows ref struct, Fun<TIn, TOut>
 {
     internal readonly TSourceSeq _source;
     internal readonly TFunc _f;

@@ -12,8 +12,8 @@ individual packages it needs.
 
 The driving reason is **not** product packaging — it is **self-hosting work
 sequencing**. The compiler toolchain supports only a tiny subset of the language
-today (rung 2: generic unions, `match`, recursion, module-fn → static method;
-see [selfhost-handoff](selfhost-handoff.md)). Standing up each type *with its
+today (rung 2: generic unions, `match`, recursion, module-fn → static method).
+Standing up each type *with its
 module functions* end-to-end through that toolchain is its own pipeline of work.
 A per-type package is therefore the natural **unit of self-hosting work**: a type
 + its module, compiled to a BCL-only DLL and conformance-checked against its
@@ -27,14 +27,14 @@ and option/result types.
 ## The mechanism already exists
 
 The package resolver is **already written and tested** — for
-`XParsec.FSharp.Lib`, not yet pointed at `Vesper.Core`. `FSharpLib.loadAll`
-([`../FSharpLib.fs:158`](../FSharpLib.fs)) reads a root `manifest.toml` whose
+`XParsec.FSharp.Lib`, not yet pointed at `Vesper.Core`. `VesperLib.loadAll`
+([`../VesperLib.fs:158`](../VesperLib.fs)) reads a root `manifest.toml` whose
 `[[bucket]]` entries carry `name` / `path` / `description` / `depends-on`,
-`topoSort` (`FSharpLib.fs:121`) resolves the `depends-on` DAG, and each bucket's
+`topoSort` (`VesperLib.fs:121`) resolves the `depends-on` DAG, and each bucket's
 own `manifest.toml` lists its `files = [...]`. The result is a topologically
 sorted flat file list fed to the type-checker, with cross-bucket references
 resolving through one accumulated `ExtractCtx` ("cross-bucket references resolve
-through the accumulated tables", `FSharpLib.fs:257`).
+through the accumulated tables", `VesperLib.fs:257`).
 
 That is exactly "standalone packages + a dependency graph fed to the front-end in
 compile order." `Vesper.Core`'s `manifest.toml` today uses the older flat
@@ -82,7 +82,7 @@ Vesper  (rollup: depends-on all; no files of its own)
   package DLLs its IL touches, with no extra work. "Pay for what you use" extends
   all the way to the shipped bundle.
 - **PS3 — Each package milestone is two legs, gated on R1.** The *type* leg
-  (emit the union/struct/record) can land before [R1](selfhost-handoff.md) (the
+  (emit the union/struct/record) can land before R1 (the
   `Fun`-not-`FSharpFunc` cutover). The *module* leg almost always cannot:
   module functions are overwhelmingly higher-order (`Option.map`, `List.fold`,
   `Set.filter`), so they need `Fun`. **R1 is the shared linchpin for the module
@@ -140,16 +140,16 @@ Vesper  (rollup: depends-on all; no files of its own)
 Ordered by toolchain readiness, with the shared linchpin and the Map/Set
 prerequisite called out:
 
-1. **R1 — `Vesper.Fun` cutover** ([selfhost-handoff](selfhost-handoff.md) R1).
+1. **R1 — `Vesper.Fun` cutover.**
    Not a package, but the gate for every package's module leg. Highest priority.
    **Done.**
-2. **`Vesper.List`** — **done.** The type + `List.fold` landed (rung 2 / R3,
-   [selfhost-handoff](selfhost-handoff.md)) and are now carved into their own
+2. **`Vesper.List`** — **done.** The type + `List.fold` landed (rung 2 / R3)
+   and are now carved into their own
    `src/Vesper.List/` package compiling to a standalone `Vesper.List.dll` (PS2): an
    emitted program that uses lists carries a `Vesper.List` `AssemblyRef` alongside
    `Vesper.Core` (for `Fun`). `List.fold` is now compiled *into* `Vesper.List.dll`
    as `Vesper.Collections.ListModule::fold` (public module-function compilation,
-   selfhost-handoff R3 deferred — done); the consumer calls it via a `MethodSpec`.
+   R3 deferred — done); the consumer calls it via a `MethodSpec`.
    `Vesper.List.dll` therefore references `Vesper.Core` (fold's folder is a `Fun`).
    This is the template the other packages copy.
 3. **`Vesper.Option`, `Vesper.Result`** — simplest new types (generic union /
@@ -196,7 +196,7 @@ physical work is layout + manifests + one loader extension.
 
 ## Loader change
 
-One extension to `FSharpLib.loadAll` ([`../FSharpLib.fs:158`](../FSharpLib.fs)):
+One extension to `VesperLib.loadAll` ([`../VesperLib.fs:158`](../VesperLib.fs)):
 it currently loads **every** bucket in the root manifest (`for b in buckets`).
 The a la carte story needs it to **seed the topo-sort from a requested subset**
 and pull in only the transitive closure. `topoSort`'s `visit` recursion already
@@ -239,11 +239,6 @@ this tree has no `[upstream]` pin.)
 - [minimal-core-lib-plan](minimal-core-lib-plan.md) — the single-tree core this
   plan splits; decisions D1–D9 (namespace, `Fun`, `unit`, `List`) carry over
   per-package.
-- [selfhost-handoff](selfhost-handoff.md) — R1 (`Fun` cutover, the module-leg
-  linchpin) and the current rung-2 state each package builds on.
-- [self-host-rung2-plan](self-host-rung2-plan.md) — the rung-2 capabilities
-  (`List`, union/recursion/`match`, module-fn → static method) that the first
-  packages reuse.
 - [function-representation-plan](function-representation-plan.md) — `Vesper.Fun`,
   the representation R1 cuts over to (PS3 gate).
 - [vesper-printf-plan](vesper-printf-plan.md) — `Vesper.Printf`, the existing
@@ -256,7 +251,7 @@ this tree has no `[upstream]` pin.)
 - [operators-plan](operators-plan.md) — the equality/ordering operator partition
   across `Vesper.Core` / `Vesper.Comparison` (the PS4 resolution: O1–O3, O5,
   O8–O10).
-- [`../FSharpLib.fs`](../FSharpLib.fs) — the bucket loader (`loadAll` / `topoSort`
+- [`../VesperLib.fs`](../VesperLib.fs) — the bucket loader (`loadAll` / `topoSort`
   / `ExtractCtx`) this plan repoints at `Vesper.Core`; the PS-Loader change.
 - [extract-symbols-plan](extract-symbols-plan.md) — the symbol-extraction design
   behind the loader's `ExtractCtx`.

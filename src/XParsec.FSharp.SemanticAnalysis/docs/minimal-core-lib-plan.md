@@ -74,9 +74,13 @@ type, and `ValueTuple` removes even that.
 
 `FSharpOption<'T>`, `FSharpResult<_,_>`; the rest of the `List` module
 (`map`/`filter`/`iter`/`length`/`rev`/`append`/…); array type + `Array` core;
-`string` module basics; structural comparison / equality / hashing support
-(`compare`, `=`, `hash`) for user types. Add as the language grows past the
-sample; each is an additive contract+impl pair.
+`string` module basics. **Structural equality / hashing** (`=`, `<>`, `hash`) for
+user types stays in `Vesper.Core`; **ordering** (`< > <= >=`, `compare`, `min`,
+`max`) splits into a separate **`Vesper.Comparison` package** (opt-in, not Core) —
+see [operators-plan](operators-plan.md) (the partition + O1–O10),
+[brainstorm-structural-equality](brainstorm-structural-equality.md), and
+[brainstorm-comparison](brainstorm-comparison.md). Add as the language grows past
+the sample; each is an additive contract+impl pair.
 
 ### Tier 2 — explicitly **out** (library, not language fundamentals)
 
@@ -322,9 +326,12 @@ src/
     prim-types-nd-array.fsi     ← multi-dimensional arrays
     prim-types-attr.fsi  \      ← compiler-recognised attribute hooks (stubs)
     compiler-attributes.fsi /
-    core-types.fsi              ← Ref/Option/ValueOption/Result; Collections.List
-                                  (mirrors FSharpList, D8) + List.fold
-    ops-platform.fsi            ← arithmetic/bitwise/comparison (per-target CIL intrinsics)
+    core-types.fsi              ← Ref (ReferenceEquality/NoComparison, O8) +
+                                  Result (opt-in StructuralComparison, O10);
+                                  ValueOption removed (O9); Option/List now own
+                                  packages (package-split PS1)
+    ops-platform.fsi            ← arithmetic/bitwise + equality `=` `<>` (CIL intrinsics);
+                                  ordering `< > <= >=` → Vesper.Comparison (operators-plan O2)
     ops-std.fsi                 ← logical/composition/pipe (target-agnostic, over bool/Fun)
     ── impl (.fs, our-backend target source → Vesper.Core.dll, BCL-only) ──
     prim-types-min.fs  prim-types-string.fs  List.fs   (partial, growing)
@@ -389,13 +396,21 @@ needs 1–3; 5 is the gate; 6 is cleanup.
   driven record/DU `%A` stays out of Tier 0. If too costly when the cutover is
   otherwise ready, keep slice 4's `%A` on the C# interim and gate the rest on a
   `%d`-only acceptance — but prefer doing `%A` properly.
-- **Structural equality / comparison.** Out of Tier 0 (primitives use CIL `ceq` /
-  `clt` and BCL `Equals`). Becomes load-bearing once user records/DUs and `Map` /
-  `Set` arrive — Tier 1, additive.
+- **Structural equality / comparison — now designed.** Out of Tier 0 (primitives
+  use CIL `ceq` / `clt` and BCL `Equals`). Becomes load-bearing once user
+  records/DUs and `Map` / `Set` arrive — Tier 1, additive. Design settled:
+  equality/hashing in `Vesper.Core`, ordering in a separate `Vesper.Comparison`
+  package — see [operators-plan](operators-plan.md),
+  [brainstorm-structural-equality](brainstorm-structural-equality.md),
+  [brainstorm-comparison](brainstorm-comparison.md).
 - **Contract/impl drift.** Minimised because the `.fsi` and `.fs` are a normal
-  pair our own compiler should signature-check; ensure that conformance check
-  exists (or add a reflection round-trip test over `Vesper.Core.dll` until it
-  does).
+  pair our own compiler should signature-check. A **source-level conformance check**
+  now exists (`SemanticAnalysis/Conformance.fs`): it compares the
+  parsed `.fsi` `extern` capability set against the parsed `.fs` `(# … #)` intrinsic
+  set (plus declaration presence on both sides), so drift is caught the moment both
+  files parse — no compiled `Vesper.Core.dll` needed. Deeper member-signature
+  conformance for nominal types is still future (it rides with the full `.fsi`/`.fs`
+  member checking).
 - **Parser coverage of the contract `.fsi`.** We author the contract, so we stay
   inside what `XParsec.FSharp` parses robustly — but the SRTP `(+)` signature
   (the brainstorm's defaulted-typar form) must parse and extract. Validate early
@@ -418,14 +433,15 @@ needs 1–3; 5 is the gate; 6 is cleanup.
   printfn "%d" (sum nums)
   ```
   builds via `Codegen.materialiseApp`, runs as `dotnet <app>.dll`, prints `15`,
-  and its on-disk bundle contains `Vesper.Core.dll` and **no** `FSharp.Core.dll`;
-  the emitted PE has **no** `Microsoft.FSharp.Core` / `Microsoft.FSharp.Collections`
-  assembly reference, and its function values are `Vesper.Fun<_,_>`
-  (no `FSharpFunc`).
+  and its on-disk bundle contains `Vesper.Core.dll` **and `Vesper.List.dll`**
+  (the cons-list is its own package now — [package-split-plan](package-split-plan.md)
+  PS2) and **no** `FSharp.Core.dll`; the emitted PE has **no**
+  `Microsoft.FSharp.Core` / `Microsoft.FSharp.Collections` assembly reference, and
+  its function values are `Vesper.Fun<_,_>` (no `FSharpFunc`).
 - Slices 1–4 (`printfn "hi"`, arithmetic, `inline`, list `%A`) stay green on the
   new core.
-- `Vesper.Core.dll` itself references only the BCL (a self-hosted build proves the
-  toolchain emits a FSharp.Core-free library).
+- `Vesper.Core.dll` / `Vesper.List.dll` themselves reference only the BCL (a
+  self-hosted build proves the toolchain emits FSharp.Core-free libraries).
 - `XParsec.FSharp.Lib` no longer carries Tier-2 buckets and is documented as a
   reference archive.
 
@@ -443,13 +459,7 @@ needs 1–3; 5 is the gate; 6 is cleanup.
   resolution (reference real DLL vs ship lib's impls)" is explicitly a
   target-specific concern; this plan flips the CLR target from the former to the
   latter.
-- [il-emission-roadmap](il-emission-roadmap.md) §"Backend scaffolding" — the
-  "Long-term, the curated per-target `.fs` impl files ship their own
-  implementations" line; this plan is that long-term step, scoped minimal.
 - [compiler-clr-project.md](../../XParsec.FSharp.Lib/compiler-clr-project.md) —
   the existing full-port tree this plan supersedes as the contract, and the
   manifest/loader mechanics the minimal contract reuses.
-- [codegen-clr-part-5](codegen-clr-part-5.md) — closure synthesis already emits
-  `FSharpFunc`-subclass closures; the base type repoints here (D3). The slice
-  1–5 tests are the regression gate for the cutover.
 ```

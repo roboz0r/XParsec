@@ -1,12 +1,10 @@
 # Backend design plan
 
-How the codegen layer slots in after Freeze. Sister document to
-[il-emission-roadmap](il-emission-roadmap.md) — the roadmap says
-*what* needs to happen; this doc captures the *posture* the work
-should take and the load-bearing design decisions that follow from
-it. Deliberately under-specified: the analysis side taught us that
-contracts crystallise better from a working implementation than from
-up-front interface design.
+How the codegen layer slots in after Freeze. Captures the *posture*
+the work should take and the load-bearing design decisions that
+follow from it. Deliberately under-specified: the analysis side
+taught us that contracts crystallise better from a working
+implementation than from up-front interface design.
 
 ## Posture
 
@@ -127,8 +125,7 @@ is fatal. Default to "target-specific" when uncertain.
 Two layered concerns inside the CLR backend:
 
 1. **The IL-emission DSL.** `System.Reflection.Metadata` is the
-   chosen writer ([il-emission-roadmap](il-emission-roadmap.md)
-   §Backend scaffolding). The raw API is C#-shaped and offers no
+   chosen writer. The raw API is C#-shaped and offers no
    compile-time guarantees about correctness — stack-balance,
    token-validity, control-flow well-formedness are all runtime
    failures. The F#-idiomatic wrapper is a computation expression
@@ -186,9 +183,8 @@ Once the front-end gaps close ([front-end-gaps-plan](front-end-gaps-plan.md)):
    hand-writing small assemblies (`add(int, int) : int`) and
    asserting on the emitted bytes plus runtime behaviour.
 3. **TAST walker → CE.** The `compile` function proper. Built up
-   per the thin-slice progression in [il-emission-roadmap](il-emission-roadmap.md)
-   §Thin-slice ordering: `printfn "hi"` → arithmetic → `inline` →
-   list literal → full sample.
+   per a thin-slice progression: `printfn "hi"` → arithmetic →
+   `inline` → list literal → full sample.
 4. **`materialise` to disk.** Writes the in-memory artifact to a
    PE file. Trivial once the in-memory shape is settled.
 
@@ -197,14 +193,6 @@ Once the front-end gaps close ([front-end-gaps-plan](front-end-gaps-plan.md)):
 
 ## Cross-references
 
-- [codegen-clr-plan](codegen-clr-plan.md) — the concrete instantiation of
-  this posture: `XParsec.FSharp.Codegen.Clr`'s file layout, the two
-  emission layers (LicenseToCIL-shaped body DSL over
-  `System.Reflection.Metadata` + the metadata-construction layer), and the
-  build order.
-- [il-emission-roadmap](il-emission-roadmap.md) — what the backend
-  needs to emit and in what order; this doc covers *how* the
-  backend should be structured.
 - [function-representation-plan](function-representation-plan.md) —
   the closure-lowering canonicalisation that runs before the
   backend sees TAST.

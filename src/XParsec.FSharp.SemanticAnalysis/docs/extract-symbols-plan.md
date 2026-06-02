@@ -1,11 +1,11 @@
 # Extract-symbols plan
 
-Build-plan for `FSharpLib.extractSymbols`, the function that walks parsed
+Build-plan for `VesperLib.extractSymbols`, the function that walks parsed
 `.fsi` files from `src/XParsec.FSharp.Lib/` and emits
 `(compiledName, ExternalSymbol)` pairs into the
 `IExternalSymbolProvider` table.
 
-The plumbing around it already exists ([`FSharpLib.fs`](../FSharpLib.fs)):
+The plumbing around it already exists ([`VesperLib.fs`](../VesperLib.fs)):
 manifests load, files lex and parse cleanly, and the provider/chain
 combinators are in place. This plan describes how the walker fills the
 table.
@@ -20,9 +20,9 @@ table.
 | 4 — Type declarations as a separate provider surface | **Done** | `IExternalSymbolProvider.TryLookupType` ships. Record fields, union cases, and abbreviation RHS bodies are extracted from `.fsi` declarations into closure-shaped builders parameterised over the type's declared typars. Classes / interfaces / enums / delegates still register only as name+arity (body extraction lands later). |
 | 5a — SRTP / trait constraint capture | **Done** | `ExternalConstraint` captures `Trait`, `MemberTrait`, `Default` clauses from `WhenConstrainedType`. Trait-style constraints (Equality/Comparison/Struct/RefType/Nullness/NotNull) are *applied* to fresh `TyVar`s at instantiation time so the existing unifier honours them. `MemberTrait` and `Default` are stored as opaque markers for Phase 5b. |
 | 5b.1 — Default defaulting at generalisation | **Done** | `ExternalConstraint.Default` now carries the resolved target (`SemBuilder` over the symbol's typars). `Instantiate` stamps the target onto the source `TyVar`'s new `Defaults` field; generalisation runs `applyDefaults` before quantification, chasing the chain through union-find Links and linking the source to the first concrete shape it reaches. Iterates to fixpoint (`default ^T3 : ^T1 ; default ^T1 : int` resolves in two passes). Short-name lookups (`op_Addition`) now hit the lib via an auto-open prefix table (`Microsoft.FSharp.Core.Operators`, `LanguagePrimitives.IntrinsicOperators`, etc.). Test gate: `let x = 1 + 2` types as `int` through a **lib-only** provider with no `MockBuiltins` in the chain. |
-| 5b.2 — SRTP member-trait unifier + production swap | **Done** | `MemberSignature` promoted from placeholder to a real shape carrying `MemberName` + `ArgTypes` + `ReturnType` + a shared `Resolved` ref. `ExternalConstraint.MemberTrait` now carries the trait's compiled member name plus per-arg/return `SemBuilder`s; instantiation stamps the captured shape on every participating fresh TyVar's `SrtpBounds`. `Unification.drainSrtpBounds` fires from the same link sites as `drainConstraints` and dispatches against (a) a built-in numeric-primitive table for `op_Addition` / `Subtraction` / `Multiply` / `Division` / `Modulus` / `UnaryNegation` / comparison, or (b) the candidate's `ctx.ClassTypes` entry. Tupled and curried candidate shapes are both accepted. `FSharpLib.defaultProvider libRoot` caches a single parsed lib per root for production callers. **`MockBuiltins` is kept** as a documented test fixture / minimal provider example. Test gate `V() + V()` (V has `static member (+) (a: V, b: V) = V()`) types as `TyClass "V"` through a lib-only provider. |
+| 5b.2 — SRTP member-trait unifier + production swap | **Done** | `MemberSignature` promoted from placeholder to a real shape carrying `MemberName` + `ArgTypes` + `ReturnType` + a shared `Resolved` ref. `ExternalConstraint.MemberTrait` now carries the trait's compiled member name plus per-arg/return `SemBuilder`s; instantiation stamps the captured shape on every participating fresh TyVar's `SrtpBounds`. `Unification.drainSrtpBounds` fires from the same link sites as `drainConstraints` and dispatches against (a) a built-in numeric-primitive table for `op_Addition` / `Subtraction` / `Multiply` / `Division` / `Modulus` / `UnaryNegation` / comparison, or (b) the candidate's `ctx.ClassTypes` entry. Tupled and curried candidate shapes are both accepted. `VesperLib.defaultProvider libRoot` caches a single parsed lib per root for production callers. **`MockBuiltins` is kept** as a documented test fixture / minimal provider example. Test gate `V() + V()` (V has `static member (+) (a: V, b: V) = V()`) types as `TyClass "V"` through a lib-only provider. |
 
-As of the most recent run, `FSharpLib.buildProvider` over the live
+As of the most recent run, `VesperLib.buildProvider` over the live
 `XParsec.FSharp.Lib` manifest extracts a substantial portion of the
 val table and registers ~195 type declarations across the 28 `.fsi`
 files. Phase 3's stricter resolution drops vals whose `LongIdent`
@@ -52,7 +52,7 @@ pre-existing debug skip):
   through a lib-only provider — `drainSrtpBounds` fires when the
   first participating typar resolves to `TyClass "V"`, looks up
   the static `op_Addition` in `ctx.ClassTypes["V"]`, and unifies
-  the trait return slot. Also: `FSharpLib.defaultProvider libRoot`
+  the trait return slot. Also: `VesperLib.defaultProvider libRoot`
   caches the lib once per root for production callers.
 
 The one persistent extraction gap is the lone `.fs` file in the lib
@@ -63,7 +63,7 @@ limitation; the test suite ignores the resulting per-file error.
 ## Goal
 
 After this plan lands, the in-memory table behind
-`FSharpLib.buildProvider` answers production semantic-analysis queries
+`VesperLib.buildProvider` answers production semantic-analysis queries
 — operators, FSharp.Core types, polymorphic combinators — sourced from
 real `.fsi` files instead of a hand-written table.
 
@@ -71,13 +71,13 @@ real `.fsi` files instead of a hand-written table.
 possible example of the `IExternalSymbolProvider` interface; the
 pluggable-provider architecture expects more implementations (a
 compiler-log "fake target", `.NET` integration via `MetadataLoadContext`,
-etc.) to slot in alongside `FSharpLib.buildProvider`. Removing the
+etc.) to slot in alongside `VesperLib.buildProvider`. Removing the
 in-tree minimal example would weaken that pattern. Production-path
-*wiring* still moves to `FSharpLib.buildProvider`; what changes is
+*wiring* still moves to `VesperLib.buildProvider`; what changes is
 which provider tests opt into.
 
 Phase 5 below is the gate: the semantic-analysis test corpus must pass
-when production wiring routes through `FSharpLib.buildProvider`.
+when production wiring routes through `VesperLib.buildProvider`.
 Individual tests can still use `MockBuiltins.provider` for isolation
 (when the test is about the unifier and the lib's surface is irrelevant
 or too slow). Anything not type-checking after the production swap is
@@ -137,8 +137,8 @@ Three things follow for this plan:
 
 | Piece | Where | Status |
 |-------|-------|--------|
-| Manifest reader → ordered `LibFile` list | `FSharpLib.fs` `loadAll` | Done; smoke-tested over all 5 buckets. |
-| Per-file lex + parse | `FSharpLib.fs` `parseFile` | Done; every `.fsi` in Lib parses clean. |
+| Manifest reader → ordered `LibFile` list | `VesperLib.fs` `loadAll` | Done; smoke-tested over all 5 buckets. |
+| Per-file lex + parse | `VesperLib.fs` `parseFile` | Done; every `.fsi` in Lib parses clean. |
 | Provider interface + helpers | `ExternalSymbols.fs` `mono` / `poly` | Done; ready to receive extracted entries. |
 | Hand-built reference table | `ExternalSymbols.fs` `MockBuiltins` | Done — the shape we have to replicate, then replace. |
 | `SemType` core variants | `SemanticInfo.fs:89` | Sufficient for Phase 1–3. Records/unions land in Phase 4; SRTP constraints land in Phase 5 alongside the per-target split. |
@@ -156,7 +156,7 @@ Missing pieces, in build order:
 
 ## Architecture
 
-`extractSymbols` lives in `FSharpLib.fs`. It is called once per parsed
+`extractSymbols` lives in `VesperLib.fs`. It is called once per parsed
 file by `buildProvider`, in bucket-topo-order, with an accumulating
 context so cross-file references resolve.
 
@@ -426,7 +426,7 @@ Followup decisions captured here that were not in the original plan:
   `Passes/Desugar.fs:infixOpName` but adds the unparenthesised
   variants (`|>`, `>>`, `@`, `^`, `..`, `?`, etc.). Active-pattern
   ident-or-ops are deferred (Phase 4-ish).
-- **`do ObjectConstruction.init ()` in `FSharpLib`** is required.
+- **`do ObjectConstruction.init ()` in `VesperLib`** is required.
   The init lives behind `ImplementationFile.pNamedModule`, which a
   pure-signature parse path never touches. Without forcing the init,
   attribute parsing fails on the first val in the first file with
@@ -462,12 +462,12 @@ Delivered:
   `buildProvider` return tuple keeps the existing shape — only parse
   failures bubble up to callers; per-val skips are introspectable but
   don't pollute the headline error count.
-- **End-to-end chain-provider fixture.** `FSharpLib.chain` composes
+- **End-to-end chain-provider fixture.** `VesperLib.chain` composes
   the lib provider in front of `MockBuiltins`. A test types
   `let x = 1 + 2 : int` through the chained provider to demonstrate
   both surfaces still answer for their respective name spaces.
 
-Phase 5b will swap `MockBuiltins.provider` for `FSharpLib.buildProvider`
+Phase 5b will swap `MockBuiltins.provider` for `VesperLib.buildProvider`
 in `Pipeline.fs` outright; the chained fixture is the bridge between
 "Phase 3 ready" and "Phase 5 cut over."
 
@@ -476,7 +476,7 @@ in `Pipeline.fs` outright; the chained fixture is the bridge between
 Delivered:
 - `IExternalSymbolProvider.TryLookupType` added alongside `TryLookup`,
   returning `ExternalTypeShape voption` keyed by qualified compiled
-  name. `MockBuiltins`, `nullProvider`, and `FSharpLib.chain` all
+  name. `MockBuiltins`, `nullProvider`, and `VesperLib.chain` all
   implement the new method (the first two as `ValueNone`, `chain`
   as primary-then-fallback).
 - `ExternalTypeShape` is a DU over the three v1 shapes:
@@ -524,7 +524,7 @@ Delivered:
     (Phase 5b.1 promoted this to `Default of typarIndex * (SemType[] -> SemType)`,
     carrying the resolved target as a SemBuilder over the symbol's typars.)
 - `RawConstraint` / `ConstraintCollector` internal types in
-  `FSharpLib.fs` thread the capture through `translateType`. The
+  `VesperLib.fs` thread the capture through `translateType`. The
   `WhenConstrainedType` arm now drains its `TyparConstraints` into
   the collector instead of dropping them.
 - `ExternalSymbols.polyWith` helper for in-code construction of
@@ -562,7 +562,7 @@ Delivered:
   reachable. Links the source TyVar to that shape and clears its
   `Defaults`. Iterates to fixpoint — chained defaults like
   `default ^T3 : ^T1 ; default ^T1 : int` close in two passes.
-- `FSharpLib.toProvider` auto-open prefix table. Short-name lookups
+- `VesperLib.toProvider` auto-open prefix table. Short-name lookups
   (`op_Addition`, `op_PipeRight`, …) fall through to
   `Microsoft.FSharp.Core.Operators` + a handful of sibling prefixes,
   so call sites (`inferInfix` in Unification.fs) don't need to know
@@ -590,7 +590,7 @@ Delivered:
   The builders are `SemBuilder`-shaped (closures over the symbol's
   declared typar array); `Instantiate` evaluates them against the
   fresh-TyVar array per call site.
-- **Extraction.** `captureConstraints` in `FSharpLib.fs` now drains
+- **Extraction.** `captureConstraints` in `VesperLib.fs` now drains
   the `Constraint.MemberTrait`'s `memberSig`: extracts the compiled
   member name through `identOrOpName` (so operator-style members like
   `(+)` land as `op_Addition`), and walks the `CurriedSig`'s
@@ -625,11 +625,11 @@ Delivered:
   builds the expected trait sig as `TyFun(TyTuple [...], ret)`
   primarily, falling through to a curried decomposition when the
   candidate's outer shape isn't tupled.
-- **Production-path helper.** `FSharpLib.defaultProvider libRoot`
+- **Production-path helper.** `VesperLib.defaultProvider libRoot`
   caches the parsed lib once per `libRoot` (keyed by normalised
   absolute path) via a `ConcurrentDictionary<string, Lazy<_>>` so
   production callers can request the provider without managing the
-  lifecycle. Tests retain `FSharpLib.buildProvider` for fresh-build
+  lifecycle. Tests retain `VesperLib.buildProvider` for fresh-build
   scenarios.
 
 `Pipeline.fs` still accepts the provider as a parameter — no
@@ -735,7 +735,7 @@ references a different subset of `.fsi` files and points
   - `Signatures.fs:113` `ModuleSignatureElement`
   - `Expr.fs:66` `Type<'T>` — including `WhenConstrainedType`.
   - `Expr.fs:104` `Typar<'T>` — `Named` (`'T`) vs `Statically` (`^T`).
-- Manifest loading + parsing pipeline: `FSharpLib.fs` `loadAll`,
+- Manifest loading + parsing pipeline: `VesperLib.fs` `loadAll`,
   `parseFile`, `buildProvider`.
 - Layout of the source tree being parsed:
   `src/XParsec.FSharp.Lib/compiler-clr-project.md`.

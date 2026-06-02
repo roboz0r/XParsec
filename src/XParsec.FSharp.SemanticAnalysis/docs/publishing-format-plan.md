@@ -39,7 +39,7 @@ Grounded in the current contract files:
 This is the same partition F# pickles: `FSharpSignatureData` (the contract) +
 `FSharpOptimizationData` (inlinable bodies). Vesper's `.fsi` ≙ signature data;
 the manifest's `impl` inline `.fs` (e.g. `ops-platform.fs`) ≙ optimization data
-(symbol-resolution-plan §5.2/§5.3; read across the package boundary by
+(read across the package boundary by
 `SymbolProviders.inlineBodies` and spliced by `Emit.lowerWith`, milestone M).
 
 ## Three positions, not two
@@ -126,7 +126,7 @@ reason as the F# pickle.
   re-resolved at consume.** Target-neutral, human-readable, diffable, and reuses
   the front-end parser as the single source of truth — no second format to
   version against the type system while the language still churns. This is the
-  current state (`FSharpLib.loadAll`/`topoSort` repointed per package-split-plan);
+  current state (`VesperLib.loadAll`/`topoSort` repointed per package-split-plan);
   ratify it. TypeScript's `.d.ts` is the precedent.
 - **PF2 — Metadata never rides the runtime artifact.** No pickled resource or PE
   section in any `Vesper.*.dll`; no metadata-bearing custom attribute beyond what
@@ -219,8 +219,6 @@ reason as the F# pickle.
   (PS2) and the deferred rollup/merge decision (PS6) this plan's PF7 feeds.
 - [minimal-core-lib-plan](minimal-core-lib-plan.md) — the contract/runtime
   two-artifact split (`.fsi` vs `.fs`) this plan distributes.
-- [symbol-resolution-plan](symbol-resolution-plan.md) — §5.2/§5.3 the inline-body
-  loader (`SymbolProviders.inlineBodies`) PF4 governs; the manifest `impl` list.
 - [function-representation-plan](function-representation-plan.md) — `Fun`, the
   representation behind the arrow-sugar abbreviation that IL can't carry.
 - [`../../Vesper.Core/manifest.toml`](../../Vesper.Core/manifest.toml) — the

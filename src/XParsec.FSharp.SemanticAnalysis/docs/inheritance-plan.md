@@ -446,6 +446,17 @@ A few invariants the implementation must preserve:
 - **`Unrelated` doesn't recurse into TyFun / TyTuple.** Function
   types only relate by full structural equality in v1; tuples likewise.
 
+**Why `subsumes` being read-only is load-bearing, not just tidy.** Keeping
+the relation a pure query is what lets the *destructive* unifier
+(`UnionFind.union` + `TyVar.Link` mutation, with **no undo trace**) carry
+inheritance at all. `subsumes` only fires at syntactic positions where the
+*target* type is already known (`:>` / `:?` / `:?>` targets, a `let`
+annotation), so it never has to speculatively bind an unsolved typar and
+then discover the guess was wrong — every v1 coercion site is
+decide-when-ground, and nothing needs rollback. The moment a coercion must
+be resolved *before* its types are ground, this shortcut stops being enough;
+see [§Speculative unification](#open-questions) below.
+
 ### TAST shape
 
 Three new `TExpr` cases:
@@ -901,6 +912,30 @@ Each test follows the existing `analyse` → `declType` /
   on the parameter typar. v1 requires explicit `:>`; landing this
   involves new constraint-kind plumbing (`SemanticConstraintKind.Coercion`,
   which is currently a no-op stub).
+- **Speculative unification / an undo trace.** Everything in v1 is arranged
+  so a *choice* is only made once its inputs are ground: `subsumes` is
+  read-only and fires only where the target type is known, `checkConstraint`
+  returns `Defer` for a free `TyVar` rather than guessing
+  (`Unification.fs:513`), and static-opt clause selection waits until
+  codegen. That arrangement is exactly what makes the destructive unifier
+  (no undo) sufficient — see [§Why `subsumes` being read-only is
+  load-bearing](#the-subsumes-relation). Several features parked in these
+  open questions break it, because they must *speculatively* constrain
+  unsolved variables and feed the result back: **`#Base` flex types /
+  implicit App-arg subsumption** (pick a coercion while the arg type is
+  still open), **return-type-directed overload resolution** (fsc's
+  `alwaysCheckReturn` path — `op_Implicit` / `op_Explicit`, out-args), and
+  **variance** (trial a covariant / contravariant match). fsc handles all of
+  these with a pervasive undo trace
+  (`D:\roboz0r\fsharp\src\Compiler\Checking\ConstraintSolver.fs`
+  `FilterEachThenUndo`, `IsSpeculativeForMethodOverloading`). We will **not**
+  need that full machinery: because all type-state mutation funnels through
+  union-find, a **scoped checkpoint** — an append-only log of
+  `(root, oldParent, oldLink, oldConstraints)` with `mark()` / `rewind(mark)`
+  around a speculative region — is enough, and is a localized add rather than
+  a refactor. Budget it at this milestone; until then the
+  decide-when-ground / defer / fall-back-or-error posture stands. The
+  same conclusion is reached from the overload-resolution side.
 - **Variance on `TyClass` args.** v1 treats args as invariant.
   Covariance (`List<Circle>` as `List<Shape>`) requires an annotation
   on the typar (`<+'a>` / `<-'a>`). Wider treatment lands with the

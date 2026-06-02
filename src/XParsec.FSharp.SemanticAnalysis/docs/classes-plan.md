@@ -901,6 +901,22 @@ Each test follows the existing `analyse` → `declType` / `Expect.equal`
   becomes "find the arity-matching candidate"). v1 takes the first
   match and diagnoses subsequent ones; full overload resolution
   lands with a dedicated overloading plan.
+- **Speculative unification for overload resolution.** The
+  overloading-by-arity case above — and external-method overload
+  resolution generally —
+  ultimately needs to *try* a candidate signature against the argument
+  types and back out if it doesn't fit. v1 sidesteps this (first match
+  wins, diagnose the rest), which is only viable because the current
+  unifier is *destructive* (`UnionFind.union` + `TyVar.Link`, **no undo**)
+  and so cannot trial-and-rollback. Real resolution either restricts itself
+  to **ground** argument types — a read-only `feasiblySubsumes` /
+  compatibility check, committing only the winner, which covers the common
+  BCL call site — or, for non-ground cases, needs a **scoped union-find
+  checkpoint** (`mark()` / `rewind(mark)` over an append-only mutation log).
+  The dedicated overloading plan owns this; the fsc reference is
+  `ConstraintSolver.fs` `FilterEachThenUndo`. The same
+  requirement surfaces from the subtyping side in
+  [`inheritance-plan.md`](inheritance-plan.md) §Open questions.
 - **`base.M(...)` calls.** Requires inheritance; deferred. The
   current `BaseCall` CST piece (used in `Expr.Object`) is unaffected
   by v1.

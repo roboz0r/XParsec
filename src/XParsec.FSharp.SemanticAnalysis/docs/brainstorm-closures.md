@@ -2,6 +2,19 @@
 
 **Target Runtime:** .NET 9+ (Requires `allows ref struct` and ref struct interface implementation).
 
+> **Status:** Forward-looking design — the long-term zero-allocation
+> closure shape (struct closures, ref-struct closures with `allows ref
+> struct`). The current v1 emits closures as **reference-type subclasses
+> of `Vesper.Fun<_,_>`**, not struct closures; see
+> [`function-representation-plan.md`](function-representation-plan.md)
+> §First-pass shape for the shipped shape and §Generic closures for the
+> generic-closure synthesis that landed in F3.2. Tactically choosing
+> struct vs class per local `Fun` implementation lands after generics
+> are correct end-to-end; the .NET 9 `allows ref struct` extension is
+> further out
+> ([`function-representation-plan.md`](function-representation-plan.md)
+> §Region / ref-struct extension).
+
 ## 1. Motivation
 
 In standard .NET functional languages, closures are implemented as reference types (`System.Delegate` / `Func<T, TResult>`), resulting in heap allocations. In heavy functional pipelines, this causes severe Garbage Collection (GC) pressure.
@@ -14,13 +27,13 @@ The compiler relies on a fundamental interface representing a function.
 
 ```csharp
 // Emitted into the core library of the language
-public interface IFunction<TIn, TOut>
+public interface Fun<TIn, TOut>
 {
     TOut Invoke(TIn arg);
 }
 ```
 
-*Note: Depending on arity, the compiler will generate `IFunction<T1, T2, TOut>`, etc.*
+*Note: Depending on arity, the compiler will generate `Fun<T1, T2, TOut>`, etc.*
 
 ## 3. Closure Emission Strategy (Anonymous Functions)
 
@@ -49,7 +62,7 @@ If the closure captures a `ref struct` (e.g., `ReadOnlySpan<T>`).
 
 ```csharp
 // Example IL/C# emission for: let f = fun x -> span[x]
-internal readonly ref struct Closure_Line42 : IFunction<int, int>
+internal readonly ref struct Closure_Line42 : Fun<int, int>
 {
     private readonly ReadOnlySpan<int> _span; // Allowed in .NET 9+
     public Closure_Line42(ReadOnlySpan<int> span) => _span = span;
@@ -73,13 +86,13 @@ When `A -> B` appears as a parameter, the compiler desugars it into:
 1. A generic type parameter `TClosure`.
 2. An `in` passing modifier (to prevent copying large struct payloads).
 3. An `allows ref struct` constraint (to allow `Span`-capturing closures).
-4. An `IFunction<A, B>` constraint.
+4. An `Fun<A, B>` constraint.
 
 **Emitted C#/IL:**
 
 ```csharp
 public static List<B> Map<A, B, TClosure>(in TClosure f, List<A> list) 
-    where TClosure : allows ref struct, IFunction<A, B>
+    where TClosure : allows ref struct, Fun<A, B>
 {
     // Inner loop:
     B result = f.Invoke(item); // Devirtualized and Inlined by RyuJIT
@@ -109,7 +122,7 @@ public static Closure_MakeAdder MakeAdder(int x) => new Closure_MakeAdder(x);
 
 If a function branches and returns two structurally different closures, the compiler must resolve the type union:
 
-* **If both are standard structs:** The compiler emits a return type of `IFunction<A, B>`. This triggers a `box` instruction, moving the closure to the heap.
+* **If both are standard structs:** The compiler emits a return type of `Fun<A, B>`. This triggers a `box` instruction, moving the closure to the heap.
 * **If either is a `ref struct`:** Boxing is illegal. The compiler must either throw a compilation error, or (as an advanced optimization) synthesize a `UnionStruct` containing the fields of both, plus a boolean tag to dispatch the `Invoke` call.
 
 ## 6. Type Erasure, Boxing, and Escape Analysis
@@ -118,7 +131,7 @@ Because `A -> B` is a syntactic alias, its runtime representation changes based 
 
 ### 6.1 Safe Escape (Boxing)
 
-If a user assigns a standard closure to a persistent data structure (e.g., `type Record = { func: A -> B }`), the compiler resolves `A -> B` to the boxed interface `IFunction<A,B>`.
+If a user assigns a standard closure to a persistent data structure (e.g., `type Record = { func: A -> B }`), the compiler resolves `A -> B` to the boxed interface `Fun<A,B>`.
 
 * **Action:** The compiler emits a `box` instruction. The performance drops to standard delegate levels, but the program remains valid.
 
