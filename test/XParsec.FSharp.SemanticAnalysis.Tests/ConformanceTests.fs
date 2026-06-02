@@ -213,10 +213,10 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
         // `ResizeArray<'T>` and `seq<'T>` are abbreviations of BCL types
         // (`System.Collections.Generic.List<'T>` / `IEnumerable<'T>`, list.fsi:126/135);
         // they alias the runtime BCL type directly, so there is no companion type
-        // in `List.fs` (which defines only the cons-list `List<'T>`).
+        // in `list.fs` (which defines only the cons-list `List<'T>`).
         "Vesper.List",
         "list.fsi",
-        "List.fs",
+        "list.fs",
         "ResizeArray/seq are BCL abbreviations",
         [
             Conformance.ConformanceError.MissingInImpl "ResizeArray"

@@ -12,6 +12,21 @@ open UnificationInferResolve
 
 module UnificationInferPat =
 
+    /// The `'T list` type carrying `elemTy`, resolved exactly like a `[…]`
+    /// literal (`Unification.listLiteralTy`): a program that declares its own
+    /// `'T list` abbreviation (the self-host `list.fs`) expands eagerly to the
+    /// union RHS; a bare program leaves the container flexible (a fresh TyVar
+    /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
+    let private consListTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
+        match ctx.Types.Abbreviation.TryGetValue "list" with
+        | true, info ->
+            forceFill ctx info
+            expandAbbreviation ctx key info (EqArray.singleton elemTy)
+        | false, _ ->
+            let tv = freshTyVar ctx
+            ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
+            TyVar tv
+
     let rec inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey; for
         // compound patterns the outer TypeVar is linked to the underlying
@@ -287,6 +302,23 @@ module UnificationInferPat =
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome annTy
             annTy
+        | Pat.EmptyBlock(lParen = ParenKind.List _) ->
+            // `[]` pattern: a list whose element type is left free for the
+            // scrutinee to pin (`match xs with [] -> …`).
+            let elemTy = TyVar(freshTyVar ctx)
+            let listTy = consListTy ctx key elemTy
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome listTy
+            listTy
+        | Pat.Cons(head = headPat; tail = tailPat) ->
+            // `h :: t`: `h` is an element, `t` the same list type.
+            let headTy = inferPat ctx headPat
+            let listTy = consListTy ctx key headTy
+            let tailTy = inferPat ctx tailPat
+            unify ctx (CstKeys.ofPat tailPat) tailTy listTy
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome listTy
+            listTy
         | Pat.EmptyBlock _ ->
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome BuiltinTypes.tyUnit

@@ -250,6 +250,7 @@ module Regions =
                 for sub in args do
                     yield! bindersOfPat ctx sub
             ]
+        | Pat.Cons(head = h; tail = t) -> bindersOfPat ctx h @ bindersOfPat ctx t
         | _ -> []
 
     /// Find every binding-site NodeKey referenced by `body` whose binder lies

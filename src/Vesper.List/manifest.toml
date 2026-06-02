@@ -3,15 +3,15 @@
 #
 # Same shape as src/Vesper.Core / src/Vesper.Option / src/Vesper.Printf: the
 # `.fsi` is the front-end symbol contract (parsed by XParsec.FSharp, walked into
-# an IExternalSymbolProvider); `list-min.fs` is the runtime impl compiled by this
+# an IExternalSymbolProvider); `list.fs` is the runtime impl compiled by this
 # repo's own backend → Vesper.List.dll (BCL-only, no FSharp.Core). No `.fsproj`:
 # like its siblings this tree is not built by `dotnet`/`fsc`.
 #
-# Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`). The full `List.fs`
-# contract also names `int option` (in `List.GetSlice`), but the compiled minimal
-# impl (`list-min.fs`) does not, so `depends-on` tracks the build dependency only;
-# Vesper.Option returns here when `List.fs` becomes the compiled impl. `name` and
-# `depends-on` are recorded here per the package-split-plan package schema; the
+# Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`). The `list.fsi` contract
+# also names `int option` (in `List.GetSlice`), but the compiled impl (`list.fs`)
+# does not, so `depends-on` tracks the build dependency only (Vesper.Option will
+# return here if `GetSlice` is implemented). `name` and `depends-on` are recorded
+# here per the package-split-plan package schema; the
 # root-manifest / a la carte loader wiring (PS-Loader) is a separate follow-up —
 # these self-contained package manifests are consumed today by the parser golden
 # tests (test/XParsec.FSharp.Tests/VesperCoreContractTests.fs).
@@ -33,11 +33,11 @@ files = [
     "list.fsi",
 ]
 
-# Runtime impl `.fs` files (our-backend target source). `list-min.fs` is the
-# compiled minimal list (named `Nil`/`Cons` cases — the source `Vesper.List.dll`
-# actually builds from). `List.fs` is the verbatim `[]`/`::` + `module List`
-# target it grows into once public module-function compilation lands; it is parse-
-# tested but not yet the compiled impl, so it is not listed here.
+# Runtime impl `.fs` files (our-backend target source). `list.fs` is the compiled
+# impl in the verbatim `[]`/`::` operator-case form — the cutover target that the
+# old `list-min.fs` (named `Nil`/`Cons` cases) was a placeholder for, now buildable
+# because the front end lowers cons patterns/construction (vesper-lib-test-plan
+# "list.fs cutover"). `list-min.fs` was removed once the cutover landed.
 impl = [
-    "list-min.fs",
+    "list.fs",
 ]

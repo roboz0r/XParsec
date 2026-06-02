@@ -109,9 +109,15 @@ module Desugar =
     let private visit (ctx: PassContext) (_env: unit) (e: Expr<SyntaxToken>) : unit =
         match e with
         | Expr.InfixApp(_, op, _) ->
-            match infixOpName op.Token with
-            | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
-            | ValueNone -> ()
+            // `::` is not a provider-resolved operator: it constructs the list
+            // union directly, so it carries its own desugared form (consumed by
+            // Unification/Freeze) rather than an `op_*` member name.
+            match op.Token with
+            | Token.KWColonColon -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.ConsExpr)
+            | _ ->
+                match infixOpName op.Token with
+                | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
+                | ValueNone -> ()
         | Expr.PrefixApp(op, _) ->
             match prefixOpName op.Token with
             | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)

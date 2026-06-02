@@ -119,6 +119,9 @@ module CstKeys =
         | Pat.Or(left = inner) -> firstTokenOfPat inner
         | Pat.Record(lBrace = t) -> t
         | Pat.Op io -> firstTokenOfIdentOrOp io
+        // Key off the `::` token — same rationale as the
+        // `InfixApp` operator-token choice.
+        | Pat.Cons(consToken = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
@@ -189,6 +192,7 @@ module CstKeys =
             | Pat.EmptyBlock _ -> NodeKind.PatEmptyBlock
             | Pat.Record _ -> NodeKind.PatRecord
             | Pat.Op _ -> NodeKind.PatOp
+            | Pat.Cons _ -> NodeKind.PatCons
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfPat p) kind

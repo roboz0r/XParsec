@@ -41,7 +41,7 @@ let private contractFiles =
 /// Impl `.fs` files — our-backend target source, one companion per `prim-types-*`
 /// contract (each binds its extern types to `(# "..." #)` intrinsics).
 /// `ops-platform.fs` carries the `hash` inline body the codegen inline-body
-/// loader reads (milestone M). The cons-list (`list-min.fs` / `List.fs`) moved to
+/// loader reads. The cons-list (`list.fs`) moved to
 /// the standalone `Vesper.List` package (package-split-plan PS1) — see
 /// `vesperListContractTests` below.
 let private implFiles =
@@ -162,11 +162,6 @@ let vesperComparisonContractTests =
             test "Parsing comparison.fs" { testParseFile (comparisonPath "comparison.fs") }
         ]
 
-/// Vesper.List — standalone package carved out of Vesper.Core's core-types
-/// (package-split-plan PS1). `list.fsi` is the contract; `list-min.fs` is the
-/// compiled cons-list (named `Nil`/`Cons` cases) the package's `Vesper.List.dll`
-/// builds from; `List.fs` is the verbatim `[]`/`::` + `module List` target. Same
-/// golden-file bar: each must parse with zero recovery diagnostics.
 [<Tests>]
 let vesperListContractTests =
     let listPath fileName = vesperPath "Vesper.List" fileName
@@ -175,8 +170,7 @@ let vesperListContractTests =
         "VesperListContract"
         [
             test "Parsing list.fsi" { testParseSignatureFile (listPath "list.fsi") }
-            test "Parsing list-min.fs" { testParseFile (listPath "list-min.fs") }
-            test "Parsing List.fs" { testParseFile (listPath "List.fs") }
+            test "Parsing list.fs" { testParseFile (listPath "list.fs") }
         ]
 
 /// Vesper.Set — standalone package (package-split-plan PS1). Both `set.fsi`

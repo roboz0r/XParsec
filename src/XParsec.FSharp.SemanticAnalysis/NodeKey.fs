@@ -76,6 +76,10 @@ type NodeKind =
     /// Operator-named binding head (`let (=) x y = …`); the `IdentOrOp` carries
     /// the operator token, not a plain ident.
     | PatOp = 112us
+    /// Cons pattern (`h :: t`). Keyed off the `::` token (not the head's first
+    /// token) so a cons node never collides with its head sub-pattern's key —
+    /// same rationale as the `ExprInfixApp` operator-token choice.
+    | PatCons = 113us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

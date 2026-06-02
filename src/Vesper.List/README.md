@@ -14,43 +14,49 @@ compiled and *consumed by emitted programs* (the canonical sample's `[1;…]` +
 | File | Role | Consumed by |
 |---|---|---|
 | `list.fsi` | **contract** — the type + `List` module signatures, in namespace `Vesper.Collections` | `XParsec.FSharp` parser → `IExternalSymbolProvider` (front-end symbol resolution) |
-| `list-min.fs` | **runtime impl** — the union + member bodies | this repo's own backend → `Vesper.List.dll` (BCL-only) |
-| `List.fs` | **verbatim target** — the `[]`/`::` + `module List.fold` end-state | parse-tested only; not yet compiled (see below) |
+| `list.fs` | **runtime impl** — the verbatim `[]`/`::` union + member/module bodies | this repo's own backend → `Vesper.List.dll` (BCL-only) |
 
 A normal signature/implementation pair, both ours. `list-min.fs` is a partial,
 growing subset of the contract (only `fold` in the `List` module; the rest of the
 module is contract-only for now) — expected while the self-hosting ladder is
 climbed, the same stance as `Vesper.Option`.
 
-## `list-min.fs` vs `List.fs` (the compiled vs verbatim split)
+## `list.fs` (the compiled impl)
 
-`Vesper.List.dll` is compiled from **`list-min.fs`**: the cons-list with explicit
+`Vesper.List.dll` is compiled from **`list.fs`**: the verbatim FSharp.Core
+`[]` / `::` operator-case cons-list, with instance `IsEmpty` / `Head` / `Tail`
+(`Head` / `Tail` raise via `failwith`, which lowers to a BCL `System.Exception`,
+so the DLL carries no `FSharp.Core` reference) and the `List` module (`fold` plus
+the proven "grow" set `isEmpty`/`length`/`head`/`tail`/`map`/`filter`/`append`/`rev`).
+The `[]` / `::` cases compile to FSharpList's exact shape — `[]` → a static
+`Empty` factory, `(::)` → a static `Cons` factory + `Cons_0` / `Cons_1` payload
+fields — and a `[1; 2; 3]` literal binds to the union by **arity** (nullary
+terminator + binary cons). This is the **cutover** (vesper-lib-test-plan): it
+became buildable once the front end gained cons-pattern / cons-construction /
+empty-list-pattern lowering (`h :: t`, `x :: xs`, `[]` → `TPat.Union` /
+`TExpr.UnionCons`). `List.fold` is compiled *into* the DLL (its folder is a
+`Vesper.Fun`, so the DLL carries a `Vesper.Core` `AssemblyRef`).
+
+`ofSeq` / `toSeq` stay **contract-only** in `list.fsi` (not in the compiled
+module): they ride Phase 4's `for x in IEnumerable` + seq comprehensions, not yet
+compilable.
+
+`list-min.fs` was the placeholder this replaced — the cons-list with explicit
 **`Nil` / `Cons`** case names (a sanctioned deviation, minimal-core-lib-plan D6)
-and instance `IsEmpty` / `Head` / `Tail` (`Head` / `Tail` raise via `failwith`,
-which lowers to a BCL `System.Exception`, so the DLL carries no `FSharp.Core`
-reference). The named cases keep the source inside the proven front-end subset; a
-`[1; 2; 3]` literal still binds to the union by **arity** (nullary terminator +
-binary cons), not by case name.
-
-**`List.fs`** is the verbatim `[]` / `::` operator-case form with the higher-order
-`module List.fold` written in Vesper. It is the end-state `list-min.fs` is replaced
-by once the backend gains *public module-function compilation* (a self-reference to
-`Vesper.Fun` + a real `Vesper.Collections.ListModule` holder).
-Until then `List.fold` is emitted **inline** in the consuming program rather than
-compiled into `Vesper.List.dll`.
-
-> On Windows (case-insensitive filesystem) `list-min.fs`, `List.fs` and `list.fsi`
-> are distinct names; a `list.fs` impl would collide with `List.fs`, so the
-> compiled impl keeps the `list-min.fs` name.
+that kept the source inside the proven front-end subset *before* cons patterns
+landed. It was removed once the cutover landed (see git history for the `Nil`/`Cons`
+reference); `list.fs` (matching `list.fsi`'s casing and FSharp.Core's own
+`list.fs`/`list.fsi`) is now the sole impl.
 
 ## Two legs (package-split-plan PS3)
 
-- **Type leg** — the generic `List<'T>` union (`Cons` / `Nil` + `IsEmpty` /
-  `Head` / `Tail`). Landed: a real generic `TypeDefinition` (`List\`1`) with static
-  case factories and instance members (rung 2 / R2).
-- **Module leg** — `List.fold` is higher-order, so it rides **R1** (the
-  `Fun`-not-`FSharpFunc` cutover, done). It is emitted inline today; compiling it
-  *into* `Vesper.List.dll` waits on public module-function compilation.
+- **Type leg** — the generic `List<'T>` union (`[]` / `::` → `Empty` / `Cons` +
+  `IsEmpty` / `Head` / `Tail`). Landed: a real generic `TypeDefinition` (`List\`1`)
+  with static case factories and instance members (rung 2 / R2).
+- **Module leg** — `List.fold` (and the grow set) is higher-order, so it rides
+  **R1** (the `Fun`-not-`FSharpFunc` cutover, done). The module is compiled *into*
+  `Vesper.List.dll` as the `Vesper.Collections.ListModule` static class; a consuming
+  program `call`s `ListModule::fold` via a `MethodSpec` rather than inlining it.
 
 ## Naming / shape decisions
 

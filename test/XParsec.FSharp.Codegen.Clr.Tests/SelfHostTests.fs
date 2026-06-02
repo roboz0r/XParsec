@@ -306,10 +306,11 @@ let tests =
             }
 
             // ---- Vesper.List: the cons-list package (R3) ---------------------
-            test "Vesper.List.dll exports List`1 (Cons/Nil + IsEmpty/Head/Tail) and ListModule::fold (its own package)" {
+            test
+                "Vesper.List.dll exports List`1 (Cons/Empty + IsEmpty/Head/Tail) and ListModule::fold (its own package)" {
                 // The cons-list is its own package now (package-split-plan PS2):
-                // forcing the lazy compiles `src/Vesper.List/list-min.fs` into a
-                // standalone Vesper.List.dll and loads it.
+                // forcing the lazy compiles `src/Vesper.List/list.fs` (the verbatim
+                // `[]`/`::` cutover impl) into a standalone Vesper.List.dll and loads it.
                 let listPath = vesperListDll.Value
                 let listAsm = Assembly.LoadFrom listPath
 
@@ -322,7 +323,7 @@ let tests =
                 | Some t ->
                     Expect.isTrue t.IsGenericTypeDefinition "List`1 is a generic type definition"
                     Expect.isNotNull (t.GetMethod "Cons") "List`1 has a static Cons factory"
-                    Expect.isNotNull (t.GetMethod "Nil") "List`1 has a static Nil factory"
+                    Expect.isNotNull (t.GetMethod "Empty") "List`1 has a static Empty factory (`[]` case)"
                     Expect.isNotNull (t.GetMethod "get_IsEmpty") "List`1 has an instance get_IsEmpty"
                     Expect.isNotNull (t.GetMethod "get_Head") "List`1 has an instance get_Head"
                     Expect.isNotNull (t.GetMethod "get_Tail") "List`1 has an instance get_Tail"

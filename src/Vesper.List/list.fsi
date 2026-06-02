@@ -4,9 +4,9 @@ namespace Vesper.Collections
 // Vesper.Core's `core-types.fsi` (package-split-plan PS1: one package per type).
 // Like the rest of the Vesper tree this is the front-end symbol contract: parsed
 // by XParsec.FSharp and walked into an IExternalSymbolProvider. The runtime impl
-// is `list-min.fs` (→ Vesper.List.dll, BCL-only, our own backend); `List.fs` is
-// the verbatim `[]`/`::` + `module List` target it grows into once public
-// module-function compilation lands.
+// is `list.fs` (→ Vesper.List.dll, BCL-only, our own backend) — the verbatim
+// `[]`/`::` + `module List` form, compilable since the front end lowers cons
+// patterns/construction (the cutover).
 //
 // Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`) and Vesper.Option — the
 // `List.GetSlice` member below names `int option`, resolving the forward-reference
@@ -147,6 +147,31 @@ open System.Collections.Generic
 
         /// `fold f s [a; b; c]` computes `f (f (f s a) b) c`.
         val fold: folder: ('State -> 'T -> 'State) -> state: 'State -> list: 'T list -> 'State
+
+        /// `length list` returns the number of elements in the list.
+        val length: list: 'T list -> int
+
+        /// `isEmpty list` returns true when the list contains no elements.
+        val isEmpty: list: 'T list -> bool
+
+        /// `head list` returns the first element. Raises when the list is empty.
+        val head: list: 'T list -> 'T
+
+        /// `tail list` returns the list without its first element. Raises when the
+        /// list is empty.
+        val tail: list: 'T list -> 'T list
+
+        /// `map mapping list` builds a new list by applying `mapping` to each element.
+        val map: mapping: ('T -> 'U) -> list: 'T list -> 'U list
+
+        /// `filter predicate list` keeps the elements for which `predicate` returns true.
+        val filter: predicate: ('T -> bool) -> list: 'T list -> 'T list
+
+        /// `append list1 list2` returns the elements of `list1` followed by those of `list2`.
+        val append: list1: 'T list -> list2: 'T list -> 'T list
+
+        /// `rev list` returns the list with its elements in reverse order.
+        val rev: list: 'T list -> 'T list
 
         /// `ofSeq source` builds a new list from the given enumerable object.
         /// Depends on `for x in IEnumerable` (vesper-set-sprint Phase 4).

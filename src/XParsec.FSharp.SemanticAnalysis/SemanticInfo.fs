@@ -536,3 +536,10 @@ type DesugaredForm =
     /// the lowered list chain in an `Array.ofList` external call so
     /// the same nested `UnionCons` shape feeds both literal forms.
     | ArrayLiteral
+    /// On an `Expr.InfixApp(_, ::, _)` node — cons construction `h :: t`. The
+    /// `::` operator is not a provider-resolved function (unlike `+`/`|>`); it
+    /// builds the list union directly. Unification types `h :: t` as the list
+    /// type carrying `h`'s element type (`tail` unified to the same list);
+    /// Freeze projects it to `TExpr.UnionCons("Cons", [hd; tl])` against the
+    /// resolved list union — the same shape `ListLiteral` lowers to.
+    | ConsExpr

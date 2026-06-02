@@ -191,6 +191,10 @@ module NameResolutionScope =
                 for sub in args do
                     yield! bindingsOfPat ctx sub
             ]
+        | Pat.Cons(head = h; tail = t) ->
+            // `h :: t`: the `::` head binds nothing; both sub-patterns introduce
+            // binders.
+            bindingsOfPat ctx h @ bindingsOfPat ctx t
         | Pat.Op io ->
             // Operator-named binding head (`let (=) x y = …`): bind the compiled
             // name (`op_Equality`). Use sites resolve through Desugar→External,

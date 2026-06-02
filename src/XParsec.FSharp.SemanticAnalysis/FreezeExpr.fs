@@ -137,6 +137,27 @@ module FreezeExpr =
             | ValueSome q -> ExternalSymbols.shortName uc.UnionName = q
         | ValueNone -> false
 
+    /// The `(consName, nilName)` case names of the list union a `[…]` literal,
+    /// `[]`/`h :: t` pattern, or `::` construction targets. Mirrors the
+    /// case-by-arity resolution in `translateListLikeLiteral`: a program-declared
+    /// list union (its nullary case = the empty terminator, its single binary case
+    /// = cons) drives its own factories. For the self-host `list.fs` and the
+    /// external Vesper list (whose `[]`/`::` cases register / compile as
+    /// `Empty`/`Cons`) this returns `("Cons", "Empty")`; the FSharp.Core fallback
+    /// keeps `("Cons", "Nil")`.
+    let private listCaseNames (ctx: PassContext) (ty: SemType) : string * string =
+        match Unification.zonk ty with
+        | TyUnion(unionKey, _) when (TypeRegistry.tryUnionByKey ctx.Types unionKey).IsSome ->
+            let info = (TypeRegistry.tryUnionByKey ctx.Types unionKey).Value
+            let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
+            let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
+
+            match nilCase, consCase with
+            | Some n, Some c -> c.Name, n.Name
+            | _ -> "Cons", "Empty"
+        | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> "Cons", "Empty"
+        | _ -> "Cons", "Nil"
+
     /// Patterns Unification doesn't understand yet fall through loudly so the
     /// gap surfaces at translation time.
     let rec translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
@@ -161,6 +182,16 @@ module FreezeExpr =
         | Pat.Wildcard _ -> TPat.Wildcard ty
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
         | Pat.Tuple(patterns = pats) -> TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty)
+        | Pat.EmptyBlock(lParen = ParenKind.List _) ->
+            // `[]` pattern → the list union's nullary (empty) case, by arity.
+            let _, nilName = listCaseNames ctx ty
+            TPat.Union(nilName, EqArray.empty, ty)
+        | Pat.Cons(head = headPat; tail = tailPat) ->
+            // `h :: t` → the list union's binary (cons) case. The node's type
+            // (`typeOfKey`) is the list `TyUnion` Unification resolved; the backend
+            // routes local vs external off it, exactly like a named-ctor pattern.
+            let consName, _ = listCaseNames ctx ty
+            TPat.Union(consName, EqArray.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty)
         | Pat.Const c -> TPat.Const(parseConst ctx c, ty)
         | Pat.As(pat = inner) ->
             // The `as`-name isn't surfaced in TPat yet — downstream Var lookups
@@ -1353,6 +1384,11 @@ module FreezeExpr =
             let opExpr = TExpr.External(name, ValueNone, opTy)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy)
             TExpr.App(app1, translateExpr ctx right, resultTy)
+        | ValueSome DesugaredForm.ConsExpr ->
+            // `h :: t` → `UnionCons("Cons", [h; t])` against the resolved list
+            // union — the same shape `[…]` literals lower to (one cons cell).
+            let consName, _ = listCaseNames ctx resultTy
+            TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy)
         | ValueSome _
         | ValueNone ->
             // Desugar always attaches an OpName for an InfixApp key; reaching
@@ -1424,7 +1460,7 @@ module FreezeExpr =
             // is not caught by the user-union arm above. Recognition (bare /
             // arity-suffixed union name, or the lowercase abbreviation) is shared
             // with codegen via `RuntimeNames.isVesperListKey`, so the `` `N ``-strip isn't re-derived here.
-            | TyUnion(listKey, _) when not isArray && RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Nil"
+            | TyUnion(listKey, _) when not isArray && RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Empty"
             | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
 
         let listExpr =

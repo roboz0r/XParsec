@@ -274,7 +274,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    let emitVesperListNil (elem: SemType) : CallRecipe =
+    let emitVesperListEmpty (elem: SemType) : CallRecipe =
         let typeSpec = vesperListTypeSpec elem
         let msig = BlobBuilder()
 
@@ -282,10 +282,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             .MethodSignature(isInstanceMethod = false)
             .Parameters(0, (fun (ret: ReturnTypeEncoder) -> encodeVesperListOfTypar (ret.Type())), (fun _ -> ()))
 
-        let nilRef = toEntity (ctx.MemberRef(typeSpec, "Nil", msig))
+        let emptyRef = toEntity (ctx.MemberRef(typeSpec, "Empty", msig))
 
         {
-            Emit = fun il -> il.Encoder.Call nilRef
+            Emit = fun il -> il.Encoder.Call emptyRef
             ArgCount = 0
             Pushes = 1
         }
@@ -810,7 +810,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitListCons elem = emitListCons elem
     member _.EmitListNil elem = emitListNil elem
     member _.EmitVesperListCons elem = emitVesperListCons elem
-    member _.EmitVesperListNil elem = emitVesperListNil elem
+    member _.EmitVesperListEmpty elem = emitVesperListEmpty elem
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy

@@ -136,8 +136,8 @@ let vesperCoreDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
 
-/// Compile `Vesper.List.dll` from `src/Vesper.List/list-min.fs` — the
-/// `Vesper.Collections.List\`1` cons-list (`Cons`/`Nil` + `IsEmpty`/`Head`/`Tail`)
+/// Compile `Vesper.List.dll` from `src/Vesper.List/list.fs` — the
+/// `Vesper.Collections.List\`1` cons-list (`Cons`/`Empty` + `IsEmpty`/`Head`/`Tail`)
 /// **and** the `Vesper.Collections.ListModule::fold` static method (R3 deferred:
 /// `fold` is compiled into the DLL now) — as its own package (package-split-plan
 /// PS2), load it into the *Default* `AssemblyLoadContext`, and return its path.
@@ -157,12 +157,16 @@ let vesperListDll: Lazy<string> =
                  References = [ vesperCoreDll.Value ]
              }
 
-         let src = IO.File.ReadAllText(vesperListSource "list-min.fs")
-         // Vesper.List uses `failwith` (now a real inline operator in
-         // `Vesper.Core/ops-platform.fs`, not a name-suffix probe), so the
-         // build must run through the Vesper.Core contract — `MockBuiltins`
-         // alone leaves the call head un-inlined. Self-manifest (`Vesper.List`'s
-         // own) is excluded; the package is *defining* its types here.
+         let src = IO.File.ReadAllText(vesperListSource "list.fs")
+         // Vesper.List's compiled impl is `list.fs` (post-cutover): the verbatim
+         // `[]`/`::` cons-list. A `[1; 2; 3]` consumer literal binds to it by arity
+         // (nullary terminator + binary cons), not by case name, so the driver
+         // stack is unaffected by the `Nil`/`Cons` → `Empty`/`Cons` rename. It uses
+         // `failwith` (a real inline operator in `Vesper.Core/ops-platform.fs`, not
+         // a name-suffix probe), so the build must run through the Vesper.Core
+         // contract — `MockBuiltins` alone leaves the call head un-inlined.
+         // Self-manifest (`Vesper.List`'s own) is excluded; the package is
+         // *defining* its types here.
          let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
          let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
