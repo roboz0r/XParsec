@@ -140,7 +140,7 @@ type ClrProvider
     member _.RegisterClosure
         (
             name: string,
-            typars: TypeVar list,
+            typarCount: int,
             captureSigs: SemType list,
             paramTy: SemType,
             resultTy: SemType,
@@ -148,7 +148,7 @@ type ClrProvider
         ) : unit =
         env.GenericClosures.[name] <-
             {
-                TyparRoots = typars |> List.map UnionFind.find
+                TyparCount = typarCount
                 CaptureSigs = captureSigs
                 ParamTy = paramTy
                 ResultTy = resultTy
@@ -164,13 +164,15 @@ type ClrProvider
     member _.GenericCaptureFieldSignature(closureTypars: TypeVar list, ty: SemType) : BlobBuilder =
         generics.GenericCaptureFieldSignature(closureTypars, ty)
 
-    /// Install the ambient closure-typar set (by union-find root) around a generic closure's own ctor /
-    /// Invoke / field-signature / locals emission. Invariant: at most one of `SetMethodTypars` /
-    /// `SetTypeTypars` / `SetClosureTypars` may be active at a time.
-    member _.SetClosureTypars(typars: TypeVar list) : unit =
-        env.ClosureTyparRoots <- typars |> List.map UnionFind.find
+    /// Enter / exit closure-typar mode around a generic closure's own ctor / Invoke /
+    /// field-signature / locals / member-ref emission: the enclosing method's
+    /// `TempTypar(Method, i)` (which the closure body embeds) re-project onto the
+    /// closure *class*'s `GenericTypeParameter i` rather than `!!i` (frozen-type-plan
+    /// 2B). Invariant: at most one of `SetMethodTypars` / `SetTypeTypars` /
+    /// `EnterClosureTyparScope` is active at a time.
+    member _.EnterClosureTyparScope() : unit = env.ClosureTyparMode <- true
 
-    member _.ClearClosureTypars() : unit = env.ClosureTyparRoots <- []
+    member _.ExitClosureTyparScope() : unit = env.ClosureTyparMode <- false
 
     member _.EncodeAbstractType
         (typeIx: Map<string, int>, methodIx: Map<string, int>, te: SignatureTypeEncoder, t: SemType)

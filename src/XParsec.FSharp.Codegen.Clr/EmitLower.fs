@@ -92,20 +92,18 @@ module EmitLower =
     /// the method's typar `TypeVar`s) against the actual argument type. First
     /// occurrence wins. A recursive self-call yields the method's own typars
     /// (encoded `!!i`); an external call yields concrete types.
-    let matchInstantiation (typars: TypeVar list) (defTys: SemType list) (actualTys: SemType list) : SemType list =
-        let roots = typars |> List.map UnionFind.find
-        let result = Array.create roots.Length ValueNone
+    let matchInstantiation (typarCount: int) (defTys: SemType list) (actualTys: SemType list) : SemType list =
+        let result = Array.create typarCount ValueNone
 
         let rec go (defT: SemType) (actT: SemType) =
             match zonk defT, zonk actT with
-            | TyVar tv, act ->
-                let r = UnionFind.find tv
-
-                match roots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
-                | Some i ->
-                    if result.[i].IsNone then
-                        result.[i] <- ValueSome act
-                | None -> ()
+            // A freeze-quantified method typar (frozen-type-plan 2B): the index is on
+            // the node, so the recovered instantiation is index-keyed. `act` may
+            // itself be a `TempTypar(Method, j)` — the enclosing generic context's
+            // typar — which the `MethodSpec` then encodes verbatim.
+            | TempTypar(TyparAxis.Method, i), act ->
+                if i >= 0 && i < typarCount && result.[i].IsNone then
+                    result.[i] <- ValueSome act
             | TyFun(a1, r1), TyFun(a2, r2) ->
                 go a1 a2
                 go r1 r2
@@ -121,12 +119,17 @@ module EmitLower =
             | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
                 for i in 0 .. xs.Length - 1 do
                     go xs.[i] ys.[i]
+            // A generic intrinsic (notably the array `[]<!!i>`) carries its element
+            // structurally; recurse so the element typar is recovered.
+            | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
             | _ -> ()
 
         List.iter2 go defTys actualTys
 
         [
-            for i in 0 .. roots.Length - 1 ->
+            for i in 0 .. typarCount - 1 ->
                 match result.[i] with
                 | ValueSome t -> t
                 | ValueNone -> failwithf "Emit: could not infer instantiation for static-method type parameter %d" i

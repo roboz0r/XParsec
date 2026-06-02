@@ -265,24 +265,22 @@ module EmitClosures =
 
         staticFns, eligible
 
-    /// A generic static method's type parameters (R3): the distinct free
-    /// `TypeVar` roots of its signature (parameter types, then result type), in
-    /// first-appearance order. Empty ⇒ a monomorphic method, emitted unchanged.
-    /// These same `TypeVar` objects appear in the method's body, so the
-    /// backend's ambient typar set (`ClrProvider.SetMethodTypars`) maps them to
-    /// `!!i`. A closure walked from this fn's body inherits this set on its
-    /// `Closure.Typars` (function-representation-plan §Generic closures, C1).
-    let staticFnTypars (fn: StaticFn) : TypeVar list =
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
-        let acc = ResizeArray<TypeVar>()
+    /// A generic static method's type-parameter *count* (R3, frozen-type-plan 2B):
+    /// `freeze` quantified the module-`let`'s free typars to `TempTypar(Method, i)`
+    /// (Edge A order: params left-to-right, then return), so the count is `max i + 1`
+    /// over the method's parameter + result types — those positions reconstruct the
+    /// declared type freeze indexed, so every index `0..n-1` appears. `0` ⇒ a
+    /// monomorphic method, emitted unchanged. The backend's `TempTypar(Method, i)`
+    /// encoder maps these to `!!i` directly (no ambient window). A closure walked
+    /// from this fn's body inherits the count on its `Closure.Typars`.
+    let staticFnTypars (fn: StaticFn) : int =
+        let mutable maxIx = -1
 
         let rec go (t: SemType) =
             match zonk t with
-            | TyVar tv ->
-                let r = UnionFind.find tv
-
-                if seen.Add r then
-                    acc.Add r
+            | TempTypar(TyparAxis.Method, i) ->
+                if i > maxIx then
+                    maxIx <- i
             | TyFun(a, b) ->
                 go a
                 go b
@@ -293,16 +291,18 @@ module EmitClosures =
             | TyClass(_, xs) ->
                 for x in xs do
                     go x
-            | TyUnknown _ -> ()
-            // TODO(frozen-type Phase 2): derive method typars from `TempTypar`
-            // (Method-axis index) instead of TyVar roots. No-op until freeze emits it.
-            | TempTypar _ -> ()
+            // A leftover free `TyVar` never appears in a compiling generic top-level
+            // function (it would hit the encoder's catch-all); a `Declaring`-axis
+            // typar can't occur in a module-level static fn. Neither contributes.
+            | TyVar _
+            | TyUnknown _
+            | TempTypar(TyparAxis.Declaring, _) -> ()
 
         for (_, pty) in fn.Params do
             go pty
 
         go fn.ResultTy
-        List.ofSeq acc
+        maxIx + 1
 
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure before
     /// any closure that constructs it), with its capture set; returns a dictionary
@@ -313,7 +313,7 @@ module EmitClosures =
     /// `Closure.Typars`; an inner closure inherits the enclosing closure's set.
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
-        (staticFnTypars: IReadOnlyDictionary<NodeKey, TypeVar list>)
+        (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
         (decls: TDecl list)
         : Closure list * Dictionary<TExpr, Closure> =
         let order = ResizeArray<TExpr>()
@@ -322,9 +322,9 @@ module EmitClosures =
 
         // `selfKey` is the binding key when this node is the immediate value of a
         // `let f = …` lambda — a recursive self-reference resolves to `this`.
-        // `currentTypars` is the ambient typar set inherited from the enclosing
-        // static method (or, for inner closures, the enclosing closure verbatim).
-        let rec go (currentTypars: TypeVar list) (selfKey: NodeKey voption) (e: TExpr) =
+        // `currentTypars` is the typar *count* inherited from the enclosing static
+        // method (or, for inner closures, the enclosing closure verbatim).
+        let rec go (currentTypars: int) (selfKey: NodeKey voption) (e: TExpr) =
             (match e with
              | TExpr.Let(TPat.NamedSimple(k, _), (TExpr.Lambda _ as v), body, _) ->
                  go currentTypars (ValueSome k) v
@@ -365,10 +365,10 @@ module EmitClosures =
             | TExpr.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()
 
-        let typarsForStaticFn (k: NodeKey) : TypeVar list =
+        let typarsForStaticFn (k: NodeKey) : int =
             match staticFnTypars.TryGetValue k with
-            | true, tps -> tps
-            | false, _ -> []
+            | true, n -> n
+            | false, _ -> 0
 
         for d in decls do
             match d with
@@ -378,9 +378,9 @@ module EmitClosures =
             | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
                 let _, body = peelLambda value
                 go (typarsForStaticFn k) ValueNone body
-            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) -> go [] (ValueSome k) value
-            | TDecl.Let(_, value, _, _) -> go [] ValueNone value
-            | TDecl.Expression(e, _) -> go [] ValueNone e
+            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) -> go 0 (ValueSome k) value
+            | TDecl.Let(_, value, _, _) -> go 0 ValueNone value
+            | TDecl.Expression(e, _) -> go 0 ValueNone e
             | TDecl.Type _ -> ()
 
         [ for n in order -> lookup.[n] ], lookup

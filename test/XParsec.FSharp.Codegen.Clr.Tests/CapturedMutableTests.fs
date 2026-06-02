@@ -280,7 +280,7 @@ let tests =
                 let lowered = Emit.lower tast.Decls
                 let staticFns, staticFnKeys = Emit.collectStaticFns tast.ModuleMembers lowered
 
-                let typarsMap = Dictionary<NodeKey, TypeVar list>()
+                let typarsMap = Dictionary<NodeKey, int>()
 
                 for fn in staticFns do
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
@@ -305,10 +305,7 @@ let tests =
                 Expect.equal (List.length closures) 1 "exactly one closure: `fun () -> x` inside `mkConst`"
                 let c = List.head closures
 
-                Expect.equal
-                    (List.length c.Typars)
-                    1
-                    "the inner closure inherits `mkConst`'s one typar (`'a`) — non-empty Typars"
+                Expect.equal c.Typars 1 "the inner closure inherits `mkConst`'s one typar (`'a`) — count 1"
             }
 
             test "C1: a closure inside a monomorphic static fn has empty Typars" {
@@ -323,9 +320,10 @@ let tests =
                 Expect.isNonEmpty closures "the `let g () = ...` lambda is a closure"
 
                 for c in closures do
-                    Expect.isEmpty
+                    Expect.equal
                         c.Typars
-                        (sprintf "closure %s should have empty Typars (enclosing fn is monomorphic)" c.Name)
+                        0
+                        (sprintf "closure %s should have zero Typars (enclosing fn is monomorphic)" c.Name)
             }
 
             test "C1: an inner closure inherits the enclosing closure's Typars" {
@@ -351,21 +349,17 @@ let tests =
                 Expect.equal (List.length closures) 2 "two closures: `mid` and `inner`"
 
                 for c in closures do
-                    Expect.isNonEmpty c.Typars (sprintf "closure %s should inherit mkPair's typars (non-empty)" c.Name)
+                    Expect.isTrue
+                        (c.Typars > 0)
+                        (sprintf "closure %s should inherit mkPair's typars (count > 0)" c.Name)
 
-                // Both closures share *the same* typar root set — the inner
-                // closure's typars are not re-derived but inherited verbatim.
+                // Both closures carry *the same* typar count — the inner closure's
+                // typars are not re-derived but inherited verbatim (frozen-type-plan
+                // 2B: closures carry the enclosing method's typar count).
                 let inner = closures.[0] // registered first (leaves-first walk)
                 let outer = closures.[1]
 
-                Expect.equal
-                    (List.length outer.Typars)
-                    (List.length inner.Typars)
-                    "both closures carry equal-length typar sets"
-
-                Expect.isTrue
-                    (List.forall2 (fun a b -> System.Object.ReferenceEquals(a, b)) outer.Typars inner.Typars)
-                    "inner closure's Typars is the same TypeVar list as the outer (inherited verbatim, not re-derived)"
+                Expect.equal outer.Typars inner.Typars "both closures carry the same typar count (inherited verbatim)"
             }
 
             test "C1: a closure in Main / top-level expression has empty Typars" {
@@ -379,7 +373,7 @@ let tests =
                 Expect.isNonEmpty closures "the inline `fun x -> x + 1` is a closure"
 
                 for c in closures do
-                    Expect.isEmpty c.Typars (sprintf "closure %s in Main should have empty Typars" c.Name)
+                    Expect.equal c.Typars 0 (sprintf "closure %s in Main should have zero Typars" c.Name)
             }
 
             // Landed in F3.2 (function-representation-plan §Generic closures):

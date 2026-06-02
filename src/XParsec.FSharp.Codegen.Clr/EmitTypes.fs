@@ -23,13 +23,14 @@ module EmitTypes =
             /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
             /// it is not captured. `ValueNone` for an anonymous lambda.
             SelfKey: NodeKey voption
-            /// Non-empty ⇒ a *generic* closure (C3): the enclosing static method's
-            /// typars at this closure's discovery point. Its `TypeDefinition`
-            /// carries matching `GenericParam` rows, its signatures encode free
-            /// `TyVar`s as `!i`, and the construction site `Newobj`s a `MemberRef`
-            /// on the instantiated `TypeSpec`. An inner closure inherits the
-            /// enclosing closure's set.
-            Typars: TypeVar list
+            /// `> 0` ⇒ a *generic* closure (C3): the number of typars the enclosing
+            /// static method (or enclosing closure) declares, inherited verbatim at
+            /// this closure's discovery point (frozen-type-plan 2B). Its
+            /// `TypeDefinition` carries that many `GenericParam` rows; its signatures
+            /// encode the body's `TempTypar(Method, i)` as the closure *class*'s `!i`
+            /// (via `ClrEnv.ClosureTyparMode`); and the construction site `Newobj`s a
+            /// `MemberRef` on the instantiated `TypeSpec`.
+            Typars: int
         }
 
     /// One case of an emitted union: runtime `Tag`, the static factory
@@ -126,15 +127,16 @@ module EmitTypes =
     /// body is built (the `MethodDefinition` handle is predicted from row order).
     /// A call site `f a b` `call`s `Handle` with the first `Arity` args, then
     /// `Invoke`s the result with any remainder. A generic method carries its typar
-    /// `TypeVar`s and declared `ParamTys`: the call site recovers the
-    /// instantiation by matching `ParamTys` against the actual argument types and
-    /// `call`s a `MethodSpec`. Empty `Typars` ⇒ monomorphic (a plain `call`).
+    /// *count* and declared `ParamTys` (which embed `TempTypar(Method, i)`): the
+    /// call site recovers the instantiation by matching `ParamTys` against the
+    /// actual argument types by typar index and `call`s a `MethodSpec`. `Typars = 0`
+    /// ⇒ monomorphic (a plain `call`).
     type StaticMethodRef =
         {
             Handle: EntityHandle
             Arity: int
             ResultTy: SemType
-            Typars: TypeVar list
+            Typars: int
             ParamTys: SemType list
         }
 

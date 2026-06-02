@@ -717,15 +717,19 @@ module EmitExpr =
                     buildVarLoad env b k
 
                 let ctorHandle =
-                    if List.isEmpty closure.Typars then
+                    if closure.Typars = 0 then
                         match env.CtorHandleByNode.TryGetValue e with
                         | true, ctor -> ctor
                         | false, _ ->
                             failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
                     else
+                        // The closure's self-instantiation over its own typars: the
+                        // enclosing method's `TempTypar(Method, i)`, encoded under the
+                        // ambient closure mode at this construction site (`!!i` in a
+                        // static-method body, `!i` inside an enclosing closure).
                         env.Provider.UserClosureMemberRef(
                             closure.Name,
-                            closure.Typars |> List.map TyVar,
+                            [ for i in 0 .. closure.Typars - 1 -> TempTypar(TyparAxis.Method, i) ],
                             ClosureMember.Ctor
                         )
 
@@ -1151,12 +1155,13 @@ module EmitExpr =
                 buildExpr env b a
 
             let callHandle =
-                if List.isEmpty sm.Typars then
+                if sm.Typars = 0 then
                     sm.Handle
                 else
                     // Each spine arg's *own* type (`collectSpine` pairs it with
                     // the application's *result* type instead), matched against
-                    // the declared parameter types to recover the instantiation.
+                    // the declared parameter types to recover the instantiation
+                    // (by `TempTypar(Method, i)` index).
                     let actualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
                     let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)

@@ -76,7 +76,7 @@ type internal Assembler
     // Each static fn's typar set by binding key; a closure walked from a generic
     // static fn's body inherits this. Computed before the `staticMethods`
     // dictionary (handles aren't predicted yet).
-    let staticFnTyparsMap = Dictionary<NodeKey, TypeVar list>()
+    let staticFnTyparsMap = Dictionary<NodeKey, int>()
 
     do
         for fn in staticFns do
@@ -169,7 +169,7 @@ type internal Assembler
     do
         closures
         |> List.iteri (fun i c ->
-            if not (List.isEmpty c.Typars) then
+            if c.Typars > 0 then
                 let handle = toEntity (predictTypeDef typeCounts NominalKind.Closure i)
                 provider.RegisterClosure(c.Name, c.Typars, c.Captures |> List.map snd, c.ParamTy, c.ResultTy, handle)
         )
@@ -456,18 +456,21 @@ type internal Assembler
             interfacePending.Add(td, firstIfaceMethod)
 
     // ---- Closures (leaves-first) ----
-    // A *generic* closure (C3) installs its typars as the ambient
-    // `closureTyparRoots` around every signature/body emission, so a free
-    // `TyVar` in a capture type / `ParamTy` / `ResultTy` resolves to `!i`.
+    // A *generic* closure (C3) enters closure-typar mode around every
+    // signature/body emission, so the body's `TempTypar(Method, i)` (the enclosing
+    // method's typars) re-project onto this closure class's `!i` (frozen-type-plan 2B).
     member this.EmitClosures() =
         for c in closures do
             let firstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
             let captureFields = Dictionary<NodeKey, EntityHandle>()
-            let isGenericClosure = not (List.isEmpty c.Typars)
-            let selfArgs = c.Typars |> List.map TyVar
+            let isGenericClosure = c.Typars > 0
+            // This closure's self-instantiation over its own typars: the enclosing
+            // method's `TempTypar(Method, i)`, which (in closure mode) encode to the
+            // closure class's `!i`.
+            let selfArgs = [ for i in 0 .. c.Typars - 1 -> TempTypar(TyparAxis.Method, i) ]
 
             if isGenericClosure then
-                provider.SetClosureTypars c.Typars
+                provider.EnterClosureTyparScope()
 
             let fieldHandles =
                 c.Captures
@@ -532,14 +535,14 @@ type internal Assembler
                 let closureHandle =
                     toEntity (predictTypeDef typeCounts NominalKind.Closure closureTypes.Count)
 
-                c.Typars
-                |> List.iteri (fun i _ -> genericParams.Add(closureHandle, i, sprintf "T%d" i))
+                for i in 0 .. c.Typars - 1 do
+                    genericParams.Add(closureHandle, i, sprintf "T%d" i)
 
-                provider.ClearClosureTypars()
+                provider.ExitClosureTyparScope()
 
-            // Closures synthesise their typar names (`T0`, …) since their
-            // `Closure.Typars` are `TypeVar` roots, not source typar strings.
-            let typarNames = c.Typars |> List.mapi (fun i _ -> sprintf "T%d" i)
+            // Closures synthesise their typar names (`T0`, …) — the source typar
+            // strings aren't retained; only the count survives to codegen.
+            let typarNames = [ for i in 0 .. c.Typars - 1 -> sprintf "T%d" i ]
 
             closureTypes.Add(
                 {
@@ -560,19 +563,19 @@ type internal Assembler
     // first `MethodDef` for the trailing holder `TypeDefinition`.
     member this.EmitStaticMethods() =
         for fn in staticFnsEmitOrder do
-            // A *generic* static method (`fold`, R3): install its typar set as
-            // the ambient `!!i` context for its signature / locals / body.
-            let typars = staticMethods.[fn.Key].Typars
-            provider.SetMethodTypars typars
+            // A *generic* static method (`fold`, R3): its body / signature / locals
+            // embed `TempTypar(Method, i)` (freeze-quantified, frozen-type-plan 2B),
+            // which the encoder maps to `!!i` directly — no ambient typar window.
+            let typarCount = staticMethods.[fn.Key].Typars
 
             let bodyOffset =
                 Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticMethod emitCtx fn))
 
             let signature =
-                if List.isEmpty typars then
+                if typarCount = 0 then
                     provider.StaticMethodSignature(fn.Params |> List.map snd, fn.ResultTy)
                 else
-                    provider.GenericStaticFnSignature(List.length typars, fn.Params |> List.map snd, fn.ResultTy)
+                    provider.GenericStaticFnSignature(typarCount, fn.Params |> List.map snd, fn.ResultTy)
 
             let handle =
                 ctx.AddMethodWithParamList(
@@ -583,10 +586,9 @@ type internal Assembler
                     addParams (argNames (List.length fn.Params))
                 )
 
-            typars
-            |> List.iteri (fun i _ -> genericParams.Add(toEntity handle, i, sprintf "T%d" i))
+            for i in 0 .. typarCount - 1 do
+                genericParams.Add(toEntity handle, i, sprintf "T%d" i)
 
-            provider.ClearMethodTypars()
             claimFirstMethod handle
 
             match fn.Holder with

@@ -100,6 +100,45 @@ module Freeze =
 
     let private mkMethodTyparEnv (typeParams: EqArray<string * TypeVar>) = mkTyparEnv TyparAxis.Method typeParams
 
+    /// Quantify a module-`let`'s free type parameters into `TempTypar(Method, i)`
+    /// (frozen-type-plan 2B, Edge A): walk the declared (curried) type collecting
+    /// each genuine free typar root in first-appearance pre-order — params left-to-
+    /// right, then return — and pair it with its method-axis index. Mirrors
+    /// `Inline.quantifiedTypars` / `EmitClosures.staticFnTypars`: a *linked* root
+    /// (pinned to a concrete type, or a measure carrier whose `Link` points at its
+    /// carrier) is followed, not collected, so measures and pinned vars stay out of
+    /// the typar list. The resulting env feeds `remapDeclTypars`, exactly like the
+    /// declaring-typar env in 2A. Caller restricts this to function bindings (a
+    /// non-function value's free var is a value-restriction case, not a method typar).
+    let private mkMethodQuantEnv (declTy: SemType) : (TypeVar * SemType) list =
+        let acc = ResizeArray<TypeVar>()
+
+        let rec go t =
+            match t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match root.Link with
+                | ValueSome target -> go target
+                | ValueNone ->
+                    if not (acc |> Seq.exists (fun r -> Object.ReferenceEquals(r, root))) then
+                        acc.Add root
+            | TyConst(_, args)
+            | TyTuple args
+            | TyRecord(_, args)
+            | TyUnion(_, args)
+            | TyClass(_, args) ->
+                for a in args do
+                    go a
+            | TyFun(a, b) ->
+                go a
+                go b
+            | TyUnknown _
+            | TempTypar _ -> ()
+
+        go declTy
+        [ for i in 0 .. acc.Count - 1 -> acc.[i], TempTypar(TyparAxis.Method, i) ]
+
     /// Push a declaring-typar remap through a member's signature + body, retyping
     /// `this` to `selfTy`. Shared by the union / class member surfacers, which
     /// differ only in the `ThisTy` constructor (`TyUnion` vs `TyClass`).
@@ -885,7 +924,43 @@ module Freeze =
                     | None -> ()
 
                     let valT = translateBinding ctx b
-                    TDecl.Let(tpat, valT, b.inlineToken.IsSome, typeOfKey ctx (CstKeys.ofBinding b))
+                    let declTy = typeOfKey ctx (CstKeys.ofBinding b)
+
+                    // frozen-type-plan 2B: a module-`let` compiled as a generic
+                    // static method (or generic closure) carries its free typars as
+                    // `TempTypar(Method, i)`, minted once here (Edge A order) and
+                    // pushed through the head pattern, value body, and declared type
+                    // — the consumer-side `staticFnTypars` / closure plumbing then
+                    // read the count off those nodes instead of gathering `TyVar`
+                    // roots. Restricted to *function* bindings (a `TyFun` declared
+                    // type): a non-function value's free var is a value-restriction
+                    // case, not a method typar (`let n = null` stays `TyVar`). Inline
+                    // bindings are exempt — their bodies are expanded + substituted to
+                    // concrete types at each call site, never emitted as a generic
+                    // method, so they keep the `TyVar` representation.
+                    let quantEnv =
+                        if b.inlineToken.IsSome then
+                            []
+                        else
+                            match Unification.zonk declTy with
+                            | TyFun _ -> mkMethodQuantEnv declTy
+                            | _ -> []
+
+                    let tpat, valT, declTy =
+                        match quantEnv with
+                        | [] -> tpat, valT, declTy
+                        | env ->
+                            let f = remapDeclTypars env
+
+                            TastWalk.mapPat
+                                { TastWalk.identityMapper with
+                                    MapType = f
+                                }
+                                tpat,
+                            mapExprTypes f valT,
+                            f declTy
+
+                    TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy)
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e

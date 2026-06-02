@@ -7,13 +7,13 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// Per-generic-closure registry entry (function-representation-plan §Generic closures, C2): the typar
-/// union-find roots inherited from the enclosing static method, the capture-field types in
-/// declaration order, the `Invoke` parameter / result types, and the closure's predicted
-/// `TypeDefinition` handle. All `SemType` fields embed the typar roots verbatim;
-/// `closureTyparLeaf` maps them to `!i` during the closure's own emission.
+/// *count* inherited from the enclosing static method, the capture-field types in declaration order,
+/// the `Invoke` parameter / result types, and the closure's predicted `TypeDefinition` handle. All
+/// `SemType` fields embed the enclosing method's `TempTypar(Method, i)`; `ClrEnv.ClosureTyparMode`
+/// re-projects them onto the closure class's `!i` during the closure's own emission (frozen-type-plan 2B).
 type internal GenericClosureShape =
     {
-        TyparRoots: TypeVar list
+        TyparCount: int
         CaptureSigs: SemType list
         ParamTy: SemType
         ResultTy: SemType

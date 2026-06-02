@@ -199,8 +199,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
 
-        let g =
-            te.GenericInstantiation(shape.DefHandle, List.length shape.TyparRoots, false)
+        let g = te.GenericInstantiation(shape.DefHandle, shape.TyparCount, false)
 
         for a in args do
             encodeType (g.AddArgument()) a
@@ -211,13 +210,13 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let shape = genericClosures.[name]
         let parent = genericClosureTypeSpec name args
 
-        // The `parent` TypeSpec above was minted under the caller's ambient (methodTyparRoots at a
-        // construction site, or another closureTyparRoots for an inner-closure self-construction); the
-        // member-ref signature below speaks the closure's own typars.
-        let savedClosure = env.ClosureTyparRoots
-        let savedMethod = env.MethodTyparRoots
-        env.ClosureTyparRoots <- shape.TyparRoots
-        env.MethodTyparRoots <- []
+        // The `parent` TypeSpec above was minted under the caller's ambient closure
+        // mode (off at a construction site inside a static method → `!!i`; on inside
+        // an enclosing closure's body → `!i`); the member-ref signature below speaks
+        // the closure's own typars, so force closure mode on (frozen-type-plan 2B):
+        // the embedded `TempTypar(Method, i)` encode to the closure class's `!i`.
+        let savedMode = env.ClosureTyparMode
+        env.ClosureTyparMode <- true
 
         let handle =
             match which with
@@ -261,8 +260,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
                 toEntity (ctx.MemberRef(parent, "Invoke", s))
 
-        env.ClosureTyparRoots <- savedClosure
-        env.MethodTyparRoots <- savedMethod
+        env.ClosureTyparMode <- savedMode
         handle
 
     member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which
