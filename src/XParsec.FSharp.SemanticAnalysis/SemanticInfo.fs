@@ -234,6 +234,55 @@ type ComparisonVerdict =
     /// `Unification`). Default for unannotated records / unions.
     | NoComparison
 
+/// The axis a `FrozenType.FTTypar` indexes into: the declaring type's own
+/// generic parameters (`!i` in CLI metadata) versus a method's own generic
+/// parameters (`!!i`). There is deliberately no `Closure` axis — closure
+/// typars are a codegen-synthesis concept, never expressed in a frozen
+/// signature or a provider descriptor. See `docs/frozen-type-plan.md`.
+[<RequireQualifiedAccess>]
+type TyparAxis =
+    | Declaring
+    | Method
+
+/// The immutable, *elaborated* type representation — the codomain of `freeze`
+/// and the type the TAST carries into Codegen, distinct from the mutable
+/// inference `SemType`. Its defining property is the **absence of a `TyVar`
+/// case**: a `FrozenType` never holds a union-find unification variable, so a
+/// metavar reaching the backend is unrepresentable rather than a convention to
+/// assert against. Open type parameters — a generic definition's own typars in
+/// their uninstantiated form — are the explicit, self-describing `FTTypar` node
+/// (carrying its axis + index), replacing the marker-`TypeVar` mechanism codegen
+/// used to fake them. Structural equality is value-based (no `TypeVar` leaf), so
+/// a `FrozenType` is a sound dictionary key — this is what lets it serve as the
+/// overload-identity key that retires the lossy `SymbolKey.MemberKey.argSig`
+/// string. Constructors mirror `SemType`'s shape under an `FT` prefix to avoid
+/// ambiguity when both types are in scope. See `docs/frozen-type-plan.md`.
+///
+/// NOTE (naming — frozen-type-plan "Open questions"): `FrozenType` / `FT*` are
+/// provisional; revisit before the representation is widely consumed.
+type FrozenType =
+    /// A nominal constant in two roles (the `SemType.TyConst` declaring-typar
+    /// marker role moves to `FTTypar`): an argless primitive / intrinsic
+    /// (`FTConst("int", [])`) and a generic intrinsic forwarding its args
+    /// (`'T[]` ≡ `FTConst("[]", [elem])`).
+    | FTConst of name: string * args: EqArray<FrozenType>
+    /// Curried; multi-arg functions nest `FTFun`.
+    | FTFun of arg: FrozenType * result: FrozenType
+    /// Flat n-ary tuple — mirrors `SemType.TyTuple`.
+    | FTTuple of items: EqArray<FrozenType>
+    | FTRecord of key: SymbolKey * args: EqArray<FrozenType>
+    | FTUnion of key: SymbolKey * args: EqArray<FrozenType>
+    | FTClass of key: SymbolKey * args: EqArray<FrozenType>
+    /// An open type parameter of the enclosing generic definition: `axis`
+    /// selects the declaring-type vs method axis; `index` is its position in
+    /// that axis's typar list — the order `freeze` quantifies in, which is the
+    /// single index-minting point (see frozen-type-plan Edge A).
+    | FTTypar of axis: TyparAxis * index: int
+    /// Mirror of `SemType.TyUnknown`: a nominal head that resolved to no type
+    /// shape. Carried so `freeze` is total; whether it may legitimately reach
+    /// the backend is a frozen-type-plan open question (likely a hard error).
+    | FTUnknown of name: string
+
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
 /// union-find graph. Will grow to include generics, units.
 type SemType =
