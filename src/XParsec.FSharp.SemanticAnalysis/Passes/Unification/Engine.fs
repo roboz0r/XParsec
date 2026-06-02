@@ -42,6 +42,8 @@ module UnificationEngine =
         | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
         | TyUnknown _ -> t
+        // Post-freeze leaf; never produced during inference. Passthrough.
+        | TempTypar _ -> t
 
     /// Decompose a (zonked) tupled-argument type into its element types: a
     /// .NET-style call passes one argument that is a tuple / unit / single
@@ -129,6 +131,8 @@ module UnificationEngine =
         | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyUnknown _ -> false
+        // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
+        | TempTypar _ -> false
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -180,6 +184,8 @@ module UnificationEngine =
         | TyUnion(n, args) -> TyUnion(n, EqArray.map (substituteWith subst) args)
         | TyClass(n, args) -> TyClass(n, EqArray.map (substituteWith subst) args)
         | TyUnknown _ -> t
+        // Post-freeze leaf; never produced during inference. Passthrough.
+        | TempTypar _ -> t
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
@@ -726,6 +732,9 @@ module UnificationEngine =
         // mismatch is already reported where it unified — defer here so the
         // constraint quietly never re-fires rather than emitting a second error.
         | _, TyUnknown _ -> Defer
+        // Post-freeze only; never reached during constraint solving. Defer
+        // (consistent with TyUnknown) rather than crash.
+        | _, TempTypar _ -> Defer
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)
@@ -866,6 +875,8 @@ module UnificationEngine =
                 for a in args do
                     walk a
             | TyUnknown _ -> ()
+            // A post-freeze typar leaf carries no free args.
+            | TempTypar _ -> ()
 
         walk t
 

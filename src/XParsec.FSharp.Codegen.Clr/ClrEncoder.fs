@@ -217,6 +217,19 @@ type internal ClrEncoder(env: ClrEnv) =
                 failwithf
                     "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
                     name
+            // A frozen open typar (frozen-type-plan): the index is in the node, so
+            // encoding is context-free and unconditional — it supersedes the marker
+            // `TypeVar`/`TyConst "'A"` mechanism the ambient windows used to resolve.
+            // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's
+            // own `!!i`. The one exception is a closure body, where the enclosing
+            // method's typars are re-projected onto the closure *class* — handled by
+            // `closureTyparMode` flipping Method-axis to `GenericTypeParameter`.
+            | TempTypar(TyparAxis.Declaring, i) -> te.GenericTypeParameter i
+            | TempTypar(TyparAxis.Method, i) ->
+                if env.ClosureTyparMode then
+                    te.GenericTypeParameter i
+                else
+                    te.GenericMethodTypeParameter i
             | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
     /// Encode for the executable path. The only leaf hook is the ambient generic-method-typar resolver

@@ -166,6 +166,8 @@ module Regions =
         // Unresolved contract head: errors before it can reach a region
         // walk; treat as non-allocating so this pass stays conservative.
         | TyUnknown _ -> false
+        // Post-freeze leaf; this pass runs pre-freeze and never sees it.
+        | TempTypar _ -> false
 
     let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
         let key = CstKeys.ofExpr e

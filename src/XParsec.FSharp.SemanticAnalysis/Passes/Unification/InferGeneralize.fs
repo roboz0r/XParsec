@@ -73,6 +73,8 @@ module UnificationInferGeneralize =
         | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyUnknown _ -> false
+        // Post-freeze leaf; never seen during generalisation.
+        | TempTypar _ -> false
 
     /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs
     /// two passes, hence the fixpoint iteration.
@@ -119,6 +121,7 @@ module UnificationInferGeneralize =
                     for a in args do
                         go a
                 | TyUnknown _ -> ()
+                | TempTypar _ -> ()
 
             go t
             acc
@@ -218,6 +221,7 @@ module UnificationInferGeneralize =
                     for x in xs do
                         walk x
                 | TyUnknown _ -> ()
+                | TempTypar _ -> ()
 
             walk ty
 
@@ -257,6 +261,7 @@ module UnificationInferGeneralize =
                 for a in args do
                     walk a
             | TyUnknown _ -> ()
+            | TempTypar _ -> ()
 
         walk zonkedTy
 

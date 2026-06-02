@@ -55,6 +55,10 @@ module Inline =
                 for a in args do
                     go a
             | TyUnknown _ -> ()
+            // TODO(frozen-type Phase 2): once `freeze` emits `TempTypar` for an
+            // inline binding's quantified typars, this collector must yield them
+            // by `index` instead of by `TyVar` root. No-op until then.
+            | TempTypar _ -> ()
 
         go declTy
         acc.ToArray()
@@ -77,6 +81,9 @@ module Inline =
         | TyUnion(n, args) -> TyUnion(n, EqArray.map (substType subst) args)
         | TyClass(n, args) -> TyClass(n, EqArray.map (substType subst) args)
         | TyUnknown _ -> t
+        // TODO(frozen-type Phase 2): substitute by `(axis,index)` once inline
+        // bindings carry `TempTypar`. Passthrough until then.
+        | TempTypar _ -> t
 
     /// Canonicalise the primitive type-name aliases a static-optimization clause
     /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a

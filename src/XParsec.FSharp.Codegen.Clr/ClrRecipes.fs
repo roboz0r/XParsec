@@ -380,6 +380,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 for x in xs do
                     go x
             | TyUnknown _ -> ()
+            // TODO(frozen-type Phase 2): derive method typars from `TempTypar`
+            // (Method-axis index) instead of TyVar roots. No-op until freeze emits it.
+            | TempTypar _ -> ()
 
         for p in paramTys do
             go p

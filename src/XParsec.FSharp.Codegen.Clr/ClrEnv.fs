@@ -273,6 +273,8 @@ type internal ClrEnv
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
         | TyConst(n, args) -> TyConst(n, EqArray.map zonk args)
         | TyUnknown _ -> t
+        // A frozen open typar is already ground (no links to chase).
+        | TempTypar _ -> t
 
     let externalAsmRef (asm: string option) : EntityHandle =
         match asm with
@@ -426,6 +428,13 @@ type internal ClrEnv
     let mutable typeTyparIx: Map<string, int> = Map.empty
     let mutable closureTyparRoots: TypeVar list = []
 
+    // frozen-type-plan: while encoding a closure's own members (Invoke / .ctor /
+    // capture fields / its TypeSpec from inside its body), the enclosing method's
+    // `TempTypar(Method, i)` are the closure *class*'s generic parameters, so they
+    // encode as `GenericTypeParameter i` rather than `GenericMethodTypeParameter i`.
+    // Replaces the `closureTyparRoots` window for the `TempTypar` representation.
+    let mutable closureTyparMode = false
+
     let methodTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
         match methodTyparRoots with
         | [] -> false
@@ -555,6 +564,10 @@ type internal ClrEnv
     member _.ClosureTyparRoots
         with get () = closureTyparRoots
         and set v = closureTyparRoots <- v
+
+    member _.ClosureTyparMode
+        with get () = closureTyparMode
+        and set v = closureTyparMode <- v
 
     member _.MethodTyparLeaf = methodTyparLeaf
     member _.TypeTyparLeaf = typeTyparLeaf

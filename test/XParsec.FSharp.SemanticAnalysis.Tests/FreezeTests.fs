@@ -336,10 +336,10 @@ let interfaceTests =
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Invoke" "method name"
                         Expect.isTrue m.MethodTypeParams.IsEmpty "Invoke has no method typars"
-                        // 'A -> 'B, declaring typars as TyConst markers.
+                        // 'A -> 'B, declaring typars as frozen `TempTypar(Declaring, i)`.
                         Expect.equal
                             m.Signature
-                            (TyFun(TyConst("'A", EqArray.empty), TyConst("'B", EqArray.empty)))
+                            (TyFun(TempTypar(TyparAxis.Declaring, 0), TempTypar(TyparAxis.Declaring, 1)))
                             "Invoke signature"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
@@ -365,10 +365,10 @@ let interfaceTests =
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Map" "method name"
                         Expect.equal (EqArray.toList m.MethodTypeParams) [ "'B" ] "method's own typar 'B"
-                        // 'A is the declaring typar, 'B the method's own — both markers.
+                        // 'A is the declaring typar (Declaring 0), 'B the method's own (Method 0).
                         Expect.equal
                             m.Signature
-                            (TyFun(TyConst("'A", EqArray.empty), TyConst("'B", EqArray.empty)))
+                            (TyFun(TempTypar(TyparAxis.Declaring, 0), TempTypar(TyparAxis.Method, 0)))
                             "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
@@ -441,12 +441,12 @@ let unionCaseSyntaxTests =
                     | EqList [ (hn, ht); (tn, tt) ] ->
                         Expect.equal hn (ValueSome "Head") "first field named Head"
                         // The element typar surfaces as the backend marker.
-                        Expect.equal ht (TyConst("'T", EqArray.empty)) "Head : 'T"
+                        Expect.equal ht (TempTypar(TyparAxis.Declaring, 0)) "Head : 'T"
                         Expect.equal tn (ValueSome "Tail") "second field named Tail"
                         // Tail refers back to the declaring union, applied to 'T.
                         Expect.equal
                             tt
-                            (TyUnion("List", EqArray.singleton (TyConst("'T", EqArray.empty))))
+                            (TyUnion("List", EqArray.singleton (TempTypar(TyparAxis.Declaring, 0))))
                             "Tail : List<'T>"
                     | other -> failtestf "expected two named Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other
@@ -499,11 +499,11 @@ let listAbbrevTests =
 
                     match cons.Fields with
                     | EqList [ (_, ht); (_, tt) ] ->
-                        Expect.equal ht (TyConst("'T", EqArray.empty)) "Head : 'T"
+                        Expect.equal ht (TempTypar(TyparAxis.Declaring, 0)) "Head : 'T"
                         // `'T list` resolved through the abbrev back to the union.
                         Expect.equal
                             tt
-                            (TyUnion("List", EqArray.singleton (TyConst("'T", EqArray.empty))))
+                            (TyUnion("List", EqArray.singleton (TempTypar(TyparAxis.Declaring, 0))))
                             "Tail : List<'T> via the abbrev"
                     | other -> failtestf "expected two Cons fields, got %A" other
                 | other -> failtestf "unexpected unions: %A" other

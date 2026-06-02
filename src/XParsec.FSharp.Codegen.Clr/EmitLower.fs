@@ -84,6 +84,8 @@ module EmitLower =
         | TyClass(n, xs) -> TyClass(n, EqArray.map zonk xs)
         | TyConst(n, xs) -> TyConst(n, EqArray.map zonk xs)
         | TyUnknown _ -> t
+        // A frozen open typar is already ground (no links to chase).
+        | TempTypar _ -> t
 
     /// Recover a generic static method's per-typar instantiation at a call site
     /// (R3): structurally match each declared parameter type (`defTys`, carrying
@@ -388,6 +390,8 @@ module EmitLower =
         // errors on it before frozen TAST reaches here; keep it off the ground-only
         // inline-emit path defensively.
         | TyUnknown _ -> false
+        // A frozen open typar is, by definition, not monomorphic.
+        | TempTypar _ -> false
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter types (carrying the quantified typars) against the actual

@@ -294,6 +294,9 @@ module EmitClosures =
                 for x in xs do
                     go x
             | TyUnknown _ -> ()
+            // TODO(frozen-type Phase 2): derive method typars from `TempTypar`
+            // (Method-axis index) instead of TyVar roots. No-op until freeze emits it.
+            | TempTypar _ -> ()
 
         for (_, pty) in fn.Params do
             go pty

@@ -39,19 +39,20 @@ module Freeze =
         else
             ValueNone
 
-    /// Rewrite declaring-type typars (free `TyVar`s, by zonked root) to the
-    /// `TyConst "'A"` markers the backend's typar encoder consumes. Anything else
-    /// passes through unchanged — a leftover inference var stays a `TyVar`, which
-    /// the backend rejects loudly.
-    let private remapDeclTypars (markers: (TypeVar * string) list) (t: SemType) : SemType =
+    /// Rewrite open typars (free `TyVar`s, by zonked root) to their frozen
+    /// `TempTypar` nodes (frozen-type-plan): `env` pairs each typar's zonked root
+    /// with its target `TempTypar(axis, index)`. Anything else passes through
+    /// unchanged — a leftover inference `TyVar` not in `env` stays a `TyVar`, which
+    /// the backend rejects loudly (an unresolved-typar bug).
+    let private remapDeclTypars (env: (TypeVar * SemType) list) (t: SemType) : SemType =
         let rec go t =
             match t with
             | TyVar tv ->
                 match
-                    markers
-                    |> List.tryPick (fun (r, n) -> if Object.ReferenceEquals(r, tv) then Some n else None)
+                    env
+                    |> List.tryPick (fun (r, target) -> if Object.ReferenceEquals(r, tv) then Some target else None)
                 with
-                | Some n -> TyConst(n, EqArray.empty)
+                | Some target -> target
                 | None -> t
             | TyConst(n, args) -> TyConst(n, EqArray.map go args)
             | TyFun(a, b) -> TyFun(go a, go b)
@@ -60,6 +61,8 @@ module Freeze =
             | TyUnion(n, args) -> TyUnion(n, EqArray.map go args)
             | TyClass(n, args) -> TyClass(n, EqArray.map go args)
             | TyUnknown _ -> t
+            // Already-frozen leaf (task #2 will make this remap produce it).
+            | TempTypar _ -> t
 
         go (Unification.zonk t)
 
@@ -75,23 +78,32 @@ module Freeze =
             }
             e
 
-    /// Pair each declared typar's *zonked* root TyVar with its marker name, so
-    /// `remapDeclTypars` can rewrite free occurrences back to `TyConst "'A"`.
-    /// Pinned typars (anything that's already collapsed to a non-`TyVar`) are
-    /// dropped — there's nothing left to remap. Shared by every `try*Type`
-    /// surfacer and the interface / abstract-method projections.
-    let private mkTypeMarkers (typeParams: EqArray<string * TypeVar>) : (TypeVar * string) list =
+    /// Pair each declared typar's *zonked* root TyVar with the frozen `TempTypar`
+    /// it remaps to: `axis` selects declaring (`!i`) vs method (`!!i`), and the
+    /// index is the typar's position in its declaration list — the same index the
+    /// backend's `GenericParam` rows use. Pinned typars (collapsed to a non-`TyVar`)
+    /// are dropped (nothing to remap), but the loop index still tracks declaration
+    /// position so a surviving typar keeps its correct slot. Shared by every
+    /// `try*Type` surfacer and the interface / abstract-method projections.
+    let private mkTyparEnv (axis: TyparAxis) (typeParams: EqArray<string * TypeVar>) : (TypeVar * SemType) list =
         [
-            for (n, ptv) in typeParams do
+            for i in 0 .. typeParams.Length - 1 do
+                let (_, ptv) = typeParams.[i]
+
                 match Unification.zonk (TyVar ptv) with
-                | TyVar root -> yield (root, n)
+                | TyVar root -> yield (root, TempTypar(axis, i))
                 | _ -> ()
         ]
+
+    let private mkDeclTyparEnv (typeParams: EqArray<string * TypeVar>) =
+        mkTyparEnv TyparAxis.Declaring typeParams
+
+    let private mkMethodTyparEnv (typeParams: EqArray<string * TypeVar>) = mkTyparEnv TyparAxis.Method typeParams
 
     /// Push a declaring-typar remap through a member's signature + body, retyping
     /// `this` to `selfTy`. Shared by the union / class member surfacers, which
     /// differ only in the `ThisTy` constructor (`TyUnion` vs `TyClass`).
-    let private remapMemberTypes (selfTy: SemType) (markers: (TypeVar * string) list) (m: TTypeMember) : TTypeMember =
+    let private remapMemberTypes (selfTy: SemType) (markers: (TypeVar * SemType) list) (m: TTypeMember) : TTypeMember =
         let f = remapDeclTypars markers
 
         { m with
@@ -104,7 +116,7 @@ module Freeze =
     /// Remap every embedded type in a member / ctor body through the declaring-type
     /// typars, or pass it through untouched when there are no markers (a monomorphic
     /// type — the body's types are already correct).
-    let private remapBodyTypes (markers: (TypeVar * string) list) (e: TExpr) : TExpr =
+    let private remapBodyTypes (markers: (TypeVar * SemType) list) (e: TExpr) : TExpr =
         if List.isEmpty markers then
             e
         else
@@ -139,7 +151,7 @@ module Freeze =
                 // The member signatures share these prototype TyVars (Unification
                 // typed them under the class's typar scope), so the remap reaches
                 // every typar.
-                let markers = mkTypeMarkers info.TypeParams
+                let markers = mkDeclTyparEnv info.TypeParams
 
                 let methods =
                     EqArray.ofSeq (
@@ -150,7 +162,7 @@ module Freeze =
                                     // the backend routes them to `GenericMethodParameter`
                                     // (declaring typars stay `GenericTypeParameter`); the
                                     // `TyConst "name"` picks the table.
-                                    let methodMarkers = markers @ mkTypeMarkers m.MethodTypeParams
+                                    let methodMarkers = markers @ mkMethodTyparEnv m.MethodTypeParams
 
                                     yield
                                         {
@@ -288,7 +300,10 @@ module Freeze =
         // the markers in place (it rewrites prototype `TyVar` roots, not
         // `TyConst` markers — see `remapDeclTypars`).
         let classTy =
-            TyClass(info.Key, EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> TyConst(n, EqArray.empty) }))
+            TyClass(
+                info.Key,
+                EqArray.ofSeq (seq { for i in 0 .. info.TypeParams.Length - 1 -> TempTypar(TyparAxis.Declaring, i) })
+            )
 
         // `base` is in scope only when the class has an `inherit` clause; an
         // instance member then carries the shared `BaseKey` so codegen maps a
@@ -407,7 +422,7 @@ module Freeze =
     /// recurse to the chain and drop intervening statements.
     let private translateSecondaryCtor
         (ctx: PassContext)
-        (markers: (TypeVar * string) list)
+        (markers: (TypeVar * SemType) list)
         (sc: ClassSecondaryCtorInfo)
         : TSecondaryCtor =
         let remapTy = remapDeclTypars markers
@@ -522,7 +537,7 @@ module Freeze =
         match resolved with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkTypeMarkers info.TypeParams
+            let markers = mkDeclTyparEnv info.TypeParams
 
             let cases =
                 EqArray.ofSeq (
@@ -556,7 +571,12 @@ module Freeze =
 
             let remapMember =
                 let selfTy =
-                    TyUnion(info.Key, EqArray.ofSeq (seq { for n in declTypars -> TyConst(n, EqArray.empty) }))
+                    TyUnion(
+                        info.Key,
+                        EqArray.ofSeq (
+                            seq { for i in 0 .. List.length declTypars - 1 -> TempTypar(TyparAxis.Declaring, i) }
+                        )
+                    )
 
                 remapMemberTypes selfTy markers
 
@@ -595,7 +615,7 @@ module Freeze =
         match ctx.Types.Record.TryGetValue name with
         | false, _ -> None
         | true, info ->
-            let markers = mkTypeMarkers info.TypeParams
+            let markers = mkDeclTyparEnv info.TypeParams
 
             let fields =
                 EqArray.ofSeq (
@@ -637,7 +657,7 @@ module Freeze =
         match ctx.Types.Class.TryGetValue name with
         | false, _ -> None
         | true, info ->
-            let markers = mkTypeMarkers info.TypeParams
+            let markers = mkDeclTyparEnv info.TypeParams
 
             let ctorParams =
                 EqArray.ofSeq (
@@ -655,7 +675,12 @@ module Freeze =
 
             let remapMember =
                 let selfTy =
-                    TyClass(info.Key, EqArray.ofSeq (seq { for n in declTypars -> TyConst(n, EqArray.empty) }))
+                    TyClass(
+                        info.Key,
+                        EqArray.ofSeq (
+                            seq { for i in 0 .. List.length declTypars - 1 -> TempTypar(TyparAxis.Declaring, i) }
+                        )
+                    )
 
                 remapMemberTypes selfTy markers
 

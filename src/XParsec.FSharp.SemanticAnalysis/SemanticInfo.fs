@@ -323,6 +323,21 @@ type SemType =
     /// inference hole). Must never reach the backend — `ClrEncoder` treats it as
     /// an internal error.
     | TyUnknown of name: string
+    /// An elaborated, **post-freeze-only** open type parameter — the same node
+    /// `FrozenType.FTTypar` carries (axis + index), living transitionally on
+    /// `SemType` so Freeze can produce it and Codegen can consume it *before* the
+    /// TAST type fields are swapped to `FrozenType` (a later, mechanical session;
+    /// see `docs/frozen-type-plan.md`). It replaces the old declaring-typar
+    /// `TyConst "'A"` markers and the leftover-`TyVar` static-fn typars: after
+    /// `freeze` runs, no `TyVar` remains in any TAST `.ty` field — every open
+    /// typar is a `TempTypar`, and a `TyVar` reaching Codegen is a bug.
+    ///
+    /// **Invariant: never produced during inference.** Unification / generalisation
+    /// never see it (they run before `freeze`); their match arms treat it as
+    /// impossible (`failwith`) — a free invariant check. Only `freeze` mints it
+    /// (the single index-minting point, Edge A) and only Codegen + post-freeze
+    /// walks read it.
+    | TempTypar of axis: TyparAxis * index: int
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero
