@@ -23,9 +23,14 @@ module Pipeline =
         Desugar.run ctx file
         NameResolution.run ctx file
         Unification.run ctx file
-        Regions.run ctx file
         Validation.run ctx file
         let tast0 = Freeze.run ctx file
+        // Escape analysis runs on the post-inline `TExpr` tree (frozen-type-plan
+        // 3A-2 / decision 4): `Freeze.run` has already expanded inline call sites,
+        // so the region graph is built over the closures codegen actually emits —
+        // inlined-away closures don't count, inline-exposed ones do. It populates
+        // `ctx.Bindings.Escape` (keyed by binder `NodeKey`) for the next pass.
+        Regions.run ctx tast0.Decls
         // TAST→TAST promotion of `let mutable` cells captured by escaping
         // closures (records-plan §B7). The pass reads `ctx.Bindings.Escape` /
         // `ctx.Bindings.Binding`; running before ResolvedTypes keeps the validation

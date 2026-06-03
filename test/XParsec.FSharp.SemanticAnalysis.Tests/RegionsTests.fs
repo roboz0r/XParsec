@@ -295,11 +295,13 @@ let tests =
                 Expect.equal escape (Some CallerStack) "mk returns its argument → CallerStack"
             }
 
-            test "as-pattern parameter binders share a region" {
-                // `let f (x as y) = x` — `x` and `y` are two names for the
-                // same parameter value, so registerParam must thread one
-                // region through both binders (mirrors recordBindingRegion
-                // for let-bindings).
+            test "as-pattern parameter surfaces its inner binder with a region" {
+                // `let f (x as y) = x` — Freeze's `translatePat` drops the `as`
+                // node and surfaces only the inner binder `x` (the alias `y`
+                // isn't a `TPat` binder yet; downstream `Var`s find it via the
+                // side tables). frozen-type-plan 3A-2: Regions now walks the
+                // post-Freeze `TExpr`, so it stamps the surviving inner binder's
+                // region — the `as`-node key no longer exists to stamp.
                 let input = "let f (x as y) = x"
                 let ctx, file = analyse input
 
@@ -321,9 +323,9 @@ let tests =
 
                 let asPat = unwrap fBinding.argumentPats.[0]
 
-                let asKey, innerKey =
+                let innerKey =
                     match asPat with
-                    | Pat.As(pat = inner) -> CstKeys.ofPat asPat, CstKeys.ofPat inner
+                    | Pat.As(pat = inner) -> CstKeys.ofPat inner
                     | _ -> failwithf "expected As pattern, got %A" asPat
 
                 let regionOfKey k =
@@ -333,10 +335,7 @@ let tests =
                         if root.Region.Raw >= 0 then Some root.Region else None
                     | ValueNone -> None
 
-                let rAs = regionOfKey asKey
-                let rInner = regionOfKey innerKey
-                Expect.isSome rAs "as-pattern outer name should have a region"
-                Expect.equal rAs rInner "as-pattern outer and inner share one region"
+                Expect.isSome (regionOfKey innerKey) "the as-pattern's surfaced inner binder has a region"
             }
 
             test "tuple-pattern parameter binders share a region" {
@@ -461,20 +460,20 @@ let tests =
                 | other -> failwithf "expected HeapShared for captured mutable, got %A" other
             }
 
-            test "conservative fallback: unhandled construct gets HeapShared" {
-                // `let xs = [ 1; 2 ]` uses a list-literal we don't model
-                // precisely — the fallback should produce a HeapShared
-                // entry rather than silently nothing.
+            test "list literal at module top is precisely analysed (no spurious HeapShared)" {
+                // `let xs = [ 1; 2 ]` lowers to nested `UnionCons("Cons", …)`
+                // before Regions runs (frozen-type-plan 3A-2: the pass walks the
+                // post-Freeze `TExpr`), so the list allocation is modelled
+                // precisely as a module-top composite — `LocalStack`, not the
+                // old pessimistic `HeapShared` fallback the CST pass produced for
+                // an unrecognised list-literal node. (A `None` no-region posture
+                // is also acceptable.)
                 let escape = escapeOf "let xs = [ 1; 2 ]" "xs"
-                // The Expr.ArrayOrList / similar list-literal isn't in the
-                // tiny subset's precise rules, so it routes through the
-                // fallback path. Depending on parser output it may map to a
-                // pattern we do handle — accept HeapShared OR nothing as
-                // both correctness postures (over-approx vs no-region).
+
                 match escape with
-                | Some HeapShared
+                | Some LocalStack
                 | None -> ()
-                | other -> failwithf "expected HeapShared or None, got %A" other
+                | other -> failwithf "expected LocalStack or None, got %A" other
             }
 
             test "module-level record literal is LocalStack" {

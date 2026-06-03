@@ -1,19 +1,35 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
-open System.Collections.Immutable
-open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  ctx.Desugared, ctx.Bindings.Binding, ctx.Bindings.TypeVar populated.
-// Post: ctx.Bindings.Escape populated for every TypeVar; TypeVar.Region set on
-//       TypeVars that participated in the region graph.
+// Pre:  Freeze has produced a `TastFile` (so the inline-expansion pass has run);
+//       ctx.Bindings.Binding, ctx.Bindings.TypeVar populated.
+// Post: ctx.Bindings.Escape populated for every binding-site TypeVar that
+//       participated in the region graph; TypeVar.Region set on those TypeVars.
 //
-// Regions are inequality-only (NOT used to drive type-class dispatch).
-// Making them feed back into Unification would turn the whole pipeline
-// into a fixpoint — see docs/architecture.md "Pass order is strictly forward".
+// frozen-type-plan 3A-2: Regions runs on the post-inline `TExpr` tree (after
+// `Freeze.run`, before `RefCellPromotion`) rather than the Desugared CST.
+// Inlining both removes closures (escape shrinks) and exposes new ones, so the
+// escape map must be computed on the tree codegen actually emits. The walk reads
+// each node's inline `.ty` and resolves a `TExpr.Var` to its binding region off
+// the carried binding-site `NodeKey`. Running post-freeze is escape-equivalent:
+// the only type-directed decision is `isAllocation`, and a typar is
+// non-allocating whether it shows as `TyVar` (pre-freeze) or `TempTypar` (post).
 //
-// See docs/regions-plan.md for the algorithm.
+// Two structural facts the CST pass relied on are rebuilt here:
+//   - `let … and …` / `let rec` flatten into nested `TExpr.Let`s (and separate
+//     top-level `TDecl`s). Every function-form binder in a group is pre-minted
+//     before any body walk so mutual references resolve. Over-grouping sequential
+//     lets is conservative (a non-`rec` forward reference can't exist, so the
+//     extra pre-mint is unreachable).
+//   - `let f x = e` is `let f = fun x -> e`, so the binding's closure region is
+//     the `TExpr.Lambda` value's region; the pre-minted region is reused as the
+//     lambda's own.
+//
+// Regions are inequality-only (NOT used to drive type-class dispatch); feeding
+// them back into Unification would make the pipeline a fixpoint. See
+// docs/architecture.md "Pass order is strictly forward" and docs/regions-plan.md.
 
 module Regions =
 
@@ -71,9 +87,9 @@ module Regions =
     type private State =
         {
             Graph: RegionGraph
-            /// headPat NodeKey -> the binding's region. Lets the Ident rule
-            /// look up "the region of the binding I refer to" without
-            /// re-deriving it from the TyVar.
+            /// binder NodeKey -> the binding's region. Lets the `Var` rule
+            /// look up "the region of the binding I refer to" straight off the
+            /// node's carried binding-site key.
             BindingRegions: Dictionary<NodeKey, RegionId>
             mutable LetLevel: int
             /// Let-level of the binding whose RHS we are currently evaluating.
@@ -115,12 +131,6 @@ module Regions =
     /// `LetLevel`; do not fold it into `freshValue`.
     let private freshParam (s: State) : RegionId =
         s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
-
-    /// Conservative fallback for nodes with no precise rule: a region pre-seeded
-    /// HeapShared, minted at module top (no escape frame). Safe but pessimistic.
-    /// See docs/regions-plan.md §Conservative fallback.
-    let private freshHeapShared (s: State) : RegionId =
-        s.Graph.Fresh(0, 0, false, false, ValueSome HeapShared)
 
     /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
     /// into compound shapes). Same as `Unification.resolveStep` but inlined so
@@ -166,15 +176,12 @@ module Regions =
         // Unresolved contract head: errors before it can reach a region
         // walk; treat as non-allocating so this pass stays conservative.
         | TyUnknown _ -> false
-        // Post-freeze leaf; this pass runs pre-freeze and never sees it.
+        // A post-freeze open typar (`!i` / `!!i`): like a free `TyVar`, whether
+        // it allocates is unknown — treat as non-allocating, matching the
+        // pre-freeze `TyVar` view this pass used to see.
         | TempTypar _ -> false
 
-    let private exprIsAllocation (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
-        let key = CstKeys.ofExpr e
-
-        match ctx.Bindings.TypeVar.TryGetValue key with
-        | ValueSome tv -> isAllocation (TyVar tv)
-        | ValueNone -> false
+    let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
 
     /// Mint a value region that outlives every child region. Tuples, records,
     /// `new`, and clones all allocate a composite that holds its elements.
@@ -191,14 +198,10 @@ module Regions =
     /// otherwise return `fallback`. The `arms.Count > 0` guard is load-bearing
     /// only for `match` (a match with no rules allocates nothing) and harmless
     /// elsewhere.
-    let private joinArms
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (arms: ResizeArray<RegionId>)
-        (fallback: RegionId)
-        : RegionId =
-        if exprIsAllocation ctx e && arms.Count > 0 then
+    let private joinArms (s: State) (e: TExpr) (arms: RegionId seq) (fallback: RegionId) : RegionId =
+        let arms = ResizeArray(arms)
+
+        if exprIsAllocation e && arms.Count > 0 then
             let r = freshValue s
 
             for a in arms do
@@ -208,6 +211,12 @@ module Regions =
         else
             fallback
 
+    let private primitiveOrFreshResult (s: State) (e: TExpr) : RegionId =
+        if exprIsAllocation e then
+            freshValue s
+        else
+            RegionId.Unknown
+
     /// Add an outlives edge from each captured binding's region to the closure
     /// region `r`. (AddEdge drops self-edges, so no `captured <> r` guard needed.)
     let private addCaptureEdges (s: State) (freeVars: HashSet<NodeKey>) (r: RegionId) : unit =
@@ -216,109 +225,107 @@ module Regions =
             | true, captured -> s.Graph.AddEdge(captured, r)
             | _ -> ()
 
-    /// Collect every binding-site NodeKey introduced by `p` (mirrors
-    /// `NameResolution.bindingsOfPat` but keeps only the keys).
-    let rec private bindersOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : NodeKey list =
+    /// Every binder-site NodeKey introduced by a `TPat`. A `TExpr.Var` carries
+    /// the binding-site key directly, so a free variable is simply a `Var` whose
+    /// key is not in scope — no `ctx.Bindings.Binding` resolution needed.
+    let rec private bindersOfTPat (p: TPat) : NodeKey list =
         match p with
-        | Pat.NamedSimple t when
-            let n = ctx.NameOf t
-            n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n
-            ->
-            // Nullary ctor pattern in disguise — binds nothing.
-            []
-        | Pat.NamedSimple _ -> [ CstKeys.ofPat p ]
-        | Pat.Wildcard _
-        | Pat.Const _
-        | Pat.EmptyBlock _ -> []
-        | Pat.EnclosedBlock(pat = inner) -> bindersOfPat ctx inner
-        | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindersOfPat ctx sub ] |> List.concat
-        | Pat.Typed(pat = inner) -> bindersOfPat ctx inner
-        | Pat.As(pat = inner) -> CstKeys.ofPat p :: bindersOfPat ctx inner
-        | Pat.Record(fieldPats = fieldPats) ->
-            [ for FieldPat(pat = sub) in fieldPats -> bindersOfPat ctx sub ] |> List.concat
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-
-                last.Length > 0
-                && System.Char.IsUpper last.[0]
-                && (li.Idents.Length = 1 && ctx.Types.CtorIndex.ContainsKey last
-                    || li.Idents.Length = 2 && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])))
-            ->
-            // Ctor pattern: head binds nothing; sub-patterns introduce binders.
-            // A multi-field arg may be a single tuple — recurse and let the
-            // Tuple arm flatten.
+        | TPat.NamedSimple(k, _) -> [ k ]
+        | TPat.Wildcard _
+        | TPat.Const _ -> []
+        | TPat.Tuple(items, _) ->
             [
-                for sub in args do
-                    yield! bindersOfPat ctx sub
+                for sub in items do
+                    yield! bindersOfTPat sub
             ]
-        | Pat.Cons(head = h; tail = t) -> bindersOfPat ctx h @ bindersOfPat ctx t
-        | _ -> []
+        | TPat.Record(fields, _) ->
+            [
+                for (_, sub) in fields do
+                    yield! bindersOfTPat sub
+            ]
+        | TPat.Union(_, fields, _) ->
+            [
+                for sub in fields do
+                    yield! bindersOfTPat sub
+            ]
 
-    /// Find every binding-site NodeKey referenced by `body` whose binder lies
-    /// outside `body` (the free variables). `locals` is seeded with the
-    /// lambda's own parameter pattern keys and grown as the walker enters any
-    /// internal scope-introducing construct; any Ident use whose `BindingSite`
-    /// isn't in `locals` is free.
-    let private collectFreeVarBindingSites
-        (ctx: PassContext)
-        (paramBinders: NodeKey list)
-        (body: Expr<SyntaxToken>)
-        : HashSet<NodeKey> =
+    /// Free variables of a lambda body: every `TExpr.Var` whose binding site is
+    /// neither a parameter nor introduced by an inner scope. `bound` is seeded
+    /// with the lambda's own parameter binders and grown/shrunk as the walk
+    /// enters/leaves any scope-introducing node (nested lambda, let/use, for,
+    /// match arm).
+    let private collectFreeVars (paramBinders: NodeKey list) (body: TExpr) : HashSet<NodeKey> =
         let result = HashSet<NodeKey>(HashIdentity.Structural)
-        let locals = HashSet<NodeKey>(HashIdentity.Structural)
+        let bound = HashSet<NodeKey>(HashIdentity.Structural)
 
         for k in paramBinders do
-            locals.Add(k) |> ignore
+            bound.Add k |> ignore
 
-        let consider (useKey: NodeKey) =
-            match ctx.Bindings.Binding.TryGetValue useKey with
-            | ValueSome rb when not (locals.Contains rb.BindingSite) -> result.Add(rb.BindingSite) |> ignore
-            | _ -> ()
+        let addBinders (p: TPat) : NodeKey list =
+            [
+                for k in bindersOfTPat p do
+                    if bound.Add k then
+                        yield k
+            ]
 
-        let walker: CstWalk.ExprWalker<unit> =
-            {
-                Visit =
-                    fun () e ->
+        let removeBinders (added: NodeKey list) =
+            for k in added do
+                bound.Remove k |> ignore
+
+        let iter: TastWalk.Iter =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun it e ->
                         match e with
-                        | Expr.Ident _ -> consider (CstKeys.ofExpr e)
-                        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                            consider (CstKeys.ofExpr e)
-                        | _ -> ()
-                EnterFun =
-                    fun () argPats ->
-                        for p in argPats do
-                            for k in bindersOfPat ctx p do
-                                locals.Add(k) |> ignore
-                EnterBindingRhs =
-                    fun () _ _ b ->
-                        // Sibling names are already added via EnterLetBody;
-                        // function-form arg pats are local to this RHS.
-                        if not b.argumentPats.IsEmpty then
-                            for p in b.argumentPats do
-                                for k in bindersOfPat ctx p do
-                                    locals.Add(k) |> ignore
-                EnterLetBody =
-                    fun () bindings ->
-                        for b in bindings do
-                            for k in bindersOfPat ctx b.headPat do
-                                locals.Add(k) |> ignore
-                EnterForTo = fun () ident -> locals.Add(CstKeys.ofForToVar ident) |> ignore
-                EnterForIn =
-                    fun () pat ->
-                        for k in bindersOfPat ctx pat do
-                            locals.Add(k) |> ignore
-                EnterMatchArm =
-                    fun () pat ->
-                        for k in bindersOfPat ctx pat do
-                            locals.Add(k) |> ignore
+                        | TExpr.Var(k, _) ->
+                            if not (bound.Contains k) then
+                                result.Add k |> ignore
+
+                            false
+                        | TExpr.Lambda(p, b, _) ->
+                            let added = addBinders p
+                            TastWalk.iterExpr it b
+                            removeBinders added
+                            false
+                        | TExpr.Let(p, v, b, _) ->
+                            TastWalk.iterExpr it v
+                            let added = addBinders p
+                            TastWalk.iterExpr it b
+                            removeBinders added
+                            false
+                        | TExpr.Use(p, v, b, _, _) ->
+                            TastWalk.iterExpr it v
+                            let added = addBinders p
+                            TastWalk.iterExpr it b
+                            removeBinders added
+                            false
+                        | TExpr.ForTo(k, st, en, b, _) ->
+                            TastWalk.iterExpr it st
+                            TastWalk.iterExpr it en
+                            let isNew = bound.Add k
+                            TastWalk.iterExpr it b
+
+                            if isNew then
+                                bound.Remove k |> ignore
+
+                            false
+                        | TExpr.ForIn(p, src, b, _, _) ->
+                            TastWalk.iterExpr it src
+                            let added = addBinders p
+                            TastWalk.iterExpr it b
+                            removeBinders added
+                            false
+                        | _ -> true
+                VisitArm =
+                    fun it arm ->
+                        let added = addBinders arm.Pat
+                        arm.Guard |> Option.iter (TastWalk.iterExpr it)
+                        TastWalk.iterExpr it arm.Body
+                        removeBinders added
+                        false
             }
 
-        // A let-group's headPats must be in `locals` before any sibling RHS
-        // runs. The walker calls EnterLetBody only when stepping into the
-        // let's body, so it pre-collects headPats so they're visible to
-        // sibling RHSes.
-        CstWalk.iterExpr walker () body
+        TastWalk.iterExpr iter body
         result
 
     let private stampTyVar (ctx: PassContext) (key: NodeKey) (r: RegionId) : unit =
@@ -327,495 +334,275 @@ module Regions =
             | ValueSome tv -> (UnionFind.find tv).Region <- r
             | ValueNone -> ()
 
-    let rec private inferRegion (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
-        let result = inferRegionImpl s ctx e
-        stampTyVar ctx (CstKeys.ofExpr e) result
-        result
-
-    and private inferRegionImpl (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
+    let rec private inferRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
         match e with
-        | Expr.Const _ -> RegionId.Unknown
-        | Expr.Null _ -> RegionId.Unknown
-        | Expr.EmptyBlock _ -> RegionId.Unknown
-        | Expr.String _ -> RegionId.Unknown
-        | Expr.While _
-        | Expr.ForTo _
-        | Expr.ForIn _ -> walkUnitBody s ctx e
-        | Expr.Record(fieldInitializers = inits) -> recordRegion s ctx inits
-        | Expr.RecordClone(expr = src; fieldInitializers = inits) -> recordCloneRegion s ctx src inits
-        | Expr.New(expr = argExpr) -> newRegion s ctx argExpr
-        | Expr.DotLookup(expr = inner) ->
-            // Field read produces no new allocation, so the access region is
-            // the receiver's region (the field's own allocation is tracked via
-            // the receiver). Walk inner so its capture edges still register.
-            inferRegion s ctx inner
-        | Expr.Assignment(leftExpr = l; rightExpr = r) ->
-            // `lhs <- rhs`: the stored value must escape at least as wide as
-            // the cell. Edge runs rhs → cell so propagation pushes the cell's
-            // state BACK onto every value stored into it (once the cell is
-            // seeded HeapShared by the threshold-of-1 closure-capture rule,
-            // each rhs lubs up to match). This is the OPPOSITE direction from
-            // tuple-holds-item (`AddEdge(tuple, item)`, tuple lubs up from
-            // items): tuples need "any item heap-shared ⇒ tuple heap-shared",
-            // cells need "cell heap-shared ⇒ stored values heap-shared".
-            // AddEdge short-circuits on RegionId.Unknown, so non-Ident LHSes
-            // (record fields, array indices) routing through the conservative
-            // fallback need no special case here.
+        | TExpr.Const _
+        | TExpr.Null _
+        | TExpr.External _
+        | TExpr.StaticPropertyGet _
+        | TExpr.StaticFieldGet _ -> RegionId.Unknown
+        | TExpr.Var(k, _) ->
+            match s.BindingRegions.TryGetValue k with
+            | true, r -> r
+            | false, _ -> RegionId.Unknown // external / not region-tracked
+        // Composite allocations: the region outlives every element's region.
+        | TExpr.Tuple(items, _) -> holds s [ for it in items -> inferRegion s ctx it ]
+        | TExpr.RecordCons(fields, _) -> holds s [ for (_, v) in fields -> inferRegion s ctx v ]
+        | TExpr.RecordClone(src, ov, _) ->
+            holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]
+        | TExpr.New(_, args, _)
+        | TExpr.UnionCons(_, args, _) -> holds s [ for a in args -> inferRegion s ctx a ]
+        // Field / property reads produce no new allocation — the access rides
+        // the receiver's region (the field's own storage is tracked via the
+        // receiver). Walk the receiver so its capture edges still register.
+        | TExpr.FieldGet(r, _, _) -> inferRegion s ctx r
+        | TExpr.PropertyGet(r, _, _, _) -> inferRegion s ctx r
+        | TExpr.ExternalMember(rOpt, _, _, _, _) ->
+            match rOpt with
+            | ValueSome r -> inferRegion s ctx r
+            | ValueNone -> RegionId.Unknown
+        | TExpr.Assignment(l, r, _) ->
+            // `lhs <- rhs`: the stored value must escape at least as wide as the
+            // cell. Edge runs rhs → cell so propagation pushes the cell's state
+            // BACK onto every value stored into it. AddEdge short-circuits on
+            // RegionId.Unknown, so non-Ident LHSes need no special case.
             let lhsR = inferRegion s ctx l
             let rhsR = inferRegion s ctx r
             s.Graph.AddEdge(rhsR, lhsR)
             RegionId.Unknown
-        | Expr.Ident _ -> identRegion s ctx e
-        | Expr.LongIdentOrOp _ -> identRegion s ctx e
-        | Expr.EnclosedBlock(expr = inner) -> inferRegion s ctx inner
-        | Expr.TypeAnnotation(expr = inner) -> inferRegion s ctx inner
-        // `:>` / `:?>` / `:?` are static-type adjustments over the same runtime
-        // value — non-allocating, so the result rides the source's region. A
-        // type test produces a `bool` (Unknown), but walking the source still
-        // registers any captures inside it.
-        | Expr.StaticUpcast(expr = inner) -> inferRegion s ctx inner
-        | Expr.DynamicDowncast(expr = inner) -> inferRegion s ctx inner
-        | Expr.DynamicTypeTest(expr = inner) ->
-            inferRegion s ctx inner |> ignore
+        | TExpr.FieldSet(recv, _, v, _) ->
+            // Same direction as `Assignment`: the stored value's lifetime is
+            // upper-bounded by the receiver that holds the slot.
+            let recvR = inferRegion s ctx recv
+            let vR = inferRegion s ctx v
+            s.Graph.AddEdge(vR, recvR)
             RegionId.Unknown
-        | Expr.Sequential(exprs = items) -> seqRegion s ctx items
-        | Expr.Fun(argumentPats = argPats; expr = body) -> lambdaRegion s ctx argPats body
-        | Expr.Function(rules = Rules(rules = rules)) -> functionLikeLambda s ctx rules
-        | Expr.LetOrUse(bindings = bindings; body = body) -> letRegion s ctx bindings body
-        | Expr.Tuple(exprs = items) -> tupleRegion s ctx items
-        | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
-            ifThenElseRegion s ctx e cond thenE elifs elseB
-        | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) -> matchRegion s ctx e scrutinee rules
-        | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> tryWithRegion s ctx e body rules
-        | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) -> tryFinallyRegion s ctx body finallyE
-        | Expr.App(funcExpr = fn; argExprs = args) -> appRegion s ctx e fn args
-        | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) -> appRegion s ctx e fn (ImmutableArray.Create(arg))
-        | Expr.InfixApp(leftExpr = l; rightExpr = r) ->
-            inferRegion s ctx l |> ignore
-            inferRegion s ctx r |> ignore
-            primitiveOrFreshResult s ctx e
-        | Expr.PrefixApp(expr = operand) ->
-            inferRegion s ctx operand |> ignore
-            primitiveOrFreshResult s ctx e
-        | Expr.Range(fromExpr = a; toExpr = b) ->
-            inferRegion s ctx a |> ignore
-            inferRegion s ctx b |> ignore
-            RegionId.Unknown
-        | Expr.SteppedRange(fromExpr = a; stepExpr = step; toExpr = b) ->
-            inferRegion s ctx a |> ignore
-            inferRegion s ctx step |> ignore
-            inferRegion s ctx b |> ignore
-            RegionId.Unknown
-        | _ ->
-            // No precise rule — fall back to a HeapShared-seeded region. Extend
-            // the precise cases above as the subset grows.
-            freshHeapShared s
-
-    and private walkUnitBody (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
-        // While / ForTo / ForIn — type unit, no allocation. Walk sub-expressions
-        // so any captures inside are still registered.
-        match e with
-        | Expr.While(condition = cond; body = body) ->
-            inferRegion s ctx cond |> ignore
-            inferRegion s ctx body |> ignore
-        | Expr.ForTo(startExpr = a; endExpr = b; body = body) ->
-            inferRegion s ctx a |> ignore
-            inferRegion s ctx b |> ignore
-            inferRegion s ctx body |> ignore
-        | Expr.ForIn(enumerableExpr = src; body = body) ->
+        // `:>` / `:?>` are static-type adjustments over the same runtime value —
+        // non-allocating, so the result rides the source's region. `:?` produces
+        // a bool (Unknown), but walking the source registers any inner captures.
+        | TExpr.Upcast(src, _)
+        | TExpr.Downcast(src, _) -> inferRegion s ctx src
+        | TExpr.TypeTest(src, _, _) ->
             inferRegion s ctx src |> ignore
-            inferRegion s ctx body |> ignore
-        | _ -> ()
-
-        RegionId.Unknown
-
-    and private identRegion (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
-        let key = CstKeys.ofExpr e
-
-        match ctx.Bindings.Binding.TryGetValue key with
-        | ValueSome rb ->
-            match s.BindingRegions.TryGetValue rb.BindingSite with
-            | true, r -> r
-            | false, _ -> RegionId.Unknown
-        | ValueNone -> RegionId.Unknown // external — no region
-
-    and private seqRegion (s: State) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : RegionId =
-        // Evaluate every item for side-effects (capture edges). The sequence's
-        // region is the LAST item — intermediates don't escape.
-        let n = items.Length
-
-        if n = 0 then
             RegionId.Unknown
-        else
-            for i = 0 to n - 2 do
-                inferRegion s ctx items.[i] |> ignore
+        | TExpr.Sequential(items, _) ->
+            // Evaluate every item for side-effects (capture edges). The
+            // sequence's region is the LAST item — intermediates don't escape.
+            let n = items.Length
 
-            inferRegion s ctx items.[n - 1]
+            if n = 0 then
+                RegionId.Unknown
+            else
+                for i = 0 to n - 2 do
+                    inferRegion s ctx items.[i] |> ignore
 
-    and private tupleRegion (s: State) (ctx: PassContext) (items: ImmutableArray<Expr<SyntaxToken>>) : RegionId =
-        holds s [ for it in items -> inferRegion s ctx it ]
+                inferRegion s ctx items.[n - 1]
+        | TExpr.While(c, b, _) ->
+            inferRegion s ctx c |> ignore
+            inferRegion s ctx b |> ignore
+            RegionId.Unknown
+        | TExpr.ForTo(_, st, en, b, _) ->
+            inferRegion s ctx st |> ignore
+            inferRegion s ctx en |> ignore
+            inferRegion s ctx b |> ignore
+            RegionId.Unknown
+        | TExpr.ForIn(_, src, b, _, _) ->
+            inferRegion s ctx src |> ignore
+            inferRegion s ctx b |> ignore
+            RegionId.Unknown
+        | TExpr.Range(a, step, b, _) ->
+            inferRegion s ctx a |> ignore
+            step |> Option.iter (fun st -> inferRegion s ctx st |> ignore)
+            inferRegion s ctx b |> ignore
+            RegionId.Unknown
+        | TExpr.Format(sink, segs, _) ->
+            (match sink with
+             | FormatSink.ToWriter w
+             | FormatSink.ToBuilder w -> inferRegion s ctx w |> ignore
+             | FormatSink.ToStdOut _
+             | FormatSink.ToStdErr _
+             | FormatSink.ToString -> ())
 
-    and private newRegion (s: State) (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : RegionId =
-        // `new T(args)` — like a tuple/record allocation: a region at the
-        // enclosing let-level, one outgoing edge per constructor argument so
-        // the object's lifetime upper-bounds its arguments' lifetimes.
-        holds s [ inferRegion s ctx argExpr ]
+            for seg in segs do
+                match seg with
+                | FormatSeg.Lit _ -> ()
+                | FormatSeg.Hole(_, a) -> inferRegion s ctx a |> ignore
 
-    and private recordRegion
-        (s: State)
-        (ctx: PassContext)
-        (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
-        : RegionId =
-        // Records allocate like tuples: one outgoing edge per field initialiser
-        // (record outlives each field's value). Mutable-field cell allocation
-        // is deferred to v1.5; the conservative approximation here ties the
-        // field's storage lifetime to the record's own region. Assignment to a
-        // record field then routes the RHS through the receiver's region rather
-        // than a separate cell region — classifying that as too escape-wide is
-        // the safe direction.
-        holds s [ for FieldInitializer(expr = e) in inits -> inferRegion s ctx e ]
+            RegionId.Unknown
+        | TExpr.ILIntrinsic(_, args, _) ->
+            for a in args do
+                inferRegion s ctx a |> ignore
 
-    and private recordCloneRegion
-        (s: State)
-        (ctx: PassContext)
-        (src: Expr<SyntaxToken>)
-        (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
-        : RegionId =
-        // Conservative v1: the clone is a new allocation that outlives both the
-        // source record and every override RHS. Sharing regions with the
-        // source's individual fields lands when the precise field-cell model does.
-        holds
-            s
-            [
-                yield inferRegion s ctx src
-                for FieldInitializer(expr = e) in inits -> inferRegion s ctx e
-            ]
+            primitiveOrFreshResult s e
+        // Resolved away by the inline-expansion pass; walk defensively in case a
+        // residual one survives so any captures inside it still register.
+        | TExpr.StaticOptimization(clauses, def, _) ->
+            for c in clauses do
+                inferRegion s ctx c.Body |> ignore
 
-    and private lambdaRegion
-        (s: State)
-        (ctx: PassContext)
-        (argPats: ImmutableArray<Pat<SyntaxToken>>)
-        (body: Expr<SyntaxToken>)
-        : RegionId =
-        // Mint the closure's region BEFORE entering the body, so the seed rule
-        // sees the outer function-stack top (the function this lambda is
-        // constructed inside of).
-        let r = freshLambda s
+            inferRegion s ctx def
+        | TExpr.Lambda(param, body, _) -> lambdaRegionWith s ctx (freshLambda s) param body
+        | TExpr.Let _
+        | TExpr.Use _ -> letChainRegion s ctx e
+        | TExpr.IfThenElse(c, t, el, _) ->
+            inferRegion s ctx c |> ignore
+            joinArms s e [ inferRegion s ctx t; inferRegion s ctx el ] RegionId.Unknown
+        | TExpr.Match(sc, armRules, _) ->
+            inferRegion s ctx sc |> ignore
+            joinArms s e [ for arm in armRules -> inferRegionArm s ctx arm ] RegionId.Unknown
+        | TExpr.TryWith(b, armRules, _) ->
+            let bodyR = inferRegion s ctx b
+            joinArms s e [ yield bodyR; for arm in armRules -> inferRegionArm s ctx arm ] bodyR
+        | TExpr.TryFinally(b, c, _) ->
+            let bodyR = inferRegion s ctx b
+            inferRegion s ctx c |> ignore
+            bodyR
+        | TExpr.App _ ->
+            // The result region (if any) outlives the callee and every argument.
+            let head, args = TastWalk.collectSpine [] e
+            joinArms s e [ yield inferRegion s ctx head; for (a, _) in args -> inferRegion s ctx a ] RegionId.Unknown
+        | TExpr.MethodCall(recv, _, _, args, _) ->
+            joinArms s e [ yield inferRegion s ctx recv; for a in args -> inferRegion s ctx a ] RegionId.Unknown
+        | TExpr.StaticMethodCall(_, args, _) -> joinArms s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
 
-        let paramBinders =
-            [
-                for p in argPats do
-                    yield! bindersOfPat ctx p
-            ]
-
-        // Capture edges first, before any body recursion, so the walker's
-        // `locals` set sees the right scope shape.
-        addCaptureEdges s (collectFreeVarBindingSites ctx paramBinders body) r
-
+    /// Process a `TExpr.Lambda` whose closure region is `r` (a fresh region for an
+    /// anonymous lambda, or the pre-minted region of a function-form binding).
+    /// Capture edges first (before any body recursion), then params register
+    /// AFTER `enterFun` so they pick up the lambda's own frame depth as their
+    /// `MintFunctionLevel` (the non-strict level rule then seeds an escaping
+    /// parameter correctly). Finally the closure outlives its body's value.
+    and private lambdaRegionWith (s: State) (ctx: PassContext) (r: RegionId) (param: TPat) (body: TExpr) : RegionId =
+        addCaptureEdges s (collectFreeVars (bindersOfTPat param) body) r
         enterFun s
-
-        // Parameter regions live inside the lambda's own frame — register AFTER
-        // enterFun so they pick up the new function-stack top as their
-        // MintFunctionLevel. Mirrors processBinding's order for function-form
-        // bindings.
-        for p in argPats do
-            registerParam s ctx p
-
+        registerParam s ctx param
         let bodyRegion = inferRegion s ctx body
         exitFun s
-
-        // If the function returns an allocating value, that value escapes the
-        // function's frame and the closure must reflect that.
         s.Graph.AddEdge(r, bodyRegion)
         r
 
-    and private registerParam (s: State) (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+    and private registerParam (s: State) (ctx: PassContext) (p: TPat) : unit =
         // Mint ONE region per parameter pattern, threaded through every binder
-        // via recordBindingRegion — same rule let-bindings use. Sharing a
-        // region for `(a, b)` / `x as y` over-approximates safely ("if any
-        // escapes, treat siblings as escaping") and keeps parameter and
-        // let-destructuring on one rule. Empty-binder patterns (Const /
-        // Wildcard) skip the mint.
-        match bindersOfPat ctx p with
+        // via recordBindingRegion — same rule let-bindings use. Sharing a region
+        // for `(a, b)` over-approximates safely ("if any escapes, treat siblings
+        // as escaping"). Empty-binder patterns (Const / Wildcard) skip the mint.
+        match bindersOfTPat p with
         | [] -> ()
         | _ -> recordBindingRegion s ctx p (freshParam s)
 
-    and private functionLikeLambda (s: State) (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : RegionId =
-        // `function p1 -> e1 | …` ~ `fun x -> match x with …` — a closure with
-        // one synthetic parameter. No real param NodeKey to register, so we
-        // walk the arms via the body region path.
-        let r = freshLambda s
+    /// A `match` / `try-with` arm: register its pattern binders, walk the guard
+    /// for capture edges, and return the body's region. Shared by both joiners.
+    and private inferRegionArm (s: State) (ctx: PassContext) (arm: TMatchArm) : RegionId =
+        registerParam s ctx arm.Pat
+        arm.Guard |> Option.iter (fun g -> inferRegion s ctx g |> ignore)
+        inferRegion s ctx arm.Body
 
-        // Pattern binders within each arm are local to that arm: treat each
-        // arm's pattern as the local binder set for its body/guard.
-        for r' in rules do
-            match r' with
-            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
-                let armBinders = bindersOfPat ctx pat
-
-                let collect e' =
-                    addCaptureEdges s (collectFreeVarBindingSites ctx armBinders e') r
-
-                collect body
-
-                match guard with
-                | ValueSome(PatternGuard(expr = g)) -> collect g
-                | ValueNone -> ()
-            | _ -> ()
-
-        enterFun s
-
-        for r' in rules do
-            match r' with
-            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
-                registerParam s ctx pat
-
-                match guard with
-                | ValueSome(PatternGuard(expr = g)) -> inferRegion s ctx g |> ignore
-                | ValueNone -> ()
-
-                let bodyR = inferRegion s ctx body
-                s.Graph.AddEdge(r, bodyR)
-            | _ -> ()
-
-        exitFun s
-        r
-
-    and private letRegion
+    /// Run a binding group: bump the let-level, pre-mint a closure region for
+    /// every function-form binder so mutual references (let-rec / `and`) resolve
+    /// before any body walk, process each binding, then evaluate `body` at the
+    /// raised level before restoring. Plain bindings can't be pre-minted — their
+    /// region IS the RHS's region. Shared by `letChainRegion` (nested `Let`/`Use`
+    /// chains) and `run` (module-level decls as one group).
+    and private withBindingGroup
         (s: State)
         (ctx: PassContext)
-        (bindings: ImmutableArray<Binding<SyntaxToken>>)
-        (body: Expr<SyntaxToken> voption)
+        (bindings: (TPat * TExpr) seq)
+        (body: unit -> RegionId)
         : RegionId =
-        processBindingGroup s ctx bindings
-
-        match body with
-        | ValueSome b -> inferRegion s ctx b
-        | ValueNone -> RegionId.Unknown
-
-    and private processBindingGroup
-        (s: State)
-        (ctx: PassContext)
-        (bindings: ImmutableArray<Binding<SyntaxToken>>)
-        : unit =
         let savedEnclosing = s.EnclosingLet
         s.EnclosingLet <- s.LetLevel
         s.LetLevel <- s.LetLevel + 1
 
-        // Pre-pass: mint a closure region for every function-form binding and
-        // record it under its headPat. Sibling references (mutual let-rec, or
-        // `and` clauses) need the region in BindingRegions before any body walk,
-        // otherwise the freeVars lookup misses the sibling and drops the capture
-        // edge. Plain bindings can't be pre-minted — their region IS the RHS's
-        // region, only known after walking the RHS.
-        for b in bindings do
-            if not b.argumentPats.IsEmpty then
-                recordBindingRegion s ctx b.headPat (freshLambda s)
+        for (p, v) in bindings do
+            match v with
+            | TExpr.Lambda _ -> recordBindingRegion s ctx p (freshLambda s)
+            | _ -> ()
 
-        for b in bindings do
-            processBinding s ctx b
+        for (p, v) in bindings do
+            processBinding s ctx p v
+
+        let r = body ()
 
         s.LetLevel <- s.LetLevel - 1
         s.EnclosingLet <- savedEnclosing
+        r
 
-    and private processBinding (s: State) (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
-        if b.argumentPats.IsEmpty then
+    /// Walk a maximal chain of nested `Let`/`Use` as one binding group — the
+    /// flattening of `let rec … and …` into nested lets means siblings only
+    /// resolve once the whole chain is collected and pre-minted together.
+    and private letChainRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
+        let bindings = ResizeArray<TPat * TExpr>()
+
+        let rec collect (e: TExpr) : TExpr =
+            match e with
+            | TExpr.Let(p, v, body, _) ->
+                bindings.Add(p, v)
+                collect body
+            | TExpr.Use(p, v, body, _, _) ->
+                bindings.Add(p, v)
+                collect body
+            | other -> other
+
+        let body = collect e
+        withBindingGroup s ctx bindings (fun () -> inferRegion s ctx body)
+
+    and private processBinding (s: State) (ctx: PassContext) (p: TPat) (value: TExpr) : unit =
+        match value with
+        | TExpr.Lambda(param, lamBody, _) ->
+            // Function-form binding: reuse the pre-minted closure region, or mint
+            // on demand if a caller didn't pre-mint (keeps the pass total).
+            let r =
+                match p with
+                | TPat.NamedSimple(k, _) when s.BindingRegions.ContainsKey k -> s.BindingRegions.[k]
+                | _ ->
+                    let r = freshLambda s
+                    recordBindingRegion s ctx p r
+                    r
+
+            lambdaRegionWith s ctx r param lamBody |> ignore
+        | _ ->
             // Plain binding: region(binding) = region(rhs). For pass-through
-            // values (Ident on RHS) this naturally shares the source's region.
-            let rhsR = inferRegion s ctx b.expr
+            // values (Var on RHS) this naturally shares the source's region.
+            let rhsR = inferRegion s ctx value
 
-            if b.mutableToken.IsSome then
+            let isMutable =
+                match p with
+                | TPat.NamedSimple(k, _) ->
+                    match ctx.Bindings.Binding.TryGetValue k with
+                    | ValueSome rb -> rb.IsMutable
+                    | ValueNone -> false
+                | _ -> false
+
+            if isMutable then
                 // `let mutable x = rhs`: the cell is distinct from the rhs value.
                 // The cell outlives every value stored into it; the rhs lubs up
                 // to match if the cell is later classified wider. See
                 // docs/mutable-plan.md §Why mutable cells need a separate region.
                 let cell = freshCell s
                 s.Graph.AddEdge(rhsR, cell)
-                recordBindingRegion s ctx b.headPat cell
+                recordBindingRegion s ctx p cell
             else
-                recordBindingRegion s ctx b.headPat rhsR
-        else
-            // Function-form binding: the closure region was pre-minted in
-            // processBindingGroup; look it up here.
-            let headKey = CstKeys.ofPat b.headPat
+                recordBindingRegion s ctx p rhsR
 
-            let r =
-                match s.BindingRegions.TryGetValue headKey with
-                | true, r -> r
-                | false, _ ->
-                    // Defensive: processBindingGroup pre-mints, but mint on
-                    // demand so the pass stays total against future callers.
-                    let r = freshLambda s
-                    recordBindingRegion s ctx b.headPat r
-                    r
-
-            let paramBinders =
-                [
-                    for p in b.argumentPats do
-                        yield! bindersOfPat ctx p
-                ]
-
-            addCaptureEdges s (collectFreeVarBindingSites ctx paramBinders b.expr) r
-
-            enterFun s
-
-            for p in b.argumentPats do
-                registerParam s ctx p
-
-            let bodyR = inferRegion s ctx b.expr
-            s.Graph.AddEdge(r, bodyR)
-            exitFun s
-
-    and private recordBindingRegion (s: State) (ctx: PassContext) (p: Pat<SyntaxToken>) (r: RegionId) : unit =
-        // Map every binder this pattern introduces to `r`. Tuples/as recurse so
-        // each name shares the same region — a rough approximation
-        // (destructuring projects each element), but value-shape destructuring
-        // is rare in the v1 subset.
+    and private recordBindingRegion (s: State) (ctx: PassContext) (p: TPat) (r: RegionId) : unit =
+        // Map every binder this pattern introduces to `r`. Tuple / record /
+        // union sub-patterns recurse so each name shares the same region — a
+        // rough approximation (destructuring projects each element), but
+        // value-shape destructuring is rare in the v1 subset.
         match p with
-        | Pat.NamedSimple _ ->
-            let key = CstKeys.ofPat p
-            s.BindingRegions.[key] <- r
-            stampTyVar ctx key r
-        | Pat.EnclosedBlock(pat = inner) ->
-            let key = CstKeys.ofPat p
-            s.BindingRegions.[key] <- r
-            stampTyVar ctx key r
-            recordBindingRegion s ctx inner r
-        | Pat.Typed(pat = inner) ->
-            let key = CstKeys.ofPat p
-            s.BindingRegions.[key] <- r
-            stampTyVar ctx key r
-            recordBindingRegion s ctx inner r
-        | Pat.As(pat = inner) ->
-            let key = CstKeys.ofPat p
-            s.BindingRegions.[key] <- r
-            stampTyVar ctx key r
-            recordBindingRegion s ctx inner r
-        | Pat.Tuple(patterns = pats) ->
-            let key = CstKeys.ofPat p
-            s.BindingRegions.[key] <- r
-            stampTyVar ctx key r
-
-            for sub in pats do
+        | TPat.NamedSimple(k, _) ->
+            s.BindingRegions.[k] <- r
+            stampTyVar ctx k r
+        | TPat.Tuple(items, _) ->
+            for sub in items do
                 recordBindingRegion s ctx sub r
-        | _ -> ()
-
-    and private ifThenElseRegion
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (cond: Expr<SyntaxToken>)
-        (thenE: Expr<SyntaxToken>)
-        (elifs: ImmutableArray<ElifBranch<SyntaxToken>>)
-        (elseB: ElseBranch<SyntaxToken> voption)
-        : RegionId =
-        inferRegion s ctx cond |> ignore
-
-        let armRegions = ResizeArray<RegionId>()
-        armRegions.Add(inferRegion s ctx thenE)
-
-        for el in elifs do
-            let elCond, elExpr =
-                match el with
-                | ElifBranch.Elif(condition = c; expr = e2)
-                | ElifBranch.ElseIf(condition = c; expr = e2) -> c, e2
-
-            inferRegion s ctx elCond |> ignore
-            armRegions.Add(inferRegion s ctx elExpr)
-
-        match elseB with
-        | ValueSome(ElseBranch(expr = elExpr)) -> armRegions.Add(inferRegion s ctx elExpr)
-        | ValueNone -> ()
-
-        joinArms s ctx e armRegions RegionId.Unknown
-
-    and private matchRegion
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (scrutinee: Expr<SyntaxToken>)
-        (rules: ImmutableArray<Rule<SyntaxToken>>)
-        : RegionId =
-        inferRegion s ctx scrutinee |> ignore
-        let armRegions = ResizeArray<RegionId>()
-
-        for r' in rules do
-            match r' with
-            | Rule.Rule(pat = pat; guard = guard; expr = body) ->
-                registerParam s ctx pat
-
-                match guard with
-                | ValueSome(PatternGuard(expr = g)) -> inferRegion s ctx g |> ignore
-                | ValueNone -> ()
-
-                armRegions.Add(inferRegion s ctx body)
-            | _ -> ()
-
-        joinArms s ctx e armRegions RegionId.Unknown
-
-    and private tryWithRegion
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (body: Expr<SyntaxToken>)
-        (rules: ImmutableArray<Rule<SyntaxToken>>)
-        : RegionId =
-        let bodyR = inferRegion s ctx body
-        let armRegions = ResizeArray<RegionId>()
-        armRegions.Add(bodyR)
-
-        for r' in rules do
-            match r' with
-            | Rule.Rule(pat = pat; guard = guard; expr = armBody) ->
-                registerParam s ctx pat
-
-                match guard with
-                | ValueSome(PatternGuard(expr = g)) -> inferRegion s ctx g |> ignore
-                | ValueNone -> ()
-
-                armRegions.Add(inferRegion s ctx armBody)
-            | _ -> ()
-
-        joinArms s ctx e armRegions bodyR
-
-    and private tryFinallyRegion
-        (s: State)
-        (ctx: PassContext)
-        (body: Expr<SyntaxToken>)
-        (finallyE: Expr<SyntaxToken>)
-        : RegionId =
-        let bodyR = inferRegion s ctx body
-        inferRegion s ctx finallyE |> ignore
-        bodyR
-
-    and private appRegion
-        (s: State)
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        (fn: Expr<SyntaxToken>)
-        (args: ImmutableArray<Expr<SyntaxToken>>)
-        : RegionId =
-        // The result region (if any) outlives the callee and every argument.
-        let childRegions = ResizeArray<RegionId>()
-        childRegions.Add(inferRegion s ctx fn)
-
-        for a in args do
-            childRegions.Add(inferRegion s ctx a)
-
-        joinArms s ctx e childRegions RegionId.Unknown
-
-    and private primitiveOrFreshResult (s: State) (ctx: PassContext) (e: Expr<SyntaxToken>) : RegionId =
-        if exprIsAllocation ctx e then
-            freshValue s
-        else
-            RegionId.Unknown
-
-    let private walkModuleElem (s: State) (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-            processBindingGroup s ctx bindings
-        | ModuleElem.Expression e -> inferRegion s ctx e |> ignore
-        | _ -> ()
+        | TPat.Record(fields, _) ->
+            for (_, sub) in fields do
+                recordBindingRegion s ctx sub r
+        | TPat.Union(_, fields, _) ->
+            for sub in fields do
+                recordBindingRegion s ctx sub r
+        | TPat.Wildcard _
+        | TPat.Const _ -> ()
 
     /// Distinct lambda regions reachable from `start` via outlives edges (the
     /// HeapShared seed rule's input).
@@ -905,7 +692,7 @@ module Regions =
 
         state
 
-    let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
+    let run (ctx: PassContext) (decls: EqArray<TDecl>) : unit =
         let s: State =
             {
                 Graph = RegionGraph()
@@ -915,10 +702,35 @@ module Regions =
                 FunctionStack = ResizeArray()
             }
 
-        let elems = CstWalk.implFileElems file
+        // Module-level decls form ONE binding group: `let rec a … and b …` are
+        // now distinct `TDecl`s, so grouping them (conservatively) is what keeps
+        // mutual references resolvable. `withBindingGroup` bumps the level to 1,
+        // so module function bodies start at frame depth 1 as the CST pass did.
+        let bindings =
+            [
+                for d in decls do
+                    match d with
+                    | TDecl.Let(p, v, _, _) -> yield (p, v)
+                    | TDecl.Expression _
+                    | TDecl.Type _ -> ()
+            ]
 
-        for m in elems do
-            walkModuleElem s ctx m
+        withBindingGroup
+            s
+            ctx
+            bindings
+            (fun () ->
+                for d in decls do
+                    match d with
+                    | TDecl.Expression(e, _) -> inferRegion s ctx e |> ignore
+                    // Type-member bodies aren't region-analysed (`RefCellPromotion`
+                    // never rewrites a `TDecl.Type`), and lets are handled above.
+                    | TDecl.Let _
+                    | TDecl.Type _ -> ()
+
+                RegionId.Unknown
+            )
+        |> ignore
 
         let state = solve s.Graph
 
