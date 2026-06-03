@@ -62,19 +62,33 @@ let tests =
 
             // ---- inline expansion (former Slice3 anchors) --------------------
             yield
-                test "an inline binding analyses to an inline Let + a Var call site referencing it" {
+                test "an inline binding keeps its template and expands its use site pre-freeze" {
+                    // frozen-type-plan 3A-1: the `let inline succ` template (decl 0)
+                    // is retained verbatim, but the use site `succ 41` is now
+                    // expanded *pre-freeze* by `InlineExpansion` — the call beta-
+                    // reduces to a `Let` binding the argument 41 over `succ`'s
+                    // `x + 1` body (the `op_Addition` head left for codegen's
+                    // `BuiltinOps`). (Previously this stayed an `App(Var, 41)` call
+                    // head for codegen to expand.)
                     let tast = analyse "let inline succ x = x + 1\nprintfn \"%d\" (succ 41)"
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kSucc, _),
+                    | EqList [ TDecl.Let(TPat.NamedSimple _,
                                          TExpr.Lambda _,
                                          true,
                                          TyFun(TyConst("int", _), TyConst("int", _)))
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
                         match EqArray.toList segs with
-                        | [ FormatSeg.Hole(_, TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 41, _), _)) ] ->
-                            Expect.equal kUse kSucc "the call site `Var` references the inline binding's NodeKey"
+                        | [ FormatSeg.Hole(_,
+                                           TExpr.Let(TPat.NamedSimple _,
+                                                     TExpr.Const(TConstValue.Int 41, _),
+                                                     TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                                         TExpr.Var _,
+                                                                         _),
+                                                               TExpr.Const(TConstValue.Int 1, _),
+                                                               _),
+                                                     _)) ] -> ()
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected inline TAST: %A" other
                 }

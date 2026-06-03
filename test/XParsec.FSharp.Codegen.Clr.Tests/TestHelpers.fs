@@ -167,10 +167,10 @@ let vesperListDll: Lazy<string> =
          // contract — `MockBuiltins` alone leaves the call head un-inlined.
          // Self-manifest (`Vesper.List`'s own) is excluded; the package is
          // *defining* its types here.
-         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
          let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-         let artifact = Codegen.compileWithInlines inlines provider project tast
+         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
@@ -285,7 +285,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
                  let depManifests = manifest.DependsOn |> List.map srcManifest
 
-                 let provider, inlines = SymbolProviders.buildContract depManifests
+                 let provider = SymbolProviders.buildContract depManifests
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 
@@ -319,7 +319,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                          (List.length analysisErrors)
                          (analysisErrors |> List.map (fun d -> d.Message) |> String.concat "\n")
 
-                 let artifact = Codegen.compileWithInlines inlines provider project tast
+                 let artifact = Codegen.compile provider project tast
                  Codegen.materialise artifact
 
                  use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
@@ -332,7 +332,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 /// (cached per manifest set by `SymbolProviders.buildContract`) and run *both*
 /// phases against it: a use-site
 /// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
-/// `ops-platform.fs`) is spliced in by `Emit.lowerWith` rather than served by a
+/// `ops-platform.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (via the
+/// provider's `IInlineBodyProvider` channel) rather than served by a
 /// codegen stopgap. `[]` manifests ⇒ `composite [MetadataSymbols; MockBuiltins]`
 /// (the pre-demotion wiring), for callers that must stay off the contract.
 let private compileContract
@@ -340,10 +341,10 @@ let private compileContract
     (project: ProjectInfo)
     (input: string)
     : TastFile * ClrArtifact =
-    let provider, inlines = SymbolProviders.buildContract manifestPaths
+    let provider = SymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
     let tast = Pipeline.analyseFor project.AssemblyName provider input lexed file
-    let artifact = Codegen.compileWithInlines inlines provider (withCore project) tast
+    let artifact = Codegen.compile provider (withCore project) tast
     tast, artifact
 
 /// The default compile path — now resolved through the contract stack
@@ -508,10 +509,10 @@ let vesperOptionDll: Lazy<string> =
              }
 
          let src = IO.File.ReadAllText(vesperOptionSource "option.fs")
-         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
          let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-         let artifact = Codegen.compileWithInlines inlines provider project tast
+         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath optionPath |> ignore
          optionPath)
@@ -522,7 +523,7 @@ let vesperOptionDll: Lazy<string> =
 /// `Vesper.Option.dll` is added to `References` (alongside the `withCore`
 /// Core/List DLLs). The `Option`-module counterpart of `runs`.
 let runsOption (expected: string) (src: string) : unit =
-    let provider, inlines =
+    let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperOptionManifest ])
 
     let baseProject = withCore (ProjectInfo.defaults "OptionCorpus")
@@ -534,7 +535,7 @@ let runsOption (expected: string) (src: string) : unit =
 
     let lexed, file = parseFile src
     let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-    let artifact = Codegen.compileWithInlines inlines provider project tast
+    let artifact = Codegen.compile provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
 
@@ -553,7 +554,7 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 /// `Pipeline.analyse` collects diagnostics rather than throwing, so both
 /// `failsWith` and `typeChecks` read off the returned `TastFile.Diagnostics`.
 let private analyseErrors (src: string) : Diagnostic list =
-    let provider, _ = SymbolProviders.buildContract defaultManifests
+    let provider = SymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyse provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
@@ -585,7 +586,7 @@ let typeChecks (src: string) : unit =
 /// (vesper-lib-test-plan Gap 2 Layer A). No codegen, so it exercises type
 /// resolution + member access without the backend B/C/D paths.
 let private analyseOptionErrors (src: string) : Diagnostic list =
-    let provider, _ =
+    let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperOptionManifest ])
 
     let lexed, file = parseFile src
@@ -644,10 +645,10 @@ let vesperResultDll: Lazy<string> =
              }
 
          let src = IO.File.ReadAllText(vesperResultSource "result.fs")
-         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
          let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-         let artifact = Codegen.compileWithInlines inlines provider project tast
+         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath resultPath |> ignore
          resultPath)
@@ -656,7 +657,7 @@ let vesperResultDll: Lazy<string> =
 /// type/module, run it in-process, and assert exit 0 with trimmed stdout equal to
 /// `expected`. The `Result`-module counterpart of `runsOption`.
 let runsResult (expected: string) (src: string) : unit =
-    let provider, inlines =
+    let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperResultManifest ])
 
     let baseProject = withCore (ProjectInfo.defaults "ResultCorpus")
@@ -668,7 +669,7 @@ let runsResult (expected: string) (src: string) : unit =
 
     let lexed, file = parseFile src
     let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-    let artifact = Codegen.compileWithInlines inlines provider project tast
+    let artifact = Codegen.compile provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
 
@@ -685,7 +686,7 @@ let runsResultLines (expected: string list) (src: string) : unit =
 /// `analyseErrors` against the default contract stack PLUS the `Vesper.Result`
 /// contract — the front-end-only probe for cross-package Result use.
 let private analyseResultErrors (src: string) : Diagnostic list =
-    let provider, _ =
+    let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperResultManifest ])
 
     let lexed, file = parseFile src
@@ -744,10 +745,10 @@ let vesperChoiceDll: Lazy<string> =
              }
 
          let src = IO.File.ReadAllText(vesperChoiceSource "choice.fs")
-         let provider, inlines = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
          let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-         let artifact = Codegen.compileWithInlines inlines provider project tast
+         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath choicePath |> ignore
          choicePath)
@@ -756,7 +757,7 @@ let vesperChoiceDll: Lazy<string> =
 /// run it in-process, and assert exit 0 with trimmed stdout equal to `expected`.
 /// The `Choice`-type counterpart of `runsResult`.
 let runsChoice (expected: string) (src: string) : unit =
-    let provider, inlines =
+    let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperChoiceManifest ])
 
     let baseProject = withCore (ProjectInfo.defaults "ChoiceCorpus")
@@ -768,7 +769,7 @@ let runsChoice (expected: string) (src: string) : unit =
 
     let lexed, file = parseFile src
     let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
-    let artifact = Codegen.compileWithInlines inlines provider project tast
+    let artifact = Codegen.compile provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
 
@@ -785,7 +786,7 @@ let runsChoiceLines (expected: string list) (src: string) : unit =
 /// `analyseErrors` against the default contract stack PLUS the `Vesper.Choice`
 /// contract — the front-end-only probe for cross-package Choice use.
 let private analyseChoiceErrors (src: string) : Diagnostic list =
-    let provider, _ =
+    let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperChoiceManifest ])
 
     let lexed, file = parseFile src

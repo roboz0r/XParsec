@@ -226,16 +226,6 @@ module EmitLower =
             e
         |> ignore
 
-    /// Peel a curried `App` chain into its head and the arguments paired with
-    /// each `App` node's *result* type.
-    let rec collectSpine (acc: (TExpr * SemType) list) (e: TExpr) : TExpr * (TExpr * SemType) list =
-        match e with
-        | TExpr.App(fn, arg, ty) -> collectSpine ((arg, ty) :: acc) fn
-        | head -> head, acc
-
-    let private rebuildApp (head: TExpr) (args: (TExpr * SemType) list) : TExpr =
-        List.fold (fun acc (arg, resTy) -> TExpr.App(acc, arg, resTy)) head args
-
     /// Source of synthetic `NodeKey`s for unit-parameter binders (`fun () -> …`).
     /// The body never references the key, but a fresh per-call key lets the
     /// `args.[key]` dict still allocate an `ldarg` slot for the unit value the
@@ -262,18 +252,6 @@ module EmitLower =
             (mintUnitParamKey (), pty) :: ps, b
         | _ -> [], e
 
-    /// Beta-reduce a curried lambda (an inline expansion's output) against its
-    /// spine args, lowering each application to a `TExpr.Let`. Lambda count must
-    /// match spine-arg count for a fully applied call.
-    let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType) list) : TExpr =
-        match fn, args with
-        | _, [] -> fn
-        | TExpr.Lambda(TPat.NamedSimple(k, paramTy), lamBody, _), (arg, _) :: rest ->
-            let reduced = betaReduce lamBody rest
-            TExpr.Let(TPat.NamedSimple(k, paramTy), arg, reduced, typeOfExpr reduced)
-        | TExpr.Lambda(param, _, _), _ -> failwithf "Emit: inline parameter destructuring is out of scope: %A" param
-        | _, _ :: _ -> failwith "Emit: over-application of an inline function"
-
     /// Fallback inline-IL bodies for built-in operators, expressed as the
     /// `TExpr.ILIntrinsic` the general path emits. A saturated `External(opName)`
     /// use site is rewritten to the matching body here by `expandBuiltinOps`, so
@@ -281,9 +259,11 @@ module EmitLower =
     /// use-site type (primitive clauses share an opcode; no `when ^T : …`).
     ///
     /// DELETE-WHEN-COMPLETE: operator `.fs` bodies in `ops-platform.fs` now win on
-    /// the primary path (the `=`/`<>` contract body is spliced by `lowerWith`
-    /// first). This table only still serves union member-bodies and eta-reified
-    /// operator values until those route through the inline bodies too.
+    /// the primary path (the `=`/`<>` contract body is spliced pre-freeze by
+    /// `Passes.InlineExpansion` at every ground use site). This table only still
+    /// serves the residue the pass leaves: an *un-ground* operator operand
+    /// (`let f a b = a = b`) and an eta-reified operator value, until those route
+    /// through the inline bodies too.
     module private BuiltinOps =
 
         let private ilBin (op: string) : EqArray<TExpr> -> SemType -> TExpr =
@@ -348,7 +328,7 @@ module EmitLower =
     let rec expandBuiltinOps (e: TExpr) : TExpr =
         match e with
         | TExpr.App _ ->
-            let head, spine = collectSpine [] e
+            let head, spine = TastWalk.collectSpine [] e
 
             match head with
             | TExpr.External(name, _, _) when BuiltinOps.isSaturated name (List.length spine) ->
@@ -363,193 +343,23 @@ module EmitLower =
         | TyFun _ -> true
         | _ -> false
 
-    /// Does `e` contain a `TExpr.StaticOptimization` anywhere? An inline body that
-    /// does must be expanded with the call site's type arguments (so the clause
-    /// resolves against the monomorphised operand type); a body that doesn't keeps
-    /// the existing zero-type-arg expansion path unchanged.
-    let rec private containsStaticOpt (e: TExpr) : bool =
-        match e with
-        | TExpr.StaticOptimization _ -> true
-        | _ ->
-            let mutable found = false
-            iterChildren (fun c -> found <- found || containsStaticOpt c) e
-            found
-
-    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic, so
-    /// codegen can encode it. The cross-package equality/`hash` inline bodies reach
-    /// `EqualityComparer<^T>`, which can only be emitted when `^T` is ground; an
-    /// unpinned operand (`let f a b = a = b`) leaves it free and must fall back to
-    /// `BuiltinOps` instead.
-    let rec private isGroundType (t: SemType) : bool =
-        match zonk t with
-        | TyVar _ -> false
-        | TyConst(_, xs) -> EqArray.forall isGroundType xs
-        | TyFun(a, b) -> isGroundType a && isGroundType b
-        | TyTuple xs -> EqArray.forall isGroundType xs
-        | TyRecord(_, xs)
-        | TyUnion(_, xs)
-        | TyClass(_, xs) -> EqArray.forall isGroundType xs
-        // An unresolved contract head is never ground — the front end
-        // errors on it before frozen TAST reaches here; keep it off the ground-only
-        // inline-emit path defensively.
-        | TyUnknown _ -> false
-        // A frozen open typar is, by definition, not monomorphic.
-        | TempTypar _ -> false
-
-    /// Recover an inline binding's type arguments at a call site by matching its
-    /// declared parameter types (carrying the quantified typars) against the actual
-    /// spine-arg types — like `matchInstantiation`, but **tolerant**: a typar the
-    /// params don't pin is left as its own `TyVar` so the catch-all `when ^T : ^T`
-    /// clause still selects. Returned in `Inline.quantifiedTypars` order.
-    let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
-        let typars = Inline.quantifiedTypars declTy
-
-        if typars.Length = 0 then
-            [||]
-        else
-            let roots = typars |> Array.map UnionFind.find
-            let result = Array.create roots.Length ValueNone
-
-            let rec go (defT: SemType) (actT: SemType) =
-                match zonk defT, zonk actT with
-                | TyVar tv, act ->
-                    let r = UnionFind.find tv
-
-                    match roots |> Array.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
-                    | Some i ->
-                        if result.[i].IsNone then
-                            result.[i] <- ValueSome act
-                    | None -> ()
-                | TyFun(a1, r1), TyFun(a2, r2) ->
-                    go a1 a2
-                    go r1 r2
-                | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-
-            let rec peelParams n t =
-                if n <= 0 then
-                    []
-                else
-                    match zonk t with
-                    | TyFun(a, b) -> a :: peelParams (n - 1) b
-                    | _ -> []
-
-            let rec pairGo ps acts =
-                match ps, acts with
-                | p :: ps', a :: acts' ->
-                    go p a
-                    pairGo ps' acts'
-                | _ -> ()
-
-            let nArgs = List.length spineArgs
-
-            pairGo (peelParams nArgs declTy) [ for (a, _) in spineArgs -> typeOfExpr a ]
-
-            // Pair the result position too: `failwith`'s only typar `'T` sits in
-            // the *return* (`string -> 'T`), so the param walk above leaves it
-            // unbound. The last spine arg's recorded type is the whole
-            // application's result (`collectSpine` pairs each arg with its
-            // `App` node's result), so unifying it against `declTy`'s return
-            // position grounds the result typars.
-            let rec returnAfter n t =
-                if n <= 0 then
-                    t
-                else
-                    match zonk t with
-                    | TyFun(_, b) -> returnAfter (n - 1) b
-                    | _ -> t
-
-            if nArgs > 0 then
-                let declRetTy = returnAfter nArgs declTy
-                let actualRetTy = spineArgs |> List.last |> snd
-                go declRetTy actualRetTy
-
-            Array.mapi
-                (fun i v ->
-                    match v with
-                    | ValueSome t -> t
-                    | ValueNone -> TyVar roots.[i]
-                )
-                result
-
-    /// Splice cross-package inline bodies into a single expression — the subset of
-    /// `lowerWith` that type-member bodies need (they are emitted straight from
-    /// `tast.Decls` and never pass through `lower`, so a `failwith` / `raise` head
-    /// would otherwise reach codegen un-spliced). External-head splice only — no
-    /// local-inline expansion, eta-reification, or closure discovery. Compose with
-    /// `expandBuiltinOps` (run this first, then the operator → IL rewrite).
-    let spliceExternalInlinesInExpr (externalInlines: Map<string, TDecl>) (e: TExpr) : TExpr =
-        if Map.isEmpty externalInlines then
-            e
-        else
-            let mutable counter = 0
-
-            let mint () =
-                let k = NodeKey.ofSynthetic counter NodeKind.SynthInlineExpansion
-                counter <- counter + 1
-                k
-
-            let expandAt (decl: TDecl) (spineArgs: (TExpr * SemType) list) : TExpr =
-                match decl with
-                | TDecl.Let(_, _, _, declTy) ->
-                    Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
-                    |> Inline.freshen mint
-                | _ -> failwith "Emit: external inline body must be a TDecl.Let"
-
-            let argsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
-                match decl with
-                | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
-                | _ -> false
-
-            let rec walk (e: TExpr) : TExpr =
-                match e with
-                | TExpr.App _ ->
-                    let head, spineArgs = collectSpine [] e
-
-                    match head with
-                    | TExpr.External(name, _, _) when
-                        externalInlines.ContainsKey name
-                        && (argsGround externalInlines.[name] spineArgs
-                            || not (BuiltinOps.isSaturated name (List.length spineArgs)))
-                        ->
-                        walk (betaReduce (expandAt externalInlines.[name] spineArgs) spineArgs)
-                    | _ -> mapChildren walk e
-                | _ -> mapChildren walk e
-
-            walk e
-
-    /// Lower a decl list into a closure-bearing, inline-free, External-value-free
-    /// tree. After this, every `TExpr.Lambda` is a function value and every
-    /// `External` is either a call head or has non-function type. Inline bindings
-    /// are dropped (fully expanded at their use sites).
+    /// Lower a decl list into a closure-bearing, External-value-free tree. After
+    /// this, every `TExpr.Lambda` is a function value and every `External` is
+    /// either a call head or has non-function type.
     ///
-    /// `externalInlines` maps a referenced package's inline `val` name to its
-    /// frozen body (a cross-package inline — milestone M, loaded by
-    /// `SymbolProviders.inlineBodies`). A saturated `External(name)` call head
-    /// found in that map is expanded in place exactly like a local `let inline`,
-    /// so `hash 5` becomes the `EqualityComparer<int>.Default.GetHashCode 5`
-    /// `ExternalMember` nodes the frozen body already carries (emitted by P4).
-    let lowerWith (externalInlines: Map<string, TDecl>) (decls: EqArray<TDecl>) : TDecl list =
-        let inlines = Dictionary<NodeKey, TDecl>()
-
-        for d in decls do
-            match d with
-            | TDecl.Let(TPat.NamedSimple(b, _), _, true, _) -> inlines.[b] <- d
-            | _ -> ()
-
-        // Build-wide monotone counter for freshened inline binders and eta
-        // parameters, so independent expansions never share a NodeKey.
+    /// Inline expansion (local + cross-package `let inline` splicing, beta
+    /// reduction, `StaticOptimization` resolution) is no longer done here: it ran
+    /// pre-freeze in `Passes.InlineExpansion` (frozen-type-plan 3A-1), so the
+    /// frozen decls reaching codegen carry no `External(inlineName)` call heads and
+    /// no `StaticOptimization` nodes. Inline TEMPLATES (`TDecl.Let(isInline)`) are
+    /// still dropped here. What remains codegen-only is (1) eta-reifying an
+    /// `External` function VALUE into a closure (it must run after the front end,
+    /// where closures are a codegen concept) and (2) the closing `expandBuiltinOps`
+    /// pass that collapses every saturated built-in operator left un-ground by the
+    /// inline pass (`13 &&& 11`, `a = b` with a generic operand) to inline IL.
+    let lower (decls: EqArray<TDecl>) : TDecl list =
+        // Build-wide monotone counter for eta parameters, so independent
+        // eta-reifications never share a NodeKey.
         let mutable counter = 0
 
         let mint () =
@@ -586,80 +396,26 @@ module EmitLower =
             <| (appBody, retTy)
             |> fst
 
-        let expandInline (k: NodeKey) : TExpr =
-            Inline.inlineExpand inlines.[k] [||] |> Inline.freshen mint
-
-        // An inline whose body carries a static optimization is expanded with the
-        // call site's type arguments so the `when ^T : …` clause resolves against
-        // the monomorphised operand type (prereq 3); all other inlines keep the
-        // zero-type-arg path (`expandInline`) unchanged.
-        let expandInlineAt (k: NodeKey) (spineArgs: (TExpr * SemType) list) : TExpr =
-            match inlines.[k] with
-            | TDecl.Let(_, value, _, declTy) when containsStaticOpt value ->
-                Inline.inlineExpand inlines.[k] (deriveInlineTypeArgs declTy spineArgs)
-                |> Inline.freshen mint
-            | _ -> expandInline k
-
-        // A cross-package inline (milestone M): expand the frozen referenced body
-        // with the call site's type arguments — always derived (unlike a local
-        // inline, whose non-static-opt path leaves typars abstract), because the
-        // body's `EqualityComparer<'T>` `ExternalMember` nodes need `'T` pinned to
-        // a concrete type before P4 can encode them.
-        let expandExternalInlineAt (decl: TDecl) (spineArgs: (TExpr * SemType) list) : TExpr =
-            match decl with
-            | TDecl.Let(_, _, _, declTy) ->
-                Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
-                |> Inline.freshen mint
-            | _ -> failwith "Emit: external inline body must be a TDecl.Let"
-
-        // A cross-package inline whose static-opt fall-clause rides
-        // `EqualityComparer<^T>` (the `=`/`<>`/`hash` family) can only be expanded
-        // when the call site pins `^T` to a ground type — otherwise the comparer
-        // can't encode the free `!0`. An unpinned operand (`let f a b = a = b`)
-        // leaves the External call head in place so the closing `expandBuiltinOps`
-        // routes it to `Emit.BuiltinOps`'s `ceq` instead.
-        let externalInlineArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
-            match decl with
-            | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
-            | _ -> false
-
         let rec lowerExpr (e: TExpr) : TExpr =
             match e with
             | TExpr.App _ ->
-                let head, spineArgs = collectSpine [] e
+                let head, spineArgs = TastWalk.collectSpine [] e
 
-                match head with
-                | TExpr.Var(k, _) when inlines.ContainsKey k ->
-                    lowerExpr (betaReduce (expandInlineAt k spineArgs) spineArgs)
-                | TExpr.External(name, _, _) when
-                    externalInlines.ContainsKey name
-                    && (externalInlineArgsGround externalInlines.[name] spineArgs
-                        || not (BuiltinOps.isSaturated name (List.length spineArgs)))
-                    ->
-                    // Splice the inline body unless an *un-ground* operand could
-                    // still benefit from the `BuiltinOps` fallback (the
-                    // `EqualityComparer<^T>` encoding issue). An inline with no
-                    // `BuiltinOps` recipe (`failwith`,
-                    // `raise`) splices unconditionally: its body lowers to an
-                    // `ILIntrinsic "throw"` whose IL doesn't reference the
-                    // result typar, so an unground call-site type is fine.
-                    lowerExpr (betaReduce (expandExternalInlineAt externalInlines.[name] spineArgs) spineArgs)
-                | _ ->
-                    // An `External` head is a recipe call, so it stays in call
-                    // position and is not eta-reified; the args are values.
-                    let head' =
-                        match head with
-                        | TExpr.External _ -> head
-                        | _ -> lowerExpr head
+                // An `External` head is a recipe / built-in-operator call, so it
+                // stays in call position and is not eta-reified; the args are
+                // values. The inline pass already expanded any spliceable head.
+                let head' =
+                    match head with
+                    | TExpr.External _ -> head
+                    | _ -> lowerExpr head
 
-                    rebuildApp head' [ for (a, t) in spineArgs -> lowerExpr a, t ]
+                TastWalk.rebuildApp head' [ for (a, t) in spineArgs -> lowerExpr a, t ]
             | TExpr.External(name, _, ty) when isFunTy ty -> etaExpand name ty
-            | TExpr.Var(k, _) when inlines.ContainsKey k -> lowerExpr (expandInline k)
             | _ -> mapChildren lowerExpr e
 
-        // Inline / eta lowering surfaces operator applications (an inline body's
-        // `+`, an eta-reified `(+)`); `expandBuiltinOps` then collapses every
-        // saturated one to inline IL — a closing phase so it sees them all.
+        // Eta lowering surfaces operator applications (an eta-reified `(+)`);
+        // `expandBuiltinOps` then collapses every saturated one to inline IL — a
+        // closing phase so it sees them all.
         let result = ResizeArray<TDecl>()
 
         for d in decls do
@@ -671,7 +427,3 @@ module EmitLower =
             | TDecl.Type _ -> ()
 
         List.ofSeq result
-
-    /// `lowerWith` with no cross-package inline bodies — the pure-local-inline
-    /// path (every caller that does not reference a manifest with `impl` bodies).
-    let lower (decls: EqArray<TDecl>) : TDecl list = lowerWith Map.empty decls

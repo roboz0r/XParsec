@@ -20,7 +20,7 @@ let tests =
         "BitwiseOperators"
         [
             test "bitwise binding heads freeze from Vesper.Core and are collected as cross-package inlines" {
-                let _, inlines = SymbolProviders.buildContract defaultManifests
+                let inlines = SymbolProviders.contractInlineBodies defaultManifests
 
                 for name in
                     [

@@ -1,0 +1,397 @@
+namespace XParsec.FSharp.SemanticAnalysis.Passes
+
+open System.Collections.Generic
+open XParsec.FSharp.SemanticAnalysis
+
+// The pre-freeze inline-expansion pass (frozen-type-plan 3A-1, beat a). Runs
+// between `Freeze.elaborate` and `Freeze.freezeTypars`, on the still
+// `TyVar`-carrying `TExpr` tree, where `zonk` / union-find are native. It
+// relocates module-level `let inline` expansion out of codegen
+// (`EmitLower.lowerWith`'s inline branches): a saturated use of a local
+// `let inline` — or of a cross-package `val inline` whose body the provider
+// serves (`IInlineBodyProvider`) — is expanded + beta-reduced + static-opt
+// resolved here, so the frozen module decls reaching codegen carry no inline
+// call heads and no `StaticOptimization` nodes.
+//
+// Scope (beat (b)): module-level decls (`TDecl.Let` non-inline values and
+// `TDecl.Expression`) AND every expression a `TDecl.Type` carries (member
+// bodies, `static let` inits, secondary-ctor `let`s + chain args, base-ctor
+// args). It deliberately does NOT touch:
+//   * inline TEMPLATES (`TDecl.Let(isInline = true)`) — codegen still drops
+//     them and `SymbolProviders.collectInlineBodies` extracts them raw, so the
+//     cross-package template-extraction path stays byte-identical;
+//   * eta-reification of `External` function VALUES — left to codegen;
+//   * `expandBuiltinOps` (operator → inline IL) — left to codegen, where it
+//     must run after eta anyway.
+// Beat (a) left type-member bodies to codegen's `NominalEmit` splice; beat (b)
+// relocates them here and deletes the codegen inline-expansion machinery
+// (`EmitLower.lowerWith`'s inline branches + `spliceExternalInlinesInExpr`),
+// keeping only eta + `expandBuiltinOps`.
+
+module InlineExpansion =
+
+    /// Beta-reduce a curried lambda (an inline expansion's output) against its
+    /// spine args, lowering each application to a `TExpr.Let` — mirrors
+    /// `EmitLower.betaReduce`. Lambda count must match the spine-arg count for a
+    /// fully applied call.
+    let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType) list) : TExpr =
+        match fn, args with
+        | _, [] -> fn
+        | TExpr.Lambda(TPat.NamedSimple(k, paramTy), lamBody, _), (arg, _) :: rest ->
+            let reduced = betaReduce lamBody rest
+            TExpr.Let(TPat.NamedSimple(k, paramTy), arg, reduced, TastWalk.exprTy reduced)
+        | TExpr.Lambda(param, _, _), _ ->
+            failwithf "InlineExpansion: inline parameter destructuring is out of scope: %A" param
+        | _, _ :: _ -> failwith "InlineExpansion: over-application of an inline function"
+
+    /// Does `e` contain a `TExpr.StaticOptimization` anywhere? A local inline
+    /// body that does must be expanded with the call site's derived type
+    /// arguments (so the `when ^T : …` clause resolves against the monomorphised
+    /// operand type); one that doesn't keeps the zero-type-arg path. A visit-only
+    /// walk over `TastWalk.iterExpr` that short-circuits the moment it finds one.
+    let private containsStaticOpt (e: TExpr) : bool =
+        let mutable found = false
+
+        let it =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun _ ex ->
+                        match ex with
+                        | TExpr.StaticOptimization _ ->
+                            found <- true
+                            false // found it; no need to descend this subtree
+                        | _ -> not found // stop recursing once any has been found
+            }
+
+        TastWalk.iterExpr it e
+        found
+
+    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic, so
+    /// codegen can encode it. Mirrors `EmitLower.isGroundType`: the cross-package
+    /// equality / `hash` inline bodies reach `EqualityComparer<^T>`, emittable
+    /// only when `^T` is ground; an unpinned operand leaves it free and must fall
+    /// back to codegen's `BuiltinOps`.
+    let rec private isGroundType (t: SemType) : bool =
+        match Unification.zonk t with
+        | TyVar _ -> false
+        | TyConst(_, xs) -> EqArray.forall isGroundType xs
+        | TyFun(a, b) -> isGroundType a && isGroundType b
+        | TyTuple xs -> EqArray.forall isGroundType xs
+        | TyRecord(_, xs)
+        | TyUnion(_, xs)
+        | TyClass(_, xs) -> EqArray.forall isGroundType xs
+        | TyUnknown _ -> false
+        | TempTypar _ -> false
+
+    /// Recover an inline binding's type arguments at a call site by matching its
+    /// declared parameter (and return) types — carrying the quantified typars —
+    /// against the actual spine-arg types. Tolerant: a typar the params don't pin
+    /// is left as its own `TyVar` so the catch-all `when ^T : ^T` clause still
+    /// selects. Returned in `Inline.quantifiedTypars` order. A verbatim port of
+    /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
+    /// `typeOfExpr` → `TastWalk.exprTy`).
+    let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
+        let typars = Inline.quantifiedTypars declTy
+
+        if typars.Length = 0 then
+            [||]
+        else
+            let roots = typars |> Array.map UnionFind.find
+            let result = Array.create roots.Length ValueNone
+
+            let rec go (defT: SemType) (actT: SemType) =
+                match Unification.zonk defT, Unification.zonk actT with
+                | TyVar tv, act ->
+                    let r = UnionFind.find tv
+
+                    match roots |> Array.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                    | Some i ->
+                        if result.[i].IsNone then
+                            result.[i] <- ValueSome act
+                    | None -> ()
+                | TyFun(a1, r1), TyFun(a2, r2) ->
+                    go a1 a2
+                    go r1 r2
+                | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+
+            let rec peelParams n t =
+                if n <= 0 then
+                    []
+                else
+                    match Unification.zonk t with
+                    | TyFun(a, b) -> a :: peelParams (n - 1) b
+                    | _ -> []
+
+            let rec pairGo ps acts =
+                match ps, acts with
+                | p :: ps', a :: acts' ->
+                    go p a
+                    pairGo ps' acts'
+                | _ -> ()
+
+            let nArgs = List.length spineArgs
+
+            pairGo (peelParams nArgs declTy) [ for (a, _) in spineArgs -> TastWalk.exprTy a ]
+
+            // Pair the result position too: `failwith`'s only typar `'T` sits in
+            // the *return* (`string -> 'T`), so the param walk leaves it unbound.
+            // The last spine arg's recorded type is the whole application's result
+            // (`collectSpine` pairs each arg with its `App` node's result), so
+            // unifying it against `declTy`'s return position grounds the result
+            // typars.
+            let rec returnAfter n t =
+                if n <= 0 then
+                    t
+                else
+                    match Unification.zonk t with
+                    | TyFun(_, b) -> returnAfter (n - 1) b
+                    | _ -> t
+
+            if nArgs > 0 then
+                let declRetTy = returnAfter nArgs declTy
+                let actualRetTy = spineArgs |> List.last |> snd
+                go declRetTy actualRetTy
+
+            Array.mapi
+                (fun i v ->
+                    match v with
+                    | ValueSome t -> t
+                    | ValueNone -> TyVar roots.[i]
+                )
+                result
+
+    /// Built-in operator compiled name → arity — the saturation gate codegen
+    /// applies (`EmitLower.BuiltinOps.isSaturated`). A saturated built-in
+    /// operator (`op_Equality`, …) whose inline body the provider serves is
+    /// expanded ONLY when its operands are ground; otherwise the head is left for
+    /// codegen's `BuiltinOps` `ceq`/`add`/… fallback. Mirror the codegen table
+    /// exactly; keep in sync.
+    let private builtinOpArity: Map<string, int> =
+        Map
+            [
+                "op_Equality", 2
+                "op_Inequality", 2
+                "op_LessThan", 2
+                "op_GreaterThan", 2
+                "op_LessThanOrEqual", 2
+                "op_GreaterThanOrEqual", 2
+                "op_Addition", 2
+                "op_Subtraction", 2
+                "op_Multiply", 2
+                "op_Division", 2
+                "op_Modulus", 2
+                "op_UnaryNegation", 1
+                "op_BitwiseAnd", 2
+                "op_BitwiseOr", 2
+                "op_ExclusiveOr", 2
+                "op_LeftShift", 2
+                "op_RightShift", 2
+                "op_LogicalNot", 1
+            ]
+
+    let private isSaturatedBuiltin (name: string) (spineLen: int) : bool =
+        match Map.tryFind name builtinOpArity with
+        | Some arity -> spineLen = arity
+        | None -> false
+
+    /// Expand the module-level inlines in one decl-list (the elaborated,
+    /// `TyVar`-carrying decls paired with their freeze envs). `inlineProvider` is
+    /// the cross-package inline-body channel obtained by casting `ctx.Provider`;
+    /// `ValueNone` when the provider carries none (every front-end-only path).
+    let run
+        (inlineProvider: IInlineBodyProvider voption)
+        (decls: (TDecl * (TypeVar * SemType) list) list)
+        : (TDecl * (TypeVar * SemType) list) list =
+
+        // Local module-level `let inline` bindings, keyed by binder NodeKey — the
+        // same map codegen's `lowerWith` used to build (now retired). A `Var(k)`
+        // use of one of these is a local inline call site.
+        let localInlines = Dictionary<NodeKey, TDecl>()
+
+        for (d, _) in decls do
+            match d with
+            | TDecl.Let(TPat.NamedSimple(b, _), _, true, _) -> localInlines.[b] <- d
+            | _ -> ()
+
+        // Nothing to do when there are no local inlines and no cross-package
+        // inline bodies — the common case for plain front-end analysis; keeps the
+        // tree (and its node identities) untouched.
+        if localInlines.Count = 0 && inlineProvider.IsNone then
+            decls
+        else
+            // Build-wide monotone counter for freshened inline binders, in the
+            // dedicated `SynthPreFreezeInline` space so a baked key can never
+            // collide with the `SynthInlineExpansion` keys codegen's still-live
+            // eta-expansion mints (frozen-type-plan 3A-1).
+            let mutable counter = 0
+
+            let mint () =
+                let k = NodeKey.ofSynthetic counter NodeKind.SynthPreFreezeInline
+                counter <- counter + 1
+                k
+
+            let lookupExternal (keyOpt: SymbolKey voption) (name: string) : TDecl voption =
+                match inlineProvider with
+                | ValueNone -> ValueNone
+                | ValueSome p ->
+                    // Prefer the identity-robust `SymbolKey` channel; fall back to
+                    // the source-name residue for `External` heads still carrying
+                    // `key = ValueNone` (operator / desugared heads). `byKey` is a
+                    // subset of `byName` by construction, so this expands exactly
+                    // the set codegen's retired name-based `lowerWith` did.
+                    match keyOpt with
+                    | ValueSome key ->
+                        match p.TryLookupInlineBody key with
+                        | ValueSome d -> ValueSome d
+                        | ValueNone -> p.TryLookupInlineBodyByName name
+                    | ValueNone -> p.TryLookupInlineBodyByName name
+
+            let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType) list) : TExpr =
+                let decl = localInlines.[k]
+
+                match decl with
+                | TDecl.Let(_, value, _, declTy) when containsStaticOpt value ->
+                    Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
+                    |> Inline.freshen mint
+                | _ -> Inline.inlineExpand decl [||] |> Inline.freshen mint
+
+            let expandLocal (k: NodeKey) : TExpr =
+                Inline.inlineExpand localInlines.[k] [||] |> Inline.freshen mint
+
+            let expandExternalAt (decl: TDecl) (spineArgs: (TExpr * SemType) list) : TExpr =
+                match decl with
+                | TDecl.Let(_, _, _, declTy) ->
+                    Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
+                    |> Inline.freshen mint
+                | _ -> failwith "InlineExpansion: external inline body must be a TDecl.Let"
+
+            let externalArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
+                match decl with
+                | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
+                | _ -> false
+
+            // The expansion walker. This is now the sole inline expander —
+            // it took over `EmitLower.lowerExpr`'s (retired) inline branches
+            // verbatim, minus eta-reification (an `External` function VALUE is
+            // still left as a leaf for codegen). Crucially the `App` arm is
+            // ALWAYS handled explicitly (never falls through to `TastWalk`'s
+            // default child recursion): collect the whole spine, keep an
+            // `External` call head verbatim, and recurse only into the ARGS
+            // (`rebuildApp head' (args |> walk)`). Relying on default recursion
+            // would instead let the walker descend into a saturated op's
+            // partial-application sub-`App` and expand it with a single arg —
+            // leaving a dangling `fun y -> …` closure with a free `TyVar`.
+            let mapper =
+                { TastWalk.identityMapper with
+                    OverrideExpr =
+                        fun m e ->
+                            let walk x = TastWalk.mapExpr m x
+
+                            match e with
+                            | TExpr.App _ ->
+                                let head, spineArgs = TastWalk.collectSpine [] e
+
+                                match head with
+                                | TExpr.Var(k, _) when localInlines.ContainsKey k ->
+                                    ValueSome(walk (betaReduce (expandLocalAt k spineArgs) spineArgs))
+                                | TExpr.External(name, keyOpt, _) ->
+                                    match lookupExternal keyOpt name with
+                                    | ValueSome decl when
+                                        externalArgsGround decl spineArgs
+                                        || not (isSaturatedBuiltin name (List.length spineArgs))
+                                        ->
+                                        ValueSome(walk (betaReduce (expandExternalAt decl spineArgs) spineArgs))
+                                    // An external head we don't expand (a saturated
+                                    // builtin op with un-ground operands, or a
+                                    // non-inline external call): keep the head,
+                                    // lower the args — exactly codegen's `head'`
+                                    // rule. Left for codegen's `BuiltinOps` /
+                                    // recipe path.
+                                    | _ -> ValueSome(TastWalk.rebuildApp head [ for (a, t) in spineArgs -> walk a, t ])
+                                // A non-external, non-local-inline head (e.g. a
+                                // higher-order parameter): lower the head and args,
+                                // keeping the spine intact.
+                                | _ ->
+                                    ValueSome(TastWalk.rebuildApp (walk head) [ for (a, t) in spineArgs -> walk a, t ])
+                            | TExpr.Var(k, _) when localInlines.ContainsKey k -> ValueSome(walk (expandLocal k))
+                            | _ -> ValueNone
+                }
+
+            let walkExpr (e: TExpr) : TExpr = TastWalk.mapExpr mapper e
+
+            // Expand the inlines embedded in every expression a type declaration
+            // carries (frozen-type-plan 3A-1 beat (b)): member bodies, `static let`
+            // initialisers, secondary-ctor `let`s + chain args, and the
+            // `inherit Base(args)` arguments. Mirrors `Freeze.freezeKind`'s
+            // expr-bearing coverage, relocating codegen's
+            // `EmitLower.spliceExternalInlinesInExpr` splice (`NominalEmit`'s three
+            // sites) out of emission. `walkExpr` also covers local inlines a member
+            // body might call — a superset of the external-only codegen splice —
+            // but a local-inline reference in a member body would otherwise dangle
+            // (codegen drops local inline templates), so this only ever turns a
+            // would-be error into a correct expansion; existing green corpora carry
+            // none, so output is byte-identical.
+            let walkMember (m: TTypeMember) : TTypeMember = { m with Body = walkExpr m.Body }
+
+            let walkKind (k: TTypeKind) : TTypeKind =
+                match k with
+                | TTypeKind.Interface _ -> k
+                | TTypeKind.Union(cases, members) -> TTypeKind.Union(cases, members |> EqArray.map walkMember)
+                | TTypeKind.Record(fields, members) -> TTypeKind.Record(fields, members |> EqArray.map walkMember)
+                | TTypeKind.Class(fields,
+                                  ctorParams,
+                                  members,
+                                  baseType,
+                                  interfaces,
+                                  isSealed,
+                                  staticLets,
+                                  secondaryCtors,
+                                  baseCtorCall) ->
+                    TTypeKind.Class(
+                        fields,
+                        ctorParams,
+                        members |> EqArray.map walkMember,
+                        baseType,
+                        interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember),
+                        isSealed,
+                        staticLets |> EqArray.map (fun sl -> { sl with Init = walkExpr sl.Init }),
+                        secondaryCtors
+                        |> EqArray.map (fun sc ->
+                            { sc with
+                                Lets = sc.Lets |> EqArray.map (fun cl -> { cl with Init = walkExpr cl.Init })
+                                PrimaryArgs = sc.PrimaryArgs |> EqArray.map walkExpr
+                            }
+                        ),
+                        baseCtorCall
+                        |> ValueOption.map (fun bc ->
+                            { bc with
+                                Args = bc.Args |> EqArray.map walkExpr
+                            }
+                        )
+                    )
+
+            decls
+            |> List.map (fun (d, env) ->
+                let d' =
+                    match d with
+                    // Inline templates are left untouched (codegen drops them;
+                    // `collectInlineBodies` extracts them raw).
+                    | TDecl.Let(_, _, true, _) -> d
+                    | TDecl.Let(p, value, false, ty) -> TDecl.Let(p, walkExpr value, false, ty)
+                    | TDecl.Expression(e, ty) -> TDecl.Expression(walkExpr e, ty)
+                    | TDecl.Type td -> TDecl.Type { td with Kind = walkKind td.Kind }
+
+                d', env
+            )

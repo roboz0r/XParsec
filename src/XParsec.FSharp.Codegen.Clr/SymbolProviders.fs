@@ -129,8 +129,9 @@ module SymbolProviders =
     /// bodies must be *spliced* at the consumer's use site — a cross-package
     /// inline (milestone M). Keyed by the binding's
     /// source name (the same name the use-site `TExpr.External` carries); the
-    /// value is the frozen `TDecl.Let(isInline=true)` the codegen `Emit.lower`
-    /// expands in place of an `External(name)` call head.
+    /// value is the frozen `TDecl.Let(isInline=true)` the pre-freeze
+    /// `Passes.InlineExpansion` pass expands in place of an `External(name)` call
+    /// head (served to it through the provider's `IInlineBodyProvider` channel).
     ///
     /// `hash` is the first such body: `let inline hash (obj: 'T) =
     /// EqualityComparer<'T>.Default.GetHashCode obj` (`ops-platform.fs`). It is a
@@ -146,8 +147,8 @@ module SymbolProviders =
         // and the frozen body carries that reference as a plain `TExpr.Var`
         // bound to the binder's source key. Spliced at a cross-package use site
         // those keys aren't in scope; rewriting them to `TExpr.External(name,
-        // …)` here lets `Emit.spliceExternalInlinesInExpr` / `lowerWith` route
-        // the inner call through the same per-name splice path as the outer
+        // …)` here lets `Passes.InlineExpansion` route the inner call through the
+        // same per-name splice path as the outer
         // one. `hash` is the only inline that pre-dates this case and has no
         // sibling-inline calls, so it round-trips unchanged.
         let inlineNames = System.Collections.Generic.Dictionary<uint64, string>()
@@ -260,12 +261,44 @@ module SymbolProviders =
             System.StringComparer.Ordinal
         )
 
+    /// Wrap `inner` so it ALSO serves cross-package inline bodies
+    /// (`IInlineBodyProvider`, frozen-type-plan 3A-1): every `IExternalSymbolProvider`
+    /// member delegates to `inner`, and the two inline-body channels read the
+    /// pre-built maps. `byKey` is keyed by the inline value's resolved `SymbolKey`
+    /// (the identity-robust primary channel); `byName` is the source-name residue
+    /// the front-end pass falls back to for `External` heads still carrying
+    /// `key = ValueNone`. The front end obtains this by casting `ctx.Provider`.
+    let private withInlineBodies
+        (inner: IExternalSymbolProvider)
+        (byKey: System.Collections.Generic.Dictionary<SymbolKey, TDecl>)
+        (byName: Map<string, TDecl>)
+        : IExternalSymbolProvider =
+        { new IExternalSymbolProvider with
+            member _.TryLookup name = inner.TryLookup name
+            member _.TryLookupType name = inner.TryLookupType name
+            member _.TryLookupMember(t, m) = inner.TryLookupMember(t, m)
+            member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
+            member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
+            member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+          interface IInlineBodyProvider with
+              member _.TryLookupInlineBody key =
+                  match byKey.TryGetValue key with
+                  | true, v -> ValueSome v
+                  | _ -> ValueNone
+
+              member _.TryLookupInlineBodyByName name =
+                  match Map.tryFind name byName with
+                  | Some v -> ValueSome v
+                  | None -> ValueNone
+        }
+
     /// Build the provider stack AND load its cross-package inline bodies for a
-    /// manifest set, caching both. The returned `provider` and inline `Map` are a
-    /// matched pair (the bodies were frozen against that exact stack — they MUST
-    /// be threaded together to codegen). This is the single entry point the
-    /// default compile path uses once `MockBuiltins` is demoted to the backstop.
-    let buildContract (manifestPaths: string list) : IExternalSymbolProvider * Map<string, TDecl> =
+    /// manifest set, caching both. The provider and the inline `Map` are a matched
+    /// pair — the bodies were frozen against that exact stack. Production code
+    /// reaches the bodies through the provider's `IInlineBodyProvider` channel
+    /// (`buildContract`); the raw `Map` (`contractInlineBodies`) is an
+    /// introspection seam for the inline-body collection tests.
+    let private buildContractCached (manifestPaths: string list) : IExternalSymbolProvider * Map<string, TDecl> =
         let normalised = manifestPaths |> List.map Path.GetFullPath
         let key = String.concat ";" normalised
 
@@ -287,6 +320,39 @@ module SymbolProviders =
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
                          let provider = composeProviders ordered transitiveDeps
                          let inlines = inlineBodies provider ordered
-                         provider, inlines)
+                         // Rekey the inline bodies by the resolved `SymbolKey` the
+                         // consumer's use-site `TExpr.External` carries — looked up
+                         // through this same `provider`, so the body's key is exactly
+                         // the key `Resolution.ExternalValue` stamps (frozen-type-plan
+                         // 3A-1). A name with no resolvable symbol contributes only to
+                         // the by-name residue. The wrapped provider serves both
+                         // channels to the front-end inline pass (the sole consumer
+                         // since beat (b) retired codegen's inline expansion); the raw
+                         // `inlines` map is cached alongside it for `contractInlineBodies`
+                         // (the inline-body collection tests).
+                         let byKey =
+                             System.Collections.Generic.Dictionary<SymbolKey, TDecl>(HashIdentity.Structural)
+
+                         for KeyValue(name, decl) in inlines do
+                             match provider.TryLookup name with
+                             | ValueSome sym -> byKey.[sym.Key] <- decl
+                             | ValueNone -> ()
+
+                         withInlineBodies provider byKey inlines, inlines)
             )
             .Value
+
+    /// The provider stack for a manifest set, serving both the contract symbols
+    /// and (via its `IInlineBodyProvider` channel) the cross-package inline
+    /// bodies. The single entry point the default compile path uses once
+    /// `MockBuiltins` is demoted to the backstop.
+    let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
+        buildContractCached manifestPaths |> fst
+
+    /// The raw cross-package inline bodies collected for a manifest set, keyed by
+    /// source name — an introspection seam for the inline-body collection tests.
+    /// Production splices these through the provider's `IInlineBodyProvider`
+    /// channel (see `buildContract`), never this map. Shares `buildContract`'s
+    /// cache.
+    let contractInlineBodies (manifestPaths: string list) : Map<string, TDecl> =
+        buildContractCached manifestPaths |> snd

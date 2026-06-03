@@ -1105,7 +1105,7 @@ module EmitExpr =
     /// - otherwise — the head is itself a function value (a closure local or a
     ///   partially applied result); emit it, then `Invoke` each arg.
     and private buildAppCall (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
-        let head, spineArgs = collectSpine [] e
+        let head, spineArgs = TastWalk.collectSpine [] e
 
         match head with
         | TExpr.External(name, key, _) ->

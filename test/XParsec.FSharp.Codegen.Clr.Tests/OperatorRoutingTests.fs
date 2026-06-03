@@ -18,13 +18,15 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // stack (`compileSource`): the operator-named binding `let inline (=) …` freezes
 // (the gap operators-plan.md "Phase 3" called out), is collected by
 // `SymbolProviders.inlineBodies`, and is spliced + static-opt-resolved at each use
-// site — the same cross-package-inline path `hash` uses. The collection test below
+// site by the pre-freeze `Passes.InlineExpansion` pass — the same cross-package-inline
+// path `hash` uses. The collection test below
 // pins that the body is sourced from the contract; the run tests pin behaviour.
 // The static-opt *base* is now the structural `EqualityComparer<^T>.Default.Equals`
 // fall-clause: a distinct-but-equal aggregate
 // compares structurally, not by reference — see the "DU `=` is structural" test.
-// (An unpinned generic operand still falls back to `BuiltinOps`'s `ceq` via the
-// codegen `isGround` guard — `let f a b = a = b`, below.)
+// (An unpinned generic operand is left un-spliced by the inline pass and falls back
+// to `BuiltinOps`'s `ceq` via codegen's closing `expandBuiltinOps` — `let f a b = a = b`,
+// below, lowered through `Emit.lower`.)
 
 [<Tests>]
 let tests =
@@ -142,7 +144,7 @@ let tests =
                 // the codegen inline-body loader — so `=`/`<>` emit from the contract
                 // `.fs`, not just the `BuiltinOps` stopgap. (Previously these bindings
                 // never made it through the front end; `operators-plan.md`.)
-                let _, inlines = SymbolProviders.buildContract defaultManifests
+                let inlines = SymbolProviders.contractInlineBodies defaultManifests
 
                 Expect.isTrue (Map.containsKey "op_Equality" inlines) "op_Equality body sourced from ops-platform.fs"
 

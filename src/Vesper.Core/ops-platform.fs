@@ -5,9 +5,10 @@ open System.Collections.Generic
 // ops-platform.fs — the per-target *implementation* of `ops-platform.fsi`
 // (the `.fsi` is the target-agnostic contract, the
 // `.fs` is the binding). Each inline body here is read across the package
-// boundary by the codegen inline-body loader (`SymbolProviders.inlineBodies`)
-// and spliced at each use site by `Emit.lowerWith`'s `External`→inline-body
-// routing — the same cross-package-inline mechanism `hash` introduced.
+// boundary by the inline-body loader (`SymbolProviders.inlineBodies`) and spliced
+// at each use site by the pre-freeze `Passes.InlineExpansion` pass (reached through
+// the provider's `IInlineBodyProvider` channel) — the same cross-package-inline
+// mechanism `hash` introduced.
 //
 // The EQUALITY family (`=` / `<>`) is the first OPERATOR family sourced from here
 // rather than the codegen `Emit.BuiltinOps` stopgap (operators-plan.md

@@ -25,8 +25,7 @@ open AssemblerScaffold
 /// nominal type's `TypeDefinition` and a static method's `MethodDefinition`.
 /// `GenericParam` rows are collected and emitted last, sorted by
 /// `CodedIndex.TypeOrMethodDef(owner)` then index, as SRM requires.
-type internal Assembler
-    (externalInlines: Map<string, TDecl>, symbols: IExternalSymbolProvider, project: ProjectInfo, tast: TastFile) =
+type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, tast: TastFile) =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
@@ -53,7 +52,7 @@ type internal Assembler
     // `AddMethodBody` realigns per body internally, so reuse is correct.
     let bodyStream = ctx.BodyStream
 
-    let lowered = Emit.lowerWith externalInlines tast.Decls
+    let lowered = Emit.lower tast.Decls
     let staticFns, staticFnKeys = Emit.collectStaticFns tast.ModuleMembers lowered
 
     // Order emission so every holder's methods form a contiguous `MethodDef`
@@ -394,7 +393,6 @@ type internal Assembler
     member _.BodyStream = bodyStream
     member _.EncodeLocals = encodeLocals
     member _.EmitCtx = emitCtx
-    member _.ExternalInlines = externalInlines
     member _.CtorAttrs = ctorAttrs
     member _.CctorAttrs = cctorAttrs
     member _.StaticFactoryAttrs = staticFactoryAttrs

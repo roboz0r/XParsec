@@ -12,13 +12,12 @@ open XParsec.FSharp.SemanticAnalysis
 module Codegen =
 
     let private assemble
-        (externalInlines: Map<string, TDecl>)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tast: TastFile)
         (emitEntryPoint: bool)
         : ClrArtifact =
-        let asm = Assembler(externalInlines, symbols, project, tast)
+        let asm = Assembler(symbols, project, tast)
 
         asm.EmitInterfaces()
 
@@ -51,24 +50,18 @@ module Codegen =
         let mainDef = asm.EmitMain emitEntryPoint
         asm.Finalise(mainDef, emitEntryPoint)
 
-    /// `compile` plus the cross-package inline bodies (milestone M): a referenced
-    /// package's `val inline` whose `.fs` body is *spliced* at each use site
-    /// rather than called as a compiled member. `compile` passes an empty map.
-    let compileWithInlines
-        (externalInlines: Map<string, TDecl>)
-        (symbols: IExternalSymbolProvider)
-        (project: ProjectInfo)
-        (tast: TastFile)
-        : ClrArtifact =
-        match project.OutputKind with
-        | Library -> assemble externalInlines symbols project tast false
-        | Exe -> assemble externalInlines symbols project tast true
-
     /// TAST + symbol context → in-memory PE artifact. `ProjectInfo.OutputKind`
     /// routes to the executable (`Main` + `Program`) or library tail of the one
     /// converged assembler.
+    ///
+    /// Cross-package `val inline` bodies (milestone M) are no longer threaded here:
+    /// they are spliced pre-freeze by `Passes.InlineExpansion` (frozen-type-plan
+    /// 3A-1), reaching the front end through the `IInlineBodyProvider` channel of
+    /// the same `symbols` provider, so codegen takes no separate inline-body map.
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
-        compileWithInlines Map.empty symbols project tast
+        match project.OutputKind with
+        | Library -> assemble symbols project tast false
+        | Exe -> assemble symbols project tast true
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies, independent of any

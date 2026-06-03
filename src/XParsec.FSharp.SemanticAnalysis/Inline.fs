@@ -2,10 +2,37 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 
-// Codegen-facing helper for `let inline` expansion. Lives here (not in a
-// pass) because the front-end pipeline never calls it — codegen invokes it
-// once per call site, after Freeze has produced a self-contained TAST and the
-// side tables have been discarded.
+/// A provider of cross-package `val inline` bodies — a referenced package's
+/// `let inline` whose `.fs` source is *spliced* at each use site rather than
+/// called as a compiled member (frozen-type-plan 3A-1). The contract-stack
+/// wrapper `SymbolProviders.buildContract` builds also implements this, so the
+/// pre-freeze inline-expansion pass reaches the bodies by casting
+/// `ctx.Provider` — no `Pipeline` / `Freeze` signature change.
+///
+/// It is a *sibling* of `IExternalSymbolProvider` (not a member on it) purely
+/// for compile-order reasons: the body type `TDecl` is defined *after* that
+/// interface, so the method's signature cannot reference it there. The intended
+/// channel is otherwise identical — a provider-carried, `SymbolKey`-keyed lookup
+/// the front end already holds.
+type IInlineBodyProvider =
+    /// By the inline value's resolved `SymbolKey` — the same key
+    /// `IExternalSymbolProvider.TryLookup` returns and `Freeze` stamps onto a
+    /// use-site `TExpr.External`. The primary, identity-robust channel
+    /// (disambiguates a referenced package's `hash` from a user shadow).
+    abstract TryLookupInlineBody: key: SymbolKey -> TDecl voption
+
+    /// By source/compiled name — the residual fallback for use-site `External`
+    /// heads that still carry `key = ValueNone` (operator / desugared heads,
+    /// which `FreezeExpr` does not yet stamp). Shrinks toward nothing as more
+    /// head shapes get their key stamped; `ValueNone` once they all do.
+    abstract TryLookupInlineBodyByName: name: string -> TDecl voption
+
+// `let inline` expansion helper. The pre-freeze `Passes.InlineExpansion` pass
+// invokes it once per call site, between `Freeze.elaborate` and the
+// `freezeTypars` cut, where `zonk` / union-find are still native (frozen-type-plan
+// 3A-1). It lived codegen-side until beat (b) relocated the expander; it stays in
+// this module (rather than the pass) because `openMethodSignature` below shares it
+// and `Codegen` no longer references the inline machinery at all.
 //
 // The retained body of an `inline` binding carries its typars as free
 // `TyVar` roots: the binding's generalised scheme quantified them, and the

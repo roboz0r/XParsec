@@ -1131,9 +1131,25 @@ module Freeze =
             ]
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
-        // Split pass: `elaborate` produces the `TyVar`-carrying tree + per-decl
-        // typar envs; `freezeTypars` then makes the `TyVar → TempTypar` cut on each.
-        let decls = elaborate ctx file |> List.map (fun (d, env) -> freezeTypars env d)
+        // Split pass (frozen-type-plan 3A-0/3A-1): `elaborate` produces the
+        // `TyVar`-carrying tree + per-decl typar envs; the `InlineExpansion` pass
+        // then expands module-level inline call sites *before* the cut (where
+        // `zonk` / union-find are native); `freezeTypars` makes the
+        // `TyVar → TempTypar` cut on each.
+        //
+        // Cross-package inline bodies ride the provider: the contract-stack
+        // wrapper `SymbolProviders.buildContract` builds also implements
+        // `IInlineBodyProvider` (keyed by the resolved `SymbolKey`), so the pass
+        // reaches them by casting `ctx.Provider` — no `Pipeline` signature change.
+        let inlineProvider =
+            match box ctx.Provider with
+            | :? IInlineBodyProvider as p -> ValueSome p
+            | _ -> ValueNone
+
+        let decls =
+            elaborate ctx file
+            |> InlineExpansion.run inlineProvider
+            |> List.map (fun (d, env) -> freezeTypars env d)
 
         {
             Decls = EqArray.ofList decls

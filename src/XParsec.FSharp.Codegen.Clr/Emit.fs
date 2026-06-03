@@ -7,8 +7,9 @@ open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitExpr
 
-/// The codegen TAST walker, split across modules: `EmitLower` (inline expansion
-/// + External-as-value eta-reification), `EmitClosures` (closure / static-method
+/// The codegen TAST walker, split across modules: `EmitLower` (External-as-value
+/// eta-reification + the `expandBuiltinOps` operator→IL pass; inline expansion
+/// itself ran pre-freeze in `Passes.InlineExpansion`), `EmitClosures` (closure / static-method
 /// discovery), `EmitExpr` (`TExpr` -> IL via the depth-tracked `Cil` helpers),
 /// and this `Emit` (the method/body builders codegen calls). The shared data
 /// types live in `EmitTypes`. This module re-exports the public surface of the
@@ -26,8 +27,6 @@ module Emit =
 
     let zonk = EmitLower.zonk
     let expandBuiltinOps = EmitLower.expandBuiltinOps
-    let spliceExternalInlinesInExpr = EmitLower.spliceExternalInlinesInExpr
-    let lowerWith = EmitLower.lowerWith
     let lower = EmitLower.lower
     let collectStaticFns = EmitClosures.collectStaticFns
     let staticFnTypars = EmitClosures.staticFnTypars

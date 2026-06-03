@@ -122,7 +122,7 @@ let forInTests =
                             "        ()"
                         ]
 
-                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let provider = SymbolProviders.buildContract defaultManifests
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyse provider src lexed file
 

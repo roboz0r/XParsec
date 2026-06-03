@@ -938,7 +938,7 @@ let interfaceImplTests =
         "ClassInterfaceImpl"
         [
             test "a class implementing System.IComparable resolves the interface + CompareTo without diagnostic" {
-                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let provider = SymbolProviders.buildContract defaultManifests
 
                 let src =
                     String.concat
@@ -970,7 +970,7 @@ let interfaceImplTests =
             }
 
             test "implementing a non-interface type is rejected with a diagnostic" {
-                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let provider = SymbolProviders.buildContract defaultManifests
 
                 let src =
                     String.concat
@@ -1004,7 +1004,7 @@ let interfaceImplTests =
             // `unit -> IEnumerator` with no cross-talk. Bodies are `failwith` so the
             // front-end test needs no concrete enumerator — only the signatures matter.
             test "implementing IEnumerable<int> and IEnumerable conforms both GetEnumerator methods" {
-                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let provider = SymbolProviders.buildContract defaultManifests
 
                 let src =
                     String.concat
@@ -1042,7 +1042,7 @@ let interfaceImplTests =
             // signature. `CompareTo` returning a `string` where `IComparable`
             // promises an `int` is a conformance failure.
             test "a member whose signature does not match the interface is diagnosed" {
-                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let provider = SymbolProviders.buildContract defaultManifests
 
                 let src =
                     String.concat
@@ -1068,7 +1068,7 @@ let interfaceImplTests =
             // §5.2 step 1 + 3: a member the interface does not declare is rejected,
             // and the required-but-unimplemented member is reported missing.
             test "a wrongly-named member is rejected and the required member reported missing" {
-                let provider, _ = SymbolProviders.buildContract defaultManifests
+                let provider = SymbolProviders.buildContract defaultManifests
 
                 let src =
                     String.concat

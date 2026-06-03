@@ -189,7 +189,7 @@ module EmitClosures =
             match e with
             | TExpr.Var(k, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
             | TExpr.App _ ->
-                let head, args = collectSpine [] e
+                let head, args = TastWalk.collectSpine [] e
 
                 match head with
                 | TExpr.Var(k, _) when candidates.ContainsKey k ->

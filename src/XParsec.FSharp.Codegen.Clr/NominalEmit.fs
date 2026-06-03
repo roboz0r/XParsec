@@ -29,7 +29,6 @@ module internal NominalEmit =
         let bodyStream = asm.BodyStream
         let encodeLocals = asm.EncodeLocals
         let emitCtx = asm.EmitCtx
-        let externalInlines = asm.ExternalInlines
         let ctorAttrs = asm.CtorAttrs
         let cctorAttrs = asm.CctorAttrs
         let staticFactoryAttrs = asm.StaticFactoryAttrs
@@ -396,10 +395,9 @@ module internal NominalEmit =
                     let cctorInits =
                         List.map2
                             (fun (_, h) (sl: TStaticLet) ->
-                                h,
-                                (sl.Init
-                                 |> Emit.spliceExternalInlinesInExpr externalInlines
-                                 |> Emit.expandBuiltinOps)
+                                // Inline splicing ran pre-freeze (Passes.InlineExpansion);
+                                // codegen only collapses the residual saturated built-in ops.
+                                h, Emit.expandBuiltinOps sl.Init
                             )
                             staticFieldHandles
                             staticLets
@@ -439,8 +437,9 @@ module internal NominalEmit =
 
                                 let scSig = provider.RecordCtorSignature paramTys
 
-                                let prep (e: TExpr) =
-                                    e |> Emit.spliceExternalInlinesInExpr externalInlines |> Emit.expandBuiltinOps
+                                // Inline splicing ran pre-freeze (Passes.InlineExpansion);
+                                // codegen only collapses the residual saturated built-in ops.
+                                let prep (e: TExpr) = Emit.expandBuiltinOps e
 
                                 let lets = [ for l in sc.Lets -> { l with Init = prep l.Init } ]
                                 let primaryArgs = [ for a in sc.PrimaryArgs -> prep a ]
@@ -544,9 +543,9 @@ module internal NominalEmit =
                             mem.ThisKey
                             mem.BaseKey
                             mem.Params
-                            (mem.Body
-                             |> Emit.spliceExternalInlinesInExpr externalInlines
-                             |> Emit.expandBuiltinOps)
+                            // Inline splicing ran pre-freeze (Passes.InlineExpansion);
+                            // codegen only collapses the residual saturated built-in ops.
+                            (Emit.expandBuiltinOps mem.Body)
                     ))
 
             let methodName = memberMetaName mem

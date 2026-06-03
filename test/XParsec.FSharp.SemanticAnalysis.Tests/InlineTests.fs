@@ -123,10 +123,15 @@ let tests =
                 Expect.throws (fun () -> Inline.inlineExpand decl [||] |> ignore) "expects a TDecl.Let"
             }
 
-            test "`let inline succ x = x + 1 in succ 41` splits into an inline decl + use site" {
+            test "`let inline succ x = x + 1 in succ 41` keeps the inline template and expands its use site" {
                 // At module level the parser lifts `let inline succ … in body`
                 // into a top-level inline binding followed by the body as its
-                // own expression — so the §C marker lands on a TDecl.Let.
+                // own expression — so the §C marker lands on a TDecl.Let. The
+                // template (decl 0) is retained verbatim, but the use site `succ
+                // 41` is now expanded *pre-freeze* by `InlineExpansion`
+                // (frozen-type-plan 3A-1): the call beta-reduces to a `Let`
+                // binding the argument, with `succ`'s `x + 1` body inlined (the
+                // `op_Addition` head is left for codegen's `BuiltinOps`).
                 let tast = analyse "let inline succ x = x + 1 in succ 41"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -135,7 +140,15 @@ let tests =
                                      TExpr.Lambda _,
                                      true,
                                      TyFun(TyConst("int", _), TyConst("int", _)))
-                           TDecl.Expression(TExpr.App(TExpr.Var _, TExpr.Const(TConstValue.Int 41, _), _), _) ] -> ()
+                           TDecl.Expression(TExpr.Let(TPat.NamedSimple _,
+                                                      TExpr.Const(TConstValue.Int 41, _),
+                                                      TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                                          TExpr.Var _,
+                                                                          _),
+                                                                TExpr.Const(TConstValue.Int 1, _),
+                                                                _),
+                                                      _),
+                                            _) ] -> ()
                 | _ -> failtestf "unexpected shape: %A" tast.Decls
             }
 

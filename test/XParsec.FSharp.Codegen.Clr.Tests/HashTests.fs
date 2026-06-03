@@ -11,8 +11,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
 // loaded as a cross-package inline body (`SymbolProviders.inlineBodies`) and
-// spliced at each `hash` use site by `Emit.lowerWith`. So `hash 5` lowers to the
-// two `ExternalMember` nodes (`EqualityComparer<int>.Default` static property +
+// spliced at each `hash` use site by the pre-freeze `Passes.InlineExpansion` pass
+// (frozen-type-plan 3A-1), reached through the provider's `IInlineBodyProvider`
+// channel. So `hash 5` freezes to the two `ExternalMember` nodes
+// (`EqualityComparer<int>.Default` static property +
 // `GetHashCode` instance method) that P4 emits — the same `EqualityComparer<T>`
 // family the DU triple hashes its fields through, so `hash` and `=` agree by
 // construction (equal values hash equal). BCL-only (no FSharp.Core). These tests
@@ -25,20 +27,22 @@ let tests =
         "Hash"
         [
             test
-                "`hash 5` lowers to the EqualityComparer<int>.Default.GetHashCode ExternalMember nodes (no surviving External)" {
+                "`hash 5` freezes to the EqualityComparer<int>.Default.GetHashCode ExternalMember nodes (no surviving External)" {
                 // The contract path resolves `hash` to its `ops-platform.fs` inline
-                // body, which `Emit.lowerWith` splices in: `hash 5` becomes
+                // body, which the pre-freeze `Passes.InlineExpansion` pass splices in
+                // (via the provider's `IInlineBodyProvider` channel): `hash 5` becomes
                 // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
-                // `'T` pinned to `int`, the `External("hash")` head gone.
-                let provider = SymbolProviders.build [ vesperCoreManifest ]
-                let inlines = SymbolProviders.inlineBodies provider [ vesperCoreManifest ]
+                // `'T` pinned to `int`, the `External("hash")` head gone — already in
+                // the frozen `tast.Decls`, before codegen runs.
+                let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
+                let inlines = SymbolProviders.contractInlineBodies [ vesperCoreManifest ]
                 Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.fs"
 
                 let lexed, file = parseFile "let v = hash 5"
                 let tast = Pipeline.analyse provider "let v = hash 5" lexed file
                 Expect.isEmpty (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)) "no errors"
 
-                match Emit.lowerWith inlines tast.Decls with
+                match EqArray.toList tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple _,
                               TExpr.Let(_,
                                         TExpr.Const(TConstValue.Int 5, _),
