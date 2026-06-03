@@ -19,12 +19,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let externalIsValueType n = env.ExternalIsValueType n
     let externalRecordRef (n, a) = env.ExternalRecordRef(n, a)
     let externalUnionRef (n, a) = env.ExternalUnionRef(n, a)
-    // Open typars are self-describing `TempTypar` nodes the structural match resolves
-    // directly (frozen-type-plan keystone). The one exception is a *concrete* generic
-    // member (B-12) whose method-owned typars are still live `TyVar`s — the leaf hook
-    // resolves those to `!!i` via the ambient `methodTyparRoots` window (empty, hence
-    // a no-op, outside a generic-member emission).
-    let methodTyparLeaf = env.MethodTyparLeaf
 
     let eUnit = env.EUnit
     let eValueTuple = env.EValueTuple
@@ -79,165 +73,156 @@ type internal ClrEncoder(env: ClrEnv) =
             | ValueNone -> None
         | _ -> None
 
-    /// Encode a (zonked) `SemType` into a metadata signature slot. `tryLeaf` gets first crack at each
-    /// zonked node before the structural match: when it encodes the node (returns `true`) recursion
-    /// stops there. The executable path passes a no-op; the library path passes a typar-marker resolver.
-    let rec encodeTypeCore
-        (tryLeaf: SignatureTypeEncoder -> SemType -> bool)
-        (te: SignatureTypeEncoder)
-        (t: SemType)
-        : unit =
+    /// Encode a (zonked) `SemType` into a metadata signature slot. Encoding is
+    /// context-free: open typars are self-describing `TempTypar(axis, i)` nodes the
+    /// structural match resolves by index (frozen-type-plan keystone + 2E-1), so there
+    /// is no ambient typar window and no leaf hook — the match is total over the frozen
+    /// `SemType` shapes that reach the backend.
+    let rec encodeType (te: SignatureTypeEncoder) (t: SemType) : unit =
         let zt = zonk t
 
-        if tryLeaf te zt then
-            ()
-        else
-            match zt with
-            // `TextWriter` / `Formatter` / `HashCode` precede the repr-keyed arm because their names
-            // aren't in `reprs`. `unit` is NOT special-cased here: it falls through to the repr arm and
-            // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
-            // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
-            // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly), R9.
-            | TyConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
-            | TyConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
-            | TyConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)
-            // Only scalar (argless) intrinsics rekey off their repr string. A generic
-            // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
-            // yet, so it falls through to
-            // the catch-all "cannot encode" error — the green suite proves none reaches here.
-            | TyConst(name, args) when args.IsEmpty && reprs.ContainsKey name ->
-                // Key the IL type off the representation string the name maps to (`"int"` →
-                // `"System.Int32"` → `i4`), not the Vesper name (G7).
-                let repr = reprs.[name]
+        match zt with
+        // `TextWriter` / `Formatter` / `HashCode` precede the repr-keyed arm because their names
+        // aren't in `reprs`. `unit` is NOT special-cased here: it falls through to the repr arm and
+        // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
+        // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
+        // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly), R9.
+        | TyConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
+        | TyConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
+        | TyConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)
+        // Only scalar (argless) intrinsics rekey off their repr string. A generic
+        // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
+        // yet, so it falls through to
+        // the catch-all "cannot encode" error — the green suite proves none reaches here.
+        | TyConst(name, args) when args.IsEmpty && reprs.ContainsKey name ->
+            // Key the IL type off the representation string the name maps to (`"int"` →
+            // `"System.Int32"` → `i4`), not the Vesper name (G7).
+            let repr = reprs.[name]
 
-                if IntrinsicRepr.tryEncodeValueType te repr then
-                    ()
-                elif repr = "System.Decimal" then
-                    te.Type(eDecimal.Value, true)
-                elif repr = "System.ValueTuple" then
-                    // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
-                    te.Type(eValueTuple.Value, true)
-                else
-                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
-            // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
-            // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
-            | TyConst("[]", args) when args.Length = 1 -> encodeTypeCore tryLeaf (te.SZArray()) args.[0]
-            | TyFun(a, b) ->
-                let g = te.GenericInstantiation(eFun2.Value, 2, false)
-                encodeTypeCore tryLeaf (g.AddArgument()) a
-                encodeTypeCore tryLeaf (g.AddArgument()) b
-            | TyClass(key, args) when RuntimeNames.isPrintfFormatKey key ->
-                markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
-                let g = te.GenericInstantiation(ePrintfFormat4.Value, args.Length, false)
+            if IntrinsicRepr.tryEncodeValueType te repr then
+                ()
+            elif repr = "System.Decimal" then
+                te.Type(eDecimal.Value, true)
+            elif repr = "System.ValueTuple" then
+                // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
+                te.Type(eValueTuple.Value, true)
+            else
+                failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+        // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
+        // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
+        | TyConst("[]", args) when args.Length = 1 -> encodeType (te.SZArray()) args.[0]
+        | TyFun(a, b) ->
+            let g = te.GenericInstantiation(eFun2.Value, 2, false)
+            encodeType (g.AddArgument()) a
+            encodeType (g.AddArgument()) b
+        | TyClass(key, args) when RuntimeNames.isPrintfFormatKey key ->
+            markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
+            let g = te.GenericInstantiation(ePrintfFormat4.Value, args.Length, false)
+
+            for a in args do
+                encodeType (g.AddArgument()) a
+        | TyRecord(key, args) when RuntimeNames.isFsharpCoreListKey key && args.Length = 1 ->
+            let elem = args.[0]
+            encodeListOf te (fun arg -> encodeType arg elem)
+        // A nominal is project-local iff its home `asm` is the assembly being
+        // emitted (asm-discrimination). This
+        // arm precedes the cons-list arm so a *self-host*
+        // `Vesper.Collections.List` (asm = the emitted `Vesper.List`) resolves
+        // to its emitted `TypeDef`, while a *referenced* cons-list (same key,
+        // asm ≠ emitted) falls through to the cached external `eVesperList1`.
+        | TyUnion(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+            let handle = userTypes.[key]
+
+            if args.IsEmpty then
+                te.Type(handle, false)
+            else
+                let g = te.GenericInstantiation(handle, args.Length, false)
 
                 for a in args do
-                    encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyRecord(key, args) when RuntimeNames.isFsharpCoreListKey key && args.Length = 1 ->
-                let elem = args.[0]
-                encodeListOf te (fun arg -> encodeTypeCore tryLeaf arg elem)
-            // A nominal is project-local iff its home `asm` is the assembly being
-            // emitted (asm-discrimination). This
-            // arm precedes the cons-list arm so a *self-host*
-            // `Vesper.Collections.List` (asm = the emitted `Vesper.List`) resolves
-            // to its emitted `TypeDef`, while a *referenced* cons-list (same key,
-            // asm ≠ emitted) falls through to the cached external `eVesperList1`.
-            | TyUnion(key, args) when ExternalSymbols.keyAsm key = envAsm ->
-                let handle = userTypes.[key]
+                    encodeType (g.AddArgument()) a
+        | TyUnion(key, args) when RuntimeNames.isVesperListKey key && args.Length = 1 ->
+            // The Vesper cons-list (R3) ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
+            // This arm follows the project-local arm above so a referenced (not self-host)
+            // cons-list maps to the cached `eVesperList1` handle directly.
+            let elem = args.[0]
+            let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
+            encodeType (g.AddArgument()) elem
+        | TyRecord(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+            let handle = userTypes.[key]
 
-                if args.IsEmpty then
-                    te.Type(handle, false)
-                else
-                    let g = te.GenericInstantiation(handle, args.Length, false)
+            if args.IsEmpty then
+                te.Type(handle, false)
+            else
+                let g = te.GenericInstantiation(handle, args.Length, false)
 
-                    for a in args do
-                        encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyUnion(key, args) when RuntimeNames.isVesperListKey key && args.Length = 1 ->
-                // The Vesper cons-list (R3) ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
-                // This arm follows the project-local arm above so a referenced (not self-host)
-                // cons-list maps to the cached `eVesperList1` handle directly.
-                let elem = args.[0]
-                let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
-                encodeTypeCore tryLeaf (g.AddArgument()) elem
-            | TyRecord(key, args) when ExternalSymbols.keyAsm key = envAsm ->
-                let handle = userTypes.[key]
+                for a in args do
+                    encodeType (g.AddArgument()) a
+        | TyClass(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+            // Checked *before* the external-class arm so a project-local class wins over an
+            // accidental same-named external one (asm-discrimination, Phase 6D).
+            let handle = userTypes.[key]
 
-                if args.IsEmpty then
-                    te.Type(handle, false)
-                else
-                    let g = te.GenericInstantiation(handle, args.Length, false)
+            if args.IsEmpty then
+                te.Type(handle, false)
+            else
+                let g = te.GenericInstantiation(handle, args.Length, false)
 
-                    for a in args do
-                        encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyClass(key, args) when ExternalSymbols.keyAsm key = envAsm ->
-                // Checked *before* the external-class arm so a project-local class wins over an
-                // accidental same-named external one (asm-discrimination, Phase 6D).
-                let handle = userTypes.[key]
+                for a in args do
+                    encodeType (g.AddArgument()) a
+        | ExternalClass(tref, vt, args) ->
+            // `vt` is the `VALUETYPE`-vs-`CLASS` flag from `externalIsValueType`;
+            // the lookup + key projection happen once, in the active pattern.
+            if args.IsEmpty then
+                te.Type(tref, vt)
+            else
+                let g = te.GenericInstantiation(tref, args.Length, vt)
 
-                if args.IsEmpty then
-                    te.Type(handle, false)
-                else
-                    let g = te.GenericInstantiation(handle, args.Length, false)
+                for a in args do
+                    encodeType (g.AddArgument()) a
+        | ExternalRecord(tref, args) ->
+            if args.IsEmpty then
+                te.Type(tref, false)
+            else
+                let g = te.GenericInstantiation(tref, args.Length, false)
 
-                    for a in args do
-                        encodeTypeCore tryLeaf (g.AddArgument()) a
-            | ExternalClass(tref, vt, args) ->
-                // `vt` is the `VALUETYPE`-vs-`CLASS` flag from `externalIsValueType`;
-                // the lookup + key projection happen once, in the active pattern.
-                if args.IsEmpty then
-                    te.Type(tref, vt)
-                else
-                    let g = te.GenericInstantiation(tref, args.Length, vt)
+                for a in args do
+                    encodeType (g.AddArgument()) a
+        | ExternalUnion(tref, args) ->
+            // A referenced-package union (`Vesper.Option<int>`) — the case
+            // factories' return type and any field typed in the union itself
+            // (vesper-lib-test-plan Gap 2 Layer B). Same shape as the external
+            // record arm; the union is a reference type, so never `VALUETYPE`.
+            if args.IsEmpty then
+                te.Type(tref, false)
+            else
+                let g = te.GenericInstantiation(tref, args.Length, false)
 
-                    for a in args do
-                        encodeTypeCore tryLeaf (g.AddArgument()) a
-            | ExternalRecord(tref, args) ->
-                if args.IsEmpty then
-                    te.Type(tref, false)
-                else
-                    let g = te.GenericInstantiation(tref, args.Length, false)
-
-                    for a in args do
-                        encodeTypeCore tryLeaf (g.AddArgument()) a
-            | ExternalUnion(tref, args) ->
-                // A referenced-package union (`Vesper.Option<int>`) — the case
-                // factories' return type and any field typed in the union itself
-                // (vesper-lib-test-plan Gap 2 Layer B). Same shape as the external
-                // record arm; the union is a reference type, so never `VALUETYPE`.
-                if args.IsEmpty then
-                    te.Type(tref, false)
-                else
-                    let g = te.GenericInstantiation(tref, args.Length, false)
-
-                    for a in args do
-                        encodeTypeCore tryLeaf (g.AddArgument()) a
-            | TyUnknown name ->
-                // A nominal head that resolved to no in-scope type shape during
-                // dependency-aware extraction. The front end refuses it at `unify`
-                // with a use-site diagnostic, so it must never reach the backend;
-                // this explicit arm makes that boundary self-documenting rather than
-                // relying on the catch-all. The message mirrors the unify-time
-                // string and flags that the front end should have errored first.
-                failwithf
-                    "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
-                    name
-            // A frozen open typar (frozen-type-plan): the index is in the node, so
-            // encoding is context-free and unconditional — it supersedes the marker
-            // `TypeVar`/`TyConst "'A"` mechanism the ambient windows used to resolve.
-            // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's
-            // own `!!i`. The one exception is a closure body, where the enclosing
-            // method's typars are re-projected onto the closure *class* — handled by
-            // `closureTyparMode` flipping Method-axis to `GenericTypeParameter`.
-            | TempTypar(TyparAxis.Declaring, i) -> te.GenericTypeParameter i
-            | TempTypar(TyparAxis.Method, i) ->
-                if env.ClosureTyparMode then
-                    te.GenericTypeParameter i
-                else
-                    te.GenericMethodTypeParameter i
-            | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
-
-    /// Encode for the executable path. The only leaf hook is the ambient generic-method-typar resolver
-    /// (`!!i`), empty except while a generic static method is being emitted.
-    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore methodTyparLeaf te t
+                for a in args do
+                    encodeType (g.AddArgument()) a
+        | TyUnknown name ->
+            // A nominal head that resolved to no in-scope type shape during
+            // dependency-aware extraction. The front end refuses it at `unify`
+            // with a use-site diagnostic, so it must never reach the backend;
+            // this explicit arm makes that boundary self-documenting rather than
+            // relying on the catch-all. The message mirrors the unify-time
+            // string and flags that the front end should have errored first.
+            failwithf
+                "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
+                name
+        // A frozen open typar (frozen-type-plan): the index is in the node, so
+        // encoding is context-free and unconditional — it supersedes the marker
+        // `TypeVar`/`TyConst "'A"` mechanism the ambient windows used to resolve.
+        // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's
+        // own `!!i`. The one exception is a closure body, where the enclosing
+        // method's typars are re-projected onto the closure *class* — handled by
+        // `closureTyparMode` flipping Method-axis to `GenericTypeParameter`.
+        | TempTypar(TyparAxis.Declaring, i) -> te.GenericTypeParameter i
+        | TempTypar(TyparAxis.Method, i) ->
+            if env.ClosureTyparMode then
+                te.GenericTypeParameter i
+            else
+                te.GenericMethodTypeParameter i
+        | other -> failwithf "ClrProvider: cannot encode SemType: %A" other
 
     /// Encode mapping each function arrow to FSharp.Core's `FSharpFunc`2` (curried, nested), not
     /// `Vesper.Fun` — for the FSharp.Core interop islands R1 leaves on the old representation (the cold
@@ -346,12 +331,30 @@ type internal ClrEncoder(env: ClrEnv) =
 
         ctx.AddStandaloneSignature blob
 
+    /// Wrap a generic-method handle in a `MethodSpec` instantiating it at `args`
+    /// (`fold<int,int>`, `Enumerable.Take<int>`). A non-generic handle (`args = []`)
+    /// returns unchanged. The single home for the `MethodSpecificationSignature` blob
+    /// shape every generic-method call site shares.
+    let methodSpec (handle: EntityHandle) (args: SemType list) : EntityHandle =
+        match args with
+        | [] -> handle
+        | _ ->
+            let inst = BlobBuilder()
+            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length args)
+
+            for t in args do
+                encodeType (specEnc.AddArgument()) (zonk t)
+
+            toEntity (ctx.MethodSpec(handle, inst))
+
     member _.EncodeListOf(te, inner) = encodeListOf te inner
     member _.EncodeType(te, t) = encodeType te t
     member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te t
 
     member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
         recoverOpenTypars declArity methodArity openT instT
+
+    member _.MethodSpec(handle, args) = methodSpec handle args
 
     member _.ExternalTypeSpec(tref, instArgs) = externalTypeSpec tref instArgs
 
@@ -388,10 +391,9 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// A *generic method* (B-12: `member this.Map<'C> …`) whose body may also be inside
     /// a generic type. The declaring type's typars ride `TempTypar(Declaring, i)` nodes
-    /// (`!i`); the method's own typars are still `TyVar` roots that `methodTyparLeaf`
-    /// resolves to `GenericMethodParameter` (`!!i`) — so the caller MUST install them
-    /// via `SetMethodTypars` first. `methodTyparCount` sets the `GENERIC` calling-
-    /// convention header count.
+    /// (`!i`) and the method's own typars ride `TempTypar(Method, i)` nodes (`!!i`); the
+    /// structural `encodeType` match resolves both by index, so no ambient window is
+    /// needed. `methodTyparCount` sets the `GENERIC` calling-convention header count.
     member _.GenericMethodOnTypeSignature
         (methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
         : BlobBuilder =

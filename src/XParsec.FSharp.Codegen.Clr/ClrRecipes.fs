@@ -21,6 +21,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let encodeType te t = enc.EncodeType(te, t)
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
+    let methodSpec handle args = enc.MethodSpec(handle, args)
     let formatterTypeName = env.FormatterTypeName
 
     let ePrintfFormat4 = env.EPrintfFormat4
@@ -492,13 +493,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                         // against the call's concrete type, recovering each method arg by its index.
                         let openSig = toOpen monoSig
                         let _, methodArgs = recoverOpenTypars 0 methodArity openSig (zonk fnTy)
-                        let inst = BlobBuilder()
-                        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(methodArity)
-
-                        for a in methodArgs do
-                            encodeType (specEnc.AddArgument()) (zonk a)
-
-                        toEntity (ctx.MethodSpec(memberRef, inst))
+                        methodSpec memberRef methodArgs
 
                 ValueSome
                     {

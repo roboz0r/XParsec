@@ -411,13 +411,13 @@ and TTypeMember =
         /// vesper-set-sprint-plan §1.10 / B-12) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
         /// (`"'C"`, for the `GenericParam` row) with the post-unification
-        /// union-find *root* `TypeVar` that the member's `Params` / `ReturnTy` /
-        /// `Body` reference. Codegen installs these roots as the ambient
-        /// `SetMethodTypars` set so they encode to `GenericMethodParameter`
-        /// (`!!i`) — `Freeze.remapMemberTypes` remaps only the declaring axis, so
-        /// the method axis stays `TyVar` and needs the window — while the declaring
-        /// type's typars ride `TempTypar(Declaring, i)` nodes that encode to
-        /// `GenericTypeParameter` (`!i`) directly. Empty for a non-generic member.
+        /// union-find *root* `TypeVar`. `Freeze.remapMemberTypes` uses these roots to
+        /// flip the method axis in `Params` / `ReturnTy` / `Body` to
+        /// `TempTypar(Method, i)` (frozen-type-plan 2E-1), exactly as the declaring
+        /// type's typars ride `TempTypar(Declaring, i)`; codegen's encoder resolves
+        /// both axes by index (`!!i` / `!i`) with no ambient window. This list still
+        /// feeds the `GenericParam` rows and the `GENERIC` header arity. Empty for a
+        /// non-generic member.
         MethodTypeParams: EqArray<string * TypeVar>
     }
 

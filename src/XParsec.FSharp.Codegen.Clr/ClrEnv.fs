@@ -416,29 +416,6 @@ type internal ClrEnv
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
 
-    // The one surviving ambient typar *window*: a *concrete* generic member (B-12,
-    // `member this.Map<'C> …`) still carries its method-owned typars as live `TyVar`s
-    // (Freeze's `remapMemberTypes` remaps only the declaring axis), so they are
-    // resolved to `!!i` by union-find root while that member is emitted. The
-    // declaring/closure name-map windows are retired (frozen-type-plan 2D) — those
-    // typars are now self-describing `TempTypar` nodes the encoder resolves by index.
-    let mutable methodTyparRoots: TypeVar list = []
-
-    let methodTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-        match methodTyparRoots with
-        | [] -> false
-        | roots ->
-            match zt with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match roots |> List.tryFindIndex (fun r -> System.Object.ReferenceEquals(r, root)) with
-                | Some i ->
-                    te.GenericMethodTypeParameter i
-                    true
-                | None -> false
-            | _ -> false
-
     // frozen-type-plan: while encoding a closure's own members (Invoke / .ctor /
     // capture fields / its TypeSpec from inside its body), the enclosing method's
     // `TempTypar(Method, i)` are the closure *class*'s generic parameters, so they
@@ -513,12 +490,6 @@ type internal ClrEnv
 
     member _.FSharpCoreDependencies() =
         fsharpCoreDeps |> List.ofSeq |> List.sort
-
-    member _.MethodTyparRoots
-        with get () = methodTyparRoots
-        and set v = methodTyparRoots <- v
-
-    member _.MethodTyparLeaf = methodTyparLeaf
 
     member _.ClosureTyparMode
         with get () = closureTyparMode

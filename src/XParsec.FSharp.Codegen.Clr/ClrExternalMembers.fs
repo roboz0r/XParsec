@@ -19,6 +19,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalRecordRef fullName arity = env.ExternalRecordRef(fullName, arity)
     let externalUnionRef fullName arity = env.ExternalUnionRef(fullName, arity)
     let encodeType te t = enc.EncodeType(te, t)
+    let methodSpec handle args = enc.MethodSpec(handle, args)
 
     let recoverOpenTypars declArity methodArity openT instT =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
@@ -95,21 +96,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(parent, metaName, s))
 
-    /// Wrap an open generic-method member-ref in a `MethodSpec` instantiating it at the recovered
-    /// method-axis args (`Enumerable.Take<int>`). Mirrors `staticFnMethodSpec` but for the external
-    /// member-ref path; a non-generic member (`methodArgs = []`) returns the handle unchanged.
-    let methodSpecOf (handle: EntityHandle) (methodArgs: SemType list) : EntityHandle =
-        match methodArgs with
-        | [] -> handle
-        | _ ->
-            let inst = BlobBuilder()
-            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length methodArgs)
-
-            for t in methodArgs do
-                encodeType (specEnc.AddArgument()) (zonk t)
-
-            toEntity (ctx.MethodSpec(handle, inst))
-
     /// Look up the resolved external member for `key` — the *exact* overload the front end committed
     /// (its key, incl. `argSig`, matches), NOT a singular re-pick (which would re-collapse a resolved
     /// overload to the most-params one and disagree with the node's `memberTy`). The singular
@@ -138,9 +124,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
             | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
-        let _asm, ns, name =
+        let ns, name =
             match declKey with
-            | SymbolKey.TypeKey(asm, ns, name) -> asm, ns, name
+            | SymbolKey.TypeKey(_, ns, name) -> ns, name
             | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
 
         let instTy = zonk memberTy
@@ -171,8 +157,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let parent = externalTypeSpec tref (List.map zonk declArgs)
 
             let handle =
-                mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName
-                |> fun h -> methodSpecOf h (List.map zonk methodArgs)
+                methodSpec
+                    (mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName)
+                    methodArgs
 
             externalMemberCache.[memoKey] <- handle
             handle
@@ -240,8 +227,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let parent = typeSpecOf declZ
 
             let handle =
-                mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName
-                |> fun h -> methodSpecOf h (List.map zonk methodArgs)
+                methodSpec
+                    (mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName)
+                    methodArgs
 
             externalMemberCache.[memoKey] <- handle
             handle
@@ -475,17 +463,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let substitutedTy = field.BuildType(List.toArray args)
                 ValueSome(handle, substitutedTy)
 
-    /// `MethodSpec` instantiating a generic static method (R3) — a call site (`fold<int,int>`) or a
-    /// recursive self-call (`fold<!!0,!!1>`).
-    let staticFnMethodSpec (handle: EntityHandle) (instTypes: SemType list) : EntityHandle =
-        let inst = BlobBuilder()
-        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length instTypes)
-
-        for t in instTypes do
-            encodeType (specEnc.AddArgument()) (zonk t)
-
-        toEntity (ctx.MethodSpec(handle, inst))
-
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
         externalMemberRef key isProperty isStatic memberTy
 
@@ -507,4 +484,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     member _.ExternalRecordField(fullName, args, fieldName) =
         externalRecordField fullName args fieldName
 
-    member _.StaticFnMethodSpec(handle, instTypes) = staticFnMethodSpec handle instTypes
+    /// `MethodSpec` instantiating a generic static method (R3) — a call site (`fold<int,int>`) or a
+    /// recursive self-call (`fold<!!0,!!1>`).
+    member _.StaticFnMethodSpec(handle, instTypes) = methodSpec handle instTypes

@@ -525,17 +525,14 @@ module internal NominalEmit =
         // the runtime maps the method to the implemented interface; the class's
         // own members keep their natural static/instance attrs.
         let emitMember (isIfaceImpl: bool) (mem: TTypeMember) =
-            // A *generic* member (B-12) carries its own method typars as live `TyVar`
-            // roots (Freeze remaps only the declaring axis to `TempTypar`). Install them
-            // as the ambient `!!i` window for the duration of this member's body /
-            // locals / signature encoding so a `TyVar` leaf naming one encodes to
-            // `GenericMethodParameter`; the declaring type's typars ride their own
-            // `TempTypar(Declaring, i)` nodes. Cleared after the row is added.
+            // A *generic* member (B-12). Both its declaring-type typars and its own
+            // method typars now ride self-describing `TempTypar` nodes in the signature /
+            // locals / body (Freeze.remapMemberTypes remaps both axes — frozen-type-plan
+            // 2E-1), so no ambient typar window is installed; the encoder resolves them by
+            // index. `methodTypars` still feeds the `GENERIC` header arity and the
+            // `GenericParam` rows below.
             let methodTypars = mem.MethodTypeParams
             let isGenericMethod = not methodTypars.IsEmpty
-
-            if isGenericMethod then
-                provider.SetMethodTypars [ for (_, r) in methodTypars -> r ]
 
             let bodyOffset =
                 Cil.buildBody
@@ -558,8 +555,8 @@ module internal NominalEmit =
             // The declaring type's typars (if any) ride `TempTypar(Declaring, i)` nodes
             // the encoder resolves to `!i` directly, so a generic and a monomorphic
             // type share one signature builder. A generic *method* (B-12) additionally
-            // needs the `GENERIC` calling-convention header count + its own `TyVar`
-            // method typars resolved via the ambient `SetMethodTypars` window.
+            // needs the `GENERIC` calling-convention header count; its own typars ride
+            // `TempTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
             let signature =
                 if isGenericMethod then
                     provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
@@ -588,8 +585,6 @@ module internal NominalEmit =
                 // generic-param row).
                 methodTypars
                 |> EqArray.iteri (fun i (n, _) -> asm.AddMethodGenericParam(toEntity memHandle, i, n.TrimStart('\'')))
-
-                provider.ClearMethodTypars()
 
             asm.MethodCount <- asm.MethodCount + 1 // each member-method row
 

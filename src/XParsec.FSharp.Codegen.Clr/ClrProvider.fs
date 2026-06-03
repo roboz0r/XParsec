@@ -65,14 +65,6 @@ type ClrProvider
 
     member _.CctorSignature() : BlobBuilder = enc.CctorSignature()
 
-    /// Install the ambient method-typar set (by union-find root) for a *concrete* generic member
-    /// (B-12) about to be emitted, so `encodeType` maps that member's own `TyVar` method typars to
-    /// `!!i`. (Declaring-type typars need no window — they ride `TempTypar(Declaring, i)` nodes.)
-    member _.SetMethodTypars(typars: TypeVar list) : unit =
-        env.MethodTyparRoots <- typars |> List.map UnionFind.find
-
-    member _.ClearMethodTypars() : unit = env.MethodTyparRoots <- []
-
     member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericUnionSelfSpec key
 
     member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericRecordSelfSpec key

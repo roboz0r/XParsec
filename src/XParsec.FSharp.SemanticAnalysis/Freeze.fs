@@ -139,11 +139,25 @@ module Freeze =
         go declTy
         [ for i in 0 .. acc.Count - 1 -> acc.[i], TempTypar(TyparAxis.Method, i) ]
 
-    /// Push a declaring-typar remap through a member's signature + body, retyping
-    /// `this` to `selfTy`. Shared by the union / class member surfacers, which
-    /// differ only in the `ThisTy` constructor (`TyUnion` vs `TyClass`).
+    /// Push a declaring- *and* method-axis typar remap through a member's
+    /// signature + body, retyping `this` to `selfTy`. Shared by the union / class
+    /// member surfacers, which differ only in the `ThisTy` constructor (`TyUnion`
+    /// vs `TyClass`). A *concrete* generic member (B-12, `member this.Map<'C> …`)
+    /// carries its method-owned typars as live `TyVar`s; this appends
+    /// `mkMethodTyparEnv m.MethodTypeParams` to the declaring markers so they become
+    /// `TempTypar(Method, i)` in the params / return / body-embedded types — the
+    /// same both-axes remap the abstract-method path (`tryInterfaceMethods`) does
+    /// (frozen-type-plan 2E-1). `MethodTypeParams` itself stays the `(name, root)`
+    /// list (it still feeds the `GenericParam` rows and the header arity); only the
+    /// *types* flip, so codegen no longer needs an ambient method-typar window.
     let private remapMemberTypes (selfTy: SemType) (markers: (TypeVar * SemType) list) (m: TTypeMember) : TTypeMember =
-        let f = remapDeclTypars markers
+        let methodMarkers =
+            if m.MethodTypeParams.IsEmpty then
+                markers
+            else
+                markers @ mkMethodTyparEnv m.MethodTypeParams
+
+        let f = remapDeclTypars methodMarkers
 
         { m with
             ThisTy = selfTy
@@ -723,12 +737,21 @@ module Freeze =
 
                 remapMemberTypes selfTy markers
 
+            // Remap a member when the declaring type is generic (declaring axis) *or*
+            // the member itself is generic (method axis, B-12). A generic method on a
+            // *monomorphic* class still needs its `'C` flipped to `TempTypar(Method, i)`,
+            // so it can no longer be skipped (frozen-type-plan 2E-1). For a mono type the
+            // declaring env is empty and `selfTy = TyClass(key, [])` equals the member's
+            // existing mono `ThisTy`, so only the method axis moves.
+            let needsRemap (m: TTypeMember) =
+                not (List.isEmpty declTypars) || not m.MethodTypeParams.IsEmpty
+
             let members =
                 EqArray.ofSeq (
                     seq {
                         for el in elements do
                             match translateClassMember ctx info el with
-                            | ValueSome m -> yield (if List.isEmpty declTypars then m else remapMember m)
+                            | ValueSome m -> yield (if needsRemap m then remapMember m else m)
                             | ValueNone -> ()
                     }
                 )
@@ -790,8 +813,7 @@ module Freeze =
                                         seq {
                                             for el in impl.Elements do
                                                 match translateClassMember ctx info el with
-                                                | ValueSome m ->
-                                                    yield (if List.isEmpty declTypars then m else remapMember m)
+                                                | ValueSome m -> yield (if needsRemap m then remapMember m else m)
                                                 | ValueNone -> ()
                                         }
                                     )
