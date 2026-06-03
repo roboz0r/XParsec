@@ -414,9 +414,10 @@ and TTypeMember =
         /// union-find *root* `TypeVar` that the member's `Params` / `ReturnTy` /
         /// `Body` reference. Codegen installs these roots as the ambient
         /// `SetMethodTypars` set so they encode to `GenericMethodParameter`
-        /// (`!!i`) while the declaring type's typars (carried as `TyConst`
-        /// markers) encode to `GenericTypeParameter` (`!i`). Empty for a
-        /// non-generic member.
+        /// (`!!i`) — `Freeze.remapMemberTypes` remaps only the declaring axis, so
+        /// the method axis stays `TyVar` and needs the window — while the declaring
+        /// type's typars ride `TempTypar(Declaring, i)` nodes that encode to
+        /// `GenericTypeParameter` (`!i`) directly. Empty for a non-generic member.
         MethodTypeParams: EqArray<string * TypeVar>
     }
 

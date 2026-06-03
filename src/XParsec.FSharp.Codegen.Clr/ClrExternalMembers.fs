@@ -19,7 +19,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalRecordRef fullName arity = env.ExternalRecordRef(fullName, arity)
     let externalUnionRef fullName arity = env.ExternalUnionRef(fullName, arity)
     let encodeType te t = enc.EncodeType(te, t)
-    let encodeOpen markerRoots te t = enc.EncodeOpen(markerRoots, te, t)
 
     let recoverOpenTypars declArity methodArity openT instT =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
@@ -180,7 +179,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// `externalMemberRef` for a member whose declaring type's instantiation cannot be recovered from
     /// the member's *open* signature — a T-free member like `MoveNext(): bool` on a generic enumerator
-    /// (§4.4). Instead of `recoverTypeArgs`, the declaring instantiation is read straight off `declTy`
+    /// (§4.4). Instead of recovering it by signature match, the declaring instantiation is read off `declTy`
     /// (the resolved `enumeratorTy`, e.g. `List`1+Enumerator<int>`); its `args` length sets the marker
     /// count (NOT `arityOfMetaName`, which yields 0 for a nested `…List`1+Enumerator` name). The parent
     /// `TypeSpec` is encoded through `enc.TypeSpecOf`, so a struct enumerator's parent lands as a
@@ -257,9 +256,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome(tref, fields) ->
             let parent = externalTypeSpec tref (List.map zonk args)
 
-            let markers = [ for _ in 1..arity -> TypeVar() ]
-            let markerRoots = markers |> List.map UnionFind.find
-            let markerTys = markers |> List.map TyVar |> List.toArray
+            let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
+
             let paramTys = [ for f in fields -> f.BuildType markerTys ]
 
             let s = BlobBuilder()
@@ -271,7 +269,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeOpen markerRoots (pars.AddParameter().Type()) p
+                            encodeType (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -295,9 +293,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | Some case ->
                 let parent = externalTypeSpec tref (List.map zonk args)
 
-                let markers = [ for _ in 1..arity -> TypeVar() ]
-                let markerRoots = markers |> List.map UnionFind.find
-                let markerTys = markers |> List.map TyVar |> List.toArray
+                let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
+
                 let paramTys = [ for b in case.BuildFieldTypes -> b markerTys ]
 
                 let retTy =
@@ -309,10 +306,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     .MethodSignature(isInstanceMethod = false)
                     .Parameters(
                         List.length paramTys,
-                        (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) retTy),
+                        (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
-                                encodeOpen markerRoots (pars.AddParameter().Type()) p
+                                encodeType (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -358,13 +355,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
             | Some case when fieldIndex >= 0 && fieldIndex < case.BuildFieldTypes.Length ->
                 let parent = externalTypeSpec tref (List.map zonk args)
-                let markers = [ for _ in 1..arity -> TypeVar() ]
-                let markerRoots = markers |> List.map UnionFind.find
-                let markerTys = markers |> List.map TyVar |> List.toArray
+
+                let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
+
                 let openFieldTy = case.BuildFieldTypes.[fieldIndex] markerTys
 
                 let s = BlobBuilder()
-                encodeOpen markerRoots (BlobEncoder(s).FieldSignature()) openFieldTy
+                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
 
                 let handle =
                     toEntity (ctx.MemberRef(parent, sprintf "%s_%d" caseName fieldIndex, s))
@@ -415,9 +412,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | ValueSome tref ->
                 let parent = externalTypeSpec tref (List.map zonk tyArgs)
                 let typeArity = arityOfMetaName fullName
-                let markers = [ for _ in 1..typeArity -> TypeVar() ]
-                let markerRoots = markers |> List.map UnionFind.find
-                let markerTys = markers |> List.map TyVar |> List.toArray
+
+                let markerTys =
+                    [| for i in 0 .. typeArity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
+
                 let openSig = chosen.BuildSignature markerTys
                 let rawParams, _ = decurryTy openSig
 
@@ -436,7 +434,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
-                                encodeOpen markerRoots (pars.AddParameter().Type()) p
+                                encodeType (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -465,13 +463,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | None -> ValueNone
             | Some field ->
                 let parent = externalTypeSpec tref (List.map zonk args)
-                let markers = [ for _ in 1..arity -> TypeVar() ]
-                let markerRoots = markers |> List.map UnionFind.find
-                let markerTys = markers |> List.map TyVar |> List.toArray
+
+                let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
+
                 let openFieldTy = field.BuildType markerTys
 
                 let s = BlobBuilder()
-                encodeOpen markerRoots (BlobEncoder(s).FieldSignature()) openFieldTy
+                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
                 let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
 
                 let substitutedTy = field.BuildType(List.toArray args)

@@ -46,17 +46,18 @@ module internal NominalEmit =
         let firstField = MetadataTokens.FieldDefinitionHandle(asm.FieldCount + 1)
 
         let isGeneric = not td.TypeParams.IsEmpty
-        let typarMarkers = [ for n in td.TypeParams -> TyConst(n, EqArray.empty) ]
+        // The declaring type's own typars as self-describing open-typar nodes
+        // (`!i`), `i` = position in `TypeParams`. The codegen encoders resolve a
+        // `TempTypar(Declaring, i)` straight off the node (frozen-type-plan keystone),
+        // so these need no ambient typar window.
+        let typarMarkers =
+            [ for i in 0 .. td.TypeParams.Length - 1 -> TempTypar(TyparAxis.Declaring, i) ]
 
-        // Local-signature encoder honouring the declaring type's typars: a member
-        // (or secondary-ctor) body local of a generic type needs the generic
-        // signature. Defined here so both the class arm (secondary ctors) and the
-        // member loop below share it.
-        let memberEncodeLocals =
-            if isGeneric then
-                fun locals -> provider.EncodeGenericLocalSignature(EqArray.toList td.TypeParams, locals)
-            else
-                encodeLocals
+        // Local-signature encoder. A member (or secondary-ctor) body local of a
+        // generic type carries its declaring typars as `TempTypar(Declaring, i)` nodes
+        // the encoder resolves to `!i` directly, so the generic and monomorphic paths
+        // are identical — one shared `encodeLocals` covers both.
+        let memberEncodeLocals = encodeLocals
 
         // The IL base type for this `TypeDefinition`. Defaults to `Object`; the
         // class arm overwrites it with the parent's `TypeSpec` for an `inherit`
@@ -85,11 +86,7 @@ module internal NominalEmit =
                                 c.Fields
                                 |> EqArray.toList
                                 |> List.mapi (fun fi (_, fty) ->
-                                    let sigBlob =
-                                        if isGeneric then
-                                            provider.GenericFieldSignature(EqArray.toList td.TypeParams, fty)
-                                        else
-                                            provider.FieldSignature fty
+                                    let sigBlob = provider.FieldSignature fty
 
                                     let h = ctx.AddField(FieldAttributes.Public, sprintf "%s_%d" c.Name fi, sigBlob)
 
@@ -152,15 +149,10 @@ module internal NominalEmit =
 
                     let paramTys = [ for (_, t) in c.Fields -> t ]
 
+                    // A mono union's `typarMarkers` is empty, so the self return type is
+                    // `TyUnion(td.Key, [])` — one path covers both.
                     let factorySig =
-                        if isGeneric then
-                            provider.GenericStaticMethodSignature(
-                                EqArray.toList td.TypeParams,
-                                paramTys,
-                                TyUnion(td.Key, EqArray.ofList typarMarkers)
-                            )
-                        else
-                            provider.StaticMethodSignature(paramTys, TyUnion(td.Key, EqArray.empty))
+                        provider.StaticMethodSignature(paramTys, TyUnion(td.Key, EqArray.ofList typarMarkers))
 
                     let factory =
                         ctx.AddMethodWithParamList(
@@ -197,11 +189,7 @@ module internal NominalEmit =
                 let fieldHandles =
                     fields
                     |> List.map (fun f ->
-                        let sigBlob =
-                            if isGeneric then
-                                provider.GenericFieldSignature(EqArray.toList td.TypeParams, f.Type)
-                            else
-                                provider.FieldSignature f.Type
+                        let sigBlob = provider.FieldSignature f.Type
 
                         let h = ctx.AddField(FieldAttributes.Public, f.Name, sigBlob)
                         asm.FieldCount <- asm.FieldCount + 1
@@ -233,11 +221,7 @@ module internal NominalEmit =
                         bodyStream
                         (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs))
 
-                let ctorSig =
-                    if isGeneric then
-                        provider.GenericRecordCtorSignature(EqArray.toList td.TypeParams, [ for f in fields -> f.Type ])
-                    else
-                        provider.ClosureCtorSignature [ for f in fields -> f.Type ]
+                let ctorSig = provider.RecordCtorSignature [ for f in fields -> f.Type ]
 
                 let recordCtor =
                     ctx.AddMethodWithParamList(
@@ -281,23 +265,15 @@ module internal NominalEmit =
                 | ValueSome(TyClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
                     baseTypeHandle <- provider.UserTypeHandle baseKey
                 | ValueSome bt ->
-                    if isGeneric then
-                        provider.SetTypeTypars(EqArray.toList td.TypeParams)
-
+                    // A generic parent's open args ride `TempTypar(Declaring, i)` nodes
+                    // (Freeze remaps `info.BaseType`), encoded `!i` directly — no window.
                     baseTypeHandle <- icodegen.TypeToken bt
-
-                    if isGeneric then
-                        provider.ClearTypeTypars()
                 | ValueNone -> ()
 
                 let fieldHandles =
                     ctorParams
                     |> List.map (fun p ->
-                        let sigBlob =
-                            if isGeneric then
-                                provider.GenericFieldSignature(EqArray.toList td.TypeParams, p.Type)
-                            else
-                                provider.FieldSignature p.Type
+                        let sigBlob = provider.FieldSignature p.Type
 
                         let h = ctx.AddField(FieldAttributes.Public, p.Name, sigBlob)
                         asm.FieldCount <- asm.FieldCount + 1
@@ -365,20 +341,11 @@ module internal NominalEmit =
                             match classes.TryGetValue baseKey with
                             | true, bc when List.isEmpty bc.Typars -> bc.Ctor
                             | true, _ ->
-                                if isGeneric then
-                                    provider.SetTypeTypars(EqArray.toList td.TypeParams)
-
-                                let h =
-                                    icodegen.UserGenericMemberRef(
-                                        baseKey,
-                                        baseArgs,
-                                        UserMemberKind.ClassMember ClassMember.Ctor
-                                    )
-
-                                if isGeneric then
-                                    provider.ClearTypeTypars()
-
-                                h
+                                icodegen.UserGenericMemberRef(
+                                    baseKey,
+                                    baseArgs,
+                                    UserMemberKind.ClassMember ClassMember.Ctor
+                                )
                             | false, _ ->
                                 failwithf
                                     "Emit: base class '%A' of '%s' is not an emitted project-local class"
@@ -396,14 +363,7 @@ module internal NominalEmit =
                 let ctorBodyOffset =
                     Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower ctorBody)
 
-                let ctorSig =
-                    if isGeneric then
-                        provider.GenericRecordCtorSignature(
-                            EqArray.toList td.TypeParams,
-                            [ for p in ctorParams -> p.Type ]
-                        )
-                    else
-                        provider.ClosureCtorSignature [ for p in ctorParams -> p.Type ]
+                let ctorSig = provider.RecordCtorSignature [ for p in ctorParams -> p.Type ]
 
                 let classCtor =
                     ctx.AddMethodWithParamList(
@@ -477,11 +437,7 @@ module internal NominalEmit =
                             for sc in secondaryCtors do
                                 let paramTys = [ for (_, t) in sc.Params -> t ]
 
-                                let scSig =
-                                    if isGeneric then
-                                        provider.GenericRecordCtorSignature(EqArray.toList td.TypeParams, paramTys)
-                                    else
-                                        provider.ClosureCtorSignature paramTys
+                                let scSig = provider.RecordCtorSignature paramTys
 
                                 let prep (e: TExpr) =
                                     e |> Emit.spliceExternalInlinesInExpr externalInlines |> Emit.expandBuiltinOps
@@ -569,12 +525,12 @@ module internal NominalEmit =
         // the runtime maps the method to the implemented interface; the class's
         // own members keep their natural static/instance attrs.
         let emitMember (isIfaceImpl: bool) (mem: TTypeMember) =
-            // A *generic* member (B-12) carries its own typars as union-find roots.
-            // Install them as the ambient `!!i` context for the duration of this
-            // member's body / locals / signature encoding, so a `TyVar` leaf naming
-            // one of them encodes to `GenericMethodParameter`; the declaring type's
-            // typars stay `TyConst` markers that the signature's local typar map
-            // resolves to `GenericTypeParameter`. Cleared after the row is added.
+            // A *generic* member (B-12) carries its own method typars as live `TyVar`
+            // roots (Freeze remaps only the declaring axis to `TempTypar`). Install them
+            // as the ambient `!!i` window for the duration of this member's body /
+            // locals / signature encoding so a `TyVar` leaf naming one encodes to
+            // `GenericMethodParameter`; the declaring type's typars ride their own
+            // `TempTypar(Declaring, i)` nodes. Cleared after the row is added.
             let methodTypars = mem.MethodTypeParams
             let isGenericMethod = not methodTypars.IsEmpty
 
@@ -599,23 +555,18 @@ module internal NominalEmit =
             let methodName = memberMetaName mem
             let paramTys = [ for (_, t) in mem.Params -> t ]
 
+            // The declaring type's typars (if any) ride `TempTypar(Declaring, i)` nodes
+            // the encoder resolves to `!i` directly, so a generic and a monomorphic
+            // type share one signature builder. A generic *method* (B-12) additionally
+            // needs the `GENERIC` calling-convention header count + its own `TyVar`
+            // method typars resolved via the ambient `SetMethodTypars` window.
             let signature =
                 if isGenericMethod then
-                    provider.GenericMethodOnTypeSignature(
-                        EqArray.toList td.TypeParams,
-                        methodTypars.Length,
-                        paramTys,
-                        mem.ReturnTy,
-                        not mem.IsStatic
-                    )
+                    provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
+                elif mem.IsStatic then
+                    provider.StaticMethodSignature(paramTys, mem.ReturnTy)
                 else
-                    match isGeneric, mem.IsStatic with
-                    | true, true ->
-                        provider.GenericStaticMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
-                    | true, false ->
-                        provider.GenericInstanceMethodSignature(EqArray.toList td.TypeParams, paramTys, mem.ReturnTy)
-                    | false, true -> provider.StaticMethodSignature(paramTys, mem.ReturnTy)
-                    | false, false -> provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
+                    provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
 
             let attrs =
                 if isIfaceImpl then ifaceEqualsAttrs
@@ -651,8 +602,6 @@ module internal NominalEmit =
         let emitsEqualityTriple = td.EqualitySupport = EqualityVerdict.Structural
 
         if emitsEqualityTriple then
-            provider.SetTypeTypars(EqArray.toList td.TypeParams)
-
             match input with
             | NominalEmissionInput.Union cases ->
                 let emitted = unions.[td.Key]
@@ -827,13 +776,9 @@ module internal NominalEmit =
 
             | NominalEmissionInput.Class _ -> ()
 
-            provider.ClearTypeTypars()
-
         let emitsComparisonPair = td.ComparisonSupport = ComparisonVerdict.Structural
 
         if emitsComparisonPair then
-            provider.SetTypeTypars(EqArray.toList td.TypeParams)
-
             match input with
             | NominalEmissionInput.Union cases ->
                 let emitted = unions.[td.Key]
@@ -980,38 +925,33 @@ module internal NominalEmit =
 
             | NominalEmissionInput.Class _ -> ()
 
-            provider.ClearTypeTypars()
-
         let selfTy =
             match input with
             | NominalEmissionInput.Union _ -> fun (ts: SemType list) -> TyUnion(td.Key, EqArray.ofList ts)
             | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Key, EqArray.ofList ts)
             | NominalEmissionInput.Class _ -> fun (ts: SemType list) -> TyClass(td.Key, EqArray.ofList ts)
 
-        // One `InterfaceImpl` entity handle per implemented interface. The
+        // One `InterfaceImpl` entity handle per implemented interface — the
         // synthesised structural-equality / comparison interfaces (unions /
         // records) and the user-declared `interface … with` impls (B-2, §5.3,
-        // classes) share the one ambient `SetTypeTypars` window: a generic
-        // interface arg (`IEnumerable<'T>`) encodes its `'T` against this type's
-        // generic parameters. `TypeSpecOf` mints the user interfaces' handles.
+        // classes). A generic interface arg (`IEnumerable<'T>`) carries its `'T`
+        // as a `TempTypar(Declaring, i)` (emitted by Freeze; `selfMarkers` for the
+        // synthesised interfaces), encoded `!i` straight off the node — no ambient
+        // window. `TypeSpecOf` mints the user interfaces' handles.
         let interfaces =
             if emitsEqualityTriple || emitsComparisonPair || not (List.isEmpty classInterfaces) then
-                provider.SetTypeTypars(EqArray.toList td.TypeParams)
-                let selfMarkers = [ for t in td.TypeParams -> TyConst(t, EqArray.empty) ]
+                let selfMarkers =
+                    [ for i in 0 .. td.TypeParams.Length - 1 -> TempTypar(TyparAxis.Declaring, i) ]
 
-                let acc =
-                    [
-                        if emitsEqualityTriple then
-                            provider.EquatableInterfaceSpec(selfTy selfMarkers)
-                        if emitsComparisonPair then
-                            provider.ComparableInterfaceSpec(selfTy selfMarkers)
-                            provider.IComparableType
-                        for (ifaceTy, _) in classInterfaces do
-                            provider.InterfaceHandleOf ifaceTy
-                    ]
-
-                provider.ClearTypeTypars()
-                acc
+                [
+                    if emitsEqualityTriple then
+                        provider.EquatableInterfaceSpec(selfTy selfMarkers)
+                    if emitsComparisonPair then
+                        provider.ComparableInterfaceSpec(selfTy selfMarkers)
+                        provider.IComparableType
+                    for (ifaceTy, _) in classInterfaces do
+                        provider.InterfaceHandleOf ifaceTy
+                ]
             else
                 []
 

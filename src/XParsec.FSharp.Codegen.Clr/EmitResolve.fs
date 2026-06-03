@@ -135,7 +135,7 @@ module EmitResolve =
                         env
                         c.Typars
                         key
-                        [ for t in c.Typars -> TyConst(t, EqArray.empty) ]
+                        [ for i in 0 .. List.length c.Typars - 1 -> TempTypar(TyparAxis.Declaring, i) ]
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy)))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name

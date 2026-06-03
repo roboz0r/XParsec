@@ -416,24 +416,13 @@ type internal ClrEnv
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
 
-    // ---- Ambient generic-typar context ----
-    //
-    // Three disjoint sets drive how a free/marker typar leaf is encoded:
-    //   methodTyparRoots  → generic *method* typar `!!i` (by union-find root; R3)
-    //   typeTyparIx       → generic *type* typar `!0` (by TyConst marker name; S4)
-    //   closureTyparRoots → generic *closure* typar `!i` (by union-find root; C2)
-    // Invariant: at most one is installed (non-empty) during any single signature encoding — the
-    // leaves are disjoint by construction, so the OR-chain in `ambientTyparLeaf` is safe.
+    // The one surviving ambient typar *window*: a *concrete* generic member (B-12,
+    // `member this.Map<'C> …`) still carries its method-owned typars as live `TyVar`s
+    // (Freeze's `remapMemberTypes` remaps only the declaring axis), so they are
+    // resolved to `!!i` by union-find root while that member is emitted. The
+    // declaring/closure name-map windows are retired (frozen-type-plan 2D) — those
+    // typars are now self-describing `TempTypar` nodes the encoder resolves by index.
     let mutable methodTyparRoots: TypeVar list = []
-    let mutable typeTyparIx: Map<string, int> = Map.empty
-    let mutable closureTyparRoots: TypeVar list = []
-
-    // frozen-type-plan: while encoding a closure's own members (Invoke / .ctor /
-    // capture fields / its TypeSpec from inside its body), the enclosing method's
-    // `TempTypar(Method, i)` are the closure *class*'s generic parameters, so they
-    // encode as `GenericTypeParameter i` rather than `GenericMethodTypeParameter i`.
-    // Replaces the `closureTyparRoots` window for the `TempTypar` representation.
-    let mutable closureTyparMode = false
 
     let methodTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
         match methodTyparRoots with
@@ -450,36 +439,11 @@ type internal ClrEnv
                 | None -> false
             | _ -> false
 
-    let typeTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-        if Map.isEmpty typeTyparIx then
-            false
-        else
-            match zt with
-            | TyConst(name, _) ->
-                match Map.tryFind name typeTyparIx with
-                | Some i ->
-                    te.GenericTypeParameter i
-                    true
-                | None -> false
-            | _ -> false
-
-    let closureTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-        match closureTyparRoots with
-        | [] -> false
-        | roots ->
-            match zt with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match roots |> List.tryFindIndex (fun r -> System.Object.ReferenceEquals(r, root)) with
-                | Some i ->
-                    te.GenericTypeParameter i
-                    true
-                | None -> false
-            | _ -> false
-
-    let ambientTyparLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-        methodTyparLeaf te zt || typeTyparLeaf te zt || closureTyparLeaf te zt
+    // frozen-type-plan: while encoding a closure's own members (Invoke / .ctor /
+    // capture fields / its TypeSpec from inside its body), the enclosing method's
+    // `TempTypar(Method, i)` are the closure *class*'s generic parameters, so they
+    // encode as `GenericTypeParameter i` rather than `GenericMethodTypeParameter i`.
+    let mutable closureTyparMode = false
 
     let arityOfMetaName (name: string) : int =
         match name.LastIndexOf '`' with
@@ -495,9 +459,6 @@ type internal ClrEnv
             let ps, r = decurryTy b
             a :: ps, r
         | other -> [], other
-
-    let typarIx (typars: string list) : Map<string, int> =
-        typars |> List.mapi (fun i n -> n, i) |> Map.ofList
 
     member _.Ctx = ctx
     member _.Reprs = reprs
@@ -557,27 +518,15 @@ type internal ClrEnv
         with get () = methodTyparRoots
         and set v = methodTyparRoots <- v
 
-    member _.TypeTyparIx
-        with get () = typeTyparIx
-        and set v = typeTyparIx <- v
-
-    member _.ClosureTyparRoots
-        with get () = closureTyparRoots
-        and set v = closureTyparRoots <- v
+    member _.MethodTyparLeaf = methodTyparLeaf
 
     member _.ClosureTyparMode
         with get () = closureTyparMode
         and set v = closureTyparMode <- v
 
-    member _.MethodTyparLeaf = methodTyparLeaf
-    member _.TypeTyparLeaf = typeTyparLeaf
-    member _.ClosureTyparLeaf = closureTyparLeaf
-    member _.AmbientTyparLeaf = ambientTyparLeaf
-
     member _.Zonk t = zonk t
     member _.ArityOfMetaName name = arityOfMetaName name
     member _.DecurryTy t = decurryTy t
-    member _.TyparIx typars = typarIx typars
 
     member _.ExternalAsmRef asm = externalAsmRef asm
     member _.ExternalClassRef fullName = externalClassRef fullName

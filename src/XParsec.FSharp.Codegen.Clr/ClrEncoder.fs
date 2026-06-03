@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// The signature-type encoder over a `ClrEnv`: turns a `SemType` into a metadata signature, mapping
 /// function arrows to `Vesper.Fun`2`, lists to `FSharpList`1` / `Vesper.Collections.List`1`, user
 /// types to their predicted `TypeDefinition`, and external types through the symbol provider. Also
-/// hosts the blob/signature builders that are pure `encodeType` / `encodeUnionType` wrappers.
+/// hosts the blob/signature builders that are pure `encodeType` wrappers.
 type internal ClrEncoder(env: ClrEnv) =
     let ctx = env.Ctx
     let reprs = env.Reprs
@@ -19,9 +19,12 @@ type internal ClrEncoder(env: ClrEnv) =
     let externalIsValueType n = env.ExternalIsValueType n
     let externalRecordRef (n, a) = env.ExternalRecordRef(n, a)
     let externalUnionRef (n, a) = env.ExternalUnionRef(n, a)
-    let ambientTyparLeaf = env.AmbientTyparLeaf
+    // Open typars are self-describing `TempTypar` nodes the structural match resolves
+    // directly (frozen-type-plan keystone). The one exception is a *concrete* generic
+    // member (B-12) whose method-owned typars are still live `TyVar`s — the leaf hook
+    // resolves those to `!!i` via the ambient `methodTyparRoots` window (empty, hence
+    // a no-op, outside a generic-member emission).
     let methodTyparLeaf = env.MethodTyparLeaf
-    let typarIx typars = env.TyparIx typars
 
     let eUnit = env.EUnit
     let eValueTuple = env.EValueTuple
@@ -234,7 +237,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// Encode for the executable path. The only leaf hook is the ambient generic-method-typar resolver
     /// (`!!i`), empty except while a generic static method is being emitted.
-    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore ambientTyparLeaf te t
+    and encodeType (te: SignatureTypeEncoder) (t: SemType) : unit = encodeTypeCore methodTyparLeaf te t
 
     /// Encode mapping each function arrow to FSharp.Core's `FSharpFunc`2` (curried, nested), not
     /// `Vesper.Fun` — for the FSharp.Core interop islands R1 leaves on the old representation (the cold
@@ -256,80 +259,12 @@ type internal ClrEncoder(env: ClrEnv) =
             te.Type(eUnit.Value, false)
         | other -> encodeType te other
 
-    /// Encode a `SemType` written in the declaring type's *open* typars: a marker `TypeVar` (one of
-    /// `markerRoots`) maps to its `GenericTypeParameter` index; every other leaf delegates to the
-    /// structural encoder.
-    let encodeOpen (markerRoots: TypeVar list) (te: SignatureTypeEncoder) (t: SemType) : unit =
-        let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-            match zt with
-            | TyVar tv ->
-                let r = UnionFind.find tv
-
-                match markerRoots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
-                | Some i ->
-                    te.GenericTypeParameter i
-                    true
-                | None -> false
-            | _ -> false
-
-        encodeTypeCore tryLeaf te t
-
-    /// Recover the declaring type's instantiation by structurally matching the member's *open*
-    /// signature (carrying the marker `TypeVar`s) against its *instantiated* type at the use site.
-    /// First occurrence wins; an unmatched marker is a bug.
-    let recoverTypeArgs (markerRoots: TypeVar list) (openT: SemType) (instT: SemType) : SemType list =
-        let result = Array.create (List.length markerRoots) ValueNone
-
-        let rec go (d: SemType) (a: SemType) =
-            match zonk d, zonk a with
-            | TyVar tv, act ->
-                let r = UnionFind.find tv
-
-                match markerRoots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
-                | Some i ->
-                    if result.[i].IsNone then
-                        result.[i] <- ValueSome act
-                | None -> ()
-            | TyFun(a1, r1), TyFun(a2, r2) ->
-                go a1 a2
-                go r1 r2
-            | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            // A generic intrinsic carries its args structurally — notably the array
-            // `[]<!0>` (`List`1::ToArray() : T[]`): recurse so the element marker is
-            // recovered, same as the nominal arms above.
-            | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | _ -> ()
-
-        go openT instT
-
-        [
-            for i in 0 .. result.Length - 1 ->
-                match result.[i] with
-                | ValueSome t -> t
-                | ValueNone ->
-                    failwithf "ClrProvider: could not recover external type argument %d (open %A vs %A)" i openT instT
-        ]
-
     /// Recover both open-typar axes by structurally matching a member's *open*
     /// signature — carrying self-describing `TempTypar(axis, i)` nodes (frozen-type-
     /// plan 2C) — against its *instantiated* use-site type. Returns `(declaringArgs,
     /// methodArgs)`, each index-keyed by the `TempTypar`'s own index (no reference
     /// identity, no marker `TypeVar`). First occurrence wins; an unrecovered slot is
-    /// a bug. Supersedes the marker-`TypeVar` `recoverTypeArgs` for the external
-    /// member-ref path.
+    /// a bug.
     let recoverOpenTypars
         (declArity: int)
         (methodArity: int)
@@ -402,21 +337,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
             toEntity (ctx.TypeSpec tsB)
 
-    /// Encode a `SemType` declared *within* a generic union/record/class (a field type, a factory
-    /// parameter/return): its own typar markers (`TyConst "'T"`) resolve to `GenericTypeParameter`
-    /// indices, everything else delegates to `encodeType`.
-    let encodeUnionType (typeIx: Map<string, int>) (te: SignatureTypeEncoder) (t: SemType) : unit =
-        let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-            match zt with
-            | TyConst(name, _) when typeIx.ContainsKey name ->
-                te.GenericTypeParameter(typeIx.[name])
-                true
-            // A `List<!!i>` member-ref instantiation arg inside a generic static method body resolves
-            // the method's typar `TypeVar`s to `!!i` (R3); empty otherwise.
-            | _ -> methodTyparLeaf te zt
-
-        encodeTypeCore tryLeaf te t
-
     let encodeLocalSignature (locals: SemType list) : StandaloneSignatureHandle =
         let blob = BlobBuilder()
         let enc = BlobEncoder(blob).LocalVariableSignature(List.length locals)
@@ -427,11 +347,8 @@ type internal ClrEncoder(env: ClrEnv) =
         ctx.AddStandaloneSignature blob
 
     member _.EncodeListOf(te, inner) = encodeListOf te inner
-    member _.EncodeTypeCore(tryLeaf, te, t) = encodeTypeCore tryLeaf te t
     member _.EncodeType(te, t) = encodeType te t
     member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te t
-    member _.EncodeOpen(markerRoots, te, t) = encodeOpen markerRoots te t
-    member _.RecoverTypeArgs(markerRoots, openT, instT) = recoverTypeArgs markerRoots openT instT
 
     member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
         recoverOpenTypars declArity methodArity openT instT
@@ -448,34 +365,12 @@ type internal ClrEncoder(env: ClrEnv) =
         encodeType te (zonk ty)
         toEntity (ctx.TypeSpec tsB)
 
-    member _.EncodeUnionType(typeIx, te, t) = encodeUnionType typeIx te t
     member _.EncodeLocalSignature locals = encodeLocalSignature locals
 
-    /// `<field-type>` field signature for a generic union case field, in the type's own typars.
-    member _.GenericFieldSignature(typars: string list, declTy: SemType) : BlobBuilder =
-        let blob = BlobBuilder()
-        encodeUnionType (typarIx typars) (BlobEncoder(blob).FieldSignature()) declTy
-        blob
-
-    member _.GenericStaticMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
-        let typeIx = typarIx typars
-        let s = BlobBuilder()
-
-        BlobEncoder(s)
-            .MethodSignature(isInstanceMethod = false)
-            .Parameters(
-                List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
-                (fun (pars: ParametersEncoder) ->
-                    for p in paramTys do
-                        encodeUnionType typeIx (pars.AddParameter().Type()) p
-                )
-            )
-
-        s
-
-    member _.GenericRecordCtorSignature(typars: string list, paramTys: SemType list) : BlobBuilder =
-        let typeIx = typarIx typars
+    /// `instance void .ctor(fields…)` for a record / generic-type ctor. Field types
+    /// carry their declaring typars as `TempTypar(Declaring, i)` nodes the encoder
+    /// resolves to `!i` directly — no marker map.
+    member _.RecordCtorSignature(paramTys: SemType list) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
@@ -485,64 +380,35 @@ type internal ClrEncoder(env: ClrEnv) =
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeUnionType typeIx (pars.AddParameter().Type()) p
+                        encodeType (pars.AddParameter().Type()) p
                 )
             )
 
         s
 
-    member _.GenericInstanceMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
-        let typeIx = typarIx typars
-        let s = BlobBuilder()
-
-        BlobEncoder(s)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(
-                List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
-                (fun (pars: ParametersEncoder) ->
-                    for p in paramTys do
-                        encodeUnionType typeIx (pars.AddParameter().Type()) p
-                )
-            )
-
-        s
-
-    /// A *generic method* (B-12: `member this.Map<'C> …`) whose body may also be
-    /// inside a generic type. The declaring type's typars resolve to
-    /// `GenericTypeParameter` (`!i`) via `typeTypars`; the method's own typars are
-    /// `TypeVar` roots that `methodTyparLeaf` resolves to `GenericMethodParameter`
-    /// (`!!i`) — so the caller MUST install them via `SetMethodTypars` first.
-    /// `methodTyparCount` sets the `GENERIC` calling-convention header count.
-    /// `typeTypars` is empty for a generic method on a monomorphic class.
+    /// A *generic method* (B-12: `member this.Map<'C> …`) whose body may also be inside
+    /// a generic type. The declaring type's typars ride `TempTypar(Declaring, i)` nodes
+    /// (`!i`); the method's own typars are still `TyVar` roots that `methodTyparLeaf`
+    /// resolves to `GenericMethodParameter` (`!!i`) — so the caller MUST install them
+    /// via `SetMethodTypars` first. `methodTyparCount` sets the `GENERIC` calling-
+    /// convention header count.
     member _.GenericMethodOnTypeSignature
-        (typeTypars: string list, methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
+        (methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
         : BlobBuilder =
-        let typeIx = typarIx typeTypars
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = isInstanceMethod)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeUnionType typeIx (ret.Type()) retTy),
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeUnionType typeIx (pars.AddParameter().Type()) p
+                        encodeType (pars.AddParameter().Type()) p
                 )
             )
 
         s
-
-    member _.EncodeGenericLocalSignature(typars: string list, locals: SemType list) : StandaloneSignatureHandle =
-        let typeIx = typarIx typars
-        let blob = BlobBuilder()
-        let enc = BlobEncoder(blob).LocalVariableSignature(List.length locals)
-
-        for t in locals do
-            encodeUnionType typeIx (enc.AddVariable().Type()) (zonk t)
-
-        ctx.AddStandaloneSignature blob
 
     member _.NullaryCtorSignature() : BlobBuilder =
         let s = BlobBuilder()
@@ -716,21 +582,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    /// Encode an abstract interface-method signature leaf (the library path, G5). A typar marker
-    /// resolves to a positional generic parameter — the method's own typars (`methodIx`) shadow the
-    /// declaring type's (`typeIx`), so they are tried first — and every other (concrete) leaf delegates
-    /// to `encodeType`. Recurses through structural types, intercepting typars at every depth.
-    member _.EncodeAbstractType
-        (typeIx: Map<string, int>, methodIx: Map<string, int>, te: SignatureTypeEncoder, t: SemType)
-        : unit =
-        let tryLeaf (te: SignatureTypeEncoder) (zt: SemType) : bool =
-            match zt with
-            | TyConst(name, _) when methodIx.ContainsKey name ->
-                te.GenericMethodTypeParameter(methodIx.[name])
-                true
-            | TyConst(name, _) when typeIx.ContainsKey name ->
-                te.GenericTypeParameter(typeIx.[name])
-                true
-            | _ -> false
-
-        encodeTypeCore tryLeaf te t
+    /// Encode an abstract interface-method signature (the library path, G5). The signature's open
+    /// typars are self-describing `TempTypar` nodes — `Declaring` → `!i`, `Method` → `!!j` — that the
+    /// structural `encodeType` match resolves directly.
+    member _.EncodeAbstractType(te: SignatureTypeEncoder, t: SemType) : unit = encodeType te t

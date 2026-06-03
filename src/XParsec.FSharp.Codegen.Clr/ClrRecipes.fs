@@ -15,8 +15,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let decurryTy t = env.DecurryTy t
     let externalAsmRef asm = env.ExternalAsmRef asm
 
-    let recoverTypeArgs markerRoots openT instT =
-        enc.RecoverTypeArgs(markerRoots, openT, instT)
+    let recoverOpenTypars declArity methodArity openT instT =
+        enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
     let encodeType te t = enc.EncodeType(te, t)
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
@@ -309,19 +309,16 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             | TyFun(TyFun(state, TyFun(t, _)), _) -> t, state
             | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
 
-        // The generic `fold` signature is encoded with two fresh ambient typars (`'State` ⇒ `!!0`,
-        // `'T` ⇒ `!!1`): `encodeType` maps them — and the `Fun` / `List` instances over them — through
-        // `methodTyparLeaf`, exactly as the producer side emits the method's own signature.
-        let stateTv = TypeVar()
-        let tTv = TypeVar()
-        let sT = TyVar stateTv
-        let eT = TyVar tTv
+        // The generic `fold` signature is encoded with two method typars carried as self-describing
+        // `TempTypar(Method, i)` nodes (`'State` ⇒ `!!0`, `'T` ⇒ `!!1`): the keystone `encodeType` arm
+        // maps them — and the `Fun` / `List` instances over them — to `!!i` straight off the node,
+        // exactly as the producer side emits the method's own signature. No ambient typar window.
+        let sT = TempTypar(TyparAxis.Method, 0)
+        let eT = TempTypar(TyparAxis.Method, 1)
         let folderT = TyFun(sT, TyFun(eT, sT))
         let listT = TyUnion(RuntimeNames.vesperListKey, EqArray.singleton eT)
 
         let foldSig =
-            let saved = env.MethodTyparRoots
-            env.MethodTyparRoots <- [ UnionFind.find stateTv; UnionFind.find tTv ]
             let s = BlobBuilder()
 
             BlobEncoder(s)
@@ -336,7 +333,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     )
                 )
 
-            env.MethodTyparRoots <- saved
             s
 
         let foldRef = ctx.MemberRef(eListModule.Value, "fold", foldSig)
@@ -416,12 +412,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     ///
     /// The open method signature is reconstructed from the symbol provider's `Instantiate` (route (b) in
     /// the plan): a fresh monotype whose free `TypeVar`s are the method's own typars. Their roots — in
-    /// first-appearance order over (params, return) — are installed as the ambient method-typar set so
-    /// `encodeType` maps them to `!!i`, matching the producer's emitted signature; the use-site type
-    /// arguments are then recovered by structurally matching that open type against `fnTy`
-    /// (`recoverTypeArgs`, as `emitFold` does). A monomorphic method needs no `MethodSpec`. `ValueNone`
-    /// ⇒ the symbol is unknown to the provider, or carries no home assembly (a project-local symbol the
-    /// provider never sees), in which case the caller falls back to its hard error.
+    /// first-appearance order over (params, return) — are rewritten to self-describing
+    /// `TempTypar(Method, i)` nodes so the keystone `encodeType` arm maps them to `!!i`, matching the
+    /// producer's emitted signature; the use-site type arguments are then recovered by structurally
+    /// matching that open type against `fnTy` (`recoverOpenTypars`, method axis). A monomorphic method
+    /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home
+    /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
+    /// its hard error.
     let emitExternalCall (declFullName: string) (name: string) (fnTy: SemType) : CallRecipe voption =
         let compiledFullName =
             if declFullName = "" then
@@ -442,44 +439,63 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 let monoSig = sym.Instantiate 0
                 let paramTys, retTy = decurryTy monoSig
                 let markerRoots = signatureTypars paramTys retTy
+                let methodArity = List.length markerRoots
+
+                // Rewrite each method-typar `TypeVar` root to its positional `TempTypar(Method, i)` (the
+                // `signatureTypars` first-appearance order IS the producer's `!!i` order), so the open
+                // signature encodes `!!i` straight off the node — no ambient window.
+                let rec toOpen (t: SemType) : SemType =
+                    match zonk t with
+                    | TyVar tv ->
+                        let r = UnionFind.find tv
+
+                        match markerRoots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                        | Some i -> TempTypar(TyparAxis.Method, i)
+                        | None -> TyVar tv
+                    | TyFun(a, b) -> TyFun(toOpen a, toOpen b)
+                    | TyTuple xs -> TyTuple(EqArray.map toOpen xs)
+                    | TyConst(n, xs) -> TyConst(n, EqArray.map toOpen xs)
+                    | TyRecord(n, xs) -> TyRecord(n, EqArray.map toOpen xs)
+                    | TyUnion(n, xs) -> TyUnion(n, EqArray.map toOpen xs)
+                    | TyClass(n, xs) -> TyClass(n, EqArray.map toOpen xs)
+                    | (TyUnknown _ | TempTypar _) as other -> other
+
+                let openParamTys = List.map toOpen paramTys
+                let openRetTy = toOpen retTy
 
                 // The open method-ref signature: parameters + return encoded with the method typars as
-                // `!!i` (the ambient `MethodTyparRoots` window, as the producer's static-method emit uses).
+                // `!!i`, as the producer's static-method emit uses.
                 let msig =
-                    let saved = env.MethodTyparRoots
-                    env.MethodTyparRoots <- markerRoots
                     let s = BlobBuilder()
 
                     BlobEncoder(s)
-                        .MethodSignature(genericParameterCount = List.length markerRoots, isInstanceMethod = false)
+                        .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
                         .Parameters(
-                            List.length paramTys,
-                            (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                            List.length openParamTys,
+                            (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) openRetTy),
                             (fun (pars: ParametersEncoder) ->
-                                for p in paramTys do
+                                for p in openParamTys do
                                     encodeType (pars.AddParameter().Type()) p
                             )
                         )
 
-                    env.MethodTyparRoots <- saved
                     s
 
                 let parent = externalModuleRef sym.Origin.Assembly sym.Origin.Namespace declFullName
                 let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
 
                 let callHandle =
-                    if List.isEmpty markerRoots then
+                    if methodArity = 0 then
                         memberRef
                     else
-                        // Use-site instantiation: match the open monotype (its `TypeVar`s are the markers)
-                        // against the call's concrete type, in the markers' own order.
-                        let instArgs = recoverTypeArgs markerRoots monoSig (zonk fnTy)
+                        // Use-site instantiation: match the open monotype (its `TempTypar(Method, i)`)
+                        // against the call's concrete type, recovering each method arg by its index.
+                        let openSig = toOpen monoSig
+                        let _, methodArgs = recoverOpenTypars 0 methodArity openSig (zonk fnTy)
                         let inst = BlobBuilder()
+                        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(methodArity)
 
-                        let specEnc =
-                            BlobEncoder(inst).MethodSpecificationSignature(List.length markerRoots)
-
-                        for a in instArgs do
+                        for a in methodArgs do
                             encodeType (specEnc.AddArgument()) (zonk a)
 
                         toEntity (ctx.MethodSpec(memberRef, inst))

@@ -440,7 +440,7 @@ type internal Assembler
                     ctx.AddMethodWithParamList(
                         abstractMethodAttrs,
                         m.Name,
-                        abstractMethodSignature provider td.TypeParams m,
+                        abstractMethodSignature provider m,
                         -1,
                         addParams (argNames (List.length paramTys))
                     )

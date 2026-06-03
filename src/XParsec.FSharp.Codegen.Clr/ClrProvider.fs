@@ -54,44 +54,24 @@ type ClrProvider
     member _.RegisterGenericClass(key: SymbolKey, typars: string list, fields: (string * SemType) list) : unit =
         env.GenericClasses.[key] <- (typars, fields)
 
-    member _.GenericFieldSignature(typars: string list, declTy: SemType) : BlobBuilder =
-        enc.GenericFieldSignature(typars, declTy)
-
-    member _.GenericStaticMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
-        enc.GenericStaticMethodSignature(typars, paramTys, retTy)
-
-    member _.GenericRecordCtorSignature(typars: string list, paramTys: SemType list) : BlobBuilder =
-        enc.GenericRecordCtorSignature(typars, paramTys)
-
-    member _.GenericInstanceMethodSignature(typars: string list, paramTys: SemType list, retTy: SemType) : BlobBuilder =
-        enc.GenericInstanceMethodSignature(typars, paramTys, retTy)
+    member _.RecordCtorSignature(paramTys: SemType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
 
     member _.GenericMethodOnTypeSignature
-        (typeTypars: string list, methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
+        (methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
         : BlobBuilder =
-        enc.GenericMethodOnTypeSignature(typeTypars, methodTyparCount, paramTys, retTy, isInstanceMethod)
-
-    member _.EncodeGenericLocalSignature(typars: string list, locals: SemType list) : StandaloneSignatureHandle =
-        enc.EncodeGenericLocalSignature(typars, locals)
+        enc.GenericMethodOnTypeSignature(methodTyparCount, paramTys, retTy, isInstanceMethod)
 
     member _.NullaryCtorSignature() : BlobBuilder = enc.NullaryCtorSignature()
 
     member _.CctorSignature() : BlobBuilder = enc.CctorSignature()
 
-    /// Install the ambient generic-method-typar set (by union-find root) for the generic static method
-    /// about to be emitted, so `encodeType` maps those `TypeVar`s to `!!i`.
+    /// Install the ambient method-typar set (by union-find root) for a *concrete* generic member
+    /// (B-12) about to be emitted, so `encodeType` maps that member's own `TyVar` method typars to
+    /// `!!i`. (Declaring-type typars need no window — they ride `TempTypar(Declaring, i)` nodes.)
     member _.SetMethodTypars(typars: TypeVar list) : unit =
         env.MethodTyparRoots <- typars |> List.map UnionFind.find
 
     member _.ClearMethodTypars() : unit = env.MethodTyparRoots <- []
-
-    /// Install the ambient *type*-typar set for a generic union's equality triple, so `encodeType` maps
-    /// a declaring-typar marker (`'T`) to that type's `GenericTypeParameter` (`!0`). The names carry the
-    /// F# leading quote.
-    member _.SetTypeTypars(typars: string list) : unit =
-        env.TypeTyparIx <- typars |> List.mapi (fun i n -> n, i) |> Map.ofList
-
-    member _.ClearTypeTypars() : unit = env.TypeTyparIx <- Map.empty
 
     member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericUnionSelfSpec key
 
@@ -108,10 +88,10 @@ type ClrProvider
 
     member _.FunInterfaceSpec(a: SemType, b: SemType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
-    /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type, honouring the
-    /// ambient `SetTypeTypars` set — so a user class's `interface IEnumerable<'T>`
-    /// (B-2, §5.3) encodes its `'T` arg against the declaring type's generic
-    /// parameters. Drives each class `InterfaceImpl` row's interface handle.
+    /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
+    /// `interface IEnumerable<'T>` (B-2, §5.3) carries its `'T` arg as a
+    /// `TempTypar(Declaring, i)` the encoder resolves to the declaring type's `!i`
+    /// directly. Drives each class `InterfaceImpl` row's interface handle.
     member _.TypeSpecOf(ty: SemType) : EntityHandle = enc.TypeSpecOf ty
 
     /// The `InterfaceImpl.Interface` handle for a user class's implemented
@@ -120,7 +100,7 @@ type ClrProvider
     /// `IComparable`) references its `TypeRef` directly — the runtime rejects a
     /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
     /// structural-equality path uses the bare `IComparable` `TypeRef` for the same
-    /// reason). The generic case rides the ambient `SetTypeTypars` window.
+    /// reason). A generic interface arg encodes off its `TempTypar(Declaring, i)` node.
     member _.InterfaceHandleOf(ty: SemType) : EntityHandle =
         match env.Zonk ty with
         | TyClass(key, args) when args.IsEmpty ->
@@ -161,23 +141,16 @@ type ClrProvider
     member _.GenericClosureMemberRef(name: string, args: SemType list, which: ClosureMember) : EntityHandle =
         generics.GenericClosureMemberRef(name, List.map env.Zonk args, which)
 
-    member _.GenericCaptureFieldSignature(closureTypars: TypeVar list, ty: SemType) : BlobBuilder =
-        generics.GenericCaptureFieldSignature(closureTypars, ty)
-
     /// Enter / exit closure-typar mode around a generic closure's own ctor / Invoke /
     /// field-signature / locals / member-ref emission: the enclosing method's
     /// `TempTypar(Method, i)` (which the closure body embeds) re-project onto the
     /// closure *class*'s `GenericTypeParameter i` rather than `!!i` (frozen-type-plan
-    /// 2B). Invariant: at most one of `SetMethodTypars` / `SetTypeTypars` /
-    /// `EnterClosureTyparScope` is active at a time.
+    /// 2B). This is the only ambient typar mode that survives 2D.
     member _.EnterClosureTyparScope() : unit = env.ClosureTyparMode <- true
 
     member _.ExitClosureTyparScope() : unit = env.ClosureTyparMode <- false
 
-    member _.EncodeAbstractType
-        (typeIx: Map<string, int>, methodIx: Map<string, int>, te: SignatureTypeEncoder, t: SemType)
-        : unit =
-        enc.EncodeAbstractType(typeIx, methodIx, te, t)
+    member _.EncodeAbstractType(te: SignatureTypeEncoder, t: SemType) : unit = enc.EncodeAbstractType(te, t)
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
     member _.HashCodeType: SemType = TyConst("System.HashCode", EqArray.empty)

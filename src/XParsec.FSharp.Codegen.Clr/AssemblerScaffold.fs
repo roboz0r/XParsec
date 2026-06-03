@@ -109,27 +109,11 @@ module internal AssemblerScaffold =
         | TMemberKind.Property -> "get_" + mem.Name
         | TMemberKind.Method -> mem.Name
 
-    /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface
-    /// method, with the declaring type's typars resolved to
-    /// `GenericTypeParameter` indices and the method's own typars to
-    /// `GenericMethodParameter` indices. Concrete leaves are encoded by the
-    /// provider's `EncodeAbstractType` (the same `encodeType` the executable
-    /// path uses).
-    let abstractMethodSignature
-        (provider: ClrProvider)
-        (typeParams: EqArray<string>)
-        (m: TAbstractMethod)
-        : BlobBuilder =
-        let typeIx =
-            let mutable acc = Map.empty
-            typeParams |> EqArray.iteri (fun i n -> acc <- Map.add n i acc)
-            acc
-
-        let methodIx =
-            let mutable acc = Map.empty
-            m.MethodTypeParams |> EqArray.iteri (fun i n -> acc <- Map.add n i acc)
-            acc
-
+    /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method. The
+    /// signature's open typars are self-describing `TempTypar` nodes (Freeze remaps the
+    /// declaring axis to `!i` and the method axis to `!!j`), encoded by the provider's
+    /// `EncodeAbstractType` (the same `encodeType` the executable path uses).
+    let abstractMethodSignature (provider: ClrProvider) (m: TAbstractMethod) : BlobBuilder =
         let paramTys, retTy = decurry m.Signature
         let blob = BlobBuilder()
 
@@ -137,10 +121,10 @@ module internal AssemblerScaffold =
             .MethodSignature(genericParameterCount = m.MethodTypeParams.Length, isInstanceMethod = true)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> provider.EncodeAbstractType(typeIx, methodIx, ret.Type(), retTy)),
+                (fun (ret: ReturnTypeEncoder) -> provider.EncodeAbstractType(ret.Type(), retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        provider.EncodeAbstractType(typeIx, methodIx, pars.AddParameter().Type(), p)
+                        provider.EncodeAbstractType(pars.AddParameter().Type(), p)
                 )
             )
 

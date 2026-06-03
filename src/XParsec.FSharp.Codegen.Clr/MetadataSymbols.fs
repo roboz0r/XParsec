@@ -113,8 +113,8 @@ module private MetadataMapping =
     /// tuple `(a, b)`), NOT a curried `p1 → … → pN → ret` (a concrete .NET method is
     /// a single N-ary method, not curried). A zero-parameter method reads as
     /// `unit → ret`; a one-parameter method as `p → ret` (curried and tupled
-    /// coincide at arity ≤ 1). Modelling N ≥ 2 tupled makes the existing front-end
-    /// `unify`/`recoverTypeArgs` TyTuple arms recover the declaring typar from the
+    /// coincide at arity ≤ 1). Modelling N ≥ 2 tupled makes the front-end `unify` and
+    /// the codegen `recoverOpenTypars` TyTuple arms recover the declaring typar from the
     /// element, not the whole tuple. `None` if any
     /// parameter or the return type doesn't map, or the method has its own generic
     /// parameters (P2 resolves no method-owned typars).
