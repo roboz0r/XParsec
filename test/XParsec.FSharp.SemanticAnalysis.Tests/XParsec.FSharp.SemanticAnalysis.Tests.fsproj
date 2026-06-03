@@ -18,6 +18,7 @@
     <Compile Include="NameResolutionTests.fs" />
     <Compile Include="UnificationTests.fs" />
     <Compile Include="FreezeTests.fs" />
+    <Compile Include="FrozenTypeTests.fs" />
     <Compile Include="ExpansionTests.fs" />
     <Compile Include="CoverageTests.fs" />
     <Compile Include="GeneralisationTests.fs" />

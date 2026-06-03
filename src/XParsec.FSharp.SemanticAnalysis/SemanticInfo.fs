@@ -528,6 +528,45 @@ module MeasureTerm =
         else
             m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.ofList
 
+/// The `SemType` ↔ `FrozenType` bridge (frozen-type-plan §3B-1). `toFrozen` is
+/// the Edge-A sink-side conversion; `ofFrozen` its inverse. On the *post-freeze*
+/// `SemType` subset (`{TyConst, TyFun, TyTuple, TyRecord, TyUnion, TyClass,
+/// TempTypar, TyUnknown}`) the two are mutual inverses — the cases are 1:1 with
+/// `{FTConst, FTFun, FTTuple, FTRecord, FTUnion, FTClass, FTTypar, FTUnknown}`.
+/// `TyVar` is the sole case with no `FrozenType` counterpart (the point of the
+/// split): `toFrozen` rejects it with a hard error mirroring `ClrEncoder`'s
+/// existing `cannot encode SemType: TyVar` crash, so a stray metavar fails here
+/// — one hop out from where the catch-all failed before. AutoOpen so 3B-2's
+/// boundary callers can wrap a `.ty` in `toFrozen` unqualified.
+[<AutoOpen>]
+module FrozenTypeBridge =
+    /// `SemType -> FrozenType`. Total on the post-freeze subset; a hard error on
+    /// `TyVar` (an inference metavar must never reach the frozen boundary).
+    let rec toFrozen (ty: SemType) : FrozenType =
+        match ty with
+        | TyConst(name, args) -> FTConst(name, EqArray.map toFrozen args)
+        | TyFun(arg, result) -> FTFun(toFrozen arg, toFrozen result)
+        | TyTuple items -> FTTuple(EqArray.map toFrozen items)
+        | TyRecord(key, args) -> FTRecord(key, EqArray.map toFrozen args)
+        | TyUnion(key, args) -> FTUnion(key, EqArray.map toFrozen args)
+        | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
+        | TempTypar(axis, index) -> FTTypar(axis, index)
+        | TyUnknown name -> FTUnknown name
+        | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
+
+    /// `FrozenType -> SemType`. Total — every `FrozenType` case has a `SemType`
+    /// counterpart (`FTTypar` lands on the post-freeze-only `TempTypar`).
+    let rec ofFrozen (ft: FrozenType) : SemType =
+        match ft with
+        | FTConst(name, args) -> TyConst(name, EqArray.map ofFrozen args)
+        | FTFun(arg, result) -> TyFun(ofFrozen arg, ofFrozen result)
+        | FTTuple items -> TyTuple(EqArray.map ofFrozen items)
+        | FTRecord(key, args) -> TyRecord(key, EqArray.map ofFrozen args)
+        | FTUnion(key, args) -> TyUnion(key, EqArray.map ofFrozen args)
+        | FTClass(key, args) -> TyClass(key, EqArray.map ofFrozen args)
+        | FTTypar(axis, index) -> TempTypar(axis, index)
+        | FTUnknown name -> TyUnknown name
+
 /// `∀ Quantified . Body`. Built by `Unification.generalise` and stored in
 /// `PassContext.Bindings.Scheme` keyed by the binding's headPat NodeKey. Each
 /// `inferIdent` of a generalised binding instantiates the scheme — mints a
