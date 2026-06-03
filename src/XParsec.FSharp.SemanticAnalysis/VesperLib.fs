@@ -761,6 +761,9 @@ module VesperLib =
                                             IsStatic = isStatic
                                             IsProperty = isProperty
                                             BuildSignature = builder
+                                            // The `.fsi` contract layer doesn't yet publish
+                                            // generic (method-owned-typar) members.
+                                            MethodArity = 0
                                             Origin = SymbolOrigin.Empty
                                             Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
                                         }

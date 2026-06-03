@@ -130,6 +130,17 @@ type ExternalMember =
         IsStatic: bool
         IsProperty: bool
         BuildSignature: SemType[] -> SemType
+        /// The count of the member's *own* generic type parameters — the
+        /// method-owned typar axis (`Take<TSource>` ⇒ 1), distinct from the
+        /// declaring type's typars `BuildSignature` substitutes. `0` for a
+        /// non-generic method, every property, and every constructor. The
+        /// signature `BuildSignature` produces already carries these typars as
+        /// baked `TempTypar(Method, j)` nodes (the method axis is intrinsic to the
+        /// member — there is nothing to pass in, unlike the declaring args); a
+        /// consumer instantiates them to fresh inference vars at a call site, and
+        /// codegen reads `MethodArity` to mint the `MethodSpec`'s generic-parameter
+        /// count (frozen-type-plan Step 2C).
+        MethodArity: int
         Origin: SymbolOrigin
         /// The interned identity: a
         /// `SymbolKey.MemberKey` over the *open* declaring type (its `argSig` in

@@ -61,13 +61,18 @@ module private MetadataMapping =
             | None -> None
         elif t.IsGenericParameter then
             // A declaring-type typar substitutes the instance's i-th argument; a
-            // method-owned generic parameter (`DeclaringMethod` set) has no
-            // enclosing-type slot, so it's unsupported in P2.
+            // method-owned generic parameter (`DeclaringMethod` set) lives on the
+            // *method* axis — baked as `TempTypar(Method, pos)` (frozen-type-plan
+            // 2C). It is not driven by `args` (the declaring substitution): the
+            // method axis is intrinsic to the member, so the position is fixed and
+            // the open node rides straight through. A consumer instantiates it to a
+            // fresh inference var per call site; codegen encodes it as `!!pos`.
+            let pos = t.GenericParameterPosition
+
             if isNull t.DeclaringMethod then
-                let pos = t.GenericParameterPosition
                 Some(fun (args: SemType[]) -> args.[pos])
             else
-                None
+                Some(fun _ -> TempTypar(TyparAxis.Method, pos))
         elif t.IsGenericType then
             // A generic type still *containing* a type parameter (e.g. the open
             // `EqualityComparer<'T>` returned by the `Default` property) has a null
@@ -114,28 +119,37 @@ module private MetadataMapping =
     /// parameter or the return type doesn't map, or the method has its own generic
     /// parameters (P2 resolves no method-owned typars).
     let tryMethodSignature (m: MethodInfo) : (SemType[] -> SemType) option =
-        if m.IsGenericMethodDefinition then
+        // A generic method definition (`Take<TSource>`) is no longer skipped: its
+        // method-owned typars map to `TempTypar(Method, j)` through `tryBuildType`
+        // (frozen-type-plan 2C). The declaring `args` array still drives only the
+        // *declaring* type's typars; the method axis is baked self-describing.
+        let paramBuilders =
+            m.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
+
+        let retBuilder = tryBuildType m.ReturnType
+
+        if retBuilder.IsNone || Array.exists Option.isNone paramBuilders then
             None
         else
-            let paramBuilders =
-                m.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
+            let pbs = paramBuilders |> Array.map Option.get
+            let rb = retBuilder.Value
 
-            let retBuilder = tryBuildType m.ReturnType
+            Some(fun args ->
+                let ret = rb args
 
-            if retBuilder.IsNone || Array.exists Option.isNone paramBuilders then
-                None
-            else
-                let pbs = paramBuilders |> Array.map Option.get
-                let rb = retBuilder.Value
+                match pbs.Length with
+                | 0 -> TyFun(TyConst("unit", EqArray.empty), ret)
+                | 1 -> TyFun(pbs.[0] args, ret)
+                | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
+            )
 
-                Some(fun args ->
-                    let ret = rb args
-
-                    match pbs.Length with
-                    | 0 -> TyFun(TyConst("unit", EqArray.empty), ret)
-                    | 1 -> TyFun(pbs.[0] args, ret)
-                    | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
-                )
+    /// The method's own generic-parameter count — the method axis arity stamped
+    /// onto `ExternalMember.MethodArity`. `0` for a non-generic method.
+    let methodArityOf (m: MethodInfo) : int =
+        if m.IsGenericMethodDefinition then
+            m.GetGenericArguments().Length
+        else
+            0
 
     /// A property reads as a value of its type (no leading arrow) — `Default` is a
     /// `EqualityComparer<'T>`, not a function. `IsProperty` tells the consumer not
@@ -304,6 +318,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                             IsProperty = true
                             BuildSignature = build
+                            MethodArity = 0
                             Origin = origin
                             Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
                         }
@@ -328,6 +343,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         IsStatic = m.IsStatic
                         IsProperty = false
                         BuildSignature = build
+                        MethodArity = MetadataMapping.methodArityOf m
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
                     }
@@ -355,6 +371,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         IsStatic = false
                         IsProperty = false
                         BuildSignature = build
+                        MethodArity = 0
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
                     }
@@ -496,6 +513,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         IsStatic = false
                                         IsProperty = false
                                         BuildSignature = build
+                                        MethodArity = 0
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
                                     }
@@ -518,6 +536,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         IsStatic = m.IsStatic
                                         IsProperty = false
                                         BuildSignature = build
+                                        MethodArity = MetadataMapping.methodArityOf m
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
                                     }
@@ -532,6 +551,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                                         IsProperty = true
                                         BuildSignature = build
+                                        MethodArity = 0
                                         Origin = origin
                                         // A property carries no parameters → empty argSig.
                                         Key =

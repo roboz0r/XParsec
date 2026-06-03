@@ -79,10 +79,10 @@ let tests =
             // `Operators` contract, and the supporting backend gaps closed along the
             // way (value restriction on expansive lets, `while`/local-assignment IL,
             // `'T[]` type translation + SZArray encoding + array-return members). The
-            // lone remaining blocker is `truncate`'s `Enumerable.Take<TSource>(…)` — a
-            // *generic external static method* (method-owned typars), still deferred
-            // in P2. Flip to `test` once that lands.
-            ptest "Vesper.Seq builds BCL-only (only `truncate`'s generic Enumerable.Take`<T>` remains)" {
-                buildsBclOnly "Vesper.Seq"
-            }
+            // The former blocker — `truncate`'s `Enumerable.Take<TSource>(…)`, a
+            // *generic external static method* (method-owned typars) — now resolves:
+            // the method axis is carried as baked `TempTypar(Method, j)` through
+            // `BuildSignature`, instantiated at the call site, and emitted via a
+            // `MethodSpec` (frozen-type-plan 2C).
+            test "Vesper.Seq builds BCL-only" { buildsBclOnly "Vesper.Seq" }
         ]

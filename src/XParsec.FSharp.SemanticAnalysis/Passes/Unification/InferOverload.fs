@@ -12,6 +12,15 @@ module UnificationInferOverload =
 
     let rec semTypeEq (a: SemType) (b: SemType) : bool =
         match zonk a, zonk b with
+        // A generic method's own typar (`Take<TSource>` ⇒ `TempTypar(Method, _)`,
+        // baked into the open signature by `BuildSignature`) is unconstrained — it
+        // matches any argument during applicability filtering, so a generic
+        // external method resolves against concrete call-site types
+        // (frozen-type-plan 2C). The eventual instantiation is recovered by
+        // `tryInferExternalStaticMethodCall` (front end) / `recoverTypeArgs`
+        // (codegen); here it is a wildcard at any structural depth.
+        | TempTypar(TyparAxis.Method, _), _
+        | _, TempTypar(TyparAxis.Method, _) -> true
         | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2

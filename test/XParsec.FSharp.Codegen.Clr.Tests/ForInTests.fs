@@ -161,4 +161,29 @@ let forInTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "done" "empty ResizeArray yields no iterations"
             }
+
+            // frozen-type-plan 2C — a *generic external static method*
+            // (`System.Linq.Enumerable.Take<TSource>(IEnumerable<TSource>, int)`,
+            // the `truncate` blocker). Its method-owned `TSource` is no longer
+            // dropped at extraction: it rides as a baked `TempTypar(Method, 0)`
+            // through `BuildSignature`, the call site instantiates it to a fresh
+            // var (solved to `int` from the `Range` arg), and codegen mints a
+            // `MethodSpec Take<int>`. Iterating the (truncated) result proves the
+            // whole path — including overload selection against the `(…, Range)`
+            // sibling overload — resolves and runs.
+            test "generic Enumerable.Take<TSource> resolves, emits a MethodSpec, and runs" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "for x in System.Linq.Enumerable.Take(System.Linq.Enumerable.Range(1, 5), 3) do"
+                            "    printfn \"%d\" x"
+                        ]
+
+                let _, artifact = compileSource "GenericTake" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "Take(Range(1,5), 3) yields the first three"
+            }
         ]

@@ -21,8 +21,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let encodeType te t = enc.EncodeType(te, t)
     let encodeOpen markerRoots te t = enc.EncodeOpen(markerRoots, te, t)
 
-    let recoverTypeArgs markerRoots openT instT =
-        enc.RecoverTypeArgs(markerRoots, openT, instT)
+    let recoverOpenTypars declArity methodArity openT instT =
+        enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
     let externalTypeSpec tref instArgs = enc.ExternalTypeSpec(tref, instArgs)
     let typeSpecOf ty = enc.TypeSpecOf ty
@@ -32,12 +32,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalMemberCache = Dictionary<string, EntityHandle>()
 
     /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
-    /// `void`-return fix) over already-resolved `markerRoots` + open signature, and mint it on `parent`.
-    /// Shared by `externalMemberRef` (parent recovered by signature match) and `externalMemberRefOn`
-    /// (parent encoded straight from the declaring type) — only the parent derivation differs.
+    /// `void`-return fix) over an open signature carrying self-describing `TempTypar` nodes, and mint
+    /// it on `parent`. The keystone `encodeType` arm resolves each `TempTypar(Declaring, i)` to `!i`
+    /// and `TempTypar(Method, j)` to `!!j` directly off the node (frozen-type-plan 2C) — no marker
+    /// `TypeVar` / ambient window. `methodArity > 0` sets the `GENERIC` calling-convention header count
+    /// for a generic external method (`Enumerable.Take<TSource>`); the caller wraps the result in a
+    /// `MethodSpec`. Shared by `externalMemberRef` (parent recovered by signature match) and
+    /// `externalMemberRefOn` (parent encoded straight from the declaring type).
     let mintMemberRef
         (parent: EntityHandle)
-        (markerRoots: TypeVar list)
+        (methodArity: int)
         (openSig: SemType)
         (isProperty: bool)
         (isStatic: bool)
@@ -52,7 +56,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(isInstanceMethod = not isStatic)
                 .Parameters(
                     0,
-                    (fun (ret: ReturnTypeEncoder) -> encodeOpen markerRoots (ret.Type()) openSig),
+                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) openSig),
                     (fun (_: ParametersEncoder) -> ())
                 )
         else
@@ -69,7 +73,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | ps -> ps
 
             BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = not isStatic)
+                .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
                     // A `System.Void` return maps to `TyConst "unit"`
@@ -82,26 +86,60 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) ->
                         match retTy with
                         | TyConst("unit", _) -> ret.Void()
-                        | _ -> encodeOpen markerRoots (ret.Type()) retTy
+                        | _ -> encodeType (ret.Type()) retTy
                     ),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeOpen markerRoots (pars.AddParameter().Type()) p
+                            encodeType (pars.AddParameter().Type()) p
                     )
                 )
 
         toEntity (ctx.MemberRef(parent, metaName, s))
 
+    /// Wrap an open generic-method member-ref in a `MethodSpec` instantiating it at the recovered
+    /// method-axis args (`Enumerable.Take<int>`). Mirrors `staticFnMethodSpec` but for the external
+    /// member-ref path; a non-generic member (`methodArgs = []`) returns the handle unchanged.
+    let methodSpecOf (handle: EntityHandle) (methodArgs: SemType list) : EntityHandle =
+        match methodArgs with
+        | [] -> handle
+        | _ ->
+            let inst = BlobBuilder()
+            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length methodArgs)
+
+            for t in methodArgs do
+                encodeType (specEnc.AddArgument()) (zonk t)
+
+            toEntity (ctx.MethodSpec(handle, inst))
+
+    /// Look up the resolved external member for `key` — the *exact* overload the front end committed
+    /// (its key, incl. `argSig`, matches), NOT a singular re-pick (which would re-collapse a resolved
+    /// overload to the most-params one and disagree with the node's `memberTy`). The singular
+    /// `TryLookupMember` is the fallback for providers exposing only that surface.
+    let lookupChosen (declFullName: string) (memberName: string) (key: SymbolKey) : ExternalMember =
+        let chosen =
+            match
+                symbols.TryLookupMembers(declFullName, memberName)
+                |> Array.tryFind (fun m -> m.Key = key)
+            with
+            | Some m -> ValueSome m
+            | None -> symbols.TryLookupMember(declFullName, memberName)
+
+        match chosen with
+        | ValueSome m -> m
+        | ValueNone -> failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
+
     /// Mint the `MemberRef` for a `TExpr.ExternalMember` (P4). The member's *open* signature is read
-    /// from the (key-pinned, provider-cached) `TryLookupMember` over fresh marker typars; the use-site
-    /// instantiation is recovered by matching that open form against `memberTy`.
+    /// from the (key-pinned, provider-cached) lookup over `TempTypar(Declaring, i)` markers — and, for a
+    /// generic method, with `TempTypar(Method, j)` baked in by `BuildSignature` (frozen-type-plan 2C).
+    /// Both axes' use-site instantiations are recovered by matching that open form against `memberTy`:
+    /// the declaring args parameterise the parent `TypeSpec`; the method args (if any) the `MethodSpec`.
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: SemType) : EntityHandle =
         let declKey, memberName, argSig =
             match key with
             | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
             | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
-        let asm, ns, name =
+        let _asm, ns, name =
             match declKey with
             | SymbolKey.TypeKey(asm, ns, name) -> asm, ns, name
             | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
@@ -114,30 +152,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | _ ->
             let declFullName = if ns = "" then name else ns + "." + name
 
-            let markers = [ for _ in 1 .. arityOfMetaName name -> TypeVar() ]
-            let markerRoots = markers |> List.map UnionFind.find
-            let markerTys = markers |> List.map TyVar |> List.toArray
+            let declArity = arityOfMetaName name
 
-            // Build the open signature from the *exact* overload the front end committed (its key, incl.
-            // `argSig`, matches `key`) — NOT a singular re-pick, which would re-collapse a resolved
-            // overload back to the most-params one and disagree with the node's `memberTy`.
-            // The singular `TryLookupMember` is the fallback for providers
-            // exposing only that surface.
-            let openSig =
-                let chosen =
-                    match
-                        symbols.TryLookupMembers(declFullName, memberName)
-                        |> Array.tryFind (fun m -> m.Key = key)
-                    with
-                    | Some m -> ValueSome m
-                    | None -> symbols.TryLookupMember(declFullName, memberName)
+            let markerTys =
+                [| for i in 0 .. declArity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
 
-                match chosen with
-                | ValueSome m -> m.BuildSignature markerTys
-                | ValueNone ->
-                    failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
+            let chosen = lookupChosen declFullName memberName key
+            let methodArity = chosen.MethodArity
+            let openSig = chosen.BuildSignature markerTys
 
-            let instArgs = recoverTypeArgs markerRoots openSig instTy
+            let declArgs, methodArgs = recoverOpenTypars declArity methodArity openSig instTy
 
             let tref =
                 match externalClassRef declFullName with
@@ -145,10 +169,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | ValueNone ->
                     failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-            let parent = externalTypeSpec tref (List.map zonk instArgs)
+            let parent = externalTypeSpec tref (List.map zonk declArgs)
 
             let handle =
-                mintMemberRef parent markerRoots openSig isProperty isStatic argSig.Length memberName
+                mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName
+                |> fun h -> methodSpecOf h (List.map zonk methodArgs)
 
             externalMemberCache.[memoKey] <- handle
             handle
@@ -196,31 +221,28 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             // Marker count = the declaring type's generic arity, read off `declTy`'s own args (the
             // resolved enumerator instantiation), since `arityOfMetaName` returns 0 for a nested
-            // `…List`1+Enumerator` name. `BuildSignature`/`encodeOpen` then see exactly these `!i` slots.
-            let markers = [ for _ in 1 .. List.length declArgs -> TypeVar() ]
-            let markerRoots = markers |> List.map UnionFind.find
-            let markerTys = markers |> List.map TyVar |> List.toArray
+            // `…List`1+Enumerator` name. The keystone `encodeType` arm sees exactly these `!i` slots
+            // (frozen-type-plan 2C); a generic method also bakes its `!!j` slots through `BuildSignature`.
+            let declArity = List.length declArgs
 
-            let openSig =
-                let chosen =
-                    match
-                        symbols.TryLookupMembers(declFullName, memberName)
-                        |> Array.tryFind (fun m -> m.Key = key)
-                    with
-                    | Some m -> ValueSome m
-                    | None -> symbols.TryLookupMember(declFullName, memberName)
+            let markerTys =
+                [| for i in 0 .. declArity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
 
-                match chosen with
-                | ValueSome m -> m.BuildSignature markerTys
-                | ValueNone ->
-                    failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
+            let chosen = lookupChosen declFullName memberName key
+            let methodArity = chosen.MethodArity
+            let openSig = chosen.BuildSignature markerTys
+
+            // The declaring args come straight off `declTy` (the whole point of this entry point); only
+            // the method axis (if any) is recovered by matching the open signature against `memberTy`.
+            let _, methodArgs = recoverOpenTypars 0 methodArity openSig instTy
 
             // The parent is the declaring type encoded directly (value-type / nested correct), not
             // recovered+rebuilt — that is the whole point of this entry point.
             let parent = typeSpecOf declZ
 
             let handle =
-                mintMemberRef parent markerRoots openSig isProperty isStatic argSig.Length memberName
+                mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName
+                |> fun h -> methodSpecOf h (List.map zonk methodArgs)
 
             externalMemberCache.[memoKey] <- handle
             handle

@@ -323,6 +323,70 @@ type internal ClrEncoder(env: ClrEnv) =
                     failwithf "ClrProvider: could not recover external type argument %d (open %A vs %A)" i openT instT
         ]
 
+    /// Recover both open-typar axes by structurally matching a member's *open*
+    /// signature — carrying self-describing `TempTypar(axis, i)` nodes (frozen-type-
+    /// plan 2C) — against its *instantiated* use-site type. Returns `(declaringArgs,
+    /// methodArgs)`, each index-keyed by the `TempTypar`'s own index (no reference
+    /// identity, no marker `TypeVar`). First occurrence wins; an unrecovered slot is
+    /// a bug. Supersedes the marker-`TypeVar` `recoverTypeArgs` for the external
+    /// member-ref path.
+    let recoverOpenTypars
+        (declArity: int)
+        (methodArity: int)
+        (openT: SemType)
+        (instT: SemType)
+        : SemType list * SemType list =
+        let decl = Array.create declArity ValueNone
+        let meth = Array.create methodArity ValueNone
+
+        let rec go (d: SemType) (a: SemType) =
+            match zonk d, zonk a with
+            | TempTypar(axis, i), act ->
+                let slot =
+                    match axis with
+                    | TyparAxis.Declaring -> decl
+                    | TyparAxis.Method -> meth
+
+                if i >= 0 && i < slot.Length && slot.[i].IsNone then
+                    slot.[i] <- ValueSome act
+            | TyFun(a1, r1), TyFun(a2, r2) ->
+                go a1 a2
+                go r1 r2
+            | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
+                for i in 0 .. xs.Length - 1 do
+                    go xs.[i] ys.[i]
+            | _ -> ()
+
+        go openT instT
+
+        let collect (name: string) (slots: SemType voption[]) =
+            [
+                for i in 0 .. slots.Length - 1 ->
+                    match slots.[i] with
+                    | ValueSome t -> t
+                    | ValueNone ->
+                        failwithf
+                            "ClrProvider: could not recover %s type argument %d (open %A vs %A)"
+                            name
+                            i
+                            openT
+                            instT
+            ]
+
+        collect "declaring" decl, collect "method" meth
+
     /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec` instantiation when
     /// generic (`EqualityComparer`1<int>`).
     let externalTypeSpec (tref: EntityHandle) (instArgs: SemType list) : EntityHandle =
@@ -368,6 +432,10 @@ type internal ClrEncoder(env: ClrEnv) =
     member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te t
     member _.EncodeOpen(markerRoots, te, t) = encodeOpen markerRoots te t
     member _.RecoverTypeArgs(markerRoots, openT, instT) = recoverTypeArgs markerRoots openT instT
+
+    member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
+        recoverOpenTypars declArity methodArity openT instT
+
     member _.ExternalTypeSpec(tref, instArgs) = externalTypeSpec tref instArgs
 
     /// A `TypeSpec` token for an arbitrary `SemType`, encoded through the full

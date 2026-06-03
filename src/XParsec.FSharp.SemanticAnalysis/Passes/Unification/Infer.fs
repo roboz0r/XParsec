@@ -1091,6 +1091,38 @@ module UnificationInfer =
     /// overload — single-candidate access keeps the existing single-pick path, so
     /// behaviour is unchanged everywhere it already worked. Commits the chosen
     /// `SymbolKey` to `ExternalAccess` keyed on the member node where Freeze reads it.
+    /// Replace each baked method-owned typar (`TempTypar(Method, j)`) in a
+    /// resolved external member's open signature with a fresh inference var — one
+    /// per index, shared across the whole signature — turning a generic-method
+    /// definition into a use-site instantiation `unify` can solve. A non-generic
+    /// member carries no such node and is returned structurally unchanged.
+    /// (frozen-type-plan 2C: `TempTypar` is otherwise post-freeze-only; this
+    /// transient use is substituted away *before* any `unify`, so none enters the
+    /// inference graph — the result is `TyVar`s and ground types only.)
+    and private instantiateMethodTypars (ctx: PassContext) (t: SemType) : SemType =
+        let cache = Dictionary<int, SemType>()
+
+        let rec go (t: SemType) : SemType =
+            match t with
+            | TempTypar(TyparAxis.Method, j) ->
+                match cache.TryGetValue j with
+                | true, v -> v
+                | _ ->
+                    let v = TyVar(freshTyVar ctx)
+                    cache.[j] <- v
+                    v
+            | TempTypar(TyparAxis.Declaring, _)
+            | TyVar _
+            | TyUnknown _ -> t
+            | TyConst(n, args) -> TyConst(n, EqArray.map go args)
+            | TyFun(a, b) -> TyFun(go a, go b)
+            | TyTuple items -> TyTuple(EqArray.map go items)
+            | TyRecord(k, args) -> TyRecord(k, EqArray.map go args)
+            | TyUnion(k, args) -> TyUnion(k, EqArray.map go args)
+            | TyClass(k, args) -> TyClass(k, EqArray.map go args)
+
+        go t
+
     and private tryInferExternalStaticMethodCall
         (ctx: PassContext)
         (key: NodeKey)
@@ -1126,7 +1158,10 @@ module UnificationInfer =
                         }
                     )
 
-                    let memberSig = chosen.BuildSignature typeArgs
+                    // Instantiate the method-owned typars (`Take<TSource>`) to fresh
+                    // vars so the argument types drive their solution; a non-generic
+                    // overload is unchanged (frozen-type-plan 2C).
+                    let memberSig = instantiateMethodTypars ctx (chosen.BuildSignature typeArgs)
                     (freshTv ctx fnKey).Link <- ValueSome memberSig
                     let resultTy = TyVar(freshTyVar ctx)
                     unify ctx key memberSig (TyFun(argTy, resultTy))
