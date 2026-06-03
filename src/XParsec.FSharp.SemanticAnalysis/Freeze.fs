@@ -139,41 +139,134 @@ module Freeze =
         go declTy
         [ for i in 0 .. acc.Count - 1 -> acc.[i], TempTypar(TyparAxis.Method, i) ]
 
-    /// Push a declaring- *and* method-axis typar remap through a member's
-    /// signature + body, retyping `this` to `selfTy`. Shared by the union / class
-    /// member surfacers, which differ only in the `ThisTy` constructor (`TyUnion`
-    /// vs `TyClass`). A *concrete* generic member (B-12, `member this.Map<'C> …`)
-    /// carries its method-owned typars as live `TyVar`s; this appends
-    /// `mkMethodTyparEnv m.MethodTypeParams` to the declaring markers so they become
-    /// `TempTypar(Method, i)` in the params / return / body-embedded types — the
-    /// same both-axes remap the abstract-method path (`tryInterfaceMethods`) does
-    /// (frozen-type-plan 2E-1). `MethodTypeParams` itself stays the `(name, root)`
-    /// list (it still feeds the `GenericParam` rows and the header arity); only the
-    /// *types* flip, so codegen no longer needs an ambient method-typar window.
-    let private remapMemberTypes (selfTy: SemType) (markers: (TypeVar * SemType) list) (m: TTypeMember) : TTypeMember =
+    /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and
+    /// the body's synthesised `this` self-type: each declared typar zonked to its
+    /// root `TyVar`. `elaborate` keeps these in `TyVar` form (not `TempTypar`) so
+    /// the whole tree stays metavar-shaped until the `freezeTypars` cut, which
+    /// remaps each root to `TempTypar(Declaring, i)` (frozen-type-plan 3A-0). The
+    /// index `i` is the typar's declaration position — the same index
+    /// `mkDeclTyparEnv` pairs the root with — so the round-trip is faithful.
+    let private declTyparArgs (typeParams: EqArray<string * TypeVar>) : EqArray<SemType> =
+        EqArray.ofSeq (seq { for (_, ptv) in typeParams -> Unification.zonk (TyVar ptv) })
+
+    /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted
+    /// `selfTy` and surface its *method-axis* typar roots so the caller folds them
+    /// into the decl's freeze env. The signature / body / return types stay
+    /// verbatim — the `TyVar → TempTypar` cut is deferred to `freezeTypars`. Shared
+    /// by the union / class member surfacers (they differ only in `selfTy`'s
+    /// `TyUnion` vs `TyClass` head). `MethodTypeParams` is untouched (its roots feed
+    /// the `GenericParam` rows and the header arity).
+    let private elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TypeVar * SemType) list =
         let methodMarkers =
             if m.MethodTypeParams.IsEmpty then
-                markers
+                []
             else
-                markers @ mkMethodTyparEnv m.MethodTypeParams
+                mkMethodTyparEnv m.MethodTypeParams
 
-        let f = remapDeclTypars methodMarkers
+        { m with ThisTy = selfTy }, methodMarkers
 
+    /// freezeTypars (member): apply the typar cut `f` (= `remapDeclTypars env`) to
+    /// every `SemType` embedded in a member — the deferred half of the old
+    /// `remapMemberTypes`. `MethodTypeParams` (whose `TypeVar` roots feed the
+    /// `GenericParam` rows) is left untouched.
+    let private freezeMember (f: SemType -> SemType) (m: TTypeMember) : TTypeMember =
         { m with
-            ThisTy = selfTy
+            ThisTy = f m.ThisTy
             Params = m.Params |> EqArray.map (fun (k, ty) -> k, f ty)
             Body = mapExprTypes f m.Body
             ReturnTy = f m.ReturnTy
         }
 
-    /// Remap every embedded type in a member / ctor body through the declaring-type
-    /// typars, or pass it through untouched when there are no markers (a monomorphic
-    /// type — the body's types are already correct).
-    let private remapBodyTypes (markers: (TypeVar * SemType) list) (e: TExpr) : TExpr =
-        if List.isEmpty markers then
-            e
-        else
-            mapExprTypes (remapDeclTypars markers) e
+    /// freezeTypars (type kind): push `f` through every `SemType` a type
+    /// declaration's body carries — case / record fields, ctor params, member
+    /// bodies, base type, interface impls, static / secondary ctors.
+    let private freezeKind (f: SemType -> SemType) (k: TTypeKind) : TTypeKind =
+        let field (fld: TRecordField) = { fld with Type = f fld.Type }
+
+        match k with
+        | TTypeKind.Interface methods ->
+            TTypeKind.Interface(methods |> EqArray.map (fun am -> { am with Signature = f am.Signature }))
+        | TTypeKind.Union(cases, members) ->
+            let cases =
+                cases
+                |> EqArray.map (fun c ->
+                    { c with
+                        Fields = c.Fields |> EqArray.map (fun (n, ty) -> n, f ty)
+                    }
+                )
+
+            TTypeKind.Union(cases, members |> EqArray.map (freezeMember f))
+        | TTypeKind.Record(fields, members) ->
+            TTypeKind.Record(fields |> EqArray.map field, members |> EqArray.map (freezeMember f))
+        | TTypeKind.Class(fields,
+                          ctorParams,
+                          members,
+                          baseType,
+                          interfaces,
+                          isSealed,
+                          staticLets,
+                          secondaryCtors,
+                          baseCtorCall) ->
+            let staticLet (sl: TStaticLet) =
+                { sl with
+                    Type = f sl.Type
+                    Init = mapExprTypes f sl.Init
+                }
+
+            let ctorLet (cl: TCtorLet) =
+                { cl with
+                    Type = f cl.Type
+                    Init = mapExprTypes f cl.Init
+                }
+
+            let secondary (sc: TSecondaryCtor) =
+                { sc with
+                    Params = sc.Params |> EqArray.map (fun (k, ty) -> k, f ty)
+                    Lets = sc.Lets |> EqArray.map ctorLet
+                    PrimaryArgs = sc.PrimaryArgs |> EqArray.map (mapExprTypes f)
+                }
+
+            let baseCtor (bc: TBaseCtorCall) =
+                { bc with
+                    CtorParams = bc.CtorParams |> EqArray.map (fun (k, ty) -> k, f ty)
+                    Args = bc.Args |> EqArray.map (mapExprTypes f)
+                }
+
+            TTypeKind.Class(
+                fields |> EqArray.map field,
+                ctorParams |> EqArray.map field,
+                members |> EqArray.map (freezeMember f),
+                baseType |> ValueOption.map f,
+                interfaces
+                |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f)),
+                isSealed,
+                staticLets |> EqArray.map staticLet,
+                secondaryCtors |> EqArray.map secondary,
+                baseCtorCall |> ValueOption.map baseCtor
+            )
+
+    /// The deferred typar cut (frozen-type-plan 3A-0). Walk every `SemType` in a
+    /// decl through `remapDeclTypars env`, rewriting the decl's open `TyVar` typars
+    /// to their `TempTypar(axis, index)` nodes. `env` is the decl's own quantified
+    /// typar roots, collected by `elaborate` (the single index-minting point).
+    /// `remapDeclTypars` zonks as it recurses, so an empty `env` is a pure
+    /// zonk-rebuild — exactly the old monomorphic `remapDeclTypars []` path every
+    /// surfacer applied inline.
+    let private freezeTypars (env: (TypeVar * SemType) list) (d: TDecl) : TDecl =
+        let f = remapDeclTypars env
+
+        match d with
+        | TDecl.Let(binding, value, isInline, ty) ->
+            let binding =
+                TastWalk.mapPat
+                    { TastWalk.identityMapper with
+                        MapType = f
+                    }
+                    binding
+
+            TDecl.Let(binding, mapExprTypes f value, isInline, f ty)
+        | TDecl.Expression(e, ty) -> TDecl.Expression(mapExprTypes f e, f ty)
+        | TDecl.Type td -> TDecl.Type { td with Kind = freezeKind f td.Kind }
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
@@ -184,7 +277,7 @@ module Freeze =
         (ctx: PassContext)
         (name: string)
         (body: ObjectModelBody<SyntaxToken>)
-        : (EqArray<string> * EqArray<TAbstractMethod>) option =
+        : (EqArray<string> * EqArray<TAbstractMethod> * (TypeVar * SemType) list) option =
         let allAbstractMethods =
             not body.elements.IsEmpty
             && body.elements
@@ -205,29 +298,33 @@ module Freeze =
                 // typed them under the class's typar scope), so the remap reaches
                 // every typar.
                 let markers = mkDeclTyparEnv info.TypeParams
+                // Accumulate the decl's freeze env: the declaring typars plus every
+                // generic method's own typars. `freezeTypars` later applies this to
+                // each `Signature` (left verbatim here) — the deferred typar cut.
+                let env = ResizeArray markers
 
                 let methods =
                     EqArray.ofSeq (
                         seq {
                             for m in info.Members do
                                 if m.Kind = ClassMemberKind.Method then
-                                    // A generic method's own typars get markers too so
+                                    // A generic method's own typars join the env so
                                     // the backend routes them to `GenericMethodParameter`
-                                    // (declaring typars stay `GenericTypeParameter`); the
-                                    // `TyConst "name"` picks the table.
-                                    let methodMarkers = markers @ mkMethodTyparEnv m.MethodTypeParams
+                                    // (declaring typars stay `GenericTypeParameter`).
+                                    if not m.MethodTypeParams.IsEmpty then
+                                        env.AddRange(mkMethodTyparEnv m.MethodTypeParams)
 
                                     yield
                                         {
                                             Name = m.Name
                                             MethodTypeParams =
                                                 EqArray.ofSeq (seq { for (n, _) in m.MethodTypeParams -> n })
-                                            Signature = remapDeclTypars methodMarkers m.Type
+                                            Signature = m.Type
                                         }
                         }
                     )
 
-                Some(EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }), methods)
+                Some(EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }), methods, List.ofSeq env)
 
     /// Member name from a member binding's `headPat` (`member this.M …` parses
     /// the member name as the head pattern's ident).
@@ -349,14 +446,10 @@ module Freeze =
         (el: TypeDefnElement<SyntaxToken>)
         : TTypeMember voption =
         // The instantiated self-type the synthesised `this` Var carries. Empty
-        // typar list for a monomorphic class; the `tryClassType` remap leaves
-        // the markers in place (it rewrites prototype `TyVar` roots, not
-        // `TyConst` markers — see `remapDeclTypars`).
-        let classTy =
-            TyClass(
-                info.Key,
-                EqArray.ofSeq (seq { for i in 0 .. info.TypeParams.Length - 1 -> TempTypar(TyparAxis.Declaring, i) })
-            )
+        // typar list for a monomorphic class; the declaring typars ride as
+        // `TyVar` roots (not `TempTypar`), which `freezeTypars` cuts over the
+        // whole member body (frozen-type-plan 3A-0).
+        let classTy = TyClass(info.Key, declTyparArgs info.TypeParams)
 
         // `base` is in scope only when the class has an `inherit` clause; an
         // instance member then carries the shared `BaseKey` so codegen maps a
@@ -467,22 +560,16 @@ module Freeze =
         | _ -> ValueNone
 
     /// Translate one secondary constructor (B-11) into a `TSecondaryCtor`. The
-    /// params carry the declaring-type typar markers (like the primary ctor's
-    /// params); each `let`-preamble binding becomes a `TCtorLet`; the final chain
-    /// call's arguments become `PrimaryArgs`. Generic-class bodies are remapped
-    /// through `markers` exactly like instance members. v1 supports a `let`
-    /// preamble followed by the chain call; sequencing / conditional preambles
-    /// recurse to the chain and drop intervening statements.
-    let private translateSecondaryCtor
-        (ctx: PassContext)
-        (markers: (TypeVar * SemType) list)
-        (sc: ClassSecondaryCtorInfo)
-        : TSecondaryCtor =
-        let remapTy = remapDeclTypars markers
-        let remapBody = remapBodyTypes markers
-
+    /// params / preamble / chain-call args are translated verbatim; each
+    /// `let`-preamble binding becomes a `TCtorLet`, the final chain call's
+    /// arguments become `PrimaryArgs`. A generic class's declaring typars ride as
+    /// `TyVar` roots and are cut over the whole decl by `freezeTypars` (the
+    /// declaring env `tryClassType` collects), so no per-ctor remap is needed here.
+    /// v1 supports a `let` preamble followed by the chain call; sequencing /
+    /// conditional preambles recurse to the chain and drop intervening statements.
+    let private translateSecondaryCtor (ctx: PassContext) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
-            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, remapTy (Unification.zonk p.Type)) })
+            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, Unification.zonk p.Type) })
 
         // Binder NodeKey for a `let`-preamble head (simple names only in v1); the
         // key matches `bindingsOfPat` (the innermost `NamedSimple`'s own key).
@@ -503,7 +590,7 @@ module Freeze =
                 | Expr.App(argExprs = args) -> peelCtorArgs (translateExpr ctx) args
                 | _ -> EqArray.empty
 
-            raw |> EqArray.map remapBody
+            raw
 
         let lets = ResizeArray<TCtorLet>()
         let mutable primaryArgs = EqArray.empty
@@ -516,8 +603,8 @@ module Freeze =
                     lets.Add
                         {
                             Binder = k
-                            Type = remapTy (typeOfKey ctx k)
-                            Init = translateExpr ctx b.expr |> remapBody
+                            Type = typeOfKey ctx k
+                            Init = translateExpr ctx b.expr
                         }
                 | ValueNone -> ()
 
@@ -573,7 +660,7 @@ module Freeze =
         (name: string)
         (declKey: NodeKey voption)
         (ext: TypeExtensionElements<SyntaxToken> voption)
-        : TDecl option =
+        : (TDecl * (TypeVar * SemType) list) option =
         // Resolve the union by the `SymbolKey`
         // `NameResolution` stamped at the decl site, rather than re-deriving the
         // `(name, arity)` key here. The stamp is co-populated with `ctx.Types.Union`
@@ -591,6 +678,10 @@ module Freeze =
         | ValueNone -> None
         | ValueSome info ->
             let markers = mkDeclTyparEnv info.TypeParams
+            // The decl's freeze env (declaring typars + any member method typars),
+            // collected here at the single index-minting point; `freezeTypars`
+            // applies it to the whole decl, performing the deferred `TyVar` cut.
+            let env = ResizeArray markers
 
             let cases =
                 EqArray.ofSeq (
@@ -606,7 +697,7 @@ module Freeze =
                                                 else
                                                     ValueNone
 
-                                            nm, remapDeclTypars markers c.Fields.[i]
+                                            nm, c.Fields.[i]
                                     }
                                 )
 
@@ -614,24 +705,14 @@ module Freeze =
                     }
                 )
 
-            // A generic union's members must carry the declaring-typar markers the
-            // backend's generic-member encoder consumes (`!0`), exactly like the
-            // case fields above: remap the member signature (`ThisTy` / `Params` /
-            // `ReturnTy`) *and* the body's embedded types. Monomorphic unions
-            // (`markers` empty) keep the bodies untouched — `translateUnionMember`'s
-            // `TyUnion(name, [])` is already correct, so the path stays byte-identical.
+            // A generic union's members carry the declaring typars as `TyVar` roots
+            // in the self-type; `freezeTypars` later cuts them to `TempTypar`
+            // (`!0`), exactly like the case fields. Monomorphic unions
+            // (`declTypars` empty) keep `translateUnionMember`'s `TyUnion(key, [])`
+            // self-type untouched, so the path stays byte-identical.
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
-            let remapMember =
-                let selfTy =
-                    TyUnion(
-                        info.Key,
-                        EqArray.ofSeq (
-                            seq { for i in 0 .. List.length declTypars - 1 -> TempTypar(TyparAxis.Declaring, i) }
-                        )
-                    )
-
-                remapMemberTypes selfTy markers
+            let selfTy = TyUnion(info.Key, declTyparArgs info.TypeParams)
 
             let members =
                 match ext with
@@ -641,7 +722,13 @@ module Freeze =
                         seq {
                             for el in elems do
                                 match translateUnionMember ctx info el with
-                                | ValueSome m -> yield (if List.isEmpty declTypars then m else remapMember m)
+                                | ValueSome m ->
+                                    if List.isEmpty declTypars then
+                                        yield m
+                                    else
+                                        let m, methodMarkers = elaborateMember selfTy m
+                                        env.AddRange methodMarkers
+                                        yield m
                                 | ValueNone -> ()
                         }
                     )
@@ -654,7 +741,8 @@ module Freeze =
                     (EqArray.ofList declTypars)
                     (TTypeKind.Union(cases, members))
                     info.EqualitySupport
-                    info.ComparisonSupport
+                    info.ComparisonSupport,
+                List.ofSeq env
             )
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved
@@ -664,10 +752,16 @@ module Freeze =
     /// Augmentation members are out of scope for v1 (records-plan §B1) — the
     /// member list stays empty; the front end never registers them under a record
     /// today.
-    let private tryRecordType (ctx: PassContext) (ns: string option) (name: string) : TDecl option =
+    let private tryRecordType
+        (ctx: PassContext)
+        (ns: string option)
+        (name: string)
+        : (TDecl * (TypeVar * SemType) list) option =
         match ctx.Types.Record.TryGetValue name with
         | false, _ -> None
         | true, info ->
+            // Records carry no members (v1), so the decl's freeze env is just the
+            // declaring typars; field types ride as `TyVar` roots until the cut.
             let markers = mkDeclTyparEnv info.TypeParams
 
             let fields =
@@ -676,7 +770,7 @@ module Freeze =
                         for f in info.Fields ->
                             {
                                 Name = f.Name
-                                Type = remapDeclTypars markers f.Type
+                                Type = f.Type
                                 IsMutable = f.IsMutable
                             }
                     }
@@ -690,7 +784,8 @@ module Freeze =
                     (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
                     (TTypeKind.Record(fields, EqArray.empty))
                     info.EqualitySupport
-                    info.ComparisonSupport
+                    info.ComparisonSupport,
+                markers
             )
 
     /// Surface a `TypeDefn.Class` (or class-shaped `TypeDefn.Anon`) as a
@@ -706,11 +801,15 @@ module Freeze =
         (ns: string option)
         (name: string)
         (elements: TypeDefnElements<SyntaxToken>)
-        : TDecl option =
+        : (TDecl * (TypeVar * SemType) list) option =
         match ctx.Types.Class.TryGetValue name with
         | false, _ -> None
         | true, info ->
             let markers = mkDeclTyparEnv info.TypeParams
+            // The decl's freeze env: declaring typars plus every generic member's
+            // method typars, accumulated as members are surfaced. `freezeTypars`
+            // applies it to the whole class decl, cutting `TyVar → TempTypar`.
+            let env = ResizeArray markers
 
             let ctorParams =
                 EqArray.ofSeq (
@@ -718,7 +817,7 @@ module Freeze =
                         for p in info.CtorParams ->
                             {
                                 Name = p.Name
-                                Type = remapDeclTypars markers p.Type
+                                Type = p.Type
                                 IsMutable = false
                             }
                     }
@@ -726,32 +825,33 @@ module Freeze =
 
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
-            let remapMember =
-                let selfTy =
-                    TyClass(
-                        info.Key,
-                        EqArray.ofSeq (
-                            seq { for i in 0 .. List.length declTypars - 1 -> TempTypar(TyparAxis.Declaring, i) }
-                        )
-                    )
+            let selfTy = TyClass(info.Key, declTyparArgs info.TypeParams)
 
-                remapMemberTypes selfTy markers
-
-            // Remap a member when the declaring type is generic (declaring axis) *or*
-            // the member itself is generic (method axis, B-12). A generic method on a
-            // *monomorphic* class still needs its `'C` flipped to `TempTypar(Method, i)`,
-            // so it can no longer be skipped (frozen-type-plan 2E-1). For a mono type the
-            // declaring env is empty and `selfTy = TyClass(key, [])` equals the member's
-            // existing mono `ThisTy`, so only the method axis moves.
+            // Surface a member when the declaring type is generic (declaring axis)
+            // *or* the member itself is generic (method axis, B-12): stamp its
+            // self-type and fold its method typars into the decl env, so
+            // `freezeTypars` later flips both axes. A generic method on a
+            // *monomorphic* class still needs its `'C` cut to `TempTypar(Method, i)`,
+            // so it can't be skipped (frozen-type-plan 2E-1). For a mono type with a
+            // mono member, `selfTy = TyClass(key, [])` equals the member's existing
+            // `ThisTy`, so leaving it verbatim is byte-identical.
             let needsRemap (m: TTypeMember) =
                 not (List.isEmpty declTypars) || not m.MethodTypeParams.IsEmpty
+
+            let elaborateOne (m: TTypeMember) : TTypeMember =
+                if needsRemap m then
+                    let m, methodMarkers = elaborateMember selfTy m
+                    env.AddRange methodMarkers
+                    m
+                else
+                    m
 
             let members =
                 EqArray.ofSeq (
                     seq {
                         for el in elements do
                             match translateClassMember ctx info el with
-                            | ValueSome m -> yield (if needsRemap m then remapMember m else m)
+                            | ValueSome m -> yield elaborateOne m
                             | ValueNone -> ()
                     }
                 )
@@ -780,28 +880,29 @@ module Freeze =
             // `TSecondaryCtor`; codegen emits a `.ctor` overload chaining to the
             // primary ctor. Empty unless the class declares any.
             let secondaryCtors =
-                EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx markers sc })
+                EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx sc })
 
             // Inheritance (B-4 Step 2.5). `baseType` is the parent's resolved
-            // `TyClass`, remapped onto the declaring-type typar markers so codegen
-            // encodes a generic parent (`SetTree\`1<!0>`) against this class's own
-            // generic parameters; codegen reads it for the IL `TypeDefinition.BaseType`.
-            // `baseCtorCall` carries the `inherit Base(args)` invocation: the derived
-            // class's primary-ctor params (the `ldarg` mapping the args reference,
-            // since `this` isn't constructed yet) and the translated arg expressions.
-            let baseType = info.BaseType |> ValueOption.map (remapDeclTypars markers)
+            // `TyClass`, carried with this class's declaring typars as `TyVar` roots
+            // so `freezeTypars` encodes a generic parent (`SetTree\`1<!0>`) against
+            // this class's own generic parameters; codegen reads it for the IL
+            // `TypeDefinition.BaseType`. `baseCtorCall` carries the `inherit
+            // Base(args)` invocation: the derived class's primary-ctor params (the
+            // `ldarg` mapping the args reference, since `this` isn't constructed yet)
+            // and the translated arg expressions.
+            let baseType = info.BaseType
 
             // Interface implementations (B-2, vesper-set-sprint-phase-5 §5.3).
             // Each registered `interface IFace with member …` block becomes an
-            // `(ifaceTy, members)` entry: the resolved interface `TyClass`
-            // (remapped onto the declaring-type typar markers so a generic arg
-            // like `IEnumerable<'T>` encodes against this class's typars) paired
-            // with its already-typed member bodies. The bodies translate through
-            // the *class* `info` exactly like the class's own members — `this`
-            // and ctor-param references rewrite identically — but read their
-            // elements from the impl's own `Elements`. Impls whose interface
-            // failed to resolve (`Resolved = ValueNone`, the §5.1 diagnostic
-            // already fired) are dropped.
+            // `(ifaceTy, members)` entry: the resolved interface `TyClass` (carrying
+            // this class's declaring typars as roots so a generic arg like
+            // `IEnumerable<'T>` encodes against this class's typars after the cut)
+            // paired with its already-typed member bodies. The bodies translate
+            // through the *class* `info` exactly like the class's own members —
+            // `this` and ctor-param references rewrite identically — but read their
+            // elements from the impl's own `Elements`. Impls whose interface failed
+            // to resolve (`Resolved = ValueNone`, the §5.1 diagnostic already fired)
+            // are dropped.
             let interfaces =
                 EqArray.ofSeq (
                     seq {
@@ -813,12 +914,12 @@ module Freeze =
                                         seq {
                                             for el in impl.Elements do
                                                 match translateClassMember ctx info el with
-                                                | ValueSome m -> yield (if needsRemap m then remapMember m else m)
+                                                | ValueSome m -> yield elaborateOne m
                                                 | ValueNone -> ()
                                         }
                                     )
 
-                                yield (remapDeclTypars markers ifaceTy, implMembers)
+                                yield (ifaceTy, implMembers)
                             | ValueNone -> ()
                     }
                 )
@@ -826,17 +927,10 @@ module Freeze =
             let baseCtorCall =
                 match info.BaseType, info.BaseCtorArgs with
                 | ValueSome _, ValueSome argExpr ->
-                    let remapBody = remapBodyTypes markers
-
                     let ctorParamKeys =
-                        EqArray.ofSeq (
-                            seq {
-                                for p in info.CtorParams ->
-                                    (p.DeclKey, remapDeclTypars markers (Unification.zonk p.Type))
-                            }
-                        )
+                        EqArray.ofSeq (seq { for p in info.CtorParams -> (p.DeclKey, Unification.zonk p.Type) })
 
-                    let args = peelOneArg (translateExpr ctx) argExpr |> EqArray.map remapBody
+                    let args = peelOneArg (translateExpr ctx) argExpr
 
                     ValueSome
                         {
@@ -865,17 +959,22 @@ module Freeze =
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.
                     EqualityVerdict.Reference
-                    ComparisonVerdict.NoComparison
+                    ComparisonVerdict.NoComparison,
+                List.ofSeq env
             )
 
     /// Surface an interface-shaped, union, record, or class `TypeDefn` as a
     /// `TDecl.Type`. Abbreviations surface nothing.
-    let private tryTypeDecl (ctx: PassContext) (ns: string option) (td: TypeDefn<SyntaxToken>) : TDecl option =
+    let private tryTypeDecl
+        (ctx: PassContext)
+        (ns: string option)
+        (td: TypeDefn<SyntaxToken>)
+        : (TDecl * (TypeVar * SemType) list) option =
         let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
             match tryInterfaceMethods ctx name body with
-            | Some(typars, methods) ->
+            | Some(typars, methods, env) ->
                 // Interfaces aren't in the codegen emitted-type tables (their own
                 // `interfaceDecls` path), but `TTypeDecl.Key` is total — mint the
                 // same `(asm, ns, name\`arity)` identity registration would, so a
@@ -895,7 +994,8 @@ module Freeze =
                         // keep the record shape total and the values are
                         // unread for this kind.
                         EqualityVerdict.Structural
-                        ComparisonVerdict.NoComparison
+                        ComparisonVerdict.NoComparison,
+                    env
                 )
             // Not all-abstract ⇒ class shape (`type C(x) = member …`).
             | None -> tryClassType ctx ns name body.elements
@@ -923,7 +1023,7 @@ module Freeze =
         (ns: string option)
         (holder: string option)
         (m: ModuleElem<SyntaxToken>)
-        : TDecl list =
+        : (TDecl * (TypeVar * SemType) list) list =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
@@ -948,18 +1048,19 @@ module Freeze =
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
-                    // frozen-type-plan 2B: a module-`let` compiled as a generic
+                    // frozen-type-plan 2B/3A-0: a module-`let` compiled as a generic
                     // static method (or generic closure) carries its free typars as
-                    // `TempTypar(Method, i)`, minted once here (Edge A order) and
-                    // pushed through the head pattern, value body, and declared type
-                    // — the consumer-side `staticFnTypars` / closure plumbing then
-                    // read the count off those nodes instead of gathering `TyVar`
-                    // roots. Restricted to *function* bindings (a `TyFun` declared
-                    // type): a non-function value's free var is a value-restriction
-                    // case, not a method typar (`let n = null` stays `TyVar`). Inline
-                    // bindings are exempt — their bodies are expanded + substituted to
-                    // concrete types at each call site, never emitted as a generic
-                    // method, so they keep the `TyVar` representation.
+                    // `TempTypar(Method, i)`. The index order is minted once here
+                    // (Edge A order) as `quantEnv`, but the cut itself is deferred to
+                    // `freezeTypars` — `elaborate` leaves the head pattern, value
+                    // body, and declared type in `TyVar` form and just pairs the decl
+                    // with its `quantEnv`. Restricted to *function* bindings (a
+                    // `TyFun` declared type): a non-function value's free var is a
+                    // value-restriction case, not a method typar (`let n = null` stays
+                    // `TyVar`). Inline bindings are exempt — their bodies are expanded
+                    // + substituted to concrete types at each call site, never emitted
+                    // as a generic method, so `quantEnv` is empty and they keep the
+                    // `TyVar` representation.
                     let quantEnv =
                         if b.inlineToken.IsSome then
                             []
@@ -968,25 +1069,11 @@ module Freeze =
                             | TyFun _ -> mkMethodQuantEnv declTy
                             | _ -> []
 
-                    let tpat, valT, declTy =
-                        match quantEnv with
-                        | [] -> tpat, valT, declTy
-                        | env ->
-                            let f = remapDeclTypars env
-
-                            TastWalk.mapPat
-                                { TastWalk.identityMapper with
-                                    MapType = f
-                                }
-                                tpat,
-                            mapExprTypes f valT,
-                            f declTy
-
-                    TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy)
+                    TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e
-            [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)) ]
+            [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), [] ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
         // A nested `module Foo = …` surfaces its body flat at the enclosing
         // namespace (v1 has no module-scoped *types*), mirroring the analysis
@@ -1016,26 +1103,40 @@ module Freeze =
             | ValueNone -> []
         | _ -> []
 
-    let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
-        let decls =
-            match file with
-            | ImplementationFile.AnonymousModule elems -> elems |> Seq.collect (translateModuleElem ctx None None)
-            | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
-                elems |> Seq.collect (translateModuleElem ctx None None)
-            | ImplementationFile.Namespaces groups ->
-                seq {
-                    for g in groups do
-                        let nsName, elems =
-                            match g with
-                            | NamespaceDeclGroup.Named(longIdent = li; elements = elems) ->
-                                Some(longIdentText ctx li), elems
-                            | NamespaceDeclGroup.Global(elements = elems) -> None, elems
+    /// The first half of the split Freeze pass (frozen-type-plan 3A-0): translate
+    /// the CST to a `TExpr` tree whose `.ty` fields are zonk'd `SemType`, still
+    /// `TyVar`-carrying (no `TempTypar`). Each decl is paired with the typar `env`
+    /// it quantifies — the declaring / method / static-fn typar roots, collected at
+    /// this single index-minting point. `freezeTypars` consumes that `env` to make
+    /// the `TyVar → TempTypar` cut. (Step 3A-1 will slot the inline-expansion pass
+    /// between `elaborate` and the freeze cut, where `zonk` / union-find are native;
+    /// today nothing runs between them and the output is byte-identical to the old
+    /// fused pass.)
+    let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TypeVar * SemType) list) list =
+        match file with
+        | ImplementationFile.AnonymousModule elems ->
+            elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
+            elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
+        | ImplementationFile.Namespaces groups ->
+            [
+                for g in groups do
+                    let nsName, elems =
+                        match g with
+                        | NamespaceDeclGroup.Named(longIdent = li; elements = elems) ->
+                            Some(longIdentText ctx li), elems
+                        | NamespaceDeclGroup.Global(elements = elems) -> None, elems
 
-                        yield! elems |> Seq.collect (translateModuleElem ctx nsName None)
-                }
+                    yield! elems |> Seq.collect (translateModuleElem ctx nsName None)
+            ]
+
+    let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
+        // Split pass: `elaborate` produces the `TyVar`-carrying tree + per-decl
+        // typar envs; `freezeTypars` then makes the `TyVar → TempTypar` cut on each.
+        let decls = elaborate ctx file |> List.map (fun (d, env) -> freezeTypars env d)
 
         {
-            Decls = EqArray.ofSeq decls
+            Decls = EqArray.ofList decls
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the
             // representation string (G7) without the PassContext.
