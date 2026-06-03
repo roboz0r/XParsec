@@ -48,7 +48,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalClass|_|) (t: SemType) =
         match t with
         | TyClass(key, args) ->
-            let qual = ExternalSymbols.qualifiedName key
+            let qual = SymbolKeyOps.qualifiedName key
 
             match externalClassRef qual with
             // A struct external type (`List`1+Enumerator`, §4.4) must encode as a
@@ -60,7 +60,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalRecord|_|) (t: SemType) =
         match t with
         | TyRecord(key, args) ->
-            match externalRecordRef (ExternalSymbols.qualifiedName key, args.Length) with
+            match externalRecordRef (SymbolKeyOps.qualifiedName key, args.Length) with
             | ValueSome(tref, _) -> Some(tref, args)
             | ValueNone -> None
         | _ -> None
@@ -68,7 +68,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalUnion|_|) (t: SemType) =
         match t with
         | TyUnion(key, args) ->
-            match externalUnionRef (ExternalSymbols.qualifiedName key, args.Length) with
+            match externalUnionRef (SymbolKeyOps.qualifiedName key, args.Length) with
             | ValueSome(tref, _) -> Some(tref, args)
             | ValueNone -> None
         | _ -> None
@@ -130,7 +130,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // `Vesper.Collections.List` (asm = the emitted `Vesper.List`) resolves
         // to its emitted `TypeDef`, while a *referenced* cons-list (same key,
         // asm ≠ emitted) falls through to the cached external `eVesperList1`.
-        | TyUnion(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+        | TyUnion(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
             let handle = userTypes.[key]
 
             if args.IsEmpty then
@@ -147,7 +147,7 @@ type internal ClrEncoder(env: ClrEnv) =
             let elem = args.[0]
             let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
             encodeType (g.AddArgument()) elem
-        | TyRecord(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+        | TyRecord(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
             let handle = userTypes.[key]
 
             if args.IsEmpty then
@@ -157,7 +157,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 for a in args do
                     encodeType (g.AddArgument()) a
-        | TyClass(key, args) when ExternalSymbols.keyAsm key = envAsm ->
+        | TyClass(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
             // Checked *before* the external-class arm so a project-local class wins over an
             // accidental same-named external one (asm-discrimination, Phase 6D).
             let handle = userTypes.[key]

@@ -699,7 +699,7 @@ module UnificationInfer =
         let ienumName = "System.Collections.Generic.IEnumerable`1"
 
         match zonk srcTy with
-        | TyClass(nameKey, args) when ExternalSymbols.qualifiedName nameKey = ienumName && args.Length = 1 ->
+        | TyClass(nameKey, args) when SymbolKeyOps.qualifiedName nameKey = ienumName && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumerator.Interface)
         | TyClass(nameKey, args) ->
             match ExternalSymbols.tryLookupType ctx.Provider nameKey with
@@ -940,7 +940,7 @@ module UnificationInfer =
 
                 TyRecord(recKey, srcArgs)
             | ValueNone ->
-                ctx.Error(key, sprintf "Unknown record type '%s'" (ExternalSymbols.simpleName recKey))
+                ctx.Error(key, sprintf "Unknown record type '%s'" (SymbolKeyOps.simpleName recKey))
 
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
@@ -995,11 +995,11 @@ module UnificationInfer =
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember (info.TypeParams, args) field.Type
                 | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" info.Name memberName)
-            | ValueNone -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" (ExternalSymbols.simpleName recKey))
+            | ValueNone -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" (SymbolKeyOps.simpleName recKey))
         | TyClass(clsKey, args) ->
             // Local lookup by the bare simple name; the external provider by the
             // qualified compiled name (an external `TyClass` carries a qualified key).
-            let clsSimple = ExternalSymbols.simpleName clsKey
+            let clsSimple = SymbolKeyOps.simpleName clsKey
 
             match TypeRegistry.tryClass ctx.Types clsSimple with
             | ValueSome info ->
@@ -1016,7 +1016,7 @@ module UnificationInfer =
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
                 // access). Resolve the instance member through the provider and
                 // record it for Freeze.
-                let clsQual = ExternalSymbols.qualifiedName clsKey
+                let clsQual = SymbolKeyOps.qualifiedName clsKey
 
                 match ctx.Provider.TryLookupMember(clsQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
@@ -1039,7 +1039,7 @@ module UnificationInfer =
                 resolveLocalInstanceMember
                     ctx
                     diagKey
-                    (ExternalSymbols.simpleName unionKey)
+                    (SymbolKeyOps.simpleName unionKey)
                     info.TypeParams
                     args
                     info.Members
@@ -1050,7 +1050,7 @@ module UnificationInfer =
                 // members the contract provider publishes). Resolve through the
                 // provider and record it for Freeze, exactly as the external
                 // `TyClass` arm does (vesper-lib-test-plan Gap 2 Layer A).
-                let unionQual = ExternalSymbols.qualifiedName unionKey
+                let unionQual = SymbolKeyOps.qualifiedName unionKey
 
                 match ctx.Provider.TryLookupMember(unionQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
@@ -1219,7 +1219,7 @@ module UnificationInfer =
                 // `name` is the metadata full name, and the symbol provider already
                 // owns the ctor catalogue (`MetadataSymbols.extractMembers` /
                 // `computeMembers` surfaces them under `.ctor`).
-                let name = ExternalSymbols.qualifiedName clsKey
+                let name = SymbolKeyOps.qualifiedName clsKey
 
                 match ctx.Provider.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Class _) -> inferExternalCtorOn ctx key name args receiverTy argExpr
@@ -1308,9 +1308,8 @@ module UnificationInfer =
                     // same type resolved elsewhere.
                     let classKey =
                         match ctx.Provider.TryLookupType resolved with
-                        | ValueSome(ExternalTypeShape.Class info) ->
-                            ExternalSymbols.externalTypeKey info.Origin resolved 0
-                        | _ -> ExternalSymbols.qualifiedTypeKey resolved 0
+                        | ValueSome(ExternalTypeShape.Class info) -> SymbolKeyOps.externalTypeKey info.Origin resolved 0
+                        | _ -> SymbolKeyOps.qualifiedTypeKey resolved 0
 
                     ValueSome(
                         inferExternalCtorOn ctx key resolved EqArray.empty (TyClass(classKey, EqArray.empty)) args.[0]
@@ -1357,9 +1356,7 @@ module UnificationInfer =
 
                 match tryResolveExternalNominal ctx name explicit with
                 | ValueSome(TyClass(clsKey, args) as receiverTy) ->
-                    ValueSome(
-                        inferExternalCtorOn ctx key (ExternalSymbols.qualifiedName clsKey) args receiverTy argExpr
-                    )
+                    ValueSome(inferExternalCtorOn ctx key (SymbolKeyOps.qualifiedName clsKey) args receiverTy argExpr)
                 | _ -> ValueNone
         | _ -> ValueNone
 
@@ -1651,7 +1648,7 @@ module UnificationInfer =
 
             match resolveStep binderTy with
             | TyClass(clsKey, args) ->
-                let simple = ExternalSymbols.simpleName clsKey
+                let simple = SymbolKeyOps.simpleName clsKey
 
                 match TypeRegistry.tryClass ctx.Types simple with
                 | ValueSome _ ->
@@ -1663,7 +1660,7 @@ module UnificationInfer =
                             sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" simple
                         )
                 | ValueNone ->
-                    let qual = ExternalSymbols.qualifiedName clsKey
+                    let qual = SymbolKeyOps.qualifiedName clsKey
 
                     match tryExternalDispose ctx qual args with
                     | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)

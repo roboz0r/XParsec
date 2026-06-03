@@ -334,109 +334,32 @@ type IExternalSymbolProvider =
     /// surface, which rides `TryLookupType` via `ExternalTypeShape.Intrinsic`.
     abstract AmbientOpenPrefixes: string list
 
+    /// A cross-package `val inline` body — a referenced package's `let inline`
+    /// whose `.fs` source the pre-freeze `Passes.InlineExpansion` pass *splices*
+    /// at each use site rather than calling as a compiled member
+    /// (frozen-type-plan 3A-1). Looked up by the inline value's resolved
+    /// `SymbolKey` — the same key `TryLookup` returns and `Freeze` stamps onto a
+    /// use-site `TExpr.External`. The primary, identity-robust channel
+    /// (disambiguates a referenced package's `hash` from a user shadow).
+    /// Providers that carry no inline bodies (the front-end-only paths) return
+    /// `ValueNone`.
+    abstract TryLookupInlineBody: key: SymbolKey -> TDecl voption
+
+    /// `TryLookupInlineBody` by source/compiled name — the residual fallback for
+    /// use-site `External` heads that still carry `key = ValueNone` (operator /
+    /// desugared heads, which `FreezeExpr` does not yet stamp). Shrinks toward
+    /// nothing as more head shapes get their key stamped; `ValueNone` once they
+    /// all do (and for providers with no inline bodies).
+    abstract TryLookupInlineBodyByName: name: string -> TDecl voption
+
 module ExternalSymbols =
 
-    // --- Shared compiled-name string rules -------------------------------------------
-    //
-    // One definition each of the three string rules identity minting / decomposition
-    // repeats: strip the `` `N `` arity suffix,
-    // arity-qualify a simple name, split a qualified name at its last `.`. Everything
-    // below routes through these; `LocalSymbolKey` (internal, compiles later) delegates
-    // its `arityName` / `asmOf` here so the rules can't drift.
-
-    /// Strip a trailing `` `N `` generic-arity suffix, returning the bare compiled
-    /// name (namespace kept). The contract layer arity-suffixes generic compiled
-    /// names, so a name may arrive as either `Vesper.Collections.List` or
-    /// `Vesper.Collections.List`1`; recognition must accept both.
-    let bareName (name: string) : string =
-        let tick = name.IndexOf '`'
-        if tick < 0 then name else name.Substring(0, tick)
-
-    /// Arity-qualify a simple name (`List` + 1 ⇒ `` List`1 ``). Returns the name
-    /// unchanged for a non-generic type (arity ≤ 0) or one that already carries a
-    /// `` `N `` suffix — the single home for the `.NET`-style arity-name rule the
-    /// registry key, the stamped `SymbolKey` name, and the emitted metadata name all
-    /// share.
-    let arityName (name: string) (arity: int) : string =
-        if arity > 0 && not (name.Contains '`') then
-            sprintf "%s`%d" name arity
-        else
-            name
-
-    /// Split a fully-qualified compiled name at its last `.` into `(ns, simpleName)`:
-    /// `Vesper.Option` ⇒ `("Vesper", "Option")`; a name with no `.` ⇒ `("", name)`.
-    let private splitQualified (compiled: string) : string * string =
-        let i = compiled.LastIndexOf '.'
-
-        if i < 0 then
-            "", compiled
-        else
-            compiled.Substring(0, i), compiled.Substring(i + 1)
-
-    /// The home-assembly `option` from an assembly *name* (`PassContext.AssemblyName`):
-    /// `""` (the front-end-only / contract-scrape default) ⇒ `None`; a real name ⇒
-    /// `Some`. The single home for the rule — `LocalSymbolKey.ofType` and the
-    /// registration sites call it directly.
-    let asmOf (assemblyName: string) : string option =
-        if assemblyName = "" then None else Some assemblyName
-
-    /// The last `.`-separated segment of a compiled name (`Vesper.Option` ⇒
-    /// `Option`), arity suffix stripped (`Choice`2` ⇒ `Choice`). Used to test a
-    /// union's declaring type against a written qualifier (`Option.Some` /
-    /// `Choice.Choice1Of2`). A name with no `.` is returned (bare) unchanged.
-    let shortName (compiled: string) : string =
-        bareName (snd (splitQualified compiled))
-
-    /// Mint a `SymbolKey.ValueKey` from an assembly + fully-qualified compiled
-    /// name by splitting at the last `.`: everything before becomes the `ns`
-    /// (module path), the last segment the simple `name`. For a bare `printfn`
-    /// (no `.`) the `ns` is empty. Used by `mono`/`poly`/`polyWith` to default the
-    /// symbol's `Key`; `stack`'s `stampSymbol` re-mints the key with the wrapping
-    /// package's assembly once it stamps the origin (vesper-set-sprint-plan §0.1 / M1).
-    let valueKeyOf (asm: string option) (compiled: string) : SymbolKey =
-        let ns, name = splitQualified compiled
-        SymbolKey.ValueKey(asm, ns, name)
-
-    // --- Generic `SymbolKey` ↔ string projection + minting --------------------------
-    //
-    // These operate on any `SymbolKey` (decompose / mint); they have nothing to do
-    // with the well-known runtime singletons, so they live here next to `valueKeyOf` —
-    // the SymbolKey-helper home — rather than in `RuntimeNames`.
-    // `RuntimeNames` (which compiles after this file) keeps only the singleton
-    // constants + recognisers and routes its `bareName` / `qualifiedName` needs here.
-
-    /// The home assembly `option` carried by a key. For a nominal `TypeKey` this
-    /// is the type's declaring assembly — `Some <home>`, invariant per type.
-    /// Codegen branches local-vs-external on
-    /// whether it equals the assembly being emitted.
-    let rec keyAsm (k: SymbolKey) : string option =
-        match k with
-        | SymbolKey.TypeKey(asm, _, _)
-        | SymbolKey.ValueKey(asm, _, _) -> asm
-        | SymbolKey.MemberKey(decl, _, _, _) -> keyAsm decl
-
-    /// The bare simple name (namespace dropped, arity suffix stripped) of a key's
-    /// name component — the bare name the front-end `TypeRegistry` (`tryRecord` /
-    /// `tryClass` / `tryUnion`) keys on.
-    let simpleName (k: SymbolKey) : string =
-        let n =
-            match k with
-            | SymbolKey.TypeKey(_, _, n)
-            | SymbolKey.ValueKey(_, _, n) -> n
-            | SymbolKey.MemberKey(_, n, _, _) -> n
-
-        bareName n
-
-    /// The fully-qualified compiled name for an EXTERNAL nominal lookup
-    /// (`externalUnionRef` / `externalRecordRef` / `externalClassRef`): `ns.name`
-    /// with the arity suffix retained. The lookups normalise bare-vs-suffixed
-    /// internally, so passing the arity-qualified form is safe for both the
-    /// metadata layer (suffixed keys) and the contract layer (bare keys).
-    let qualifiedName (k: SymbolKey) : string =
-        match k with
-        | SymbolKey.TypeKey(_, ns, n)
-        | SymbolKey.ValueKey(_, ns, n) -> if ns = "" then n else ns + "." + n
-        | SymbolKey.MemberKey(_, n, _, _) -> n
+    // The generic `SymbolKey` ↔ compiled-name string algebra (`bareName`,
+    // `arityName`, `valueKeyOf`, `simpleName`, `qualifiedName`, `externalTypeKey`,
+    // …) lives in `module SymbolKeyOps` (compiles before this file, so
+    // `RuntimeNames` can route through it without depending on the provider
+    // surface). This module keeps only the resolution surface that genuinely
+    // needs `IExternalSymbolProvider` / `ExternalSymbol`.
 
     /// Look an external type up by the `SymbolKey` a front-end consumer already holds.
     /// The provider is string-keyed (its metadata / contract leaves own compiled names —
@@ -446,38 +369,7 @@ module ExternalSymbols =
     /// Callers that need the qualified string for an adjacent purpose (a diagnostic,
     /// `TryLookupMember`) keep projecting it directly.
     let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
-        provider.TryLookupType(qualifiedName key)
-
-    // A nominal `SemType`'s `SymbolKey` participates in unification equality, so the
-    // SAME type minted via different paths (use-site resolution, VesperLib contract
-    // extraction, the `*Key` runtime constants, local registration) must compare
-    // EQUAL. Identity is `(asm, ns, name)` where `asm` is the type's **home
-    // assembly** (Phase 6) — invariant per type, so an external type's
-    // `origin.Assembly` and a self-host local key's `PassContext.AssemblyName`
-    // agree. The codegen local/external branch reads `asm` directly to decide
-    // `TypeDef` vs `TypeRef`.
-
-    /// Mint a nominal `TypeKey` for an external type from its resolved shape's
-    /// `origin` (home assembly + namespace split) + the matched compiled name +
-    /// arity. EVERY external-type producer (`Translate`, `InferResolve`, the
-    /// VesperLib extractor's `mkNominal`) routes through this so the same type
-    /// carries the same home assembly across all of them (Phase 6).
-    let externalTypeKey (origin: SymbolOrigin) (compiled: string) (arity: int) : SymbolKey =
-        let simple = SymbolOrigin.StripNamespace origin.Namespace compiled
-        SymbolKey.TypeKey(origin.Assembly, origin.Namespace, arityName simple arity)
-
-    /// Mint a nominal `TypeKey` from a fully-qualified compiled name with an
-    /// explicit home assembly (`asm`) but no `SymbolOrigin` in hand: split off the
-    /// last `.` segment as the simple name. Produces the same `(asm, ns, name)`
-    /// split `externalTypeKey` does, so a type minted either way compares equal.
-    let qualifiedTypeKeyOf (asm: string option) (compiled: string) (arity: int) : SymbolKey =
-        let ns, simple = splitQualified compiled
-        SymbolKey.TypeKey(asm, ns, arityName simple arity)
-
-    /// `qualifiedTypeKeyOf` with no home assembly — the asm-blind paths (codegen
-    /// self-type signatures projected by name; test-helper constructors; the
-    /// MetadataSymbols/contract scrapes that have only a compiled name).
-    let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey = qualifiedTypeKeyOf None compiled arity
+        provider.TryLookupType(SymbolKeyOps.qualifiedName key)
 
     let mono (name: string) (ty: SemType) : ExternalSymbol =
         {
@@ -485,7 +377,7 @@ module ExternalSymbols =
             Instantiate = fun _ -> ty
             Constraints = []
             Origin = SymbolOrigin.Empty
-            Key = valueKeyOf None name
+            Key = SymbolKeyOps.valueKeyOf None name
         }
 
     /// `build level` is invoked per lookup so any `TypeVar` it allocates is
@@ -496,7 +388,7 @@ module ExternalSymbols =
             Instantiate = build
             Constraints = []
             Origin = SymbolOrigin.Empty
-            Key = valueKeyOf None name
+            Key = SymbolKeyOps.valueKeyOf None name
         }
 
     /// Like `poly` but carries constraints. The `build` closure is responsible
@@ -508,7 +400,7 @@ module ExternalSymbols =
             Instantiate = build
             Constraints = constraints
             Origin = SymbolOrigin.Empty
-            Key = valueKeyOf None name
+            Key = SymbolKeyOps.valueKeyOf None name
         }
 
     /// For tests that want to isolate behavior from external-symbol noise.
@@ -520,6 +412,8 @@ module ExternalSymbols =
             member _.TryLookupMembers(_, _) = [||]
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
+            member _.TryLookupInlineBody _ = ValueNone
+            member _.TryLookupInlineBodyByName _ = ValueNone
         }
 
     /// The single provider-shim primitive: first-hit-wins composition over
@@ -538,6 +432,21 @@ module ExternalSymbols =
         // Snapshot to an array so the hot lookup is an index loop, not list
         // traversal, on a provider hit from many parallel PassContexts.
         let sources = List.toArray sources
+
+        // First-hit-wins fall-through shared by every singular (`voption`) lookup
+        // below: scan `sources` in priority order, stop at the first `ValueSome`.
+        // `inline` keeps this an index loop with the projection fused at each call
+        // site — no list traversal. The array-valued `TryLookupMembers` keeps its
+        // own loop (its "empty" sentinel is `[||]`, not `ValueNone`).
+        let inline firstHit (f: IExternalSymbolProvider -> 'a voption) : 'a voption =
+            let mutable result = ValueNone
+            let mutable i = 0
+
+            while result.IsNone && i < sources.Length do
+                result <- f sources.[i]
+                i <- i + 1
+
+            result
 
         let stampSymbol =
             match stampOrigin with
@@ -596,40 +505,14 @@ module ExternalSymbols =
 
         { new IExternalSymbolProvider with
             member _.TryLookup name =
-                let mutable result = ValueNone
-                let mutable i = 0
-
-                while result.IsNone && i < sources.Length do
-                    result <- sources.[i].TryLookup name
-                    i <- i + 1
-
-                match result with
-                | ValueSome s -> ValueSome(stampSymbol s)
-                | ValueNone -> ValueNone
+                firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 
             member _.TryLookupType name =
-                let mutable result = ValueNone
-                let mutable i = 0
-
-                while result.IsNone && i < sources.Length do
-                    result <- sources.[i].TryLookupType name
-                    i <- i + 1
-
-                match result with
-                | ValueSome shape -> ValueSome(stampType shape)
-                | ValueNone -> ValueNone
+                firstHit (fun s -> s.TryLookupType name) |> ValueOption.map stampType
 
             member _.TryLookupMember(typeName, memberName) =
-                let mutable result = ValueNone
-                let mutable i = 0
-
-                while result.IsNone && i < sources.Length do
-                    result <- sources.[i].TryLookupMember(typeName, memberName)
-                    i <- i + 1
-
-                match result with
-                | ValueSome m -> ValueSome(stampMember m)
-                | ValueNone -> ValueNone
+                firstHit (fun s -> s.TryLookupMember(typeName, memberName))
+                |> ValueOption.map stampMember
 
             // First source that knows the type wins the whole overload set — a
             // type's members live in one assembly, so a later source never
@@ -652,18 +535,20 @@ module ExternalSymbols =
             // the union shape it came from (the inner extractor records
             // `SymbolOrigin.Empty`).
             member _.TryLookupUnionCase caseName =
-                let mutable result = ValueNone
-                let mutable i = 0
-
-                while result.IsNone && i < sources.Length do
-                    result <- sources.[i].TryLookupUnionCase caseName
-                    i <- i + 1
-
-                match result with
-                | ValueSome uc -> ValueSome(stampUnionCase uc)
-                | ValueNone -> ValueNone
+                firstHit (fun s -> s.TryLookupUnionCase caseName)
+                |> ValueOption.map stampUnionCase
 
             member _.AmbientOpenPrefixes = ambient
+
+            // Inline bodies are origin-independent `TDecl`s (no key/origin
+            // re-stamp), so these are plain first-hit-wins fall-throughs like the
+            // lookups above — a source that serves cross-package inline bodies
+            // (the codegen contract stack) surfaces them through the composite.
+            member _.TryLookupInlineBody key =
+                firstHit (fun s -> s.TryLookupInlineBody key)
+
+            member _.TryLookupInlineBodyByName name =
+                firstHit (fun s -> s.TryLookupInlineBodyByName name)
         }
 
     /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude

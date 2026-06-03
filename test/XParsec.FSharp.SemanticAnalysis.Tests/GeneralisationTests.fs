@@ -123,6 +123,8 @@ let tests =
                         member _.TryLookupMembers(_, _) = [||]
                         member _.TryLookupUnionCase _ = ValueNone
                         member _.AmbientOpenPrefixes = []
+                        member _.TryLookupInlineBody _ = ValueNone
+                        member _.TryLookupInlineBodyByName _ = ValueNone
                     }
 
                 let input = "let r = let f = myId in f 1, f true"

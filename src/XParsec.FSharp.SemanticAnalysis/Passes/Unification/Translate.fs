@@ -74,7 +74,7 @@ module UnificationTranslate =
                     Key = diagKey
                     Message = "Measure typars / wildcards / qualified unit names not yet supported"
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
             MeasureTerm.empty
@@ -120,7 +120,7 @@ module UnificationTranslate =
                                     "Free type parameter %s is not declared in the enclosing type's type-parameter list"
                                     name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
                     let tv = TypeVar()
@@ -328,7 +328,7 @@ module UnificationTranslate =
                     Key = diagKey
                     Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
         let checkArity (expected: int) : unit =
@@ -413,7 +413,7 @@ module UnificationTranslate =
             if arity = 0 then
                 [ n ]
             else
-                [ ExternalSymbols.arityName n arity; n ]
+                [ SymbolKeyOps.arityName n arity; n ]
 
         let shapeArity (shape: ExternalTypeShape) : int =
             match shape with
@@ -434,11 +434,11 @@ module UnificationTranslate =
                         // origin + the matched compiled name. `asm = Some` marks it external.
                         match shape with
                         | ExternalTypeShape.Class info ->
-                            Some(TyClass(ExternalSymbols.externalTypeKey info.Origin key arity, translatedArgs))
+                            Some(TyClass(SymbolKeyOps.externalTypeKey info.Origin key arity, translatedArgs))
                         | ExternalTypeShape.Record(origin = origin) ->
-                            Some(TyRecord(ExternalSymbols.externalTypeKey origin key arity, translatedArgs))
+                            Some(TyRecord(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
                         | ExternalTypeShape.Union(origin = origin) ->
-                            Some(TyUnion(ExternalSymbols.externalTypeKey origin key arity, translatedArgs))
+                            Some(TyUnion(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
                         // A referenced intrinsic (`exn = (# "System.Exception" #)`):
                         // NON-transparent, resolves to the nominal `TyConst <short>` —
                         // the *unqualified* name, identical to the local arm
@@ -516,7 +516,7 @@ module UnificationTranslate =
                                     "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
                                     name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
         match c with
@@ -565,7 +565,7 @@ module UnificationTranslate =
                     Key = info.DeclKey
                     Message = sprintf "Type abbreviation '%s' is cyclic" info.Name
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
             info.Status <- AbbreviationStatus.Filled
@@ -630,7 +630,7 @@ module UnificationTranslate =
                                     (zonk arg)
                                     (constraintKindName c.Kind)
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
                 | Defer -> propagateToFreeArgs ctx c arg
 

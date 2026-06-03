@@ -286,7 +286,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let paramTys = [ for b in case.BuildFieldTypes -> b markerTys ]
 
                 let retTy =
-                    TyUnion(ExternalSymbols.qualifiedTypeKey fullName arity, EqArray.ofArray markerTys)
+                    TyUnion(SymbolKeyOps.qualifiedTypeKey fullName arity, EqArray.ofArray markerTys)
 
                 let s = BlobBuilder()
 

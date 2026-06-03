@@ -105,7 +105,7 @@ module MockBuiltins =
                 let folder = TyFun(state, TyFun(t, state))
 
                 let listOfT =
-                    TyRecord(ExternalSymbols.qualifiedTypeKey "Vesper.Collections.List" 1, EqArray.singleton t)
+                    TyRecord(SymbolKeyOps.qualifiedTypeKey "Vesper.Collections.List" 1, EqArray.singleton t)
 
                 TyFun(folder, TyFun(state, TyFun(listOfT, state)))
         ]
@@ -164,4 +164,6 @@ module MockBuiltins =
             member _.TryLookupMembers(_, _) = [||]
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
+            member _.TryLookupInlineBody _ = ValueNone
+            member _.TryLookupInlineBodyByName _ = ValueNone
         }

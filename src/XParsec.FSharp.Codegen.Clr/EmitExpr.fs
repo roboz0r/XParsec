@@ -63,7 +63,7 @@ module EmitExpr =
             // Local union table keys by the nominal `SymbolKey`; the external union
             // provider lookups take the qualified compiled name derived from it (Phase 6D).
             let key, tyArgs = nominalShape "union pattern" ty
-            let qualName = ExternalSymbols.qualifiedName key
+            let qualName = SymbolKeyOps.qualifiedName key
 
             // The discriminator field + its value for this case, and a per-index
             // field-ref source, resolved from either the local emitted union or a
@@ -819,7 +819,7 @@ module EmitExpr =
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ ->
-                let qualName = ExternalSymbols.qualifiedName key
+                let qualName = SymbolKeyOps.qualifiedName key
                 // Records-handoff Phase 2 follow-up F2: the record lives in a
                 // referenced assembly (`Vesper.Ref\`1` in `Vesper.Core.dll`,
                 // routed here from `RefCellPromotion`). The provider mints a
@@ -915,7 +915,7 @@ module EmitExpr =
             // Local union table keys by the nominal `SymbolKey`; the provider's
             // cons recipe (FSharp.Core / Vesper list) selects on the same key.
             let key, tyArgs = nominalShape "UnionCons" ty
-            let qualName = ExternalSymbols.qualifiedName key
+            let qualName = SymbolKeyOps.qualifiedName key
 
             for a in args do
                 buildExpr env b a
@@ -943,7 +943,7 @@ module EmitExpr =
                 | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" qualName caseName
 
         | TExpr.PropertyGet(receiver, key, via, _) ->
-            let name = ExternalSymbols.simpleName key
+            let name = SymbolKeyOps.simpleName key
             // Instance property read: load the receiver, then dispatch.
             // Unions/records are sealed (rung 2) so `call` is safe and avoids
             // the null check. User classes (vesper-set-sprint-plan §1.7 /
@@ -961,7 +961,7 @@ module EmitExpr =
             | _ -> b.Add(ILInstr.Call(handle, 1, 1))
 
         | TExpr.MethodCall(receiver, key, via, args, _) ->
-            let name = ExternalSymbols.simpleName key
+            let name = SymbolKeyOps.simpleName key
             // Instance method call: receiver then args. Unions/records use
             // `call` (sealed, no virtual dispatch needed). User classes
             // (vesper-set-sprint-plan §1.7 / B-1) emit `callvirt` uniformly

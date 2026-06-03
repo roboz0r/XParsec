@@ -55,7 +55,7 @@ module NameResolutionMemberRegistration =
                         Message =
                             "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
         walk p
@@ -142,7 +142,7 @@ module NameResolutionMemberRegistration =
                     Key = declKey
                     Message = msg
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
         let addMember mName kind isStatic isOverride mTok : TypeMemberInfo =
@@ -278,7 +278,7 @@ module NameResolutionMemberRegistration =
                     Key = declKey
                     Message = msg
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
         for d in preamble do
@@ -328,7 +328,7 @@ module NameResolutionMemberRegistration =
                             Key = declKey
                             Message = sprintf "Duplicate type definition: %s" name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
                 else
                     let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
@@ -506,7 +506,7 @@ module NameResolutionMemberRegistration =
                     Key = key
                     Message = msg
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
         match head t with
@@ -581,7 +581,7 @@ module NameResolutionMemberRegistration =
                 match info.BaseType with
                 | ValueSome(TyClass(parentKey, _)) ->
                     // Project the parent class's bare registry name off its key.
-                    let parentName = ExternalSymbols.simpleName parentKey
+                    let parentName = SymbolKeyOps.simpleName parentKey
 
                     if parentName = start.Name then
                         ctx.Diagnostics.Add
@@ -589,7 +589,7 @@ module NameResolutionMemberRegistration =
                                 Key = start.DeclKey
                                 Message = sprintf "Type '%s' has a cyclic inheritance hierarchy" start.Name
                                 Code = ""
-                                Severity = Error
+                                Severity = Severity.Error
                             }
 
                         start.BaseType <- ValueNone

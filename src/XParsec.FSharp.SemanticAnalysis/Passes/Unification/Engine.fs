@@ -250,7 +250,7 @@ module UnificationEngine =
                         match info.BaseType with
                         | ValueSome parentTy ->
                             match resolveStep (instantiateMember (info.TypeParams, args) parentTy) with
-                            | TyClass(parentKey, parentArgs) -> walk (ExternalSymbols.simpleName parentKey) parentArgs
+                            | TyClass(parentKey, parentArgs) -> walk (SymbolKeyOps.simpleName parentKey) parentArgs
                             | _ -> ValueNone
                         | ValueNone -> ValueNone
                 | false, _ -> ValueNone
@@ -328,7 +328,7 @@ module UnificationEngine =
             // (`System.Exception`) reconciles with the `exn` `TyConst` through
             // `canonName`'s repr map. `parentOf` splits the simple segment back off
             // for the project-local class lookup.
-            | TyClass(n, args) -> ValueSome(struct (canonName (ExternalSymbols.qualifiedName n), args))
+            | TyClass(n, args) -> ValueSome(struct (canonName (SymbolKeyOps.qualifiedName n), args))
             | TyConst(n, args) -> ValueSome(struct (canonName n, args))
             | _ -> ValueNone
 
@@ -350,7 +350,7 @@ module UnificationEngine =
             // hand-rolled last-`.` split — `shortName` also strips the `` `N `` arity
             // suffix the qualified name retains, so a generic local class
             // (`MyNs.Box`1`) resolves to its bare table key (`Box`) instead of missing.
-            let simple = ExternalSymbols.shortName name
+            let simple = SymbolKeyOps.shortName name
 
             match ctx.Types.Class.TryGetValue simple with
             | true, info ->
@@ -416,9 +416,9 @@ module UnificationEngine =
         match t with
         // Bare simple name: `resolveDotSource` looks each up in the project-local
         // tables (`ctx.Types.Record` bare, `tryUnion` re-deriving arity from args).
-        | TyRecord(n, args) -> ValueSome(NominalKind.Record, ExternalSymbols.simpleName n, args)
-        | TyClass(n, args) -> ValueSome(NominalKind.Class, ExternalSymbols.simpleName n, args)
-        | TyUnion(n, args) -> ValueSome(NominalKind.Union, ExternalSymbols.simpleName n, args)
+        | TyRecord(n, args) -> ValueSome(NominalKind.Record, SymbolKeyOps.simpleName n, args)
+        | TyClass(n, args) -> ValueSome(NominalKind.Class, SymbolKeyOps.simpleName n, args)
+        | TyUnion(n, args) -> ValueSome(NominalKind.Union, SymbolKeyOps.simpleName n, args)
         | TyVar tv ->
             match (UnionFind.find tv).Link with
             | ValueSome target -> tryResolveNominal target
@@ -530,13 +530,13 @@ module UnificationEngine =
             kind1 = kind2
             && ar1 = ar2
             && k1 <> k2
-            && ExternalSymbols.qualifiedName k1 = ExternalSymbols.qualifiedName k2
+            && SymbolKeyOps.qualifiedName k1 = SymbolKeyOps.qualifiedName k2
             ->
             failwithf
                 "SymbolKey asm-invariant violated: %A and %A name the same type (%s) but carry different home assemblies — a mint path disagrees on the home assembly."
                 k1
                 k2
-                (ExternalSymbols.qualifiedName k1)
+                (SymbolKeyOps.qualifiedName k1)
         | _ -> ()
 #endif
 
@@ -1034,7 +1034,7 @@ module UnificationEngine =
                                     key,
                                     sprintf
                                         "Type '%s' has no static member '%s'"
-                                        (ExternalSymbols.simpleName classKey)
+                                        (SymbolKeyOps.simpleName classKey)
                                         b.MemberName
                                 )
 

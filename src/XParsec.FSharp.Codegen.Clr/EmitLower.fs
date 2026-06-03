@@ -57,7 +57,7 @@ module EmitLower =
     /// (was a projected string name). The
     /// project-local emitted-type tables key by this `SymbolKey` directly; the
     /// external provider lookups derive the qualified compiled name from it via
-    /// `ExternalSymbols.qualifiedName`. Returns `ValueNone` if the type isn't a
+    /// `SymbolKeyOps.qualifiedName`. Returns `ValueNone` if the type isn't a
     /// user-defined or external nominal type (e.g. a `TyVar` that should have been
     /// zonked away by now).
     let inline receiverShape (ty: SemType) : (SymbolKey * SemType list) voption =

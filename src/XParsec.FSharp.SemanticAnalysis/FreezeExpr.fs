@@ -134,7 +134,7 @@ module FreezeExpr =
         | ValueSome uc ->
             match qualifier with
             | ValueNone -> true
-            | ValueSome q -> ExternalSymbols.shortName uc.UnionName = q
+            | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q
         | ValueNone -> false
 
     /// The `(consName, nilName)` case names of the list union a `[…]` literal,
@@ -286,7 +286,7 @@ module FreezeExpr =
 
                 go (
                     if arity > 0 then
-                        [ ExternalSymbols.arityName c arity; c ]
+                        [ SymbolKeyOps.arityName c arity; c ]
                     else
                         [ c ]
                 )
@@ -310,10 +310,10 @@ module FreezeExpr =
             // expanded key already carries the suffix.
             let underlyingClassName (shape: ExternalTypeShape) (qualified: string) : string voption =
                 match shape with
-                | ExternalTypeShape.Class _ -> ValueSome(ExternalSymbols.arityName qualified arity)
+                | ExternalTypeShape.Class _ -> ValueSome(SymbolKeyOps.arityName qualified arity)
                 | ExternalTypeShape.Abbrev(a, build) ->
                     match build (Array.create a BuiltinTypes.tyUnit) with
-                    | TyClass(key, _) -> ValueSome(ExternalSymbols.qualifiedName key)
+                    | TyClass(key, _) -> ValueSome(SymbolKeyOps.qualifiedName key)
                     | _ -> ValueNone
                 | _ -> ValueNone
 
@@ -437,7 +437,7 @@ module FreezeExpr =
                     match Unification.zonk (TyVar tv) with
                     | TyClass(typeKey, _)
                     | TyUnion(typeKey, _) ->
-                        let typeName = ExternalSymbols.simpleName typeKey
+                        let typeName = SymbolKeyOps.simpleName typeKey
                         let memberName = ctx.NameOf li.Idents.[1]
 
                         match tryClassMember ctx typeName memberName with
@@ -502,7 +502,7 @@ module FreezeExpr =
                 let caseName = ctx.NameOf li.Idents.[1]
 
                 match ctx.Provider.TryLookupUnionCase caseName with
-                | ValueSome uc when ExternalSymbols.shortName uc.UnionName = typeName -> ValueSome caseName
+                | ValueSome uc when SymbolKeyOps.shortName uc.UnionName = typeName -> ValueSome caseName
                 | _ -> ValueNone
             | _ -> ValueNone
 
@@ -692,7 +692,7 @@ module FreezeExpr =
             match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
             | TyClass(typeKey, _)
             | TyUnion(typeKey, _) ->
-                match tryClassMember ctx (ExternalSymbols.simpleName typeKey) memberName with
+                match tryClassMember ctx (SymbolKeyOps.simpleName typeKey) memberName with
                 | ValueSome(_, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, typeKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
@@ -739,7 +739,7 @@ module FreezeExpr =
                 // Qualified so the backend's external-ctor recipe (`new
                 // System.Exception(...)`) resolves; the backend strips to the bare
                 // simple name for the project-local class lookup.
-                | TyClass(n, _) -> ExternalSymbols.qualifiedName n
+                | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
                 | _ ->
                     let rec nameOf t =
                         match t with

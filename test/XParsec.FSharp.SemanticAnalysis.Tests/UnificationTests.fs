@@ -84,6 +84,8 @@ let tests =
                         member _.TryLookupMembers(_, _) = [||]
                         member _.TryLookupUnionCase _ = ValueNone
                         member _.AmbientOpenPrefixes = []
+                        member _.TryLookupInlineBody _ = ValueNone
+                        member _.TryLookupInlineBodyByName _ = ValueNone
                     }
 
                 let provider = ExternalSymbols.composite [ brokenProvider; MockBuiltins.provider ]
@@ -564,7 +566,7 @@ let tests =
                 let ctx =
                     analyse "type C() =\n    static member Plus (x: int) = x + 1\nlet r = C.Plus(2)"
 
-                let hasErr = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Error)
+                let hasErr = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
                 Expect.isFalse hasErr "no error diagnostics"
             }
 

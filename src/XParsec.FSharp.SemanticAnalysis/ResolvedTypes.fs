@@ -152,7 +152,7 @@ module ResolvedTypes =
                     Key = declKey d
                     Message = sprintf "ResolvedTypes: TAST contains %d unresolved TyVar(s) — inference bug" acc.Count
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
     let run (ctx: PassContext) (tast: TastFile) : unit =

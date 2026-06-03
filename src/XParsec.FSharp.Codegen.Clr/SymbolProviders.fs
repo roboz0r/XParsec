@@ -262,12 +262,14 @@ module SymbolProviders =
         )
 
     /// Wrap `inner` so it ALSO serves cross-package inline bodies
-    /// (`IInlineBodyProvider`, frozen-type-plan 3A-1): every `IExternalSymbolProvider`
-    /// member delegates to `inner`, and the two inline-body channels read the
-    /// pre-built maps. `byKey` is keyed by the inline value's resolved `SymbolKey`
-    /// (the identity-robust primary channel); `byName` is the source-name residue
-    /// the front-end pass falls back to for `External` heads still carrying
-    /// `key = ValueNone`. The front end obtains this by casting `ctx.Provider`.
+    /// (frozen-type-plan 3A-1): every `IExternalSymbolProvider` member delegates
+    /// to `inner`, and the two inline-body channels read the pre-built maps.
+    /// `byKey` is keyed by the inline value's resolved `SymbolKey` (the
+    /// identity-robust primary channel); `byName` is the source-name residue the
+    /// front-end pass falls back to for `External` heads still carrying
+    /// `key = ValueNone`. The front end reads these straight off `ctx.Provider`
+    /// (the `TryLookupInlineBody` / `…ByName` members are now part of
+    /// `IExternalSymbolProvider`, so no cast is needed).
     let private withInlineBodies
         (inner: IExternalSymbolProvider)
         (byKey: System.Collections.Generic.Dictionary<SymbolKey, TDecl>)
@@ -280,22 +282,22 @@ module SymbolProviders =
             member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
             member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
             member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
-          interface IInlineBodyProvider with
-              member _.TryLookupInlineBody key =
-                  match byKey.TryGetValue key with
-                  | true, v -> ValueSome v
-                  | _ -> ValueNone
 
-              member _.TryLookupInlineBodyByName name =
-                  match Map.tryFind name byName with
-                  | Some v -> ValueSome v
-                  | None -> ValueNone
+            member _.TryLookupInlineBody key =
+                match byKey.TryGetValue key with
+                | true, v -> ValueSome v
+                | _ -> ValueNone
+
+            member _.TryLookupInlineBodyByName name =
+                match Map.tryFind name byName with
+                | Some v -> ValueSome v
+                | None -> ValueNone
         }
 
     /// Build the provider stack AND load its cross-package inline bodies for a
     /// manifest set, caching both. The provider and the inline `Map` are a matched
     /// pair — the bodies were frozen against that exact stack. Production code
-    /// reaches the bodies through the provider's `IInlineBodyProvider` channel
+    /// reaches the bodies through the provider's inline-body channel
     /// (`buildContract`); the raw `Map` (`contractInlineBodies`) is an
     /// introspection seam for the inline-body collection tests.
     let private buildContractCached (manifestPaths: string list) : IExternalSymbolProvider * Map<string, TDecl> =

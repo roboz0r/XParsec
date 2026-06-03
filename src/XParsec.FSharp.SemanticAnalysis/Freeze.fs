@@ -980,7 +980,7 @@ module Freeze =
                 // same `(asm, ns, name\`arity)` identity registration would, so a
                 // reference to the interface compares equal to this decl's key.
                 let key =
-                    LocalSymbolKey.ofType (ExternalSymbols.asmOf ctx.AssemblyName) (defaultArg ns "") name typars.Length
+                    LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name typars.Length
 
                 Some(
                     mkTypeDecl
@@ -1137,18 +1137,13 @@ module Freeze =
         // `zonk` / union-find are native); `freezeTypars` makes the
         // `TyVar → TempTypar` cut on each.
         //
-        // Cross-package inline bodies ride the provider: the contract-stack
-        // wrapper `SymbolProviders.buildContract` builds also implements
-        // `IInlineBodyProvider` (keyed by the resolved `SymbolKey`), so the pass
-        // reaches them by casting `ctx.Provider` — no `Pipeline` signature change.
-        let inlineProvider =
-            match box ctx.Provider with
-            | :? IInlineBodyProvider as p -> ValueSome p
-            | _ -> ValueNone
-
+        // Cross-package inline bodies ride `ctx.Provider` directly: its
+        // `TryLookupInlineBody` / `…ByName` members (keyed by the resolved
+        // `SymbolKey`) are part of `IExternalSymbolProvider`, served by the
+        // contract-stack wrapper `SymbolProviders.buildContract` builds. No cast.
         let decls =
             elaborate ctx file
-            |> InlineExpansion.run inlineProvider
+            |> InlineExpansion.run ctx.Provider
             |> List.map (fun (d, env) -> freezeTypars env d)
 
         {

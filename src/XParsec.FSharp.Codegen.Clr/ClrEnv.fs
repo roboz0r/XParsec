@@ -43,7 +43,7 @@ type internal ClrEnv
     /// The home assembly of the unit being emitted (`None` only on the no-emit
     /// scaffold path). A nominal `SymbolKey` is project-local iff its `keyAsm`
     /// equals this — the codegen local/external branch (asm-discrimination).
-    let envAsm = ExternalSymbols.asmOf assemblyName
+    let envAsm = SymbolKeyOps.asmOf assemblyName
 
     let refOrHost (simpleName: string) (hostFallback: unit -> AssemblyName) : AssemblyName =
         match references.TryFind simpleName with
@@ -303,7 +303,7 @@ type internal ClrEnv
         match symbols.TryLookupType fullName with
         | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
         | _ ->
-            match symbols.TryLookupType(ExternalSymbols.bareName fullName) with
+            match symbols.TryLookupType(SymbolKeyOps.bareName fullName) with
             | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
             | _ -> ValueNone
 
@@ -356,11 +356,11 @@ type internal ClrEnv
         // Probe the as-given name, its bare form, and the arity-suffixed bare form
         // so the lookup matches whether the caller passed a bare or arity-qualified
         // name and whether the provider keyed it bare or suffixed (Phase 5.4).
-        let bare = ExternalSymbols.bareName fullName
+        let bare = SymbolKeyOps.bareName fullName
 
         let candidates =
             if arity > 0 then
-                [ fullName; bare; ExternalSymbols.arityName bare arity ]
+                [ fullName; bare; SymbolKeyOps.arityName bare arity ]
             else
                 [ fullName; bare ]
 
@@ -377,7 +377,7 @@ type internal ClrEnv
 
             // Metadata `TypeRef` simple names carry the `` `n `` arity suffix; the contract-layer key
             // (`Vesper.Ref`) lacks it, the metadata-layer key (`Vesper.Ref`1`) has it. Add when absent.
-            let simple = ExternalSymbols.arityName bareSimple arity
+            let simple = SymbolKeyOps.arityName bareSimple arity
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
 
@@ -393,11 +393,11 @@ type internal ClrEnv
                 Some(cases, origin)
             | _ -> None
 
-        let bare = ExternalSymbols.bareName fullName
+        let bare = SymbolKeyOps.bareName fullName
 
         let candidates =
             if arity > 0 then
-                [ fullName; bare; ExternalSymbols.arityName bare arity ]
+                [ fullName; bare; SymbolKeyOps.arityName bare arity ]
             else
                 [ fullName; bare ]
 
@@ -412,7 +412,7 @@ type internal ClrEnv
             let ns = origin.Namespace
             let bareSimple = SymbolOrigin.StripNamespace ns fullName
 
-            let simple = ExternalSymbols.arityName bareSimple arity
+            let simple = SymbolKeyOps.arityName bareSimple arity
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
 

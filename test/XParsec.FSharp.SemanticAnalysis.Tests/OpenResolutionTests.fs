@@ -30,6 +30,8 @@ let private provider: IExternalSymbolProvider =
         member _.TryLookupMembers(_, _) = [||]
         member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
+        member _.TryLookupInlineBody _ = ValueNone
+        member _.TryLookupInlineBodyByName _ = ValueNone
     }
 
 let private analyse (input: string) =

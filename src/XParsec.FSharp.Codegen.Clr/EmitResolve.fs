@@ -185,7 +185,7 @@ module EmitResolve =
                     memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h
                 | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
             | false, _ ->
-                let qualName = ExternalSymbols.qualifiedName key
+                let qualName = SymbolKeyOps.qualifiedName key
 
                 match env.Provider.TryResolveExternalRecordField(qualName, tyArgs, fieldName) with
                 | ValueSome(handle, _) -> handle

@@ -62,7 +62,7 @@ module UnificationInferPat =
                                 n
                                 i.Fields.Length
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
@@ -78,7 +78,7 @@ module UnificationInferPat =
                         Message =
                             sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
                 TyVar(freshTv ctx key)
@@ -107,7 +107,7 @@ module UnificationInferPat =
                                     n
                                     fields.Length
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
                 let nodeTv = freshTv ctx key
@@ -152,7 +152,7 @@ module UnificationInferPat =
                                         name
                                         count
                                 Code = ""
-                                Severity = Error
+                                Severity = Severity.Error
                             }
 
                         ValueNone
@@ -188,7 +188,7 @@ module UnificationInferPat =
                                     i.Fields.Length
                                     subPats.Length
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
@@ -256,7 +256,7 @@ module UnificationInferPat =
                                     fields.Length
                                     subPats.Length
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
                 let m = min subPats.Length fields.Length
@@ -361,7 +361,7 @@ module UnificationInferPat =
                                 Key = key
                                 Message = sprintf "Unknown record type qualifier: %s" typeName
                                 Code = ""
-                                Severity = Error
+                                Severity = Severity.Error
                             }
 
                         ValueNone
@@ -378,7 +378,7 @@ module UnificationInferPat =
                                     Message =
                                         sprintf "No record type matches the field set: %s" (String.concat ", " names)
                                     Code = ""
-                                    Severity = Error
+                                    Severity = Severity.Error
                                 }
                         else
                             ctx.Diagnostics.Add
@@ -389,7 +389,7 @@ module UnificationInferPat =
                                             "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
                                             count
                                     Code = ""
-                                    Severity = Error
+                                    Severity = Severity.Error
                                 }
 
                         ValueNone
@@ -416,7 +416,7 @@ module UnificationInferPat =
                                 Key = CstKeys.ofPat sub
                                 Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
                                 Code = ""
-                                Severity = Error
+                                Severity = Severity.Error
                             }
 
                 let recTy = TyRecord(info.Key, args)

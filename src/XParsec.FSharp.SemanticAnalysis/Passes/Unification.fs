@@ -587,7 +587,7 @@ module Unification =
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
         match impl.Resolved with
         | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
-            let ifaceName = ExternalSymbols.qualifiedName ifaceKey
+            let ifaceName = SymbolKeyOps.qualifiedName ifaceKey
 
             match ctx.Provider.TryLookupType ifaceName with
             | ValueSome(ExternalTypeShape.Class shape) ->
@@ -655,7 +655,7 @@ module Unification =
             else
                 let shown =
                     match zonk resolved with
-                    | TyClass(n, _) -> ExternalSymbols.qualifiedName n
+                    | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
                     | other -> sprintf "%A" other
 
                 ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)

@@ -158,7 +158,7 @@ module UnificationInferLiterals =
                         Key = key
                         Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
@@ -169,7 +169,7 @@ module UnificationInferLiterals =
                         Key = key
                         Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
@@ -189,7 +189,7 @@ module UnificationInferLiterals =
                         Key = key
                         Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
                 Some BuiltinTypes.tyBool
@@ -200,7 +200,7 @@ module UnificationInferLiterals =
                         Key = key
                         Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
 
                 Some BuiltinTypes.tyBool

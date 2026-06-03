@@ -50,7 +50,7 @@ module RuntimeNames =
     //     assembly's *simple name* as referenced (`Vesper.List`, not the
     //     namespace `Vesper.Collections`).
     //   * `name` is the **arity-qualified** simple name (`` List`1 ``), following
-    //     `ExternalSymbols.arityName`.
+    //     `SymbolKeyOps.arityName`.
 
     /// Canonical identity for the Vesper cons-list `List` union. Home assembly
     /// `Vesper.List` (the simple name the cons-list is referenced by — `ProjectInfo`
@@ -128,7 +128,7 @@ module RuntimeNames =
     let private sameTypeAsmBlind (canonical: SymbolKey) (k: SymbolKey) : bool =
         match canonical, k with
         | SymbolKey.TypeKey(_, cns, cn), SymbolKey.TypeKey(_, ns, n) ->
-            cns = ns && ExternalSymbols.bareName cn = ExternalSymbols.bareName n
+            cns = ns && SymbolKeyOps.bareName cn = SymbolKeyOps.bareName n
         | _ -> false
 
     /// True iff `k` denotes the Vesper cons-list in either of its nominal forms —

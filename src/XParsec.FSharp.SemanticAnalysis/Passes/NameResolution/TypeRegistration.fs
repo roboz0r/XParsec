@@ -96,7 +96,7 @@ module NameResolutionTypeRegistration =
         // per type, so this local key equals the key a consumer mints for the same
         // type from its `SymbolOrigin.Assembly`.
         let key =
-            LocalSymbolKey.ofType (ExternalSymbols.asmOf ctx.AssemblyName) declNs name arity
+            LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) declNs name arity
 
         match TypeRegistry.recordKeyOrigin ctx.Types declKey key with
         | ValueSome _ ->
@@ -110,7 +110,7 @@ module NameResolutionTypeRegistration =
                             declNs
                             arity
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
         | ValueNone -> ()
 
@@ -138,7 +138,7 @@ module NameResolutionTypeRegistration =
                             Key = NodeKey.ofToken nameTok NodeKind.DeclType
                             Message = sprintf "Duplicate type definition: %s" name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
                 else
                     let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
@@ -288,7 +288,7 @@ module NameResolutionTypeRegistration =
                             Key = declKey
                             Message = sprintf "Duplicate type definition: %s" name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
                 else
                     let caseInfos =
@@ -406,7 +406,7 @@ module NameResolutionTypeRegistration =
                             Key = declKey
                             Message = sprintf "Duplicate type definition: %s" name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
                 else
                     match rhs with

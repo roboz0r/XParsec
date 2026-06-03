@@ -96,7 +96,7 @@ type ClrProvider
     member _.InterfaceHandleOf(ty: SemType) : EntityHandle =
         match env.Zonk ty with
         | TyClass(key, args) when args.IsEmpty ->
-            match env.ExternalClassRef(ExternalSymbols.qualifiedName key) with
+            match env.ExternalClassRef(SymbolKeyOps.qualifiedName key) with
             | ValueSome tref -> tref
             | ValueNone -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
@@ -263,7 +263,7 @@ type ClrProvider
                 // the instantiated `TypeSpec` (vesper-lib-test-plan Gap 2 Layer B).
                 // The fields are already on the stack in declaration order, so the
                 // recipe is a static `call` pushing the one union value back.
-                let typeName = ExternalSymbols.qualifiedName key
+                let typeName = SymbolKeyOps.qualifiedName key
 
                 match ext.ExternalUnionFactory(typeName, caseName, List.map env.Zonk tyArgs) with
                 | ValueSome(handle, argCount) ->

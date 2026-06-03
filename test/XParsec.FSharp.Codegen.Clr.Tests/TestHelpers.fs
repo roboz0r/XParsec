@@ -14,15 +14,15 @@ open XParsec.FSharp.Codegen.Clr
 // patterns so codegen tests keep constructing / matching them by string name.
 // See the SemanticAnalysis.Tests `TestHelpers` twin for the rationale.
 let TyUnion (name: string, args: EqArray<SemType>) =
-    SemType.TyUnion(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+    SemType.TyUnion(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
 
 let TyRecord (name: string, args: EqArray<SemType>) =
-    SemType.TyRecord(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+    SemType.TyRecord(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
 
 let TyClass (name: string, args: EqArray<SemType>) =
-    SemType.TyClass(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+    SemType.TyClass(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
 
-let private nominalDisplayName (k: SymbolKey) : string = ExternalSymbols.qualifiedName k
+let private nominalDisplayName (k: SymbolKey) : string = SymbolKeyOps.qualifiedName k
 
 let (|TyUnion|_|) (t: SemType) =
     match t with

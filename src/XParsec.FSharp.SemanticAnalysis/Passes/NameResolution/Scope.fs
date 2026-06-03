@@ -37,7 +37,7 @@ module NameResolutionScope =
             if arity = 0 then
                 [ n ]
             else
-                [ ExternalSymbols.arityName n arity; n ]
+                [ SymbolKeyOps.arityName n arity; n ]
 
         let shapeArity (shape: ExternalTypeShape) =
             match shape with
@@ -53,12 +53,12 @@ module NameResolutionScope =
         // splitting the qualified compiled name. Mirrors `Translate`'s nominal mint.
         let keyOf (compiled: string) (shape: ExternalTypeShape) =
             match shape with
-            | ExternalTypeShape.Class info -> ExternalSymbols.externalTypeKey info.Origin compiled arity
+            | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKey info.Origin compiled arity
             | ExternalTypeShape.Record(origin = o)
-            | ExternalTypeShape.Union(origin = o) -> ExternalSymbols.externalTypeKey o compiled arity
+            | ExternalTypeShape.Union(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Intrinsic _
-            | ExternalTypeShape.Opaque _ -> ExternalSymbols.qualifiedTypeKey compiled arity
+            | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
 
         let lookup (candidate: string) : SymbolKey voption =
             let rec go keys =
@@ -145,7 +145,7 @@ module NameResolutionScope =
                             Key = useKey
                             Message = sprintf "Unresolved identifier: %s" name
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
     /// True if `name` is a ctor reference in pattern position. F# spec treats
@@ -349,7 +349,7 @@ module NameResolutionScope =
                                 Key = CstKeys.ofExpr e
                                 Message = sprintf "Unresolved qualified name: %s" qualName
                                 Code = ""
-                                Severity = Error
+                                Severity = Severity.Error
                             }
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
             (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
@@ -368,7 +368,7 @@ module NameResolutionScope =
                     Key = CstKeys.ofExpr e
                     Message = sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
         | Expr.TypeApp(expr = receiver; types = types) ->
             // The receiver's arity (its type-arg count) lives on this node, not on

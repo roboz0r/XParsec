@@ -90,7 +90,7 @@ module private MetadataMapping =
                 // name) so this key unifies with the same BCL type resolved via a
                 // provider shape's origin.
                 let key =
-                    ExternalSymbols.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name builders.Length
+                    SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name builders.Length
 
                 Some(fun args -> TyClass(key, EqArray.ofSeq (seq { for b in builders -> b args })))
         else
@@ -103,7 +103,7 @@ module private MetadataMapping =
             | fullName ->
                 Some(fun _ ->
                     TyClass(
-                        ExternalSymbols.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0,
+                        SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0,
                         EqArray.empty
                     )
                 )
@@ -632,6 +632,11 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
         // `[<AutoOpen>]` / namespace prefixes come from the contract layer
         // (`ReferencedProject`), so this returns `[]`.
         member _.AmbientOpenPrefixes = []
+
+        // BCL metadata exposes compiled members, never spliceable F# `inline`
+        // bodies — those ride the Vesper contract stack.
+        member _.TryLookupInlineBody _ = ValueNone
+        member _.TryLookupInlineBodyByName _ = ValueNone
 
 module MetadataSymbols =
 

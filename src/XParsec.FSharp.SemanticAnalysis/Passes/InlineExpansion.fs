@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 // relocates module-level `let inline` expansion out of codegen
 // (`EmitLower.lowerWith`'s inline branches): a saturated use of a local
 // `let inline` — or of a cross-package `val inline` whose body the provider
-// serves (`IInlineBodyProvider`) — is expanded + beta-reduced + static-opt
+// serves (`IExternalSymbolProvider.TryLookupInlineBody`) — is expanded + beta-reduced + static-opt
 // resolved here, so the frozen module decls reaching codegen carry no inline
 // call heads and no `StaticOptimization` nodes.
 //
@@ -207,11 +207,14 @@ module InlineExpansion =
         | None -> false
 
     /// Expand the module-level inlines in one decl-list (the elaborated,
-    /// `TyVar`-carrying decls paired with their freeze envs). `inlineProvider` is
-    /// the cross-package inline-body channel obtained by casting `ctx.Provider`;
-    /// `ValueNone` when the provider carries none (every front-end-only path).
+    /// `TyVar`-carrying decls paired with their freeze envs). The cross-package
+    /// inline-body channel is `provider` itself (`TryLookupInlineBody` / `…ByName`,
+    /// now members of `IExternalSymbolProvider`); a front-end-only provider serves
+    /// none and every lookup returns `ValueNone`, so the walk is an identity
+    /// rebuild — which `Freeze.freezeTypars` does to every decl immediately after
+    /// regardless, so there is no node-identity to preserve by skipping it.
     let run
-        (inlineProvider: IInlineBodyProvider voption)
+        (provider: IExternalSymbolProvider)
         (decls: (TDecl * (TypeVar * SemType) list) list)
         : (TDecl * (TypeVar * SemType) list) list =
 
@@ -225,10 +228,12 @@ module InlineExpansion =
             | TDecl.Let(TPat.NamedSimple(b, _), _, true, _) -> localInlines.[b] <- d
             | _ -> ()
 
-        // Nothing to do when there are no local inlines and no cross-package
-        // inline bodies — the common case for plain front-end analysis; keeps the
-        // tree (and its node identities) untouched.
-        if localInlines.Count = 0 && inlineProvider.IsNone then
+        // The cast-based "provider carries no inlines" fast-path is retired: every
+        // provider now implements the channel, and the cross-package path (no local
+        // inlines, bodies served by the contract stack) must still walk, so the
+        // signal that gated the skip is gone. Only the degenerate empty-file case
+        // short-circuits; freezeTypars rebuilds every tree next anyway.
+        if List.isEmpty decls then
             decls
         else
             // Build-wide monotone counter for freshened inline binders, in the
@@ -243,20 +248,18 @@ module InlineExpansion =
                 k
 
             let lookupExternal (keyOpt: SymbolKey voption) (name: string) : TDecl voption =
-                match inlineProvider with
-                | ValueNone -> ValueNone
-                | ValueSome p ->
-                    // Prefer the identity-robust `SymbolKey` channel; fall back to
-                    // the source-name residue for `External` heads still carrying
-                    // `key = ValueNone` (operator / desugared heads). `byKey` is a
-                    // subset of `byName` by construction, so this expands exactly
-                    // the set codegen's retired name-based `lowerWith` did.
-                    match keyOpt with
-                    | ValueSome key ->
-                        match p.TryLookupInlineBody key with
-                        | ValueSome d -> ValueSome d
-                        | ValueNone -> p.TryLookupInlineBodyByName name
-                    | ValueNone -> p.TryLookupInlineBodyByName name
+                // Prefer the identity-robust `SymbolKey` channel; fall back to the
+                // source-name residue for `External` heads still carrying
+                // `key = ValueNone` (operator / desugared heads). `byKey` is a
+                // subset of `byName` by construction, so this expands exactly the
+                // set codegen's retired name-based `lowerWith` did. A provider with
+                // no inline bodies returns `ValueNone` from both.
+                match keyOpt with
+                | ValueSome key ->
+                    match provider.TryLookupInlineBody key with
+                    | ValueSome d -> ValueSome d
+                    | ValueNone -> provider.TryLookupInlineBodyByName name
+                | ValueNone -> provider.TryLookupInlineBodyByName name
 
             let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType) list) : TExpr =
                 let decl = localInlines.[k]

@@ -59,6 +59,8 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
 
         member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
+        member _.TryLookupInlineBody _ = ValueNone
+        member _.TryLookupInlineBodyByName _ = ValueNone
     }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which

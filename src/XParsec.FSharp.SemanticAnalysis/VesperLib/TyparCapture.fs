@@ -268,4 +268,9 @@ module VesperLibTyparCapture =
                     | _ -> ValueNone
 
                 member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
+                // The extractor exposes signatures, not spliceable inline bodies —
+                // those are collected separately and served by the codegen
+                // contract-stack wrapper that layers over this provider.
+                member _.TryLookupInlineBody _ = ValueNone
+                member _.TryLookupInlineBodyByName _ = ValueNone
             }

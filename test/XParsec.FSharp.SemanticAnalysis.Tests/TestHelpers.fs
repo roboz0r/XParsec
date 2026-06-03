@@ -15,18 +15,18 @@ open XParsec.FSharp.SemanticAnalysis
 // construction *and* `| TyUnion("X", args)` match sites compile unchanged. A file
 // gets these only when it `open`s `TestHelpers` after `open …SemanticAnalysis`.
 let TyUnion (name: string, args: EqArray<SemType>) =
-    SemType.TyUnion(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+    SemType.TyUnion(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
 
 let TyRecord (name: string, args: EqArray<SemType>) =
-    SemType.TyRecord(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+    SemType.TyRecord(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
 
 let TyClass (name: string, args: EqArray<SemType>) =
-    SemType.TyClass(ExternalSymbols.qualifiedTypeKey name args.Length, args)
+    SemType.TyClass(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
 
 // The arity-qualified qualified name (`Microsoft.FSharp.Core.Result`2`,
 // `Choice`2`) — the new canonical convention. Assertions that pinned the old
 // non-suffixed / bare form were updated to match (the doc's "convention ripple").
-let private nominalDisplayName (k: SymbolKey) : string = ExternalSymbols.qualifiedName k
+let private nominalDisplayName (k: SymbolKey) : string = SymbolKeyOps.qualifiedName k
 
 let (|TyUnion|_|) (t: SemType) =
     match t with

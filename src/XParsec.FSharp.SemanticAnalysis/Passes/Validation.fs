@@ -98,7 +98,7 @@ module Validation =
                                             Key = CstKeys.ofExpr core
                                             Message = sprintf "Cannot assign to immutable field '%s'" fieldName
                                             Code = ""
-                                            Severity = Error
+                                            Severity = Severity.Error
                                         }
                                 | _ -> ()
                             | ValueNone -> ()
@@ -116,7 +116,7 @@ module Validation =
                         Key = lhsKey
                         Message = "assignment to immutable binding"
                         Code = ""
-                        Severity = Error
+                        Severity = Severity.Error
                     }
             | _ -> ()
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
@@ -139,7 +139,7 @@ module Validation =
                                     Key = CstKeys.ofExpr core
                                     Message = sprintf "Cannot assign to immutable field '%s'" fieldName
                                     Code = ""
-                                    Severity = Error
+                                    Severity = Severity.Error
                                 }
                         | _ -> ()
                     | ValueNone -> ()
@@ -163,7 +163,7 @@ module Validation =
                                     "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
                                     d.MemberName
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
 
     // A scheme-level "Constraint not resolved" tail check is reserved
@@ -203,7 +203,7 @@ module Validation =
                                 "value restriction: mutable binding has unresolved type variable(s); \
                                  add a type annotation or constrain via a use site"
                             Code = ""
-                            Severity = Error
+                            Severity = Severity.Error
                         }
                 | _ -> ()
 
@@ -238,7 +238,7 @@ module Validation =
                                 Message =
                                     "In a recursive declaration group, 'open' declarations must come first in each module."
                                 Code = ""
-                                Severity = Error
+                                Severity = Severity.Error
                             }
                 | _ -> seenNonImport <- true
 
@@ -274,7 +274,7 @@ module Validation =
                     Key = NodeKey.ofSynthetic spawningOffset NodeKind.SynthUnsupportedDecl
                     Message = msg
                     Code = ""
-                    Severity = Error
+                    Severity = Severity.Error
                 }
 
         match m with

@@ -105,12 +105,12 @@ module UnificationInferResolve =
         | ValueSome uc when
             (match qualifier with
              | ValueNone -> true
-             | ValueSome q -> ExternalSymbols.shortName uc.UnionName = q)
+             | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q)
             ->
             let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
 
             let unionTy =
-                TyUnion(ExternalSymbols.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
+                TyUnion(SymbolKeyOps.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
 
             let fields = uc.Case.BuildFieldTypes |> Array.map (fun b -> b freshArgs)
             ValueSome(unionTy, fields)
@@ -209,7 +209,7 @@ module UnificationInferResolve =
         let probe (name: string) =
             isUnionOrRecord name
             || [ 1; 2; 3; 4 ]
-               |> List.exists (fun a -> isUnionOrRecord (ExternalSymbols.arityName name a))
+               |> List.exists (fun a -> isUnionOrRecord (SymbolKeyOps.arityName name a))
 
         OpenScope.tryQualify ctx.Resolution.OpenScope probe n |> ValueOption.isSome
 
@@ -304,7 +304,7 @@ module UnificationInferResolve =
         | ValueSome(qualName, typeArgs) ->
             let arity = typeArgs.Length
             // The arity-suffixed metadata name for a candidate (`EqualityComparer`1`).
-            let metaNameOf (n: string) = ExternalSymbols.arityName n arity
+            let metaNameOf (n: string) = SymbolKeyOps.arityName n arity
 
             // `tryQualify` applies the `open` prefixes, so a short
             // `EqualityComparer<int>` receiver resolves to its qualified metadata

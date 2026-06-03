@@ -10,9 +10,13 @@
     <Compile Include="CstWalk.fs" />
     <Compile Include="Conformance.fs" />
     <Compile Include="SemanticInfo.fs" />
-    <Compile Include="ExternalSymbols.fs" />
+    <Compile Include="SymbolKeyOps.fs" />
     <Compile Include="RuntimeNames.fs" />
     <Compile Include="PrintfSpec.fs" />
+    <Compile Include="SideTypes.fs" />
+    <Compile Include="Tast.fs" />
+    <Compile Include="TastWalk.fs" />
+    <Compile Include="ExternalSymbols.fs" />
     <Compile Include="VesperLib\Manifest.fs" />
     <Compile Include="VesperLib\TyparCapture.fs" />
     <Compile Include="VesperLib\TypeTranslate.fs" />
@@ -20,8 +24,6 @@
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="UnionFind.fs" />
-    <Compile Include="Tast.fs" />
-    <Compile Include="TastWalk.fs" />
     <Compile Include="Inline.fs" />
     <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Desugar.fs" />

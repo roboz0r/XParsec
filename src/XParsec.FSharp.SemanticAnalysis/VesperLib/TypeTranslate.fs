@@ -257,7 +257,7 @@ module VesperLibTypeTranslate =
         // `mkNominal`'s `shapeOf` re-resolves through.
         let forms (n: string) : string list =
             if arity > 0 then
-                [ ExternalSymbols.arityName n arity; n ]
+                [ SymbolKeyOps.arityName n arity; n ]
             else
                 [ n ]
 
@@ -487,11 +487,11 @@ module VesperLibTypeTranslate =
 
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union(_, _, origin)) ->
-            TyUnion(ExternalSymbols.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
+            TyUnion(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Class info) ->
-            TyClass(ExternalSymbols.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
+            TyClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
-            TyRecord(ExternalSymbols.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
+            TyRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Abbrev(_, build)) ->
             // Expand the abbreviation to its body. `build` is the *defining*
             // package's `translateType` builder, whose nominal heads already kind
@@ -499,7 +499,7 @@ module VesperLibTypeTranslate =
             // its dependencies) — so the expanded body is already kind-
             // correct and needs no further reconciliation.
             build (args.AsSpan().ToArray())
-        | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(ExternalSymbols.shortName compiled, EqArray.empty)
+        | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(SymbolKeyOps.shortName compiled, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) ->
             failwithf
                 "mkNominal: '%s' is an Opaque (body-less) shape — an enum / delegate / type-extension or an unmodelled body. Model its kind before a contract names it"

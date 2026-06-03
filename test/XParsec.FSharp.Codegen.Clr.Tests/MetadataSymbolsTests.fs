@@ -75,7 +75,7 @@ let tests =
                     match info.BaseType with
                     | ValueSome build ->
                         match build [||] with
-                        | TyClass(k, args) when ExternalSymbols.qualifiedName k = "System.IO.TextWriter" && args.IsEmpty ->
+                        | TyClass(k, args) when SymbolKeyOps.qualifiedName k = "System.IO.TextWriter" && args.IsEmpty ->
                             ()
                         | other -> failtestf "expected StringWriter base = TextWriter, got %A" other
                     | ValueNone -> failtest "expected StringWriter to record a base type"
@@ -119,7 +119,7 @@ let tests =
                             | _ -> false
                         )
                         ->
-                        Expect.equal (ExternalSymbols.qualifiedName key) eqComparer "Default : EqualityComparer<int>"
+                        Expect.equal (SymbolKeyOps.qualifiedName key) eqComparer "Default : EqualityComparer<int>"
                     | other -> failtestf "unexpected Default signature %A" other
                 | ValueNone -> failtest "Default did not resolve"
             }

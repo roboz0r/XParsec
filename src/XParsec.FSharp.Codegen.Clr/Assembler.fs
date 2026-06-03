@@ -640,7 +640,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 | Some n -> n
                 | None -> ""
 
-            let metaName = ExternalSymbols.arityName td.Name td.TypeParams.Length
+            let metaName = SymbolKeyOps.arityName td.Name td.TypeParams.Length
 
             let typeHandle =
                 ctx.AddInterfaceType(ns, metaName, emptyFirstField, firstIfaceMethod)
@@ -655,7 +655,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         // Unions first, then records, then classes — keeps the `InterfaceImpl` /
         // `GenericParam` rows ascending (sorted by `Class` / `TypeOrMethodDef`).
         for row in Seq.append unionTypes (Seq.append recordTypes classTypes) do
-            let metaName = ExternalSymbols.arityName row.Name (List.length row.Typars)
+            let metaName = SymbolKeyOps.arityName row.Name (List.length row.Typars)
 
             let attrs = classAttrsOf row.IsSealed
 
@@ -671,7 +671,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         // Each closure derives from `System.Object` and implements its
         // `Vesper.Fun\`2<param, result>` interface (R1).
         for row in closureTypes do
-            let metaName = ExternalSymbols.arityName row.Name (List.length row.Typars)
+            let metaName = SymbolKeyOps.arityName row.Name (List.length row.Typars)
 
             let closureHandle =
                 ctx.AddClass(

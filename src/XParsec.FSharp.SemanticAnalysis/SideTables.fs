@@ -21,10 +21,10 @@ module internal LocalSymbolKey =
     /// The project-local `SymbolKey.TypeKey` for `name` at `arity`, declared in
     /// namespace `ns`, with home assembly `asm` (`Some <thisAsm>` for an emitting
     /// compilation, `None` for the front-end-only paths). The arity-name rule is
-    /// `ExternalSymbols.arityName` — the one shared definition, so the registry key
+    /// `SymbolKeyOps.arityName` — the one shared definition, so the registry key
     /// (`TypeRegistry.keyFor`) and the stamped `SymbolKey` name can't drift.
     let ofType (asm: string option) (ns: string) (name: string) (arity: int) : SymbolKey =
-        SymbolKey.TypeKey(asm, ns, ExternalSymbols.arityName name arity)
+        SymbolKey.TypeKey(asm, ns, SymbolKeyOps.arityName name arity)
 
     /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
     /// type identified by `declKey`. `argSig` is
@@ -36,20 +36,7 @@ module internal LocalSymbolKey =
     let ofMember (declKey: SymbolKey) (name: string) (kind: MemberKind) : SymbolKey =
         SymbolKey.MemberKey(declKey, name, EqArray.empty, kind)
 
-/// Where a module-level `let` should be emitted: a *named* holder type (an F#
-/// module compiles to a static class) rather than the anonymous "Program" holder
-/// the backend uses for top-level functions. Recorded for every binding inside a
-/// `module Foo = …`; the backend keys this off the binding's `NodeKey` to give the
-/// emitted static method its source `Name` on the `Holder` type in `Namespace`
-/// (e.g. `Vesper.Collections.ListModule::fold`). The `Module` suffix follows the
-/// F# rule that a module sharing a name with a type in its namespace compiles to
-/// `<Name>Module`.
-type ModuleMemberInfo =
-    {
-        Namespace: string option
-        Holder: string
-        Name: string
-    }
+// `ModuleMemberInfo` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 
 /// Field types start as fresh TyVars stamped by NameResolution and get linked
 /// to the real translated type by Unification before any expression is typed.
@@ -438,36 +425,7 @@ type ResolvedExternalMember =
         IsProperty: bool
     }
 
-/// How a `for x in src do …` (`TExpr.ForIn`) sources its enumerator — resolved by
-/// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
-/// codegen can't re-derive the struct-vs-interface decision from the element type
-/// alone (vesper-set-sprint-phase-4 §4.2/§4.4). Defined here (ahead of `Tast.fs`
-/// in compile order) so both the side table below and the `TExpr.ForIn` field can
-/// name it.
-[<RequireQualifiedAccess>]
-type ForInEnumerator =
-    /// The §4.2 interface path: lower through the `IEnumerable<'T>` /
-    /// `IEnumerator<'T>` interface slots with `callvirt`. The default for the
-    /// range form and for every source whose enumerable surface is (or includes)
-    /// the interface — the only path codegen emits today.
-    | Interface
-    /// The §4.4 duck-typed path: the source exposes a public parameterless
-    /// `GetEnumerator()` returning `EnumeratorTy`, which itself exposes
-    /// `MoveNext(): bool` and a `Current` property *without* the source
-    /// implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`). The member
-    /// `SymbolKey`s are the provider-interned identities (`GetEnumerator` on the
-    /// source; `MoveNext` / `Current` on `EnumeratorTy`). `IsValueType` selects
-    /// value-receiver emission (`ldloca` + `constrained.`/`call`); `Dispose` is
-    /// `ValueSome key` iff `EnumeratorTy : IDisposable`, else the `finally` is
-    /// elided. **Scaffolding + front end only** — codegen value-type emission is
-    /// deferred to a dedicated session (see the §4.4 codegen handoff).
-    | DuckTyped of
-        enumeratorTy: SemType *
-        getEnumerator: SymbolKey *
-        moveNext: SymbolKey *
-        current: SymbolKey *
-        isValueType: bool *
-        dispose: SymbolKey voption
+// `ForInEnumerator` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 
 [<Sealed>]
 type SideTable<'V>() =
@@ -569,9 +527,9 @@ module TypeRegistry =
 
     /// The .NET-style key: the bare name for a non-generic type, ``name`N`` for
     /// arity N>0. Matches the emitted metadata type name. Delegates to
-    /// `ExternalSymbols.arityName` so the registry key and the stamped `SymbolKey`
+    /// `SymbolKeyOps.arityName` so the registry key and the stamped `SymbolKey`
     /// name share one rule.
-    let keyFor (name: string) (arity: int) : string = ExternalSymbols.arityName name arity
+    let keyFor (name: string) (arity: int) : string = SymbolKeyOps.arityName name arity
 
     // --- Records / classes / abbreviations --------------------------------------
     // These aren't arity-overloaded today (unlike unions), so the key is the bare
@@ -597,7 +555,7 @@ module TypeRegistry =
     /// holding a `TyRecord(key, _)` carries the key straight through instead of
     /// re-projecting it to a string at every use site.
     let tryRecordByKey (types: PassContextTypes) (key: SymbolKey) : RecordTypeInfo voption =
-        tryRecord types (ExternalSymbols.simpleName key)
+        tryRecord types (SymbolKeyOps.simpleName key)
 
     let registerClass (types: PassContextTypes) (name: string) (info: ClassTypeInfo) : unit = types.Class.[name] <- info
 
@@ -612,7 +570,7 @@ module TypeRegistry =
     /// Classes aren't arity-overloaded; the table is keyed by the bare simple name,
     /// projected from the key internally.
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption =
-        tryClass types (ExternalSymbols.simpleName key)
+        tryClass types (SymbolKeyOps.simpleName key)
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info
@@ -659,7 +617,7 @@ module TypeRegistry =
     /// `TypeKey(None, _, name\`arity)` minted onto `UnionTypeInfo.Key` and stamped
     /// into `Resolution.ResolvedType`. The key's
     /// `name` component *is* the registry key: both it and `keyFor` use the one
-    /// `ExternalSymbols.arityName` rule, so this is a direct `Union` lookup with
+    /// `SymbolKeyOps.arityName` rule, so this is a direct `Union` lookup with
     /// no arity re-derivation. A non-`TypeKey` key (a value / member) never names a
     /// union, so it misses. The reader-side seam for SymbolKey-first resolution.
     let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption =
@@ -887,7 +845,12 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `""` for the front-end-only / contract-scrape paths that never emit and so
     /// have no home assembly to stamp; set by `Pipeline.analyse*For`.
     member val AssemblyName = "" with get, set
-    member val Diagnostics = ResizeArray<Diagnostic>() with get
+    // Fully qualified: this file `open`s `XParsec.FSharp.Parser`, which also
+    // defines a `Diagnostic`; with our `Diagnostic` now declared in `SideTypes.fs`
+    // (ahead of `Tast.fs`) rather than in this file, the bare name would bind to
+    // the parser's. The record literals in `Error`/`Warn` below resolve by field
+    // labels, so only this annotation needs the qualifier.
+    member val Diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>() with get
     member val Types = types with get
     /// PassContext-lifetime memo of intrinsic-name → canonical repr, populated
     /// lazily by `subsumes.canonName`. `subsumes`' recursive walk would otherwise
@@ -941,7 +904,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
     /// Record an `Error`-severity diagnostic at `key`. The canonical way to
     /// report — collapses the otherwise-ubiquitous inline `Diagnostic` literal
-    /// (every call passed `Code = ""` / `Severity = Error`).
+    /// (every call passed `Code = ""` / `Severity = Severity.Error`).
     member this.Error(key: NodeKey, msg: string) =
         this.Diagnostics.Add
             {
@@ -961,18 +924,5 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
                 Severity = Severity.Warning
             }
 
-/// TODO: range + sub-severities still pending. `Code` lets the sprint group
-/// related diagnostics (e.g. for tooling); existing call sites pass `""` —
-/// new ones should mint a short identifier (e.g. `"V001"`).
-and [<Struct>] Diagnostic =
-    {
-        Key: NodeKey
-        Code: string
-        Message: string
-        Severity: Severity
-    }
-
-and [<Struct>] Severity =
-    | Error
-    | Warning
-    | Info
+// `Diagnostic` / `Severity` moved to `SideTypes.fs` (they must precede `Tast.fs`);
+// `PassContext` above references them as types defined earlier in compile order.

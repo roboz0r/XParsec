@@ -51,8 +51,8 @@ let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 /// the class. Falls back to the key's own simple name for any other shape.
 let private memberDeclName (key: SymbolKey) : string =
     match key with
-    | SymbolKey.MemberKey(decl, _, _, _) -> ExternalSymbols.simpleName decl
-    | _ -> ExternalSymbols.simpleName key
+    | SymbolKey.MemberKey(decl, _, _, _) -> SymbolKeyOps.simpleName decl
+    | _ -> SymbolKeyOps.simpleName key
 
 /// Minimal `SemType` → readable name, for rendering cast targets (`:>` / `:?` /
 /// `:?>`). Nominal types render as their name; structural ones approximate.
@@ -64,7 +64,7 @@ let rec private tyName (t: SemType) : string =
     | TyTuple ts -> [ for t in ts -> tyName t ] |> String.concat " * "
     | TyRecord(n, _)
     | TyUnion(n, _)
-    | TyClass(n, _) -> ExternalSymbols.simpleName n
+    | TyClass(n, _) -> SymbolKeyOps.simpleName n
     | TyUnknown n -> "?" + n
     | TempTypar(TyparAxis.Declaring, i) -> "!" + string i
     | TempTypar(TyparAxis.Method, i) -> "!!" + string i
@@ -387,7 +387,7 @@ type private Renderer() =
                 | CallVia.Self -> "."
             )
 
-            push (ExternalSymbols.simpleName key)
+            push (SymbolKeyOps.simpleName key)
             push "("
 
             args
@@ -409,12 +409,12 @@ type private Renderer() =
                 | CallVia.Self -> "."
             )
 
-            push (ExternalSymbols.simpleName key)
+            push (SymbolKeyOps.simpleName key)
 
         | TExpr.StaticMethodCall(key, args, _) ->
             push (memberDeclName key)
             push "."
-            push (ExternalSymbols.simpleName key)
+            push (SymbolKeyOps.simpleName key)
             push "("
 
             args
@@ -430,10 +430,10 @@ type private Renderer() =
         | TExpr.StaticPropertyGet(key, _) ->
             push (memberDeclName key)
             push "."
-            push (ExternalSymbols.simpleName key)
+            push (SymbolKeyOps.simpleName key)
 
         | TExpr.StaticFieldGet(declKey, name, _) ->
-            push (ExternalSymbols.simpleName declKey)
+            push (SymbolKeyOps.simpleName declKey)
             push "."
             push name
 
@@ -615,7 +615,7 @@ type private Renderer() =
                 | TyTuple ts -> [ for t in ts -> tyStr t ] |> String.concat " * "
                 | TyRecord(n, _)
                 | TyUnion(n, _)
-                | TyClass(n, _) -> ExternalSymbols.simpleName n
+                | TyClass(n, _) -> SymbolKeyOps.simpleName n
                 | TyUnknown n -> "?" + n
                 | TempTypar(TyparAxis.Declaring, i) -> "!" + string i
                 | TempTypar(TyparAxis.Method, i) -> "!!" + string i
