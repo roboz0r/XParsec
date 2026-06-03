@@ -241,3 +241,82 @@ module Inline =
             }
 
         TastWalk.mapExpr mapper body
+
+    /// The open method signature of an external symbol: its full curried
+    /// monotype with the method-owned typars resolved to self-describing
+    /// `TempTypar(Method, i)` nodes (`MethodArity` of them). This is the
+    /// strictly-smaller precursor of the planned `instantiate :
+    /// ExternalSignature -> level -> SemType` seam (docs/frozen-type-plan.md
+    /// §3A precursor): it lets `ClrRecipes.emitExternalCall` reconstruct an
+    /// external call's signature without ever authoring a `TyVar`. The fresh
+    /// `TyVar`s `Instantiate` mints are transient and never escape this
+    /// function — the returned `Signature` is `TyVar`-free.
+    type OpenMethodSignature =
+        {
+            /// Curried `param -> … -> return` with method typars as `TempTypar(Method, i)`.
+            Signature: SemType
+            /// Count of distinct method typars — the `MethodSpec` generic-parameter count.
+            MethodArity: int
+        }
+
+    /// Instantiate `sym` and rewrite its method-owned typars to positional
+    /// `TempTypar(Method, i)`, `i` = first-appearance order over a pre-order
+    /// walk of the curried monotype (a `TyFun` visits its parameter before its
+    /// result, so this is params-left-to-right then return — the order the
+    /// producer's static-method emit assigns its `!!i` slots). Replaces the
+    /// retired codegen `signatureTypars` / `toOpen`. Link-chases through
+    /// `UnionFind.find` + `.Link` exactly as `quantifiedTypars` does (no zonk
+    /// dependency — `UnificationEngine` compiles later); for a fresh, unlinked
+    /// instantiation that is a structural no-op.
+    let openMethodSignature (sym: ExternalSymbol) : OpenMethodSignature =
+        let monoSig = sym.Instantiate 0
+        let order = Dictionary<TypeVar, int>(HashIdentity.Reference)
+
+        let rec collect (t: SemType) =
+            match t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match root.Link with
+                | ValueSome target -> collect target
+                | ValueNone ->
+                    if not (order.ContainsKey root) then
+                        order.[root] <- order.Count
+            | TyFun(a, b) ->
+                collect a
+                collect b
+            | TyConst(_, xs)
+            | TyTuple xs
+            | TyRecord(_, xs)
+            | TyUnion(_, xs)
+            | TyClass(_, xs) ->
+                for x in xs do
+                    collect x
+            | TyUnknown _
+            | TempTypar _ -> ()
+
+        collect monoSig
+
+        let rec toOpen (t: SemType) : SemType =
+            match t with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match root.Link with
+                | ValueSome target -> toOpen target
+                | ValueNone ->
+                    match order.TryGetValue root with
+                    | true, i -> TempTypar(TyparAxis.Method, i)
+                    | _ -> TyVar root
+            | TyFun(a, b) -> TyFun(toOpen a, toOpen b)
+            | TyTuple xs -> TyTuple(EqArray.map toOpen xs)
+            | TyConst(n, xs) -> TyConst(n, EqArray.map toOpen xs)
+            | TyRecord(n, xs) -> TyRecord(n, EqArray.map toOpen xs)
+            | TyUnion(n, xs) -> TyUnion(n, EqArray.map toOpen xs)
+            | TyClass(n, xs) -> TyClass(n, EqArray.map toOpen xs)
+            | (TyUnknown _ | TempTypar _) as other -> other
+
+        {
+            Signature = toOpen monoSig
+            MethodArity = order.Count
+        }

@@ -350,43 +350,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The distinct free `TypeVar` roots of a curried signature (its decurried parameter types, then
-    /// its return type), in first-appearance order — the consumer-side mirror of the producer's
-    /// `EmitClosures.staticFnTypars`. These ARE the emitted static method's generic parameters, in the
-    /// same order the producer assigned them, so a `call`/`MethodSpec` minted off this list lines up
-    /// with the method's `!!0, !!1, …` slots.
-    let signatureTypars (paramTys: SemType list) (retTy: SemType) : TypeVar list =
-        let seen = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
-        let acc = ResizeArray<TypeVar>()
-
-        let rec go (t: SemType) =
-            match zonk t with
-            | TyVar tv ->
-                let r = UnionFind.find tv
-
-                if seen.Add r then
-                    acc.Add r
-            | TyFun(a, b) ->
-                go a
-                go b
-            | TyConst(_, xs)
-            | TyTuple xs
-            | TyRecord(_, xs)
-            | TyUnion(_, xs)
-            | TyClass(_, xs) ->
-                for x in xs do
-                    go x
-            | TyUnknown _ -> ()
-            // TODO(frozen-type Phase 2): derive method typars from `TempTypar`
-            // (Method-axis index) instead of TyVar roots. No-op until freeze emits it.
-            | TempTypar _ -> ()
-
-        for p in paramTys do
-            go p
-
-        go retTy
-        List.ofSeq acc
-
     /// The member-ref parent `TypeRef` for an external module's compiled holder type — `declFullName`
     /// is the holder's fully-qualified compiled name (`Vesper.OptionModule`), `metaNs` its metadata
     /// namespace (the package namespace, `Vesper`). A nested holder (`Outer.Inner`) chains through the
@@ -411,11 +374,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// `emitFold`. `declFullName` is the declaring module's compiled holder name (the call key's `ns`,
     /// e.g. `Vesper.OptionModule`), `name` the method, `fnTy` the *use-site* curried function type.
     ///
-    /// The open method signature is reconstructed from the symbol provider's `Instantiate` (route (b) in
-    /// the plan): a fresh monotype whose free `TypeVar`s are the method's own typars. Their roots — in
-    /// first-appearance order over (params, return) — are rewritten to self-describing
-    /// `TempTypar(Method, i)` nodes so the keystone `encodeType` arm maps them to `!!i`, matching the
-    /// producer's emitted signature; the use-site type arguments are then recovered by structurally
+    /// The open method signature is reconstructed by the symbol layer's `Inline.openMethodSignature`
+    /// accessor (the §3A-precursor `instantiate` seam): it instantiates the symbol and hands back a
+    /// curried monotype whose method-own typars are already self-describing `TempTypar(Method, i)` nodes,
+    /// so codegen never authors a `TyVar`. The keystone `encodeType` arm maps those to `!!i`, matching
+    /// the producer's emitted signature; the use-site type arguments are then recovered by structurally
     /// matching that open type against `fnTy` (`recoverOpenTypars`, method axis). A monomorphic method
     /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home
     /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
@@ -433,36 +396,14 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             match sym.Origin.Assembly with
             | None -> ValueNone
             | Some _ ->
-                // The symbol's full curried monotype, with one fresh `TypeVar` per declared typar.
-                // Its nominal heads are already kind-correct (`'T option` ⇒ `TyUnion`) — dependency-
-                // aware extraction bakes them so — so they encode + recover against the producer's
-                // emitted signature with no reconciliation.
-                let monoSig = sym.Instantiate 0
-                let paramTys, retTy = decurryTy monoSig
-                let markerRoots = signatureTypars paramTys retTy
-                let methodArity = List.length markerRoots
-
-                // Rewrite each method-typar `TypeVar` root to its positional `TempTypar(Method, i)` (the
-                // `signatureTypars` first-appearance order IS the producer's `!!i` order), so the open
-                // signature encodes `!!i` straight off the node — no ambient window.
-                let rec toOpen (t: SemType) : SemType =
-                    match zonk t with
-                    | TyVar tv ->
-                        let r = UnionFind.find tv
-
-                        match markerRoots |> List.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
-                        | Some i -> TempTypar(TyparAxis.Method, i)
-                        | None -> TyVar tv
-                    | TyFun(a, b) -> TyFun(toOpen a, toOpen b)
-                    | TyTuple xs -> TyTuple(EqArray.map toOpen xs)
-                    | TyConst(n, xs) -> TyConst(n, EqArray.map toOpen xs)
-                    | TyRecord(n, xs) -> TyRecord(n, EqArray.map toOpen xs)
-                    | TyUnion(n, xs) -> TyUnion(n, EqArray.map toOpen xs)
-                    | TyClass(n, xs) -> TyClass(n, EqArray.map toOpen xs)
-                    | (TyUnknown _ | TempTypar _) as other -> other
-
-                let openParamTys = List.map toOpen paramTys
-                let openRetTy = toOpen retTy
+                // The symbol's open curried monotype, with its method typars already self-describing
+                // `TempTypar(Method, i)` (`Inline.openMethodSignature` instantiates + rewrites in the
+                // symbol layer, so codegen authors no `TypeVar`). Its nominal heads are already kind-
+                // correct (`'T option` ⇒ `TyUnion`) — dependency-aware extraction bakes them so — so they
+                // encode + recover against the producer's emitted signature with no reconciliation.
+                let openSig = Inline.openMethodSignature sym
+                let methodArity = openSig.MethodArity
+                let openParamTys, openRetTy = decurryTy openSig.Signature
 
                 // The open method-ref signature: parameters + return encoded with the method typars as
                 // `!!i`, as the producer's static-method emit uses.
@@ -491,14 +432,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     else
                         // Use-site instantiation: match the open monotype (its `TempTypar(Method, i)`)
                         // against the call's concrete type, recovering each method arg by its index.
-                        let openSig = toOpen monoSig
-                        let _, methodArgs = recoverOpenTypars 0 methodArity openSig (zonk fnTy)
+                        let _, methodArgs = recoverOpenTypars 0 methodArity openSig.Signature (zonk fnTy)
                         methodSpec memberRef methodArgs
 
                 ValueSome
                     {
                         Emit = fun il -> il.Encoder.Call callHandle
-                        ArgCount = List.length paramTys
+                        ArgCount = List.length openParamTys
                         Pushes = 1
                     }
 
