@@ -219,6 +219,14 @@ module Regions =
 
     /// Add an outlives edge from each captured binding's region to the closure
     /// region `r`. (AddEdge drops self-edges, so no `captured <> r` guard needed.)
+    //
+    // TODO(frozen-type-plan 3A-3, byref-capture half): this is where a surviving
+    // closure's captures are known. Once a byref-like predicate exists, a capture
+    // whose binding type is byref-like (`Span`/`ref struct`) combined with this
+    // closure's solved escape (`HeapShared`) is the reject site — match F# and
+    // error. A non-escaping such capture could instead be made to compile via a
+    // ref-struct closure ABI (frozen-type-plan option 1), so a program F# rejects
+    // outright could compile here. Both need the predicate we do not have yet.
     let private addCaptureEdges (s: State) (freeVars: HashSet<NodeKey>) (r: RegionId) : unit =
         for bs in freeVars do
             match s.BindingRegions.TryGetValue bs with

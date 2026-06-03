@@ -27,13 +27,24 @@ open XParsec.FSharp.SemanticAnalysis
 // relocates them here and deletes the codegen inline-expansion machinery
 // (`EmitLower.lowerWith`'s inline branches + `spliceExternalInlinesInExpr`),
 // keeping only eta + `expandBuiltinOps`.
+//
+// 3A-3 (the inline-first soundness condition, beta-reduction half): a lambda
+// argument bound to an inline parameter and fully applied inside the body is
+// eliminated — its closure never exists (`reduceApplication` +
+// `nonInlinableLambdaParams` + the `lambdaEnv` splice). A lambda that is stored
+// or partially applied survives as a real closure, exactly as before. The
+// byref-like-capture half (reject / ref-struct closures for a SURVIVING closure
+// that holds a `Span`/`ref struct`) is deferred — see the TODO in
+// `reduceApplication`; it needs a byref-like predicate that does not exist yet.
 
 module InlineExpansion =
 
-    /// Beta-reduce a curried lambda (an inline expansion's output) against its
-    /// spine args, lowering each application to a `TExpr.Let` — mirrors
-    /// `EmitLower.betaReduce`. Lambda count must match the spine-arg count for a
-    /// fully applied call.
+    /// Beta-reduce a curried lambda against its spine args, lowering each
+    /// application to a `TExpr.Let` — mirrors `EmitLower.betaReduce`. Lambda count
+    /// must match the spine-arg count for a fully applied call. Used to splice an
+    /// inline-first lambda parameter at a saturated use site (frozen-type-plan
+    /// 3A-3); the inline FUNCTION itself is reduced by `reduceApplication`, which
+    /// peels the same way but classifies lambda params for elimination first.
     let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType) list) : TExpr =
         match fn, args with
         | _, [] -> fn
@@ -43,6 +54,64 @@ module InlineExpansion =
         | TExpr.Lambda(param, _, _), _ ->
             failwithf "InlineExpansion: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "InlineExpansion: over-application of an inline function"
+
+    /// The number of leading `fun x -> …` abstractions with a simple-named
+    /// parameter — the arity at which a lambda argument is *fully applied*. Only
+    /// `NamedSimple` binders count: a destructuring lambda parameter (`fun (a, b)
+    /// -> …`) is left at the abstraction below it, so a use that tries to
+    /// saturate past it never matches the arity and the closure is kept (it would
+    /// otherwise trip `betaReduce`'s destructuring guard). frozen-type-plan 3A-3.
+    let rec private lambdaArity (e: TExpr) : int =
+        match e with
+        | TExpr.Lambda(TPat.NamedSimple _, body, _) -> 1 + lambdaArity body
+        | _ -> 0
+
+    /// Of the lambda-valued inline parameters in `candidates` (key → its bound
+    /// lambda), the ones that are NOT eligible for inline-first elimination —
+    /// i.e. a parameter with at least one use that is not a *fully saturated*
+    /// application head. A saturated head (`f a b` where `f`'s lambda has arity 2)
+    /// beta-reduces away and the closure vanishes; any other use — a bare `Var`
+    /// (the lambda is stored or passed onward), a partial application, or an
+    /// over-application — forces the parameter to survive as a real closure.
+    /// frozen-type-plan 3A-3 (the inline-first soundness condition: only a
+    /// fully-applied [<InlineIfLambda>]-style parameter is guaranteed to vanish).
+    ///
+    /// The walk mirrors the expansion walker's `App` rule exactly: collect the
+    /// WHOLE spine at each `App` and never let `TastWalk`'s default recursion
+    /// descend into a sub-`App` (which would mis-measure a partial spine as the
+    /// arity), recursing only into the spine's head (when not a candidate) and
+    /// its arguments.
+    let private nonInlinableLambdaParams (candidates: Dictionary<NodeKey, TExpr>) (core: TExpr) : HashSet<NodeKey> =
+        let bad = HashSet<NodeKey>()
+
+        let it =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun iter e ->
+                        match e with
+                        | TExpr.App _ ->
+                            let head, args = TastWalk.collectSpine [] e
+
+                            (match head with
+                             | TExpr.Var(k, _) when candidates.ContainsKey k ->
+                                 if List.length args <> lambdaArity candidates.[k] then
+                                     bad.Add k |> ignore
+                             | _ -> TastWalk.iterExpr iter head)
+
+                            for (a, _) in args do
+                                TastWalk.iterExpr iter a
+
+                            false
+                        | TExpr.Var(k, _) when candidates.ContainsKey k ->
+                            // A bare reference: the lambda is stored / passed on,
+                            // so it cannot be inlined away.
+                            bad.Add k |> ignore
+                            false
+                        | _ -> true
+            }
+
+        TastWalk.iterExpr it core
+        bad
 
     /// Does `e` contain a `TExpr.StaticOptimization` anywhere? A local inline
     /// body that does must be expanded with the call site's derived type
@@ -285,6 +354,89 @@ module InlineExpansion =
                 | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
                 | _ -> false
 
+            // Inline-first lambda elimination (frozen-type-plan 3A-3). A lambda
+            // argument bound to an inline function's parameter and FULLY APPLIED
+            // inside the body is inlined at each use so its closure never exists —
+            // F#'s `[<InlineIfLambda>]` guarantee, taken unconditionally for any
+            // such parameter (the plan's "always beta-reduce fully-applied lambda
+            // params" alternative; we do not yet read the attribute). The binder
+            // key → its bound lambda; populated by `reduceApplication`, consumed by
+            // the walker's `App` rule. Keys are `mint`-fresh per expansion, so the
+            // map never needs structural scoping beyond the stack-disciplined
+            // add/remove `reduceApplication` does.
+            let lambdaEnv = Dictionary<NodeKey, TExpr>()
+
+            // Beta-reduce an inline expansion `expanded` against its call `args`,
+            // eliminating fully-applied lambda parameters. Replaces the bare
+            // `walk (betaReduce …)` the local/external inline call sites used:
+            //   1. peel the inline's lambdas, pairing each parameter with its arg;
+            //   2. a lambda-valued parameter every use of which is a saturated
+            //      application head is registered in `lambdaEnv` (the walker
+            //      splices it away) — its closure vanishes;
+            //   3. every other parameter (a value arg, or a lambda that is stored /
+            //      partially applied) is re-bound with an ordinary `Let`, exactly
+            //      as before — a surviving closure.
+            let reduceApplication (walk: TExpr -> TExpr) (expanded: TExpr) (args: (TExpr * SemType) list) : TExpr =
+                let rec peel (fn: TExpr) (args: (TExpr * SemType) list) (acc: (NodeKey * SemType * TExpr) list) =
+                    match fn, args with
+                    | _, [] -> List.rev acc, fn
+                    | TExpr.Lambda(TPat.NamedSimple(k, paramTy), body, _), (arg, _) :: rest ->
+                        peel body rest ((k, paramTy, arg) :: acc)
+                    | TExpr.Lambda(param, _, _), _ ->
+                        failwithf "InlineExpansion: inline parameter destructuring is out of scope: %A" param
+                    | _, _ :: _ -> failwith "InlineExpansion: over-application of an inline function"
+
+                let bindings, core = peel expanded args []
+
+                let candidates = Dictionary<NodeKey, TExpr>()
+
+                for (k, _, arg) in bindings do
+                    match arg with
+                    | TExpr.Lambda _ -> candidates.[k] <- arg
+                    | _ -> ()
+
+                let bad = nonInlinableLambdaParams candidates core
+
+                let inlinable = HashSet<NodeKey>()
+
+                for kv in candidates do
+                    if not (bad.Contains kv.Key) then
+                        inlinable.Add kv.Key |> ignore
+                        lambdaEnv.[kv.Key] <- kv.Value
+
+                let core' = walk core
+
+                for k in inlinable do
+                    lambdaEnv.Remove k |> ignore
+
+                // Re-bind the parameters not inlined away, innermost last so the
+                // `Let` nesting matches `betaReduce`'s left-to-right order. The arg
+                // is walked here (its own inline heads expand); an inlined arg is
+                // dropped — the walker spliced + walked a fresh copy at each use.
+                //
+                // TODO(frozen-type-plan 3A-3, byref-capture half): a lambda arg
+                // that lands here (NOT inlined — stored or partially applied) and
+                // captures a byref-like value (`Span`, `ReadOnlySpan`, any `ref
+                // struct`) is a real heap closure that cannot legally hold it.
+                // Today it compiles to a heap closure regardless (we have no
+                // byref-like detection — `SemType` has no ref-struct case and
+                // metadata drops byref params, see Inline.isStructType). The full
+                // path forks here: (1) emit it as a ref-struct closure
+                // (`Fun`-as-`ref struct`, the designed-for escape hatch) so the
+                // capture is legal, or (3) reject it like F# when it genuinely
+                // escapes (`HeapShared` per Regions). Either makes a currently
+                // (would-be) rejected program compile or fail cleanly; both need
+                // the byref-like predicate that does not exist yet.
+                List.foldBack
+                    (fun (k, paramTy, arg) acc ->
+                        if inlinable.Contains k then
+                            acc
+                        else
+                            TExpr.Let(TPat.NamedSimple(k, paramTy), walk arg, acc, TastWalk.exprTy acc)
+                    )
+                    bindings
+                    core'
+
             // The expansion walker. This is now the sole inline expander —
             // it took over `EmitLower.lowerExpr`'s (retired) inline branches
             // verbatim, minus eta-reification (an `External` function VALUE is
@@ -308,14 +460,24 @@ module InlineExpansion =
 
                                 match head with
                                 | TExpr.Var(k, _) when localInlines.ContainsKey k ->
-                                    ValueSome(walk (betaReduce (expandLocalAt k spineArgs) spineArgs))
+                                    ValueSome(reduceApplication walk (expandLocalAt k spineArgs) spineArgs)
+                                // A saturated use of an inline-first lambda
+                                // parameter (frozen-type-plan 3A-3): splice a fresh
+                                // copy of its bound lambda, beta-reduced against the
+                                // call args, and walk it (nested inline heads /
+                                // further lambda params resolve in the recursion).
+                                // `nonInlinableLambdaParams` guaranteed every use is
+                                // saturated, so `betaReduce` consumes exactly the
+                                // lambda's arity — no surviving closure.
+                                | TExpr.Var(k, _) when lambdaEnv.ContainsKey k ->
+                                    ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
                                 | TExpr.External(name, keyOpt, _) ->
                                     match lookupExternal keyOpt name with
                                     | ValueSome decl when
                                         externalArgsGround decl spineArgs
                                         || not (isSaturatedBuiltin name (List.length spineArgs))
                                         ->
-                                        ValueSome(walk (betaReduce (expandExternalAt decl spineArgs) spineArgs))
+                                        ValueSome(reduceApplication walk (expandExternalAt decl spineArgs) spineArgs)
                                     // An external head we don't expand (a saturated
                                     // builtin op with un-ground operands, or a
                                     // non-inline external call): keep the head,

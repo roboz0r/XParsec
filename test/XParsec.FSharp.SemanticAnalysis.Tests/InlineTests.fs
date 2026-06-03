@@ -238,4 +238,48 @@ let tests =
                     Expect.equal kRef kb "the bound reference follows the fresh binder"
                 | other -> failtestf "unexpected freshened shape: %A" other
             }
+
+            // frozen-type-plan 3A-3 (inline-first soundness, beta-reduction half):
+            // a lambda argument bound to an inline parameter and FULLY APPLIED in
+            // the body is inlined away — its closure never exists. A stored /
+            // partially-applied lambda parameter survives as a real closure.
+
+            // The parameter annotations keep these inlines monomorphic so the
+            // expanded use grounds fully (a polymorphic inline use leaves the
+            // template's typars free, an orthogonal front-end limitation). The
+            // lambda-elimination logic under test is independent of polymorphism.
+
+            test "a fully-applied inline lambda parameter is eliminated (no surviving closure)" {
+                // `apply` saturates `f` (one arg, arity 1), so the lambda is
+                // spliced in and beta-reduced — the expanded use has no `fun`.
+                let tast =
+                    analyse "let inline apply (f: int -> int) (x: int) = f x in apply (fun y -> y + 1) 41"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let body = TastShape.prettyDecl tast.Decls.[1]
+                Expect.isFalse (body.Contains "fun") (sprintf "no surviving closure: %s" body)
+                Expect.stringContains body "+ 1" "the inlined lambda body survives"
+            }
+
+            test "a doubly-applied inline lambda parameter is eliminated at both sites" {
+                // `twice f x = f (f x)`: both uses are saturated, so both copies
+                // of the lambda are spliced (each freshened) and no closure remains.
+                let tast =
+                    analyse "let inline twice (f: int -> int) (x: int) = f (f x) in twice (fun y -> y + 1) 10"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let body = TastShape.prettyDecl tast.Decls.[1]
+                Expect.isFalse (body.Contains "fun") (sprintf "both closures eliminated: %s" body)
+            }
+
+            test "a stored inline lambda parameter survives as a closure" {
+                // `pick f = f` returns its parameter rather than applying it, so
+                // the lambda cannot be inlined away — it stays a real closure (the
+                // 3A-3 fallback; the byref-capture reject of such a survivor is the
+                // deferred half).
+                let tast = analyse "let inline pick (f: int -> int) = f in pick (fun y -> y + 1)"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let body = TastShape.prettyDecl tast.Decls.[1]
+                Expect.stringContains body "fun" (sprintf "closure survives: %s" body)
+            }
         ]
