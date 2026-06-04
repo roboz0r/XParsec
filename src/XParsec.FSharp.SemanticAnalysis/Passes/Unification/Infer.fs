@@ -634,7 +634,7 @@ module UnificationInfer =
         | Some ge ->
             // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's
             // own instantiation (`List`1+Enumerator` over the source's `'T`).
-            match ge.BuildSignature srcArgs with
+            match ExternalSymbols.openSignature ge srcArgs with
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
                 match ExternalSymbols.tryLookupType ctx.Provider enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
@@ -650,15 +650,15 @@ module UnificationInfer =
 
                     match moveNext, current with
                     | Some mn, Some cur ->
-                        match mn.BuildSignature enumArgs with
+                        match ExternalSymbols.openSignature mn enumArgs with
                         | TyFun(_, TyConst("bool", _)) ->
-                            let elemTy = cur.BuildSignature enumArgs
+                            let elemTy = ExternalSymbols.openSignature cur enumArgs
 
                             // The enumerator only needs disposing — and the `finally`
                             // region only exists — when it is `IDisposable` (C# parity).
                             let dispose =
                                 if
-                                    enumShape.Interfaces enumArgs
+                                    ExternalSymbols.instantiateInterfaces enumShape enumArgs
                                     |> Array.exists (fun (n, _) -> n = "System.IDisposable")
                                 then
                                     ValueSome(
@@ -717,7 +717,7 @@ module UnificationInfer =
                 | ValueSome r -> ValueSome r
                 | ValueNone ->
                     match
-                        shape.Interfaces argArr
+                        ExternalSymbols.instantiateInterfaces shape argArr
                         |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
                     with
                     | Some elem -> ValueSome(elem, ForInEnumerator.Interface)
@@ -1029,7 +1029,7 @@ module UnificationInfer =
                         }
                     )
 
-                    m.BuildSignature(args.AsSpan().ToArray())
+                    ExternalSymbols.openSignature m (args.AsSpan().ToArray())
                 | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
             // Union instance member access (P3d.3) — mirrors the `TyClass` arm
@@ -1063,7 +1063,7 @@ module UnificationInfer =
                         }
                     )
 
-                    m.BuildSignature(args.AsSpan().ToArray())
+                    ExternalSymbols.openSignature m (args.AsSpan().ToArray())
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.
@@ -1091,38 +1091,10 @@ module UnificationInfer =
     /// overload — single-candidate access keeps the existing single-pick path, so
     /// behaviour is unchanged everywhere it already worked. Commits the chosen
     /// `SymbolKey` to `ExternalAccess` keyed on the member node where Freeze reads it.
-    /// Replace each baked method-owned typar (`TempTypar(Method, j)`) in a
-    /// resolved external member's open signature with a fresh inference var — one
-    /// per index, shared across the whole signature — turning a generic-method
-    /// definition into a use-site instantiation `unify` can solve. A non-generic
-    /// member carries no such node and is returned structurally unchanged.
-    /// (frozen-type-plan 2C: `TempTypar` is otherwise post-freeze-only; this
-    /// transient use is substituted away *before* any `unify`, so none enters the
-    /// inference graph — the result is `TyVar`s and ground types only.)
-    and private instantiateMethodTypars (ctx: PassContext) (t: SemType) : SemType =
-        let cache = Dictionary<int, SemType>()
-
-        let rec go (t: SemType) : SemType =
-            match t with
-            | TempTypar(TyparAxis.Method, j) ->
-                match cache.TryGetValue j with
-                | true, v -> v
-                | _ ->
-                    let v = TyVar(freshTyVar ctx)
-                    cache.[j] <- v
-                    v
-            | TempTypar(TyparAxis.Declaring, _)
-            | TyVar _
-            | TyUnknown _ -> t
-            | TyConst(n, args) -> TyConst(n, EqArray.map go args)
-            | TyFun(a, b) -> TyFun(go a, go b)
-            | TyTuple items -> TyTuple(EqArray.map go items)
-            | TyRecord(k, args) -> TyRecord(k, EqArray.map go args)
-            | TyUnion(k, args) -> TyUnion(k, EqArray.map go args)
-            | TyClass(k, args) -> TyClass(k, EqArray.map go args)
-
-        go t
-
+    /// The chosen member's method-owned typars (`Take<TSource>`) are freshened to
+    /// inference vars by `ExternalSymbols.instantiateSignature` so the argument
+    /// types drive their solution (external-signature-plan step 2; supersedes the
+    /// former `BuildSignature` + `instantiateMethodTypars` pair).
     and private tryInferExternalStaticMethodCall
         (ctx: PassContext)
         (key: NodeKey)
@@ -1161,7 +1133,9 @@ module UnificationInfer =
                     // Instantiate the method-owned typars (`Take<TSource>`) to fresh
                     // vars so the argument types drive their solution; a non-generic
                     // overload is unchanged (frozen-type-plan 2C).
-                    let memberSig = instantiateMethodTypars ctx (chosen.BuildSignature typeArgs)
+                    let memberSig =
+                        ExternalSymbols.instantiateSignature chosen typeArgs ctx.CurrentLevel
+
                     (freshTv ctx fnKey).Link <- ValueSome memberSig
                     let resultTy = TyVar(freshTyVar ctx)
                     unify ctx key memberSig (TyFun(argTy, resultTy))
@@ -1261,7 +1235,7 @@ module UnificationInfer =
 
             match pickStaticOverload typeArgs ctors (argElemsOf argTy) with
             | ValueSome chosen ->
-                let ctorSig = chosen.BuildSignature typeArgs
+                let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key ctorSig (TyFun(argTy, resultTy))
                 unify ctx key resultTy receiverTy
@@ -1620,7 +1594,7 @@ module UnificationInfer =
         | _ ->
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) when
-                shape.Interfaces(args.AsSpan().ToArray())
+                ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.exists (fun (n, _) -> n = "System.IDisposable")
                 ->
                 ValueSome(

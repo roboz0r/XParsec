@@ -507,6 +507,49 @@ module ExternalSymbols =
         else
             TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
 
+    /// The *open* realisation of a member's `Signature`: declaring typars
+    /// substituted from `declaringArgs`, but the member's own method typars left
+    /// as `TempTypar(Method,j)` markers — exactly the shape `BuildSignature`
+    /// produced (external-signature-plan step 2). This is the applicability-
+    /// filtering / single-pick form; a generic method's `TempTypar(Method,_)`
+    /// stays a wildcard for `InferOverload.semTypeEq`, and the bind site that
+    /// commits the member freshens them separately (`instantiateSignature`, or
+    /// `Infer.instantiateMethodTypars`). For a non-generic member (the common
+    /// case) it is byte-identical to `instantiateSignature` at any level.
+    let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
+        let decl i = declaringArgs.[i]
+        let methodOpen j = TempTypar(TyparAxis.Method, j)
+        let s = m.Signature
+
+        if m.IsProperty then
+            instantiateWith decl methodOpen s.Return
+        else
+            TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return)
+
+    /// Realise a record field's type at a use site (`FTTypar(Declaring,i) →
+    /// declaringArgs.[i]`). The data-form replacement for `field.BuildType args`.
+    let instantiateFieldType (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
+        instantiateDeclaring f.Frozen declaringArgs
+
+    /// Realise a union case's field types at a use site. The data-form
+    /// replacement for `case.BuildFieldTypes |> Array.map (fun b -> b args)`.
+    let instantiateCaseFieldTypes (c: ExternalCaseShape) (declaringArgs: SemType[]) : SemType[] =
+        c.FrozenFieldTypes
+        |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs)
+
+    /// Realise a class/interface's directly-implemented interfaces as
+    /// `(compiled-name, type-args)` pairs. The data-form replacement for
+    /// `shape.Interfaces args`.
+    let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : (string * SemType[])[] =
+        shape.FrozenInterfaces
+        |> Array.map (fun (name, fts) -> name, fts |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs))
+
+    /// Realise a class's declared base type, if any. The data-form replacement
+    /// for `shape.BaseType |> ValueOption.map (fun b -> b args)`.
+    let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
+        shape.FrozenBaseType
+        |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
+
     // --- Contract-extraction finalize pass (external-signature-plan step 1) ----
     //
     // A contract-layer descriptor's `SemType[] -> SemType` closure can't be

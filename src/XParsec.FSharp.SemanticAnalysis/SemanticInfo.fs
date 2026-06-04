@@ -650,6 +650,21 @@ module FrozenTypeBridge =
         let cache = System.Collections.Generic.Dictionary<int, SemType>()
         instantiateWith (fun i -> declaringArgs.[i]) (methodFreshener cache level) template
 
+    /// Realise a *declaring-only* template (a type-shape descriptor — a record
+    /// field, union-case field, interface arg, base type, or abbreviation body):
+    /// `FTTypar(Declaring,i) → declaringArgs.[i]`. These descriptors carry no
+    /// method axis (only members do), so a `FTTypar(Method,_)` here is a producer
+    /// bug — it fails loud rather than fabricating a var. Needs no `level`.
+    let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
+        instantiateWith
+            (fun i -> declaringArgs.[i])
+            (fun j ->
+                failwithf
+                    "FrozenTypeBridge.instantiateDeclaring: unexpected method typar %d in a type-shape template"
+                    j
+            )
+            template
+
 /// `∀ Quantified . Body`. Built by `Unification.generalise` and stored in
 /// `PassContext.Bindings.Scheme` keyed by the binding's headPat NodeKey. Each
 /// `inferIdent` of a generalised binding instantiates the scheme — mints a

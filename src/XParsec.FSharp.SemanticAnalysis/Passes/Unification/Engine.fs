@@ -360,9 +360,7 @@ module UnificationEngine =
             | false, _ ->
                 match ctx.Provider.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Class shape) ->
-                    match shape.BaseType with
-                    | ValueSome build -> ValueSome(build (args.AsSpan().ToArray()))
-                    | ValueNone -> ValueNone
+                    ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
                 | _ -> ValueNone
 
         // `seen` short-circuits a cyclic `inherit` chain re-entering a class.

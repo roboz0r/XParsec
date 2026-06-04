@@ -112,7 +112,7 @@ module UnificationInferResolve =
             let unionTy =
                 TyUnion(SymbolKeyOps.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
 
-            let fields = uc.Case.BuildFieldTypes |> Array.map (fun b -> b freshArgs)
+            let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
             ValueSome(unionTy, fields)
         | _ -> ValueNone
 
@@ -276,7 +276,7 @@ module UnificationInferResolve =
                 }
             )
 
-            m.BuildSignature(List.toArray typeArgs)
+            ExternalSymbols.openSignature m (List.toArray typeArgs)
         | ValueNone -> errorTy ctx key (sprintf "Type '%s' has no accessible member '%s'" metaName memberName)
 
     /// If `recv` is an *external generic type name* used as a static-access

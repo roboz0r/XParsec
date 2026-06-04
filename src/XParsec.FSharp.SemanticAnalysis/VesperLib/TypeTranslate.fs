@@ -492,13 +492,13 @@ module VesperLibTypeTranslate =
             TyClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
             TyRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
-        | ValueSome(ExternalTypeShape.Abbrev(_, build, _)) ->
-            // Expand the abbreviation to its body. `build` is the *defining*
-            // package's `translateType` builder, whose nominal heads already kind
-            // through `mkNominal` against that package's scope (its own shapes plus
-            // its dependencies) — so the expanded body is already kind-
-            // correct and needs no further reconciliation.
-            build (args.AsSpan().ToArray())
+        | ValueSome(ExternalTypeShape.Abbrev(_, _, frozen)) ->
+            // Expand the abbreviation to its body. `frozen` is the *defining*
+            // package's `translateType` builder frozen to a template, whose nominal
+            // heads already kind through `mkNominal` against that package's scope
+            // (its own shapes plus its dependencies) — so the expanded body is
+            // already kind-correct and needs no further reconciliation.
+            FrozenTypeBridge.instantiateDeclaring frozen (args.AsSpan().ToArray())
         | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(SymbolKeyOps.shortName compiled, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) ->
             failwithf

@@ -463,7 +463,8 @@ module UnificationTranslate =
                         // baked every head against the defining package's scope
                         // so a union/class alias (`'T option = Option<'T>`)
                         // expands to a properly-kinded body.
-                        | ExternalTypeShape.Abbrev(_, build, _) -> Some(build (translatedArgs.AsSpan().ToArray()))
+                        | ExternalTypeShape.Abbrev(_, _, frozen) ->
+                            Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
                         // An `Opaque` residue (a GADT union / enum / unmodelled body)
                         // has no kind to resolve a *type annotation* to — skip
                         // this candidate, exactly as a name with no shape did before the

@@ -54,7 +54,7 @@ module UnificationInferOverload =
     and memberParamTypes (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
         let n = memberParamCount m
 
-        match zonk (m.BuildSignature typeArgs) with
+        match zonk (ExternalSymbols.openSignature m typeArgs) with
         | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
         | TyFun(TyConst("unit", _), _) when n = 0 -> []
         | TyFun(p, _) -> [ p ]
