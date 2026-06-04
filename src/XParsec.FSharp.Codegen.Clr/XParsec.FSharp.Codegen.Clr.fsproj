@@ -11,6 +11,7 @@
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="SymbolProviders.fs" />
     <Compile Include="ICodegenProvider.fs" />
+    <Compile Include="CodegenSymbols.fs" />
     <Compile Include="ClrEnv.fs" />
     <Compile Include="ClrEncoder.fs" />
     <Compile Include="ClrGenerics.fs" />

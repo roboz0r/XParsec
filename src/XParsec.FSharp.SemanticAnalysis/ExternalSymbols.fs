@@ -470,6 +470,46 @@ type IExternalSymbolProvider =
     /// all do (and for providers with no inline bodies).
     abstract TryLookupInlineBodyByName: name: string -> TDecl voption
 
+/// The open signature of an external module-level function as the codegen
+/// boundary sees it (external-signature-plan step 3): the curried
+/// `param -> … -> return` template with the function's own typars baked as
+/// `FTTypar(Method, i)`, plus the home `Origin` the call's `MemberRef` parent is
+/// minted against and the method-typar count for the `MethodSpec`. The immutable-
+/// data replacement for codegen reaching `ExternalSymbol` + `Inline.openMethodSignature`:
+/// `Signature` is `FrozenType`, so the codegen side never touches a `SemType` or the
+/// symbol's mutable `Instantiate` closure.
+type CodegenOpenSignature =
+    {
+        Origin: SymbolOrigin
+        Signature: FrozenType
+        MethodArity: int
+    }
+
+/// The **codegen-facing** view of the external-symbol contract (external-signature
+/// -plan: "dual view over one provider"). Where `IExternalSymbolProvider` exposes the
+/// inference surface (the `SemType`-returning `Instantiate`, `Constraints`, inline
+/// bodies, the ambient-open scope), this exposes **only** what emission needs to mint
+/// references: the type/member shapes (whose `FrozenType` templates codegen reads — it
+/// never runs the legacy `SemType[] -> SemType` closures) and the open signature of a
+/// module-level function. `ClrEnv` holds this instead of `IExternalSymbolProvider`, so
+/// the emission code can no longer reach `Instantiate` / constraints / mutable inference
+/// state. One backing provider implements both views (`ExternalSymbols.codegenView`).
+type ICodegenSymbols =
+    /// Look up a `type` declaration's shape by canonical compiled name (the parent
+    /// `TypeRef` + the field/case templates codegen encodes).
+    abstract TryLookupType: name: string -> ExternalTypeShape voption
+    /// The single best-by-arity member overload (the fallback when the front end's
+    /// exact key isn't in the candidate set).
+    abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
+    /// Every overload of a member name — the set codegen filters by the front end's
+    /// resolved `SymbolKey` (or re-picks a ctor from, by call-site arg types).
+    abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
+    /// The open `FrozenType` signature of a module-level function, or `ValueNone` for
+    /// an unknown symbol or one with no home assembly (a project-local symbol the
+    /// provider never sees — the caller falls back to its hard error). The data-form
+    /// replacement for `TryLookup` + `Inline.openMethodSignature` at the codegen boundary.
+    abstract TryLookupOpenSignature: name: string -> CodegenOpenSignature voption
+
 module ExternalSymbols =
 
     // The generic `SymbolKey` ↔ compiled-name string algebra (`bareName`,

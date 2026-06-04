@@ -260,8 +260,10 @@ module Inline =
     /// function — the returned `Signature` is `TyVar`-free.
     type OpenMethodSignature =
         {
-            /// Curried `param -> … -> return` with method typars as `TempTypar(Method, i)`.
-            Signature: SemType
+            /// Curried `param -> … -> return` frozen template with method typars as
+            /// `FTTypar(Method, i)` (external-signature-plan step 3: the codegen-facing
+            /// open signature is immutable `FrozenType` data, not a `SemType`).
+            Signature: FrozenType
             /// Count of distinct method typars — the `MethodSpec` generic-parameter count.
             MethodArity: int
         }
@@ -324,6 +326,6 @@ module Inline =
             | (TyUnknown _ | TempTypar _) as other -> other
 
         {
-            Signature = toOpen monoSig
+            Signature = toFrozen (toOpen monoSig)
             MethodArity = order.Count
         }

@@ -14,14 +14,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let symbols = env.Symbols
     let zonk t = env.Zonk t
     let arityOfMetaName n = env.ArityOfMetaName n
-    let decurryTy t = env.DecurryTy t
     let externalClassRef n = env.ExternalClassRef n
     let externalRecordRef fullName arity = env.ExternalRecordRef(fullName, arity)
     let externalUnionRef fullName arity = env.ExternalUnionRef(fullName, arity)
     let encodeType te t = enc.EncodeType(te, t)
+    let encodeFrozen te t = enc.EncodeFrozen(te, t)
     let methodSpec handle args = enc.MethodSpec(handle, args)
 
-    let recoverOpenTypars declArity methodArity openT instT =
+    let recoverOpenTypars declArity methodArity (openT: FrozenType) (instT: FrozenType) =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
     let externalTypeSpec tref instArgs = enc.ExternalTypeSpec(tref, instArgs)
@@ -32,17 +32,20 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalMemberCache = Dictionary<string, EntityHandle>()
 
     /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
-    /// `void`-return fix) over an open signature carrying self-describing `TempTypar` nodes, and mint
-    /// it on `parent`. The keystone `encodeType` arm resolves each `TempTypar(Declaring, i)` to `!i`
-    /// and `TempTypar(Method, j)` to `!!j` directly off the node (frozen-type-plan 2C) — no marker
-    /// `TypeVar` / ambient window. `methodArity > 0` sets the `GENERIC` calling-convention header count
-    /// for a generic external method (`Enumerable.Take<TSource>`); the caller wraps the result in a
-    /// `MethodSpec`. Shared by `externalMemberRef` (parent recovered by signature match) and
+    /// `void`-return fix) directly from the member's open `FrozenType` signature template
+    /// (external-signature-plan step 3): `paramsT` is the .NET-tupled argument slot and `retT` the
+    /// return, each carrying self-describing `FTTypar(Declaring, i)` / `FTTypar(Method, j)` placeholders
+    /// the `encodeType` arm resolves to `!i` / `!!j` directly. Replaces running the legacy
+    /// `BuildSignature` closure on marker typars then decurrying — the template already carries the
+    /// single top-level tupled split. `methodArity > 0` sets the `GENERIC` calling-convention header
+    /// count for a generic external method (`Enumerable.Take<TSource>`); the caller wraps the result in
+    /// a `MethodSpec`. Shared by `externalMemberRef` (parent recovered by signature match) and
     /// `externalMemberRefOn` (parent encoded straight from the declaring type).
     let mintMemberRef
         (parent: EntityHandle)
         (methodArity: int)
-        (openSig: SemType)
+        (paramsT: FrozenType)
+        (retT: FrozenType)
         (isProperty: bool)
         (isStatic: bool)
         (argSigLen: int)
@@ -56,21 +59,19 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(isInstanceMethod = not isStatic)
                 .Parameters(
                     0,
-                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) openSig),
+                    (fun (ret: ReturnTypeEncoder) -> encodeFrozen (ret.Type()) retT),
                     (fun (_: ParametersEncoder) -> ())
                 )
         else
-            let rawParams, retTy = decurryTy openSig
-
-            // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`),
-            // so the lone decurried "parameter" is the argument `TyTuple` — flatten it back
-            // to N parameters, driven by the chosen key's `argSig` length (authoritative: a genuine
-            // single `(int*int)` param has argSig length 1 and stays one parameter). Arity ≤ 1 unchanged.
+            // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`), so the single
+            // `Parameters` template is the argument `FTTuple` — flatten it back to N parameters, driven
+            // by the chosen key's `argSig` length (authoritative: a genuine single `(int*int)` param has
+            // argSig length 1 and stays one parameter). Arity ≤ 1 / `unit` unchanged.
             let paramTys =
-                match rawParams with
-                | [ TyConst("unit", _) ] -> []
-                | [ TyTuple elems ] when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
-                | ps -> ps
+                match paramsT with
+                | FTConst("unit", _) -> []
+                | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
+                | p -> [ p ]
 
             BlobEncoder(s)
                 .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = not isStatic)
@@ -84,13 +85,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     // runtime fails to bind it (`MissingMethodException`). Emit
                     // `void` directly here (`IDisposable.Dispose`, `List.Add`).
                     (fun (ret: ReturnTypeEncoder) ->
-                        match retTy with
-                        | TyConst("unit", _) -> ret.Void()
-                        | _ -> encodeType (ret.Type()) retTy
+                        match retT with
+                        | FTConst("unit", _) -> ret.Void()
+                        | _ -> encodeFrozen (ret.Type()) retT
                     ),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeFrozen (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -112,6 +113,18 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match chosen with
         | ValueSome m -> m
         | ValueNone -> failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
+
+    /// The member's open signature as a single `FrozenType` template: the bare value type
+    /// for a property, else the .NET-tupled `FTFun(params, ret)`. The form
+    /// `recoverOpenTypars` matches against the instantiated use-site type (the two-axis
+    /// split having been baked by the producer); `mintMemberRef` consumes the split fields.
+    let openTemplate (chosen: ExternalMember) (isProperty: bool) : FrozenType =
+        let s = chosen.Signature
+
+        if isProperty then
+            s.Return
+        else
+            FTFun(s.Parameters, s.Return)
 
     /// Mint the `MemberRef` for a `TExpr.ExternalMember` (P4). The member's *open* signature is read
     /// from the (key-pinned, provider-cached) lookup over `TempTypar(Declaring, i)` markers — and, for a
@@ -139,14 +152,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             let declArity = arityOfMetaName name
 
-            let markerTys =
-                [| for i in 0 .. declArity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
             let chosen = lookupChosen declFullName memberName key
             let methodArity = chosen.MethodArity
-            let openSig = chosen.BuildSignature markerTys
+            let sig_ = chosen.Signature
 
-            let declArgs, methodArgs = recoverOpenTypars declArity methodArity openSig instTy
+            let declArgs, methodArgs =
+                recoverOpenTypars declArity methodArity (openTemplate chosen isProperty) (toFrozen instTy)
 
             let tref =
                 match externalClassRef declFullName with
@@ -158,7 +169,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             let handle =
                 methodSpec
-                    (mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName)
+                    (mintMemberRef
+                        parent
+                        methodArity
+                        sig_.Parameters
+                        sig_.Return
+                        isProperty
+                        isStatic
+                        argSig.Length
+                        memberName)
                     methodArgs
 
             externalMemberCache.[memoKey] <- handle
@@ -190,13 +209,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
         let declZ = zonk declTy
 
-        let declArgs =
-            match declZ with
-            | TyClass(_, a)
-            | TyUnion(_, a)
-            | TyRecord(_, a) -> EqArray.toList a
-            | _ -> []
-
         let instTy = zonk memberTy
         let memoKey = sprintf "on|%A|%A|%b|%b|%A" key declZ isProperty isStatic instTy
 
@@ -205,22 +217,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | _ ->
             let declFullName = if ns = "" then name else ns + "." + name
 
-            // Marker count = the declaring type's generic arity, read off `declTy`'s own args (the
-            // resolved enumerator instantiation), since `arityOfMetaName` returns 0 for a nested
-            // `…List`1+Enumerator` name. The keystone `encodeType` arm sees exactly these `!i` slots
-            // (frozen-type-plan 2C); a generic method also bakes its `!!j` slots through `BuildSignature`.
-            let declArity = List.length declArgs
-
-            let markerTys =
-                [| for i in 0 .. declArity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
             let chosen = lookupChosen declFullName memberName key
             let methodArity = chosen.MethodArity
-            let openSig = chosen.BuildSignature markerTys
+            let sig_ = chosen.Signature
 
             // The declaring args come straight off `declTy` (the whole point of this entry point); only
-            // the method axis (if any) is recovered by matching the open signature against `memberTy`.
-            let _, methodArgs = recoverOpenTypars 0 methodArity openSig instTy
+            // the method axis (if any) is recovered by matching the open signature template against
+            // `memberTy`. Passing declArity 0 leaves the template's `FTTypar(Declaring, i)` unrecorded —
+            // those slots encode as `!i` straight off the node when the signature blob is minted.
+            let _, methodArgs =
+                recoverOpenTypars 0 methodArity (openTemplate chosen isProperty) (toFrozen instTy)
 
             // The parent is the declaring type encoded directly (value-type / nested correct), not
             // recovered+rebuilt — that is the whole point of this entry point.
@@ -228,7 +234,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             let handle =
                 methodSpec
-                    (mintMemberRef parent methodArity openSig isProperty isStatic argSig.Length memberName)
+                    (mintMemberRef
+                        parent
+                        methodArity
+                        sig_.Parameters
+                        sig_.Return
+                        isProperty
+                        isStatic
+                        argSig.Length
+                        memberName)
                     methodArgs
 
             externalMemberCache.[memoKey] <- handle
@@ -244,9 +258,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome(tref, fields) ->
             let parent = externalTypeSpec tref (List.map zonk args)
 
-            let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
-            let paramTys = [ for f in fields -> f.BuildType markerTys ]
+            // The fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
+            // descriptor template — no closure run on marker typars (external-signature-plan step 3).
+            let paramTys = [ for f in fields -> f.Frozen ]
 
             let s = BlobBuilder()
 
@@ -257,7 +271,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            encodeFrozen (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -281,12 +295,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | Some case ->
                 let parent = externalTypeSpec tref (List.map zonk args)
 
-                let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
-                let paramTys = [ for b in case.BuildFieldTypes -> b markerTys ]
+                // The case fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
+                // descriptor template; the return type is the union itself over the same open markers, so
+                // the signature matches the emitted generic factory (external-signature-plan step 3).
+                let paramTys = List.ofArray case.FrozenFieldTypes
 
                 let retTy =
-                    TyUnion(SymbolKeyOps.qualifiedTypeKey fullName arity, EqArray.ofArray markerTys)
+                    FTUnion(
+                        SymbolKeyOps.qualifiedTypeKey fullName arity,
+                        EqArray.ofArray [| for i in 0 .. arity - 1 -> FTTypar(TyparAxis.Declaring, i) |]
+                    )
 
                 let s = BlobBuilder()
 
@@ -294,10 +312,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     .MethodSignature(isInstanceMethod = false)
                     .Parameters(
                         List.length paramTys,
-                        (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                        (fun (ret: ReturnTypeEncoder) -> encodeFrozen (ret.Type()) retTy),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
-                                encodeType (pars.AddParameter().Type()) p
+                                encodeFrozen (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -341,20 +359,21 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
-            | Some case when fieldIndex >= 0 && fieldIndex < case.BuildFieldTypes.Length ->
+            | Some case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
                 let parent = externalTypeSpec tref (List.map zonk args)
 
-                let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
-                let openFieldTy = case.BuildFieldTypes.[fieldIndex] markerTys
+                // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob so it
+                // matches the generic field definition; `instantiateDeclaring` substitutes the use-site
+                // args for the returned (use-site) `SemType` (external-signature-plan step 3).
+                let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
 
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
+                encodeFrozen (BlobEncoder(s).FieldSignature()) openFieldTy
 
                 let handle =
                     toEntity (ctx.MemberRef(parent, sprintf "%s_%d" caseName fieldIndex, s))
 
-                let substitutedTy = case.BuildFieldTypes.[fieldIndex](List.toArray args)
+                let substitutedTy = instantiateDeclaring openFieldTy (List.toArray args)
                 ValueSome(handle, substitutedTy)
             | _ -> ValueNone
 
@@ -399,19 +418,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | ValueNone -> ValueNone
             | ValueSome tref ->
                 let parent = externalTypeSpec tref (List.map zonk tyArgs)
-                let typeArity = arityOfMetaName fullName
 
-                let markerTys =
-                    [| for i in 0 .. typeArity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
-                let openSig = chosen.BuildSignature markerTys
-                let rawParams, _ = decurryTy openSig
-
+                // The ctor's parameters in their *open* (`FTTypar(Declaring, i)`) form, read off the
+                // descriptor template's single tupled `Parameters` slot and flattened by the chosen key's
+                // `argSig` length, exactly as `mintMemberRef` does (external-signature-plan step 3).
                 let paramTys =
-                    match rawParams with
-                    | [ TyConst("unit", _) ] -> []
-                    | [ TyTuple elems ] when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
-                    | ps -> ps
+                    match chosen.Signature.Parameters with
+                    | FTConst("unit", _) -> []
+                    | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
+                    | p -> [ p ]
 
                 let s = BlobBuilder()
 
@@ -422,7 +437,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
-                                encodeType (pars.AddParameter().Type()) p
+                                encodeFrozen (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -452,15 +467,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | Some field ->
                 let parent = externalTypeSpec tref (List.map zonk args)
 
-                let markerTys = [| for i in 0 .. arity - 1 -> TempTypar(TyparAxis.Declaring, i) |]
-
-                let openFieldTy = field.BuildType markerTys
+                // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob;
+                // `instantiateDeclaring` substitutes the use-site args for the returned (use-site)
+                // `SemType` a subsequent `FieldGet` encode expects (external-signature-plan step 3).
+                let openFieldTy = field.Frozen
 
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
+                encodeFrozen (BlobEncoder(s).FieldSignature()) openFieldTy
                 let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
 
-                let substitutedTy = field.BuildType(List.toArray args)
+                let substitutedTy = instantiateDeclaring openFieldTy (List.toArray args)
                 ValueSome(handle, substitutedTy)
 
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =

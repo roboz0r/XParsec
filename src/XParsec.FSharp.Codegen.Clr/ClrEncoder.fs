@@ -256,57 +256,78 @@ type internal ClrEncoder(env: ClrEnv) =
         | other -> encodeType te other
 
     /// Recover both open-typar axes by structurally matching a member's *open*
-    /// signature — carrying self-describing `TempTypar(axis, i)` nodes (frozen-type-
-    /// plan 2C) — against its *instantiated* use-site type. Returns `(declaringArgs,
-    /// methodArgs)`, each index-keyed by the `TempTypar`'s own index (no reference
-    /// identity, no marker `TypeVar`). First occurrence wins; an unrecovered slot is
-    /// a bug.
+    /// signature template — carrying self-describing `FTTypar(axis, i)` nodes
+    /// (external-signature-plan step 3: the open form is immutable `FrozenType` data
+    /// read straight off the descriptor, not a `SemType[] -> SemType` closure run on
+    /// marker typars) — against its *instantiated* use-site type (already ground, so
+    /// frozen at the boundary). Returns `(declaringArgs, methodArgs)`, each index-keyed
+    /// by the `FTTypar`'s own index. First occurrence wins; an unrecovered slot is a
+    /// bug. The recovered slices are handed back as `SemType` (`ofFrozen`) so the
+    /// still-`SemType` emit walk consumes them unchanged until step 4 flips it.
     let recoverOpenTypars
         (declArity: int)
         (methodArity: int)
-        (openT: SemType)
-        (instT: SemType)
+        (openT: FrozenType)
+        (instT: FrozenType)
         : SemType list * SemType list =
         let decl = Array.create declArity ValueNone
         let meth = Array.create methodArity ValueNone
 
-        let rec go (d: SemType) (a: SemType) =
-            match zonk d, zonk a with
-            | TempTypar(axis, i), act ->
+        let rec go (d: FrozenType) (a: FrozenType) =
+            match d with
+            | FTTypar(axis, i) ->
                 let slot =
                     match axis with
                     | TyparAxis.Declaring -> decl
                     | TyparAxis.Method -> meth
 
                 if i >= 0 && i < slot.Length && slot.[i].IsNone then
-                    slot.[i] <- ValueSome act
-            | TyFun(a1, r1), TyFun(a2, r2) ->
-                go a1 a2
-                go r1 r2
-            | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
-                for i in 0 .. xs.Length - 1 do
-                    go xs.[i] ys.[i]
-            | _ -> ()
+                    slot.[i] <- ValueSome a
+            | FTFun(a1, r1) ->
+                match a with
+                | FTFun(a2, r2) ->
+                    go a1 a2
+                    go r1 r2
+                | _ -> ()
+            | FTTuple xs ->
+                match a with
+                | FTTuple ys when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+            | FTRecord(_, xs) ->
+                match a with
+                | FTRecord(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+            | FTUnion(_, xs) ->
+                match a with
+                | FTUnion(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+            | FTClass(_, xs) ->
+                match a with
+                | FTClass(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+            | FTConst(_, xs) ->
+                match a with
+                | FTConst(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+            | FTUnknown _ -> ()
 
         go openT instT
 
-        let collect (name: string) (slots: SemType voption[]) =
+        let collect (name: string) (slots: FrozenType voption[]) =
             [
                 for i in 0 .. slots.Length - 1 ->
                     match slots.[i] with
-                    | ValueSome t -> t
+                    | ValueSome t -> ofFrozen t
                     | ValueNone ->
                         failwithf
                             "ClrProvider: could not recover %s type argument %d (open %A vs %A)"
@@ -360,6 +381,13 @@ type internal ClrEncoder(env: ClrEnv) =
 
     member _.EncodeListOf(te, inner) = encodeListOf te inner
     member _.EncodeType(te, t) = encodeType te (frozen t)
+
+    /// Encode a `FrozenType` directly — the descriptor-template path
+    /// (external-signature-plan step 3), where the type is already an inert template
+    /// (an open field / parameter / return slot carrying `FTTypar` placeholders) so it
+    /// bypasses the `SemType`-zonk-and-freeze cut `EncodeType` applies.
+    member _.EncodeFrozen(te, t: FrozenType) = encodeType te t
+
     member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te (frozen t)
 
     member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =

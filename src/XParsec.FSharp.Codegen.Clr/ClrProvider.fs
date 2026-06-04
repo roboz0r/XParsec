@@ -26,7 +26,9 @@ type ClrProvider
         assemblyName: string
     ) =
 
-    let env = ClrEnv(ctx, reprs, references, symbols, assemblyName)
+    let env =
+        ClrEnv(ctx, reprs, references, CodegenSymbols.ofProvider symbols, assemblyName)
+
     let enc = ClrEncoder(env)
     let generics = ClrGenerics(env, enc)
     let ext = ClrExternalMembers(env, enc)

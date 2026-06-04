@@ -12,14 +12,26 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let symbols = env.Symbols
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let zonk t = env.Zonk t
-    let decurryTy t = env.DecurryTy t
     let externalAsmRef asm = env.ExternalAsmRef asm
 
     let recoverOpenTypars declArity methodArity openT instT =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
     let encodeType te t = enc.EncodeType(te, t)
+    let encodeFrozen te t = enc.EncodeFrozen(te, t)
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
+
+    /// Decurry a `FrozenType` arrow chain into `(params, return)` — the `FrozenType`
+    /// analogue of `ClrEnv.decurryTy`, for the open module-function template
+    /// (external-signature-plan step 3). A curried `p1 -> … -> pN -> ret` peels to
+    /// `([p1; …; pN], ret)`.
+    let rec decurryFrozen (t: FrozenType) : FrozenType list * FrozenType =
+        match t with
+        | FTFun(a, b) ->
+            let ps, r = decurryFrozen b
+            a :: ps, r
+        | other -> [], other
+
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
     let methodSpec handle args = enc.MethodSpec(handle, args)
     let formatterTypeName = env.FormatterTypeName
@@ -390,57 +402,57 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             else
                 declFullName + "." + name
 
-        match symbols.TryLookup compiledFullName with
+        match symbols.TryLookupOpenSignature compiledFullName with
         | ValueNone -> ValueNone
-        | ValueSome sym ->
-            match sym.Origin.Assembly with
-            | None -> ValueNone
-            | Some _ ->
-                // The symbol's open curried monotype, with its method typars already self-describing
-                // `TempTypar(Method, i)` (`Inline.openMethodSignature` instantiates + rewrites in the
-                // symbol layer, so codegen authors no `TypeVar`). Its nominal heads are already kind-
-                // correct (`'T option` ⇒ `TyUnion`) — dependency-aware extraction bakes them so — so they
-                // encode + recover against the producer's emitted signature with no reconciliation.
-                let openSig = Inline.openMethodSignature sym
-                let methodArity = openSig.MethodArity
-                let openParamTys, openRetTy = decurryTy openSig.Signature
+        | ValueSome openSig ->
+            // The symbol's open curried signature *template*, with its method typars already self-
+            // describing `FTTypar(Method, i)` (`ICodegenSymbols.TryLookupOpenSignature` instantiates +
+            // freezes in the symbol layer, so codegen authors no `TypeVar` and never touches `Instantiate`,
+            // external-signature-plan step 3). Its nominal heads are already kind-correct (`'T option` ⇒
+            // `FTUnion`), so they encode + recover against the producer's emitted signature unchanged.
+            let methodArity = openSig.MethodArity
+            let openParamTys, openRetTy = decurryFrozen openSig.Signature
 
-                // The open method-ref signature: parameters + return encoded with the method typars as
-                // `!!i`, as the producer's static-method emit uses.
-                let msig =
-                    let s = BlobBuilder()
+            // The open method-ref signature: parameters + return encoded with the method typars as
+            // `!!i`, as the producer's static-method emit uses.
+            let msig =
+                let s = BlobBuilder()
 
-                    BlobEncoder(s)
-                        .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
-                        .Parameters(
-                            List.length openParamTys,
-                            (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) openRetTy),
-                            (fun (pars: ParametersEncoder) ->
-                                for p in openParamTys do
-                                    encodeType (pars.AddParameter().Type()) p
-                            )
+                BlobEncoder(s)
+                    .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
+                    .Parameters(
+                        List.length openParamTys,
+                        (fun (ret: ReturnTypeEncoder) -> encodeFrozen (ret.Type()) openRetTy),
+                        (fun (pars: ParametersEncoder) ->
+                            for p in openParamTys do
+                                encodeFrozen (pars.AddParameter().Type()) p
                         )
+                    )
 
-                    s
+                s
 
-                let parent = externalModuleRef sym.Origin.Assembly sym.Origin.Namespace declFullName
-                let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
+            let parent =
+                externalModuleRef openSig.Origin.Assembly openSig.Origin.Namespace declFullName
 
-                let callHandle =
-                    if methodArity = 0 then
-                        memberRef
-                    else
-                        // Use-site instantiation: match the open monotype (its `TempTypar(Method, i)`)
-                        // against the call's concrete type, recovering each method arg by its index.
-                        let _, methodArgs = recoverOpenTypars 0 methodArity openSig.Signature (zonk fnTy)
-                        methodSpec memberRef methodArgs
+            let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
 
-                ValueSome
-                    {
-                        Emit = fun il -> il.Encoder.Call callHandle
-                        ArgCount = List.length openParamTys
-                        Pushes = 1
-                    }
+            let callHandle =
+                if methodArity = 0 then
+                    memberRef
+                else
+                    // Use-site instantiation: match the open template (its `FTTypar(Method, i)`) against
+                    // the call's concrete type, recovering each method arg by its index.
+                    let _, methodArgs =
+                        recoverOpenTypars 0 methodArity openSig.Signature (toFrozen (zonk fnTy))
+
+                    methodSpec memberRef methodArgs
+
+            ValueSome
+                {
+                    Emit = fun il -> il.Encoder.Call callHandle
+                    ArgCount = List.length openParamTys
+                    Pushes = 1
+                }
 
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the
     /// `Vesper.Formatter` write-through handler. All members hang off the non-generic `Formatter` value

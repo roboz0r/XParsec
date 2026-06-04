@@ -36,7 +36,7 @@ type internal ClrEnv
         ctx: MetadataContext,
         reprs: Map<string, string>,
         references: Map<string, AssemblyName>,
-        symbols: IExternalSymbolProvider,
+        symbols: ICodegenSymbols,
         assemblyName: string
     ) =
 
@@ -440,7 +440,7 @@ type internal ClrEnv
     member _.Ctx = ctx
     member _.Reprs = reprs
     member _.References = references
-    member _.Symbols = symbols
+    member _.Symbols: ICodegenSymbols = symbols
 
     member _.FsCoreRef = fsCoreRef
     member _.CoreRef = coreRef
