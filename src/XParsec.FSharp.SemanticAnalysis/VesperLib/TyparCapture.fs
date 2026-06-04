@@ -26,6 +26,23 @@ module VesperLibTyparCapture =
     /// call sites of the same val never share TyVars.
     type SemBuilder = SemType[] -> SemType
 
+    /// The deferred descriptor closures a type-shape body carries between
+    /// extraction and the `ExtractCtx.toProvider` finalize pass — held off the
+    /// shape (the shape itself is immutable `FrozenType` data, per
+    /// external-signature-plan step 5) so the finalize pass can freeze them once
+    /// the registry is complete (a body may forward-reference a type declared
+    /// later in the same package). Index-aligned with the shape's field / case /
+    /// nothing.
+    [<RequireQualifiedAccess>]
+    type DeferredBody =
+        /// The abbreviation's RHS builder.
+        | Abbrev of SemBuilder
+        /// One builder per record field, in declaration order.
+        | Record of SemBuilder[]
+        /// One builder array per union case (in case order), each indexed by the
+        /// case's fields.
+        | Union of SemBuilder[][]
+
     [<RequireQualifiedAccess>]
     type TyparKind =
         | Regular
@@ -125,6 +142,19 @@ module VesperLibTyparCapture =
         /// type `o.IsSome` against the contract (vesper-lib-test-plan Gap 2
         /// Layer A). Empty for types with no augmentation members.
         member val TypeMembers = Dictionary<string, ResizeArray<ExternalMember>>(StringComparer.Ordinal) with get
+        /// The deferred descriptor closures for each `TypeShapes` body
+        /// (`Record` / `Union` / `Abbrev`), keyed by the same qualified compiled
+        /// name. Held here rather than on the shape (which carries only immutable
+        /// `FrozenType` data — external-signature-plan step 5); the
+        /// `toProvider` finalize pass freezes them into the shape's templates once
+        /// the registry is complete. `Class` / `Intrinsic` / `Opaque` bodies carry
+        /// no closure and have no entry.
+        member val DeferredBodies = Dictionary<string, DeferredBody>(StringComparer.Ordinal) with get
+        /// The deferred signature closures for each `TypeMembers` entry, keyed by
+        /// the declaring type's qualified compiled name and index-aligned with the
+        /// member list. Frozen into each member's `Signature` by the `toProvider`
+        /// finalize pass.
+        member val DeferredMembers = Dictionary<string, ResizeArray<SemBuilder>>(StringComparer.Ordinal) with get
         /// Intrinsic-representation index: *short* type name -> CLI repr string,
         /// harvested from the package's per-target `.fs` companions
         /// (`type exn = (# "System.Exception" #)` ⇒ `"exn" -> "System.Exception"`).
@@ -201,22 +231,67 @@ module VesperLibTyparCapture =
         /// `ReferencedProject` uses for Vesper packages.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
             // Finalize the deferred `FrozenType` templates (external-signature-plan
-            // step 1). Extraction stored `deferredTemplate` sentinels because a
-            // descriptor closure can't be frozen mid-walk — it may forward-
-            // reference a type registered later in the package. The registry is now
-            // complete, so derive the real templates (tolerantly: a genuinely body-
-            // less head degrades to `FTUnknown`). Done in place before the provider
+            // step 1). Extraction stashed the descriptor closures in
+            // `ctx.DeferredBodies` / `ctx.DeferredMembers` (off the shape, which
+            // carries only immutable data — step 5) because a closure can't be
+            // frozen mid-walk: it may forward-reference a type registered later in
+            // the package. The registry is now complete, so freeze the stashed
+            // builders into the shapes' templates (tolerantly: a genuinely body-less
+            // head degrades to `FTUnknown`). Done in place before the provider
             // closes over the tables.
             let shapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
 
             for k in shapeKeys do
-                ctx.TypeShapes.[k] <- ExternalSymbols.finalizeTypeShapeTemplates ctx.TypeShapes.[k]
+                let shape = ctx.TypeShapes.[k]
+
+                let finalized =
+                    match shape, ctx.DeferredBodies.TryGetValue k with
+                    | ExternalTypeShape.Record(arity, fields, origin), (true, DeferredBody.Record builds) ->
+                        let fields' =
+                            fields
+                            |> Array.mapi (fun i f ->
+                                { f with
+                                    Frozen = ExternalSymbols.freezeTemplateTolerant arity builds.[i]
+                                }
+                            )
+
+                        ExternalTypeShape.Record(arity, fields', origin)
+                    | ExternalTypeShape.Union(arity, cases, origin), (true, DeferredBody.Union caseBuilds) ->
+                        let cases' =
+                            cases
+                            |> Array.mapi (fun i c ->
+                                { c with
+                                    FrozenFieldTypes =
+                                        caseBuilds.[i] |> Array.map (ExternalSymbols.freezeTemplateTolerant arity)
+                                }
+                            )
+
+                        ExternalTypeShape.Union(arity, cases', origin)
+                    | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev build) ->
+                        ExternalTypeShape.Abbrev(arity, ExternalSymbols.freezeTemplateTolerant arity build)
+                    | _ -> shape
+
+                ctx.TypeShapes.[k] <- finalized
 
             for kv in ctx.TypeMembers do
                 let members = kv.Value
 
-                for i in 0 .. members.Count - 1 do
-                    members.[i] <- ExternalSymbols.finalizeMemberTemplate members.[i]
+                match ctx.DeferredMembers.TryGetValue kv.Key with
+                | true, builds ->
+                    for i in 0 .. members.Count - 1 do
+                        let m = members.[i]
+                        let s = m.Signature
+
+                        members.[i] <-
+                            { m with
+                                Signature =
+                                    ExternalSymbols.signatureOfClosureTolerant
+                                        m.IsProperty
+                                        s.DeclaringArity
+                                        m.MethodArity
+                                        builds.[i]
+                            }
+                | _ -> ()
 
             // Reverse case-name index for `TryLookupUnionCase` (Gap 2 Layer B):
             // bare case name -> (declaring union compiled name, arity, case

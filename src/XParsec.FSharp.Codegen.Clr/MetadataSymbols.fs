@@ -13,18 +13,18 @@ open XParsec.FSharp.SemanticAnalysis
 // the ".NET provider" of the layered stack ([[project_dotnet_provider_stack]]):
 // reflection-only metadata, never FCS. It resolves a BCL type
 // (`System.Collections.Generic.EqualityComparer`1`) to an `ExternalTypeShape.Class`
-// and its members (`Default`, `GetHashCode`) to target-agnostic `SemType`
-// signatures.
+// and its members (`Default`, `GetHashCode`) to target-agnostic `FrozenType`
+// signature templates.
 
-/// `System.Type` → `SemType` mapping. Each builder is
-/// written over the *declaring type's* generic parameters: callers pass a
-/// `SemType[]` (one entry per declared typar) and the builder substitutes them
-/// through, exactly like `ExternalFieldShape.BuildType`. Shapes the milestone
-/// doesn't model (arrays, pointers, by-refs, method-owned generic params, a
-/// generic argument that itself can't map) yield `None`: the symbol is skipped,
-/// never faked into a wrong `TyConst`. The closures capture only plain data
-/// (typar positions, primitive names, type names) — no live `Type` escapes, so a
-/// `BuildSignature` call is pure and safe off the `MetadataLoadContext` gate.
+/// `System.Type` → `FrozenType` template mapping. Each template is written over
+/// the *declaring type's* generic parameters, baked as `FTTypar(Declaring,i)`
+/// (and method-owned typars as `FTTypar(Method,j)`): a consumer substitutes its
+/// declaring args (one per declared typar) through the placeholders. Shapes
+/// the milestone doesn't model (arrays, pointers, by-refs, a generic argument
+/// that itself can't map) yield `None`: the symbol is skipped, never faked into a
+/// wrong `TyConst`. The templates are inert data (typar positions, primitive
+/// names, type keys) — no live `Type` escapes, so building them is pure and safe
+/// off the `MetadataLoadContext` gate.
 module private MetadataMapping =
 
     /// IL representation full name → Vesper primitive name — the *reverse* of
@@ -45,103 +45,91 @@ module private MetadataMapping =
         else
             t.FullName
 
-    let rec tryBuildType (t: Type) : (SemType[] -> SemType) option =
+    let rec tryBuildType (t: Type) : FrozenType option =
         if t.IsByRef || t.IsPointer then
-            // No `SemType` by-ref / pointer case — skip rather than fake (§6.1).
+            // No `FrozenType` by-ref / pointer case — skip rather than fake (§6.1).
             None
         elif t.IsArray then
             // A reflection array maps onto Vesper's generic array intrinsic
-            // `TyConst(arrayName rank, [elem])` (rank 1 → `"[]"`), the same repr the
+            // `FTConst(arrayName rank, [elem])` (rank 1 → `"[]"`), the same repr the
             // front end uses for `'T[]`. This lets array-returning BCL members (e.g.
             // `List`1::ToArray() : T[]`) resolve instead of being dropped.
             match tryBuildType (t.GetElementType()) with
-            | Some elem ->
-                let name = RuntimeNames.arrayName (t.GetArrayRank())
-                Some(fun args -> TyConst(name, EqArray.singleton (elem args)))
+            | Some elem -> Some(FTConst(RuntimeNames.arrayName (t.GetArrayRank()), EqArray.singleton elem))
             | None -> None
         elif t.IsGenericParameter then
-            // A declaring-type typar substitutes the instance's i-th argument; a
-            // method-owned generic parameter (`DeclaringMethod` set) lives on the
-            // *method* axis — baked as `TempTypar(Method, pos)` (frozen-type-plan
-            // 2C). It is not driven by `args` (the declaring substitution): the
-            // method axis is intrinsic to the member, so the position is fixed and
-            // the open node rides straight through. A consumer instantiates it to a
-            // fresh inference var per call site; codegen encodes it as `!!pos`.
+            // A declaring-type typar bakes as `FTTypar(Declaring, pos)` (the
+            // consumer substitutes its pos-th declaring arg); a method-owned generic
+            // parameter (`DeclaringMethod` set) lives on the *method* axis —
+            // `FTTypar(Method, pos)` (frozen-type-plan 2C). The method axis is
+            // intrinsic to the member, so the position is fixed and the open node
+            // rides straight through. A consumer instantiates it to a fresh
+            // inference var per call site; codegen encodes it as `!!pos`.
             let pos = t.GenericParameterPosition
 
             if isNull t.DeclaringMethod then
-                Some(fun (args: SemType[]) -> args.[pos])
+                Some(FTTypar(TyparAxis.Declaring, pos))
             else
-                Some(fun _ -> TempTypar(TyparAxis.Method, pos))
+                Some(FTTypar(TyparAxis.Method, pos))
         elif t.IsGenericType then
             // A generic type still *containing* a type parameter (e.g. the open
             // `EqualityComparer<'T>` returned by the `Default` property) has a null
             // `FullName`, so this branch must precede the `FullName` match — the
             // open-generic-definition name is always present. Each argument is
-            // mapped recursively (a `'T` argument → the i-th instance arg).
+            // mapped recursively (a `'T` argument → `FTTypar(Declaring, i)`).
             let name = t.GetGenericTypeDefinition().FullName
-            let argBuilders = t.GetGenericArguments() |> Array.map tryBuildType
+            let args = t.GetGenericArguments() |> Array.map tryBuildType
 
-            if Array.exists Option.isNone argBuilders then
+            if Array.exists Option.isNone args then
                 None
             else
-                let builders = argBuilders |> Array.map Option.get
+                let frozen = args |> Array.map Option.get
                 // Stamp the type's home assembly (its defining assembly's simple
                 // name) so this key unifies with the same BCL type resolved via a
                 // provider shape's origin.
                 let key =
-                    SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name builders.Length
+                    SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name frozen.Length
 
-                Some(fun args -> TyClass(key, EqArray.ofSeq (seq { for b in builders -> b args })))
+                Some(FTClass(key, EqArray.ofArray frozen))
         else
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
-            | "System.Void" -> Some(fun _ -> TyConst("unit", EqArray.empty))
-            | fullName when reprToName.ContainsKey fullName ->
-                let name = reprToName.[fullName]
-                Some(fun _ -> TyConst(name, EqArray.empty))
+            | "System.Void" -> Some(FTConst("unit", EqArray.empty))
+            | fullName when reprToName.ContainsKey fullName -> Some(FTConst(reprToName.[fullName], EqArray.empty))
             | fullName ->
-                Some(fun _ ->
-                    TyClass(
-                        SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0,
-                        EqArray.empty
-                    )
+                Some(
+                    FTClass(SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0, EqArray.empty)
                 )
 
-    /// **Tupled** member signature `(p1 * … * pN) → ret` over the declaring type's
-    /// typars — the .NET calling convention (`m(a, b)` is one application to the
-    /// tuple `(a, b)`), NOT a curried `p1 → … → pN → ret` (a concrete .NET method is
-    /// a single N-ary method, not curried). A zero-parameter method reads as
-    /// `unit → ret`; a one-parameter method as `p → ret` (curried and tupled
-    /// coincide at arity ≤ 1). Modelling N ≥ 2 tupled makes the front-end `unify` and
-    /// the codegen `recoverOpenTypars` TyTuple arms recover the declaring typar from the
-    /// element, not the whole tuple. `None` if any
-    /// parameter or the return type doesn't map, or the method has its own generic
-    /// parameters (P2 resolves no method-owned typars).
-    let tryMethodSignature (m: MethodInfo) : (SemType[] -> SemType) option =
-        // A generic method definition (`Take<TSource>`) is no longer skipped: its
-        // method-owned typars map to `TempTypar(Method, j)` through `tryBuildType`
-        // (frozen-type-plan 2C). The declaring `args` array still drives only the
-        // *declaring* type's typars; the method axis is baked self-describing.
-        let paramBuilders =
+    /// The `.NET`-tupled parameter template `(p1 * … * pN)` from the per-parameter
+    /// templates: `N = 0` → `unit`, `N = 1` → the bare parameter, `N ≥ 2` → one
+    /// `FTTuple` (the .NET calling convention — `m(a, b)` is one application to the
+    /// tuple `(a, b)`, not a curried `p1 → … → pN`). Modelling N ≥ 2 tupled makes
+    /// the front-end `unify` and the codegen `recoverOpenTypars` `Tuple` arms
+    /// recover the declaring typar from the element, not the whole tuple. (Equal,
+    /// by construction, to freezing the legacy `TyFun(params, ret)` closure and
+    /// splitting off its argument — what `ExternalSignature.ofClosure` did.)
+    let frozenParams (ps: FrozenType[]) : FrozenType =
+        match ps.Length with
+        | 0 -> FTConst("unit", EqArray.empty)
+        | 1 -> ps.[0]
+        | _ -> FTTuple(EqArray.ofArray ps)
+
+    /// The tupled member signature as `(Parameters, Return)` templates over the
+    /// declaring type's typars. `None` if any parameter or the return type doesn't
+    /// map. A generic method definition (`Take<TSource>`) is not skipped: its
+    /// method-owned typars bake as `FTTypar(Method, j)` through `tryBuildType`
+    /// (frozen-type-plan 2C).
+    let tryMethodSignature (m: MethodInfo) : (FrozenType * FrozenType) option =
+        let paramTys =
             m.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
 
-        let retBuilder = tryBuildType m.ReturnType
+        let retTy = tryBuildType m.ReturnType
 
-        if retBuilder.IsNone || Array.exists Option.isNone paramBuilders then
+        if retTy.IsNone || Array.exists Option.isNone paramTys then
             None
         else
-            let pbs = paramBuilders |> Array.map Option.get
-            let rb = retBuilder.Value
-
-            Some(fun args ->
-                let ret = rb args
-
-                match pbs.Length with
-                | 0 -> TyFun(TyConst("unit", EqArray.empty), ret)
-                | 1 -> TyFun(pbs.[0] args, ret)
-                | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
-            )
+            Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
 
     /// The method's own generic-parameter count — the method axis arity stamped
     /// onto `ExternalMember.MethodArity`. `0` for a non-generic method.
@@ -154,36 +142,26 @@ module private MetadataMapping =
     /// A property reads as a value of its type (no leading arrow) — `Default` is a
     /// `EqualityComparer<'T>`, not a function. `IsProperty` tells the consumer not
     /// to expect a `TyFun`.
-    let tryPropertySignature (p: PropertyInfo) : (SemType[] -> SemType) option = tryBuildType p.PropertyType
+    let tryPropertySignature (p: PropertyInfo) : FrozenType option = tryBuildType p.PropertyType
 
     /// A constructor reads as `(p1 * … * pN) → declType` — the .NET calling
     /// convention, same tupling as `tryMethodSignature`. The return type is the
-    /// declaring type instantiated to the caller's `args` (`tryBuildType`'s
-    /// generic-parameter arm makes the typars resolve positionally). `None` if
-    /// any parameter or the declaring type doesn't map. A zero-parameter ctor
-    /// reads as `unit → declType`. Surfaced through `extractMembers` as a
-    /// member named `".ctor"`, picked up by `inferNew` / `TryEmitCtor`'s
-    /// overload resolution to lower `new ExternalType(args)`.
-    let tryCtorSignature (c: ConstructorInfo) : (SemType[] -> SemType) option =
-        let paramBuilders =
+    /// declaring type's open template (`tryBuildType`'s generic-parameter arm bakes
+    /// the typars positionally). `None` if any parameter or the declaring type
+    /// doesn't map. A zero-parameter ctor reads as `unit → declType`. Surfaced
+    /// through `extractMembers` as a member named `".ctor"`, picked up by
+    /// `inferNew` / `TryEmitCtor`'s overload resolution to lower
+    /// `new ExternalType(args)`.
+    let tryCtorSignature (c: ConstructorInfo) : (FrozenType * FrozenType) option =
+        let paramTys =
             c.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
 
-        let retBuilder = tryBuildType c.DeclaringType
+        let retTy = tryBuildType c.DeclaringType
 
-        if retBuilder.IsNone || Array.exists Option.isNone paramBuilders then
+        if retTy.IsNone || Array.exists Option.isNone paramTys then
             None
         else
-            let pbs = paramBuilders |> Array.map Option.get
-            let rb = retBuilder.Value
-
-            Some(fun args ->
-                let ret = rb args
-
-                match pbs.Length with
-                | 0 -> TyFun(TyConst("unit", EqArray.empty), ret)
-                | 1 -> TyFun(pbs.[0] args, ret)
-                | _ -> TyFun(TyTuple(EqArray.ofSeq (seq { for pb in pbs -> pb args })), ret)
-            )
+            Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
 
     /// A type rendered in OPEN typars for a `SymbolKey.MemberKey.argSig`
     /// the declaring type's i-th typar is `!i`, a
@@ -205,6 +183,32 @@ module private MetadataMapping =
             | null -> t.Name
             | fn -> fn
 
+    /// Assemble a property's two-axis `ExternalSignature` template: no parameters
+    /// (`Parameters = unit`), the value type in `Return`, no method axis. Equal to
+    /// the legacy `ExternalSignature.ofClosure (true, arity, 0, build)`.
+    let propertySignature (declaringArity: int) (valueTy: FrozenType) : ExternalSignature =
+        {
+            DeclaringArity = declaringArity
+            MethodArity = 0
+            Parameters = FTConst("unit", EqArray.empty)
+            Return = valueTy
+        }
+
+    /// Assemble a method / ctor's two-axis `ExternalSignature` template from its
+    /// `(Parameters, Return)` templates. Equal to the legacy
+    /// `ExternalSignature.ofClosure (false, arity, methodArity, build)`.
+    let methodSignature
+        (declaringArity: int)
+        (methodArity: int)
+        (parameters: FrozenType, ret: FrozenType)
+        : ExternalSignature =
+        {
+            DeclaringArity = declaringArity
+            MethodArity = methodArity
+            Parameters = parameters
+            Return = ret
+        }
+
     /// The declaring type's `SymbolKey.TypeKey` — `(assembly, namespace,
     /// name`arity)` with the namespace stripped off the metadata name so the key's
     /// `name` is the simple `` EqualityComparer`1 ``.
@@ -224,9 +228,9 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
 
     // `MetadataLoadContext` is NOT safe for concurrent loads; every metadata access
-    // serialises through `gate`. Results are immutable
-    // `SemType`-only descriptors (no live `Type` is captured — §6.1/§7.1), so the
-    // result caches are read lock-free and only a miss takes the gate.
+    // serialises through `gate`. Results are immutable `FrozenType`-template
+    // descriptors (no live `Type` is captured — §6.1/§7.1), so the result caches
+    // are read lock-free and only a miss takes the gate.
     let gate = obj ()
     let resolveCache = Dictionary<string, Type option>(StringComparer.Ordinal)
 
@@ -318,14 +322,13 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             t.GetProperties declaredFlags
             |> Array.choose (fun p ->
                 match MetadataMapping.tryPropertySignature p with
-                | Some build ->
+                | Some valueTy ->
                     Some
                         {
                             Name = p.Name
                             IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                             IsProperty = true
-                            BuildSignature = build
-                            Signature = ExternalSignature.ofClosure (true, arity, 0, build)
+                            Signature = MetadataMapping.propertySignature arity valueTy
                             MethodArity = 0
                             Origin = origin
                             Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
@@ -340,19 +343,20 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             |> Array.filter (fun m -> not m.IsSpecialName)
             |> Array.choose (fun m ->
                 MetadataMapping.tryMethodSignature m
-                |> Option.map (fun build ->
+                |> Option.map (fun (ps, ret) ->
                     let argSig =
                         m.GetParameters()
                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
                         |> EqArray.ofArray
 
+                    let methodArity = MetadataMapping.methodArityOf m
+
                     {
                         Name = m.Name
                         IsStatic = m.IsStatic
                         IsProperty = false
-                        BuildSignature = build
-                        Signature = ExternalSignature.ofClosure (false, arity, MetadataMapping.methodArityOf m, build)
-                        MethodArity = MetadataMapping.methodArityOf m
+                        Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
+                        MethodArity = methodArity
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
                     }
@@ -369,7 +373,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             t.GetConstructors declaredFlags
             |> Array.choose (fun c ->
                 MetadataMapping.tryCtorSignature c
-                |> Option.map (fun build ->
+                |> Option.map (fun (ps, ret) ->
                     let argSig =
                         c.GetParameters()
                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
@@ -379,8 +383,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         Name = ".ctor"
                         IsStatic = false
                         IsProperty = false
-                        BuildSignature = build
-                        Signature = ExternalSignature.ofClosure (false, arity, 0, build)
+                        Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
                         MethodArity = 0
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
@@ -390,42 +393,38 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
 
         Array.concat [| properties; methods; ctors |]
 
-    /// Build the type's interface set as `(compiled-name, type-args)` pairs over
-    /// the declaring type's typars. Each interface arg goes through
-    /// `tryBuildType` (it may reference the enclosing typars by position), and an
-    /// interface whose args don't all map is skipped — same posture as
-    /// `tryMethodSignature`. Must hold `gate`.
-    let buildClassInterfaces (t: Type) : SemType[] -> (string * SemType[])[] =
-        let entries =
-            t.GetInterfaces()
-            |> Array.choose (fun i ->
-                let name = MetadataMapping.metadataName i
+    /// Build the type's interface set as `(compiled-name, type-args)` template
+    /// pairs over the declaring type's typars. Each interface arg goes through
+    /// `tryBuildType` (it may reference the enclosing typars by position, baked as
+    /// `FTTypar(Declaring,i)`), and an interface whose args don't all map is
+    /// skipped — same posture as `tryMethodSignature`. Must hold `gate`.
+    let buildClassInterfaces (t: Type) : (string * FrozenType[])[] =
+        t.GetInterfaces()
+        |> Array.choose (fun i ->
+            let name = MetadataMapping.metadataName i
 
-                let argBuilders =
-                    if i.IsGenericType then
-                        i.GetGenericArguments() |> Array.map MetadataMapping.tryBuildType
-                    else
-                        [||]
-
-                if Array.exists Option.isNone argBuilders then
-                    None
+            let args =
+                if i.IsGenericType then
+                    i.GetGenericArguments() |> Array.map MetadataMapping.tryBuildType
                 else
-                    let bs = argBuilders |> Array.map Option.get
-                    Some(name, bs)
-            )
+                    [||]
 
-        fun typeArgs -> entries |> Array.map (fun (name, bs) -> name, [| for b in bs -> b typeArgs |])
+            if Array.exists Option.isNone args then
+                None
+            else
+                Some(name, args |> Array.map Option.get)
+        )
 
-    /// Decode the type's declared base type as a builder over the declaring
-    /// type's typars. Interfaces and `System.Object` itself read as `ValueNone`
-    /// (an interface has no real base; `Object`'s base is the implicit root).
-    /// Must hold `gate`.
-    let buildClassBaseType (t: Type) : (SemType[] -> SemType) voption =
+    /// Decode the type's declared base type as a `FrozenType` template over the
+    /// declaring type's typars. Interfaces and `System.Object` itself read as
+    /// `ValueNone` (an interface has no real base; `Object`'s base is the implicit
+    /// root). Must hold `gate`.
+    let buildClassBaseType (t: Type) : FrozenType voption =
         if t.IsInterface || isNull t.BaseType then
             ValueNone
         else
             match MetadataMapping.tryBuildType t.BaseType with
-            | Some build -> ValueSome build
+            | Some frozen -> ValueSome frozen
             | None -> ValueNone
 
     /// `[<AllowNullLiteral>]` is F# `Microsoft.FSharp.Core.AllowNullLiteralAttribute`
@@ -458,24 +457,15 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         else
                             0
 
-                    let interfaces = buildClassInterfaces t
-                    let baseType = buildClassBaseType t
-                    // Freeze the closures on the declaring-typar markers (step 1):
-                    // each interface arg / the base type with `'i` baked as
-                    // `FTTypar(Declaring,i)`.
-                    let markers = declaringMarkers arity
-
                     let shape: ExternalClassShape =
                         {
                             Arity = arity
                             IsInterface = t.IsInterface
                             Members = enumerateClassMembers t
-                            Interfaces = interfaces
-                            BaseType = baseType
-                            FrozenInterfaces =
-                                interfaces markers
-                                |> Array.map (fun (name, args) -> name, Array.map toFrozen args)
-                            FrozenBaseType = baseType |> ValueOption.map (fun f -> toFrozen (f markers))
+                            // The interface / base-type templates carry the declaring
+                            // typars as `FTTypar(Declaring,i)` directly.
+                            FrozenInterfaces = buildClassInterfaces t
+                            FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
                             Origin = originOf t None
                         }
@@ -529,7 +519,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             |> Array.sortByDescending (fun c -> c.GetParameters().Length)
                             |> Array.choose (fun c ->
                                 MetadataMapping.tryCtorSignature c
-                                |> Option.map (fun build ->
+                                |> Option.map (fun (ps, ret) ->
                                     let argSig =
                                         c.GetParameters()
                                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
@@ -539,8 +529,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         Name = ".ctor"
                                         IsStatic = false
                                         IsProperty = false
-                                        BuildSignature = build
-                                        Signature = ExternalSignature.ofClosure (false, arity, 0, build)
+                                        Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
                                         MethodArity = 0
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
@@ -553,25 +542,20 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             |> Array.sortByDescending (fun m -> m.GetParameters().Length)
                             |> Array.choose (fun m ->
                                 MetadataMapping.tryMethodSignature m
-                                |> Option.map (fun build ->
+                                |> Option.map (fun (ps, ret) ->
                                     let argSig =
                                         m.GetParameters()
                                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
                                         |> EqArray.ofArray
 
+                                    let methodArity = MetadataMapping.methodArityOf m
+
                                     {
                                         Name = memberName
                                         IsStatic = m.IsStatic
                                         IsProperty = false
-                                        BuildSignature = build
-                                        Signature =
-                                            ExternalSignature.ofClosure (
-                                                false,
-                                                arity,
-                                                MetadataMapping.methodArityOf m,
-                                                build
-                                            )
-                                        MethodArity = MetadataMapping.methodArityOf m
+                                        Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
+                                        MethodArity = methodArity
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
                                     }
@@ -579,14 +563,13 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             )
                         | p ->
                             match MetadataMapping.tryPropertySignature p with
-                            | Some build ->
+                            | Some valueTy ->
                                 [|
                                     {
                                         Name = memberName
                                         IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                                         IsProperty = true
-                                        BuildSignature = build
-                                        Signature = ExternalSignature.ofClosure (true, arity, 0, build)
+                                        Signature = MetadataMapping.propertySignature arity valueTy
                                         MethodArity = 0
                                         Origin = origin
                                         // A property carries no parameters → empty argSig.

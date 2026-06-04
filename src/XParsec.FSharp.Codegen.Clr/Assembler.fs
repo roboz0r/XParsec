@@ -25,7 +25,7 @@ open AssemblerScaffold
 /// nominal type's `TypeDefinition` and a static method's `MethodDefinition`.
 /// `GenericParam` rows are collected and emitted last, sorted by
 /// `CodedIndex.TypeOrMethodDef(owner)` then index, as SRM requires.
-type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, tast: TastFile) =
+type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, tast: Frozen.TastFile) =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
@@ -45,7 +45,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references, symbols, project.AssemblyName)
 
     let icodegen = provider :> ICodegenProvider
-    let encodeLocals (locals: SemType list) = icodegen.EncodeLocalSignature locals
+    let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals
 
     // One body-stream encoder shared by every method: a fresh encoder per body
     // would throw once a tiny body left the 4-byte-aligned builder unaligned;
@@ -84,7 +84,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let closures, closureByNode =
         Emit.discoverClosures staticFnKeys staticFnTyparsMap lowered
 
-    let ctorHandleByNode = Dictionary<TExpr, EntityHandle>(HashIdentity.Reference)
+    let ctorHandleByNode =
+        Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
     let partitionedDecls = partitionTypeDecls tast.Decls
     let interfaceDecls = partitionedDecls.Interfaces
@@ -368,7 +369,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             firstMethod <- ValueSome h
 
     // ---- Deferred-row accumulators ----
-    let interfacePending = ResizeArray<TTypeDecl * MethodDefinitionHandle>()
+    let interfacePending = ResizeArray<Frozen.TTypeDecl * MethodDefinitionHandle>()
 
     // `GenericParam` rows can't be added inline: SRM requires them globally
     // sorted by `CodedIndex.TypeOrMethodDef(owner)`, and a method owner can sort
@@ -455,7 +456,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     // ---- Closures (leaves-first) ----
     // A *generic* closure (C3) enters closure-typar mode around every
-    // signature/body emission, so the body's `TempTypar(Method, i)` (the enclosing
+    // signature/body emission, so the body's `FTTypar(Method, i)` (the enclosing
     // method's typars) re-project onto this closure class's `!i` (frozen-type-plan 2B).
     member this.EmitClosures() =
         for c in closures do
@@ -463,9 +464,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             let captureFields = Dictionary<NodeKey, EntityHandle>()
             let isGenericClosure = c.Typars > 0
             // This closure's self-instantiation over its own typars: the enclosing
-            // method's `TempTypar(Method, i)`, which (in closure mode) encode to the
+            // method's `FTTypar(Method, i)`, which (in closure mode) encode to the
             // closure class's `!i`.
-            let selfArgs = [ for i in 0 .. c.Typars - 1 -> TempTypar(TyparAxis.Method, i) ]
+            let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(TyparAxis.Method, i) ]
 
             if isGenericClosure then
                 provider.EnterClosureTyparScope()
@@ -562,7 +563,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     member this.EmitStaticMethods() =
         for fn in staticFnsEmitOrder do
             // A *generic* static method (`fold`, R3): its body / signature / locals
-            // embed `TempTypar(Method, i)` (freeze-quantified, frozen-type-plan 2B),
+            // embed `FTTypar(Method, i)` (freeze-quantified, frozen-type-plan 2B),
             // which the encoder maps to `!!i` directly — no ambient typar window.
             let typarCount = staticMethods.[fn.Key].Typars
 

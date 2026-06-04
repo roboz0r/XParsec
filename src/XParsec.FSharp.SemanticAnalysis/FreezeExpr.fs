@@ -311,7 +311,7 @@ module FreezeExpr =
             let underlyingClassName (shape: ExternalTypeShape) (qualified: string) : string voption =
                 match shape with
                 | ExternalTypeShape.Class _ -> ValueSome(SymbolKeyOps.arityName qualified arity)
-                | ExternalTypeShape.Abbrev(a, _, frozen) ->
+                | ExternalTypeShape.Abbrev(a, frozen) ->
                     match FrozenTypeBridge.instantiateDeclaring frozen (Array.create a BuiltinTypes.tyUnit) with
                     | TyClass(key, _) -> ValueSome(SymbolKeyOps.qualifiedName key)
                     | _ -> ValueNone
@@ -898,7 +898,7 @@ module FreezeExpr =
             let enumerator =
                 match ctx.Resolution.ForInShape.TryGetValue key with
                 | ValueSome shape -> shape
-                | ValueNone -> ForInEnumerator.Interface
+                | ValueNone -> ForInEnumeratorG.Interface
 
             TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, enumerator, ty)
         | Expr.String _ -> translateString ctx e ty

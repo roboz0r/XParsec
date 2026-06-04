@@ -270,7 +270,7 @@ module Cil =
     /// `encodeLocals` is invoked only when locals exist, so callers with no
     /// provider (hand-written bodies) can pass any encoder.
     let buildBody
-        (encodeLocals: SemType list -> StandaloneSignatureHandle)
+        (encodeLocals: FrozenType list -> StandaloneSignatureHandle)
         (bodyStream: MethodBodyStreamEncoder)
         (emit: Il -> unit)
         : int =

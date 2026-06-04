@@ -5,7 +5,7 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// `TypeSpec` + `MemberRef` minting for generic user types emitted into *this* assembly — unions,
-/// records, classes (whose declaring typars ride `TempTypar(Declaring, i)` nodes) and closures (whose
+/// records, classes (whose declaring typars ride `FTTypar(Declaring, i)` nodes) and closures (whose
 /// typars re-project onto the closure class's `!i` under `ClrEnv.ClosureTyparMode`).
 type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
@@ -19,7 +19,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     // Unions are keyed by their nominal `SymbolKey` (which embeds the arity, so
     // same-named overloads `Choice\`2`…`Choice\`7` don't collide) in `genericUnions`
     // / `userTypes`.
-    let genericUnionTypeSpec (key: SymbolKey) (args: SemType list) : EntityHandle =
+    let genericUnionTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
         let typars, _ = genericUnions.[key]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -30,7 +30,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericUnionMemberRef (key: SymbolKey) (args: SemType list) (which: UnionMember) : EntityHandle =
+    let genericUnionMemberRef (key: SymbolKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
         let typars, cases = genericUnions.[key]
         let parent = genericUnionTypeSpec key args
 
@@ -59,9 +59,9 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             let paramTys = caseFields caseName |> List.map snd
 
             let retTy =
-                TyUnion(
+                FTUnion(
                     key,
-                    EqArray.ofSeq (seq { for i in 0 .. List.length typars - 1 -> TempTypar(TyparAxis.Declaring, i) })
+                    EqArray.ofSeq (seq { for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) })
                 )
 
             let s = BlobBuilder()
@@ -94,7 +94,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(parent, metaName, s))
 
-    let genericRecordTypeSpec (key: SymbolKey) (args: SemType list) : EntityHandle =
+    let genericRecordTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
         let typars, _ = genericRecords.[key]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -105,7 +105,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericRecordMemberRef (key: SymbolKey) (args: SemType list) (which: RecordMember) : EntityHandle =
+    let genericRecordMemberRef (key: SymbolKey) (args: FrozenType list) (which: RecordMember) : EntityHandle =
         let _, fields = genericRecords.[key]
         let parent = genericRecordTypeSpec key args
 
@@ -134,7 +134,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
 
-    let genericClassTypeSpec (key: SymbolKey) (args: SemType list) : EntityHandle =
+    let genericClassTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
         let typars, _ = genericClasses.[key]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -145,7 +145,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericClassMemberRef (key: SymbolKey) (args: SemType list) (which: ClassMember) : EntityHandle =
+    let genericClassMemberRef (key: SymbolKey) (args: FrozenType list) (which: ClassMember) : EntityHandle =
         let _, fields = genericClasses.[key]
         let parent = genericClassTypeSpec key args
 
@@ -189,7 +189,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(parent, metaName, s))
 
-    let genericClosureTypeSpec (name: string) (args: SemType list) : EntityHandle =
+    let genericClosureTypeSpec (name: string) (args: FrozenType list) : EntityHandle =
         let shape = genericClosures.[name]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -201,7 +201,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericClosureMemberRef (name: string) (args: SemType list) (which: ClosureMember) : EntityHandle =
+    let genericClosureMemberRef (name: string) (args: FrozenType list) (which: ClosureMember) : EntityHandle =
         let shape = genericClosures.[name]
         let parent = genericClosureTypeSpec name args
 
@@ -209,7 +209,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         // mode (off at a construction site inside a static method → `!!i`; on inside
         // an enclosing closure's body → `!i`); the member-ref signature below speaks
         // the closure's own typars, so force closure mode on (frozen-type-plan 2B):
-        // the embedded `TempTypar(Method, i)` encode to the closure class's `!i`.
+        // the embedded `FTTypar(Method, i)` encode to the closure class's `!i`.
         let savedMode = env.ClosureTyparMode
         env.ClosureTyparMode <- true
 
@@ -270,8 +270,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     /// same-named overloads `Choice\`2`…`Choice\`7`) in `genericUnions`.
     member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle =
         let typars, _ = genericUnions.[key]
-        genericUnionTypeSpec key [ for i in 0 .. List.length typars - 1 -> TempTypar(TyparAxis.Declaring, i) ]
+        genericUnionTypeSpec key [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
     member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle =
         let typars, _ = genericRecords.[key]
-        genericRecordTypeSpec key [ for i in 0 .. List.length typars - 1 -> TempTypar(TyparAxis.Declaring, i) ]
+        genericRecordTypeSpec key [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]

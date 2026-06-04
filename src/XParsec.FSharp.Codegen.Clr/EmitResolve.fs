@@ -23,7 +23,7 @@ module EmitResolve =
         (env: EmitEnv)
         (typars: 'a list)
         (key: SymbolKey)
-        (tyArgs: SemType list)
+        (tyArgs: FrozenType list)
         (kind: UserMemberKind)
         (monoHandle: EntityHandle)
         : EntityHandle =
@@ -35,7 +35,7 @@ module EmitResolve =
     /// Destructure a nominal receiver type into its `(SymbolKey, tyArgs)`, failing
     /// with a `what`-tagged diagnostic for a non-nominal one. `what` names the
     /// construct being emitted (`"RecordCons"`, `"field 'X' access"`, …).
-    let nominalShape (what: string) (ty: SemType) : SymbolKey * SemType list =
+    let nominalShape (what: string) (ty: FrozenType) : SymbolKey * FrozenType list =
         match receiverShape ty with
         | ValueSome(k, xs) -> k, xs
         | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
@@ -45,7 +45,7 @@ module EmitResolve =
     /// B-1). A monomorphic union/class uses the member's `Def` token directly;
     /// a *generic* one goes through a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
-    let resolveInstanceMember (env: EmitEnv) (receiverTy: SemType) (name: string) : EntityHandle =
+    let resolveInstanceMember (env: EmitEnv) (receiverTy: FrozenType) (name: string) : EntityHandle =
         // This resolver only serves project-local receivers (external instance
         // members route through `externalInstanceMemberRef`), so the table key is
         // the receiver's nominal `SymbolKey` directly (Phase 6D).
@@ -91,13 +91,13 @@ module EmitResolve =
     let externalInstanceMemberRef
         (env: EmitEnv)
         (key: SymbolKey)
-        (receiverTy: SemType)
+        (receiverTy: FrozenType)
         (isProperty: bool)
-        (memberTy: SemType)
+        (memberTy: FrozenType)
         : EntityHandle =
-        match zonk receiverTy with
-        | TyUnion _
-        | TyRecord _ -> env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
+        match receiverTy with
+        | FTUnion _
+        | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
     /// The static-member equivalent. Generic-union *static* augmentation members
@@ -135,7 +135,7 @@ module EmitResolve =
                         env
                         c.Typars
                         key
-                        [ for i in 0 .. List.length c.Typars - 1 -> TempTypar(TyparAxis.Declaring, i) ]
+                        [ for i in 0 .. List.length c.Typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy)))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
@@ -165,7 +165,7 @@ module EmitResolve =
     /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
     /// name)` by `Freeze.translateClassMember` (vesper-set-sprint-plan Phase 1 /
     /// B-1).
-    let resolveRecordField (env: EmitEnv) (receiverTy: SemType) (fieldName: string) : EntityHandle =
+    let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
         // Project-local tables key by the receiver's nominal `SymbolKey`; the
         // external record-field lookup derives the qualified compiled name from it
         // (Phase 6D).

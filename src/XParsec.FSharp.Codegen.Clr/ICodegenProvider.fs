@@ -43,7 +43,7 @@ type UnionMember =
     /// with the parent `TypeSpec` supplying the instantiation — same shape as
     /// `Factory`, but the member name + signature are explicit (not read from the
     /// case table).
-    | Member of metaName: string * isStatic: bool * paramTys: SemType list * retTy: SemType
+    | Member of metaName: string * isStatic: bool * paramTys: FrozenType list * retTy: FrozenType
 
 /// Which member of an emitted *generic* closure a `GenericClosureMemberRef`
 /// resolves to. A generic closure is a real generic `TypeDefinition` (one
@@ -99,7 +99,7 @@ type ClassMember =
     /// the type's declaring-typar markers, written into the member ref as
     /// `!0` with the parent `TypeSpec` supplying the instantiation — same
     /// shape as `UnionMember.Member`.
-    | Member of metaName: string * isStatic: bool * paramTys: SemType list * retTy: SemType
+    | Member of metaName: string * isStatic: bool * paramTys: FrozenType list * retTy: FrozenType
 
 /// Discriminator across the user-emitted generic-type-member families
 /// (`UserGenericMemberRef`). Each variant wraps the family's specific
@@ -121,7 +121,7 @@ type UserMemberKind =
 /// the walker owns the call *sequence* and the provider supplies only the handles.
 type FormatHandles =
     {
-        HandlerLocal: SemType
+        HandlerLocal: FrozenType
         CtorWriter: EntityHandle
         CtorString: EntityHandle
         AppendLiteral: EntityHandle
@@ -132,7 +132,7 @@ type FormatHandles =
         /// Instantiates `<T = ty>` and picks the overload from
         /// `(hasAlignment, hasFormat)`. The handle's signature must match the
         /// push order (value, alignment, format = the C# parameter order).
-        AppendFormatted: SemType * bool * bool -> EntityHandle
+        AppendFormatted: FrozenType * bool * bool -> EntityHandle
         /// Alignment is always passed (0 ⇒ no padding).
         AppendBool: EntityHandle
         AppendOctal: EntityHandle
@@ -157,14 +157,14 @@ type ICodegenProvider =
     /// `MyMod.printfn` (vesper-set-sprint-plan §0.1 / M1). Unkeyed call
     /// sites (test mocks / pre-key-pipeline paths) pass `ValueNone` and the
     /// provider falls back to name-based matching for backwards compat.
-    abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: SemType -> CallRecipe voption
+    abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption
 
     /// `tyArgs` are the constructed type's instantiation arguments. `argTypes` are
     /// the call-site argument types (in source order), used by the external-ctor
     /// path to disambiguate overloads — a v1 picker matches arity only, future
     /// pickers can match by parameter type. The internal `PrintfFormat` recipe
     /// ignores them.
-    abstract TryEmitCtor: className: string * tyArgs: SemType list * argTypes: SemType list -> CtorRecipe voption
+    abstract TryEmitCtor: className: string * tyArgs: FrozenType list * argTypes: FrozenType list -> CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values
     /// are already on the stack in declaration order beneath the call. The list
@@ -172,7 +172,7 @@ type ICodegenProvider =
     /// The receiver is identified by its nominal `SymbolKey`: the FSharp.Core
     /// `list` vs the Vesper cons-list are recognised by key identity
     /// (`RuntimeNames.isFsharpCoreListKey` / `isVesperListKey`), not by string name.
-    abstract TryEmitUnionCons: key: SymbolKey * caseName: string * tyArgs: SemType list -> CallRecipe voption
+    abstract TryEmitUnionCons: key: SymbolKey * caseName: string * tyArgs: FrozenType list -> CallRecipe voption
 
     /// A `MemberRef` to one member of an emitted *generic* nominal user type
     /// (union / record / class) identified by its nominal `SymbolKey` `key`,
@@ -184,13 +184,13 @@ type ICodegenProvider =
     /// per-family helpers (was keyed by a
     /// string `name`; closures, which have no `SymbolKey`, split off onto
     /// `UserClosureMemberRef`).
-    abstract UserGenericMemberRef: key: SymbolKey * args: SemType list * kind: UserMemberKind -> EntityHandle
+    abstract UserGenericMemberRef: key: SymbolKey * args: FrozenType list * kind: UserMemberKind -> EntityHandle
 
     /// A `MemberRef` to one member of an emitted *generic* closure `name`
     /// (a synthetic `<closure>$n` name — closures carry no `SymbolKey`, so they
     /// ride their own seam rather than `UserGenericMemberRef`), instantiated at
     /// `args` (function-representation-plan §Generic closures C2/C3).
-    abstract UserClosureMemberRef: name: string * args: SemType list * which: ClosureMember -> EntityHandle
+    abstract UserClosureMemberRef: name: string * args: FrozenType list * which: ClosureMember -> EntityHandle
 
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
     /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when
@@ -206,7 +206,8 @@ type ICodegenProvider =
     /// the type's external field shape (today: the contract's field order is
     /// the declaration order, so the source-order initialiser drives a separate
     /// reorder if needed).
-    abstract TryEmitRecordCons: typeName: string * tyArgs: SemType list * fieldNames: string list -> CtorRecipe voption
+    abstract TryEmitRecordCons:
+        typeName: string * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
 
     /// A `MemberRef` to one named field on a *referenced-assembly* record,
     /// instantiated at `tyArgs` — the sibling of `TryEmitRecordCons` for the
@@ -216,7 +217,7 @@ type ICodegenProvider =
     /// so a `FieldGet` knows the value type a subsequent encode/store expects.
     /// `ValueNone` ⇒ unknown record, or unknown field on a known record.
     abstract TryResolveExternalRecordField:
-        typeName: string * tyArgs: SemType list * fieldName: string -> (EntityHandle * SemType) voption
+        typeName: string * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
 
     /// The `_tag : int` discriminator field `MemberRef` on a *referenced-package*
     /// union, instantiated at `tyArgs`, plus `caseName`'s tag value (its
@@ -225,15 +226,15 @@ type ICodegenProvider =
     /// Layer C); the union emitter (`NominalEmit.fs`) fixes both the field name and
     /// the declaration-order tagging. `ValueNone` ⇒ unknown union / case.
     abstract ExternalUnionTag:
-        unionName: string * tyArgs: SemType list * caseName: string -> (EntityHandle * int) voption
+        unionName: string * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
 
     /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package
     /// union, instantiated at `tyArgs`, plus that field's substituted declared
     /// type — the field-extract slot a `match … Some x` binds. The union sibling of
     /// `TryResolveExternalRecordField`. `ValueNone` ⇒ unknown union / case / field.
     abstract ExternalUnionCaseField:
-        unionName: string * tyArgs: SemType list * caseName: string * fieldIndex: int ->
-            (EntityHandle * SemType) voption
+        unionName: string * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
+            (EntityHandle * FrozenType) voption
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
     /// call site (R3). `handle` is the method's (predicted) `MethodDefinition`;
@@ -241,26 +242,26 @@ type ICodegenProvider =
     /// declared parameter types against the call's actual argument types. A
     /// recursive self-call passes the method's own typars (encoded `!!i` via the
     /// ambient set); an external call passes concrete types.
-    abstract StaticFnMethodSpec: handle: EntityHandle * instTypes: SemType list -> EntityHandle
+    abstract StaticFnMethodSpec: handle: EntityHandle * instTypes: FrozenType list -> EntityHandle
 
     /// Apply a function *value* of type `funcTy` to one argument —
     /// `Vesper.Fun\`2::Invoke` (R1). Receiver and argument are both already on the
     /// stack (receiver beneath), so the recipe's `ArgCount` is 2.
-    abstract TryEmitInvoke: funcTy: SemType -> CallRecipe voption
+    abstract TryEmitInvoke: funcTy: FrozenType -> CallRecipe voption
 
     /// Apply a value that is an FSharp.Core `FSharpFunc` (not a `Vesper.Fun`) —
     /// `FSharpFunc\`2::Invoke`. R1's one remaining caller is the cold printf
     /// printer returned by `PrintFormatLine`; the printf engine retargets it
     /// (handoff §R9).
-    abstract TryEmitFSharpFuncInvoke: funcTy: SemType -> CallRecipe voption
+    abstract TryEmitFSharpFuncInvoke: funcTy: FrozenType -> CallRecipe voption
 
     /// `EqualityComparer<'T>.Default` getter and its `GetHashCode(!0)` — the
     /// `hash x` use-site's BCL body (no IL opcode hashes, so it rides the comparer,
     /// the same `EqualityComparer<T>` family the DU triple hashes fields through).
     /// On the interface because the expression walker emits the `hash` call;
     /// `Equals`/`Add` stay on the concrete provider, reached only from Codegen.
-    abstract EqualityComparerDefault: elem: SemType -> EntityHandle
-    abstract EqualityComparerGetHashCode: elem: SemType -> EntityHandle
+    abstract EqualityComparerDefault: elem: FrozenType -> EntityHandle
+    abstract EqualityComparerGetHashCode: elem: FrozenType -> EntityHandle
 
     /// Mint a `MemberRef` for a `TExpr.ExternalMember` from its interned
     /// `SymbolKey` (the P4 identity bridge). The key
@@ -271,7 +272,8 @@ type ICodegenProvider =
     /// member's open signature. `isProperty` selects the `get_<name>` getter shape,
     /// `isStatic` the (non-)`this` signature. The walker pushes the receiver/args
     /// and emits the `call` (static) / `callvirt` (instance) around the handle.
-    abstract ExternalMemberRef: key: SymbolKey * isProperty: bool * isStatic: bool * memberTy: SemType -> EntityHandle
+    abstract ExternalMemberRef:
+        key: SymbolKey * isProperty: bool * isStatic: bool * memberTy: FrozenType -> EntityHandle
 
     /// Like `ExternalMemberRef`, but the declaring type's instantiation is given
     /// explicitly via `declTy` (the resolved declaring `TyClass`, e.g.
@@ -281,21 +283,21 @@ type ICodegenProvider =
     /// unrecoverable (vesper-set-sprint-phase-4 §4.4). The parent is encoded straight
     /// from `declTy`, so a struct declaring type lands as a `VALUETYPE` parent.
     abstract ExternalMemberRefOn:
-        key: SymbolKey * declTy: SemType * isProperty: bool * isStatic: bool * memberTy: SemType -> EntityHandle
+        key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType -> EntityHandle
 
     abstract FormatHandles: unit -> FormatHandles
 
-    /// Lives on the provider because encoding a `SemType` needs the target's
+    /// Lives on the provider because encoding a `FrozenType` needs the target's
     /// type references.
-    abstract EncodeLocalSignature: locals: SemType list -> StandaloneSignatureHandle
+    abstract EncodeLocalSignature: locals: FrozenType list -> StandaloneSignatureHandle
 
     abstract ObjectType: EntityHandle
 
-    /// A `TypeDefOrRefOrSpec` token for an arbitrary `SemType`, for the operand
+    /// A `TypeDefOrRefOrSpec` token for an arbitrary `FrozenType`, for the operand
     /// of `isinst` / `castclass` / `box` / `unbox.any` (inheritance-plan
     /// §casting). One `TypeSpec`-based path covers mono, generic, and external
     /// targets alike.
-    abstract TypeToken: ty: SemType -> EntityHandle
+    abstract TypeToken: ty: FrozenType -> EntityHandle
 
     /// `System.Decimal::.ctor(int32, int32, int32, bool, uint8)` — emits a
     /// `decimal` constant the way F# / Roslyn do, from `Decimal.GetBits`.

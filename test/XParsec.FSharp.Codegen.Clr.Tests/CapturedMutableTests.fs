@@ -277,7 +277,7 @@ let tests =
 
             let discover (src: string) : Emit.Closure list =
                 let tast = analyse src
-                let lowered = Emit.lower tast.Decls
+                let lowered = Emit.lower (Freeze.run tast).Decls
                 let staticFns, staticFnKeys = Emit.collectStaticFns tast.ModuleMembers lowered
 
                 let typarsMap = Dictionary<NodeKey, int>()

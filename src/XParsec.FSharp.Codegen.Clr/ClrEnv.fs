@@ -9,21 +9,21 @@ open XParsec.FSharp.SemanticAnalysis
 /// Per-generic-closure registry entry (function-representation-plan §Generic closures, C2): the typar
 /// *count* inherited from the enclosing static method, the capture-field types in declaration order,
 /// the `Invoke` parameter / result types, and the closure's predicted `TypeDefinition` handle. All
-/// `SemType` fields embed the enclosing method's `TempTypar(Method, i)`; `ClrEnv.ClosureTyparMode`
+/// `FrozenType` fields embed the enclosing method's `FTTypar(Method, i)`; `ClrEnv.ClosureTyparMode`
 /// re-projects them onto the closure class's `!i` during the closure's own emission (frozen-type-plan 2B).
 type internal GenericClosureShape =
     {
         TyparCount: int
-        CaptureSigs: SemType list
-        ParamTy: SemType
-        ResultTy: SemType
+        CaptureSigs: FrozenType list
+        ParamTy: FrozenType
+        ResultTy: FrozenType
         DefHandle: EntityHandle
     }
 
 /// Shared `ClrProvider` substrate: the `MetadataContext`, the resolution inputs
 /// (`reprs` / `references` / `symbols`), every lazily-minted assembly/type/member reference, the
 /// per-emission registries (user types, generic shapes, FSharp.Core deps), the ambient generic-typar
-/// state, and the env-only helpers (`zonk`, external *type* refs, typar leaves). The encoders and
+/// state, and the env-only helpers (external *type* refs, typar leaves). The encoders and
 /// recipe builders are layered on top of this in their own files.
 ///
 /// Reference identities are resolved by *simple name*: `references` (read off a file, R4) wins;
@@ -247,34 +247,17 @@ type internal ClrEnv
     /// (`TyConst "'T"`). Holds the shape needed to mint `MemberRef`s on the type's `TypeSpec`.
     /// Monomorphic unions are not registered (their `Def` tokens suffice).
     let genericUnions =
-        Dictionary<SymbolKey, string list * (string * (string * SemType) list) list>()
+        Dictionary<SymbolKey, string list * (string * (string * FrozenType) list) list>()
 
-    let genericRecords = Dictionary<SymbolKey, string list * (string * SemType) list>()
-    let genericClasses = Dictionary<SymbolKey, string list * (string * SemType) list>()
+    let genericRecords =
+        Dictionary<SymbolKey, string list * (string * FrozenType) list>()
+
+    let genericClasses =
+        Dictionary<SymbolKey, string list * (string * FrozenType) list>()
     // Closures have no `SymbolKey` (synthetic names), so they stay string-keyed —
     // the "closures wrinkle" (Phase 6D); the nominal seam is key-based, closures
     // ride their own provider methods.
     let genericClosures = Dictionary<string, GenericClosureShape>()
-
-    /// Resolve a `SemType` to its concrete representative, chasing union-find links. After
-    /// `ResolvedTypes` no *free* TyVar survives, so the only job is dereferencing linked ones.
-    let rec zonk (t: SemType) : SemType =
-        match t with
-        | TyVar tv ->
-            let root = UnionFind.find tv
-
-            match root.Link with
-            | ValueSome target -> zonk target
-            | ValueNone -> t
-        | TyFun(a, b) -> TyFun(zonk a, zonk b)
-        | TyTuple items -> TyTuple(EqArray.map zonk items)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
-        | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
-        | TyConst(n, args) -> TyConst(n, EqArray.map zonk args)
-        | TyUnknown _ -> t
-        // A frozen open typar is already ground (no links to chase).
-        | TempTypar _ -> t
 
     let externalAsmRef (asm: string option) : EntityHandle =
         match asm with
@@ -430,9 +413,9 @@ type internal ClrEnv
             | _ -> 0
         | _ -> 0
 
-    let rec decurryTy (t: SemType) : SemType list * SemType =
-        match zonk t with
-        | TyFun(a, b) ->
+    let rec decurryTy (t: FrozenType) : FrozenType list * FrozenType =
+        match t with
+        | FTFun(a, b) ->
             let ps, r = decurryTy b
             a :: ps, r
         | other -> [], other
@@ -495,7 +478,6 @@ type internal ClrEnv
         with get () = closureTyparMode
         and set v = closureTyparMode <- v
 
-    member _.Zonk t = zonk t
     member _.ArityOfMetaName name = arityOfMetaName name
     member _.DecurryTy t = decurryTy t
 

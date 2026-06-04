@@ -554,32 +554,46 @@ module FrozenTypeBridge =
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
 
-    /// `FrozenType -> SemType`. Total — every `FrozenType` case has a `SemType`
-    /// counterpart (`FTTypar` lands on the post-freeze-only `TempTypar`).
-    let rec ofFrozen (ft: FrozenType) : SemType =
-        match ft with
-        | FTConst(name, args) -> TyConst(name, EqArray.map ofFrozen args)
-        | FTFun(arg, result) -> TyFun(ofFrozen arg, ofFrozen result)
-        | FTTuple items -> TyTuple(EqArray.map ofFrozen items)
-        | FTRecord(key, args) -> TyRecord(key, EqArray.map ofFrozen args)
-        | FTUnion(key, args) -> TyUnion(key, EqArray.map ofFrozen args)
-        | FTClass(key, args) -> TyClass(key, EqArray.map ofFrozen args)
-        | FTTypar(axis, index) -> TempTypar(axis, index)
+    /// Realise a `FrozenType` template, resolving its open typars via the two
+    /// supplied callbacks: `declaring i` yields the declaring type's i-th arg;
+    /// `methodVar j` yields the method axis's j-th instantiation. Every other
+    /// case maps structurally. Callers that span more than one template of the
+    /// *same* signature (a split parameter/return `ExternalSignature`) must share
+    /// one `methodVar` memo so a repeated method index resolves to the same var
+    /// across the whole signature. `ofFrozen` is the identity case (both
+    /// placeholders map straight back to their `TempTypar` markers).
+    let rec instantiateWith (declaring: int -> SemType) (methodVar: int -> SemType) (template: FrozenType) : SemType =
+        let go = instantiateWith declaring methodVar
+
+        match template with
+        | FTConst(name, args) -> TyConst(name, EqArray.map go args)
+        | FTFun(arg, result) -> TyFun(go arg, go result)
+        | FTTuple items -> TyTuple(EqArray.map go items)
+        | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
+        | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
+        | FTClass(key, args) -> TyClass(key, EqArray.map go args)
+        | FTTypar(TyparAxis.Declaring, i) -> declaring i
+        | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTUnknown name -> TyUnknown name
+
+    /// `FrozenType -> SemType`. Total — every `FrozenType` case has a `SemType`
+    /// counterpart (`FTTypar` lands on the post-freeze-only `TempTypar`). The
+    /// identity realisation of `instantiateWith`: each placeholder maps straight
+    /// back to its self-describing `TempTypar` marker.
+    let ofFrozen (ft: FrozenType) : SemType =
+        instantiateWith (fun i -> TempTypar(TyparAxis.Declaring, i)) (fun j -> TempTypar(TyparAxis.Method, j)) ft
 
     // --- Template freshening (external-signature-plan step 1) ----------------
     //
     // A `FrozenType` template is an external descriptor's body with its open
     // typars baked as `FTTypar(Declaring,i)` / `FTTypar(Method,j)` placeholders.
-    // `instantiate` is the single bridge back to inference: a
-    // substitution-parameterised `ofFrozen` that resolves declaring placeholders
-    // to the caller's fresh declaring args and method placeholders to fresh
-    // metavars. It is the data form of the legacy `SemType[] -> SemType`
-    // closures (`BuildSignature` / `BuildType` / …): inference will point here
-    // instead of the closures (step 2), codegen reads the templates directly
-    // (step 3), and the closures are deleted (step 5). Constraint stamping is
-    // NOT part of this — it stays in `ExternalSymbol.Instantiate`, applied
-    // *after* freshening (the type-shape half carries no constraints).
+    // The realiser family below resolves declaring placeholders to the caller's
+    // fresh declaring args and method placeholders to fresh metavars, all over
+    // the shared `instantiateWith` walk. It is the data form of the legacy
+    // `SemType[] -> SemType` closures (`BuildSignature` / `BuildType` / …):
+    // inference reads templates here, codegen reads them directly. Constraint
+    // stamping is NOT part of this — it stays in `ExternalSymbol.Instantiate`,
+    // applied *after* freshening (the type-shape half carries no constraints).
 
     /// The placeholder a contract-layer descriptor carries between extraction and
     /// the `ExtractCtx.toProvider` finalize pass (external-signature-plan step 1).
@@ -607,27 +621,6 @@ module FrozenTypeBridge =
     let templateOfClosure (arity: int) (closure: SemType[] -> SemType) : FrozenType =
         toFrozen (closure (declaringMarkers arity))
 
-    /// Realise a `FrozenType` template, resolving its open typars via the two
-    /// supplied callbacks: `declaring i` yields the declaring type's i-th arg;
-    /// `methodVar j` yields the method axis's j-th instantiation. Every other
-    /// case maps structurally exactly as `ofFrozen`. Callers that span more than
-    /// one template of the *same* signature (a split parameter/return
-    /// `ExternalSignature`) must share one `methodVar` memo so a repeated method
-    /// index resolves to the same var across the whole signature.
-    let rec instantiateWith (declaring: int -> SemType) (methodVar: int -> SemType) (template: FrozenType) : SemType =
-        let go = instantiateWith declaring methodVar
-
-        match template with
-        | FTConst(name, args) -> TyConst(name, EqArray.map go args)
-        | FTFun(arg, result) -> TyFun(go arg, go result)
-        | FTTuple items -> TyTuple(EqArray.map go items)
-        | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
-        | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
-        | FTClass(key, args) -> TyClass(key, EqArray.map go args)
-        | FTTypar(TyparAxis.Declaring, i) -> declaring i
-        | FTTypar(TyparAxis.Method, j) -> methodVar j
-        | FTUnknown name -> TyUnknown name
-
     /// The standard method-typar freshener: a fresh `TyVar` at `level` per
     /// distinct index, memoised in `cache` so repeated occurrences of the same
     /// method index share one var. Mirrors `Infer.instantiateMethodTypars`.
@@ -640,15 +633,6 @@ module FrozenTypeBridge =
             let v = TyVar tv
             cache.[j] <- v
             v
-
-    /// Realise a single template at `level`: `FTTypar(Declaring,i) →
-    /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
-    /// index). The substitution-parameterised `ofFrozen` the plan routes
-    /// provider descriptors through; byte-for-byte the closure's result on the
-    /// post-freeze subset.
-    let instantiate (template: FrozenType) (declaringArgs: SemType[]) (level: int) : SemType =
-        let cache = System.Collections.Generic.Dictionary<int, SemType>()
-        instantiateWith (fun i -> declaringArgs.[i]) (methodFreshener cache level) template
 
     /// Realise a *declaring-only* template (a type-shape descriptor — a record
     /// field, union-case field, interface arg, base type, or abbreviation body):
@@ -664,6 +648,27 @@ module FrozenTypeBridge =
                     j
             )
             template
+
+    /// The `FrozenType → FrozenType` use-site substitution codegen applies to a
+    /// type-shape template directly (external-signature-plan step 4: "codegen reads
+    /// the template directly and does its own `FTTypar(Declaring,i) ↦ tyArgs.[i]`
+    /// substitution — a trivial total walk on `FrozenType`. No `instantiate`, no
+    /// `SemType`."). The frozen sibling of `instantiateDeclaring`; a method typar is
+    /// a producer bug (type-shape templates carry no method axis), so it fails loud.
+    let rec substituteDeclaring (declaringArgs: FrozenType[]) (template: FrozenType) : FrozenType =
+        let go = substituteDeclaring declaringArgs
+
+        match template with
+        | FTConst(name, args) -> FTConst(name, EqArray.map go args)
+        | FTFun(arg, result) -> FTFun(go arg, go result)
+        | FTTuple items -> FTTuple(EqArray.map go items)
+        | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
+        | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
+        | FTClass(key, args) -> FTClass(key, EqArray.map go args)
+        | FTTypar(TyparAxis.Declaring, i) -> declaringArgs.[i]
+        | FTTypar(TyparAxis.Method, j) ->
+            failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
+        | FTUnknown name -> FTUnknown name
 
 /// `∀ Quantified . Body`. Built by `Unification.generalise` and stored in
 /// `PassContext.Bindings.Scheme` keyed by the binding's headPat NodeKey. Each

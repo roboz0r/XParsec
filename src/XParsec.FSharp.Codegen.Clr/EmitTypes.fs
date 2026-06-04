@@ -12,13 +12,13 @@ module EmitTypes =
     /// construction site.
     type Closure =
         {
-            Node: TExpr
+            Node: Frozen.TExpr
             Name: string
             ParamKey: NodeKey
-            ParamTy: SemType
-            ResultTy: SemType
-            Body: TExpr
-            Captures: (NodeKey * SemType) list
+            ParamTy: FrozenType
+            ResultTy: FrozenType
+            Body: Frozen.TExpr
+            Captures: (NodeKey * FrozenType) list
             /// Binding key of the `let [rec] f = <this lambda>` this is the value
             /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
             /// it is not captured. `ValueNone` for an anonymous lambda.
@@ -52,8 +52,8 @@ module EmitTypes =
             IsStatic: bool
             Arity: int
             MetaName: string
-            ParamTys: SemType list
-            RetTy: SemType
+            ParamTys: FrozenType list
+            RetTy: FrozenType
         }
 
     /// A union emitted into this assembly. `Typars` empty ⇒ a monomorphic union
@@ -80,7 +80,7 @@ module EmitTypes =
         {
             Name: string
             Typars: string list
-            Fields: (string * EntityHandle * SemType) list
+            Fields: (string * EntityHandle * FrozenType) list
             Ctor: EntityHandle
         }
 
@@ -92,7 +92,7 @@ module EmitTypes =
         {
             Name: string
             Typars: string list
-            Fields: (string * EntityHandle * SemType) list
+            Fields: (string * EntityHandle * FrozenType) list
             Ctor: EntityHandle
             Members: Dictionary<string, EmittedMember>
             /// `static let` backing fields keyed by source name (B-10); a
@@ -118,9 +118,9 @@ module EmitTypes =
             /// (recorded in `TastFile.ModuleMembers`): emits as a public static
             /// method on a `Foo` holder type. `None` ⇒ the anonymous "Program" holder.
             Holder: (string option * string) option
-            Params: (NodeKey * SemType) list
-            Body: TExpr
-            ResultTy: SemType
+            Params: (NodeKey * FrozenType) list
+            Body: Frozen.TExpr
+            ResultTy: FrozenType
         }
 
     /// Emission handle + shape of a static-method function, resolved before any
@@ -135,9 +135,9 @@ module EmitTypes =
         {
             Handle: EntityHandle
             Arity: int
-            ResultTy: SemType
+            ResultTy: FrozenType
             Typars: int
-            ParamTys: SemType list
+            ParamTys: FrozenType list
         }
 
     /// Per-method codegen state, layered on top of the run-wide `EmitContext`.
@@ -151,8 +151,8 @@ module EmitTypes =
             Provider: ICodegenProvider
             Ctx: MetadataContext
             Slots: Dictionary<NodeKey, int>
-            ClosureByNode: Dictionary<TExpr, Closure>
-            CtorHandleByNode: Dictionary<TExpr, EntityHandle>
+            ClosureByNode: Dictionary<Frozen.TExpr, Closure>
+            CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
             Args: Dictionary<NodeKey, int>
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
@@ -170,7 +170,7 @@ module EmitTypes =
     /// `printfn` flush — funnels through here so the BCL-only representation stays
     /// consistent (and the local's `unit` type encodes off the same repr).
     let buildUnitValue (env: EmitEnv) (b: IlBuilder) : unit =
-        let slot = b.Local(TyConst("unit", EqArray.empty))
+        let slot = b.Local(FTConst("unit", EqArray.empty))
         b.Add(ILInstr.Ldloca slot)
-        b.Add(ILInstr.Initobj(env.Provider.TypeToken(TyConst("unit", EqArray.empty))))
+        b.Add(ILInstr.Initobj(env.Provider.TypeToken(FTConst("unit", EqArray.empty))))
         b.Add(ILInstr.Ldloc slot)

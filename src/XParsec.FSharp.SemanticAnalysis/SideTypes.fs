@@ -54,7 +54,7 @@ type ModuleMemberInfo =
 /// in compile order) so both the `SideTables` side table and the `TExpr.ForIn`
 /// field can name it.
 [<RequireQualifiedAccess>]
-type ForInEnumerator =
+type ForInEnumeratorG<'ty> =
     /// The §4.2 interface path: lower through the `IEnumerable<'T>` /
     /// `IEnumerator<'T>` interface slots with `callvirt`. The default for the
     /// range form and for every source whose enumerable surface is (or includes)
@@ -71,9 +71,14 @@ type ForInEnumerator =
     /// elided. **Scaffolding + front end only** — codegen value-type emission is
     /// deferred to a dedicated session (see the §4.4 codegen handoff).
     | DuckTyped of
-        enumeratorTy: SemType *
+        enumeratorTy: 'ty *
         getEnumerator: SymbolKey *
         moveNext: SymbolKey *
         current: SymbolKey *
         isValueType: bool *
         dispose: SymbolKey voption
+
+/// The `SemType`-domain `ForInEnumerator` (inference + `SideTables.ForInShape` +
+/// the pre-freeze `TExpr.ForIn`). The frozen alias lives in `Tast.fs`'s `Frozen`
+/// module; `Freeze` maps `enumeratorTy` through `toFrozen` via `TastConvert`.
+type ForInEnumerator = ForInEnumeratorG<SemType>

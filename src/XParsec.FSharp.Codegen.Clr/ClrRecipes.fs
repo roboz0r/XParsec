@@ -11,14 +11,12 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
     let symbols = env.Symbols
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
-    let zonk t = env.Zonk t
     let externalAsmRef asm = env.ExternalAsmRef asm
 
     let recoverOpenTypars declArity methodArity openT instT =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
     let encodeType te t = enc.EncodeType(te, t)
-    let encodeFrozen te t = enc.EncodeFrozen(te, t)
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
 
     /// Decurry a `FrozenType` arrow chain into `(params, return)` — the `FrozenType`
@@ -65,12 +63,12 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// `printfn` → `call PrintfModule::PrintFormatLine<printer>(format)`. The `printer` is the *result*
     /// of the head's curried type `fnTy = PrintfFormat<…> -> printer`.
-    let emitPrintfn (fnTy: SemType) : CallRecipe =
+    let emitPrintfn (fnTy: FrozenType) : CallRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
 
         let resultTy =
-            match zonk fnTy with
-            | TyFun(_, printer) -> printer
+            match fnTy with
+            | FTFun(_, printer) -> printer
             | other -> failwithf "ClrProvider: printfn has non-function type %A" other
 
         let msig = BlobBuilder()
@@ -100,7 +98,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// `Vesper.Fun`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a function value (R1/D3).
     /// `Fun` is an interface, so the dispatch stays `callvirt`.
-    let funInvokeRef (a: SemType) (b: SemType) : EntityHandle =
+    let funInvokeRef (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eFun2.Value, 2, false)
@@ -120,9 +118,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(toEntity typeSpec, "Invoke", msig))
 
-    let emitInvoke (funcTy: SemType) : CallRecipe =
+    let emitInvoke (funcTy: FrozenType) : CallRecipe =
         match funcTy with
-        | TyFun(a, b) ->
+        | FTFun(a, b) ->
             let invokeRef = funInvokeRef a b
 
             {
@@ -137,11 +135,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// `FSharpFunc`2<a,b>::Invoke(a) : b` — applying an FSharp.Core `FSharpFunc`, not a `Vesper.Fun`.
     /// R1 left exactly one such island: the cold printf printer returned by `PrintFormatLine` (R9).
-    let emitFSharpFuncInvoke (funcTy: SemType) : CallRecipe =
+    let emitFSharpFuncInvoke (funcTy: FrozenType) : CallRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2.Invoke"
 
         match funcTy with
-        | TyFun(a, b) ->
+        | FTFun(a, b) ->
             let tsB = BlobBuilder()
             let te = BlobEncoder(tsB).TypeSpecificationSignature()
             let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
@@ -173,7 +171,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// `new PrintfFormat<tyArgs>(string)`. The first type arg is the printer — an FSharp.Core
     /// `FSharpFunc` (cold path, flows into `PrintFormatLine`), so its arrows encode to `FSharpFunc`.
-    let emitPrintfFormatCtor (tyArgs: SemType list) : CtorRecipe =
+    let emitPrintfFormatCtor (tyArgs: FrozenType list) : CtorRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)"
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -201,13 +199,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         }
 
     /// `FSharpList`1<elem>` as a member-ref parent `TypeSpec`.
-    let listTypeSpec (elem: SemType) : EntityHandle =
+    let listTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         encodeListOf te (fun arg -> encodeType arg elem)
         toEntity (ctx.TypeSpec tsB)
 
-    let emitListCons (elem: SemType) : CallRecipe =
+    let emitListCons (elem: FrozenType) : CallRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1.Cons"
         let typeSpec = listTypeSpec elem
         let msig = BlobBuilder()
@@ -231,7 +229,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    let emitListNil (elem: SemType) : CallRecipe =
+    let emitListNil (elem: FrozenType) : CallRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1.get_Empty"
         let typeSpec = listTypeSpec elem
         let msig = BlobBuilder()
@@ -253,7 +251,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         }
 
     /// `Vesper.Collections.List`1<elem>` as a member-ref parent `TypeSpec`.
-    let vesperListTypeSpec (elem: SemType) : EntityHandle =
+    let vesperListTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
@@ -264,7 +262,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
         g.AddArgument().GenericTypeParameter(0)
 
-    let emitVesperListCons (elem: SemType) : CallRecipe =
+    let emitVesperListCons (elem: FrozenType) : CallRecipe =
         let typeSpec = vesperListTypeSpec elem
         let msig = BlobBuilder()
 
@@ -287,7 +285,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    let emitVesperListEmpty (elem: SemType) : CallRecipe =
+    let emitVesperListEmpty (elem: FrozenType) : CallRecipe =
         let typeSpec = vesperListTypeSpec elem
         let msig = BlobBuilder()
 
@@ -305,7 +303,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// `Vesper.Fun`2<a,b>` as a `TypeSpec` — the interface a synthesised closure *implements* (R1/D3).
     /// A closure derives from `System.Object`, not `FSharpFunc`.
-    let funInterfaceSpec (a: SemType) (b: SemType) : EntityHandle =
+    let funInterfaceSpec (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eFun2.Value, 2, false)
@@ -316,20 +314,20 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// `List.fold folder state xs` over the *Vesper* list — a `call` to `fold` compiled into
     /// `Vesper.List.dll` (R3). Folder, state, list are already on the stack (ArgCount = 3); the call
     /// leaves the `'State` result. No FSharp.Core dep.
-    let emitFold (fnTy: SemType) : CallRecipe =
+    let emitFold (fnTy: FrozenType) : CallRecipe =
         let elemTy, stateTy =
-            match zonk fnTy with
-            | TyFun(TyFun(state, TyFun(t, _)), _) -> t, state
+            match fnTy with
+            | FTFun(FTFun(state, FTFun(t, _)), _) -> t, state
             | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
 
         // The generic `fold` signature is encoded with two method typars carried as self-describing
-        // `TempTypar(Method, i)` nodes (`'State` ⇒ `!!0`, `'T` ⇒ `!!1`): the keystone `encodeType` arm
+        // `FTTypar(Method, i)` nodes (`'State` ⇒ `!!0`, `'T` ⇒ `!!1`): the keystone `encodeType` arm
         // maps them — and the `Fun` / `List` instances over them — to `!!i` straight off the node,
         // exactly as the producer side emits the method's own signature. No ambient typar window.
-        let sT = TempTypar(TyparAxis.Method, 0)
-        let eT = TempTypar(TyparAxis.Method, 1)
-        let folderT = TyFun(sT, TyFun(eT, sT))
-        let listT = TyUnion(RuntimeNames.vesperListKey, EqArray.singleton eT)
+        let sT = FTTypar(TyparAxis.Method, 0)
+        let eT = FTTypar(TyparAxis.Method, 1)
+        let folderT = FTFun(sT, FTFun(eT, sT))
+        let listT = FTUnion(RuntimeNames.vesperListKey, EqArray.singleton eT)
 
         let foldSig =
             let s = BlobBuilder()
@@ -388,14 +386,14 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     ///
     /// The open method signature is reconstructed by the symbol layer's `Inline.openMethodSignature`
     /// accessor (the §3A-precursor `instantiate` seam): it instantiates the symbol and hands back a
-    /// curried monotype whose method-own typars are already self-describing `TempTypar(Method, i)` nodes,
+    /// curried monotype whose method-own typars are already self-describing `FTTypar(Method, i)` nodes,
     /// so codegen never authors a `TyVar`. The keystone `encodeType` arm maps those to `!!i`, matching
     /// the producer's emitted signature; the use-site type arguments are then recovered by structurally
     /// matching that open type against `fnTy` (`recoverOpenTypars`, method axis). A monomorphic method
     /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home
     /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
     /// its hard error.
-    let emitExternalCall (declFullName: string) (name: string) (fnTy: SemType) : CallRecipe voption =
+    let emitExternalCall (declFullName: string) (name: string) (fnTy: FrozenType) : CallRecipe voption =
         let compiledFullName =
             if declFullName = "" then
                 name
@@ -422,10 +420,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
                     .Parameters(
                         List.length openParamTys,
-                        (fun (ret: ReturnTypeEncoder) -> encodeFrozen (ret.Type()) openRetTy),
+                        (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) openRetTy),
                         (fun (pars: ParametersEncoder) ->
                             for p in openParamTys do
-                                encodeFrozen (pars.AddParameter().Type()) p
+                                encodeType (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -442,8 +440,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 else
                     // Use-site instantiation: match the open template (its `FTTypar(Method, i)`) against
                     // the call's concrete type, recovering each method arg by its index.
-                    let _, methodArgs =
-                        recoverOpenTypars 0 methodArity openSig.Signature (toFrozen (zonk fnTy))
+                    let _, methodArgs = recoverOpenTypars 0 methodArity openSig.Signature fnTy
 
                     methodSpec memberRef methodArgs
 
@@ -582,7 +579,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         // The overload is selected by which optional params are present (alignment before format,
         // matching the C# declaration), then `<T>` is bound.
-        let appendFormatted (ty: SemType, hasAlignment: bool, hasFormat: bool) : EntityHandle =
+        let appendFormatted (ty: FrozenType, hasAlignment: bool, hasFormat: bool) : EntityHandle =
             let paramCount = 1 + (if hasAlignment then 1 else 0) + (if hasFormat then 1 else 0)
             let s = BlobBuilder()
 
@@ -605,11 +602,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let memberRef = ctx.MemberRef(eFormatter.Value, "AppendFormatted", s)
             let inst = BlobBuilder()
             let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
-            encodeType (specEnc.AddArgument()) (zonk ty)
+            encodeType (specEnc.AddArgument()) ty
             toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
         {
-            HandlerLocal = TyConst(formatterTypeName, EqArray.empty)
+            HandlerLocal = FTConst(formatterTypeName, EqArray.empty)
             CtorWriter = ctorWriter
             CtorString = ctorString
             AppendLiteral = appendLiteral
@@ -626,14 +623,14 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     // ---- Structural equality / hashing (C-Eq1) ----
 
-    let equalityComparerTypeSpec (elem: SemType) : EntityHandle =
+    let equalityComparerTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eEqualityComparer1.Value, 1, false)
-        encodeType (g.AddArgument()) (zonk elem)
+        encodeType (g.AddArgument()) elem
         toEntity (ctx.TypeSpec tsB)
 
-    let equalityComparerDefault (elem: SemType) : EntityHandle =
+    let equalityComparerDefault (elem: FrozenType) : EntityHandle =
         let parent = equalityComparerTypeSpec elem
         let s = BlobBuilder()
 
@@ -650,7 +647,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(parent, "get_Default", s))
 
-    let equalityComparerEquals (elem: SemType) : EntityHandle =
+    let equalityComparerEquals (elem: FrozenType) : EntityHandle =
         let parent = equalityComparerTypeSpec elem
         let s = BlobBuilder()
 
@@ -669,7 +666,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// There is no IL opcode for a structural hash, so unlike `=`/`+` this is a BCL call, not an
     /// `ILIntrinsic`.
-    let equalityComparerGetHashCode (elem: SemType) : EntityHandle =
+    let equalityComparerGetHashCode (elem: FrozenType) : EntityHandle =
         let parent = equalityComparerTypeSpec elem
         let s = BlobBuilder()
 
@@ -683,7 +680,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(parent, "GetHashCode", s))
 
-    let hashCodeAdd (elem: SemType) : EntityHandle =
+    let hashCodeAdd (elem: FrozenType) : EntityHandle =
         let s = BlobBuilder()
 
         BlobEncoder(s)
@@ -697,26 +694,26 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let memberRef = ctx.MemberRef(eHashCode.Value, "Add", s)
         let inst = BlobBuilder()
         let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
-        encodeType (specEnc.AddArgument()) (zonk elem)
+        encodeType (specEnc.AddArgument()) elem
         toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
-    let equatableInterfaceSpec (selfTy: SemType) : EntityHandle =
+    let equatableInterfaceSpec (selfTy: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eEquatable1.Value, 1, false)
-        encodeType (g.AddArgument()) (zonk selfTy)
+        encodeType (g.AddArgument()) selfTy
         toEntity (ctx.TypeSpec tsB)
 
     // ---- Structural comparison (records-plan §B6) ----
 
-    let comparerTypeSpec (elem: SemType) : EntityHandle =
+    let comparerTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eComparer1.Value, 1, false)
-        encodeType (g.AddArgument()) (zonk elem)
+        encodeType (g.AddArgument()) elem
         toEntity (ctx.TypeSpec tsB)
 
-    let comparerDefault (elem: SemType) : EntityHandle =
+    let comparerDefault (elem: FrozenType) : EntityHandle =
         let parent = comparerTypeSpec elem
         let s = BlobBuilder()
 
@@ -733,7 +730,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(parent, "get_Default", s))
 
-    let comparerCompare (elem: SemType) : EntityHandle =
+    let comparerCompare (elem: FrozenType) : EntityHandle =
         let parent = comparerTypeSpec elem
         let s = BlobBuilder()
 
@@ -750,23 +747,23 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(parent, "Compare", s))
 
-    let comparableInterfaceSpec (selfTy: SemType) : EntityHandle =
+    let comparableInterfaceSpec (selfTy: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(eComparable1.Value, 1, false)
-        encodeType (g.AddArgument()) (zonk selfTy)
+        encodeType (g.AddArgument()) selfTy
         toEntity (ctx.TypeSpec tsB)
 
-    /// A `TypeSpec` token for an arbitrary `SemType`, for the type operand of
+    /// A `TypeSpec` token for an arbitrary `FrozenType`, for the type operand of
     /// `isinst` / `castclass` / `box` / `unbox.any` (inheritance-plan §`:>` /
     /// `:?` / `:?>`). `encodeType` maps user types to their `TypeDefinition`,
     /// generic instances to instantiated specs, and externals through the
     /// provider — a `TypeSpec` token is a legal `TypeDefOrRefOrSpec` operand for
     /// all of them, so one path serves mono and generic targets alike.
-    let typeToken (ty: SemType) : EntityHandle =
+    let typeToken (ty: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        encodeType te (zonk ty)
+        encodeType te ty
         toEntity (ctx.TypeSpec tsB)
 
     member _.EmitPrintfn fnTy = emitPrintfn fnTy

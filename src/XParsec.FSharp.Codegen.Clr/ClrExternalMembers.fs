@@ -12,13 +12,11 @@ open XParsec.FSharp.SemanticAnalysis
 type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
     let symbols = env.Symbols
-    let zonk t = env.Zonk t
     let arityOfMetaName n = env.ArityOfMetaName n
     let externalClassRef n = env.ExternalClassRef n
     let externalRecordRef fullName arity = env.ExternalRecordRef(fullName, arity)
     let externalUnionRef fullName arity = env.ExternalUnionRef(fullName, arity)
     let encodeType te t = enc.EncodeType(te, t)
-    let encodeFrozen te t = enc.EncodeFrozen(te, t)
     let methodSpec handle args = enc.MethodSpec(handle, args)
 
     let recoverOpenTypars declArity methodArity (openT: FrozenType) (instT: FrozenType) =
@@ -59,7 +57,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(isInstanceMethod = not isStatic)
                 .Parameters(
                     0,
-                    (fun (ret: ReturnTypeEncoder) -> encodeFrozen (ret.Type()) retT),
+                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retT),
                     (fun (_: ParametersEncoder) -> ())
                 )
         else
@@ -87,11 +85,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) ->
                         match retT with
                         | FTConst("unit", _) -> ret.Void()
-                        | _ -> encodeFrozen (ret.Type()) retT
+                        | _ -> encodeType (ret.Type()) retT
                     ),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeFrozen (pars.AddParameter().Type()) p
+                            encodeType (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -131,7 +129,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// generic method, with `TempTypar(Method, j)` baked in by `BuildSignature` (frozen-type-plan 2C).
     /// Both axes' use-site instantiations are recovered by matching that open form against `memberTy`:
     /// the declaring args parameterise the parent `TypeSpec`; the method args (if any) the `MethodSpec`.
-    let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: SemType) : EntityHandle =
+    let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: FrozenType) : EntityHandle =
         let declKey, memberName, argSig =
             match key with
             | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
@@ -142,8 +140,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | SymbolKey.TypeKey(_, ns, name) -> ns, name
             | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
 
-        let instTy = zonk memberTy
-        let memoKey = sprintf "%A|%b|%b|%A" key isProperty isStatic instTy
+        let memoKey = sprintf "%A|%b|%b|%A" key isProperty isStatic memberTy
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h
@@ -157,7 +154,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let sig_ = chosen.Signature
 
             let declArgs, methodArgs =
-                recoverOpenTypars declArity methodArity (openTemplate chosen isProperty) (toFrozen instTy)
+                recoverOpenTypars declArity methodArity (openTemplate chosen isProperty) memberTy
 
             let tref =
                 match externalClassRef declFullName with
@@ -165,7 +162,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | ValueNone ->
                     failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-            let parent = externalTypeSpec tref (List.map zonk declArgs)
+            let parent = externalTypeSpec tref (declArgs)
 
             let handle =
                 methodSpec
@@ -192,10 +189,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// `VALUETYPE` generic-inst (and nested-correct via the fixed `externalClassRef`).
     let externalMemberRefOn
         (key: SymbolKey)
-        (declTy: SemType)
+        (declTy: FrozenType)
         (isProperty: bool)
         (isStatic: bool)
-        (memberTy: SemType)
+        (memberTy: FrozenType)
         : EntityHandle =
         let declKey, memberName, argSig =
             match key with
@@ -207,10 +204,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | SymbolKey.TypeKey(_, ns, name) -> ns, name
             | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
 
-        let declZ = zonk declTy
-
-        let instTy = zonk memberTy
-        let memoKey = sprintf "on|%A|%A|%b|%b|%A" key declZ isProperty isStatic instTy
+        let memoKey = sprintf "on|%A|%A|%b|%b|%A" key declTy isProperty isStatic memberTy
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h
@@ -226,11 +220,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             // `memberTy`. Passing declArity 0 leaves the template's `FTTypar(Declaring, i)` unrecorded —
             // those slots encode as `!i` straight off the node when the signature blob is minted.
             let _, methodArgs =
-                recoverOpenTypars 0 methodArity (openTemplate chosen isProperty) (toFrozen instTy)
+                recoverOpenTypars 0 methodArity (openTemplate chosen isProperty) memberTy
 
             // The parent is the declaring type encoded directly (value-type / nested correct), not
             // recovered+rebuilt — that is the whole point of this entry point.
-            let parent = typeSpecOf declZ
+            let parent = typeSpecOf declTy
 
             let handle =
                 methodSpec
@@ -250,13 +244,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint the `MemberRef` for a referenced-assembly record's `.ctor`, instantiated at `args`.
     /// Parameter types are the declared fields in their *open* typar form.
-    let externalRecordCtor (fullName: string) (args: SemType list) : EntityHandle voption =
+    let externalRecordCtor (fullName: string) (args: FrozenType list) : EntityHandle voption =
         let arity = List.length args
 
         match externalRecordRef fullName arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, fields) ->
-            let parent = externalTypeSpec tref (List.map zonk args)
+            let parent = externalTypeSpec tref args
 
             // The fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
             // descriptor template — no closure run on marker typars (external-signature-plan step 3).
@@ -271,7 +265,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeFrozen (pars.AddParameter().Type()) p
+                            encodeType (pars.AddParameter().Type()) p
                     )
                 )
 
@@ -284,7 +278,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// return type is the union itself, both written over fresh marker typars so the signature matches the
     /// emitted generic factory. Returns the handle + the field count. `ValueNone` ⇒ the union (or the case)
     /// is unknown to the provider, in which case the caller falls back to its hard error.
-    let externalUnionFactory (fullName: string) (caseName: string) (args: SemType list) : (EntityHandle * int) voption =
+    let externalUnionFactory
+        (fullName: string)
+        (caseName: string)
+        (args: FrozenType list)
+        : (EntityHandle * int) voption =
         let arity = List.length args
 
         match externalUnionRef fullName arity with
@@ -293,7 +291,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
             | None -> ValueNone
             | Some case ->
-                let parent = externalTypeSpec tref (List.map zonk args)
+                let parent = externalTypeSpec tref args
 
                 // The case fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
                 // descriptor template; the return type is the union itself over the same open markers, so
@@ -312,10 +310,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     .MethodSignature(isInstanceMethod = false)
                     .Parameters(
                         List.length paramTys,
-                        (fun (ret: ReturnTypeEncoder) -> encodeFrozen (ret.Type()) retTy),
+                        (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
-                                encodeFrozen (pars.AddParameter().Type()) p
+                                encodeType (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -327,7 +325,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// + type mirror the union emitter (`NominalEmit.fs`: a public `_tag` of type `int`, and tags assigned
     /// by case declaration order). `_tag` is non-generic, so its signature needs no marker typars even on a
     /// generic union. `ValueNone` ⇒ the union (or the case) is unknown to the provider.
-    let externalUnionTag (fullName: string) (args: SemType list) (caseName: string) : (EntityHandle * int) voption =
+    let externalUnionTag (fullName: string) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
         let arity = List.length args
 
         match externalUnionRef fullName arity with
@@ -336,23 +334,23 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match cases |> Array.tryFindIndex (fun c -> c.Name = caseName) with
             | None -> ValueNone
             | Some tag ->
-                let parent = externalTypeSpec tref (List.map zonk args)
+                let parent = externalTypeSpec tref args
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) (TyConst("int", EqArray.empty))
+                encodeType (BlobEncoder(s).FieldSignature()) (FTConst("int", EqArray.empty))
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
 
     /// Mint the `MemberRef` for one field of one case on a referenced-package union — the `<caseName>_<i>`
     /// public field the union emitter writes (`NominalEmit.fs`), instantiated at `args`. The field-extract
     /// slot a cross-package `match … Some x` reads (Gap 2 Layer C); the mirror of `externalRecordField`.
     /// The field's *open* type (its declaring-typar form, `!i`) drives the signature blob so it matches the
-    /// generic field definition; the returned `SemType` is that type after the use-site substitution.
+    /// generic field definition; the returned `FrozenType` is that type after the use-site substitution.
     /// `ValueNone` ⇒ unknown union / case / field index.
     let externalUnionCaseField
         (fullName: string)
-        (args: SemType list)
+        (args: FrozenType list)
         (caseName: string)
         (fieldIndex: int)
-        : (EntityHandle * SemType) voption =
+        : (EntityHandle * FrozenType) voption =
         let arity = List.length args
 
         match externalUnionRef fullName arity with
@@ -360,20 +358,20 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome(tref, cases) ->
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
             | Some case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
-                let parent = externalTypeSpec tref (List.map zonk args)
+                let parent = externalTypeSpec tref args
 
                 // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob so it
-                // matches the generic field definition; `instantiateDeclaring` substitutes the use-site
-                // args for the returned (use-site) `SemType` (external-signature-plan step 3).
+                // matches the generic field definition; `substituteDeclaring` substitutes the use-site
+                // args for the returned (use-site) `FrozenType` (external-signature-plan step 4).
                 let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
 
                 let s = BlobBuilder()
-                encodeFrozen (BlobEncoder(s).FieldSignature()) openFieldTy
+                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
 
                 let handle =
                     toEntity (ctx.MemberRef(parent, sprintf "%s_%d" caseName fieldIndex, s))
 
-                let substitutedTy = instantiateDeclaring openFieldTy (List.toArray args)
+                let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
                 ValueSome(handle, substitutedTy)
             | _ -> ValueNone
 
@@ -386,7 +384,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// landing where an `Exception` is expected), which produces a malformed object that faults the CLR
     /// at throw/dispatch time. Falls back to the first arity match when the types can't disambiguate
     /// (single overload, or arg types the metadata params don't equal).
-    let externalCtor (fullName: string) (tyArgs: SemType list) (argTypes: SemType list) : CtorRecipe voption =
+    let externalCtor (fullName: string) (tyArgs: FrozenType list) (argTypes: FrozenType list) : CtorRecipe voption =
         let candidates = symbols.TryLookupMembers(fullName, ".ctor")
         let arity = List.length argTypes
 
@@ -402,10 +400,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | [||] -> ValueNone
         | _ ->
             let chosen =
-                let typeArgsArr = tyArgs |> List.map zonk |> List.toArray
-                let argElems = argTypes |> List.map zonk
+                let typeArgsArr = tyArgs |> List.toArray
+                let argElems = argTypes
 
-                match Passes.UnificationInferOverload.pickStaticOverload typeArgsArr applicable argElems with
+                match Passes.UnificationInferOverload.pickStaticOverloadFrozen typeArgsArr applicable argElems with
                 | ValueSome m -> m
                 | ValueNone -> applicable.[0]
 
@@ -417,7 +415,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match externalClassRef fullName with
             | ValueNone -> ValueNone
             | ValueSome tref ->
-                let parent = externalTypeSpec tref (List.map zonk tyArgs)
+                let parent = externalTypeSpec tref tyArgs
 
                 // The ctor's parameters in their *open* (`FTTypar(Declaring, i)`) form, read off the
                 // descriptor template's single tupled `Parameters` slot and flattened by the chosen key's
@@ -437,7 +435,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
-                                encodeFrozen (pars.AddParameter().Type()) p
+                                encodeType (pars.AddParameter().Type()) p
                         )
                     )
 
@@ -454,9 +452,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// type a subsequent encode expects.
     let externalRecordField
         (fullName: string)
-        (args: SemType list)
+        (args: FrozenType list)
         (fieldName: string)
-        : (EntityHandle * SemType) voption =
+        : (EntityHandle * FrozenType) voption =
         let arity = List.length args
 
         match externalRecordRef fullName arity with
@@ -465,18 +463,18 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match fields |> Array.tryFind (fun f -> f.Name = fieldName) with
             | None -> ValueNone
             | Some field ->
-                let parent = externalTypeSpec tref (List.map zonk args)
+                let parent = externalTypeSpec tref args
 
                 // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob;
-                // `instantiateDeclaring` substitutes the use-site args for the returned (use-site)
-                // `SemType` a subsequent `FieldGet` encode expects (external-signature-plan step 3).
+                // `substituteDeclaring` substitutes the use-site args for the returned (use-site)
+                // `FrozenType` a subsequent `FieldGet` encode expects (external-signature-plan step 4).
                 let openFieldTy = field.Frozen
 
                 let s = BlobBuilder()
-                encodeFrozen (BlobEncoder(s).FieldSignature()) openFieldTy
+                encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
                 let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
 
-                let substitutedTy = instantiateDeclaring openFieldTy (List.toArray args)
+                let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
                 ValueSome(handle, substitutedTy)
 
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =

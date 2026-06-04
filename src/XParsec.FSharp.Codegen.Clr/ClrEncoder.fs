@@ -4,7 +4,7 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// The signature-type encoder over a `ClrEnv`: turns a `SemType` into a metadata signature, mapping
+/// The signature-type encoder over a `ClrEnv`: turns a `FrozenType` into a metadata signature, mapping
 /// function arrows to `Vesper.Fun`2`, lists to `FSharpList`1` / `Vesper.Collections.List`1`, user
 /// types to their predicted `TypeDefinition`, and external types through the symbol provider. Also
 /// hosts the blob/signature builders that are pure `encodeType` wrappers.
@@ -14,14 +14,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let userTypes = env.UserTypes
     let envAsm = env.EnvAsm
-    let zonk t = env.Zonk t
-
-    /// The single `SemType → FrozenType` cut at the encoder boundary (frozen-type-plan
-    /// 3B-2): deep-`zonk` to resolve any union-find links, then `toFrozen`. A stray
-    /// (free) `TyVar` fails here — one hop out from where `encodeType`'s catch-all used
-    /// to fail. `zonk` is deep + idempotent, so converting once at the boundary is
-    /// equivalent to the per-level zonk `encodeType` used to do internally.
-    let frozen (t: SemType) : FrozenType = toFrozen (zonk t)
 
     let externalClassRef n = env.ExternalClassRef n
     let externalIsValueType n = env.ExternalIsValueType n
@@ -85,9 +77,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// context-free: open typars are self-describing `FTTypar(axis, i)` nodes the
     /// structural match resolves by index (frozen-type-plan keystone + 2E-1), so there
     /// is no ambient typar window and no leaf hook — the match is total over the frozen
-    /// type shapes that reach the backend. The `SemType → FrozenType` cut happens once
-    /// per signature slot at the member boundary (`frozen`, below); recursion stays
-    /// inside `FrozenType` with no further zonking.
+    /// type shapes that reach the backend.
     let rec encodeType (te: SignatureTypeEncoder) (t: FrozenType) : unit =
         match t with
         // `TextWriter` / `Formatter` / `HashCode` precede the repr-keyed arm because their names
@@ -232,7 +222,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 te.GenericMethodTypeParameter i
         // The residual cases — a bare `FTTuple` (tuples reach the encoder only via a
         // `System.ValueTuple` nominal, never structurally) — are unencodable; a stray
-        // `TyVar` can no longer reach here (it fails one hop out in `frozen`/`toFrozen`).
+        // `TyVar` can no longer reach here (it fails one hop out in `toFrozen`).
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
     /// Encode mapping each function arrow to FSharp.Core's `FSharpFunc`2` (curried, nested), not
@@ -257,19 +247,17 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// Recover both open-typar axes by structurally matching a member's *open*
     /// signature template — carrying self-describing `FTTypar(axis, i)` nodes
-    /// (external-signature-plan step 3: the open form is immutable `FrozenType` data
-    /// read straight off the descriptor, not a `SemType[] -> SemType` closure run on
-    /// marker typars) — against its *instantiated* use-site type (already ground, so
+    /// against its *instantiated* use-site type (already ground, so
     /// frozen at the boundary). Returns `(declaringArgs, methodArgs)`, each index-keyed
     /// by the `FTTypar`'s own index. First occurrence wins; an unrecovered slot is a
-    /// bug. The recovered slices are handed back as `SemType` (`ofFrozen`) so the
-    /// still-`SemType` emit walk consumes them unchanged until step 4 flips it.
+    /// bug. The recovered slices stay `FrozenType` — the emit walk is `FrozenType`-native
+    /// end to end (external-signature-plan step 4).
     let recoverOpenTypars
         (declArity: int)
         (methodArity: int)
         (openT: FrozenType)
         (instT: FrozenType)
-        : SemType list * SemType list =
+        : FrozenType list * FrozenType list =
         let decl = Array.create declArity ValueNone
         let meth = Array.create methodArity ValueNone
 
@@ -327,7 +315,7 @@ type internal ClrEncoder(env: ClrEnv) =
             [
                 for i in 0 .. slots.Length - 1 ->
                     match slots.[i] with
-                    | ValueSome t -> ofFrozen t
+                    | ValueSome t -> t
                     | ValueNone ->
                         failwithf
                             "ClrProvider: could not recover %s type argument %d (open %A vs %A)"
@@ -341,7 +329,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec` instantiation when
     /// generic (`EqualityComparer`1<int>`).
-    let externalTypeSpec (tref: EntityHandle) (instArgs: SemType list) : EntityHandle =
+    let externalTypeSpec (tref: EntityHandle) (instArgs: FrozenType list) : EntityHandle =
         match instArgs with
         | [] -> tref
         | _ ->
@@ -350,16 +338,16 @@ type internal ClrEncoder(env: ClrEnv) =
             let g = te.GenericInstantiation(tref, List.length instArgs, false)
 
             for a in instArgs do
-                encodeType (g.AddArgument()) (frozen a)
+                encodeType (g.AddArgument()) (a)
 
             toEntity (ctx.TypeSpec tsB)
 
-    let encodeLocalSignature (locals: SemType list) : StandaloneSignatureHandle =
+    let encodeLocalSignature (locals: FrozenType list) : StandaloneSignatureHandle =
         let blob = BlobBuilder()
         let enc = BlobEncoder(blob).LocalVariableSignature(List.length locals)
 
         for t in locals do
-            encodeType (enc.AddVariable().Type()) (frozen t)
+            encodeType (enc.AddVariable().Type()) (t)
 
         ctx.AddStandaloneSignature blob
 
@@ -367,7 +355,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// (`fold<int,int>`, `Enumerable.Take<int>`). A non-generic handle (`args = []`)
     /// returns unchanged. The single home for the `MethodSpecificationSignature` blob
     /// shape every generic-method call site shares.
-    let methodSpec (handle: EntityHandle) (args: SemType list) : EntityHandle =
+    let methodSpec (handle: EntityHandle) (args: FrozenType list) : EntityHandle =
         match args with
         | [] -> handle
         | _ ->
@@ -375,20 +363,14 @@ type internal ClrEncoder(env: ClrEnv) =
             let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length args)
 
             for t in args do
-                encodeType (specEnc.AddArgument()) (frozen t)
+                encodeType (specEnc.AddArgument()) (t)
 
             toEntity (ctx.MethodSpec(handle, inst))
 
     member _.EncodeListOf(te, inner) = encodeListOf te inner
-    member _.EncodeType(te, t) = encodeType te (frozen t)
+    member _.EncodeType(te, t: FrozenType) = encodeType te t
 
-    /// Encode a `FrozenType` directly — the descriptor-template path
-    /// (external-signature-plan step 3), where the type is already an inert template
-    /// (an open field / parameter / return slot carrying `FTTypar` placeholders) so it
-    /// bypasses the `SemType`-zonk-and-freeze cut `EncodeType` applies.
-    member _.EncodeFrozen(te, t: FrozenType) = encodeType te t
-
-    member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te (frozen t)
+    member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te t
 
     member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
         recoverOpenTypars declArity methodArity openT instT
@@ -397,14 +379,14 @@ type internal ClrEncoder(env: ClrEnv) =
 
     member _.ExternalTypeSpec(tref, instArgs) = externalTypeSpec tref instArgs
 
-    /// A `TypeSpec` token for an arbitrary `SemType`, encoded through the full
+    /// A `TypeSpec` token for an arbitrary `FrozenType`, encoded through the full
     /// `encodeType` path — so a struct external type lands as a `VALUETYPE`
     /// generic-inst (the duck-typed enumerator's member-ref parent, §4.4), unlike
     /// `externalTypeSpec`, which hardcodes the class tag. Mirrors `ClrRecipes.typeToken`.
-    member _.TypeSpecOf(ty: SemType) : EntityHandle =
+    member _.TypeSpecOf(ty: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        encodeType te (frozen ty)
+        encodeType te ty
         toEntity (ctx.TypeSpec tsB)
 
     member _.EncodeLocalSignature locals = encodeLocalSignature locals
@@ -412,7 +394,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// `instance void .ctor(fields…)` for a record / generic-type ctor. Field types
     /// carry their declaring typars as `TempTypar(Declaring, i)` nodes the encoder
     /// resolves to `!i` directly — no marker map.
-    member _.RecordCtorSignature(paramTys: SemType list) : BlobBuilder =
+    member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
@@ -422,7 +404,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeType (pars.AddParameter().Type()) (frozen p)
+                        encodeType (pars.AddParameter().Type()) (p)
                 )
             )
 
@@ -434,7 +416,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// structural `encodeType` match resolves both by index, so no ambient window is
     /// needed. `methodTyparCount` sets the `GENERIC` calling-convention header count.
     member _.GenericMethodOnTypeSignature
-        (methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
+        (methodTyparCount: int, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
         : BlobBuilder =
         let s = BlobBuilder()
 
@@ -442,10 +424,10 @@ type internal ClrEncoder(env: ClrEnv) =
             .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = isInstanceMethod)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (frozen retTy)),
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeType (pars.AddParameter().Type()) (frozen p)
+                        encodeType (pars.AddParameter().Type()) (p)
                 )
             )
 
@@ -469,70 +451,70 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    member _.GenericStaticFnSignature(typarCount: int, paramTys: SemType list, retTy: SemType) : BlobBuilder =
+    member _.GenericStaticFnSignature(typarCount: int, paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(genericParameterCount = typarCount, isInstanceMethod = false)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (frozen retTy)),
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeType (pars.AddParameter().Type()) (frozen p)
+                        encodeType (pars.AddParameter().Type()) (p)
                 )
             )
 
         s
 
-    member _.StaticMethodSignature(paramTys: SemType list, retTy: SemType) : BlobBuilder =
+    member _.StaticMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = false)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (frozen retTy)),
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeType (pars.AddParameter().Type()) (frozen p)
+                        encodeType (pars.AddParameter().Type()) (p)
                 )
             )
 
         s
 
-    member _.InstanceMethodSignature(paramTys: SemType list, retTy: SemType) : BlobBuilder =
+    member _.InstanceMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (frozen retTy)),
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
-                        encodeType (pars.AddParameter().Type()) (frozen p)
+                        encodeType (pars.AddParameter().Type()) (p)
                 )
             )
 
         s
 
     /// `instance b Invoke(a)` — the closure's concrete `Invoke` override signature.
-    member _.InvokeSignature(a: SemType, b: SemType) : BlobBuilder =
+    member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder =
         let msig = BlobBuilder()
 
         BlobEncoder(msig)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
                 1,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (frozen b)),
-                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (frozen a))
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (b)),
+                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (a))
             )
 
         msig
 
     /// `instance void .ctor(captures…)` — one concrete parameter per captured value (in field order).
-    member _.ClosureCtorSignature(captures: SemType list) : BlobBuilder =
+    member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder =
         let msig = BlobBuilder()
 
         BlobEncoder(msig)
@@ -542,16 +524,16 @@ type internal ClrEncoder(env: ClrEnv) =
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for c in captures do
-                        encodeType (pars.AddParameter().Type()) (frozen c)
+                        encodeType (pars.AddParameter().Type()) (c)
                 )
             )
 
         msig
 
-    member _.FieldSignature(ty: SemType) : BlobBuilder =
+    member _.FieldSignature(ty: FrozenType) : BlobBuilder =
         let blob = BlobBuilder()
         let te = BlobEncoder(blob).FieldSignature()
-        encodeType te (frozen ty)
+        encodeType te ty
         blob
 
     /// `override bool Equals(object)` signature. The parameter is the compact `ELEMENT_TYPE_OBJECT`
@@ -582,7 +564,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// `instance bool Equals(Self)` — the typed `IEquatable<Self>::Equals` signature; implicit
     /// interface binding matches it to the instantiated `IEquatable<Self>::Equals(!0)`.
-    member _.EqualsTypedSignature(selfTy: SemType) : BlobBuilder =
+    member _.EqualsTypedSignature(selfTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
@@ -590,7 +572,7 @@ type internal ClrEncoder(env: ClrEnv) =
             .Parameters(
                 1,
                 (fun (ret: ReturnTypeEncoder) -> ret.Type().Boolean()),
-                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (frozen selfTy))
+                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (selfTy))
             )
 
         s
@@ -610,7 +592,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    member _.CompareToTypedSignature(selfTy: SemType) : BlobBuilder =
+    member _.CompareToTypedSignature(selfTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
@@ -618,7 +600,7 @@ type internal ClrEncoder(env: ClrEnv) =
             .Parameters(
                 1,
                 (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
-                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (frozen selfTy))
+                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (selfTy))
             )
 
         s
@@ -626,4 +608,4 @@ type internal ClrEncoder(env: ClrEnv) =
     /// Encode an abstract interface-method signature (the library path, G5). The signature's open
     /// typars are self-describing `TempTypar` nodes — `Declaring` → `!i`, `Method` → `!!j` — that the
     /// structural `encodeType` match resolves directly.
-    member _.EncodeAbstractType(te: SignatureTypeEncoder, t: SemType) : unit = encodeType te (frozen t)
+    member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = encodeType te t

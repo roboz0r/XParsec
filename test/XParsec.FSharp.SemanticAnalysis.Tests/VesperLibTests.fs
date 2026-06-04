@@ -582,9 +582,9 @@ let tests =
                     Expect.equal arity 1 "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases extracted"
                     Expect.equal cases.[0].Name "op_Nil" "`([])` names the nullary case by its op form"
-                    Expect.equal cases.[0].BuildFieldTypes.Length 0 "the nullary case has no fields"
+                    Expect.equal cases.[0].FrozenFieldTypes.Length 0 "the nullary case has no fields"
                     Expect.equal cases.[1].Name "op_ColonColon" "`(::)` names the cons case by its op form"
-                    Expect.equal cases.[1].BuildFieldTypes.Length 2 "cons has Head + Tail fields"
+                    Expect.equal cases.[1].FrozenFieldTypes.Length 2 "cons has Head + Tail fields"
                     Expect.equal cases.[1].FieldNames [| ValueSome "Head"; ValueSome "Tail" |] "cons field names"
                 | ValueSome other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
                 | ValueNone -> failtestf "GADT union registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
@@ -739,9 +739,9 @@ let tests =
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.option`1" with
                 | ValueNone -> failtest "Microsoft.FSharp.Core.option shape not found"
-                | ValueSome(ExternalTypeShape.Abbrev(arity, build, _)) ->
+                | ValueSome(ExternalTypeShape.Abbrev(arity, frozen)) ->
                     Expect.equal arity 1 "option has one typar"
-                    let body = build [| TyConst("int", EqArray.empty) |]
+                    let body = instantiateDeclaring frozen [| TyConst("int", EqArray.empty) |]
 
                     match body with
                     | TyUnion(name, args) when
@@ -770,10 +770,12 @@ let tests =
                     Expect.equal names [| "Error"; "Ok" |] "Ok + Error cases extracted"
 
                     let okCase = cases |> Array.find (fun c -> c.Name = "Ok")
-                    Expect.equal okCase.BuildFieldTypes.Length 1 "Ok carries one field"
+                    Expect.equal okCase.FrozenFieldTypes.Length 1 "Ok carries one field"
 
                     let okFieldType =
-                        okCase.BuildFieldTypes.[0] [| TyConst("int", EqArray.empty); TyConst("string", EqArray.empty) |]
+                        instantiateDeclaring
+                            okCase.FrozenFieldTypes.[0]
+                            [| TyConst("int", EqArray.empty); TyConst("string", EqArray.empty) |]
 
                     match okFieldType with
                     | TyConst("int", _) -> ()
@@ -788,69 +790,49 @@ let tests =
                 | other -> failtestf "Expected Union shape; got %A" other
             }
 
-            test "external-signature oracle: finalized templates match their closures on real shapes" {
-                // The step-1 oracle against the *real* extracted provider, post the
-                // `toProvider` finalize pass: for every extracted shape's closure,
-                // `frozen ≡ toFrozen (closure markers)` (law 1) and `instantiate
-                // frozen args ≡ closure args` on ground args (law 2). Genuinely
-                // body-less heads (`byref`) freeze to the `<unfreezable>` sentinel —
-                // their closure throws, so they are excluded from the laws. This
-                // guards the finalize pass against drift once producers build
-                // templates natively (step 5).
+            test "finalize fills real templates on extracted shapes" {
+                // Post the `toProvider` finalize pass (external-signature-plan step 5),
+                // every extracted shape's deferred `FrozenType` template is filled —
+                // no `<deferred>` sentinel survives — and instantiates without
+                // throwing. Genuinely body-less heads (`byref`) degrade to the
+                // `<unfreezable>` sentinel and are skipped (there is no template to
+                // realise). Guards the finalize pass against a regression that would
+                // leave a sentinel on a shape codegen later reads.
                 let provider, _ = builtProvider.Value
 
+                let deferred = FTUnknown "<deferred>"
                 let unfreezable = FTUnknown "<unfreezable external template>"
 
                 /// Ground args for an arity-`n` declaring substitution.
                 let argsFor (n: int) : SemType[] =
                     Array.init n (fun i -> TyConst(sprintf "g%d" i, EqArray.empty))
 
-                /// Assert the two laws for one closure + its finalized template at
-                /// the given declaring arity. Skips the genuinely-partial closures.
-                let checkLaws (label: string) (arity: int) (build: SemType[] -> SemType) (frozen: FrozenType) =
+                /// Assert a finalized type-shape template is real (not the deferred
+                /// sentinel) and instantiates without throwing.
+                let checkTemplate (label: string) (arity: int) (frozen: FrozenType) =
+                    Expect.notEqual frozen deferred (sprintf "%s: template finalized (not deferred)" label)
+
                     if frozen <> unfreezable then
-                        let viaClosure = build (declaringMarkers arity)
-
-                        Expect.equal
-                            frozen
-                            (toFrozen viaClosure)
-                            (sprintf "law 1 (template ≡ frozen closure): %s" label)
-
-                        let args = argsFor arity
-
-                        Expect.equal
-                            (instantiate frozen args 0)
-                            (build args)
-                            (sprintf "law 2 (instantiate ≡ closure): %s" label)
+                        instantiateDeclaring frozen (argsFor arity) |> ignore
 
                 // A representative cross-section: the `option` abbrev, the `Result`
-                // union's case fields, and a record if the lib has one. Reaching
-                // every shape needs the raw table; the public surface gives us these
-                // three well-known names.
+                // union's case fields, and a published member signature.
                 match provider.TryLookupType "Microsoft.FSharp.Core.option`1" with
-                | ValueSome(ExternalTypeShape.Abbrev(arity, build, frozen)) ->
-                    checkLaws "option abbrev" arity build frozen
+                | ValueSome(ExternalTypeShape.Abbrev(arity, frozen)) -> checkTemplate "option abbrev" arity frozen
                 | _ -> failtest "option abbrev not found"
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.Result`2" with
                 | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
                     for c in cases do
-                        c.BuildFieldTypes
-                        |> Array.iteri (fun i b ->
-                            checkLaws (sprintf "Result.%s field %d" c.Name i) arity b c.FrozenFieldTypes.[i]
-                        )
+                        c.FrozenFieldTypes
+                        |> Array.iteri (fun i ft -> checkTemplate (sprintf "Result.%s field %d" c.Name i) arity ft)
                 | _ -> failtest "Result union not found"
 
                 // A member signature, if `Option.Map` is published with one.
                 match provider.TryLookupMember("Microsoft.FSharp.Core.option`1", "Map") with
-                | ValueSome m when m.Signature.Return <> unfreezable ->
-                    let args = argsFor m.Signature.DeclaringArity
-
-                    if m.MethodArity = 0 then
-                        Expect.equal
-                            (ExternalSymbols.instantiateSignature m args 0)
-                            (m.BuildSignature args)
-                            "member law 2 (instantiateSignature ≡ BuildSignature)"
+                | ValueSome m when m.Signature.Return <> unfreezable && m.Signature.Return <> deferred ->
+                    ExternalSymbols.instantiateSignature m (argsFor m.Signature.DeclaringArity) 0
+                    |> ignore
                 | _ -> ()
             }
 

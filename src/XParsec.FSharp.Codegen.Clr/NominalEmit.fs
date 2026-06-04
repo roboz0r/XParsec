@@ -19,8 +19,8 @@ module internal NominalEmit =
     let emit
         (asm: Assembler)
         (input: NominalEmissionInput)
-        (td: TTypeDecl)
-        (members: TTypeMember list)
+        (td: Frozen.TTypeDecl)
+        (members: Frozen.TTypeMember list)
         (rows: ResizeArray<EmittedTypeRow>)
         : unit =
         let provider = asm.Provider
@@ -47,13 +47,13 @@ module internal NominalEmit =
         let isGeneric = not td.TypeParams.IsEmpty
         // The declaring type's own typars as self-describing open-typar nodes
         // (`!i`), `i` = position in `TypeParams`. The codegen encoders resolve a
-        // `TempTypar(Declaring, i)` straight off the node (frozen-type-plan keystone),
+        // `FTTypar(Declaring, i)` straight off the node (frozen-type-plan keystone),
         // so these need no ambient typar window.
         let typarMarkers =
-            [ for i in 0 .. td.TypeParams.Length - 1 -> TempTypar(TyparAxis.Declaring, i) ]
+            [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
         // Local-signature encoder. A member (or secondary-ctor) body local of a
-        // generic type carries its declaring typars as `TempTypar(Declaring, i)` nodes
+        // generic type carries its declaring typars as `FTTypar(Declaring, i)` nodes
         // the encoder resolves to `!i` directly, so the generic and monomorphic paths
         // are identical — one shared `encodeLocals` covers both.
         let memberEncodeLocals = encodeLocals
@@ -72,7 +72,7 @@ module internal NominalEmit =
                         ctx.AddField(
                             FieldAttributes.Public,
                             "_tag",
-                            provider.FieldSignature(TyConst("int", EqArray.empty))
+                            provider.FieldSignature(FTConst("int", EqArray.empty))
                         )
                     )
 
@@ -149,9 +149,9 @@ module internal NominalEmit =
                     let paramTys = [ for (_, t) in c.Fields -> t ]
 
                     // A mono union's `typarMarkers` is empty, so the self return type is
-                    // `TyUnion(td.Key, [])` — one path covers both.
+                    // `FTUnion(td.Key, [])` — one path covers both.
                     let factorySig =
-                        provider.StaticMethodSignature(paramTys, TyUnion(td.Key, EqArray.ofList typarMarkers))
+                        provider.StaticMethodSignature(paramTys, FTUnion(td.Key, EqArray.ofList typarMarkers))
 
                     let factory =
                         ctx.AddMethodWithParamList(
@@ -261,10 +261,10 @@ module internal NominalEmit =
                 // `TypeSpec`, encoded with this class's typars ambient so an open
                 // parent arg resolves to `!i`. Parent-less ⇒ `Object` (the default).
                 match baseType with
-                | ValueSome(TyClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
+                | ValueSome(FTClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
                     baseTypeHandle <- provider.UserTypeHandle baseKey
                 | ValueSome bt ->
-                    // A generic parent's open args ride `TempTypar(Declaring, i)` nodes
+                    // A generic parent's open args ride `FTTypar(Declaring, i)` nodes
                     // (Freeze remaps `info.BaseType`), encoded `!i` directly — no window.
                     baseTypeHandle <- icodegen.TypeToken bt
                 | ValueNone -> ()
@@ -333,7 +333,7 @@ module internal NominalEmit =
                     | ValueSome bcc ->
                         let baseKey, baseArgs =
                             match baseType with
-                            | ValueSome(TyClass(n, xs)) -> n, EqArray.toList xs
+                            | ValueSome(FTClass(n, xs)) -> n, EqArray.toList xs
                             | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
                         let baseCtorHandle =
@@ -394,7 +394,7 @@ module internal NominalEmit =
 
                     let cctorInits =
                         List.map2
-                            (fun (_, h) (sl: TStaticLet) ->
+                            (fun (_, h) (sl: Frozen.TStaticLet) ->
                                 // Inline splicing ran pre-freeze (Passes.InlineExpansion);
                                 // codegen only collapses the residual saturated built-in ops.
                                 h, Emit.expandBuiltinOps sl.Init
@@ -415,7 +415,7 @@ module internal NominalEmit =
                 // Emitted *before* the member-handle prediction below so their rows
                 // are counted; the chain target is the primary ctor's `Def` token
                 // (monomorphic) or a `MemberRef` on the open self-`TypeSpec` (generic).
-                // The `(arity, handle)` list lets a `TExpr.New` call site pick the
+                // The `(arity, handle)` list lets a `TExprG.New` call site pick the
                 // matching overload.
                 let secondaryCtorHandles =
                     if List.isEmpty secondaryCtors then
@@ -439,7 +439,7 @@ module internal NominalEmit =
 
                                 // Inline splicing ran pre-freeze (Passes.InlineExpansion);
                                 // codegen only collapses the residual saturated built-in ops.
-                                let prep (e: TExpr) = Emit.expandBuiltinOps e
+                                let prep (e: Frozen.TExpr) = Emit.expandBuiltinOps e
 
                                 let lets = [ for l in sc.Lets -> { l with Init = prep l.Init } ]
                                 let primaryArgs = [ for a in sc.PrimaryArgs -> prep a ]
@@ -480,7 +480,7 @@ module internal NominalEmit =
                 classCtor, registerClass
 
         // Interface implementations (B-2, §5.3): each `(ifaceTy, members)` entry's
-        // member bodies are already-typed `TTypeMember`s, flattened here. They
+        // member bodies are already-typed `Frozen.TTypeMember`s, flattened here. They
         // emit as virtual methods (`ifaceEqualsAttrs` — a new slot, `Final` since
         // classes are sealed) that the runtime binds to the `InterfaceImpl` row by
         // name + signature. Emitted *after* the class's own members so prediction
@@ -504,7 +504,7 @@ module internal NominalEmit =
         let emittedMembers = Dictionary<string, Emit.EmittedMember>()
 
         (members @ ifaceMembers)
-        |> List.iteri (fun i (mem: TTypeMember) ->
+        |> List.iteri (fun i (mem: Frozen.TTypeMember) ->
             let handle = MetadataTokens.MethodDefinitionHandle(asm.MethodCount + 1 + i)
 
             emittedMembers.[mem.Name] <-
@@ -523,7 +523,7 @@ module internal NominalEmit =
         // `isIfaceImpl` forces `ifaceEqualsAttrs` (virtual / new-slot / final) so
         // the runtime maps the method to the implemented interface; the class's
         // own members keep their natural static/instance attrs.
-        let emitMember (isIfaceImpl: bool) (mem: TTypeMember) =
+        let emitMember (isIfaceImpl: bool) (mem: Frozen.TTypeMember) =
             // A *generic* member (B-12). Both its declaring-type typars and its own
             // method typars now ride self-describing `TempTypar` nodes in the signature /
             // locals / body (Freeze.remapMemberTypes remaps both axes — frozen-type-plan
@@ -551,11 +551,11 @@ module internal NominalEmit =
             let methodName = memberMetaName mem
             let paramTys = [ for (_, t) in mem.Params -> t ]
 
-            // The declaring type's typars (if any) ride `TempTypar(Declaring, i)` nodes
+            // The declaring type's typars (if any) ride `FTTypar(Declaring, i)` nodes
             // the encoder resolves to `!i` directly, so a generic and a monomorphic
             // type share one signature builder. A generic *method* (B-12) additionally
             // needs the `GENERIC` calling-convention header count; its own typars ride
-            // `TempTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
+            // `FTTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
             let signature =
                 if isGenericMethod then
                     provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
@@ -620,7 +620,7 @@ module internal NominalEmit =
                                     else
                                         caseFields.[fi]
 
-                                fieldHandle, Emit.zonk (snd c.Fields.[fi])
+                                fieldHandle, (snd c.Fields.[fi])
                     ]
 
                 let support: Emit.UnionEqualitySupport =
@@ -630,7 +630,7 @@ module internal NominalEmit =
                                 provider.GenericUnionSelfSpec td.Key
                             else
                                 provider.UserTypeHandle td.Key
-                        SelfSemType = TyUnion(td.Key, EqArray.ofList typarMarkers)
+                        SelfTy = FTUnion(td.Key, EqArray.ofList typarMarkers)
                         TagField =
                             if isGeneric then
                                 icodegen.UserGenericMemberRef(
@@ -641,7 +641,7 @@ module internal NominalEmit =
                             else
                                 tagField
                         Fields = allFields
-                        IntType = TyConst("int", EqArray.empty)
+                        IntType = FTConst("int", EqArray.empty)
                         ComparerDefault = fun t -> provider.EqualityComparerDefault t
                         ComparerEquals = fun t -> provider.EqualityComparerEquals t
                         HashCodeLocal = provider.HashCodeType
@@ -683,7 +683,7 @@ module internal NominalEmit =
                 ctx.AddMethodWithParamList(
                     ifaceEqualsAttrs,
                     "Equals",
-                    provider.EqualsTypedSignature(TyUnion(td.Key, EqArray.ofList typarMarkers)),
+                    provider.EqualsTypedSignature(FTUnion(td.Key, EqArray.ofList typarMarkers)),
                     equalsTypedBody,
                     addParams [ "other" ]
                 )
@@ -707,7 +707,7 @@ module internal NominalEmit =
                                 else
                                     h
 
-                            fieldHandle, Emit.zonk fty
+                            fieldHandle, fty
                     ]
 
                 let support: Emit.RecordEqualitySupport =
@@ -717,7 +717,7 @@ module internal NominalEmit =
                                 provider.GenericRecordSelfSpec td.Key
                             else
                                 provider.UserTypeHandle td.Key
-                        SelfSemType = TyRecord(td.Key, EqArray.ofList typarMarkers)
+                        SelfTy = FTRecord(td.Key, EqArray.ofList typarMarkers)
                         Fields = allFields
                         ComparerDefault = fun t -> provider.EqualityComparerDefault t
                         ComparerEquals = fun t -> provider.EqualityComparerEquals t
@@ -760,7 +760,7 @@ module internal NominalEmit =
                 ctx.AddMethodWithParamList(
                     ifaceEqualsAttrs,
                     "Equals",
-                    provider.EqualsTypedSignature(TyRecord(td.Key, EqArray.ofList typarMarkers)),
+                    provider.EqualsTypedSignature(FTRecord(td.Key, EqArray.ofList typarMarkers)),
                     equalsTypedBody,
                     addParams [ "other" ]
                 )
@@ -794,7 +794,7 @@ module internal NominalEmit =
                                     else
                                         caseFields.[fi]
 
-                                fieldHandle, Emit.zonk (snd c.Fields.[fi])
+                                fieldHandle, (snd c.Fields.[fi])
                     ]
 
                 let cmpSupport: Emit.UnionComparisonSupport =
@@ -804,7 +804,7 @@ module internal NominalEmit =
                                 provider.GenericUnionSelfSpec td.Key
                             else
                                 provider.UserTypeHandle td.Key
-                        SelfSemType = TyUnion(td.Key, EqArray.ofList typarMarkers)
+                        SelfTy = FTUnion(td.Key, EqArray.ofList typarMarkers)
                         TagField =
                             if isGeneric then
                                 icodegen.UserGenericMemberRef(
@@ -828,7 +828,7 @@ module internal NominalEmit =
                     ctx.AddMethodWithParamList(
                         ifaceEqualsAttrs,
                         "CompareTo",
-                        provider.CompareToTypedSignature(TyUnion(td.Key, EqArray.ofList typarMarkers)),
+                        provider.CompareToTypedSignature(FTUnion(td.Key, EqArray.ofList typarMarkers)),
                         compareToTypedBody,
                         addParams [ "other" ]
                     )
@@ -868,7 +868,7 @@ module internal NominalEmit =
                                 else
                                     h
 
-                            fieldHandle, Emit.zonk fty
+                            fieldHandle, fty
                     ]
 
                 let cmpSupport: Emit.RecordComparisonSupport =
@@ -878,7 +878,7 @@ module internal NominalEmit =
                                 provider.GenericRecordSelfSpec td.Key
                             else
                                 provider.UserTypeHandle td.Key
-                        SelfSemType = TyRecord(td.Key, EqArray.ofList typarMarkers)
+                        SelfTy = FTRecord(td.Key, EqArray.ofList typarMarkers)
                         Fields = allFieldsForCmp
                         ComparerDefault = fun t -> provider.ComparerDefault t
                         ComparerCompare = fun t -> provider.ComparerCompare t
@@ -893,7 +893,7 @@ module internal NominalEmit =
                     ctx.AddMethodWithParamList(
                         ifaceEqualsAttrs,
                         "CompareTo",
-                        provider.CompareToTypedSignature(TyRecord(td.Key, EqArray.ofList typarMarkers)),
+                        provider.CompareToTypedSignature(FTRecord(td.Key, EqArray.ofList typarMarkers)),
                         compareToTypedBody,
                         addParams [ "other" ]
                     )
@@ -921,21 +921,21 @@ module internal NominalEmit =
 
         let selfTy =
             match input with
-            | NominalEmissionInput.Union _ -> fun (ts: SemType list) -> TyUnion(td.Key, EqArray.ofList ts)
-            | NominalEmissionInput.Record _ -> fun (ts: SemType list) -> TyRecord(td.Key, EqArray.ofList ts)
-            | NominalEmissionInput.Class _ -> fun (ts: SemType list) -> TyClass(td.Key, EqArray.ofList ts)
+            | NominalEmissionInput.Union _ -> fun (ts: FrozenType list) -> FTUnion(td.Key, EqArray.ofList ts)
+            | NominalEmissionInput.Record _ -> fun (ts: FrozenType list) -> FTRecord(td.Key, EqArray.ofList ts)
+            | NominalEmissionInput.Class _ -> fun (ts: FrozenType list) -> FTClass(td.Key, EqArray.ofList ts)
 
         // One `InterfaceImpl` entity handle per implemented interface — the
         // synthesised structural-equality / comparison interfaces (unions /
         // records) and the user-declared `interface … with` impls (B-2, §5.3,
         // classes). A generic interface arg (`IEnumerable<'T>`) carries its `'T`
-        // as a `TempTypar(Declaring, i)` (emitted by Freeze; `selfMarkers` for the
+        // as a `FTTypar(Declaring, i)` (emitted by Freeze; `selfMarkers` for the
         // synthesised interfaces), encoded `!i` straight off the node — no ambient
         // window. `TypeSpecOf` mints the user interfaces' handles.
         let interfaces =
             if emitsEqualityTriple || emitsComparisonPair || not (List.isEmpty classInterfaces) then
                 let selfMarkers =
-                    [ for i in 0 .. td.TypeParams.Length - 1 -> TempTypar(TyparAxis.Declaring, i) ]
+                    [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
                 [
                     if emitsEqualityTriple then

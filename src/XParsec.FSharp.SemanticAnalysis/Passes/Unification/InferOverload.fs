@@ -97,3 +97,17 @@ module UnificationInferOverload =
             match best with
             | [| unique |] -> ValueSome unique
             | _ -> ValueNone
+
+    /// `FrozenType`-typed entry point for codegen (external-signature-plan step 4):
+    /// codegen's `externalCtor` re-runs the same-arity ctor pick on a `SemType`-free
+    /// (`FrozenType`) basis. Overload resolution is inference, so it stays here and
+    /// names `SemType` internally; the use-site type arguments / call-site arg types
+    /// arrive ground (frozen) and `ofFrozen` recovers the ground `SemType` the picker
+    /// compares. Identity (which `ExternalMember`) is what's returned, so no `SemType`
+    /// crosses back to the emission side.
+    let pickStaticOverloadFrozen
+        (typeArgs: FrozenType[])
+        (candidates: ExternalMember[])
+        (argElems: FrozenType list)
+        : ExternalMember voption =
+        pickStaticOverload (Array.map ofFrozen typeArgs) candidates (List.map ofFrozen argElems)

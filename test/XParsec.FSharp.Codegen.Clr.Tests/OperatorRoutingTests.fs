@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // The C-Eq1 last mile (docs/operators-plan.md): an operator use site
 // (`a = b`, `x + y`, `a < b`) freezes to an `External(op_*)` call head; `Emit`
 // rewrites the saturated application to the operator's inline-IL body so it emits
-// through the single `TExpr.ILIntrinsic` path — codegen owns no per-operator
+// through the single `TExprG.ILIntrinsic` path — codegen owns no per-operator
 // recipe. These tests pin the rewrite at the TAST level (`Emit.lower`, which has
 // no contract bodies, so it exercises the `BuiltinOps` fallback) and end to end
 // (compile + run real CIL).
@@ -34,21 +34,21 @@ let tests =
         "OperatorRouting"
         [
             test
-                "`let f a b = a = b` lowers the `=` use site to a `ceq` TExpr.ILIntrinsic (no External op_Equality survives)" {
+                "`let f a b = a = b` lowers the `=` use site to a `ceq` TExprG.ILIntrinsic (no External op_Equality survives)" {
                 let tast = analyse "let f a b = a = b"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                match Emit.lower tast.Decls with
-                | [ TDecl.Let(TPat.NamedSimple _,
-                              TExpr.Lambda(_,
-                                           TExpr.Lambda(_,
-                                                        TExpr.ILIntrinsic("ceq",
-                                                                          EqList [ TExpr.Var _; TExpr.Var _ ],
-                                                                          TyConst("bool", _)),
-                                                        _),
-                                           _),
-                              false,
-                              _) ] -> ()
+                match Emit.lower (Freeze.run tast).Decls with
+                | [ TDeclG.Let(TPatG.NamedSimple _,
+                               TExprG.Lambda(_,
+                                             TExprG.Lambda(_,
+                                                           TExprG.ILIntrinsic("ceq",
+                                                                              EqList [ TExprG.Var _; TExprG.Var _ ],
+                                                                              FTConst("bool", _)),
+                                                           _),
+                                             _),
+                               false,
+                               _) ] -> ()
                 | other -> failtestf "expected `=` to lower to a ceq ILIntrinsic, got %A" other
             }
 
@@ -127,7 +127,7 @@ let tests =
 
             test "a nested mix of arithmetic + equality lowers and runs (one IL path for the whole surface)" {
                 // `(1 + 2) * 3 = 9` exercises add, mul, ceq nested through the same
-                // `TExpr.ILIntrinsic` machinery.
+                // `TExprG.ILIntrinsic` machinery.
                 let _, artifact =
                     compileSource "OpRoutingMixed" "printfn \"%d\" (if (1 + 2) * 3 = 9 then 1 else 0)"
 
@@ -156,7 +156,8 @@ let tests =
                 // (the `(# \"ceq\" … #)` per-primitive clauses + the fall-clause base).
                 let isStaticOptInline =
                     function
-                    | TDecl.Let(_, TExpr.Lambda(_, TExpr.Lambda(_, TExpr.StaticOptimization _, _), _), true, _) -> true
+                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _), _), true, _) ->
+                        true
                     | _ -> false
 
                 Expect.isTrue (isStaticOptInline inlines.["op_Equality"]) "op_Equality is a static-opt inline"

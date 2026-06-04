@@ -674,7 +674,7 @@ module UnificationInfer =
 
                             ValueSome(
                                 elemTy,
-                                ForInEnumerator.DuckTyped(
+                                ForInEnumeratorG.DuckTyped(
                                     enumTy,
                                     ge.Key,
                                     mn.Key,
@@ -700,7 +700,7 @@ module UnificationInfer =
 
         match zonk srcTy with
         | TyClass(nameKey, args) when SymbolKeyOps.qualifiedName nameKey = ienumName && args.Length = 1 ->
-            ValueSome(args.[0], ForInEnumerator.Interface)
+            ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
             match ExternalSymbols.tryLookupType ctx.Provider nameKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
@@ -720,7 +720,7 @@ module UnificationInfer =
                         ExternalSymbols.instantiateInterfaces shape argArr
                         |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
                     with
-                    | Some elem -> ValueSome(elem, ForInEnumerator.Interface)
+                    | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone

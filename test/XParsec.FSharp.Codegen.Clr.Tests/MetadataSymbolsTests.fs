@@ -59,7 +59,7 @@ let tests =
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let impls =
-                        info.Interfaces [| TyConst("int", EqArray.empty) |]
+                        ExternalSymbols.instantiateInterfaces info [| TyConst("int", EqArray.empty) |]
                         |> Array.map fst
                         |> Set.ofArray
 
@@ -72,18 +72,18 @@ let tests =
             test "the Class shape carries the declared base type (or ValueNone on an interface)" {
                 match provider.TryLookupType "System.IO.StringWriter" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    match info.BaseType with
-                    | ValueSome build ->
-                        match build [||] with
-                        | TyClass(k, args) when SymbolKeyOps.qualifiedName k = "System.IO.TextWriter" && args.IsEmpty ->
-                            ()
-                        | other -> failtestf "expected StringWriter base = TextWriter, got %A" other
+                    match ExternalSymbols.instantiateBaseType info [||] with
+                    | ValueSome(TyClass(k, args)) when
+                        SymbolKeyOps.qualifiedName k = "System.IO.TextWriter" && args.IsEmpty
+                        ->
+                        ()
+                    | ValueSome other -> failtestf "expected StringWriter base = TextWriter, got %A" other
                     | ValueNone -> failtest "expected StringWriter to record a base type"
                 | other -> failtestf "expected StringWriter as a Class shape, got %A" other
 
                 match provider.TryLookupType "System.Collections.Generic.IEnumerable`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.isTrue info.BaseType.IsNone "interfaces carry no base type"
+                    Expect.isTrue info.FrozenBaseType.IsNone "interfaces carry no base type"
                 | other -> failtestf "expected IEnumerable`1 as a Class shape, got %A" other
             }
 
@@ -110,7 +110,7 @@ let tests =
 
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).
-                    match m.BuildSignature [| TyConst("int", EqArray.empty) |] with
+                    match ExternalSymbols.instantiateSignature m [| TyConst("int", EqArray.empty) |] 0 with
                     | TyClass(key, args) when
                         args.Length = 1
                         && (
@@ -131,67 +131,42 @@ let tests =
                     Expect.isFalse m.IsProperty "a method, not a property"
 
                     // Instantiated at `'T = int`: `int -> int`.
-                    match m.BuildSignature [| TyConst("int", EqArray.empty) |] with
+                    match ExternalSymbols.instantiateSignature m [| TyConst("int", EqArray.empty) |] 0 with
                     | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
                     | other -> failtestf "expected int -> int, got %A" other
                 | ValueNone -> failtest "GetHashCode did not resolve"
             }
 
-            test "external-signature oracle: eager templates match their closures (metadata path)" {
-                // The step-1 oracle on the *eager* (reflection-backed) provider —
-                // `MetadataSymbols` freezes at construction (its closures are total
-                // and registry-independent, unlike the contract layer's). For a
-                // member: `Signature` round-trips its `BuildSignature` —
-                // `instantiateSignature ≡ BuildSignature` on ground args (the method
-                // axis is checked structurally where present). For a class:
-                // `FrozenInterfaces` / `FrozenBaseType` match the closures on the
-                // declaring-typar markers.
-                let checkMember (label: string) (m: ExternalMember) =
-                    let args =
-                        Array.init m.Signature.DeclaringArity (fun i -> TyConst(sprintf "g%d" i, EqArray.empty))
-
-                    if m.MethodArity = 0 then
-                        Expect.equal
-                            (ExternalSymbols.instantiateSignature m args 0)
-                            (m.BuildSignature args)
-                            (sprintf "instantiateSignature ≡ BuildSignature: %s" label)
-                    else
-                        // Generic method: the closure bakes `TempTypar(Method,_)`; the
-                        // template freezes it to `FTTypar(Method,_)` and freshens on
-                        // instantiate. Assert the frozen template equals the freeze of
-                        // the closure on markers (law 1), which is axis-exact.
-                        Expect.equal
-                            m.Signature.Return
-                            (match toFrozen (m.BuildSignature(declaringMarkers m.Signature.DeclaringArity)) with
-                             | FTFun(_, r) -> r
-                             | other -> other)
-                            (sprintf "law 1 (generic-method return): %s" label)
-
-                match provider.TryLookupMember(eqComparer, "Default") with
-                | ValueSome m -> checkMember "EqualityComparer.Default" m
-                | ValueNone -> failtest "Default did not resolve"
-
-                match provider.TryLookupMember(eqComparer, "GetHashCode") with
-                | ValueSome m -> checkMember "EqualityComparer.GetHashCode" m
-                | ValueNone -> failtest "GetHashCode did not resolve"
-
-                // A class with interfaces + base type: `List`1` implements
-                // `IEnumerable<'T>` etc. and bases on `Object`.
+            test "metadata templates instantiate to the expected use-site types" {
+                // The eager (reflection-backed) provider freezes its `FrozenType`
+                // templates at construction (its descriptors are total and
+                // registry-independent, unlike the contract layer's). Spot-check that
+                // the templates realise correctly through the `instantiate*` helpers
+                // for a generic class: declaring typars substituted, every member's
+                // signature instantiates without throwing.
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let markers = declaringMarkers info.Arity
+                    let intArg = [| TyConst("int", EqArray.empty) |]
 
-                    let expectedInterfaces =
-                        info.Interfaces markers
-                        |> Array.map (fun (n, args) -> n, Array.map toFrozen args)
+                    // Interfaces: `IEnumerable<int>` once `'T := int` is substituted.
+                    match
+                        ExternalSymbols.instantiateInterfaces info intArg
+                        |> Array.tryFind (fun (n, _) -> n = "System.Collections.Generic.IEnumerable`1")
+                    with
+                    | Some(_, args) ->
+                        Expect.equal args [| TyConst("int", EqArray.empty) |] "IEnumerable<int> after 'T := int"
+                    | None -> failtest "List<int> should implement IEnumerable<int>"
 
-                    Expect.equal info.FrozenInterfaces expectedInterfaces "law 1 (class interfaces)"
+                    // Base type: `System.Object` (`List<'T> : Object`).
+                    match ExternalSymbols.instantiateBaseType info intArg with
+                    | ValueSome(TyClass(k, _)) ->
+                        Expect.equal (SymbolKeyOps.qualifiedName k) "System.Object" "List bases on Object"
+                    | other -> failtestf "expected List base = Object, got %A" other
 
-                    let expectedBase = info.BaseType |> ValueOption.map (fun f -> toFrozen (f markers))
-                    Expect.equal info.FrozenBaseType expectedBase "law 1 (class base type)"
-
+                    // Every member's signature instantiates without throwing — the
+                    // declaring typar resolves and any method typar freshens.
                     for m in info.Members do
-                        checkMember (sprintf "List.%s" m.Name) m
+                        ExternalSymbols.instantiateSignature m intArg 0 |> ignore
                 | other -> failtestf "expected List`1 as a Class shape, got %A" other
             }
 

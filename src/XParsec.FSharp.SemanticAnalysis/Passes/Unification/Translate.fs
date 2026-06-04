@@ -457,13 +457,13 @@ module UnificationTranslate =
                         // "int"`, the form codegen actually encodes — without this an
                         // abbrev name (`int32`) leaked through as a nominal `TyConst
                         // "int32"` the IL encoder doesn't key. Mirrors the *local*
-                        // abbrev expansion (`expandAbbreviation`); the `build` closure
-                        // substitutes the type args into the (already-translated) RHS.
+                        // abbrev expansion (`expandAbbreviation`); `instantiateDeclaring`
+                        // substitutes the type args into the (already-translated) frozen RHS.
                         // The RHS is already kind-correct: the extractor's `mkNominal`
                         // baked every head against the defining package's scope
                         // so a union/class alias (`'T option = Option<'T>`)
                         // expands to a properly-kinded body.
-                        | ExternalTypeShape.Abbrev(_, _, frozen) ->
+                        | ExternalTypeShape.Abbrev(_, frozen) ->
                             Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
                         // An `Opaque` residue (a GADT union / enum / unmodelled body)
                         // has no kind to resolve a *type annotation* to — skip

@@ -26,7 +26,7 @@ module internal AssemblerScaffold =
         MetadataTokens.TypeDefinitionHandle(2 + priorRows + i)
 
     /// Single-walk partition of `tast.Decls` by `TTypeKind`.
-    let partitionTypeDecls (decls: EqArray<TDecl>) : PartitionedTypeDecls =
+    let partitionTypeDecls (decls: EqArray<Frozen.TDecl>) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
         let records = ResizeArray()
@@ -34,20 +34,20 @@ module internal AssemblerScaffold =
 
         for d in decls do
             match d with
-            | TDecl.Type td ->
+            | TDeclG.Type td ->
                 match td.Kind with
-                | TTypeKind.Interface methods -> interfaces.Add(td, EqArray.toList methods)
-                | TTypeKind.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
-                | TTypeKind.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
-                | TTypeKind.Class(fields,
-                                  ctorParams,
-                                  members,
-                                  baseType,
-                                  ifaces,
-                                  isSealed,
-                                  staticLets,
-                                  secondaryCtors,
-                                  baseCtorCall) ->
+                | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
+                | TTypeKindG.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
+                | TTypeKindG.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
+                | TTypeKindG.Class(fields,
+                                   ctorParams,
+                                   members,
+                                   baseType,
+                                   ifaces,
+                                   isSealed,
+                                   staticLets,
+                                   secondaryCtors,
+                                   baseCtorCall) ->
                     classes.Add(
                         td,
                         EqArray.toList fields,
@@ -91,10 +91,10 @@ module internal AssemblerScaffold =
         ||| MethodAttributes.HideBySig
         ||| MethodAttributes.NewSlot
 
-    /// `TyFun('A, 'B)` ⇒ `(['A], 'B)`.
-    let rec decurry (t: SemType) : SemType list * SemType =
+    /// `FTFun('A, 'B)` ⇒ `(['A], 'B)`.
+    let rec decurry (t: FrozenType) : FrozenType list * FrozenType =
         match t with
-        | TyFun(a, b) ->
+        | FTFun(a, b) ->
             let ps, r = decurry b
             a :: ps, r
         | _ -> [], t
@@ -104,7 +104,7 @@ module internal AssemblerScaffold =
 
     /// A property is emitted (and referenced) as `get_<name>`; a method keeps
     /// its name.
-    let memberMetaName (mem: TTypeMember) : string =
+    let memberMetaName (mem: Frozen.TTypeMember) : string =
         match mem.Kind with
         | TMemberKind.Property -> "get_" + mem.Name
         | TMemberKind.Method -> mem.Name
@@ -113,7 +113,7 @@ module internal AssemblerScaffold =
     /// signature's open typars are self-describing `TempTypar` nodes (Freeze remaps the
     /// declaring axis to `!i` and the method axis to `!!j`), encoded by the provider's
     /// `EncodeAbstractType` (the same `encodeType` the executable path uses).
-    let abstractMethodSignature (provider: ClrProvider) (m: TAbstractMethod) : BlobBuilder =
+    let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =
         let paramTys, retTy = decurry m.Signature
         let blob = BlobBuilder()
 

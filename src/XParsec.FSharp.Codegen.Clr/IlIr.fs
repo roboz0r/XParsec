@@ -122,7 +122,7 @@ type ILInstr =
 // so measure against a real workload, don't assume. See ilir-migration-plan.md.
 type ILBody =
     {
-        Locals: ResizeArray<SemType>
+        Locals: ResizeArray<FrozenType>
         Instrs: ResizeArray<ILInstr>
         /// Count of distinct labels minted (ids are dense `0..LabelCount-1`), so the
         /// scan/lower passes size their per-label arrays directly.
@@ -192,12 +192,12 @@ module private InstrDelta =
 /// merges), exactly as `Il` does for the eager emitter — the walker reads it to
 /// know how many values a statement left to discard.
 type IlBuilder() =
-    let locals = ResizeArray<SemType>()
+    let locals = ResizeArray<FrozenType>()
     let instrs = ResizeArray<ILInstr>()
     let mutable nextLabel = 0
     let mutable depth = 0
 
-    member _.Local(ty: SemType) : int =
+    member _.Local(ty: FrozenType) : int =
         let i = locals.Count
         locals.Add ty
         i

@@ -55,20 +55,20 @@ type internal TypeDefCounts =
 /// `match` arm in `partitionTypeDecls`.
 type internal PartitionedTypeDecls =
     {
-        Interfaces: (TTypeDecl * TAbstractMethod list) list
-        Unions: (TTypeDecl * TUnionCase list * TTypeMember list) list
-        Records: (TTypeDecl * TRecordField list * TTypeMember list) list
+        Interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list
+        Unions: (Frozen.TTypeDecl * Frozen.TUnionCase list * Frozen.TTypeMember list) list
+        Records: (Frozen.TTypeDecl * Frozen.TRecordField list * Frozen.TTypeMember list) list
         Classes:
-            (TTypeDecl *
-            TRecordField list *
-            TRecordField list *
-            TTypeMember list *
-            SemType voption *
-            (SemType * TTypeMember list) list *
+            (Frozen.TTypeDecl *
+            Frozen.TRecordField list *
+            Frozen.TRecordField list *
+            Frozen.TTypeMember list *
+            FrozenType voption *
+            (FrozenType * Frozen.TTypeMember list) list *
             bool *
-            TStaticLet list *
-            TSecondaryCtor list *
-            TBaseCtorCall voption) list
+            Frozen.TStaticLet list *
+            Frozen.TSecondaryCtor list *
+            Frozen.TBaseCtorCall voption) list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in
@@ -76,8 +76,8 @@ type internal PartitionedTypeDecls =
 /// support records carry. Everything downstream is shared.
 [<RequireQualifiedAccess>]
 type internal NominalEmissionInput =
-    | Union of cases: TUnionCase list
-    | Record of fields: TRecordField list
+    | Union of cases: Frozen.TUnionCase list
+    | Record of fields: Frozen.TRecordField list
     /// `ctorParams` become backing fields; `baseType` defaults to `Object`
     /// (`ValueNone`); the `fields` slot is reserved for future mutable instance
     /// fields. `isSealed` reflects `[<Sealed>]`. Each `staticLets` entry becomes
@@ -86,14 +86,14 @@ type internal NominalEmissionInput =
     /// already-typed member bodies: codegen emits one `InterfaceImpl` row per
     /// entry and one virtual `MethodDefinition` per member (implicit impl).
     | Class of
-        fields: TRecordField list *
-        ctorParams: TRecordField list *
-        baseType: SemType voption *
+        fields: Frozen.TRecordField list *
+        ctorParams: Frozen.TRecordField list *
+        baseType: FrozenType voption *
         isSealed: bool *
-        staticLets: TStaticLet list *
-        secondaryCtors: TSecondaryCtor list *
-        baseCtorCall: TBaseCtorCall voption *
-        interfaces: (SemType * TTypeMember list) list
+        staticLets: Frozen.TStaticLet list *
+        secondaryCtors: Frozen.TSecondaryCtor list *
+        baseCtorCall: Frozen.TBaseCtorCall voption *
+        interfaces: (FrozenType * Frozen.TTypeMember list) list
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

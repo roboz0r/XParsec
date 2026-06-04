@@ -10,7 +10,7 @@ open EmitExpr
 /// The codegen TAST walker, split across modules: `EmitLower` (External-as-value
 /// eta-reification + the `expandBuiltinOps` operator→IL pass; inline expansion
 /// itself ran pre-freeze in `Passes.InlineExpansion`), `EmitClosures` (closure / static-method
-/// discovery), `EmitExpr` (`TExpr` -> IL via the depth-tracked `Cil` helpers),
+/// discovery), `EmitExpr` (`Frozen.TExpr` -> IL via the depth-tracked `Cil` helpers),
 /// and this `Emit` (the method/body builders codegen calls). The shared data
 /// types live in `EmitTypes`. This module re-exports the public surface of the
 /// helper modules so callers keep using `Emit.*`.
@@ -25,7 +25,6 @@ module Emit =
     type StaticFn = EmitTypes.StaticFn
     type StaticMethodRef = EmitTypes.StaticMethodRef
 
-    let zonk = EmitLower.zonk
     let expandBuiltinOps = EmitLower.expandBuiltinOps
     let lower = EmitLower.lower
     let collectStaticFns = EmitClosures.collectStaticFns
@@ -41,8 +40,8 @@ module Emit =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
-            ClosureByNode: Dictionary<TExpr, Closure>
-            CtorHandleByNode: Dictionary<TExpr, EntityHandle>
+            ClosureByNode: Dictionary<Frozen.TExpr, Closure>
+            CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -53,7 +52,7 @@ module Emit =
     /// binds a `Main` local — except a function lowered to a static method (P3b),
     /// which has no value here; each effectful expression is emitted in source
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
-    let buildMain (ctx: EmitContext) (decls: TDecl list) : ILBody =
+    let buildMain (ctx: EmitContext) (decls: Frozen.TDecl list) : ILBody =
         let b = IlBuilder()
 
         let env =
@@ -74,16 +73,16 @@ module Emit =
 
         for d in decls do
             match d with
-            | TDecl.Expression(e, _) -> buildStatement env b e
+            | TDeclG.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
-            | TDecl.Let(TPat.NamedSimple(binding, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
-            | TDecl.Let(TPat.NamedSimple(binding, _), value, _, ty) ->
+            | TDeclG.Let(TPatG.NamedSimple(binding, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
+            | TDeclG.Let(TPatG.NamedSimple(binding, _), value, _, ty) ->
                 let slot = b.Local ty
                 env.Slots.[binding] <- slot
                 buildExpr env b value
                 b.Add(ILInstr.Stloc slot)
-            | TDecl.Let _ -> ()
-            | TDecl.Type _ -> ()
+            | TDeclG.Let _ -> ()
+            | TDeclG.Type _ -> ()
 
         b.Add(ILInstr.LdcI4 0)
         b.Add ILInstr.Ret
@@ -161,8 +160,8 @@ module Emit =
         (ctx: EmitContext)
         (thisKey: NodeKey voption)
         (baseKey: NodeKey voption)
-        (prms: EqArray<NodeKey * SemType>)
-        (body: TExpr)
+        (prms: EqArray<NodeKey * FrozenType>)
+        (body: Frozen.TExpr)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
@@ -211,10 +210,10 @@ module Emit =
     /// so an empty closure/ctor map is passed (as `buildMember`).
     let buildSecondaryCtor
         (ctx: EmitContext)
-        (prms: EqArray<NodeKey * SemType>)
-        (lets: TCtorLet list)
+        (prms: EqArray<NodeKey * FrozenType>)
+        (lets: Frozen.TCtorLet list)
         (primaryCtor: EntityHandle)
-        (primaryArgs: TExpr list)
+        (primaryArgs: Frozen.TExpr list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
@@ -262,8 +261,8 @@ module Emit =
     let buildClassBaseCtor
         (ctx: EmitContext)
         (baseCtor: EntityHandle)
-        (baseArgs: TExpr list)
-        (ctorParams: (NodeKey * SemType) list)
+        (baseArgs: Frozen.TExpr list)
+        (ctorParams: (NodeKey * FrozenType) list)
         (fields: EntityHandle list)
         : ILBody =
         let b = IlBuilder()
@@ -308,7 +307,7 @@ module Emit =
     /// it into its backing field, then `ret`. The body sees no `this` / params
     /// (a `.cctor` is parameterless), so the env mirrors `buildMember`'s static
     /// path with empty arg/slot maps.
-    let buildStaticCctor (ctx: EmitContext) (lets: (EntityHandle * TExpr) list) : ILBody =
+    let buildStaticCctor (ctx: EmitContext) (lets: (EntityHandle * Frozen.TExpr) list) : ILBody =
         let b = IlBuilder()
 
         let env =
@@ -393,20 +392,20 @@ module Emit =
             /// The union's own `TypeDefinition` — the `isinst` target.
             SelfType: EntityHandle
             /// `TyUnion(name, [])` — the type of the cast `other` local.
-            SelfSemType: SemType
+            SelfTy: FrozenType
             TagField: EntityHandle
             /// `(field handle, field type)` across every case, declaration order.
-            Fields: (EntityHandle * SemType) list
+            Fields: (EntityHandle * FrozenType) list
             /// `int` — the tag's type, for `HashCode.Add<int>`.
-            IntType: SemType
+            IntType: FrozenType
             /// `EqualityComparer<T>.Default` getter for a field type.
-            ComparerDefault: SemType -> EntityHandle
+            ComparerDefault: FrozenType -> EntityHandle
             /// `EqualityComparer<T>::Equals(T, T) : bool` for a field type.
-            ComparerEquals: SemType -> EntityHandle
+            ComparerEquals: FrozenType -> EntityHandle
             /// The `System.HashCode` value-type local.
-            HashCodeLocal: SemType
+            HashCodeLocal: FrozenType
             /// `HashCode::Add<T>(T)` for a field/tag type.
-            HashCodeAdd: SemType -> EntityHandle
+            HashCodeAdd: FrozenType -> EntityHandle
             /// `HashCode::ToHashCode() : int`.
             HashCodeToHashCode: EntityHandle
         }
@@ -445,7 +444,7 @@ module Emit =
     /// manual `SetDepth`).
     let buildUnionEquals (s: UnionEqualitySupport) : ILBody =
         let b = IlBuilder()
-        let other = b.Local s.SelfSemType
+        let other = b.Local s.SelfTy
         let falseLabel = b.Label()
 
         b.Add(ILInstr.Ldarg 1)
@@ -529,13 +528,13 @@ module Emit =
             /// The record's own `TypeDefinition` — the `isinst` target.
             SelfType: EntityHandle
             /// `TyRecord(name, …)` — the type of the cast `other` local.
-            SelfSemType: SemType
+            SelfTy: FrozenType
             /// `(field handle, field type)` in declaration order.
-            Fields: (EntityHandle * SemType) list
-            ComparerDefault: SemType -> EntityHandle
-            ComparerEquals: SemType -> EntityHandle
-            HashCodeLocal: SemType
-            HashCodeAdd: SemType -> EntityHandle
+            Fields: (EntityHandle * FrozenType) list
+            ComparerDefault: FrozenType -> EntityHandle
+            ComparerEquals: FrozenType -> EntityHandle
+            HashCodeLocal: FrozenType
+            HashCodeAdd: FrozenType -> EntityHandle
             HashCodeToHashCode: EntityHandle
         }
 
@@ -564,7 +563,7 @@ module Emit =
     /// `buildUnionEquals` minus the tag compare.
     let buildRecordEquals (s: RecordEqualitySupport) : ILBody =
         let b = IlBuilder()
-        let other = b.Local s.SelfSemType
+        let other = b.Local s.SelfTy
         let falseLabel = b.Label()
 
         b.Add(ILInstr.Ldarg 1)
@@ -634,14 +633,14 @@ module Emit =
             SelfType: EntityHandle
             /// `TyUnion(name, …)` — the type of the cast `other` local and the
             /// param type of the typed `CompareTo(Self)`.
-            SelfSemType: SemType
+            SelfTy: FrozenType
             TagField: EntityHandle
             /// `(field handle, field type)` across every case, declaration order.
-            Fields: (EntityHandle * SemType) list
+            Fields: (EntityHandle * FrozenType) list
             /// `Comparer<T>.Default` getter for a field type.
-            ComparerDefault: SemType -> EntityHandle
+            ComparerDefault: FrozenType -> EntityHandle
             /// `Comparer<T>::Compare(T, T) : int32` for a field type.
-            ComparerCompare: SemType -> EntityHandle
+            ComparerCompare: FrozenType -> EntityHandle
             /// `System.ArgumentException::.ctor(string)` — the
             /// `CompareTo(object)` body throws this on a non-`Self` arg.
             ArgumentExceptionCtor: EntityHandle
@@ -693,7 +692,7 @@ module Emit =
     /// comparison was equal, so it returns `0`.
     let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
         let b = IlBuilder()
-        let c = b.Local(TyConst("int", EqArray.empty))
+        let c = b.Local(FTConst("int", EqArray.empty))
         let nullLabel = b.Label()
         let returnLabel = b.Label()
 
@@ -720,7 +719,7 @@ module Emit =
     /// explicit `castclass` (same pattern `buildUnionEquals` uses).
     let buildUnionCompareToObj (s: UnionComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
         let b = IlBuilder()
-        let other = b.Local s.SelfSemType
+        let other = b.Local s.SelfTy
         let nullLabel = b.Label()
         let throwLabel = b.Label()
 
@@ -750,11 +749,11 @@ module Emit =
     type RecordComparisonSupport =
         {
             SelfType: EntityHandle
-            SelfSemType: SemType
+            SelfTy: FrozenType
             /// `(field handle, field type)` in declaration order.
-            Fields: (EntityHandle * SemType) list
-            ComparerDefault: SemType -> EntityHandle
-            ComparerCompare: SemType -> EntityHandle
+            Fields: (EntityHandle * FrozenType) list
+            ComparerDefault: FrozenType -> EntityHandle
+            ComparerCompare: FrozenType -> EntityHandle
             ArgumentExceptionCtor: EntityHandle
             MismatchMessage: UserStringHandle
         }
@@ -786,7 +785,7 @@ module Emit =
     /// (returns `1`); otherwise the shared field lex walk.
     let buildRecordCompareTo (s: RecordComparisonSupport) : ILBody =
         let b = IlBuilder()
-        let c = b.Local(TyConst("int", EqArray.empty))
+        let c = b.Local(FTConst("int", EqArray.empty))
         let nullLabel = b.Label()
         let returnLabel = b.Label()
 
@@ -813,7 +812,7 @@ module Emit =
     /// / `MismatchMessage`).
     let buildRecordCompareToObj (s: RecordComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
         let b = IlBuilder()
-        let other = b.Local s.SelfSemType
+        let other = b.Local s.SelfTy
         let nullLabel = b.Label()
         let throwLabel = b.Label()
 

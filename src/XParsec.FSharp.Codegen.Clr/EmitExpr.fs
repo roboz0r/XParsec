@@ -35,10 +35,16 @@ module EmitExpr =
     /// always match (the latter aliases its binding to `scrutSlot`, so
     /// `emitVarLoad` resolves it to the same local — no copy). Union / tuple /
     /// record patterns land in later rung-2 slices.
-    let rec private buildMatchTest (env: EmitEnv) (b: IlBuilder) (scrutSlot: int) (nextLabel: int) (pat: TPat) : unit =
+    let rec private buildMatchTest
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (scrutSlot: int)
+        (nextLabel: int)
+        (pat: Frozen.TPat)
+        : unit =
         // `ldfld` a field of the scrutinee into a fresh local, then test its
         // sub-pattern against that local (a named sub-pattern just aliases it).
-        let extractField (fieldRef: EntityHandle) (subPat: TPat) =
+        let extractField (fieldRef: EntityHandle) (subPat: Frozen.TPat) =
             let fldSlot = b.Local(typeOfPat subPat)
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Ldfld fieldRef)
@@ -46,9 +52,9 @@ module EmitExpr =
             buildMatchTest env b fldSlot nextLabel subPat
 
         match pat with
-        | TPat.Wildcard _ -> ()
-        | TPat.NamedSimple(binding, _) -> env.Slots.[binding] <- scrutSlot
-        | TPat.Const(value, _) ->
+        | TPatG.Wildcard _ -> ()
+        | TPatG.NamedSimple(binding, _) -> env.Slots.[binding] <- scrutSlot
+        | TPatG.Const(value, _) ->
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
@@ -59,7 +65,7 @@ module EmitExpr =
             | other -> failwithf "Emit: match on constant %A is out of scope" other
 
             b.Add(ILInstr.BneUn nextLabel)
-        | TPat.Union(caseName, subPats, ty) ->
+        | TPatG.Union(caseName, subPats, ty) ->
             // Local union table keys by the nominal `SymbolKey`; the external union
             // provider lookups take the qualified compiled name derived from it (Phase 6D).
             let key, tyArgs = nominalShape "union pattern" ty
@@ -114,10 +120,10 @@ module EmitExpr =
             subPats
             |> EqArray.iteri (fun i subPat ->
                 match subPat with
-                | TPat.Wildcard _ -> ()
+                | TPatG.Wildcard _ -> ()
                 | _ -> extractField (fieldRef i) subPat
             )
-        | TPat.Record(fields, ty) ->
+        | TPatG.Record(fields, ty) ->
             // A record pattern never fails on shape (no tag to compare): for each
             // named sub-pattern, `ldfld` the field into a fresh local and recurse
             // — only the sub-patterns themselves can branch to `nextLabel`. A
@@ -129,7 +135,7 @@ module EmitExpr =
             | true, r ->
                 for (fieldName, subPat) in fields do
                     match subPat with
-                    | TPat.Wildcard _ -> ()
+                    | TPatG.Wildcard _ -> ()
                     | _ ->
                         match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
                         | Some(_, handle, _) ->
@@ -168,14 +174,14 @@ module EmitExpr =
         | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
         | _ -> name = "printfn"
 
-    /// Whether a (zonked) `SemType` is a CLR value type — drives the box vs
+    /// Whether a (zonked) `FrozenType` is a CLR value type — drives the box vs
     /// no-op choice on `:>` and the `unbox.any` vs `castclass` choice on `:?>`.
     /// User records / unions / classes are reference types (rung 2); the BCL
     /// primitives bound as `TyConst` are value types. `string` / `obj` are
     /// reference types despite being `TyConst`.
-    let private isValueType (ty: SemType) : bool =
-        match zonk ty with
-        | TyConst(n, _) ->
+    let private isValueType (ty: FrozenType) : bool =
+        match ty with
+        | FTConst(n, _) ->
             match n with
             | "int"
             | "int64"
@@ -197,17 +203,17 @@ module EmitExpr =
             | _ -> false
         | _ -> false
 
-    let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
+    let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExpr.Const(TConstValue.String s, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-        | TExpr.Const(TConstValue.Int n, _) -> b.Add(ILInstr.LdcI4 n)
-        | TExpr.Const(TConstValue.Int64 n, _) -> b.Add(ILInstr.LdcI8 n)
-        | TExpr.Const(TConstValue.Bool v, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
-        | TExpr.Const(TConstValue.Byte n, _) -> b.Add(ILInstr.LdcI4(int n))
-        | TExpr.Const(TConstValue.Float x, _) -> b.Add(ILInstr.LdcR8 x)
-        | TExpr.Const(TConstValue.Float32 x, _) -> b.Add(ILInstr.LdcR4 x)
-        | TExpr.Const(TConstValue.Char c, _) -> b.Add(ILInstr.LdcI4(int c))
-        | TExpr.Const(TConstValue.Decimal d, _) ->
+        | TExprG.Const(TConstValue.String s, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
+        | TExprG.Const(TConstValue.Int n, _) -> b.Add(ILInstr.LdcI4 n)
+        | TExprG.Const(TConstValue.Int64 n, _) -> b.Add(ILInstr.LdcI8 n)
+        | TExprG.Const(TConstValue.Bool v, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
+        | TExprG.Const(TConstValue.Byte n, _) -> b.Add(ILInstr.LdcI4(int n))
+        | TExprG.Const(TConstValue.Float x, _) -> b.Add(ILInstr.LdcR8 x)
+        | TExprG.Const(TConstValue.Float32 x, _) -> b.Add(ILInstr.LdcR4 x)
+        | TExprG.Const(TConstValue.Char c, _) -> b.Add(ILInstr.LdcI4(int c))
+        | TExprG.Const(TConstValue.Decimal d, _) ->
             // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
             // the value's bit representation — the same shape F#/Roslyn emit.
             let bits = System.Decimal.GetBits d
@@ -218,24 +224,24 @@ module EmitExpr =
             b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
             b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
             b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
-        | TExpr.Const(TConstValue.Unit, _) ->
+        | TExprG.Const(TConstValue.Unit, _) ->
             // `()` literal — reify the `unit` value (a zero-field `System.ValueTuple`
             // struct, not FSharp.Core's null `Unit`). Pushed when a closure
             // invocation needs a unit arg (`c ()`) or a unit value is otherwise
             // reified — F3 (Phase 2 §1 mkCounter pattern).
             EmitTypes.buildUnitValue env b
 
-        | TExpr.Var(binding, _) -> buildVarLoad env b binding
+        | TExprG.Var(binding, _) -> buildVarLoad env b binding
 
-        | TExpr.Let(TPat.NamedSimple(binding, ty), value, body, _) ->
+        | TExprG.Let(TPatG.NamedSimple(binding, ty), value, body, _) ->
             let slot = b.Local ty
             env.Slots.[binding] <- slot
             buildExpr env b value
             b.Add(ILInstr.Stloc slot)
             buildExpr env b body
-        | TExpr.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
+        | TExprG.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
 
-        | TExpr.Use(TPat.NamedSimple(binding, varTy), value, body, dispose, _) ->
+        | TExprG.Use(TPatG.NamedSimple(binding, varTy), value, body, dispose, _) ->
             // `use x = value in body` → `let x = value in try body finally if x <> null
             // then x.Dispose()` (B-5, vesper-set-sprint-phase-4 §4.1). The IL-IR
             // exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`,
@@ -308,12 +314,12 @@ module EmitExpr =
                 buildExpr
                     env
                     b
-                    (TExpr.MethodCall(
-                        TExpr.Var(binding, varTy),
+                    (TExprG.MethodCall(
+                        TExprG.Var(binding, varTy),
                         disposeKey,
                         CallVia.Self,
                         EqArray.empty,
-                        TyConst("unit", EqArray.empty)
+                        FTConst("unit", EqArray.empty)
                     ))
 
                 b.Add ILInstr.Pop
@@ -329,7 +335,7 @@ module EmitExpr =
                         key,
                         false,
                         false,
-                        TyFun(TyConst("unit", EqArray.empty), TyConst("unit", EqArray.empty))
+                        FTFun(FTConst("unit", EqArray.empty), FTConst("unit", EqArray.empty))
                     )
 
                 b.Add(ILInstr.Ldloc slot)
@@ -342,13 +348,13 @@ module EmitExpr =
             b.SetDepth 0
             b.Add(ILInstr.Mark endLabel)
             b.Add(ILInstr.Ldloc resultSlot)
-        | TExpr.Use(pat, _, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
+        | TExprG.Use(pat, _, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
 
-        | TExpr.ForIn(TPat.NamedSimple(binding, elemTy),
-                      source,
-                      body,
-                      ForInEnumerator.DuckTyped(enumeratorTy, geKey, mnKey, curKey, isValueType, disposeOpt),
-                      _) ->
+        | TExprG.ForIn(TPatG.NamedSimple(binding, elemTy),
+                       source,
+                       body,
+                       ForInEnumeratorG.DuckTyped(enumeratorTy, geKey, mnKey, curKey, isValueType, disposeOpt),
+                       _) ->
             // §4.4 duck-typed / pattern-based `GetEnumerator()` — C#'s non-boxing
             // `foreach`. The source exposes a public `GetEnumerator()` returning an
             // enumerator type `E` (`List`1+Enumerator<int>`) with `MoveNext(): bool`
@@ -370,7 +376,7 @@ module EmitExpr =
             // §4.2-style null-checked `Dispose`. `GetEnumerator` is on the (reference)
             // source, so its ref recovers normally (its return mentions the typar).
             let geHandle =
-                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst("unit", EqArray.empty), enumeratorTy))
+                env.Provider.ExternalMemberRef(geKey, false, false, FTFun(FTConst("unit", EqArray.empty), enumeratorTy))
 
             let mnHandle =
                 env.Provider.ExternalMemberRefOn(
@@ -378,7 +384,7 @@ module EmitExpr =
                     enumeratorTy,
                     false,
                     false,
-                    TyFun(TyConst("unit", EqArray.empty), TyConst("bool", EqArray.empty))
+                    FTFun(FTConst("unit", EqArray.empty), FTConst("bool", EqArray.empty))
                 )
 
             let curHandle =
@@ -440,7 +446,7 @@ module EmitExpr =
                         dispKey,
                         false,
                         false,
-                        TyFun(TyConst("unit", EqArray.empty), TyConst("unit", EqArray.empty))
+                        FTFun(FTConst("unit", EqArray.empty), FTConst("unit", EqArray.empty))
                     )
 
                 b.Add(ILInstr.Leave endLabel)
@@ -478,7 +484,7 @@ module EmitExpr =
 
             // `for` is a unit expression — leave the single reified `unit` value.
             EmitTypes.buildUnitValue env b
-        | TExpr.ForIn(TPat.NamedSimple(binding, elemTy), source, body, _, _) ->
+        | TExprG.ForIn(TPatG.NamedSimple(binding, elemTy), source, body, _, _) ->
             // `for x in src do body` over an `IEnumerable<'T>` (B-6,
             // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator
             // loop through the *interface* slots, so the same shape drives any BCL
@@ -498,9 +504,9 @@ module EmitExpr =
             // collection's implementation. `ExternalMemberRef` recovers the
             // instantiation (`!0` → `elemTy`) from the supplied member type. The
             // IL-IR exception region (H5) is the same `Try` / `BeginFinally` /
-            // `EndFinally` shape as `TExpr.Use`'s disposal.
+            // `EndFinally` shape as `TExprG.Use`'s disposal.
             let enumTy =
-                TyClass(
+                FTClass(
                     SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerator`1"),
                     EqArray.singleton elemTy
                 )
@@ -514,7 +520,7 @@ module EmitExpr =
                 )
 
             let geHandle =
-                env.Provider.ExternalMemberRef(geKey, false, false, TyFun(TyConst("unit", EqArray.empty), enumTy))
+                env.Provider.ExternalMemberRef(geKey, false, false, FTFun(FTConst("unit", EqArray.empty), enumTy))
 
             let mnKey =
                 SymbolKey.MemberKey(
@@ -529,7 +535,7 @@ module EmitExpr =
                     mnKey,
                     false,
                     false,
-                    TyFun(TyConst("unit", EqArray.empty), TyConst("bool", EqArray.empty))
+                    FTFun(FTConst("unit", EqArray.empty), FTConst("bool", EqArray.empty))
                 )
 
             let curKey =
@@ -555,7 +561,7 @@ module EmitExpr =
                     dispKey,
                     false,
                     false,
-                    TyFun(TyConst("unit", EqArray.empty), TyConst("unit", EqArray.empty))
+                    FTFun(FTConst("unit", EqArray.empty), FTConst("unit", EqArray.empty))
                 )
 
             // `e = src.GetEnumerator()` — at statement position, so the stack is
@@ -605,9 +611,9 @@ module EmitExpr =
             b.Add(ILInstr.Mark endLabel)
             // `for` is a unit expression — leave the single reified `unit` value.
             EmitTypes.buildUnitValue env b
-        | TExpr.ForIn(pat, _, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
+        | TExprG.ForIn(pat, _, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
 
-        | TExpr.Sequential(items, _) ->
+        | TExprG.Sequential(items, _) ->
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item
             // depth); the last item leaves the sequence's result.
@@ -625,7 +631,7 @@ module EmitExpr =
                         b.Add ILInstr.Pop
             )
 
-        | TExpr.While(cond, body, _) ->
+        | TExprG.While(cond, body, _) ->
             // `while <cond> do <body>` — a unit expression. Shape:
             //   loopStart: <cond>; brfalse loopEnd; <body>; pop…; br loopStart; loopEnd:
             // The condition leaves a `bool` the `brfalse` consumes; the body is a
@@ -650,7 +656,7 @@ module EmitExpr =
             b.Add(ILInstr.Mark loopEnd)
             EmitTypes.buildUnitValue env b
 
-        | TExpr.IfThenElse(cond, thenExpr, elseExpr, _) ->
+        | TExprG.IfThenElse(cond, thenExpr, elseExpr, _) ->
             // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
             // arms leave one value; the builder's linear depth tracker (which
             // follows only the then-arm) is reset to the post-`brfalse` base
@@ -668,7 +674,7 @@ module EmitExpr =
             buildExpr env b elseExpr
             b.Add(ILInstr.Mark endLabel)
 
-        | TExpr.Match(scrutinee, arms, _) ->
+        | TExprG.Match(scrutinee, arms, _) ->
             // Evaluate the scrutinee once into a local, then test each arm in
             // order: on a mismatch branch to the next arm; on a match (and a
             // passing guard) emit the body and branch to the shared end. The
@@ -700,7 +706,7 @@ module EmitExpr =
             b.SetDepth(baseDepth + 1)
             b.Add(ILInstr.Mark endLabel)
 
-        | TExpr.Lambda _ ->
+        | TExprG.Lambda _ ->
             // A function value: construct its closure. Captures are pushed via
             // the *current* resolver (a local in `Main`, the param or a capture
             // inside an enclosing closure), then `newobj` its ctor.
@@ -724,25 +730,25 @@ module EmitExpr =
                             failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
                     else
                         // The closure's self-instantiation over its own typars: the
-                        // enclosing method's `TempTypar(Method, i)`, encoded under the
+                        // enclosing method's `FTTypar(Method, i)`, encoded under the
                         // ambient closure mode at this construction site (`!!i` in a
                         // static-method body, `!i` inside an enclosing closure).
                         env.Provider.UserClosureMemberRef(
                             closure.Name,
-                            [ for i in 0 .. closure.Typars - 1 -> TempTypar(TyparAxis.Method, i) ],
+                            [ for i in 0 .. closure.Typars - 1 -> FTTypar(TyparAxis.Method, i) ],
                             ClosureMember.Ctor
                         )
 
                 b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
             | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
-        | TExpr.New(className, args, ty) ->
+        | TExprG.New(className, args, ty) ->
             for a in args do
                 buildExpr env b a
 
             let tyArgs =
                 match ty with
-                | TyClass(_, xs) -> EqArray.toList xs
+                | FTClass(_, xs) -> EqArray.toList xs
                 | _ -> []
 
             // Call-site arg types let the external-ctor path disambiguate ctor
@@ -755,7 +761,7 @@ module EmitExpr =
             // `className` (Phase 6D).
             let localClass =
                 match ty with
-                | TyClass(k, _) ->
+                | FTClass(k, _) ->
                     match env.Classes.TryGetValue k with
                     | true, c -> ValueSome(k, c)
                     | _ -> ValueNone
@@ -792,9 +798,9 @@ module EmitExpr =
                 | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
 
-        | TExpr.App _ -> buildAppCall env b e
+        | TExprG.App _ -> buildAppCall env b e
 
-        | TExpr.RecordCons(srcFields, ty) ->
+        | TExprG.RecordCons(srcFields, ty) ->
             // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
             // to the type's *declaration* order before the ctor is invoked
             // (records-plan §B3): the ctor's parameter slots correspond to
@@ -838,7 +844,7 @@ module EmitExpr =
                     b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                 | ValueNone -> failwithf "Emit: no emitted record for '%s'" qualName
 
-        | TExpr.FieldGet(receiver, name, _) ->
+        | TExprG.FieldGet(receiver, name, _) ->
             // `r.X` — load the receiver and `ldfld` the field. The field handle is
             // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
             // `TypeSpec` for a generic one (`resolveRecordField`). A
@@ -847,7 +853,7 @@ module EmitExpr =
             buildExpr env b receiver
             b.Add(ILInstr.Ldfld handle)
 
-        | TExpr.Assignment(TExpr.Var(binding, _), value, _) ->
+        | TExprG.Assignment(TExprG.Var(binding, _), value, _) ->
             // `x <- v` on a non-promoted `mutable` local — store into its slot.
             // (A `HeapShared` mutable local was already rewritten by
             // `RefCellPromotion` into a `contents` FieldSet, so any `Assignment`
@@ -860,7 +866,7 @@ module EmitExpr =
                 EmitTypes.buildUnitValue env b
             | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
 
-        | TExpr.FieldSet(receiver, name, value, _) ->
+        | TExprG.FieldSet(receiver, name, value, _) ->
             // `r.X <- v` on a `mutable` field. Validation has rejected the
             // immutable case before we reach here. `stfld` consumes both pushes
             // and leaves nothing on the stack, but a `FieldSet` is *unit-typed*
@@ -874,7 +880,7 @@ module EmitExpr =
             b.Add(ILInstr.Stfld handle)
             EmitTypes.buildUnitValue env b
 
-        | TExpr.RecordClone(source, overrides, ty) ->
+        | TExprG.RecordClone(source, overrides, ty) ->
             // `{ r with X = v; … }` — evaluate `r` into a local, then per
             // declaration-order field: push the override expression if it's in
             // the override list, else `ldloc; ldfld` from the saved source. Then
@@ -911,7 +917,7 @@ module EmitExpr =
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ -> failwithf "Emit: no emitted record for '%A'" key
 
-        | TExpr.UnionCons(caseName, args, ty) ->
+        | TExprG.UnionCons(caseName, args, ty) ->
             // Local union table keys by the nominal `SymbolKey`; the provider's
             // cons recipe (FSharp.Core / Vesper list) selects on the same key.
             let key, tyArgs = nominalShape "UnionCons" ty
@@ -942,7 +948,7 @@ module EmitExpr =
                 | ValueSome recipe -> b.Add(ILInstr.Recipe recipe)
                 | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" qualName caseName
 
-        | TExpr.PropertyGet(receiver, key, via, _) ->
+        | TExprG.PropertyGet(receiver, key, via, _) ->
             let name = SymbolKeyOps.simpleName key
             // Instance property read: load the receiver, then dispatch.
             // Unions/records are sealed (rung 2) so `call` is safe and avoids
@@ -957,10 +963,10 @@ module EmitExpr =
             buildExpr env b receiver
 
             match via, receiverTy with
-            | CallVia.Self, TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
+            | CallVia.Self, FTClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
             | _ -> b.Add(ILInstr.Call(handle, 1, 1))
 
-        | TExpr.MethodCall(receiver, key, via, args, _) ->
+        | TExprG.MethodCall(receiver, key, via, args, _) ->
             let name = SymbolKeyOps.simpleName key
             // Instance method call: receiver then args. Unions/records use
             // `call` (sealed, no virtual dispatch needed). User classes
@@ -976,18 +982,18 @@ module EmitExpr =
                 buildExpr env b a
 
             match via, receiverTy with
-            | CallVia.Self, TyClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
+            | CallVia.Self, FTClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
             | _ -> b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
 
-        | TExpr.StaticPropertyGet(key, _) ->
+        | TExprG.StaticPropertyGet(key, _) ->
             let handle = resolveStaticMember env key
             b.Add(ILInstr.Call(handle, 0, 1))
 
-        | TExpr.StaticFieldGet(declKey, name, _) ->
+        | TExprG.StaticFieldGet(declKey, name, _) ->
             let handle = resolveStaticField env declKey name
             b.Add(ILInstr.Ldsfld handle)
 
-        | TExpr.StaticMethodCall(key, args, _) ->
+        | TExprG.StaticMethodCall(key, args, _) ->
             let handle = resolveStaticMember env key
 
             for a in args do
@@ -995,7 +1001,7 @@ module EmitExpr =
 
             b.Add(ILInstr.Call(handle, args.Length, 1))
 
-        | TExpr.ExternalMember(receiver, key, _, true, ty) ->
+        | TExprG.ExternalMember(receiver, key, _, true, ty) ->
             // A standalone external *property* get (P4): a static one (`call
             // get_<name>()`) or an instance one reached as the receiver of an outer
             // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
@@ -1004,22 +1010,22 @@ module EmitExpr =
             // arity come off the receiver type, not the bare contract name).
             match receiver with
             | ValueNone ->
-                let handle = env.Provider.ExternalMemberRef(key, true, true, zonk ty)
+                let handle = env.Provider.ExternalMemberRef(key, true, true, ty)
                 b.Add(ILInstr.Call(handle, 0, 1))
             | ValueSome r ->
-                let handle = externalInstanceMemberRef env key (typeOfExpr r) true (zonk ty)
+                let handle = externalInstanceMemberRef env key (typeOfExpr r) true (ty)
                 buildExpr env b r
                 b.Add(ILInstr.Callvirt(handle, 1, 1))
 
-        | TExpr.ExternalMember(_, _, _, false, _) ->
+        | TExprG.ExternalMember(_, _, _, false, _) ->
             // An external method used as a first-class value (a method group, not
             // applied) needs closure synthesis — out of scope. Applied methods are
             // handled as an `App` head above.
             failwith "Emit: external method used as a first-class value is out of scope"
 
-        | TExpr.Format(sink, segments, _) -> EmitFormat.buildFormat buildExpr env b sink segments
+        | TExprG.Format(sink, segments, _) -> EmitFormat.buildFormat buildExpr env b sink segments
 
-        | TExpr.ILIntrinsic(opCode, args, _) ->
+        | TExprG.ILIntrinsic(opCode, args, _) ->
             // Push each operand, then append the mapped opcode. The dispatch
             // (which opcode for which operator/primitive) lives in the operator
             // `.fs` body this node was lowered from, not here — codegen only
@@ -1046,14 +1052,14 @@ module EmitExpr =
                     | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
                 | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
 
-        | TExpr.StaticOptimization(_, def, _) ->
+        | TExprG.StaticOptimization(_, def, _) ->
             // Reaching codegen unresolved means the function was never
             // inline-expanded against a concrete operand type (used as a
             // first-class value, or declared without `inline`). F#'s semantics
             // fall back to the leading (dynamic) expression in that case.
             buildExpr env b def
 
-        | TExpr.Upcast(source, _) ->
+        | TExprG.Upcast(source, _) ->
             // `e :> T`: a reference-type source is already usable as its base —
             // the JIT erases the cast, so emit nothing. A value-type source must
             // be boxed to reach `obj` / an interface.
@@ -1063,7 +1069,7 @@ module EmitExpr =
             if isValueType srcTy then
                 b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
 
-        | TExpr.Downcast(source, ty) ->
+        | TExprG.Downcast(source, ty) ->
             // `e :?> T`: `unbox.any` for a value-type target, `castclass` for a
             // reference-type one. Both throw `InvalidCastException` at runtime on
             // a real mismatch.
@@ -1075,7 +1081,7 @@ module EmitExpr =
             else
                 b.Add(ILInstr.Castclass token)
 
-        | TExpr.TypeTest(source, testTy, _) ->
+        | TExprG.TypeTest(source, testTy, _) ->
             // `e :? T` → `isinst T; ldnull; cgt.un` — a non-null `isinst` result
             // (the value really is a `T`) compares greater-than null, yielding 1.
             buildExpr env b source
@@ -1085,30 +1091,30 @@ module EmitExpr =
 
         | other -> failwithf "Emit: unsupported expression: %A" other
 
-    /// Lower a `TExpr.App` chain. Split out of `buildExpr` so the upcoming
+    /// Lower a `TExprG.App` chain. Split out of `buildExpr` so the upcoming
     /// class-spine work (B-1 `New(className, args)`, B-9 `Raise`, B-4
     /// `:>`/`:?`/`:?>`) can grow App-head shapes near here instead of inside a
     /// 600-line `buildExpr` match (vesper-set-sprint-plan §0.2 / M2). The head
     /// dispatch is shape-by-shape:
-    /// - `TExpr.External(name, key, _)` — a provider-resolved call. The
+    /// - `TExprG.External(name, key, _)` — a provider-resolved call. The
     ///   recipe's generic instantiation is read from the head's full curried
     ///   type. `key` (the Freeze-stamped `SymbolKey.ValueKey`) lets codegen
     ///   route by identity, not name (Phase 0 §0.1).
-    /// - `TExpr.Var k` where `env.StaticMethods.ContainsKey k` — a top-level
+    /// - `TExprG.Var k` where `env.StaticMethods.ContainsKey k` — a top-level
     ///   function emitted as a static method (P3b); generic instantiations are
     ///   recovered by matching declared param types against the actual arg
     ///   types (R3).
-    /// - `TExpr.ExternalMember(receiver, key, name, false, memberTy)` — an
+    /// - `TExprG.ExternalMember(receiver, key, name, false, memberTy)` — an
     ///   external method call (P4); tupled per .NET convention, so the call
     ///   consumes one spine element (the arg list) and the param count comes
     ///   from the key's `argSig` length.
     /// - otherwise — the head is itself a function value (a closure local or a
     ///   partially applied result); emit it, then `Invoke` each arg.
-    and private buildAppCall (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
+    and private buildAppCall (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         let head, spineArgs = TastWalk.collectSpine [] e
 
         match head with
-        | TExpr.External(name, key, _) ->
+        | TExprG.External(name, key, _) ->
             // The recipe reads its generic instantiation from the head's
             // full curried type (`fnTy`). `key` is the resolved
             // `SymbolKey.ValueKey` stamped by Freeze when the front-end
@@ -1140,7 +1146,7 @@ module EmitExpr =
                     foldInvoke env b funcTy rest
             | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
-        | TExpr.Var(k, _) when env.StaticMethods.ContainsKey k ->
+        | TExprG.Var(k, _) when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method (P3b): `call`
             // it with the first `Arity` args (always present — a non-saturated
             // use would have escaped to a closure, see `collectStaticFns`),
@@ -1161,7 +1167,7 @@ module EmitExpr =
                     // Each spine arg's *own* type (`collectSpine` pairs it with
                     // the application's *result* type instead), matched against
                     // the declared parameter types to recover the instantiation
-                    // (by `TempTypar(Method, i)` index).
+                    // (by `FTTypar(Method, i)` index).
                     let actualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
                     let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
@@ -1169,7 +1175,7 @@ module EmitExpr =
             b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
             foldInvoke env b sm.ResultTy rest
 
-        | TExpr.ExternalMember(receiver, key, name, false, memberTy) ->
+        | TExprG.ExternalMember(receiver, key, name, false, memberTy) ->
             // An external instance/static *method* call (P4): push the receiver
             // (instance only) beneath the arguments, then `call` (static) /
             // `callvirt` (instance) the keyed member ref. A .NET method is
@@ -1178,7 +1184,7 @@ module EmitExpr =
             // parameter count comes from the chosen key's `argSig` length
             // (authoritative: `memberTy` alone can't tell a flattened 2-param
             // method from a genuine single `(int*int)` param). A literal
-            // `TExpr.Tuple` argument is pushed element-wise
+            // `TExprG.Tuple` argument is pushed element-wise
             // (no tuple object is constructed).
             let isStatic = ValueOption.isNone receiver
 
@@ -1204,7 +1210,7 @@ module EmitExpr =
                 | ValueSome(argExpr, _) ->
                     if argCount >= 2 then
                         match argExpr with
-                        | TExpr.Tuple(elems, _) when elems.Length = argCount ->
+                        | TExprG.Tuple(elems, _) when elems.Length = argCount ->
                             for el in elems do
                                 buildExpr env b el
 
@@ -1225,8 +1231,8 @@ module EmitExpr =
 
             let handle =
                 match receiver with
-                | ValueSome r -> externalInstanceMemberRef env key (typeOfExpr r) false (zonk memberTy)
-                | ValueNone -> env.Provider.ExternalMemberRef(key, false, true, zonk memberTy)
+                | ValueSome r -> externalInstanceMemberRef env key (typeOfExpr r) false (memberTy)
+                | ValueNone -> env.Provider.ExternalMemberRef(key, false, true, memberTy)
 
             let total = (if isStatic then 0 else 1) + pushedArgs
 
@@ -1255,12 +1261,12 @@ module EmitExpr =
     /// recipe per arg (`Vesper.Fun::Invoke` vs `FSharpFunc::Invoke`); `what`
     /// names the function kind for the failure diagnostic.
     and private foldInvokeWith
-        (tryInvoke: SemType -> CallRecipe voption)
+        (tryInvoke: FrozenType -> CallRecipe voption)
         (what: string)
         (env: EmitEnv)
         (b: IlBuilder)
-        (funcTy0: SemType)
-        (args: (TExpr * SemType) list)
+        (funcTy0: FrozenType)
+        (args: (Frozen.TExpr * FrozenType) list)
         : unit =
         let mutable funcTy = funcTy0
 
@@ -1273,7 +1279,12 @@ module EmitExpr =
             | ValueNone -> failwithf "Emit: cannot apply argument to %s value of type %A" what funcTy
 
     /// Apply remaining arguments to a native `Vesper.Fun` value via its `Invoke`.
-    and private foldInvoke (env: EmitEnv) (b: IlBuilder) (funcTy0: SemType) (args: (TExpr * SemType) list) : unit =
+    and private foldInvoke
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (funcTy0: FrozenType)
+        (args: (Frozen.TExpr * FrozenType) list)
+        : unit =
         foldInvokeWith env.Provider.TryEmitInvoke "Vesper.Fun" env b funcTy0 args
 
     /// Apply a curried FSharp.Core `FSharpFunc` value (the cold printf printer)
@@ -1282,13 +1293,13 @@ module EmitExpr =
     and private foldInvokeFSharpFunc
         (env: EmitEnv)
         (b: IlBuilder)
-        (funcTy0: SemType)
-        (args: (TExpr * SemType) list)
+        (funcTy0: FrozenType)
+        (args: (Frozen.TExpr * FrozenType) list)
         : unit =
         foldInvokeWith env.Provider.TryEmitFSharpFuncInvoke "FSharpFunc" env b funcTy0 args
 
     /// Emit an expression as a statement: evaluate it and discard any value.
-    let buildStatement (env: EmitEnv) (b: IlBuilder) (e: TExpr) : unit =
+    let buildStatement (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         buildExpr env b e
 
         while b.Depth > 0 do

@@ -4,12 +4,12 @@ open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
 
-/// `TExpr.Format` lowering, lifted out of `EmitExpr`. Self-contained apart from
+/// `TExprG.Format` lowering, lifted out of `EmitExpr`. Self-contained apart from
 /// recursing into the expression compiler, which is passed in as `buildExpr`
 /// (the node lives behind a ref-struct local + sink, so it can't ride the
 /// `CallRecipe` model the rest of the call sites use).
 module EmitFormat =
-    /// Lower a `TExpr.Format` to the `Vesper.Formatter` write-through handler: a
+    /// Lower a `TExprG.Format` to the `Vesper.Formatter` write-through handler: a
     /// ref-struct local constructed in place, then each segment folded
     /// left-to-right (`AppendLiteral` for a literal run, `AppendFormatted<T>`
     /// for a hole — its arg evaluated *here*, at its position), then a trailing
@@ -19,11 +19,11 @@ module EmitFormat =
     /// `sprintf`. Not a `CallRecipe` — the recipe
     /// model can't interleave literals/args around a ref-struct local + sink.
     let buildFormat
-        (buildExpr: EmitEnv -> IlBuilder -> TExpr -> unit)
+        (buildExpr: EmitEnv -> IlBuilder -> Frozen.TExpr -> unit)
         (env: EmitEnv)
         (b: IlBuilder)
-        (sink: FormatSink)
-        (segments: EqArray<FormatSeg>)
+        (sink: Frozen.FormatSink)
+        (segments: EqArray<Frozen.FormatSeg>)
         : unit =
         let fh = env.Provider.FormatHandles()
         let slot = b.Local fh.HandlerLocal
@@ -35,8 +35,8 @@ module EmitFormat =
 
         for seg in segments do
             match seg with
-            | FormatSeg.Lit s -> litLen <- litLen + s.Length
-            | FormatSeg.Hole _ -> holeCount <- holeCount + 1
+            | FormatSegG.Lit s -> litLen <- litLen + s.Length
+            | FormatSegG.Hole _ -> holeCount <- holeCount + 1
 
         // Construct in place: `ldloca h; ldc litLen; ldc holeCount; <sink?>; call .ctor`.
         b.Add(ILInstr.Ldloca slot)
@@ -44,25 +44,25 @@ module EmitFormat =
         b.Add(ILInstr.LdcI4 holeCount)
 
         match sink with
-        | FormatSink.ToString -> b.Add(ILInstr.Call(fh.CtorString, 3, 0))
-        | FormatSink.ToStdOut _ ->
+        | FormatSinkG.ToString -> b.Add(ILInstr.Call(fh.CtorString, 3, 0))
+        | FormatSinkG.ToStdOut _ ->
             b.Add(ILInstr.Call(fh.ConsoleOut, 0, 1))
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSink.ToStdErr _ ->
+        | FormatSinkG.ToStdErr _ ->
             b.Add(ILInstr.Call(fh.ConsoleError, 0, 1))
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSink.ToWriter w ->
+        | FormatSinkG.ToWriter w ->
             buildExpr env b w
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
+        | FormatSinkG.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
 
         for seg in segments do
             match seg with
-            | FormatSeg.Lit s ->
+            | FormatSegG.Lit s ->
                 b.Add(ILInstr.Ldloca slot)
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
-            | FormatSeg.Hole(hole, arg) ->
+            | FormatSegG.Hole(hole, arg) ->
                 match hole.Kind with
                 | PrintfSpec.HoleKind.Formatted ->
                     b.Add(ILInstr.Ldloca slot)
@@ -125,12 +125,12 @@ module EmitFormat =
                     b.Add(ILInstr.Call(fh.AppendZeroPaddedFloat, 4, 0))
 
         match sink with
-        | FormatSink.ToString ->
+        | FormatSinkG.ToString ->
             // Leaves the built string on the stack (the `sprintf` result).
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.ToStringAndClear, 1, 1))
-        | FormatSink.ToStdOut nl
-        | FormatSink.ToStdErr nl ->
+        | FormatSinkG.ToStdOut nl
+        | FormatSinkG.ToStdErr nl ->
             if nl then
                 b.Add(ILInstr.Ldloca slot)
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString "\n"))
@@ -139,8 +139,8 @@ module EmitFormat =
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
-        | FormatSink.ToWriter _ ->
+        | FormatSinkG.ToWriter _ ->
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
-        | FormatSink.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
+        | FormatSinkG.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"

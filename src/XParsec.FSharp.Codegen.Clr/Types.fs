@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis
 type Il(encoder: InstructionEncoder) =
     let mutable depth = 0
     let mutable maxDepth = 0
-    let locals = ResizeArray<SemType>()
+    let locals = ResizeArray<FrozenType>()
 
     member _.Encoder = encoder
 
@@ -27,7 +27,7 @@ type Il(encoder: InstructionEncoder) =
 
     member _.Locals = locals
 
-    member _.DeclareLocal(ty: SemType) : int =
+    member _.DeclareLocal(ty: FrozenType) : int =
         let slot = locals.Count
         locals.Add ty
         slot

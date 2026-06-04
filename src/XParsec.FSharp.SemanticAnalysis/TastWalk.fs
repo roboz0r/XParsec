@@ -83,15 +83,15 @@ module TastWalk =
     /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
     /// every spine-walking client (`EmitLower`'s eta/lowering, the pre-freeze
     /// `InlineExpansion` pass).
-    let rec collectSpine (acc: (TExpr * SemType) list) (e: TExpr) : TExpr * (TExpr * SemType) list =
+    let rec collectSpine (acc: (TExprG<'ty> * 'ty) list) (e: TExprG<'ty>) : TExprG<'ty> * (TExprG<'ty> * 'ty) list =
         match e with
-        | TExpr.App(fn, arg, ty) -> collectSpine ((arg, ty) :: acc) fn
+        | TExprG.App(fn, arg, ty) -> collectSpine ((arg, ty) :: acc) fn
         | head -> head, acc
 
     /// Re-fold a head + (arg, result-type) spine back into a curried `App`
     /// chain. The inverse of `collectSpine`.
-    let rebuildApp (head: TExpr) (args: (TExpr * SemType) list) : TExpr =
-        List.fold (fun acc (arg, resTy) -> TExpr.App(acc, arg, resTy)) head args
+    let rebuildApp (head: TExprG<'ty>) (args: (TExprG<'ty> * 'ty) list) : TExprG<'ty> =
+        List.fold (fun acc (arg, resTy) -> TExprG.App(acc, arg, resTy)) head args
 
     /// Rewrite hooks. Every `OverrideX` receives the active `Mapper` so an
     /// override can recurse manually with the same mapper (e.g. for binders

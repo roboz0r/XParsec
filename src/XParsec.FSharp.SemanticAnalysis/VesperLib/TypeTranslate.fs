@@ -492,7 +492,7 @@ module VesperLibTypeTranslate =
             TyClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
             TyRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
-        | ValueSome(ExternalTypeShape.Abbrev(_, _, frozen)) ->
+        | ValueSome(ExternalTypeShape.Abbrev(_, frozen)) ->
             // Expand the abbreviation to its body. `frozen` is the *defining*
             // package's `translateType` builder frozen to a template, whose nominal
             // heads already kind through `mkNominal` against that package's scope
@@ -501,9 +501,12 @@ module VesperLibTypeTranslate =
             FrozenTypeBridge.instantiateDeclaring frozen (args.AsSpan().ToArray())
         | ValueSome(ExternalTypeShape.Intrinsic _) -> TyConst(SymbolKeyOps.shortName compiled, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) ->
-            failwithf
-                "mkNominal: '%s' is an Opaque (body-less) shape — an enum / delegate / type-extension or an unmodelled body. Model its kind before a contract names it"
-                compiled
+            // A genuinely body-less head: the finalize pass tolerates this one
+            // (a never-expanded template degrades to `FTUnknown`); any other
+            // throw out of a freeze is a producer bug and stays loud. The
+            // exception message preserves the old `failwithf` diagnostic for the
+            // inference path, where an Opaque head naming is a hard error.
+            raise (BodylessExternalShape compiled)
         | ValueNone ->
             failwithf
                 "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"

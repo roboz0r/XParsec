@@ -15,11 +15,12 @@ open XParsec.FSharp.SemanticAnalysis
 //      so the test guards against *drift* once step 5 has producers build
 //      templates natively: the two must still agree.
 //
-//   2. `closure args ≡ instantiate template args level` — `instantiate` (the
-//      single bridge back to inference) reproduces the closure byte-for-byte on
-//      the post-freeze subset. This is the real check: it proves `instantiate`
-//      correctly inverts the freeze, so step 2 can repoint inference at the
-//      template without behaviour change.
+//   2. `closure args ≡ instantiate* template args` — the production realisers
+//      (`instantiateDeclaring` for a declaring-only shape, `instantiateSignature`
+//      for a member's two-axis signature) reproduce the closure byte-for-byte on
+//      the post-freeze subset. This is the real check: it proves the realisers
+//      correctly invert the freeze, so inference can read templates instead of
+//      running the closures without behaviour change.
 //
 // Method-typar handling is checked separately (a method placeholder freshens to
 // a `TyVar`, which has no structural counterpart in the closure's baked
@@ -74,30 +75,41 @@ let tests =
                     Expect.equal template expected (sprintf "template of '%s'" name)
             }
 
-            test "law 2: instantiate template args ≡ closure args (no method axis)" {
+            test "law 2: instantiateDeclaring template args ≡ closure args (no method axis)" {
                 for name, arity, closure in declaringClosures do
                     let template = templateOfClosure arity closure
                     let args = argsForArity arity
-                    let viaTemplate = instantiate template args 0
+                    let viaTemplate = instantiateDeclaring template args
                     let viaClosure = closure args
-                    Expect.equal viaTemplate viaClosure (sprintf "instantiate ≡ closure for '%s'" name)
+                    Expect.equal viaTemplate viaClosure (sprintf "instantiateDeclaring ≡ closure for '%s'" name)
             }
 
             test "method placeholders freshen to one shared TyVar per index at the given level" {
                 // A closure baking method index 0 twice and index 1 once — exactly
                 // the shape `MetadataMapping.tryBuildType` produces for a generic
-                // method (`Dictionary.TryGetValue<...>`-style). The template carries
-                // `FTTypar(Method, j)`; `instantiate` must freshen one var per j,
-                // shared across the whole signature, stamped at `level`.
+                // method (`Dictionary.TryGetValue<...>`-style). Routed through the
+                // production realiser `instantiateSignature`, which must freshen one
+                // var per method index, shared across `Parameters`/`Return`, stamped
+                // at `level`.
                 let closure (a: SemType[]) : SemType =
                     TyFun(
                         TyTuple(EqArray.ofList [ a.[0]; TempTypar(TyparAxis.Method, 0) ]),
                         TyTuple(EqArray.ofList [ TempTypar(TyparAxis.Method, 0); TempTypar(TyparAxis.Method, 1) ])
                     )
 
-                let template = templateOfClosure 1 closure
+                let m: ExternalMember =
+                    {
+                        Name = "genericMethod"
+                        IsStatic = true
+                        IsProperty = false
+                        Signature = ExternalSignature.ofClosure (false, 1, 2, closure)
+                        MethodArity = 2
+                        Origin = SymbolOrigin.Empty
+                        Key = SymbolKeyOps.valueKeyOf None "genericMethod"
+                    }
+
                 let level = 7
-                let result = instantiate template (argsForArity 1) level
+                let result = ExternalSymbols.instantiateSignature m (argsForArity 1) level
 
                 match result with
                 | TyFun(TyTuple ins, TyTuple outs) ->
@@ -136,7 +148,6 @@ let tests =
                             Name = name
                             IsStatic = true
                             IsProperty = isProperty
-                            BuildSignature = build
                             Signature = ExternalSignature.ofClosure (isProperty, declArity, methodArity, build)
                             MethodArity = methodArity
                             Origin = SymbolOrigin.Empty

@@ -494,10 +494,13 @@ module VesperLib =
         | Ok build ->
             match bodyTyparsOk collector arity with
             | Error e -> skipBodyOpaque ctx file compiled arity e
-            // Deferred frozen body: filled by the `toProvider` finalize pass once
-            // the registry is complete (the body may forward-reference a type
-            // declared later in the package, and a body-less head can't be frozen).
-            | Ok() -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, build, deferredTemplate)
+            // Deferred frozen body: the builder is stashed in `ctx.DeferredBodies`
+            // and frozen by the `toProvider` finalize pass once the registry is
+            // complete (the body may forward-reference a type declared later in the
+            // package, and a body-less head can't be frozen).
+            | Ok() ->
+                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, deferredTemplate)
+                ctx.DeferredBodies.[compiled] <- DeferredBody.Abbrev build
 
     let private extractRecordBody
         (ctx: ExtractCtx)
@@ -513,6 +516,9 @@ module VesperLib =
         let collector = collectorForTypeName lexed input typeName
         let throwawayConstraints = ConstraintCollector()
         let shapes = ResizeArray<ExternalFieldShape>(fields.Length)
+        // The per-field type builders, index-aligned with `shapes`; stashed in
+        // `ctx.DeferredBodies` for the finalize pass to freeze.
+        let builds = ResizeArray<SemBuilder>(fields.Length)
         let mutable err = None
 
         for i in 0 .. fields.Length - 1 do
@@ -521,7 +527,9 @@ module VesperLib =
 
                 match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
                 | Error e -> err <- Some e
-                | Ok b -> shapes.Add(ExternalFieldShape.create (nameOfTok lexed input identTok, mutableTok.IsSome, b))
+                | Ok b ->
+                    shapes.Add(ExternalFieldShape.create (nameOfTok lexed input identTok, mutableTok.IsSome))
+                    builds.Add b
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -533,6 +541,7 @@ module VesperLib =
                 // knows the package's assembly + namespace from the manifest);
                 // the extractor itself records `Empty`.
                 ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray(), SymbolOrigin.Empty)
+                ctx.DeferredBodies.[compiled] <- DeferredBody.Record(builds.ToArray())
 
     let private extractUnionBody
         (ctx: ExtractCtx)
@@ -548,6 +557,9 @@ module VesperLib =
         let collector = collectorForTypeName lexed input typeName
         let throwawayConstraints = ConstraintCollector()
         let caseShapes = ResizeArray<ExternalCaseShape>(cases.Length)
+        // The per-case field builders (one array per case, index-aligned with
+        // `caseShapes`); stashed in `ctx.DeferredBodies` for the finalize pass.
+        let caseBuilds = ResizeArray<SemBuilder[]>(cases.Length)
         let mutable err = None
 
         let caseName (ioo: IdentOrOp<SyntaxToken>) : string voption =
@@ -571,7 +583,9 @@ module VesperLib =
                 | UnionTypeCaseData.Nullary ident ->
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
-                    | ValueSome n -> caseShapes.Add(ExternalCaseShape.create (n, [||], [||]))
+                    | ValueSome n ->
+                        caseShapes.Add(ExternalCaseShape.create (n, [||]))
+                        caseBuilds.Add [||]
 
                 | UnionTypeCaseData.Nary(ident, _, fields, _) ->
                     match caseName ident with
@@ -595,7 +609,8 @@ module VesperLib =
                                     builds.Add b
 
                         if err.IsNone then
-                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray(), builds.ToArray()))
+                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
+                            caseBuilds.Add(builds.ToArray())
 
                 | UnionTypeCaseData.GadtNullary(name = ident) ->
                     // GADT-syntax nullary (`([]): 'T list`): the explicit return
@@ -605,7 +620,9 @@ module VesperLib =
                     // the front-end's `TypeRegistration.inspectCaseData` takes.
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
-                    | ValueSome n -> caseShapes.Add(ExternalCaseShape.create (n, [||], [||]))
+                    | ValueSome n ->
+                        caseShapes.Add(ExternalCaseShape.create (n, [||]))
+                        caseBuilds.Add [||]
 
                 | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(specs, _))) ->
                     // GADT-syntax n-ary (`(::): Head: 'T * Tail: 'T list -> 'T list`):
@@ -634,7 +651,8 @@ module VesperLib =
                                     builds.Add b
 
                         if err.IsNone then
-                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray(), builds.ToArray()))
+                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
+                            caseBuilds.Add(builds.ToArray())
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -646,13 +664,15 @@ module VesperLib =
             // extractor itself records `Empty`.
             | Ok() ->
                 ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), SymbolOrigin.Empty)
+                ctx.DeferredBodies.[compiled] <- DeferredBody.Union(caseBuilds.ToArray())
 
     /// Extract the augmentation `member`s declared inside a type body's
     /// `with`-block (`member Value: 'T` / `member IsSome: bool` on `Option`)
     /// into `ctx.TypeMembers`, keyed by the type's qualified compiled name.
     /// Each member's signature is translated over the *type's* typar collector
-    /// (so `'T` substitutes through the enclosing type's args at a use site),
-    /// yielding the `ExternalMember.BuildSignature` the consumer's
+    /// (so `'T` substitutes through the enclosing type's args at a use site); the
+    /// builder is stashed in `ctx.DeferredMembers` and the finalize pass freezes it
+    /// into the member's `ExternalMember.Signature` template the consumer's
     /// `resolveFieldStep` instantiates. Scope (vesper-lib-test-plan Gap 2 Layer
     /// A): instance/static `member` property/method sigs with no own generic
     /// parameters — a member that introduces its own typars, or whose signature
@@ -682,6 +702,9 @@ module VesperLib =
                     SymbolKey.TypeKey(None, compiled.Substring(0, i), compiled.Substring(i + 1))
 
             let members = ResizeArray<ExternalMember>()
+            // The per-member signature builders, index-aligned with `members`;
+            // stashed in `ctx.DeferredMembers` for the finalize pass to freeze.
+            let memberBuilds = ResizeArray<SemBuilder>()
 
             for i in 0 .. elems.Length - 1 do
                 let memberSig =
@@ -735,10 +758,12 @@ module VesperLib =
                                             Name = memberName
                                             IsStatic = isStatic
                                             IsProperty = isProperty
-                                            BuildSignature = builder
-                                            // Deferred: filled by the `toProvider` finalize pass
-                                            // once the registry is complete (a sig may
-                                            // forward-reference a type declared later).
+                                            // Deferred: the builder is stashed in
+                                            // `ctx.DeferredMembers` and frozen by the
+                                            // `toProvider` finalize pass once the registry is
+                                            // complete (a sig may forward-reference a type
+                                            // declared later). `deferred` records the arities
+                                            // the finalize pass needs.
                                             Signature = ExternalSignature.deferred (arity, 0)
                                             // The `.fsi` contract layer doesn't yet publish
                                             // generic (method-owned-typar) members.
@@ -747,8 +772,11 @@ module VesperLib =
                                             Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
                                         }
 
+                                    memberBuilds.Add builder
+
             if members.Count > 0 then
                 ctx.TypeMembers.[compiled] <- members
+                ctx.DeferredMembers.[compiled] <- memberBuilds
 
     let private extractTypeSig
         (ctx: ExtractCtx)

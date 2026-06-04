@@ -12,7 +12,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // TAST grows a case — the same enumeration guarantee `TastWalk` gives.
 //
 // Non-`'ty` payload is copied verbatim: NodeKey / SymbolKey / CallVia / TConstValue
-// / TMemberKind / ForInEnumerator / PrintfSpec.HoleKind / the verdict fields / the
+// / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the
 // side maps, AND two fields that are deliberately not `'ty`-typed —
 // `TTypeMemberG.MethodTypeParams : EqArray<string * TypeVar>` (its `TypeVar` roots
 // only feed the GenericParam row names + arity post-freeze; the body's open typars
@@ -40,6 +40,12 @@ module TastConvert =
             Alignment = h.Alignment
         }
 
+    let forInEnumerator (f: 'a -> 'b) (en: ForInEnumeratorG<'a>) : ForInEnumeratorG<'b> =
+        match en with
+        | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
+        | ForInEnumeratorG.DuckTyped(enumTy, ge, mn, cur, isVal, disp) ->
+            ForInEnumeratorG.DuckTyped(f enumTy, ge, mn, cur, isVal, disp)
+
     let rec expr (f: 'a -> 'b) (e: TExprG<'a>) : TExprG<'b> =
         let pe = expr f
         let pp = pat f
@@ -59,7 +65,7 @@ module TastConvert =
         | TExprG.Sequential(items, ty) -> TExprG.Sequential(EqArray.map pe items, f ty)
         | TExprG.While(c, b, ty) -> TExprG.While(pe c, pe b, f ty)
         | TExprG.ForTo(k, s, e2, b, ty) -> TExprG.ForTo(k, pe s, pe e2, pe b, f ty)
-        | TExprG.ForIn(p, src, b, en, ty) -> TExprG.ForIn(pp p, pe src, pe b, en, f ty)
+        | TExprG.ForIn(p, src, b, en, ty) -> TExprG.ForIn(pp p, pe src, pe b, forInEnumerator f en, f ty)
         | TExprG.Match(sc, arms, ty) -> TExprG.Match(pe sc, EqArray.map pa arms, f ty)
         | TExprG.TryWith(b, arms, ty) -> TExprG.TryWith(pe b, EqArray.map pa arms, f ty)
         | TExprG.TryFinally(b, c, ty) -> TExprG.TryFinally(pe b, pe c, f ty)

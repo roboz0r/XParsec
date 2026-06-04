@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// `ICodegenProvider` over the BCL + the referenced assemblies. A thin shell over the collaborators
 /// that hold the real implementation:
 ///   `ClrEnv`            — metadata context, reference identities, registries, ambient typar state;
-///   `ClrEncoder`        — `SemType` → signature encoding + the signature-blob builders;
+///   `ClrEncoder`        — `FrozenType` → signature encoding + the signature-blob builders;
 ///   `ClrGenerics`       — `TypeSpec`/`MemberRef` minting for generic user unions/records/classes/closures;
 ///   `ClrExternalMembers`— external member/ctor/field refs and generic-static-method specs;
 ///   `ClrRecipes`        — call/ctor/format recipes and the structural equality/comparison member refs.
@@ -46,20 +46,20 @@ type ClrProvider
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
     /// `TypeSpec`. A no-op for a monomorphic union (its `Def` tokens are used).
     member _.RegisterGenericUnion
-        (key: SymbolKey, typars: string list, cases: (string * (string * SemType) list) list)
+        (key: SymbolKey, typars: string list, cases: (string * (string * FrozenType) list) list)
         : unit =
         env.GenericUnions.[key] <- (typars, cases)
 
-    member _.RegisterGenericRecord(key: SymbolKey, typars: string list, fields: (string * SemType) list) : unit =
+    member _.RegisterGenericRecord(key: SymbolKey, typars: string list, fields: (string * FrozenType) list) : unit =
         env.GenericRecords.[key] <- (typars, fields)
 
-    member _.RegisterGenericClass(key: SymbolKey, typars: string list, fields: (string * SemType) list) : unit =
+    member _.RegisterGenericClass(key: SymbolKey, typars: string list, fields: (string * FrozenType) list) : unit =
         env.GenericClasses.[key] <- (typars, fields)
 
-    member _.RecordCtorSignature(paramTys: SemType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
+    member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
 
     member _.GenericMethodOnTypeSignature
-        (methodTyparCount: int, paramTys: SemType list, retTy: SemType, isInstanceMethod: bool)
+        (methodTyparCount: int, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
         : BlobBuilder =
         enc.GenericMethodOnTypeSignature(methodTyparCount, paramTys, retTy, isInstanceMethod)
 
@@ -71,22 +71,22 @@ type ClrProvider
 
     member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericRecordSelfSpec key
 
-    member _.GenericStaticFnSignature(typarCount: int, paramTys: SemType list, retTy: SemType) : BlobBuilder =
+    member _.GenericStaticFnSignature(typarCount: int, paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         enc.GenericStaticFnSignature(typarCount, paramTys, retTy)
 
-    member _.StaticMethodSignature(paramTys: SemType list, retTy: SemType) : BlobBuilder =
+    member _.StaticMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         enc.StaticMethodSignature(paramTys, retTy)
 
-    member _.InstanceMethodSignature(paramTys: SemType list, retTy: SemType) : BlobBuilder =
+    member _.InstanceMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         enc.InstanceMethodSignature(paramTys, retTy)
 
-    member _.FunInterfaceSpec(a: SemType, b: SemType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
+    member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
     /// `interface IEnumerable<'T>` (B-2, §5.3) carries its `'T` arg as a
     /// `TempTypar(Declaring, i)` the encoder resolves to the declaring type's `!i`
     /// directly. Drives each class `InterfaceImpl` row's interface handle.
-    member _.TypeSpecOf(ty: SemType) : EntityHandle = enc.TypeSpecOf ty
+    member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
     /// The `InterfaceImpl.Interface` handle for a user class's implemented
     /// interface (B-2, §5.3). A *generic* interface (`IEnumerable<int>`) needs a
@@ -95,19 +95,19 @@ type ClrProvider
     /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
     /// structural-equality path uses the bare `IComparable` `TypeRef` for the same
     /// reason). A generic interface arg encodes off its `TempTypar(Declaring, i)` node.
-    member _.InterfaceHandleOf(ty: SemType) : EntityHandle =
-        match env.Zonk ty with
-        | TyClass(key, args) when args.IsEmpty ->
+    member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
+        match ty with
+        | FTClass(key, args) when args.IsEmpty ->
             match env.ExternalClassRef(SymbolKeyOps.qualifiedName key) with
             | ValueSome tref -> tref
             | ValueNone -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
 
-    member _.InvokeSignature(a: SemType, b: SemType) : BlobBuilder = enc.InvokeSignature(a, b)
+    member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder = enc.InvokeSignature(a, b)
 
-    member _.ClosureCtorSignature(captures: SemType list) : BlobBuilder = enc.ClosureCtorSignature captures
+    member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder = enc.ClosureCtorSignature captures
 
-    member _.FieldSignature(ty: SemType) : BlobBuilder = enc.FieldSignature ty
+    member _.FieldSignature(ty: FrozenType) : BlobBuilder = enc.FieldSignature ty
 
     /// Register a *generic* closure's shape so its member refs can be minted on its `TypeSpec`. A
     /// monomorphic closure (`Closure.Typars = []`) is *not* registered — its `Def` tokens are used.
@@ -115,9 +115,9 @@ type ClrProvider
         (
             name: string,
             typarCount: int,
-            captureSigs: SemType list,
-            paramTy: SemType,
-            resultTy: SemType,
+            captureSigs: FrozenType list,
+            paramTy: FrozenType,
+            resultTy: FrozenType,
             defHandle: EntityHandle
         ) : unit =
         env.GenericClosures.[name] <-
@@ -129,11 +129,11 @@ type ClrProvider
                 DefHandle = defHandle
             }
 
-    member _.GenericClosureTypeSpec(name: string, args: SemType list) : EntityHandle =
-        generics.GenericClosureTypeSpec(name, List.map env.Zonk args)
+    member _.GenericClosureTypeSpec(name: string, args: FrozenType list) : EntityHandle =
+        generics.GenericClosureTypeSpec(name, args)
 
-    member _.GenericClosureMemberRef(name: string, args: SemType list, which: ClosureMember) : EntityHandle =
-        generics.GenericClosureMemberRef(name, List.map env.Zonk args, which)
+    member _.GenericClosureMemberRef(name: string, args: FrozenType list, which: ClosureMember) : EntityHandle =
+        generics.GenericClosureMemberRef(name, args, which)
 
     /// Enter / exit closure-typar mode around a generic closure's own ctor / Invoke /
     /// field-signature / locals / member-ref emission: the enclosing method's
@@ -144,19 +144,19 @@ type ClrProvider
 
     member _.ExitClosureTyparScope() : unit = env.ClosureTyparMode <- false
 
-    member _.EncodeAbstractType(te: SignatureTypeEncoder, t: SemType) : unit = enc.EncodeAbstractType(te, t)
+    member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
-    member _.HashCodeType: SemType = TyConst("System.HashCode", EqArray.empty)
+    member _.HashCodeType: FrozenType = FTConst("System.HashCode", EqArray.empty)
 
-    member _.EqualityComparerDefault(elem: SemType) : EntityHandle = recipes.EqualityComparerDefault elem
+    member _.EqualityComparerDefault(elem: FrozenType) : EntityHandle = recipes.EqualityComparerDefault elem
 
-    member _.EqualityComparerEquals(elem: SemType) : EntityHandle = recipes.EqualityComparerEquals elem
+    member _.EqualityComparerEquals(elem: FrozenType) : EntityHandle = recipes.EqualityComparerEquals elem
 
-    member _.EqualityComparerGetHashCode(elem: SemType) : EntityHandle =
+    member _.EqualityComparerGetHashCode(elem: FrozenType) : EntityHandle =
         recipes.EqualityComparerGetHashCode elem
 
-    member _.HashCodeAdd(elem: SemType) : EntityHandle = recipes.HashCodeAdd elem
+    member _.HashCodeAdd(elem: FrozenType) : EntityHandle = recipes.HashCodeAdd elem
 
     member _.HashCodeToHashCode: EntityHandle = env.EHashCodeToHashCode.Value
 
@@ -166,15 +166,15 @@ type ClrProvider
 
     member _.GetHashCodeOverrideSignature() : BlobBuilder = enc.GetHashCodeOverrideSignature()
 
-    member _.EquatableInterfaceSpec(selfTy: SemType) : EntityHandle = recipes.EquatableInterfaceSpec selfTy
+    member _.EquatableInterfaceSpec(selfTy: FrozenType) : EntityHandle = recipes.EquatableInterfaceSpec selfTy
 
-    member _.EqualsTypedSignature(selfTy: SemType) : BlobBuilder = enc.EqualsTypedSignature selfTy
+    member _.EqualsTypedSignature(selfTy: FrozenType) : BlobBuilder = enc.EqualsTypedSignature selfTy
 
-    member _.ComparerDefault(elem: SemType) : EntityHandle = recipes.ComparerDefault elem
+    member _.ComparerDefault(elem: FrozenType) : EntityHandle = recipes.ComparerDefault elem
 
-    member _.ComparerCompare(elem: SemType) : EntityHandle = recipes.ComparerCompare elem
+    member _.ComparerCompare(elem: FrozenType) : EntityHandle = recipes.ComparerCompare elem
 
-    member _.ComparableInterfaceSpec(selfTy: SemType) : EntityHandle = recipes.ComparableInterfaceSpec selfTy
+    member _.ComparableInterfaceSpec(selfTy: FrozenType) : EntityHandle = recipes.ComparableInterfaceSpec selfTy
 
     member _.IComparableType: EntityHandle = env.EComparable.Value
 
@@ -182,11 +182,11 @@ type ClrProvider
 
     member _.CompareToOverrideSignature() : BlobBuilder = enc.CompareToOverrideSignature()
 
-    member _.CompareToTypedSignature(selfTy: SemType) : BlobBuilder = enc.CompareToTypedSignature selfTy
+    member _.CompareToTypedSignature(selfTy: FrozenType) : BlobBuilder = enc.CompareToTypedSignature selfTy
 
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
-        member _.TypeToken(ty) = recipes.TypeToken(env.Zonk ty)
+        member _.TypeToken(ty) = recipes.TypeToken(ty)
         member _.DecimalCtor = env.EDecimalCtor.Value
         member _.ExceptionCtor = env.EExceptionCtor.Value
 
@@ -199,13 +199,13 @@ type ClrProvider
             ext.ExternalMemberRef(key, isProperty, isStatic, memberTy)
 
         member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
-            ext.ExternalMemberRefOn(key, env.Zonk declTy, isProperty, isStatic, memberTy)
+            ext.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy)
 
         member _.FSharpCoreDependencies() = env.FSharpCoreDependencies()
 
         member _.TryEmitCall(compiledName, key, fnTy) =
             if compiledName = "List.fold" then
-                ValueSome(recipes.EmitFold(env.Zonk fnTy))
+                ValueSome(recipes.EmitFold(fnTy))
             else
                 // Dispatch by SymbolKey identity when Freeze stamped one (M1): only the canonical
                 // `Vesper.Printf.printfn` trips the cold-printf recipe, so a user `MyMod.printfn` falls
@@ -217,7 +217,7 @@ type ClrProvider
                     | _ -> compiledName = "printfn"
 
                 if isCanonicalPrintfn then
-                    ValueSome(recipes.EmitPrintfn(env.Zonk fnTy))
+                    ValueSome(recipes.EmitPrintfn(fnTy))
                 else
                     // General external module-function call (vesper-lib-test-plan Gap 2 Layer D): route
                     // by the Freeze-stamped key to the declaring module (`ns`) + method (`name`), and mint
@@ -229,18 +229,18 @@ type ClrProvider
                     // the caller's hard error.
                     match key with
                     | ValueSome(SymbolKey.ValueKey(_, ns, name)) when ns <> "" ->
-                        recipes.EmitExternalCall(ns, name, env.Zonk fnTy)
+                        recipes.EmitExternalCall(ns, name, fnTy)
                     | _ -> ValueNone
 
         member _.TryEmitCtor(className, tyArgs, argTypes) =
             if className = PrintfSpec.printfFormatName then
-                ValueSome(recipes.EmitPrintfFormatCtor(List.map env.Zonk tyArgs))
+                ValueSome(recipes.EmitPrintfFormatCtor(tyArgs))
             else
-                ext.ExternalCtor(className, List.map env.Zonk tyArgs, List.map env.Zonk argTypes)
+                ext.ExternalCtor(className, tyArgs, argTypes)
 
         member _.TryEmitUnionCons(key, caseName, tyArgs) =
             let elem () =
-                match List.map env.Zonk tyArgs with
+                match tyArgs with
                 | [ e ] -> e
                 | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
 
@@ -267,7 +267,7 @@ type ClrProvider
                 // recipe is a static `call` pushing the one union value back.
                 let typeName = SymbolKeyOps.qualifiedName key
 
-                match ext.ExternalUnionFactory(typeName, caseName, List.map env.Zonk tyArgs) with
+                match ext.ExternalUnionFactory(typeName, caseName, tyArgs) with
                 | ValueSome(handle, argCount) ->
                     ValueSome
                         {
@@ -278,7 +278,7 @@ type ClrProvider
                 | ValueNone -> ValueNone
 
         member _.UserGenericMemberRef(key, args, kind) =
-            let zonkedArgs = List.map env.Zonk args
+            let zonkedArgs = args
 
             match kind with
             | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, zonkedArgs, which)
@@ -286,10 +286,10 @@ type ClrProvider
             | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, zonkedArgs, which)
 
         member _.UserClosureMemberRef(name, args, which) =
-            generics.GenericClosureMemberRef(name, List.map env.Zonk args, which)
+            generics.GenericClosureMemberRef(name, args, which)
 
         member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
-            let zonkedArgs = List.map env.Zonk tyArgs
+            let zonkedArgs = tyArgs
 
             match ext.ExternalRecordCtor(typeName, zonkedArgs) with
             | ValueNone -> ValueNone
@@ -302,25 +302,25 @@ type ClrProvider
                 ValueSome { Handle = handle; ArgCount = argCount }
 
         member _.TryResolveExternalRecordField(typeName, tyArgs, fieldName) =
-            ext.ExternalRecordField(typeName, List.map env.Zonk tyArgs, fieldName)
+            ext.ExternalRecordField(typeName, tyArgs, fieldName)
 
         member _.ExternalUnionTag(unionName, tyArgs, caseName) =
-            ext.ExternalUnionTag(unionName, List.map env.Zonk tyArgs, caseName)
+            ext.ExternalUnionTag(unionName, tyArgs, caseName)
 
         member _.ExternalUnionCaseField(unionName, tyArgs, caseName, fieldIndex) =
-            ext.ExternalUnionCaseField(unionName, List.map env.Zonk tyArgs, caseName, fieldIndex)
+            ext.ExternalUnionCaseField(unionName, tyArgs, caseName, fieldIndex)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)
 
         member _.TryEmitInvoke(funcTy) =
-            match env.Zonk funcTy with
-            | TyFun _ as ft -> ValueSome(recipes.EmitInvoke ft)
+            match funcTy with
+            | FTFun _ as ft -> ValueSome(recipes.EmitInvoke ft)
             | _ -> ValueNone
 
         member _.TryEmitFSharpFuncInvoke(funcTy) =
-            match env.Zonk funcTy with
-            | TyFun _ as ft -> ValueSome(recipes.EmitFSharpFuncInvoke ft)
+            match funcTy with
+            | FTFun _ as ft -> ValueSome(recipes.EmitFSharpFuncInvoke ft)
             | _ -> ValueNone
 
         member _.FormatHandles() = recipes.BuildFormatHandles()

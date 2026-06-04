@@ -6,21 +6,21 @@ open EmitTypes
 open EmitLower
 
 module EmitClosures =
-    let private patKeys (p: TPat) : NodeKey list =
+    let private patKeys (p: Frozen.TPat) : NodeKey list =
         let acc = ResizeArray<NodeKey>()
 
         let rec go p =
             match p with
-            | TPat.NamedSimple(k, _) -> acc.Add k
-            | TPat.Wildcard _
-            | TPat.Const _ -> ()
-            | TPat.Tuple(items, _) ->
+            | TPatG.NamedSimple(k, _) -> acc.Add k
+            | TPatG.Wildcard _
+            | TPatG.Const _ -> ()
+            | TPatG.Tuple(items, _) ->
                 for sub in items do
                     go sub
-            | TPat.Record(fields, _) ->
+            | TPatG.Record(fields, _) ->
                 for (_, sub) in fields do
                     go sub
-            | TPat.Union(_, fields, _) ->
+            | TPatG.Union(_, fields, _) ->
                 for sub in fields do
                     go sub
 
@@ -34,8 +34,8 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (paramKey: NodeKey)
         (selfKey: NodeKey voption)
-        (body: TExpr)
-        : (NodeKey * SemType) list =
+        (body: Frozen.TExpr)
+        : (NodeKey * FrozenType) list =
         let bound = HashSet<NodeKey>()
         bound.Add paramKey |> ignore
         bound.UnionWith staticFnKeys // static-method references are calls, not captures
@@ -44,7 +44,7 @@ module EmitClosures =
         | ValueSome k -> bound.Add k |> ignore // the recursive self isn't captured — it's `this`
         | ValueNone -> ()
 
-        let acc = ResizeArray<NodeKey * SemType>()
+        let acc = ResizeArray<NodeKey * FrozenType>()
         let seen = HashSet<NodeKey>()
 
         let scoped (keys: NodeKey list) (k: unit -> unit) =
@@ -54,24 +54,24 @@ module EmitClosures =
             for key in added do
                 bound.Remove key |> ignore
 
-        let rec go (e: TExpr) =
+        let rec go (e: Frozen.TExpr) =
             match e with
-            | TExpr.Var(key, ty) ->
+            | TExprG.Var(key, ty) ->
                 if not (bound.Contains key) && seen.Add key then
                     acc.Add(key, ty)
-            | TExpr.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExpr.Let(p, v, b, _)
-            | TExpr.Use(p, v, b, _, _) ->
+            | TExprG.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
+            | TExprG.Let(p, v, b, _)
+            | TExprG.Use(p, v, b, _, _) ->
                 go v
                 scoped (patKeys p) (fun () -> go b)
-            | TExpr.ForTo(var, s, e2, b, _) ->
+            | TExprG.ForTo(var, s, e2, b, _) ->
                 go s
                 go e2
                 scoped [ var ] (fun () -> go b)
-            | TExpr.ForIn(p, src, b, _, _) ->
+            | TExprG.ForIn(p, src, b, _, _) ->
                 go src
                 scoped (patKeys p) (fun () -> go b)
-            | TExpr.Match(sc, arms, _) ->
+            | TExprG.Match(sc, arms, _) ->
                 go sc
 
                 for arm in arms do
@@ -81,7 +81,7 @@ module EmitClosures =
                             arm.Guard |> Option.iter go
                             go arm.Body
                         )
-            | TExpr.TryWith(b, arms, _) ->
+            | TExprG.TryWith(b, arms, _) ->
                 go b
 
                 for arm in arms do
@@ -98,7 +98,7 @@ module EmitClosures =
 
     /// Like `freeVars` but keeps only keys (no types, no static-method exclusion):
     /// the capture test in `collectStaticFns` must *see* every referenced binding.
-    let private freeVarKeys (boundKeys: NodeKey seq) (body: TExpr) : HashSet<NodeKey> =
+    let private freeVarKeys (boundKeys: NodeKey seq) (body: Frozen.TExpr) : HashSet<NodeKey> =
         let bound = HashSet<NodeKey>(boundKeys)
         let acc = HashSet<NodeKey>()
 
@@ -109,24 +109,24 @@ module EmitClosures =
             for key in added do
                 bound.Remove key |> ignore
 
-        let rec go (e: TExpr) =
+        let rec go (e: Frozen.TExpr) =
             match e with
-            | TExpr.Var(key, _) ->
+            | TExprG.Var(key, _) ->
                 if not (bound.Contains key) then
                     acc.Add key |> ignore
-            | TExpr.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExpr.Let(p, v, b, _)
-            | TExpr.Use(p, v, b, _, _) ->
+            | TExprG.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
+            | TExprG.Let(p, v, b, _)
+            | TExprG.Use(p, v, b, _, _) ->
                 go v
                 scoped (patKeys p) (fun () -> go b)
-            | TExpr.ForTo(var, s, e2, b, _) ->
+            | TExprG.ForTo(var, s, e2, b, _) ->
                 go s
                 go e2
                 scoped [ var ] (fun () -> go b)
-            | TExpr.ForIn(p, src, b, _, _) ->
+            | TExprG.ForIn(p, src, b, _, _) ->
                 go src
                 scoped (patKeys p) (fun () -> go b)
-            | TExpr.Match(sc, arms, _) ->
+            | TExprG.Match(sc, arms, _) ->
                 go sc
 
                 for arm in arms do
@@ -136,7 +136,7 @@ module EmitClosures =
                             arm.Guard |> Option.iter go
                             go arm.Body
                         )
-            | TExpr.TryWith(b, arms, _) ->
+            | TExprG.TryWith(b, arms, _) ->
                 go b
 
                 for arm in arms do
@@ -163,14 +163,14 @@ module EmitClosures =
     /// Rule 2 is a fixpoint, resolved by removing offenders until stable.
     let collectStaticFns
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
-        (decls: TDecl list)
+        (decls: Frozen.TDecl list)
         : StaticFn list * HashSet<NodeKey> =
-        let candidates = Dictionary<NodeKey, (NodeKey * SemType) list * TExpr>()
+        let candidates = Dictionary<NodeKey, (NodeKey * FrozenType) list * Frozen.TExpr>()
         let order = ResizeArray<NodeKey>()
 
         for d in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) ->
+            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) ->
                 match peelLambda value with
                 | (_ :: _ as ps), body ->
                     candidates.[k] <- (ps, body)
@@ -185,14 +185,14 @@ module EmitClosures =
         // Escape analysis: a candidate used as a value or under-applied escapes.
         let escapes = HashSet<NodeKey>()
 
-        let rec walkUses (e: TExpr) =
+        let rec walkUses (e: Frozen.TExpr) =
             match e with
-            | TExpr.Var(k, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
-            | TExpr.App _ ->
+            | TExprG.Var(k, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
+            | TExprG.App _ ->
                 let head, args = TastWalk.collectSpine [] e
 
                 match head with
-                | TExpr.Var(k, _) when candidates.ContainsKey k ->
+                | TExprG.Var(k, _) when candidates.ContainsKey k ->
                     if List.length args < arity k then
                         escapes.Add k |> ignore
 
@@ -207,9 +207,9 @@ module EmitClosures =
 
         for d in decls do
             match d with
-            | TDecl.Let(_, value, _, _) -> walkUses value
-            | TDecl.Expression(e, _) -> walkUses e
-            | TDecl.Type _ -> ()
+            | TDeclG.Let(_, value, _, _) -> walkUses value
+            | TDeclG.Expression(e, _) -> walkUses e
+            | TDeclG.Type _ -> ()
 
         // Each candidate's capture set (free vars minus its own params), tested by rule 2.
         let bodyFree =
@@ -266,37 +266,36 @@ module EmitClosures =
         staticFns, eligible
 
     /// A generic static method's type-parameter *count* (R3, frozen-type-plan 2B):
-    /// `freeze` quantified the module-`let`'s free typars to `TempTypar(Method, i)`
+    /// `freeze` quantified the module-`let`'s free typars to `FTTypar(Method, i)`
     /// (Edge A order: params left-to-right, then return), so the count is `max i + 1`
     /// over the method's parameter + result types — those positions reconstruct the
     /// declared type freeze indexed, so every index `0..n-1` appears. `0` ⇒ a
-    /// monomorphic method, emitted unchanged. The backend's `TempTypar(Method, i)`
+    /// monomorphic method, emitted unchanged. The backend's `FTTypar(Method, i)`
     /// encoder maps these to `!!i` directly (no ambient window). A closure walked
     /// from this fn's body inherits the count on its `Closure.Typars`.
     let staticFnTypars (fn: StaticFn) : int =
         let mutable maxIx = -1
 
-        let rec go (t: SemType) =
-            match zonk t with
-            | TempTypar(TyparAxis.Method, i) ->
+        let rec go (t: FrozenType) =
+            match t with
+            | FTTypar(TyparAxis.Method, i) ->
                 if i > maxIx then
                     maxIx <- i
-            | TyFun(a, b) ->
+            | FTFun(a, b) ->
                 go a
                 go b
-            | TyConst(_, xs)
-            | TyTuple xs
-            | TyRecord(_, xs)
-            | TyUnion(_, xs)
-            | TyClass(_, xs) ->
+            | FTConst(_, xs)
+            | FTTuple xs
+            | FTRecord(_, xs)
+            | FTUnion(_, xs)
+            | FTClass(_, xs) ->
                 for x in xs do
                     go x
-            // A leftover free `TyVar` never appears in a compiling generic top-level
-            // function (it would hit the encoder's catch-all); a `Declaring`-axis
-            // typar can't occur in a module-level static fn. Neither contributes.
-            | TyVar _
-            | TyUnknown _
-            | TempTypar(TyparAxis.Declaring, _) -> ()
+            // A `Declaring`-axis typar can't occur in a module-level static fn, and
+            // an unresolved nominal head (`FTUnknown`) carries no typars. Neither
+            // contributes a method-axis index.
+            | FTUnknown _
+            | FTTypar(TyparAxis.Declaring, _) -> ()
 
         for (_, pty) in fn.Params do
             go pty
@@ -314,27 +313,27 @@ module EmitClosures =
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
-        (decls: TDecl list)
-        : Closure list * Dictionary<TExpr, Closure> =
-        let order = ResizeArray<TExpr>()
-        let lookup = Dictionary<TExpr, Closure>(HashIdentity.Reference)
+        (decls: Frozen.TDecl list)
+        : Closure list * Dictionary<Frozen.TExpr, Closure> =
+        let order = ResizeArray<Frozen.TExpr>()
+        let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
 
         // `selfKey` is the binding key when this node is the immediate value of a
         // `let f = …` lambda — a recursive self-reference resolves to `this`.
         // `currentTypars` is the typar *count* inherited from the enclosing static
         // method (or, for inner closures, the enclosing closure verbatim).
-        let rec go (currentTypars: int) (selfKey: NodeKey voption) (e: TExpr) =
+        let rec go (currentTypars: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
             (match e with
-             | TExpr.Let(TPat.NamedSimple(k, _), (TExpr.Lambda _ as v), body, _) ->
+             | TExprG.Let(TPatG.NamedSimple(k, _), (TExprG.Lambda _ as v), body, _) ->
                  go currentTypars (ValueSome k) v
                  go currentTypars ValueNone body
              | _ -> iterChildren (go currentTypars ValueNone) e) // children (and inner lambdas) first → leaves-first
 
-            let registerClosure (p: NodeKey) (pty: SemType) (body: TExpr) (lamTy: SemType) =
+            let registerClosure (p: NodeKey) (pty: FrozenType) (body: Frozen.TExpr) (lamTy: FrozenType) =
                 let resultTy =
                     match lamTy with
-                    | TyFun(_, r) -> r
+                    | FTFun(_, r) -> r
                     | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
 
                 let c =
@@ -355,14 +354,14 @@ module EmitClosures =
                 order.Add e
 
             match e with
-            | TExpr.Lambda(TPat.NamedSimple(p, pty), body, lamTy) -> registerClosure p pty body lamTy
-            | TExpr.Lambda(TPat.Const(TConstValue.Unit, pty), body, lamTy) ->
+            | TExprG.Lambda(TPatG.NamedSimple(p, pty), body, lamTy) -> registerClosure p pty body lamTy
+            | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty), body, lamTy) ->
                 // A `fun () ->` unit binder has no name to reference, but the
                 // closure's `Invoke` still allocates `ldarg.1` for the unit
                 // value the caller pushes; mint a synthetic placeholder so the
                 // `args` map (and `freeVars`'s bound set) still has a key.
                 registerClosure (mintUnitParamKey ()) pty body lamTy
-            | TExpr.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
+            | TExprG.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()
 
         let typarsForStaticFn (k: NodeKey) : int =
@@ -375,12 +374,12 @@ module EmitClosures =
             // A static-method function's lambda is not a closure, but its body
             // may still construct inner closures — walk only the body. The
             // closures inherit the method's typars.
-            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
+            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
                 let _, body = peelLambda value
                 go (typarsForStaticFn k) ValueNone body
-            | TDecl.Let(TPat.NamedSimple(k, _), value, _, _) -> go 0 (ValueSome k) value
-            | TDecl.Let(_, value, _, _) -> go 0 ValueNone value
-            | TDecl.Expression(e, _) -> go 0 ValueNone e
-            | TDecl.Type _ -> ()
+            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) -> go 0 (ValueSome k) value
+            | TDeclG.Let(_, value, _, _) -> go 0 ValueNone value
+            | TDeclG.Expression(e, _) -> go 0 ValueNone e
+            | TDeclG.Type _ -> ()
 
         [ for n in order -> lookup.[n] ], lookup
