@@ -38,7 +38,13 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                         Name = name
                         IsStatic = true
                         IsProperty = false
-                        Signature = ExternalSignature.ofClosure (false, 0, 0, (fun _ -> TyConst(tag, EqArray.empty)))
+                        Signature =
+                            {
+                                DeclaringArity = 0
+                                MethodArity = 0
+                                Parameters = FTConst("unit", EqArray.empty)
+                                Return = FTConst(tag, EqArray.empty)
+                            }
                         MethodArity = 0
                         Origin = origin
                         Key =

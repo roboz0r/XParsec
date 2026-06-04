@@ -107,8 +107,8 @@ module private MetadataMapping =
     /// tuple `(a, b)`, not a curried `p1 → … → pN`). Modelling N ≥ 2 tupled makes
     /// the front-end `unify` and the codegen `recoverOpenTypars` `Tuple` arms
     /// recover the declaring typar from the element, not the whole tuple. (Equal,
-    /// by construction, to freezing the legacy `TyFun(params, ret)` closure and
-    /// splitting off its argument — what `ExternalSignature.ofClosure` did.)
+    /// by construction, to splitting a `TyFun(params, ret)` template's argument —
+    /// the contract layer does the same split when freezing a member signature.)
     let frozenParams (ps: FrozenType[]) : FrozenType =
         match ps.Length with
         | 0 -> FTConst("unit", EqArray.empty)
@@ -184,8 +184,7 @@ module private MetadataMapping =
             | fn -> fn
 
     /// Assemble a property's two-axis `ExternalSignature` template: no parameters
-    /// (`Parameters = unit`), the value type in `Return`, no method axis. Equal to
-    /// the legacy `ExternalSignature.ofClosure (true, arity, 0, build)`.
+    /// (`Parameters = unit`), the value type in `Return`, no method axis.
     let propertySignature (declaringArity: int) (valueTy: FrozenType) : ExternalSignature =
         {
             DeclaringArity = declaringArity
@@ -195,8 +194,7 @@ module private MetadataMapping =
         }
 
     /// Assemble a method / ctor's two-axis `ExternalSignature` template from its
-    /// `(Parameters, Return)` templates. Equal to the legacy
-    /// `ExternalSignature.ofClosure (false, arity, methodArity, build)`.
+    /// `(Parameters, Return)` templates.
     let methodSignature
         (declaringArity: int)
         (methodArity: int)
@@ -310,8 +308,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
     let enumerateClassMembers (t: Type) : ExternalMember[] =
         let origin = originOf t (Some(MetadataMapping.metadataName t))
         let declKey = MetadataMapping.declTypeKey t
-        // The declaring type's typar count — `BuildSignature`'s declaring axis
-        // width, the `declaringMarkers` length `ExternalSignature.ofClosure` needs.
+        // The declaring type's typar count — the width of the signature
+        // template's declaring axis (`FTTypar(Declaring,i)`, `i < arity`).
         let arity =
             if t.IsGenericType then
                 t.GetGenericArguments().Length

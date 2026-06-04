@@ -9,16 +9,10 @@ open XParsec // SmallArrayBuilder
 
 /// An `ImmutableArray<'T>` with **structural (value) equality**: two `EqArray`s
 /// are equal iff they have equal length and element-wise-equal contents,
-/// recursing into `'T`'s own equality. This is the reason the type exists. BCL
-/// `ImmutableArray<'T>` compares by backing-array *reference*, so dropping a raw
-/// `ImmutableArray` into an equality-bearing type (a TAST node, `SemType`)
-/// silently downgrades that type's structural `=` to reference equality.
-/// `EqArray` restores structural `=` while keeping the single-allocation,
-/// cache-contiguous backing array. A `default`/uninitialised value reads as
-/// empty — no `NullReferenceException` from the underlying default array.
+/// recursing into `'T`'s own equality.
+/// `default`/uninitialised value reads as empty — no `NullReferenceException` from the underlying default array.
 ///
-/// `NoComparison` is deliberate: nothing orders `SemType`/TAST nodes (the type
-/// graph is keyed by reference identity, not sorted). Add `CustomComparison`
+/// `NoComparison` is deliberate. Add `CustomComparison`
 /// here — a lexicographic span compare — only if that changes.
 [<Struct; IsReadOnly; CustomEquality; NoComparison>]
 type EqArray<'T> =

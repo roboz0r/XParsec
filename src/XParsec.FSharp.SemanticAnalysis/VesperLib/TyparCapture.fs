@@ -24,24 +24,15 @@ module VesperLibTyparCapture =
     /// declared typar in the val's merged typar list). Independent
     /// invocations of `Instantiate level` allocate a fresh array, so two
     /// call sites of the same val never share TyVars.
+    ///
+    /// Now the **live-inference** closure form only (semtype-scope-narrowing-plan):
+    /// `translateType` produces it for a *val signature* (run at
+    /// `ExternalSymbol.Instantiate` time — it mints `TyVar`s) and for an
+    /// `ExternalConstraint` target (SRTP / `Default` / `Coercion` — stamped at
+    /// instantiation time). Type-shape bodies and augmentation-member signatures
+    /// are NO LONGER carried as closures — they stash their CST and freeze to a
+    /// `FrozenType` template in the finalize pass (see `DeferredBody`).
     type SemBuilder = SemType[] -> SemType
-
-    /// The deferred descriptor closures a type-shape body carries between
-    /// extraction and the `ExtractCtx.toProvider` finalize pass — held off the
-    /// shape (the shape itself is immutable `FrozenType` data, per
-    /// external-signature-plan step 5) so the finalize pass can freeze them once
-    /// the registry is complete (a body may forward-reference a type declared
-    /// later in the same package). Index-aligned with the shape's field / case /
-    /// nothing.
-    [<RequireQualifiedAccess>]
-    type DeferredBody =
-        /// The abbreviation's RHS builder.
-        | Abbrev of SemBuilder
-        /// One builder per record field, in declaration order.
-        | Record of SemBuilder[]
-        /// One builder array per union case (in case order), each indexed by the
-        /// case's fields.
-        | Union of SemBuilder[][]
 
     [<RequireQualifiedAccess>]
     type TyparKind =
@@ -77,6 +68,47 @@ module VesperLibTyparCapture =
 
         member _.Count = order.Count
         member _.Entries = order.ToArray()
+
+    /// The per-body source context the finalize pass needs to run
+    /// `translateTypeFrozen` on a stashed CST: the file's lexed tokens + source
+    /// text, the in-scope open prefixes, and the typar collector with every body
+    /// typar already interned at extraction (so a frozen re-walk reads the same
+    /// indices the validation walk assigned). Held off the shape until the
+    /// registry is complete.
+    type DeferredCtx =
+        {
+            Lexed: Lexed
+            Input: string
+            Opens: string list
+            Typars: TyparCollector
+        }
+
+    /// The deferred **CST** a type-shape body carries between extraction and the
+    /// `ExtractCtx.toProvider` finalize pass — held off the shape (immutable
+    /// `FrozenType` data, per external-signature-plan step 5) because a body may
+    /// forward-reference a type declared later in the same package, so it can only
+    /// be kinded once the registry is complete. The finalize pass runs
+    /// `translateTypeFrozen` on it (semtype-scope-narrowing-plan): a single
+    /// `CST → FrozenType` translation, no closure-as-IR. Index-aligned with the
+    /// shape's field / case / nothing.
+    [<RequireQualifiedAccess>]
+    type DeferredBody =
+        /// The abbreviation's RHS CST.
+        | Abbrev of DeferredCtx * rhs: Type<SyntaxToken>
+        /// One field-type CST per record field, in declaration order.
+        | Record of DeferredCtx * fields: Type<SyntaxToken>[]
+        /// One field-type CST array per union case (in case order), each indexed
+        /// by the case's fields.
+        | Union of DeferredCtx * cases: Type<SyntaxToken>[][]
+
+    /// The deferred **CST** for one augmentation member's signature, frozen into
+    /// its `ExternalMember.Signature` by the finalize pass. Each member carries
+    /// its own `DeferredCtx` (members are walked with a fresh typar collector).
+    type DeferredMember =
+        {
+            Ctx: DeferredCtx
+            Signature: CurriedSig<SyntaxToken>
+        }
 
     /// Raw `when`-clause capture, before typar names are mapped to indices.
     [<RequireQualifiedAccess>]
@@ -142,19 +174,19 @@ module VesperLibTyparCapture =
         /// type `o.IsSome` against the contract (vesper-lib-test-plan Gap 2
         /// Layer A). Empty for types with no augmentation members.
         member val TypeMembers = Dictionary<string, ResizeArray<ExternalMember>>(StringComparer.Ordinal) with get
-        /// The deferred descriptor closures for each `TypeShapes` body
+        /// The deferred body **CST** for each `TypeShapes` body
         /// (`Record` / `Union` / `Abbrev`), keyed by the same qualified compiled
         /// name. Held here rather than on the shape (which carries only immutable
         /// `FrozenType` data — external-signature-plan step 5); the
-        /// `toProvider` finalize pass freezes them into the shape's templates once
-        /// the registry is complete. `Class` / `Intrinsic` / `Opaque` bodies carry
-        /// no closure and have no entry.
+        /// `toProvider` finalize pass runs `translateTypeFrozen` on it once the
+        /// registry is complete. `Class` / `Intrinsic` / `Opaque` bodies carry no
+        /// CST and have no entry.
         member val DeferredBodies = Dictionary<string, DeferredBody>(StringComparer.Ordinal) with get
-        /// The deferred signature closures for each `TypeMembers` entry, keyed by
+        /// The deferred signature **CST** for each `TypeMembers` entry, keyed by
         /// the declaring type's qualified compiled name and index-aligned with the
         /// member list. Frozen into each member's `Signature` by the `toProvider`
         /// finalize pass.
-        member val DeferredMembers = Dictionary<string, ResizeArray<SemBuilder>>(StringComparer.Ordinal) with get
+        member val DeferredMembers = Dictionary<string, ResizeArray<DeferredMember>>(StringComparer.Ordinal) with get
         /// Intrinsic-representation index: *short* type name -> CLI repr string,
         /// harvested from the package's per-target `.fs` companions
         /// (`type exn = (# "System.Exception" #)` ⇒ `"exn" -> "System.Exception"`).
@@ -229,70 +261,14 @@ module VesperLibTyparCapture =
         /// library-specific prelude (e.g. F#'s implicit `Microsoft.FSharp.*`
         /// namespace opens) before calling `toProvider`. The same mechanism
         /// `ReferencedProject` uses for Vesper packages.
+        /// Lift a finalized `ExtractCtx` to an `IExternalSymbolProvider`.
+        ///
+        /// PRECONDITION: the deferred bodies / members must already be frozen into
+        /// the shapes' templates — `VesperLib.finalizeDeferred` runs the
+        /// `translateTypeFrozen` pass (it lives a compile unit later, where the
+        /// translation is in scope). The `VesperLib.ExtractCtx.toProvider` wrapper
+        /// chains the two; nothing else calls this directly.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
-            // Finalize the deferred `FrozenType` templates (external-signature-plan
-            // step 1). Extraction stashed the descriptor closures in
-            // `ctx.DeferredBodies` / `ctx.DeferredMembers` (off the shape, which
-            // carries only immutable data — step 5) because a closure can't be
-            // frozen mid-walk: it may forward-reference a type registered later in
-            // the package. The registry is now complete, so freeze the stashed
-            // builders into the shapes' templates (tolerantly: a genuinely body-less
-            // head degrades to `FTUnknown`). Done in place before the provider
-            // closes over the tables.
-            let shapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
-
-            for k in shapeKeys do
-                let shape = ctx.TypeShapes.[k]
-
-                let finalized =
-                    match shape, ctx.DeferredBodies.TryGetValue k with
-                    | ExternalTypeShape.Record(arity, fields, origin), (true, DeferredBody.Record builds) ->
-                        let fields' =
-                            fields
-                            |> Array.mapi (fun i f ->
-                                { f with
-                                    Frozen = ExternalSymbols.freezeTemplateTolerant arity builds.[i]
-                                }
-                            )
-
-                        ExternalTypeShape.Record(arity, fields', origin)
-                    | ExternalTypeShape.Union(arity, cases, origin), (true, DeferredBody.Union caseBuilds) ->
-                        let cases' =
-                            cases
-                            |> Array.mapi (fun i c ->
-                                { c with
-                                    FrozenFieldTypes =
-                                        caseBuilds.[i] |> Array.map (ExternalSymbols.freezeTemplateTolerant arity)
-                                }
-                            )
-
-                        ExternalTypeShape.Union(arity, cases', origin)
-                    | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev build) ->
-                        ExternalTypeShape.Abbrev(arity, ExternalSymbols.freezeTemplateTolerant arity build)
-                    | _ -> shape
-
-                ctx.TypeShapes.[k] <- finalized
-
-            for kv in ctx.TypeMembers do
-                let members = kv.Value
-
-                match ctx.DeferredMembers.TryGetValue kv.Key with
-                | true, builds ->
-                    for i in 0 .. members.Count - 1 do
-                        let m = members.[i]
-                        let s = m.Signature
-
-                        members.[i] <-
-                            { m with
-                                Signature =
-                                    ExternalSymbols.signatureOfClosureTolerant
-                                        m.IsProperty
-                                        s.DeclaringArity
-                                        m.MethodArity
-                                        builds.[i]
-                            }
-                | _ -> ()
-
             // Reverse case-name index for `TryLookupUnionCase` (Gap 2 Layer B):
             // bare case name -> (declaring union compiled name, arity, case
             // shape). Built once here, after extraction has fully populated

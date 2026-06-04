@@ -5,11 +5,15 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open VesperLibTyparCapture
 
-/// CST → `SemBuilder` translation, with the small token/identifier/attribute
-/// helpers that the rest of the extractor reuses. Calls thread an
-/// `ExtractCtx` (for type-name resolution against `ctx.QualifiedTypes` /
-/// `ctx.Types`) plus a `TyparCollector` (for typar interning) and a
-/// `ConstraintCollector` (for inline `when …` clauses on the type).
+/// CST → type translation, with the small token/identifier/attribute helpers
+/// that the rest of the extractor reuses. Two parallel translations share the
+/// head-resolution / primitive / `shapeOf` logic and diverge only at the leaf:
+/// `translateType` (→ `SemBuilder`, the live-inference closure for val
+/// signatures and constraint targets) and `translateTypeFrozen` (→ `FrozenType`,
+/// the data form the contract-extraction finalize pass bakes into type-shape /
+/// member templates). Calls thread an `ExtractCtx` (for type-name resolution
+/// against `ctx.QualifiedTypes` / `ctx.Types`) plus a `TyparCollector` (for typar
+/// interning) and a `ConstraintCollector` (for inline `when …` clauses).
 module VesperLibTypeTranslate =
 
     let nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
@@ -512,6 +516,43 @@ module VesperLibTypeTranslate =
                 "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"
                 compiled
 
+    /// `FrozenType`-producing sibling of `mkNominal` (semtype-scope-narrowing-plan):
+    /// bakes a nominal reference (`compiled` head + already-translated `args`)
+    /// straight to its kind-correct `FrozenType` template, minting no `SemType`.
+    /// The contract-extraction finalize pass uses this — the registry is complete
+    /// there and the result is a `FTTypar(Declaring,i)` template that never needs a
+    /// metavar. Mirrors `mkNominal`'s shape dispatch arm-for-arm; the only
+    /// divergences are the leaf forms (`FT*` vs `Ty*`) and abbreviation expansion
+    /// (`substituteDeclaring` — a total `FrozenType → FrozenType` walk — vs
+    /// `instantiateDeclaring`). The `Opaque` / `ValueNone` arms are the same loud
+    /// invariants `mkNominal` documents.
+    let mkNominalFrozen (ctx: ExtractCtx) (compiled: string) (args: EqArray<FrozenType>) : FrozenType =
+        let homeOf (originAsm: string option) =
+            match originAsm with
+            | Some _ -> originAsm
+            | None -> ctx.HomeAssembly
+
+        match ExtractCtx.shapeOf ctx compiled with
+        | ValueSome(ExternalTypeShape.Union(_, _, origin)) ->
+            FTUnion(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Class info) ->
+            FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
+            FTRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Abbrev(_, frozen)) ->
+            // Expand the abbreviation by substituting `args` for its declaring
+            // placeholders — the frozen counterpart of `mkNominal`'s
+            // `instantiateDeclaring`. A still-`deferredTemplate` abbrev (one not
+            // yet finalized in this pass) degrades to `FTUnknown "<deferred>"`
+            // exactly as the closure path did.
+            FrozenTypeBridge.substituteDeclaring (args.AsSpan().ToArray()) frozen
+        | ValueSome(ExternalTypeShape.Intrinsic _) -> FTConst(SymbolKeyOps.shortName compiled, EqArray.empty)
+        | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
+        | ValueNone ->
+            failwithf
+                "mkNominalFrozen: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"
+                compiled
+
     let rec translateType
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -731,6 +772,212 @@ module VesperLibTypeTranslate =
                         acc
 
                 Ok final
+
+    /// `CST → FrozenType` translation (semtype-scope-narrowing-plan step 1): the
+    /// native data form of `translateType`'s `SemType[] -> SemType` closure. Every
+    /// type-shape body (record field, union-case field, abbreviation RHS) and
+    /// augmentation-member signature is translated through this in the
+    /// `ExtractCtx.toProvider` finalize pass, once the registry is complete — so a
+    /// typar leaf bakes a self-describing `FTTypar(Declaring,i)` placeholder
+    /// directly instead of the closure's positional substitution, and a nominal
+    /// head kinds through `mkNominalFrozen` instead of `mkNominal`. Structurally
+    /// mirrors `translateType` arm-for-arm (same head resolution, primitive set,
+    /// and `Error` arms) so a CST that `translateType` accepts at extraction time
+    /// translates here too. An `Opaque` head still raises `BodylessExternalShape`;
+    /// the finalize pass catches it and degrades to `FTUnknown`.
+    let rec translateTypeFrozen
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (input: string)
+        (opens: string list)
+        (typars: TyparCollector)
+        (constraints: ConstraintCollector)
+        (typ: Type<SyntaxToken>)
+        : Result<FrozenType, string> =
+        match typ with
+        | Type.ParenType(_, inner, _) -> translateTypeFrozen ctx lexed input opens typars constraints inner
+
+        | Type.FunctionType(a, _, b) ->
+            match translateTypeFrozen ctx lexed input opens typars constraints a with
+            | Error e -> Error e
+            | Ok fa ->
+                match translateTypeFrozen ctx lexed input opens typars constraints b with
+                | Error e -> Error e
+                | Ok fb -> Ok(FTFun(fa, fb))
+
+        | Type.TupleType(parts, _)
+        | Type.StructTupleType(_, _, parts, _, _) ->
+            let mutable err = None
+            let items = ResizeArray<FrozenType>(parts.Length)
+
+            for i in 0 .. parts.Length - 1 do
+                if err.IsNone then
+                    match translateTypeFrozen ctx lexed input opens typars constraints parts.[i] with
+                    | Error e -> err <- Some e
+                    | Ok b -> items.Add b
+
+            match err with
+            | Some e -> Error e
+            | None -> Ok(FTTuple(EqArray.ofResizeArray items))
+
+        | Type.VarType(Typar.Named(_, identTok)) ->
+            let name = nameOfTok lexed input identTok
+            let idx = typars.IndexOf(name, TyparKind.Regular)
+            Ok(FTTypar(TyparAxis.Declaring, idx))
+
+        | Type.VarType(Typar.Static(_, identTok)) ->
+            let name = nameOfTok lexed input identTok
+            let idx = typars.IndexOf(name, TyparKind.Static)
+            Ok(FTTypar(TyparAxis.Declaring, idx))
+
+        | Type.VarType(Typar.Anon _) ->
+            // Synthetic name so distinct anonymous typars don't collide.
+            let synthetic = sprintf "_anon%d" typars.Count
+            let idx = typars.IndexOf(synthetic, TyparKind.Regular)
+            Ok(FTTypar(TyparAxis.Declaring, idx))
+
+        | Type.NamedType li ->
+            let name = longIdentName lexed input li
+
+            if isPrimitiveName name then
+                Ok(FTConst(name, EqArray.empty))
+            else
+                match resolveTypeName ctx opens name 0 with
+                // A name that resolves to nothing in scope bakes a `FTUnknown`
+                // leaf — the frozen counterpart of `translateType`'s `TyUnknown`.
+                | Error _ -> Ok(FTUnknown name)
+                | Ok compiled -> Ok(mkNominalFrozen ctx compiled EqArray.empty)
+
+        | Type.GenericType(li, _, args, _, _) ->
+            let name = longIdentName lexed input li
+            let mutable err = None
+            let items = ResizeArray<FrozenType>(args.Length)
+
+            for i in 0 .. args.Length - 1 do
+                if err.IsNone then
+                    match args.[i] with
+                    | TypeArg.Type t ->
+                        match translateTypeFrozen ctx lexed input opens typars constraints t with
+                        | Error e -> err <- Some e
+                        | Ok b -> items.Add b
+                    | TypeArg.Measure _ -> err <- Some "Measure arg not supported"
+
+            match err with
+            | Some e -> Error e
+            | None ->
+                match resolveTypeName ctx opens name items.Count with
+                | Error _ -> Ok(FTUnknown name)
+                | Ok compiled -> Ok(mkNominalFrozen ctx compiled (EqArray.ofResizeArray items))
+
+        | Type.SuffixedType(baseTy, li) ->
+            // `'T list` ≡ `List<'T>`.
+            let name = longIdentName lexed input li
+
+            match translateTypeFrozen ctx lexed input opens typars constraints baseTy with
+            | Error e -> Error e
+            | Ok fb ->
+                match resolveTypeName ctx opens name 1 with
+                | Error _ -> Ok(FTUnknown name)
+                | Ok compiled -> Ok(mkNominalFrozen ctx compiled (EqArray.singleton fb))
+
+        | Type.ArrayType(baseTy, _, commas, _) ->
+            // rank = commas + 1; key by `array<rank>` so unification stays simple.
+            let rank = commas.Length + 1
+
+            match translateTypeFrozen ctx lexed input opens typars constraints baseTy with
+            | Error e -> Error e
+            | Ok fb -> Ok(FTConst(RuntimeNames.arrayName rank, EqArray.singleton fb))
+
+        | Type.WhenConstrainedType(inner, clauses) ->
+            captureConstraints lexed input constraints clauses
+            translateTypeFrozen ctx lexed input opens typars constraints inner
+
+        | Type.SubtypeConstraint(_, _, inner)
+        | Type.AnonymousSubtype(_, inner) -> translateTypeFrozen ctx lexed input opens typars constraints inner
+
+        | Type.DottedType(baseTy, _, _) -> translateTypeFrozen ctx lexed input opens typars constraints baseTy
+
+        | Type.UnionType _ -> Error "Union types (e.g. `obj | null`) not supported"
+        | Type.Null _ -> Error "Null types not supported"
+        | Type.ILIntrinsic _ -> Error "Inline IL not supported"
+        | Type.MeasureType _ -> Error "Measure types not supported"
+        | Type.AnonRecordType _ -> Error "Anonymous record types not supported"
+        | Type.Missing -> Error "Missing type"
+        | Type.SkipsTokens _ -> Error "Recovery-skipped type"
+
+    /// `FrozenType` counterpart of `translateArgsSpec`: an `ArgsSpec` folds to its
+    /// `.NET`-tupled `FrozenType` (0 args → `unit`, 1 → the arg, N → `FTTuple`).
+    let translateArgsSpecFrozen
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (input: string)
+        (opens: string list)
+        (typars: TyparCollector)
+        (constraints: ConstraintCollector)
+        (argsSpec: ArgsSpec<SyntaxToken>)
+        : Result<FrozenType, string> =
+        let (ArgsSpec(args, _)) = argsSpec
+
+        if args.Length = 0 then
+            Ok(FTConst("unit", EqArray.empty))
+        elif args.Length = 1 then
+            let (ArgSpec(_, _, t)) = args.[0]
+            translateTypeFrozen ctx lexed input opens typars constraints t
+        else
+            let mutable err = None
+            let items = ResizeArray<FrozenType>(args.Length)
+
+            for i in 0 .. args.Length - 1 do
+                if err.IsNone then
+                    let (ArgSpec(_, _, t)) = args.[i]
+
+                    match translateTypeFrozen ctx lexed input opens typars constraints t with
+                    | Error e -> err <- Some e
+                    | Ok b -> items.Add b
+
+            match err with
+            | Some e -> Error e
+            | None -> Ok(FTTuple(EqArray.ofResizeArray items))
+
+    /// `FrozenType` counterpart of `translateCurriedSig`: the curried signature
+    /// folds right-associatively into nested `FTFun` nodes. The finalize pass
+    /// splits the head `FTFun(params, ret)` into the member's two-axis
+    /// `ExternalSignature` (or treats the whole result as the value for a
+    /// property).
+    let translateCurriedSigFrozen
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (input: string)
+        (opens: string list)
+        (typars: TyparCollector)
+        (constraints: ConstraintCollector)
+        (sigCurried: CurriedSig<SyntaxToken>)
+        : Result<FrozenType, string> =
+        let (CurriedSig(args, retTy)) = sigCurried
+
+        match translateTypeFrozen ctx lexed input opens typars constraints retTy with
+        | Error e -> Error e
+        | Ok retF ->
+            let mutable err = None
+            let argFs = ResizeArray<FrozenType>(args.Length)
+
+            for i in 0 .. args.Length - 1 do
+                if err.IsNone then
+                    let (struct (argsSpec, _)) = args.[i]
+
+                    match translateArgsSpecFrozen ctx lexed input opens typars constraints argsSpec with
+                    | Error e -> err <- Some e
+                    | Ok b -> argFs.Add b
+
+            match err with
+            | Some e -> Error e
+            | None ->
+                let mutable acc = retF
+
+                for k in argFs.Count - 1 .. -1 .. 0 do
+                    acc <- FTFun(argFs.[k], acc)
+
+                Ok acc
 
     let registerExplicitTypars
         (lexed: Lexed)

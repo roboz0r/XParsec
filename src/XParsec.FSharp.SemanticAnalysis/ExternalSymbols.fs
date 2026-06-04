@@ -4,14 +4,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 // per-target inline IL) is firmly future work — see
 // [[project_inline_il_target_specific]] for why we don't model it here.
 
-/// Raised by `mkNominal` when a nominal head resolves to a genuinely body-less
-/// shape (`ExternalTypeShape.Opaque` — an enum / delegate / type-extension or an
-/// unmodelled body). This is the *one* failure the contract-extraction finalize
-/// pass (`freezeTemplateTolerant` / `signatureOfClosureTolerant`) tolerates: such
-/// a head's template is never read (no use site expands it), so it degrades to
-/// `FTUnknown` rather than aborting the whole provider build. Every *other*
-/// exception out of a freeze is a producer bug and propagates. `compiledName` is
-/// the head that could not be kinded.
+/// Raised by `mkNominal` / `mkNominalFrozen` when a nominal head resolves to a
+/// genuinely body-less shape (`ExternalTypeShape.Opaque` — an enum / delegate /
+/// type-extension or an unmodelled body). This is the *one* failure the
+/// contract-extraction finalize pass (`VesperLib.finalizeDeferred`) tolerates:
+/// such a head's template is never read (no use site expands it), so it degrades
+/// to `FTUnknown` rather than aborting the whole provider build. Every *other*
+/// exception out of the frozen translation is a producer bug and propagates.
+/// `compiledName` is the head that could not be kinded.
 exception BodylessExternalShape of compiledName: string with
     override this.Message =
         sprintf
@@ -183,44 +183,17 @@ type ExternalSignature =
 
     /// The deferred sentinel a contract-layer member carries between extraction
     /// and the `ExtractCtx.toProvider` finalize pass (which fills `Parameters` /
-    /// `Return` via `ofClosure` once the registry is complete). `DeclaringArity`
-    /// / `MethodArity` are recorded eagerly so the finalize pass needs only the
-    /// closure. Metadata-layer (`MetadataSymbols`, reflection-backed) members
-    /// skip this and call `ofClosure` directly — their closures are total and
-    /// registry-independent.
+    /// `Return` by translating the stashed signature CST once the registry is
+    /// complete). `DeclaringArity` / `MethodArity` are recorded eagerly so the
+    /// finalize pass needs only the CST. Metadata-layer (`MetadataSymbols`,
+    /// reflection-backed) members skip this and build their template eagerly —
+    /// their shapes are total and registry-independent.
     static member deferred(declaringArity: int, methodArity: int) : ExternalSignature =
         {
             DeclaringArity = declaringArity
             MethodArity = methodArity
             Parameters = deferredTemplate
             Return = deferredTemplate
-        }
-
-    /// Derive the two-axis signature from a legacy `BuildSignature` closure
-    /// during the two-headed window: freeze the closure on `declaringMarkers`,
-    /// then split. A method / ctor closure yields `TyFun(params, ret)`; a
-    /// property closure yields the bare value type. Retired in step 5.
-    static member ofClosure
-        (isProperty: bool, declaringArity: int, methodArity: int, build: SemType[] -> SemType)
-        : ExternalSignature =
-        let frozen = templateOfClosure declaringArity build
-
-        let parameters, ret =
-            if isProperty then
-                FTConst("unit", EqArray.empty), frozen
-            else
-                match frozen with
-                | FTFun(p, r) -> p, r
-                // A non-property member whose closure isn't a `TyFun` is not a
-                // shape the metadata / contract layers produce; fold it as a
-                // nullary value rather than fabricate a parameter slot.
-                | other -> FTConst("unit", EqArray.empty), other
-
-        {
-            DeclaringArity = declaringArity
-            MethodArity = methodArity
-            Parameters = parameters
-            Return = ret
         }
 
 /// A resolved member (static/instance method or property getter) on an external
@@ -587,52 +560,18 @@ module ExternalSymbols =
         shape.FrozenBaseType
         |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
 
-    // --- Contract-extraction finalize pass (external-signature-plan step 1) ----
+    // --- Contract-extraction finalize fallback (semtype-scope-narrowing-plan) ----
     //
-    // A contract-layer descriptor's `SemType[] -> SemType` closure can't be
-    // frozen at construction: it may forward-reference a type registered later in
-    // the same package (the registry is incomplete mid-extraction), and a
-    // genuinely body-less head (`byref`) throws inside `mkNominal` whenever it
-    // runs. So extraction stores `deferredTemplate` sentinels and this pass —
-    // run by `VesperLib.ExtractCtx.toProvider` once every shape is registered —
-    // derives the real templates. The residual genuinely-partial heads (never
-    // expanded, so their template is never read) degrade to `FTUnknown` rather
-    // than abort the whole provider build. Strict `templateOfClosure` /
-    // `ExternalSignature.ofClosure` stay for the metadata layer and the oracle.
+    // The `VesperLib` finalize pass translates each stashed body / member CST to a
+    // `FrozenType` template directly (`translateTypeFrozen`), once the registry is
+    // complete. A genuinely body-less head (`byref` / an `Opaque` shape) raises
+    // `BodylessExternalShape` during that walk and is never expanded by any use
+    // site, so the pass degrades it to this sentinel rather than aborting the whole
+    // provider build. (The former `freezeTemplateTolerant` /
+    // `signatureOfClosureTolerant` closure-freezers are gone — `VesperLib`
+    // tolerates around the CST translation itself.)
 
     let unfreezable = FTUnknown "<unfreezable external template>"
-
-    /// Freeze a contract-layer descriptor closure to its `FrozenType` template,
-    /// degrading a genuinely body-less head (one that raises `BodylessExternalShape`
-    /// inside `mkNominal`) to `FTUnknown` rather than aborting the whole provider
-    /// build. Any *other* exception is a producer bug and propagates. The
-    /// `VesperLib` finalize pass (`ExtractCtx.toProvider`) calls this on the
-    /// builders it stashed during extraction, once the registry is complete.
-    let freezeTemplateTolerant (arity: int) (closure: SemType[] -> SemType) : FrozenType =
-        try
-            templateOfClosure arity closure
-        with BodylessExternalShape _ ->
-            unfreezable
-
-    /// Freeze a member's signature closure to its two-axis `ExternalSignature`
-    /// template, degrading a body-less head to `unit -> FTUnknown`. Any other
-    /// exception is a producer bug and propagates. The member finalize
-    /// counterpart of `freezeTemplateTolerant`.
-    let signatureOfClosureTolerant
-        (isProperty: bool)
-        (declaringArity: int)
-        (methodArity: int)
-        (build: SemType[] -> SemType)
-        : ExternalSignature =
-        try
-            ExternalSignature.ofClosure (isProperty, declaringArity, methodArity, build)
-        with BodylessExternalShape _ ->
-            {
-                DeclaringArity = declaringArity
-                MethodArity = methodArity
-                Parameters = FTConst("unit", EqArray.empty)
-                Return = unfreezable
-            }
 
     let mono (name: string) (ty: SemType) : ExternalSymbol =
         {

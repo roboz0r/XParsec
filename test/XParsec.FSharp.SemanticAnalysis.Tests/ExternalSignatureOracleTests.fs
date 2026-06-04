@@ -3,32 +3,28 @@ module XParsec.FSharp.SemanticAnalysis.Tests.ExternalSignatureOracleTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The external-signature-plan **step-1 oracle** — the load-bearing safety net
-// for the two-headed window in which every external descriptor carries BOTH a
-// legacy `SemType[] -> SemType` closure AND its derived `FrozenType` template.
+// The external-signature realiser oracle. The two-headed window is closed: every
+// external descriptor now carries ONLY its `FrozenType` template (the
+// `SemType[] -> SemType` closures that producers once derived templates from are
+// gone — semtype-scope-narrowing-plan). What remains load-bearing is that the
+// production realisers correctly turn a template back into the `SemType` a use
+// site unifies against:
 //
-// Two laws, the plan's wording:
+//   * `instantiateDeclaring` — a declaring-only type-shape descriptor (record
+//     field, union-case field, abbreviation body): `FTTypar(Declaring,i) →
+//     declaringArgs.[i]`.
+//   * `instantiateSignature` — a member's two-axis signature: declaring
+//     placeholders resolve to the caller's args, method placeholders freshen to
+//     fresh `TyVar`s (shared per method index, stamped at the requested level).
 //
-//   1. `template ≡ toFrozen (closure markerArgs)` — the template is the freeze
-//      of the closure run on the declaring-typar markers. This is
-//      `templateOfClosure` by definition today (producers derive it that way),
-//      so the test guards against *drift* once step 5 has producers build
-//      templates natively: the two must still agree.
-//
-//   2. `closure args ≡ instantiate* template args` — the production realisers
-//      (`instantiateDeclaring` for a declaring-only shape, `instantiateSignature`
-//      for a member's two-axis signature) reproduce the closure byte-for-byte on
-//      the post-freeze subset. This is the real check: it proves the realisers
-//      correctly invert the freeze, so inference can read templates instead of
-//      running the closures without behaviour change.
-//
-// Method-typar handling is checked separately (a method placeholder freshens to
-// a `TyVar`, which has no structural counterpart in the closure's baked
-// `TempTypar(Method,j)` — the equality there is by *sharing + level*, not value).
+// Each case below is a HAND-WRITTEN template paired with the `SemType` it must
+// realise to on `groundArgs` — no closure derives the expected value, so the test
+// pins the realisers directly. (The end-to-end `translateTypeFrozen` path — CST to
+// template — is covered by the package-corpus tests in `VesperLibTests`.)
 
 /// Ground (`TyVar`-free, `TempTypar`-free) types to substitute for declaring
-/// args, so both the closure and `instantiate` produce structurally-comparable
-/// `SemType`s (no reference-identity `TyVar` leaves to defeat `=`).
+/// args, so `instantiate*` produces structurally-comparable `SemType`s (no
+/// reference-identity `TyVar` leaves to defeat `=`).
 let private groundArgs: SemType[] =
     [|
         TyConst("int", EqArray.empty)
@@ -39,70 +35,89 @@ let private groundArgs: SemType[] =
 let private kRec = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
 let private kUnion = SymbolKeyOps.qualifiedTypeKey "Test.Option" 1
 
-/// A representative closure paired with its declaring arity. Each is a *linear
-/// substitution* (it only places its `args.[i]` into a fixed skeleton, never
-/// inspects their content) — the shape every real descriptor closure has — so
-/// `instantiate (templateOfClosure arity c) args` must equal `c args` on ground
-/// args. None of these bake a method typar; the method axis is tested below.
-let private declaringClosures: (string * int * (SemType[] -> SemType)) list =
+/// A declaring-typar `i` as a template leaf, and the ground `SemType` it must
+/// realise to (`groundArgs.[i]`). Pairing them keeps each oracle case honest:
+/// the template names `FTTypar(Declaring,i)`, the expected names `groundArgs.[i]`
+/// by hand.
+let private d (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
+
+/// A representative template paired with its declaring arity and the `SemType`
+/// `instantiateDeclaring` must yield on `groundArgs`. None bake a method typar;
+/// the method axis is exercised by the member tests below.
+let private declaringTemplates: (string * int * FrozenType * SemType) list =
     [
-        "argless const", 0, (fun _ -> TyConst("bool", EqArray.empty))
-        "identity typar", 1, (fun a -> a.[0])
-        "array of typar", 1, (fun a -> TyConst("[]", EqArray.singleton a.[0]))
-        "curried fun over two typars", 2, (fun a -> TyFun(a.[0], TyFun(a.[1], TyConst("unit", EqArray.empty))))
-        "tupled fun", 2, (fun a -> TyFun(TyTuple(EqArray.ofList [ a.[0]; a.[1] ]), a.[0]))
-        "record of typar", 1, (fun a -> TyRecord(kRec, EqArray.singleton a.[0]))
-        "union of typar", 1, (fun a -> TyUnion(kUnion, EqArray.singleton a.[0]))
+        "argless const", 0, FTConst("bool", EqArray.empty), TyConst("bool", EqArray.empty)
+        "identity typar", 1, d 0, groundArgs.[0]
+        "array of typar", 1, FTConst("[]", EqArray.singleton (d 0)), TyConst("[]", EqArray.singleton groundArgs.[0])
+        "curried fun over two typars",
+        2,
+        FTFun(d 0, FTFun(d 1, FTConst("unit", EqArray.empty))),
+        TyFun(groundArgs.[0], TyFun(groundArgs.[1], TyConst("unit", EqArray.empty)))
+        "tupled fun",
+        2,
+        FTFun(FTTuple(EqArray.ofList [ d 0; d 1 ]), d 0),
+        TyFun(TyTuple(EqArray.ofList [ groundArgs.[0]; groundArgs.[1] ]), groundArgs.[0])
+        "record of typar", 1, FTRecord(kRec, EqArray.singleton (d 0)), TyRecord(kRec, EqArray.singleton groundArgs.[0])
+        "union of typar", 1, FTUnion(kUnion, EqArray.singleton (d 0)), TyUnion(kUnion, EqArray.singleton groundArgs.[0])
         "nested generic intrinsic",
         1,
-        (fun a -> TyConst("[]", EqArray.singleton (TyUnion(kUnion, EqArray.singleton a.[0]))))
-        "unknown head", 0, (fun _ -> TyUnknown "Unresolved.Head")
+        FTConst("[]", EqArray.singleton (FTUnion(kUnion, EqArray.singleton (d 0)))),
+        TyConst("[]", EqArray.singleton (TyUnion(kUnion, EqArray.singleton groundArgs.[0])))
+        "unknown head", 0, FTUnknown "Unresolved.Head", TyUnknown "Unresolved.Head"
     ]
 
-/// Slice `groundArgs` to the closure's arity (the declaring substitution the
+/// Slice `groundArgs` to the template's arity (the declaring substitution the
 /// caller mints fresh at a use site — here, ground stand-ins).
 let private argsForArity (arity: int) : SemType[] = Array.sub groundArgs 0 arity
 
 [<Tests>]
 let tests =
     testList
-        "ExternalSignature oracle (two-headed window)"
+        "ExternalSignature realiser oracle"
         [
-            test "law 1: template ≡ toFrozen (closure markerArgs)" {
-                for name, arity, closure in declaringClosures do
-                    let template = templateOfClosure arity closure
-                    let expected = toFrozen (closure (declaringMarkers arity))
-                    Expect.equal template expected (sprintf "template of '%s'" name)
-            }
-
-            test "law 2: instantiateDeclaring template args ≡ closure args (no method axis)" {
-                for name, arity, closure in declaringClosures do
-                    let template = templateOfClosure arity closure
+            test "instantiateDeclaring template args ≡ hand-written expected (no method axis)" {
+                for name, arity, template, expected in declaringTemplates do
                     let args = argsForArity arity
                     let viaTemplate = instantiateDeclaring template args
-                    let viaClosure = closure args
-                    Expect.equal viaTemplate viaClosure (sprintf "instantiateDeclaring ≡ closure for '%s'" name)
+                    Expect.equal viaTemplate expected (sprintf "instantiateDeclaring for '%s'" name)
+            }
+
+            test "substituteDeclaring is the frozen sibling of instantiateDeclaring" {
+                // Codegen substitutes declaring args in frozen-space directly; it
+                // must agree with `toFrozen ∘ instantiateDeclaring` (the path
+                // inference takes) on the post-freeze subset.
+                for name, arity, template, _ in declaringTemplates do
+                    let frozenArgs = argsForArity arity |> Array.map toFrozen
+                    let viaSubstitute = substituteDeclaring frozenArgs template
+                    let viaInstantiate = toFrozen (instantiateDeclaring template (argsForArity arity))
+
+                    Expect.equal
+                        viaSubstitute
+                        viaInstantiate
+                        (sprintf "substituteDeclaring ≡ instantiateDeclaring for '%s'" name)
             }
 
             test "method placeholders freshen to one shared TyVar per index at the given level" {
-                // A closure baking method index 0 twice and index 1 once — exactly
-                // the shape `MetadataMapping.tryBuildType` produces for a generic
-                // method (`Dictionary.TryGetValue<...>`-style). Routed through the
-                // production realiser `instantiateSignature`, which must freshen one
-                // var per method index, shared across `Parameters`/`Return`, stamped
-                // at `level`.
-                let closure (a: SemType[]) : SemType =
-                    TyFun(
-                        TyTuple(EqArray.ofList [ a.[0]; TempTypar(TyparAxis.Method, 0) ]),
-                        TyTuple(EqArray.ofList [ TempTypar(TyparAxis.Method, 0); TempTypar(TyparAxis.Method, 1) ])
-                    )
+                // A two-axis signature baking method index 0 twice and index 1 once
+                // — exactly the shape `MetadataMapping.tryBuildType` produces for a
+                // generic method (`Dictionary.TryGetValue<...>`-style). Routed
+                // through the production realiser `instantiateSignature`, which must
+                // freshen one var per method index, shared across
+                // `Parameters`/`Return`, stamped at `level`.
+                let signature: ExternalSignature =
+                    {
+                        DeclaringArity = 1
+                        MethodArity = 2
+                        Parameters = FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])
+                        Return = FTTuple(EqArray.ofList [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 1) ])
+                    }
 
                 let m: ExternalMember =
                     {
                         Name = "genericMethod"
                         IsStatic = true
                         IsProperty = false
-                        Signature = ExternalSignature.ofClosure (false, 1, 2, closure)
+                        Signature = signature
                         MethodArity = 2
                         Origin = SymbolOrigin.Empty
                         Key = SymbolKeyOps.valueKeyOf None "genericMethod"
@@ -136,19 +151,29 @@ let tests =
                 | other -> failtestf "unexpected instantiate result: %A" other
             }
 
-            // --- Member path: ExternalSignature.ofClosure + instantiateSignature ---
+            // --- Member path: hand-written ExternalSignature + instantiateSignature ---
 
-            /// Build a member, round-trip its `BuildSignature` through the two-axis
-            /// `ExternalSignature`, and assert `instantiateSignature` reproduces the
-            /// closure on ground args. `declArity` is the declaring type's arity.
-            let memberOracle name isProperty declArity methodArity (build: SemType[] -> SemType) =
+            /// Build a member from a hand-written two-axis `ExternalSignature` and
+            /// assert `instantiateSignature` realises it to `expected` on ground
+            /// args. `declArity` is the declaring type's arity; `expected` is
+            /// `None` for a generic member (method axis freshens to `TyVar`s, which
+            /// have no structural counterpart — only the arities + `TyFun` shape are
+            /// asserted there).
+            let memberOracle
+                name
+                isProperty
+                declArity
+                methodArity
+                (signature: ExternalSignature)
+                (expected: SemType option)
+                =
                 test name {
                     let m: ExternalMember =
                         {
                             Name = name
                             IsStatic = true
                             IsProperty = isProperty
-                            Signature = ExternalSignature.ofClosure (isProperty, declArity, methodArity, build)
+                            Signature = signature
                             MethodArity = methodArity
                             Origin = SymbolOrigin.Empty
                             Key = SymbolKeyOps.valueKeyOf None name
@@ -156,15 +181,16 @@ let tests =
 
                     let args = argsForArity declArity
 
-                    if methodArity = 0 then
-                        // No method axis ⇒ structurally comparable to the closure.
-                        let viaSig = ExternalSymbols.instantiateSignature m args 0
-                        Expect.equal viaSig (build args) "instantiateSignature ≡ BuildSignature"
-                    else
-                        // With a method axis the closure bakes `TempTypar(Method,_)`
-                        // and `instantiateSignature` freshens it; assert the arities
-                        // round-trip and the signature is a `TyFun` with the method
-                        // var present (structural value-equality doesn't apply).
+                    match expected with
+                    | Some exp ->
+                        Expect.equal
+                            (ExternalSymbols.instantiateSignature m args 0)
+                            exp
+                            "instantiateSignature ≡ expected"
+                    | None ->
+                        // With a method axis the realiser freshens `TyVar`s;
+                        // structural value-equality doesn't apply, so assert the
+                        // arities round-trip and the signature is a `TyFun`.
                         Expect.equal m.Signature.DeclaringArity declArity "declaring arity preserved"
                         Expect.equal m.Signature.MethodArity methodArity "method arity preserved"
 
@@ -174,15 +200,21 @@ let tests =
                 }
 
             testList
-                "member signatures round-trip via ExternalSignature"
+                "member signatures realise via instantiateSignature"
                 [
-                    // 0-param method: `unit -> ret` (curried/tupled coincide).
+                    // 0-param method: `unit -> ret`.
                     memberOracle
                         "nullary method"
                         false
                         0
                         0
-                        (fun _ -> TyFun(TyConst("unit", EqArray.empty), TyConst("int", EqArray.empty)))
+                        {
+                            DeclaringArity = 0
+                            MethodArity = 0
+                            Parameters = FTConst("unit", EqArray.empty)
+                            Return = FTConst("int", EqArray.empty)
+                        }
+                        (Some(TyFun(TyConst("unit", EqArray.empty), TyConst("int", EqArray.empty))))
 
                     // 1-param method over a declaring typar: `'T0 -> bool`.
                     memberOracle
@@ -190,7 +222,13 @@ let tests =
                         false
                         1
                         0
-                        (fun a -> TyFun(a.[0], TyConst("bool", EqArray.empty)))
+                        {
+                            DeclaringArity = 1
+                            MethodArity = 0
+                            Parameters = d 0
+                            Return = FTConst("bool", EqArray.empty)
+                        }
+                        (Some(TyFun(groundArgs.[0], TyConst("bool", EqArray.empty))))
 
                     // N≥2 params: one tupled arg.
                     memberOracle
@@ -198,10 +236,32 @@ let tests =
                         false
                         2
                         0
-                        (fun a -> TyFun(TyTuple(EqArray.ofList [ a.[0]; a.[1] ]), TyConst("unit", EqArray.empty)))
+                        {
+                            DeclaringArity = 2
+                            MethodArity = 0
+                            Parameters = FTTuple(EqArray.ofList [ d 0; d 1 ])
+                            Return = FTConst("unit", EqArray.empty)
+                        }
+                        (Some(
+                            TyFun(
+                                TyTuple(EqArray.ofList [ groundArgs.[0]; groundArgs.[1] ]),
+                                TyConst("unit", EqArray.empty)
+                            )
+                        ))
 
-                    // Property: bare value type, no leading arrow.
-                    memberOracle "property bare value" true 1 0 (fun a -> TyClass(kRec, EqArray.singleton a.[0]))
+                    // Property: bare value type, no parameters / leading arrow.
+                    memberOracle
+                        "property bare value"
+                        true
+                        1
+                        0
+                        {
+                            DeclaringArity = 1
+                            MethodArity = 0
+                            Parameters = FTConst("unit", EqArray.empty)
+                            Return = FTClass(kRec, EqArray.singleton (d 0))
+                        }
+                        (Some(TyClass(kRec, EqArray.singleton groundArgs.[0])))
 
                     // Ctor-shaped: `(p1 * p2) -> declType`.
                     memberOracle
@@ -209,24 +269,31 @@ let tests =
                         false
                         1
                         0
-                        (fun a ->
+                        {
+                            DeclaringArity = 1
+                            MethodArity = 0
+                            Parameters = FTTuple(EqArray.ofList [ d 0; FTConst("int", EqArray.empty) ])
+                            Return = FTRecord(kRec, EqArray.singleton (d 0))
+                        }
+                        (Some(
                             TyFun(
-                                TyTuple(EqArray.ofList [ a.[0]; TyConst("int", EqArray.empty) ]),
-                                TyRecord(kRec, EqArray.singleton a.[0])
+                                TyTuple(EqArray.ofList [ groundArgs.[0]; TyConst("int", EqArray.empty) ]),
+                                TyRecord(kRec, EqArray.singleton groundArgs.[0])
                             )
-                        )
+                        ))
 
-                    // Generic method: bakes a method typar.
+                    // Generic method: bakes a method typar (no structural expected).
                     memberOracle
                         "generic method bakes method typar"
                         false
                         1
                         1
-                        (fun a ->
-                            TyFun(
-                                TempTypar(TyparAxis.Method, 0),
-                                TyTuple(EqArray.ofList [ a.[0]; TempTypar(TyparAxis.Method, 0) ])
-                            )
-                        )
+                        {
+                            DeclaringArity = 1
+                            MethodArity = 1
+                            Parameters = FTTypar(TyparAxis.Method, 0)
+                            Return = FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])
+                        }
+                        None
                 ]
         ]

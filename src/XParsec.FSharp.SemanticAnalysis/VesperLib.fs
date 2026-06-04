@@ -12,9 +12,10 @@ open VesperLibTypeTranslate
 ///
 /// The module is split across `VesperLib\Manifest.fs` (the bucket / file
 /// loader), `VesperLib\TyparCapture.fs` (typar + constraint collectors plus
-/// `ExtractCtx`), `VesperLib\TypeTranslate.fs` (CST → `SemBuilder` and the
-/// `when`-clause capture), and this file (val-sig / type-sig / module-walker
-/// driver plus the cached provider). External callers consume the public
+/// `ExtractCtx`), `VesperLib\TypeTranslate.fs` (CST → `SemBuilder` /
+/// `FrozenType` translations and the `when`-clause capture), and this file
+/// (val-sig / type-sig / module-walker driver, the deferred-body finalize pass,
+/// plus the cached provider). External callers consume the public
 /// surface through `VesperLib.*` — type aliases / re-exports below.
 ///
 /// See `src/XParsec.FSharp.Lib/compiler-clr-project.md` for the manifest
@@ -34,9 +35,146 @@ module VesperLib =
 
     type ExtractCtx = VesperLibTyparCapture.ExtractCtx
 
+    /// Translate a stashed body-type CST to its `FrozenType` template, degrading a
+    /// genuinely body-less head (one that raises `BodylessExternalShape` inside
+    /// `mkNominalFrozen`) — and the can't-happen residual structural `Error` (the
+    /// CST already passed `translateType` at extraction) — to `FTUnknown`. The
+    /// `FrozenType`-native replacement for the deleted
+    /// `ExternalSymbols.freezeTemplateTolerant`.
+    let private freezeBodyType (ctx: ExtractCtx) (dc: DeferredCtx) (cst: Type<SyntaxToken>) : FrozenType =
+        try
+            match translateTypeFrozen ctx dc.Lexed dc.Input dc.Opens dc.Typars (ConstraintCollector()) cst with
+            | Ok ft -> ft
+            | Error _ -> ExternalSymbols.unfreezable
+        with BodylessExternalShape _ ->
+            ExternalSymbols.unfreezable
+
+    /// Translate a stashed member-signature CST to its two-axis `ExternalSignature`
+    /// template, splitting the head `FTFun(params, ret)` (or treating the whole
+    /// result as the value, for a property) exactly as the deleted
+    /// `ExternalSignature.ofClosure` did. A body-less head degrades to
+    /// `unit -> FTUnknown`. The `FrozenType`-native replacement for the deleted
+    /// `ExternalSymbols.signatureOfClosureTolerant`.
+    let private freezeMemberSig
+        (ctx: ExtractCtx)
+        (isProperty: bool)
+        (declaringArity: int)
+        (methodArity: int)
+        (dm: DeferredMember)
+        : ExternalSignature =
+        let dc = dm.Ctx
+
+        let frozen =
+            try
+                match
+                    translateCurriedSigFrozen
+                        ctx
+                        dc.Lexed
+                        dc.Input
+                        dc.Opens
+                        dc.Typars
+                        (ConstraintCollector())
+                        dm.Signature
+                with
+                | Ok ft -> ValueSome ft
+                | Error _ -> ValueNone
+            with BodylessExternalShape _ ->
+                ValueNone
+
+        match frozen with
+        | ValueNone ->
+            {
+                DeclaringArity = declaringArity
+                MethodArity = methodArity
+                Parameters = FTConst("unit", EqArray.empty)
+                Return = ExternalSymbols.unfreezable
+            }
+        | ValueSome frozen ->
+            let parameters, ret =
+                if isProperty then
+                    FTConst("unit", EqArray.empty), frozen
+                else
+                    match frozen with
+                    | FTFun(p, r) -> p, r
+                    // A non-property member whose sig isn't a `FTFun` is folded as a
+                    // nullary value rather than fabricating a parameter slot.
+                    | other -> FTConst("unit", EqArray.empty), other
+
+            {
+                DeclaringArity = declaringArity
+                MethodArity = methodArity
+                Parameters = parameters
+                Return = ret
+            }
+
+    /// Freeze the deferred body / member CSTs stashed during extraction into the
+    /// shapes' `FrozenType` templates, in place, once the registry is complete
+    /// (semtype-scope-narrowing-plan). A body may forward-reference a type declared
+    /// later in the package, so this can only run after every shape is registered.
+    /// `VesperLib.ExtractCtx.toProvider` runs it before lifting the context to a
+    /// provider. The shape iteration mutates `ctx.TypeShapes` in place so an
+    /// abbreviation referenced by an already-processed type expands against its
+    /// (possibly still-deferred) entry exactly as the prior closure pass did.
+    let finalizeDeferred (ctx: ExtractCtx) : unit =
+        let shapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
+
+        for k in shapeKeys do
+            let shape = ctx.TypeShapes.[k]
+
+            let finalized =
+                match shape, ctx.DeferredBodies.TryGetValue k with
+                | ExternalTypeShape.Record(arity, fields, origin), (true, DeferredBody.Record(dc, csts)) ->
+                    let fields' =
+                        fields
+                        |> Array.mapi (fun i f ->
+                            { f with
+                                Frozen = freezeBodyType ctx dc csts.[i]
+                            }
+                        )
+
+                    ExternalTypeShape.Record(arity, fields', origin)
+                | ExternalTypeShape.Union(arity, cases, origin), (true, DeferredBody.Union(dc, caseCsts)) ->
+                    let cases' =
+                        cases
+                        |> Array.mapi (fun i c ->
+                            { c with
+                                FrozenFieldTypes = caseCsts.[i] |> Array.map (freezeBodyType ctx dc)
+                            }
+                        )
+
+                    ExternalTypeShape.Union(arity, cases', origin)
+                | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev(dc, rhs)) ->
+                    ExternalTypeShape.Abbrev(arity, freezeBodyType ctx dc rhs)
+                | _ -> shape
+
+            ctx.TypeShapes.[k] <- finalized
+
+        for kv in ctx.TypeMembers do
+            let members = kv.Value
+
+            match ctx.DeferredMembers.TryGetValue kv.Key with
+            | true, deferred ->
+                for i in 0 .. members.Count - 1 do
+                    let m = members.[i]
+                    let s = m.Signature
+
+                    members.[i] <-
+                        { m with
+                            Signature = freezeMemberSig ctx m.IsProperty s.DeclaringArity m.MethodArity deferred.[i]
+                        }
+            | _ -> ()
+
     module ExtractCtx =
         let empty = VesperLibTyparCapture.ExtractCtx.empty
-        let toProvider = VesperLibTyparCapture.ExtractCtx.toProvider
+
+        /// Finalize the deferred CST bodies / members into `FrozenType` templates
+        /// (`finalizeDeferred`), then lift the context to an
+        /// `IExternalSymbolProvider`. The two-phase split exists only because the
+        /// `CST → FrozenType` translation lives a compile unit later than
+        /// `VesperLibTyparCapture.ExtractCtx.toProvider`.
+        let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
+            finalizeDeferred ctx
+            VesperLibTyparCapture.ExtractCtx.toProvider ctx
 
     let private isAccessible (access: Access<SyntaxToken> voption) : bool =
         match access with
@@ -150,6 +288,93 @@ module VesperLib =
                     | Ok builder -> Some(ExternalConstraint.Coercion(i, builder))
         )
 
+
+    let private instantiate
+        typarCount
+        build
+        traitConstraints
+        defaultConstraints
+        (memberTraitConstraints: list<EqArray<int> * string * SemBuilder[] * SemBuilder>)
+        coercionConstraints
+        =
+        if typarCount = 0 then
+            let semType = build [||]
+            fun _ -> semType
+        else
+            fun level ->
+                let freshTvs =
+                    Array.init
+                        typarCount
+                        (fun _ ->
+                            let tv = TypeVar()
+                            tv.Level <- level
+                            tv
+                        )
+
+                let fresh = freshTvs |> Array.map TyVar
+
+                for (i, kind) in traitConstraints do
+                    if i >= 0 && i < freshTvs.Length then
+                        // External symbols carry no source-side
+                        // NodeKey; stamp `Unknown` so diagnostics
+                        // attribute the constraint to the use site.
+                        let cstr: SemanticConstraint =
+                            {
+                                Kind = kind
+                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                            }
+
+                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+
+                // Defaults accumulate newest-last so source
+                // order is preserved when generalisation later
+                // walks the list for the first concrete shape.
+                for (i, builder) in defaultConstraints do
+                    if i >= 0 && i < freshTvs.Length then
+                        let target = builder fresh
+                        let tv = freshTvs.[i]
+                        tv.Defaults <- tv.Defaults @ [ target ]
+
+                // Shared `Resolved` ref dedupes dispatch:
+                // whichever participating typar resolves first
+                // runs the drain; the others see it flipped and
+                // skip.
+                for (idxs, mName, argBs, retB) in memberTraitConstraints do
+                    let argTyBuf = ResizeArray<SemType>(argBs.Length)
+
+                    for b in argBs do
+                        argTyBuf.Add(b fresh)
+
+                    let retTy = retB fresh
+
+                    let sig_: MemberSignature =
+                        {
+                            MemberName = mName
+                            ArgTypes = EqArray.ofResizeArray argTyBuf
+                            ReturnType = retTy
+                            Resolved = false
+                        }
+
+                    for i in idxs do
+                        if i >= 0 && i < freshTvs.Length then
+                            let tv = freshTvs.[i]
+                            tv.SrtpBounds <- sig_ :: tv.SrtpBounds
+
+                // The target is built against the SAME fresh array,
+                // so a self-referential `'e :> 'f` resolves too.
+                for (i, builder) in coercionConstraints do
+                    if i >= 0 && i < freshTvs.Length then
+                        let cstr: SemanticConstraint =
+                            {
+                                Kind = SemanticConstraintKind.Coercion(builder fresh)
+                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                            }
+
+                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+
+                build fresh
+
+
     let private extractValSig
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -237,82 +462,13 @@ module VesperLib =
                         )
 
                     let instantiate =
-                        if typarCount = 0 then
-                            let semType = build [||]
-                            fun _ -> semType
-                        else
-                            fun level ->
-                                let freshTvs =
-                                    Array.init
-                                        typarCount
-                                        (fun _ ->
-                                            let tv = TypeVar()
-                                            tv.Level <- level
-                                            tv
-                                        )
-
-                                let fresh = freshTvs |> Array.map TyVar
-
-                                for (i, kind) in traitConstraints do
-                                    if i >= 0 && i < freshTvs.Length then
-                                        // External symbols carry no source-side
-                                        // NodeKey; stamp `Unknown` so diagnostics
-                                        // attribute the constraint to the use site.
-                                        let cstr: SemanticConstraint =
-                                            {
-                                                Kind = kind
-                                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                                            }
-
-                                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
-
-                                // Defaults accumulate newest-last so source
-                                // order is preserved when generalisation later
-                                // walks the list for the first concrete shape.
-                                for (i, builder) in defaultConstraints do
-                                    if i >= 0 && i < freshTvs.Length then
-                                        let target = builder fresh
-                                        let tv = freshTvs.[i]
-                                        tv.Defaults <- tv.Defaults @ [ target ]
-
-                                // Shared `Resolved` ref dedupes dispatch:
-                                // whichever participating typar resolves first
-                                // runs the drain; the others see it flipped and
-                                // skip.
-                                for (idxs, mName, argBs, retB) in memberTraitConstraints do
-                                    let argTyBuf = ResizeArray<SemType>(argBs.Length)
-
-                                    for b in argBs do
-                                        argTyBuf.Add(b fresh)
-
-                                    let retTy = retB fresh
-
-                                    let sig_: MemberSignature =
-                                        {
-                                            MemberName = mName
-                                            ArgTypes = EqArray.ofResizeArray argTyBuf
-                                            ReturnType = retTy
-                                            Resolved = false
-                                        }
-
-                                    for i in idxs do
-                                        if i >= 0 && i < freshTvs.Length then
-                                            let tv = freshTvs.[i]
-                                            tv.SrtpBounds <- sig_ :: tv.SrtpBounds
-
-                                // The target is built against the SAME fresh array,
-                                // so a self-referential `'e :> 'f` resolves too.
-                                for (i, builder) in coercionConstraints do
-                                    if i >= 0 && i < freshTvs.Length then
-                                        let cstr: SemanticConstraint =
-                                            {
-                                                Kind = SemanticConstraintKind.Coercion(builder fresh)
-                                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                                            }
-
-                                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
-
-                                build fresh
+                        instantiate
+                            typarCount
+                            build
+                            traitConstraints
+                            defaultConstraints
+                            memberTraitConstraints
+                            coercionConstraints
 
                     let sym: ExternalSymbol =
                         {
@@ -489,18 +645,32 @@ module VesperLib =
         let collector = collectorForTypeName lexed input typeName
         let throwawayConstraints = ConstraintCollector()
 
+        // Walk now to validate the RHS (structural support) and to intern every
+        // body typar into `collector`; the resulting closure is discarded — the
+        // body's `FrozenType` is built from the stashed CST in the finalize pass,
+        // not from a transported closure (semtype-scope-narrowing-plan).
         match translateType ctx lexed input opens collector throwawayConstraints rhs with
         | Error e -> skipBodyOpaque ctx file compiled arity e
-        | Ok build ->
+        | Ok _ ->
             match bodyTyparsOk collector arity with
             | Error e -> skipBodyOpaque ctx file compiled arity e
-            // Deferred frozen body: the builder is stashed in `ctx.DeferredBodies`
-            // and frozen by the `toProvider` finalize pass once the registry is
+            // Deferred frozen body: the RHS CST is stashed in `ctx.DeferredBodies`
+            // and translated by the `toProvider` finalize pass once the registry is
             // complete (the body may forward-reference a type declared later in the
             // package, and a body-less head can't be frozen).
             | Ok() ->
                 ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, deferredTemplate)
-                ctx.DeferredBodies.[compiled] <- DeferredBody.Abbrev build
+
+                ctx.DeferredBodies.[compiled] <-
+                    DeferredBody.Abbrev(
+                        {
+                            Lexed = lexed
+                            Input = input
+                            Opens = opens
+                            Typars = collector
+                        },
+                        rhs
+                    )
 
     let private extractRecordBody
         (ctx: ExtractCtx)
@@ -516,20 +686,22 @@ module VesperLib =
         let collector = collectorForTypeName lexed input typeName
         let throwawayConstraints = ConstraintCollector()
         let shapes = ResizeArray<ExternalFieldShape>(fields.Length)
-        // The per-field type builders, index-aligned with `shapes`; stashed in
-        // `ctx.DeferredBodies` for the finalize pass to freeze.
-        let builds = ResizeArray<SemBuilder>(fields.Length)
+        // The per-field type CSTs, index-aligned with `shapes`; stashed in
+        // `ctx.DeferredBodies` for the finalize pass to translate to `FrozenType`.
+        let csts = ResizeArray<Type<SyntaxToken>>(fields.Length)
         let mutable err = None
 
         for i in 0 .. fields.Length - 1 do
             if err.IsNone then
                 let (RecordField(_, mutableTok, _, identTok, _, fieldTy)) = fields.[i]
 
+                // Validate + intern body typars; discard the closure (the field
+                // type freezes from `fieldTy` in the finalize pass).
                 match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
                 | Error e -> err <- Some e
-                | Ok b ->
+                | Ok _ ->
                     shapes.Add(ExternalFieldShape.create (nameOfTok lexed input identTok, mutableTok.IsSome))
-                    builds.Add b
+                    csts.Add fieldTy
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -541,7 +713,17 @@ module VesperLib =
                 // knows the package's assembly + namespace from the manifest);
                 // the extractor itself records `Empty`.
                 ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray(), SymbolOrigin.Empty)
-                ctx.DeferredBodies.[compiled] <- DeferredBody.Record(builds.ToArray())
+
+                ctx.DeferredBodies.[compiled] <-
+                    DeferredBody.Record(
+                        {
+                            Lexed = lexed
+                            Input = input
+                            Opens = opens
+                            Typars = collector
+                        },
+                        csts.ToArray()
+                    )
 
     let private extractUnionBody
         (ctx: ExtractCtx)
@@ -557,9 +739,9 @@ module VesperLib =
         let collector = collectorForTypeName lexed input typeName
         let throwawayConstraints = ConstraintCollector()
         let caseShapes = ResizeArray<ExternalCaseShape>(cases.Length)
-        // The per-case field builders (one array per case, index-aligned with
+        // The per-case field-type CSTs (one array per case, index-aligned with
         // `caseShapes`); stashed in `ctx.DeferredBodies` for the finalize pass.
-        let caseBuilds = ResizeArray<SemBuilder[]>(cases.Length)
+        let caseCsts = ResizeArray<Type<SyntaxToken>[]>(cases.Length)
         let mutable err = None
 
         let caseName (ioo: IdentOrOp<SyntaxToken>) : string voption =
@@ -585,14 +767,14 @@ module VesperLib =
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
                         caseShapes.Add(ExternalCaseShape.create (n, [||]))
-                        caseBuilds.Add [||]
+                        caseCsts.Add [||]
 
                 | UnionTypeCaseData.Nary(ident, _, fields, _) ->
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
                         let names = ResizeArray<string voption>(fields.Length)
-                        let builds = ResizeArray<SemBuilder>(fields.Length)
+                        let fieldCsts = ResizeArray<Type<SyntaxToken>>(fields.Length)
 
                         for j in 0 .. fields.Length - 1 do
                             if err.IsNone then
@@ -604,13 +786,13 @@ module VesperLib =
 
                                 match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
                                 | Error e -> err <- Some(sprintf "case %s field: %s" n e)
-                                | Ok b ->
+                                | Ok _ ->
                                     names.Add nameOpt
-                                    builds.Add b
+                                    fieldCsts.Add fieldTy
 
                         if err.IsNone then
                             caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
-                            caseBuilds.Add(builds.ToArray())
+                            caseCsts.Add(fieldCsts.ToArray())
 
                 | UnionTypeCaseData.GadtNullary(name = ident) ->
                     // GADT-syntax nullary (`([]): 'T list`): the explicit return
@@ -622,7 +804,7 @@ module VesperLib =
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
                         caseShapes.Add(ExternalCaseShape.create (n, [||]))
-                        caseBuilds.Add [||]
+                        caseCsts.Add [||]
 
                 | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(specs, _))) ->
                     // GADT-syntax n-ary (`(::): Head: 'T * Tail: 'T list -> 'T list`):
@@ -633,7 +815,7 @@ module VesperLib =
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
                         let names = ResizeArray<string voption>(specs.Length)
-                        let builds = ResizeArray<SemBuilder>(specs.Length)
+                        let fieldCsts = ResizeArray<Type<SyntaxToken>>(specs.Length)
 
                         for j in 0 .. specs.Length - 1 do
                             if err.IsNone then
@@ -646,13 +828,13 @@ module VesperLib =
 
                                 match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
                                 | Error e -> err <- Some(sprintf "case %s field: %s" n e)
-                                | Ok b ->
+                                | Ok _ ->
                                     names.Add nameOpt
-                                    builds.Add b
+                                    fieldCsts.Add fieldTy
 
                         if err.IsNone then
                             caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
-                            caseBuilds.Add(builds.ToArray())
+                            caseCsts.Add(fieldCsts.ToArray())
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -664,7 +846,17 @@ module VesperLib =
             // extractor itself records `Empty`.
             | Ok() ->
                 ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), SymbolOrigin.Empty)
-                ctx.DeferredBodies.[compiled] <- DeferredBody.Union(caseBuilds.ToArray())
+
+                ctx.DeferredBodies.[compiled] <-
+                    DeferredBody.Union(
+                        {
+                            Lexed = lexed
+                            Input = input
+                            Opens = opens
+                            Typars = collector
+                        },
+                        caseCsts.ToArray()
+                    )
 
     /// Extract the augmentation `member`s declared inside a type body's
     /// `with`-block (`member Value: 'T` / `member IsSome: bool` on `Option`)
@@ -702,9 +894,9 @@ module VesperLib =
                     SymbolKey.TypeKey(None, compiled.Substring(0, i), compiled.Substring(i + 1))
 
             let members = ResizeArray<ExternalMember>()
-            // The per-member signature builders, index-aligned with `members`;
-            // stashed in `ctx.DeferredMembers` for the finalize pass to freeze.
-            let memberBuilds = ResizeArray<SemBuilder>()
+            // The per-member signature CSTs, index-aligned with `members`;
+            // stashed in `ctx.DeferredMembers` for the finalize pass to translate.
+            let memberCsts = ResizeArray<DeferredMember>()
 
             for i in 0 .. elems.Length - 1 do
                 let memberSig =
@@ -737,9 +929,11 @@ module VesperLib =
                             let collector = collectorForTypeName lexed input typeName
                             let throwaway = ConstraintCollector()
 
+                            // Validate + intern body typars; discard the closure —
+                            // the signature freezes from `csig` in the finalize pass.
                             match translateCurriedSig ctx lexed input opens collector throwaway csig with
                             | Error _ -> ()
-                            | Ok builder ->
+                            | Ok _ ->
                                 // A member whose sig pulled in typars beyond the
                                 // type's own can't be instantiated from the
                                 // receiver's args alone — skip it.
@@ -758,7 +952,7 @@ module VesperLib =
                                             Name = memberName
                                             IsStatic = isStatic
                                             IsProperty = isProperty
-                                            // Deferred: the builder is stashed in
+                                            // Deferred: the signature CST is stashed in
                                             // `ctx.DeferredMembers` and frozen by the
                                             // `toProvider` finalize pass once the registry is
                                             // complete (a sig may forward-reference a type
@@ -772,11 +966,21 @@ module VesperLib =
                                             Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
                                         }
 
-                                    memberBuilds.Add builder
+                                    memberCsts.Add
+                                        {
+                                            Ctx =
+                                                {
+                                                    Lexed = lexed
+                                                    Input = input
+                                                    Opens = opens
+                                                    Typars = collector
+                                                }
+                                            Signature = csig
+                                        }
 
             if members.Count > 0 then
                 ctx.TypeMembers.[compiled] <- members
-                ctx.DeferredMembers.[compiled] <- memberBuilds
+                ctx.DeferredMembers.[compiled] <- memberCsts
 
     let private extractTypeSig
         (ctx: ExtractCtx)

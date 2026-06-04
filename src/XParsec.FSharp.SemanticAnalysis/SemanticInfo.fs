@@ -596,30 +596,12 @@ module FrozenTypeBridge =
     // applied *after* freshening (the type-shape half carries no constraints).
 
     /// The placeholder a contract-layer descriptor carries between extraction and
-    /// the `ExtractCtx.toProvider` finalize pass (external-signature-plan step 1).
-    /// A descriptor's `SemType[] -> SemType` closure can't be frozen at
-    /// construction time — it may forward-reference a type registered later in
-    /// the same package, and a genuinely body-less head (`byref`) throws when
-    /// run at all — so the freeze is deferred until the registry is complete.
-    /// Never observed by a consumer (the finalize pass overwrites it first).
+    /// the `ExtractCtx.toProvider` finalize pass (semtype-scope-narrowing-plan).
+    /// A body's `FrozenType` can't be built at extraction time — it may forward-
+    /// reference a type registered later in the same package — so the shape holds
+    /// this until `VesperLib.finalizeDeferred` translates the stashed CST and
+    /// overwrites it. Never observed by a consumer.
     let deferredTemplate: FrozenType = FTUnknown "<deferred>"
-
-    /// Marker declaring-args for deriving a `FrozenType` template from a legacy
-    /// `SemType[] -> SemType` closure during the two-headed window: slot `i`
-    /// holds `TempTypar(Declaring,i)`, so the closure's positional substitution
-    /// leaves a self-describing open node that `toFrozen` maps to
-    /// `FTTypar(Declaring,i)`. The method axis is already baked as
-    /// `TempTypar(Method,j)` by the closure, so it freezes untouched.
-    let declaringMarkers (arity: int) : SemType[] =
-        Array.init arity (fun i -> TempTypar(TyparAxis.Declaring, i))
-
-    /// Freeze a legacy declaring-typar closure into its `FrozenType` template by
-    /// running it on `declaringMarkers` and freezing the result. This is the
-    /// derivation the step-1 oracle pins (`template ≡ toFrozen (closure
-    /// markerArgs)`); it is retired in step 5 when producers build templates
-    /// natively and the closures are deleted.
-    let templateOfClosure (arity: int) (closure: SemType[] -> SemType) : FrozenType =
-        toFrozen (closure (declaringMarkers arity))
 
     /// The standard method-typar freshener: a fresh `TyVar` at `level` per
     /// distinct index, memoised in `cache` so repeated occurrences of the same
