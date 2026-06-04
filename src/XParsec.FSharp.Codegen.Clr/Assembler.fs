@@ -457,7 +457,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // ---- Closures (leaves-first) ----
     // A *generic* closure (C3) enters closure-typar mode around every
     // signature/body emission, so the body's `FTTypar(Method, i)` (the enclosing
-    // method's typars) re-project onto this closure class's `!i` (frozen-type-plan 2B).
+    // method's typars) re-project onto this closure class's `!i`.
     member this.EmitClosures() =
         for c in closures do
             let firstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
@@ -563,7 +563,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     member this.EmitStaticMethods() =
         for fn in staticFnsEmitOrder do
             // A *generic* static method (`fold`, R3): its body / signature / locals
-            // embed `FTTypar(Method, i)` (freeze-quantified, frozen-type-plan 2B),
+            // embed `FTTypar(Method, i)` (freeze-quantified),
             // which the encoder maps to `!!i` directly — no ambient typar window.
             let typarCount = staticMethods.[fn.Key].Typars
 

@@ -20,20 +20,6 @@ open XParsec.FSharp.Parser
 ///     via its `AmbientOpenPrefixes` member).
 module VesperLibTyparCapture =
 
-    /// SemType template parameterised over a fresh-TyVar array (one per
-    /// declared typar in the val's merged typar list). Independent
-    /// invocations of `Instantiate level` allocate a fresh array, so two
-    /// call sites of the same val never share TyVars.
-    ///
-    /// Now the **live-inference** closure form only (semtype-scope-narrowing-plan):
-    /// `translateType` produces it for a *val signature* (run at
-    /// `ExternalSymbol.Instantiate` time — it mints `TyVar`s) and for an
-    /// `ExternalConstraint` target (SRTP / `Default` / `Coercion` — stamped at
-    /// instantiation time). Type-shape bodies and augmentation-member signatures
-    /// are NO LONGER carried as closures — they stash their CST and freeze to a
-    /// `FrozenType` template in the finalize pass (see `DeferredBody`).
-    type SemBuilder = SemType[] -> SemType
-
     [<RequireQualifiedAccess>]
     type TyparKind =
         | Regular
@@ -70,7 +56,7 @@ module VesperLibTyparCapture =
         member _.Entries = order.ToArray()
 
     /// The per-body source context the finalize pass needs to run
-    /// `translateTypeFrozen` on a stashed CST: the file's lexed tokens + source
+    /// `translateType` on a stashed CST: the file's lexed tokens + source
     /// text, the in-scope open prefixes, and the typar collector with every body
     /// typar already interned at extraction (so a frozen re-walk reads the same
     /// indices the validation walk assigned). Held off the shape until the
@@ -84,13 +70,12 @@ module VesperLibTyparCapture =
         }
 
     /// The deferred **CST** a type-shape body carries between extraction and the
-    /// `ExtractCtx.toProvider` finalize pass — held off the shape (immutable
-    /// `FrozenType` data, per external-signature-plan step 5) because a body may
+    /// `ExtractCtx.toProvider` finalize pass — held off the shape (which carries
+    /// only immutable `FrozenType` data) because a body may
     /// forward-reference a type declared later in the same package, so it can only
     /// be kinded once the registry is complete. The finalize pass runs
-    /// `translateTypeFrozen` on it (semtype-scope-narrowing-plan): a single
-    /// `CST → FrozenType` translation, no closure-as-IR. Index-aligned with the
-    /// shape's field / case / nothing.
+    /// `translateType` on it: a single `CST → FrozenType` translation, no
+    /// closure-as-IR. Index-aligned with the shape's field / case / nothing.
     [<RequireQualifiedAccess>]
     type DeferredBody =
         /// The abbreviation's RHS CST.
@@ -107,6 +92,24 @@ module VesperLibTyparCapture =
     type DeferredMember =
         {
             Ctx: DeferredCtx
+            Signature: CurriedSig<SyntaxToken>
+        }
+
+    /// The deferred **CST** for one `val` signature, frozen into a complete
+    /// `ExternalSymbol` by the finalize pass. A val
+    /// signature may forward-reference a type declared later in the package — and
+    /// its constraint targets the same — so it can only be translated once the
+    /// registry is complete. `Ctx.Typars` is seeded with the val's explicit `<'T>`
+    /// typars at extraction; the finalize frozen walk interns the remaining body
+    /// typars and captures the `when` clauses. `Compiled` / `Source` are the
+    /// pre-computed compiled name and its optional `ModuleSuffix` source-name alias
+    /// (registered first-wins, so `DeferredVals` order must be preserved).
+    type DeferredVal =
+        {
+            Ctx: DeferredCtx
+            Compiled: string
+            Source: string voption
+            File: VesperLibManifest.LibFile
             Signature: CurriedSig<SyntaxToken>
         }
 
@@ -177,8 +180,8 @@ module VesperLibTyparCapture =
         /// The deferred body **CST** for each `TypeShapes` body
         /// (`Record` / `Union` / `Abbrev`), keyed by the same qualified compiled
         /// name. Held here rather than on the shape (which carries only immutable
-        /// `FrozenType` data — external-signature-plan step 5); the
-        /// `toProvider` finalize pass runs `translateTypeFrozen` on it once the
+        /// `FrozenType` data); the
+        /// `toProvider` finalize pass runs `translateType` on it once the
         /// registry is complete. `Class` / `Intrinsic` / `Opaque` bodies carry no
         /// CST and have no entry.
         member val DeferredBodies = Dictionary<string, DeferredBody>(StringComparer.Ordinal) with get
@@ -187,6 +190,13 @@ module VesperLibTyparCapture =
         /// member list. Frozen into each member's `Signature` by the `toProvider`
         /// finalize pass.
         member val DeferredMembers = Dictionary<string, ResizeArray<DeferredMember>>(StringComparer.Ordinal) with get
+        /// The deferred `val` signatures stashed during extraction, in source order.
+        /// The `toProvider` finalize pass translates each to a `FrozenType` template,
+        /// builds the complete `ExternalSymbol` (instantiation closure + resolved
+        /// constraints), and registers it into `Symbols`. Ordered so the
+        /// first-registration-wins `ModuleSuffix` source-name alias keeps the same
+        /// semantics the eager extraction had.
+        member val DeferredVals = ResizeArray<DeferredVal>() with get
         /// Intrinsic-representation index: *short* type name -> CLI repr string,
         /// harvested from the package's per-target `.fs` companions
         /// (`type exn = (# "System.Exception" #)` ⇒ `"exn" -> "System.Exception"`).
@@ -265,7 +275,7 @@ module VesperLibTyparCapture =
         ///
         /// PRECONDITION: the deferred bodies / members must already be frozen into
         /// the shapes' templates — `VesperLib.finalizeDeferred` runs the
-        /// `translateTypeFrozen` pass (it lives a compile unit later, where the
+        /// `translateType` pass (it lives a compile unit later, where the
         /// translation is in scope). The `VesperLib.ExtractCtx.toProvider` wrapper
         /// chains the two; nothing else calls this directly.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =

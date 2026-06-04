@@ -75,7 +75,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// Encode a `FrozenType` into a metadata signature slot. Encoding is
     /// context-free: open typars are self-describing `FTTypar(axis, i)` nodes the
-    /// structural match resolves by index (frozen-type-plan keystone + 2E-1), so there
+    /// structural match resolves by index, so there
     /// is no ambient typar window and no leaf hook — the match is total over the frozen
     /// type shapes that reach the backend.
     let rec encodeType (te: SignatureTypeEncoder) (t: FrozenType) : unit =
@@ -207,7 +207,7 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
                 name
-        // A frozen open typar (frozen-type-plan): the index is in the node, so
+        // A frozen open typar: the index is in the node, so
         // encoding is context-free and unconditional — it supersedes the marker
         // `TypeVar`/`TyConst "'A"` mechanism the ambient windows used to resolve.
         // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's
@@ -251,7 +251,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// frozen at the boundary). Returns `(declaringArgs, methodArgs)`, each index-keyed
     /// by the `FTTypar`'s own index. First occurrence wins; an unrecovered slot is a
     /// bug. The recovered slices stay `FrozenType` — the emit walk is `FrozenType`-native
-    /// end to end (external-signature-plan step 4).
+    /// end to end.
     let recoverOpenTypars
         (declArity: int)
         (methodArity: int)
@@ -392,7 +392,7 @@ type internal ClrEncoder(env: ClrEnv) =
     member _.EncodeLocalSignature locals = encodeLocalSignature locals
 
     /// `instance void .ctor(fields…)` for a record / generic-type ctor. Field types
-    /// carry their declaring typars as `TempTypar(Declaring, i)` nodes the encoder
+    /// carry their declaring typars as `TyTypar(Declaring, i)` nodes the encoder
     /// resolves to `!i` directly — no marker map.
     member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder =
         let s = BlobBuilder()
@@ -411,8 +411,8 @@ type internal ClrEncoder(env: ClrEnv) =
         s
 
     /// A *generic method* (B-12: `member this.Map<'C> …`) whose body may also be inside
-    /// a generic type. The declaring type's typars ride `TempTypar(Declaring, i)` nodes
-    /// (`!i`) and the method's own typars ride `TempTypar(Method, i)` nodes (`!!i`); the
+    /// a generic type. The declaring type's typars ride `TyTypar(Declaring, i)` nodes
+    /// (`!i`) and the method's own typars ride `TyTypar(Method, i)` nodes (`!!i`); the
     /// structural `encodeType` match resolves both by index, so no ambient window is
     /// needed. `methodTyparCount` sets the `GENERIC` calling-convention header count.
     member _.GenericMethodOnTypeSignature
@@ -606,6 +606,6 @@ type internal ClrEncoder(env: ClrEnv) =
         s
 
     /// Encode an abstract interface-method signature (the library path, G5). The signature's open
-    /// typars are self-describing `TempTypar` nodes — `Declaring` → `!i`, `Method` → `!!j` — that the
+    /// typars are self-describing `TyTypar` nodes — `Declaring` → `!i`, `Method` → `!!j` — that the
     /// structural `encodeType` match resolves directly.
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = encodeType te t

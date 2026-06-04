@@ -8,10 +8,10 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.FreezeExpr
 
 // Type-declaration surfacing + the top-level `Elaborate.run` entry point: CST →
-// `TastFileG<SemType>`, inline-expanded, open typars quantified to `TempTypar` —
+// `TastFileG<SemType>`, inline-expanded, open typars quantified to `TyTypar` —
 // all still `SemType`. This is NOT the `SemType → FrozenType` freeze (that is the
-// `Freeze` module, the final pipeline step); renamed from `Freeze` in
-// frozen-type-plan 3B-4 to retire that naming bug. The expression / pattern
+// `Freeze` module, the final pipeline step); renamed from `Freeze` to
+// retire that naming bug. The expression / pattern
 // projection lives in FreezeExpr (opened above).
 //
 // Invariant: side tables can be discarded after this returns. The TAST is
@@ -44,8 +44,8 @@ module Elaborate =
             ValueNone
 
     /// Rewrite open typars (free `TyVar`s, by zonked root) to their frozen
-    /// `TempTypar` nodes (frozen-type-plan): `env` pairs each typar's zonked root
-    /// with its target `TempTypar(axis, index)`. Anything else passes through
+    /// `TyTypar` nodes: `env` pairs each typar's zonked root
+    /// with its target `TyTypar(axis, index)`. Anything else passes through
     /// unchanged — a leftover inference `TyVar` not in `env` stays a `TyVar`, which
     /// the backend rejects loudly (an unresolved-typar bug).
     let private remapDeclTypars (env: (TypeVar * SemType) list) (t: SemType) : SemType =
@@ -66,7 +66,7 @@ module Elaborate =
             | TyClass(n, args) -> TyClass(n, EqArray.map go args)
             | TyUnknown _ -> t
             // Already-frozen leaf (task #2 will make this remap produce it).
-            | TempTypar _ -> t
+            | TyTypar _ -> t
 
         go (Unification.zonk t)
 
@@ -82,7 +82,7 @@ module Elaborate =
             }
             e
 
-    /// Pair each declared typar's *zonked* root TyVar with the frozen `TempTypar`
+    /// Pair each declared typar's *zonked* root TyVar with the frozen `TyTypar`
     /// it remaps to: `axis` selects declaring (`!i`) vs method (`!!i`), and the
     /// index is the typar's position in its declaration list — the same index the
     /// backend's `GenericParam` rows use. Pinned typars (collapsed to a non-`TyVar`)
@@ -95,7 +95,7 @@ module Elaborate =
                 let (_, ptv) = typeParams.[i]
 
                 match Unification.zonk (TyVar ptv) with
-                | TyVar root -> yield (root, TempTypar(axis, i))
+                | TyVar root -> yield (root, TyTypar(axis, i))
                 | _ -> ()
         ]
 
@@ -104,8 +104,8 @@ module Elaborate =
 
     let private mkMethodTyparEnv (typeParams: EqArray<string * TypeVar>) = mkTyparEnv TyparAxis.Method typeParams
 
-    /// Quantify a module-`let`'s free type parameters into `TempTypar(Method, i)`
-    /// (frozen-type-plan 2B, Edge A): walk the declared (curried) type collecting
+    /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)`
+    /// : walk the declared (curried) type collecting
     /// each genuine free typar root in first-appearance pre-order — params left-to-
     /// right, then return — and pair it with its method-axis index. Mirrors
     /// `Inline.quantifiedTypars` / `EmitClosures.staticFnTypars`: a *linked* root
@@ -138,16 +138,16 @@ module Elaborate =
                 go a
                 go b
             | TyUnknown _
-            | TempTypar _ -> ()
+            | TyTypar _ -> ()
 
         go declTy
-        [ for i in 0 .. acc.Count - 1 -> acc.[i], TempTypar(TyparAxis.Method, i) ]
+        [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(TyparAxis.Method, i) ]
 
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and
     /// the body's synthesised `this` self-type: each declared typar zonked to its
-    /// root `TyVar`. `elaborate` keeps these in `TyVar` form (not `TempTypar`) so
+    /// root `TyVar`. `elaborate` keeps these in `TyVar` form (not `TyTypar`) so
     /// the whole tree stays metavar-shaped until the `freezeTypars` cut, which
-    /// remaps each root to `TempTypar(Declaring, i)` (frozen-type-plan 3A-0). The
+    /// remaps each root to `TyTypar(Declaring, i)`. The
     /// index `i` is the typar's declaration position — the same index
     /// `mkDeclTyparEnv` pairs the root with — so the round-trip is faithful.
     let private declTyparArgs (typeParams: EqArray<string * TypeVar>) : EqArray<SemType> =
@@ -156,7 +156,7 @@ module Elaborate =
     /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted
     /// `selfTy` and surface its *method-axis* typar roots so the caller folds them
     /// into the decl's freeze env. The signature / body / return types stay
-    /// verbatim — the `TyVar → TempTypar` cut is deferred to `freezeTypars`. Shared
+    /// verbatim — the `TyVar → TyTypar` cut is deferred to `freezeTypars`. Shared
     /// by the union / class member surfacers (they differ only in `selfTy`'s
     /// `TyUnion` vs `TyClass` head). `MethodTypeParams` is untouched (its roots feed
     /// the `GenericParam` rows and the header arity).
@@ -249,9 +249,9 @@ module Elaborate =
                 baseCtorCall |> ValueOption.map baseCtor
             )
 
-    /// The deferred typar cut (frozen-type-plan 3A-0). Walk every `SemType` in a
+    /// The deferred typar cut. Walk every `SemType` in a
     /// decl through `remapDeclTypars env`, rewriting the decl's open `TyVar` typars
-    /// to their `TempTypar(axis, index)` nodes. `env` is the decl's own quantified
+    /// to their `TyTypar(axis, index)` nodes. `env` is the decl's own quantified
     /// typar roots, collected by `elaborate` (the single index-minting point).
     /// `remapDeclTypars` zonks as it recurses, so an empty `env` is a pure
     /// zonk-rebuild — exactly the old monomorphic `remapDeclTypars []` path every
@@ -451,8 +451,8 @@ module Elaborate =
         : TTypeMember voption =
         // The instantiated self-type the synthesised `this` Var carries. Empty
         // typar list for a monomorphic class; the declaring typars ride as
-        // `TyVar` roots (not `TempTypar`), which `freezeTypars` cuts over the
-        // whole member body (frozen-type-plan 3A-0).
+        // `TyVar` roots (not `TyTypar`), which `freezeTypars` cuts over the
+        // whole member body.
         let classTy = TyClass(info.Key, declTyparArgs info.TypeParams)
 
         // `base` is in scope only when the class has an `inherit` clause; an
@@ -710,7 +710,7 @@ module Elaborate =
                 )
 
             // A generic union's members carry the declaring typars as `TyVar` roots
-            // in the self-type; `freezeTypars` later cuts them to `TempTypar`
+            // in the self-type; `freezeTypars` later cuts them to `TyTypar`
             // (`!0`), exactly like the case fields. Monomorphic unions
             // (`declTypars` empty) keep `translateUnionMember`'s `TyUnion(key, [])`
             // self-type untouched, so the path stays byte-identical.
@@ -812,7 +812,7 @@ module Elaborate =
             let markers = mkDeclTyparEnv info.TypeParams
             // The decl's freeze env: declaring typars plus every generic member's
             // method typars, accumulated as members are surfaced. `freezeTypars`
-            // applies it to the whole class decl, cutting `TyVar → TempTypar`.
+            // applies it to the whole class decl, cutting `TyVar → TyTypar`.
             let env = ResizeArray markers
 
             let ctorParams =
@@ -835,8 +835,8 @@ module Elaborate =
             // *or* the member itself is generic (method axis, B-12): stamp its
             // self-type and fold its method typars into the decl env, so
             // `freezeTypars` later flips both axes. A generic method on a
-            // *monomorphic* class still needs its `'C` cut to `TempTypar(Method, i)`,
-            // so it can't be skipped (frozen-type-plan 2E-1). For a mono type with a
+            // *monomorphic* class still needs its `'C` cut to `TyTypar(Method, i)`,
+            // so it can't be skipped. For a mono type with a
             // mono member, `selfTy = TyClass(key, [])` equals the member's existing
             // `ThisTy`, so leaving it verbatim is byte-identical.
             let needsRemap (m: TTypeMember) =
@@ -1052,9 +1052,9 @@ module Elaborate =
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
-                    // frozen-type-plan 2B/3A-0: a module-`let` compiled as a generic
+                    // A module-`let` compiled as a generic
                     // static method (or generic closure) carries its free typars as
-                    // `TempTypar(Method, i)`. The index order is minted once here
+                    // `TyTypar(Method, i)`. The index order is minted once here
                     // (Edge A order) as `quantEnv`, but the cut itself is deferred to
                     // `freezeTypars` — `elaborate` leaves the head pattern, value
                     // body, and declared type in `TyVar` form and just pairs the decl
@@ -1107,12 +1107,12 @@ module Elaborate =
             | ValueNone -> []
         | _ -> []
 
-    /// The first half of the split Freeze pass (frozen-type-plan 3A-0): translate
+    /// The first half of the split Freeze pass: translate
     /// the CST to a `TExpr` tree whose `.ty` fields are zonk'd `SemType`, still
-    /// `TyVar`-carrying (no `TempTypar`). Each decl is paired with the typar `env`
+    /// `TyVar`-carrying (no `TyTypar`). Each decl is paired with the typar `env`
     /// it quantifies — the declaring / method / static-fn typar roots, collected at
     /// this single index-minting point. `freezeTypars` consumes that `env` to make
-    /// the `TyVar → TempTypar` cut. (Step 3A-1 will slot the inline-expansion pass
+    /// the `TyVar → TyTypar` cut. (Step 3A-1 will slot the inline-expansion pass
     /// between `elaborate` and the freeze cut, where `zonk` / union-find are native;
     /// today nothing runs between them and the output is byte-identical to the old
     /// fused pass.)
@@ -1135,11 +1135,11 @@ module Elaborate =
             ]
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
-        // Split pass (frozen-type-plan 3A-0/3A-1): `elaborate` produces the
+        // Split pass: `elaborate` produces the
         // `TyVar`-carrying tree + per-decl typar envs; the `InlineExpansion` pass
         // then expands module-level inline call sites *before* the cut (where
         // `zonk` / union-find are native); `freezeTypars` makes the
-        // `TyVar → TempTypar` cut on each.
+        // `TyVar → TyTypar` cut on each.
         //
         // Cross-package inline bodies ride `ctx.Provider` directly: its
         // `TryLookupInlineBody` / `…ByName` members (keyed by the resolved

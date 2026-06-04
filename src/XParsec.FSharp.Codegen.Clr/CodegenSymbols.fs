@@ -2,8 +2,8 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// The codegen-facing adapter over the front end's `IExternalSymbolProvider`
-/// (external-signature-plan step 3). `ClrEnv` holds an `ICodegenSymbols` rather than the
+/// The codegen-facing adapter over the front end's `IExternalSymbolProvider`.
+/// `ClrEnv` holds an `ICodegenSymbols` rather than the
 /// full provider, so the emission code can no longer reach `Instantiate` / constraints /
 /// inline bodies — it sees only the type/member shapes (whose `FrozenType` templates it
 /// reads) and the open signature of a module-level function. This is the "dual view over

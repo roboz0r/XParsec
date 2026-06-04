@@ -47,7 +47,7 @@ module internal NominalEmit =
         let isGeneric = not td.TypeParams.IsEmpty
         // The declaring type's own typars as self-describing open-typar nodes
         // (`!i`), `i` = position in `TypeParams`. The codegen encoders resolve a
-        // `FTTypar(Declaring, i)` straight off the node (frozen-type-plan keystone),
+        // `FTTypar(Declaring, i)` straight off the node,
         // so these need no ambient typar window.
         let typarMarkers =
             [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
@@ -525,9 +525,9 @@ module internal NominalEmit =
         // own members keep their natural static/instance attrs.
         let emitMember (isIfaceImpl: bool) (mem: Frozen.TTypeMember) =
             // A *generic* member (B-12). Both its declaring-type typars and its own
-            // method typars now ride self-describing `TempTypar` nodes in the signature /
-            // locals / body (Freeze.remapMemberTypes remaps both axes — frozen-type-plan
-            // 2E-1), so no ambient typar window is installed; the encoder resolves them by
+            // method typars now ride self-describing `TyTypar` nodes in the signature /
+            // locals / body (Freeze.remapMemberTypes remaps both axes), so no ambient
+            // typar window is installed; the encoder resolves them by
             // index. `methodTypars` still feeds the `GENERIC` header arity and the
             // `GenericParam` rows below.
             let methodTypars = mem.MethodTypeParams

@@ -134,7 +134,7 @@ let forInTests =
                 Expect.isEmpty errors (sprintf "duck-typed for-in should type-check; got %A" errors)
             }
 
-            // vesper-seq-handoff.md (§Already landed) — constructing an external *generic*
+            // Constructing an external *generic*
             // class through the no-`new` sugar `ResizeArray<int>()`. `ResizeArray<'T>`
             // is the `Vesper.List` abbreviation `= System.Collections.Generic.List<'T>`
             // (now that contract extraction resolves the qualified BCL head against
@@ -162,12 +162,12 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "done" "empty ResizeArray yields no iterations"
             }
 
-            // frozen-type-plan 2C — a *generic external static method*
+            // A *generic external static method*
             // (`System.Linq.Enumerable.Take<TSource>(IEnumerable<TSource>, int)`,
             // the `truncate` blocker). Its method-owned `TSource` is no longer
-            // dropped at extraction: it rides as a baked `TempTypar(Method, 0)`
-            // through `BuildSignature`, the call site instantiates it to a fresh
-            // var (solved to `int` from the `Range` arg), and codegen mints a
+            // dropped at extraction: it rides as a baked `FTTypar(Method, 0)` in the
+            // member's `ExternalSignature` template, the call site instantiates it to
+            // a fresh var (solved to `int` from the `Range` arg), and codegen mints a
             // `MethodSpec Take<int>`. Iterating the (truncated) result proves the
             // whole path — including overload selection against the `(…, Range)`
             // sibling overload — resolves and runs.

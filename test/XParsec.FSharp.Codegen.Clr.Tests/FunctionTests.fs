@@ -63,7 +63,7 @@ let tests =
             // ---- inline expansion (former Slice3 anchors) --------------------
             yield
                 test "an inline binding keeps its template and expands its use site pre-freeze" {
-                    // frozen-type-plan 3A-1: the `let inline succ` template (decl 0)
+                    // the `let inline succ` template (decl 0)
                     // is retained verbatim, but the use site `succ 41` is now
                     // expanded *pre-freeze* by `InlineExpansion` — the call beta-
                     // reduces to a `Let` binding the argument 41 over `succ`'s

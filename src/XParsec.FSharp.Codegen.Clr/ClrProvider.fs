@@ -84,7 +84,7 @@ type ClrProvider
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
     /// `interface IEnumerable<'T>` (B-2, §5.3) carries its `'T` arg as a
-    /// `TempTypar(Declaring, i)` the encoder resolves to the declaring type's `!i`
+    /// `TyTypar(Declaring, i)` the encoder resolves to the declaring type's `!i`
     /// directly. Drives each class `InterfaceImpl` row's interface handle.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
@@ -94,7 +94,7 @@ type ClrProvider
     /// `IComparable`) references its `TypeRef` directly — the runtime rejects a
     /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
     /// structural-equality path uses the bare `IComparable` `TypeRef` for the same
-    /// reason). A generic interface arg encodes off its `TempTypar(Declaring, i)` node.
+    /// reason). A generic interface arg encodes off its `TyTypar(Declaring, i)` node.
     member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
@@ -137,9 +137,9 @@ type ClrProvider
 
     /// Enter / exit closure-typar mode around a generic closure's own ctor / Invoke /
     /// field-signature / locals / member-ref emission: the enclosing method's
-    /// `TempTypar(Method, i)` (which the closure body embeds) re-project onto the
-    /// closure *class*'s `GenericTypeParameter i` rather than `!!i` (frozen-type-plan
-    /// 2B). This is the only ambient typar mode that survives 2D.
+    /// `TyTypar(Method, i)` (which the closure body embeds) re-project onto the
+    /// closure *class*'s `GenericTypeParameter i` rather than `!!i`. This is the
+    /// only ambient typar mode that survives.
     member _.EnterClosureTyparScope() : unit = env.ClosureTyparMode <- true
 
     member _.ExitClosureTyparScope() : unit = env.ClosureTyparMode <- false

@@ -18,7 +18,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   Vesper.Option  — BUILDS (BCL-only) after the front-end + `unit`-repr fixes.
 //   Vesper.Result  — BUILDS (BCL-only) after the `unit`-repr fix.
 //   Vesper.Array   — front-end: indexed `arr.[i]` lookup unhandled in CstKeys.
-//   Vesper.Seq     — front-end: a `while`-loop body trips a CstKeys TODO.
+//   Vesper.Seq     — BUILDS (BCL-only)
 //
 // Out of scope here:
 //   - Vesper.Core / Vesper.List — proven (PackageBuildTests).
@@ -70,8 +70,7 @@ let tests =
             // "CstKeys.firstTokenOfExpr: TODO IndexedLookup" during Unification.
             ptest "Vesper.Array builds BCL-only (front-end: IndexedLookup CstKey)" { buildsBclOnly "Vesper.Array" }
 
-            // PENDING — the handoff's two gaps (vesper-seq-handoff.md) are CLOSED:
-            // the explicit-enumerator terminals `fold` / `reduce` / `toArray` now
+            // The explicit-enumerator terminals `fold` / `reduce` / `toArray` now
             // compile BCL-only. The metadata provider surfaces interface members
             // through base interfaces (so `source.GetEnumerator()` / `e.MoveNext()` /
             // `e.Current` / the `use` `IDisposable.Dispose` resolve against
@@ -79,10 +78,10 @@ let tests =
             // `Operators` contract, and the supporting backend gaps closed along the
             // way (value restriction on expansive lets, `while`/local-assignment IL,
             // `'T[]` type translation + SZArray encoding + array-return members). The
-            // The former blocker — `truncate`'s `Enumerable.Take<TSource>(…)`, a
+            // former blocker — `truncate`'s `Enumerable.Take<TSource>(…)`, a
             // *generic external static method* (method-owned typars) — now resolves:
-            // the method axis is carried as baked `TempTypar(Method, j)` through
-            // `BuildSignature`, instantiated at the call site, and emitted via a
-            // `MethodSpec` (frozen-type-plan 2C).
+            // the method axis is carried as baked `FTTypar(Method, j)` in the member's
+            // two-axis `ExternalSignature` template, instantiated at the call site,
+            // and emitted via a `MethodSpec`.
             test "Vesper.Seq builds BCL-only" { buildsBclOnly "Vesper.Seq" }
         ]

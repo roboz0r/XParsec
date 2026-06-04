@@ -77,7 +77,7 @@ module EmitLower =
 
         let rec go (defT: FrozenType) (actT: FrozenType) =
             match defT, actT with
-            // A freeze-quantified method typar (frozen-type-plan 2B): the index is on
+            // A freeze-quantified method typar: the index is on
             // the node, so the recovered instantiation is index-keyed. `act` may
             // itself be a `FTTypar(Method, j)` — the enclosing generic context's
             // typar — which the `MethodSpec` then encodes verbatim.
@@ -329,7 +329,7 @@ module EmitLower =
     ///
     /// Inline expansion (local + cross-package `let inline` splicing, beta
     /// reduction, `StaticOptimization` resolution) is no longer done here: it ran
-    /// pre-freeze in `Passes.InlineExpansion` (frozen-type-plan 3A-1), so the
+    /// pre-freeze in `Passes.InlineExpansion`, so the
     /// frozen decls reaching codegen carry no `External(inlineName)` call heads and
     /// no `StaticOptimization` nodes. Inline TEMPLATES (`TDeclG.Let(isInline)`) are
     /// still dropped here. What remains codegen-only is (1) eta-reifying an

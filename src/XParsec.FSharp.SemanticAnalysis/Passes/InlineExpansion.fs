@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-// The pre-freeze inline-expansion pass (frozen-type-plan 3A-1, beat a). Runs
+// The pre-freeze inline-expansion pass. Runs
 // between `Freeze.elaborate` and `Freeze.freezeTypars`, on the still
 // `TyVar`-carrying `TExpr` tree, where `zonk` / union-find are native. It
 // relocates module-level `let inline` expansion out of codegen
@@ -42,8 +42,8 @@ module InlineExpansion =
     /// Beta-reduce a curried lambda against its spine args, lowering each
     /// application to a `TExpr.Let` — mirrors `EmitLower.betaReduce`. Lambda count
     /// must match the spine-arg count for a fully applied call. Used to splice an
-    /// inline-first lambda parameter at a saturated use site (frozen-type-plan
-    /// 3A-3); the inline FUNCTION itself is reduced by `reduceApplication`, which
+    /// inline-first lambda parameter at a saturated use site;
+    /// the inline FUNCTION itself is reduced by `reduceApplication`, which
     /// peels the same way but classifies lambda params for elimination first.
     let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType) list) : TExpr =
         match fn, args with
@@ -60,7 +60,7 @@ module InlineExpansion =
     /// `NamedSimple` binders count: a destructuring lambda parameter (`fun (a, b)
     /// -> …`) is left at the abstraction below it, so a use that tries to
     /// saturate past it never matches the arity and the closure is kept (it would
-    /// otherwise trip `betaReduce`'s destructuring guard). frozen-type-plan 3A-3.
+    /// otherwise trip `betaReduce`'s destructuring guard).
     let rec private lambdaArity (e: TExpr) : int =
         match e with
         | TExpr.Lambda(TPat.NamedSimple _, body, _) -> 1 + lambdaArity body
@@ -73,8 +73,8 @@ module InlineExpansion =
     /// beta-reduces away and the closure vanishes; any other use — a bare `Var`
     /// (the lambda is stored or passed onward), a partial application, or an
     /// over-application — forces the parameter to survive as a real closure.
-    /// frozen-type-plan 3A-3 (the inline-first soundness condition: only a
-    /// fully-applied [<InlineIfLambda>]-style parameter is guaranteed to vanish).
+    /// The inline-first soundness condition: only a
+    /// fully-applied [<InlineIfLambda>]-style parameter is guaranteed to vanish.
     ///
     /// The walk mirrors the expansion walker's `App` rule exactly: collect the
     /// WHOLE spine at each `App` and never let `TastWalk`'s default recursion
@@ -150,7 +150,7 @@ module InlineExpansion =
         | TyUnion(_, xs)
         | TyClass(_, xs) -> EqArray.forall isGroundType xs
         | TyUnknown _ -> false
-        | TempTypar _ -> false
+        | TyTypar _ -> false
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
@@ -308,7 +308,7 @@ module InlineExpansion =
             // Build-wide monotone counter for freshened inline binders, in the
             // dedicated `SynthPreFreezeInline` space so a baked key can never
             // collide with the `SynthInlineExpansion` keys codegen's still-live
-            // eta-expansion mints (frozen-type-plan 3A-1).
+            // eta-expansion mints.
             let mutable counter = 0
 
             let mint () =
@@ -354,7 +354,7 @@ module InlineExpansion =
                 | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
                 | _ -> false
 
-            // Inline-first lambda elimination (frozen-type-plan 3A-3). A lambda
+            // Inline-first lambda elimination. A lambda
             // argument bound to an inline function's parameter and FULLY APPLIED
             // inside the body is inlined at each use so its closure never exists —
             // F#'s `[<InlineIfLambda>]` guarantee, taken unconditionally for any
@@ -414,7 +414,7 @@ module InlineExpansion =
                 // is walked here (its own inline heads expand); an inlined arg is
                 // dropped — the walker spliced + walked a fresh copy at each use.
                 //
-                // TODO(frozen-type-plan 3A-3, byref-capture half): a lambda arg
+                // TODO(byref-capture half): a lambda arg
                 // that lands here (NOT inlined — stored or partially applied) and
                 // captures a byref-like value (`Span`, `ReadOnlySpan`, any `ref
                 // struct`) is a real heap closure that cannot legally hold it.
@@ -462,7 +462,7 @@ module InlineExpansion =
                                 | TExpr.Var(k, _) when localInlines.ContainsKey k ->
                                     ValueSome(reduceApplication walk (expandLocalAt k spineArgs) spineArgs)
                                 // A saturated use of an inline-first lambda
-                                // parameter (frozen-type-plan 3A-3): splice a fresh
+                                // parameter: splice a fresh
                                 // copy of its bound lambda, beta-reduced against the
                                 // call args, and walk it (nested inline heads /
                                 // further lambda params resolve in the recursion).
@@ -497,7 +497,7 @@ module InlineExpansion =
             let walkExpr (e: TExpr) : TExpr = TastWalk.mapExpr mapper e
 
             // Expand the inlines embedded in every expression a type declaration
-            // carries (frozen-type-plan 3A-1 beat (b)): member bodies, `static let`
+            // carries: member bodies, `static let`
             // initialisers, secondary-ctor `let`s + chain args, and the
             // `inherit Base(args)` arguments. Mirrors `Freeze.freezeKind`'s
             // expr-bearing coverage, relocating codegen's

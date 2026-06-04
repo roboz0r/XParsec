@@ -12,15 +12,15 @@ module UnificationInferOverload =
 
     let rec semTypeEq (a: SemType) (b: SemType) : bool =
         match zonk a, zonk b with
-        // A generic method's own typar (`Take<TSource>` ⇒ `TempTypar(Method, _)`,
-        // baked into the open signature by `BuildSignature`) is unconstrained — it
-        // matches any argument during applicability filtering, so a generic
-        // external method resolves against concrete call-site types
-        // (frozen-type-plan 2C). The eventual instantiation is recovered by
+        // A generic method's own typar (`Take<TSource>` ⇒ `TyTypar(Method, _)`,
+        // kept as a wildcard in the open signature by `ExternalSymbols.openSignature`)
+        // is unconstrained — it matches any argument during applicability filtering,
+        // so a generic external method resolves against concrete call-site types.
+        // The eventual instantiation is recovered by
         // `tryInferExternalStaticMethodCall` (front end) / `recoverTypeArgs`
         // (codegen); here it is a wildcard at any structural depth.
-        | TempTypar(TyparAxis.Method, _), _
-        | _, TempTypar(TyparAxis.Method, _) -> true
+        | TyTypar(TyparAxis.Method, _), _
+        | _, TyTypar(TyparAxis.Method, _) -> true
         | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2
@@ -98,7 +98,7 @@ module UnificationInferOverload =
             | [| unique |] -> ValueSome unique
             | _ -> ValueNone
 
-    /// `FrozenType`-typed entry point for codegen (external-signature-plan step 4):
+    /// `FrozenType`-typed entry point for codegen:
     /// codegen's `externalCtor` re-runs the same-arity ctor pick on a `SemType`-free
     /// (`FrozenType`) basis. Overload resolution is inference, so it stays here and
     /// names `SemType` internally; the use-site type arguments / call-site arg types

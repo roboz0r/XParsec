@@ -65,11 +65,13 @@ type ForInEnumeratorG<'ty> =
     /// `MoveNext(): bool` and a `Current` property *without* the source
     /// implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`). The member
     /// `SymbolKey`s are the provider-interned identities (`GetEnumerator` on the
-    /// source; `MoveNext` / `Current` on `EnumeratorTy`). `IsValueType` selects
-    /// value-receiver emission (`ldloca` + `constrained.`/`call`); `Dispose` is
+    /// source; `MoveNext` / `Current` on `EnumeratorTy`). `IsValueType` is the
+    /// *enumerator*'s value-type-ness: it selects value-receiver emission for the
+    /// `EnumeratorTy` member calls (`ldloca` + `constrained.`/`call`); `Dispose` is
     /// `ValueSome key` iff `EnumeratorTy : IDisposable`, else the `finally` is
-    /// elided. **Scaffolding + front end only** — codegen value-type emission is
-    /// deferred to a dedicated session (see the §4.4 codegen handoff).
+    /// elided. Codegen for this arm has landed (`EmitExpr.fs`, §4.4). Still scoped
+    /// to *external* sources with a *reference* source receiver — a value-type
+    /// source and project-local sources remain gaps (`docs/get-enumerator-gaps.md`).
     | DuckTyped of
         enumeratorTy: 'ty *
         getEnumerator: SymbolKey *

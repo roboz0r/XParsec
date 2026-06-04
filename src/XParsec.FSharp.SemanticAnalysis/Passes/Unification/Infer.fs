@@ -1093,8 +1093,8 @@ module UnificationInfer =
     /// `SymbolKey` to `ExternalAccess` keyed on the member node where Freeze reads it.
     /// The chosen member's method-owned typars (`Take<TSource>`) are freshened to
     /// inference vars by `ExternalSymbols.instantiateSignature` so the argument
-    /// types drive their solution (external-signature-plan step 2; supersedes the
-    /// former `BuildSignature` + `instantiateMethodTypars` pair).
+    /// types drive their solution (superseding the former `BuildSignature` +
+    /// `instantiateMethodTypars` pair).
     and private tryInferExternalStaticMethodCall
         (ctx: PassContext)
         (key: NodeKey)
@@ -1132,7 +1132,7 @@ module UnificationInfer =
 
                     // Instantiate the method-owned typars (`Take<TSource>`) to fresh
                     // vars so the argument types drive their solution; a non-generic
-                    // overload is unchanged (frozen-type-plan 2C).
+                    // overload is unchanged.
                     let memberSig =
                         ExternalSymbols.instantiateSignature chosen typeArgs ctx.CurrentLevel
 

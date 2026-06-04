@@ -110,7 +110,7 @@ module internal AssemblerScaffold =
         | TMemberKind.Method -> mem.Name
 
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method. The
-    /// signature's open typars are self-describing `TempTypar` nodes (Freeze remaps the
+    /// signature's open typars are self-describing `TyTypar` nodes (Freeze remaps the
     /// declaring axis to `!i` and the method axis to `!!j`), encoded by the provider's
     /// `EncodeAbstractType` (the same `encodeType` the executable path uses).
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =

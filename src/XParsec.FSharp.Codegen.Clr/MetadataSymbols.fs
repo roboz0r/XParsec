@@ -61,7 +61,7 @@ module private MetadataMapping =
             // A declaring-type typar bakes as `FTTypar(Declaring, pos)` (the
             // consumer substitutes its pos-th declaring arg); a method-owned generic
             // parameter (`DeclaringMethod` set) lives on the *method* axis —
-            // `FTTypar(Method, pos)` (frozen-type-plan 2C). The method axis is
+            // `FTTypar(Method, pos)`. The method axis is
             // intrinsic to the member, so the position is fixed and the open node
             // rides straight through. A consumer instantiates it to a fresh
             // inference var per call site; codegen encodes it as `!!pos`.
@@ -118,8 +118,7 @@ module private MetadataMapping =
     /// The tupled member signature as `(Parameters, Return)` templates over the
     /// declaring type's typars. `None` if any parameter or the return type doesn't
     /// map. A generic method definition (`Take<TSource>`) is not skipped: its
-    /// method-owned typars bake as `FTTypar(Method, j)` through `tryBuildType`
-    /// (frozen-type-plan 2C).
+    /// method-owned typars bake as `FTTypar(Method, j)` through `tryBuildType`.
     let tryMethodSignature (m: MethodInfo) : (FrozenType * FrozenType) option =
         let paramTys =
             m.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)

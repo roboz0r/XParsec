@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 // The external-signature realiser oracle. The two-headed window is closed: every
 // external descriptor now carries ONLY its `FrozenType` template (the
 // `SemType[] -> SemType` closures that producers once derived templates from are
-// gone — semtype-scope-narrowing-plan). What remains load-bearing is that the
+// gone). What remains load-bearing is that the
 // production realisers correctly turn a template back into the `SemType` a use
 // site unifies against:
 //
@@ -19,10 +19,10 @@ open XParsec.FSharp.SemanticAnalysis
 //
 // Each case below is a HAND-WRITTEN template paired with the `SemType` it must
 // realise to on `groundArgs` — no closure derives the expected value, so the test
-// pins the realisers directly. (The end-to-end `translateTypeFrozen` path — CST to
+// pins the realisers directly. (The end-to-end `translateType` path — CST to
 // template — is covered by the package-corpus tests in `VesperLibTests`.)
 
-/// Ground (`TyVar`-free, `TempTypar`-free) types to substitute for declaring
+/// Ground (`TyVar`-free, `TyTypar`-free) types to substitute for declaring
 /// args, so `instantiate*` produces structurally-comparable `SemType`s (no
 /// reference-identity `TyVar` leaves to defeat `=`).
 let private groundArgs: SemType[] =

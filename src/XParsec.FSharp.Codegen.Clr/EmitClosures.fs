@@ -265,7 +265,7 @@ module EmitClosures =
 
         staticFns, eligible
 
-    /// A generic static method's type-parameter *count* (R3, frozen-type-plan 2B):
+    /// A generic static method's type-parameter *count* (R3):
     /// `freeze` quantified the module-`let`'s free typars to `FTTypar(Method, i)`
     /// (Edge A order: params left-to-right, then return), so the count is `max i + 1`
     /// over the method's parameter + result types — those positions reconstruct the

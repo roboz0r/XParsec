@@ -30,8 +30,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalMemberCache = Dictionary<string, EntityHandle>()
 
     /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
-    /// `void`-return fix) directly from the member's open `FrozenType` signature template
-    /// (external-signature-plan step 3): `paramsT` is the .NET-tupled argument slot and `retT` the
+    /// `void`-return fix) directly from the member's open `FrozenType` signature template:
+    /// `paramsT` is the .NET-tupled argument slot and `retT` the
     /// return, each carrying self-describing `FTTypar(Declaring, i)` / `FTTypar(Method, j)` placeholders
     /// the `encodeType` arm resolves to `!i` / `!!j` directly. Replaces running the legacy
     /// `BuildSignature` closure on marker typars then decurrying — the template already carries the
@@ -125,8 +125,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             FTFun(s.Parameters, s.Return)
 
     /// Mint the `MemberRef` for a `TExpr.ExternalMember` (P4). The member's *open* signature is read
-    /// from the (key-pinned, provider-cached) lookup over `TempTypar(Declaring, i)` markers — and, for a
-    /// generic method, with `TempTypar(Method, j)` baked in by `BuildSignature` (frozen-type-plan 2C).
+    /// from the (key-pinned, provider-cached) lookup over `FTTypar(Declaring, i)` markers — and, for a
+    /// generic method, with `FTTypar(Method, j)` baked into the member's `ExternalSignature` template.
     /// Both axes' use-site instantiations are recovered by matching that open form against `memberTy`:
     /// the declaring args parameterise the parent `TypeSpec`; the method args (if any) the `MethodSpec`.
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: FrozenType) : EntityHandle =
@@ -253,7 +253,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let parent = externalTypeSpec tref args
 
             // The fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
-            // descriptor template — no closure run on marker typars (external-signature-plan step 3).
+            // descriptor template — no closure run on marker typars.
             let paramTys = [ for f in fields -> f.Frozen ]
 
             let s = BlobBuilder()
@@ -295,7 +295,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 // The case fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
                 // descriptor template; the return type is the union itself over the same open markers, so
-                // the signature matches the emitted generic factory (external-signature-plan step 3).
+                // the signature matches the emitted generic factory.
                 let paramTys = List.ofArray case.FrozenFieldTypes
 
                 let retTy =
@@ -362,7 +362,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob so it
                 // matches the generic field definition; `substituteDeclaring` substitutes the use-site
-                // args for the returned (use-site) `FrozenType` (external-signature-plan step 4).
+                // args for the returned (use-site) `FrozenType`.
                 let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
 
                 let s = BlobBuilder()
@@ -419,7 +419,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 // The ctor's parameters in their *open* (`FTTypar(Declaring, i)`) form, read off the
                 // descriptor template's single tupled `Parameters` slot and flattened by the chosen key's
-                // `argSig` length, exactly as `mintMemberRef` does (external-signature-plan step 3).
+                // `argSig` length, exactly as `mintMemberRef` does.
                 let paramTys =
                     match chosen.Signature.Parameters with
                     | FTConst("unit", _) -> []
@@ -467,7 +467,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob;
                 // `substituteDeclaring` substitutes the use-site args for the returned (use-site)
-                // `FrozenType` a subsequent `FieldGet` encode expects (external-signature-plan step 4).
+                // `FrozenType` a subsequent `FieldGet` encode expects.
                 let openFieldTy = field.Frozen
 
                 let s = BlobBuilder()

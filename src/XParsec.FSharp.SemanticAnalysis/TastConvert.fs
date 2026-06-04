@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Cross-type structural rebuild of the TAST term/declaration cluster: maps every
 // embedded `.ty` field through `f`, producing a tree at a *different* type
 // parameter (`TExprG<'a> -> TExprG<'b>`). This is the engine behind the genuine
-// freeze (`Freeze.run = TastConvert.file toFrozen`, frozen-type-plan 3B-4) and its
+// freeze (`Freeze.run = TastConvert.file toFrozen`) and its
 // inverse bridge (`TastConvert.file ofFrozen`).
 //
 // Distinct from `TastWalk`, whose `Mapper` is same-`'ty` (it rewrites a tree in
@@ -16,7 +16,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // side maps, AND two fields that are deliberately not `'ty`-typed —
 // `TTypeMemberG.MethodTypeParams : EqArray<string * TypeVar>` (its `TypeVar` roots
 // only feed the GenericParam row names + arity post-freeze; the body's open typars
-// already rode `TempTypar`) and `TStaticOptClauseG.Constraints :
+// already rode `TyTypar`) and `TStaticOptClauseG.Constraints :
 // EqArray<TStaticOptConstraint>` (no `StaticOptimization` survives the inline pass,
 // so these never reach the frozen tree in practice).
 

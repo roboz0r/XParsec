@@ -25,9 +25,9 @@ module EmitTypes =
             SelfKey: NodeKey voption
             /// `> 0` ⇒ a *generic* closure (C3): the number of typars the enclosing
             /// static method (or enclosing closure) declares, inherited verbatim at
-            /// this closure's discovery point (frozen-type-plan 2B). Its
+            /// this closure's discovery point. Its
             /// `TypeDefinition` carries that many `GenericParam` rows; its signatures
-            /// encode the body's `TempTypar(Method, i)` as the closure *class*'s `!i`
+            /// encode the body's `TyTypar(Method, i)` as the closure *class*'s `!i`
             /// (via `ClrEnv.ClosureTyparMode`); and the construction site `Newobj`s a
             /// `MemberRef` on the instantiated `TypeSpec`.
             Typars: int
@@ -127,7 +127,7 @@ module EmitTypes =
     /// body is built (the `MethodDefinition` handle is predicted from row order).
     /// A call site `f a b` `call`s `Handle` with the first `Arity` args, then
     /// `Invoke`s the result with any remainder. A generic method carries its typar
-    /// *count* and declared `ParamTys` (which embed `TempTypar(Method, i)`): the
+    /// *count* and declared `ParamTys` (which embed `TyTypar(Method, i)`): the
     /// call site recovers the instantiation by matching `ParamTys` against the
     /// actual argument types by typar index and `call`s a `MethodSpec`. `Typars = 0`
     /// ⇒ monomorphic (a plain `call`).

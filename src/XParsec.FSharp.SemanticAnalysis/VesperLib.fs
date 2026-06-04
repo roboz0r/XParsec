@@ -12,9 +12,9 @@ open VesperLibTypeTranslate
 ///
 /// The module is split across `VesperLib\Manifest.fs` (the bucket / file
 /// loader), `VesperLib\TyparCapture.fs` (typar + constraint collectors plus
-/// `ExtractCtx`), `VesperLib\TypeTranslate.fs` (CST → `SemBuilder` /
-/// `FrozenType` translations and the `when`-clause capture), and this file
-/// (val-sig / type-sig / module-walker driver, the deferred-body finalize pass,
+/// `ExtractCtx`), `VesperLib\TypeTranslate.fs` (the single CST → `FrozenType`
+/// translation and the `when`-clause capture), and this file (val-sig /
+/// type-sig / module-walker driver, the deferred-body/member/val finalize pass,
 /// plus the cached provider). External callers consume the public
 /// surface through `VesperLib.*` — type aliases / re-exports below.
 ///
@@ -35,15 +35,17 @@ module VesperLib =
 
     type ExtractCtx = VesperLibTyparCapture.ExtractCtx
 
-    /// Translate a stashed body-type CST to its `FrozenType` template, degrading a
-    /// genuinely body-less head (one that raises `BodylessExternalShape` inside
-    /// `mkNominalFrozen`) — and the can't-happen residual structural `Error` (the
-    /// CST already passed `translateType` at extraction) — to `FTUnknown`. The
-    /// `FrozenType`-native replacement for the deleted
-    /// `ExternalSymbols.freezeTemplateTolerant`.
+    /// Translate a stashed body-type CST to its `FrozenType` template, degrading the
+    /// whole field to `FTUnknown` in two tolerated cases: a genuinely body-less head
+    /// (one that raises `BodylessExternalShape` inside `mkNominal`) and an
+    /// unsupported structural form (`Error`). A typar reference beyond the type's
+    /// declaring arity is NOT screened here — `instantiateDeclaring` degrades such an
+    /// out-of-range leaf to `TyUnknown` on its own at use time, so the rest of the
+    /// field's structure survives (a per-leaf degrade, finer than the old per-type
+    /// `bodyTyparsOk` whole-type Opaque downgrade).
     let private freezeBodyType (ctx: ExtractCtx) (dc: DeferredCtx) (cst: Type<SyntaxToken>) : FrozenType =
         try
-            match translateTypeFrozen ctx dc.Lexed dc.Input dc.Opens dc.Typars (ConstraintCollector()) cst with
+            match translateType ctx dc.Lexed dc.Input dc.Opens dc.Typars (ConstraintCollector()) cst with
             | Ok ft -> ft
             | Error _ -> ExternalSymbols.unfreezable
         with BodylessExternalShape _ ->
@@ -51,70 +53,297 @@ module VesperLib =
 
     /// Translate a stashed member-signature CST to its two-axis `ExternalSignature`
     /// template, splitting the head `FTFun(params, ret)` (or treating the whole
-    /// result as the value, for a property) exactly as the deleted
-    /// `ExternalSignature.ofClosure` did. A body-less head degrades to
-    /// `unit -> FTUnknown`. The `FrozenType`-native replacement for the deleted
-    /// `ExternalSymbols.signatureOfClosureTolerant`.
+    /// result as the value, for a property). `ValueNone` means **drop the member**,
+    /// preserving the extraction-time skip the old closure walk applied: an
+    /// unsupported structural form (`Error`) or a signature that pulls in typars
+    /// beyond the declaring type's own (`maxDeclaringIndex >= declaringArity` — it
+    /// can't be instantiated from the receiver's declaring args alone). A genuinely
+    /// body-less head (`BodylessExternalShape`) is kept but degraded to
+    /// `unit -> FTUnknown`, matching the prior finalize tolerance.
     let private freezeMemberSig
         (ctx: ExtractCtx)
         (isProperty: bool)
         (declaringArity: int)
         (methodArity: int)
         (dm: DeferredMember)
-        : ExternalSignature =
+        : ExternalSignature voption =
         let dc = dm.Ctx
 
-        let frozen =
+        let bodyless =
+            ValueSome
+                {
+                    DeclaringArity = declaringArity
+                    MethodArity = methodArity
+                    Parameters = FTConst("unit", EqArray.empty)
+                    Return = ExternalSymbols.unfreezable
+                }
+
+        try
+            match translateCurriedSig ctx dc.Lexed dc.Input dc.Opens dc.Typars (ConstraintCollector()) dm.Signature with
+            // A sig naming a typar beyond the type's declaring arity can't be
+            // realised from the receiver's args — drop, as extraction once did.
+            | Ok frozen when FrozenTypeBridge.maxDeclaringIndex frozen >= declaringArity -> ValueNone
+            | Ok frozen ->
+                let parameters, ret =
+                    if isProperty then
+                        FTConst("unit", EqArray.empty), frozen
+                    else
+                        match frozen with
+                        | FTFun(p, r) -> p, r
+                        // A non-property member whose sig isn't a `FTFun` is folded as
+                        // a nullary value rather than fabricating a parameter slot.
+                        | other -> FTConst("unit", EqArray.empty), other
+
+                ValueSome
+                    {
+                        DeclaringArity = declaringArity
+                        MethodArity = methodArity
+                        Parameters = parameters
+                        Return = ret
+                    }
+            | Error _ -> ValueNone
+        with BodylessExternalShape _ ->
+            bodyless
+
+    /// Resolve a `RawConstraint`'s typar names against the val's typar collector,
+    /// dropping entries that reference an undeclared typar. `Trait` entries fold to
+    /// an index + kind; `MemberTrait` / `Default` / `Coercion` translate their
+    /// target `Type<SyntaxToken>` to a `FrozenType` template over the val's
+    /// declaring typars (the same indexing the val signature uses), realised at
+    /// instantiation time via `instantiateDeclaring`. Entries whose target fails
+    /// translation silently drop — the constraint would be unusable at Instantiate
+    /// anyway. Runs in the finalize pass, so the registry is complete.
+    let private resolveConstraints
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (input: string)
+        (opens: string list)
+        (typars: TyparCollector)
+        (raw: RawConstraint list)
+        : ExternalConstraint list =
+        // Sink for any constraints a target type carries (exotic, not surfaced).
+        let throwaway = ConstraintCollector()
+
+        // A target naming a body-less (`Opaque`) type raises `BodylessExternalShape`;
+        // fold it to `Error` so the constraint drops rather than aborting the build
+        // (the prior closure path deferred the raise past resolution).
+        let translate t =
             try
-                match
-                    translateCurriedSigFrozen
-                        ctx
-                        dc.Lexed
-                        dc.Input
-                        dc.Opens
-                        dc.Typars
-                        (ConstraintCollector())
-                        dm.Signature
-                with
-                | Ok ft -> ValueSome ft
-                | Error _ -> ValueNone
+                translateType ctx lexed input opens typars throwaway t
             with BodylessExternalShape _ ->
-                ValueNone
+                Error "body-less target"
 
-        match frozen with
-        | ValueNone ->
-            {
-                DeclaringArity = declaringArity
-                MethodArity = methodArity
-                Parameters = FTConst("unit", EqArray.empty)
-                Return = ExternalSymbols.unfreezable
-            }
-        | ValueSome frozen ->
-            let parameters, ret =
-                if isProperty then
-                    FTConst("unit", EqArray.empty), frozen
+        raw
+        |> List.choose (fun rc ->
+            match rc with
+            | RawConstraint.Trait(n, kind) ->
+                match typars.TryIndexOf n with
+                | ValueSome i -> Some(ExternalConstraint.Trait(i, kind))
+                | ValueNone -> None
+            | RawConstraint.MemberTrait(names, memberName, argTys, retTy) ->
+                let indexBuf = ResizeArray<int>(List.length names)
+
+                for n in names do
+                    match typars.TryIndexOf n with
+                    | ValueSome i -> indexBuf.Add i
+                    | ValueNone -> ()
+
+                if indexBuf.Count = 0 then
+                    None
                 else
-                    match frozen with
-                    | FTFun(p, r) -> p, r
-                    // A non-property member whose sig isn't a `FTFun` is folded as a
-                    // nullary value rather than fabricating a parameter slot.
-                    | other -> FTConst("unit", EqArray.empty), other
+                    // Any translation failure drops the whole entry — better to
+                    // under-stamp the trait than to mis-stamp it.
+                    let mutable failed = false
+                    let argFts = ResizeArray<FrozenType>(argTys.Length)
 
-            {
-                DeclaringArity = declaringArity
-                MethodArity = methodArity
-                Parameters = parameters
-                Return = ret
-            }
+                    for t in argTys do
+                        if not failed then
+                            match translate t with
+                            | Error _ -> failed <- true
+                            | Ok ft -> argFts.Add ft
 
-    /// Freeze the deferred body / member CSTs stashed during extraction into the
-    /// shapes' `FrozenType` templates, in place, once the registry is complete
-    /// (semtype-scope-narrowing-plan). A body may forward-reference a type declared
-    /// later in the package, so this can only run after every shape is registered.
-    /// `VesperLib.ExtractCtx.toProvider` runs it before lifting the context to a
-    /// provider. The shape iteration mutates `ctx.TypeShapes` in place so an
-    /// abbreviation referenced by an already-processed type expands against its
-    /// (possibly still-deferred) entry exactly as the prior closure pass did.
+                    if failed then
+                        None
+                    else
+                        match translate retTy with
+                        | Error _ -> None
+                        | Ok retFt ->
+                            Some(
+                                ExternalConstraint.MemberTrait(
+                                    EqArray.ofResizeArray indexBuf,
+                                    memberName,
+                                    argFts.ToArray(),
+                                    retFt
+                                )
+                            )
+            | RawConstraint.Default(n, target) ->
+                match typars.TryIndexOf n with
+                | ValueNone -> None
+                | ValueSome i ->
+                    match translate target with
+                    | Error _ -> None
+                    | Ok ft -> Some(ExternalConstraint.Default(i, ft))
+            | RawConstraint.Coercion(n, target) ->
+                match typars.TryIndexOf n with
+                | ValueNone -> None
+                | ValueSome i ->
+                    match translate target with
+                    | Error _ -> None
+                    | Ok ft -> Some(ExternalConstraint.Coercion(i, ft))
+        )
+
+    /// Build a val symbol's `Instantiate : level -> SemType` from its `FrozenType`
+    /// template and resolved constraints. A monomorphic val realises the template
+    /// once; a polymorphic val mints fresh `TyVar`s at `level` (indexed by declaring
+    /// typar), stamps each constraint onto the participating fresh vars, and realises
+    /// the template against them via `instantiateDeclaring`. Constraint targets are
+    /// realised against the SAME fresh array, so a self-referential `'e :> 'f`
+    /// resolves. The four constraint kinds are applied in fixed groups (trait →
+    /// default → SRTP → coercion), matching the prior closure path. Every constraint
+    /// index came from `resolveConstraints`'s `typars.TryIndexOf` against the same
+    /// collector whose `.Count` is `typarCount`, so it always lands in `freshTvs`.
+    let private makeInstantiate
+        (typarCount: int)
+        (template: FrozenType)
+        (resolved: ExternalConstraint list)
+        : int -> SemType =
+        let inst ft fresh =
+            FrozenTypeBridge.instantiateDeclaring ft fresh
+
+        if typarCount = 0 then
+            let semType = inst template [||]
+            fun _ -> semType
+        else
+            fun level ->
+                let freshTvs =
+                    Array.init
+                        typarCount
+                        (fun _ ->
+                            let tv = TypeVar()
+                            tv.Level <- level
+                            tv
+                        )
+
+                let fresh = freshTvs |> Array.map TyVar
+
+                for c in resolved do
+                    match c with
+                    // External symbols carry no source-side NodeKey; stamp `Unknown`
+                    // so diagnostics attribute the constraint to the use site.
+                    | ExternalConstraint.Trait(i, kind) ->
+                        let cstr: SemanticConstraint =
+                            {
+                                Kind = kind
+                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                            }
+
+                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+                    | _ -> ()
+
+                // Defaults accumulate newest-last so source order is preserved when
+                // generalisation later walks the list for the first concrete shape.
+                for c in resolved do
+                    match c with
+                    | ExternalConstraint.Default(i, target) ->
+                        let tv = freshTvs.[i]
+                        tv.Defaults <- tv.Defaults @ [ inst target fresh ]
+                    | _ -> ()
+
+                // Shared `Resolved` ref dedupes dispatch: whichever participating
+                // typar resolves first runs the drain; the others see it flipped.
+                for c in resolved do
+                    match c with
+                    | ExternalConstraint.MemberTrait(idxs, mName, argFts, retFt) ->
+                        let sig_: MemberSignature =
+                            {
+                                MemberName = mName
+                                ArgTypes = EqArray.ofSeq (seq { for ft in argFts -> inst ft fresh })
+                                ReturnType = inst retFt fresh
+                                Resolved = false
+                            }
+
+                        for i in idxs do
+                            freshTvs.[i].SrtpBounds <- sig_ :: freshTvs.[i].SrtpBounds
+                    | _ -> ()
+
+                for c in resolved do
+                    match c with
+                    | ExternalConstraint.Coercion(i, target) ->
+                        let cstr: SemanticConstraint =
+                            {
+                                Kind = SemanticConstraintKind.Coercion(inst target fresh)
+                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                            }
+
+                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+                    | _ -> ()
+
+                inst template fresh
+
+    /// Finalize one stashed `val`: translate its signature CST to a `FrozenType`
+    /// template, resolve its `when` clauses, build the complete `ExternalSymbol`, and
+    /// register it (plus, for a `ModuleSuffix` module, the source-name alias). Runs in
+    /// the finalize pass, so the registry is complete and a forward-referenced type
+    /// resolves. A signature that names a body-less (`Opaque`) type — `mkNominal`
+    /// raises `BodylessExternalShape` — or fails structurally is dropped to
+    /// `ctx.Skipped` rather than minting a placeholder or aborting the build (the old
+    /// closure path deferred that raise to use time; here it's a per-val skip).
+    let private finalizeVal (ctx: ExtractCtx) (dv: DeferredVal) : unit =
+        let dc = dv.Ctx
+        let constraints = ConstraintCollector()
+
+        let translated =
+            try
+                translateCurriedSig ctx dc.Lexed dc.Input dc.Opens dc.Typars constraints dv.Signature
+            with BodylessExternalShape compiled ->
+                Error(sprintf "signature names body-less type '%s'" compiled)
+
+        match translated with
+        | Error e ->
+            // Skip so unresolved names don't masquerade as opaque TyConsts.
+            // Per-val skips go to `Skipped`, not `Diagnostics`.
+            ctx.Skipped.Add(dv.File, sprintf "%s: %s" dv.Compiled e)
+        | Ok template ->
+            let typarCount = dc.Typars.Count
+
+            let resolved =
+                resolveConstraints ctx dc.Lexed dc.Input dc.Opens dc.Typars (constraints.Snapshot())
+
+            let sym: ExternalSymbol =
+                {
+                    Name = dv.Compiled
+                    Instantiate = makeInstantiate typarCount template resolved
+                    Constraints = resolved
+                    Origin = SymbolOrigin.Empty
+                    Key = SymbolKeyOps.valueKeyOf None dv.Compiled
+                }
+
+            ctx.Symbols.[dv.Compiled] <- sym
+
+            // Source-name alias for a `ModuleSuffix` module's members
+            // (`List.fold` alongside the compiled `ListModule.fold`); only when
+            // it differs and nothing already claims it (first registration wins).
+            // The alias keeps the SAME compiled-name key — both forms denote one
+            // symbol identity; `stack`'s stampSymbol re-mints with the wrapping
+            // package's assembly, so this default never leaks past `wrap`.
+            match dv.Source with
+            | ValueSome source when source <> dv.Compiled && not (ctx.Symbols.ContainsKey source) ->
+                ctx.Symbols.[source] <-
+                    { sym with
+                        Name = source
+                        Key = SymbolKeyOps.valueKeyOf None dv.Compiled
+                    }
+            | _ -> ()
+
+    /// Freeze the deferred body / member / val CSTs stashed during extraction into
+    /// `FrozenType` templates, in place, once the registry is complete.
+    /// A body / val may forward-reference a type
+    /// declared later in the package, so this can only run after every shape is
+    /// registered. `VesperLib.ExtractCtx.toProvider` runs it before lifting the
+    /// context to a provider. Order matters: type-shape bodies first (an
+    /// abbreviation referenced by a later body / member / val expands against its
+    /// finalized entry), then members, then vals. The shape iteration mutates
+    /// `ctx.TypeShapes` in place.
     let finalizeDeferred (ctx: ExtractCtx) : unit =
         let shapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
 
@@ -149,20 +378,32 @@ module VesperLib =
 
             ctx.TypeShapes.[k] <- finalized
 
-        for kv in ctx.TypeMembers do
-            let members = kv.Value
+        // Snapshot the keys: a member list is rebuilt (dropped members removed) and
+        // written back, so we can't enumerate the dictionary while mutating it.
+        let memberKeys = ctx.TypeMembers.Keys |> Seq.toArray
 
-            match ctx.DeferredMembers.TryGetValue kv.Key with
+        for key in memberKeys do
+            match ctx.DeferredMembers.TryGetValue key with
             | true, deferred ->
+                let members = ctx.TypeMembers.[key]
+                let kept = ResizeArray<ExternalMember>(members.Count)
+
                 for i in 0 .. members.Count - 1 do
                     let m = members.[i]
                     let s = m.Signature
 
-                    members.[i] <-
-                        { m with
-                            Signature = freezeMemberSig ctx m.IsProperty s.DeclaringArity m.MethodArity deferred.[i]
-                        }
+                    match freezeMemberSig ctx m.IsProperty s.DeclaringArity m.MethodArity deferred.[i] with
+                    | ValueSome sign -> kept.Add { m with Signature = sign }
+                    | ValueNone -> ()
+
+                ctx.TypeMembers.[key] <- kept
             | _ -> ()
+
+        // Vals last: a val signature / constraint target may name an abbreviation,
+        // record, or union whose template the loops above just filled. Source order
+        // is preserved so the `ModuleSuffix` source-name alias stays first-wins.
+        for dv in ctx.DeferredVals do
+            finalizeVal ctx dv
 
     module ExtractCtx =
         let empty = VesperLibTyparCapture.ExtractCtx.empty
@@ -208,173 +449,6 @@ module VesperLib =
             else
                 ValueSome(qualifier + "." + n)
 
-    /// Resolve a `RawConstraint`'s typar names against the val's typar
-    /// collector, dropping entries that reference an undeclared typar.
-    /// `Trait` and `MemberTrait` entries fold to opaque markers; `Default`
-    /// entries translate their target `Type<SyntaxToken>` through the same
-    /// `translateType` path the val signature used, so the default's RHS
-    /// resolves typar references through the same indexing scheme.
-    /// Entries whose target fails translation (e.g. references an unknown
-    /// type name) silently drop — the default would be unusable in
-    /// Instantiate anyway.
-    let private resolveConstraints
-        (ctx: ExtractCtx)
-        (lexed: Lexed)
-        (input: string)
-        (opens: string list)
-        (typars: TyparCollector)
-        (raw: RawConstraint list)
-        : ExternalConstraint list =
-        // Sink for any constraints a target type carries (exotic, not
-        // surfaced on the symbol).
-        let throwaway = ConstraintCollector()
-
-        raw
-        |> List.choose (fun rc ->
-            match rc with
-            | RawConstraint.Trait(n, kind) ->
-                match typars.TryIndexOf n with
-                | ValueSome i -> Some(ExternalConstraint.Trait(i, kind))
-                | ValueNone -> None
-            | RawConstraint.MemberTrait(names, memberName, argTys, retTy) ->
-                let indexBuf = ResizeArray<int>(List.length names)
-
-                for n in names do
-                    match typars.TryIndexOf n with
-                    | ValueSome i -> indexBuf.Add i
-                    | ValueNone -> ()
-
-                if indexBuf.Count = 0 then
-                    None
-                else
-                    // Any translation failure drops the whole entry — better
-                    // to under-stamp the trait than to mis-stamp it.
-                    let mutable failed = false
-                    let argBuilders = ResizeArray<SemBuilder>(argTys.Length)
-
-                    for t in argTys do
-                        if not failed then
-                            match translateType ctx lexed input opens typars throwaway t with
-                            | Error _ -> failed <- true
-                            | Ok b -> argBuilders.Add b
-
-                    if failed then
-                        None
-                    else
-                        match translateType ctx lexed input opens typars throwaway retTy with
-                        | Error _ -> None
-                        | Ok retBuilder ->
-                            Some(
-                                ExternalConstraint.MemberTrait(
-                                    EqArray.ofResizeArray indexBuf,
-                                    memberName,
-                                    argBuilders.ToArray(),
-                                    retBuilder
-                                )
-                            )
-            | RawConstraint.Default(n, target) ->
-                match typars.TryIndexOf n with
-                | ValueNone -> None
-                | ValueSome i ->
-                    match translateType ctx lexed input opens typars throwaway target with
-                    | Error _ -> None
-                    | Ok builder -> Some(ExternalConstraint.Default(i, builder))
-            | RawConstraint.Coercion(n, target) ->
-                match typars.TryIndexOf n with
-                | ValueNone -> None
-                | ValueSome i ->
-                    match translateType ctx lexed input opens typars throwaway target with
-                    | Error _ -> None
-                    | Ok builder -> Some(ExternalConstraint.Coercion(i, builder))
-        )
-
-
-    let private instantiate
-        typarCount
-        build
-        traitConstraints
-        defaultConstraints
-        (memberTraitConstraints: list<EqArray<int> * string * SemBuilder[] * SemBuilder>)
-        coercionConstraints
-        =
-        if typarCount = 0 then
-            let semType = build [||]
-            fun _ -> semType
-        else
-            fun level ->
-                let freshTvs =
-                    Array.init
-                        typarCount
-                        (fun _ ->
-                            let tv = TypeVar()
-                            tv.Level <- level
-                            tv
-                        )
-
-                let fresh = freshTvs |> Array.map TyVar
-
-                for (i, kind) in traitConstraints do
-                    if i >= 0 && i < freshTvs.Length then
-                        // External symbols carry no source-side
-                        // NodeKey; stamp `Unknown` so diagnostics
-                        // attribute the constraint to the use site.
-                        let cstr: SemanticConstraint =
-                            {
-                                Kind = kind
-                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                            }
-
-                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
-
-                // Defaults accumulate newest-last so source
-                // order is preserved when generalisation later
-                // walks the list for the first concrete shape.
-                for (i, builder) in defaultConstraints do
-                    if i >= 0 && i < freshTvs.Length then
-                        let target = builder fresh
-                        let tv = freshTvs.[i]
-                        tv.Defaults <- tv.Defaults @ [ target ]
-
-                // Shared `Resolved` ref dedupes dispatch:
-                // whichever participating typar resolves first
-                // runs the drain; the others see it flipped and
-                // skip.
-                for (idxs, mName, argBs, retB) in memberTraitConstraints do
-                    let argTyBuf = ResizeArray<SemType>(argBs.Length)
-
-                    for b in argBs do
-                        argTyBuf.Add(b fresh)
-
-                    let retTy = retB fresh
-
-                    let sig_: MemberSignature =
-                        {
-                            MemberName = mName
-                            ArgTypes = EqArray.ofResizeArray argTyBuf
-                            ReturnType = retTy
-                            Resolved = false
-                        }
-
-                    for i in idxs do
-                        if i >= 0 && i < freshTvs.Length then
-                            let tv = freshTvs.[i]
-                            tv.SrtpBounds <- sig_ :: tv.SrtpBounds
-
-                // The target is built against the SAME fresh array,
-                // so a self-referential `'e :> 'f` resolves too.
-                for (i, builder) in coercionConstraints do
-                    if i >= 0 && i < freshTvs.Length then
-                        let cstr: SemanticConstraint =
-                            {
-                                Kind = SemanticConstraintKind.Coercion(builder fresh)
-                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                            }
-
-                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
-
-                build fresh
-
-
     let private extractValSig
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -400,105 +474,30 @@ module VesperLib =
             match compiledNameForVal lexed input path attrs ident with
             | ValueNone -> ()
             | ValueSome compiled ->
+                // Stash only: the signature is translated, its constraints resolved,
+                // and the `ExternalSymbol` built in `finalizeDeferred`, once the
+                // registry is complete (the signature / a constraint target may
+                // forward-reference a type declared later in the package). The
+                // collector is seeded with the val's explicit `<'T>` typars here so
+                // the finalize walk reads the same indices for them; it interns the
+                // remaining body typars and captures the `when` clauses.
                 let collector = TyparCollector()
                 registerExplicitTypars lexed input collector typars
-                let constraints = ConstraintCollector()
 
-                match translateCurriedSig ctx lexed input opens collector constraints signature with
-                | Error e ->
-                    // Skip so unresolved names don't masquerade as opaque
-                    // TyConsts. Per-val skips go to `Skipped`, not
-                    // `Diagnostics` (reserved for file-level parse failures).
-                    ctx.Skipped.Add(file, sprintf "%s: %s" compiled e)
-                | Ok build ->
-                    let typarCount = collector.Count
-
-                    let resolved =
-                        resolveConstraints ctx lexed input opens collector (constraints.Snapshot())
-
-                    // Trait-style entries are applied at instantiation time;
-                    // everything else stays on the symbol for diagnostics.
-                    let traitConstraints =
-                        resolved
-                        |> List.choose (fun c ->
-                            match c with
-                            | ExternalConstraint.Trait(i, k) -> Some(i, k)
-                            | _ -> None
-                        )
-
-                    // Applied at instantiation time so the source TyVar's
-                    // `Defaults` list carries the resolved target;
-                    // generalisation walks the list when a TyVar is still free
-                    // and links it to the first concrete shape.
-                    let defaultConstraints =
-                        resolved
-                        |> List.choose (fun c ->
-                            match c with
-                            | ExternalConstraint.Default(i, builder) -> Some(i, builder)
-                            | _ -> None
-                        )
-
-                    // Stamped on every participating fresh TyVar's `SrtpBounds`;
-                    // `Unification.drainSrtpBounds` fires the first time any of
-                    // them gets a `Link`, sharing a `Resolved` ref so the others
-                    // no-op.
-                    let memberTraitConstraints =
-                        resolved
-                        |> List.choose (fun c ->
-                            match c with
-                            | ExternalConstraint.MemberTrait(idxs, name, argBs, retB) -> Some(idxs, name, argBs, retB)
-                            | _ -> None
-                        )
-
-                    // `when 'e :> <ty>` entries — stamped as a
-                    // `SemanticConstraintKind.Coercion` on the fresh TyVar so the
-                    // first `Link` fires `checkConstraint`/`subsumes`.
-                    let coercionConstraints =
-                        resolved
-                        |> List.choose (fun c ->
-                            match c with
-                            | ExternalConstraint.Coercion(i, builder) -> Some(i, builder)
-                            | _ -> None
-                        )
-
-                    let instantiate =
-                        instantiate
-                            typarCount
-                            build
-                            traitConstraints
-                            defaultConstraints
-                            memberTraitConstraints
-                            coercionConstraints
-
-                    let sym: ExternalSymbol =
-                        {
-                            Name = compiled
-                            Instantiate = instantiate
-                            Constraints = resolved
-                            Origin = SymbolOrigin.Empty
-                            Key = SymbolKeyOps.valueKeyOf None compiled
-                        }
-
-                    ctx.Symbols.[compiled] <- sym
-
-                    // Source-name alias for a `ModuleSuffix` module's members
-                    // (`List.fold` alongside the compiled `ListModule.fold`), so a
-                    // front-end probe of the source-qualified name resolves. Only
-                    // when it differs from the compiled name and nothing already
-                    // claims it (first registration wins, like the type index).
-                    match compiledNameForVal lexed input sourcePath attrs ident with
-                    | ValueSome source when source <> compiled && not (ctx.Symbols.ContainsKey source) ->
-                        // The alias keeps pointing at the SAME compiled-name key:
-                        // both source and compiled forms (e.g. `List.fold` and
-                        // `ListModule.fold`) denote one symbol identity. `stack`'s
-                        // stampSymbol re-mints the key with the wrapping package's
-                        // assembly, so this default never leaks past `wrap`.
-                        ctx.Symbols.[source] <-
-                            { sym with
-                                Name = source
-                                Key = SymbolKeyOps.valueKeyOf None compiled
+                ctx.DeferredVals.Add
+                    {
+                        Ctx =
+                            {
+                                Lexed = lexed
+                                Input = input
+                                Opens = opens
+                                Typars = collector
                             }
-                    | _ -> ()
+                        Compiled = compiled
+                        Source = compiledNameForVal lexed input sourcePath attrs ident
+                        File = file
+                        Signature = signature
+                    }
 
     let private registerPrefixTypars
         (lexed: Lexed)
@@ -605,16 +604,6 @@ module VesperLib =
         registerExplicitTypars lexed input collector defns
         collector
 
-    /// `Ok` only if every typar the body touched was declared in the type's
-    /// prefix / typar-defns — otherwise the shape would be instantiable with
-    /// a wrong-length array. v1 skips the body in that case but keeps the
-    /// short-name registration so other types can still reference it nominally.
-    let private bodyTyparsOk (collector: TyparCollector) (declaredArity: int) : Result<unit, string> =
-        if collector.Count <= declaredArity then
-            Ok()
-        else
-            Error(sprintf "body references %d typars but only %d declared" collector.Count declaredArity)
-
     /// A body extractor bailed (an unsupported field/case/RHS form, a typar-arity
     /// overflow): record *why* in `ctx.Skipped` AND register the `Opaque` residue
     /// shape, so the type — whose name+arity are known — keeps a shape (no
@@ -642,35 +631,25 @@ module VesperLib =
         (typeName: TypeName<SyntaxToken>)
         (rhs: Type<SyntaxToken>)
         : unit =
+        // Full-defer: register the abbreviation shape (placeholder template) and
+        // stash the RHS CST; the `toProvider` finalize pass translates it once the
+        // registry is complete (the RHS may forward-reference a type declared later
+        // in the package). The collector is seeded with the type's `<'T>` typars so
+        // the finalize walk reads the same declaring indices; an RHS typar beyond
+        // the declared arity degrades that body to `FTUnknown` in `freezeBodyType`.
         let collector = collectorForTypeName lexed input typeName
-        let throwawayConstraints = ConstraintCollector()
+        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, deferredTemplate)
 
-        // Walk now to validate the RHS (structural support) and to intern every
-        // body typar into `collector`; the resulting closure is discarded — the
-        // body's `FrozenType` is built from the stashed CST in the finalize pass,
-        // not from a transported closure (semtype-scope-narrowing-plan).
-        match translateType ctx lexed input opens collector throwawayConstraints rhs with
-        | Error e -> skipBodyOpaque ctx file compiled arity e
-        | Ok _ ->
-            match bodyTyparsOk collector arity with
-            | Error e -> skipBodyOpaque ctx file compiled arity e
-            // Deferred frozen body: the RHS CST is stashed in `ctx.DeferredBodies`
-            // and translated by the `toProvider` finalize pass once the registry is
-            // complete (the body may forward-reference a type declared later in the
-            // package, and a body-less head can't be frozen).
-            | Ok() ->
-                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, deferredTemplate)
-
-                ctx.DeferredBodies.[compiled] <-
-                    DeferredBody.Abbrev(
-                        {
-                            Lexed = lexed
-                            Input = input
-                            Opens = opens
-                            Typars = collector
-                        },
-                        rhs
-                    )
+        ctx.DeferredBodies.[compiled] <-
+            DeferredBody.Abbrev(
+                {
+                    Lexed = lexed
+                    Input = input
+                    Opens = opens
+                    Typars = collector
+                },
+                rhs
+            )
 
     let private extractRecordBody
         (ctx: ExtractCtx)
@@ -683,47 +662,35 @@ module VesperLib =
         (typeName: TypeName<SyntaxToken>)
         (fields: RecordFields<SyntaxToken>)
         : unit =
+        // Full-defer: field names + mutability come straight from the CST; the
+        // field-type CSTs are stashed for the finalize pass to translate. A field
+        // type that's unsupported / body-less / over-arity degrades to `FTUnknown`
+        // per-field in `freezeBodyType` rather than downgrading the whole record.
         let collector = collectorForTypeName lexed input typeName
-        let throwawayConstraints = ConstraintCollector()
         let shapes = ResizeArray<ExternalFieldShape>(fields.Length)
-        // The per-field type CSTs, index-aligned with `shapes`; stashed in
-        // `ctx.DeferredBodies` for the finalize pass to translate to `FrozenType`.
+        // The per-field type CSTs, index-aligned with `shapes`.
         let csts = ResizeArray<Type<SyntaxToken>>(fields.Length)
-        let mutable err = None
 
         for i in 0 .. fields.Length - 1 do
-            if err.IsNone then
-                let (RecordField(_, mutableTok, _, identTok, _, fieldTy)) = fields.[i]
+            let (RecordField(_, mutableTok, _, identTok, _, fieldTy)) = fields.[i]
+            shapes.Add(ExternalFieldShape.create (nameOfTok lexed input identTok, mutableTok.IsSome))
+            csts.Add fieldTy
 
-                // Validate + intern body typars; discard the closure (the field
-                // type freezes from `fieldTy` in the finalize pass).
-                match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
-                | Error e -> err <- Some e
-                | Ok _ ->
-                    shapes.Add(ExternalFieldShape.create (nameOfTok lexed input identTok, mutableTok.IsSome))
-                    csts.Add fieldTy
+        // `Origin` is filled later by `ReferencedProject.wrap` (which knows the
+        // package's assembly + namespace from the manifest); the extractor records
+        // `Empty`.
+        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray(), SymbolOrigin.Empty)
 
-        match err with
-        | Some e -> skipBodyOpaque ctx file compiled arity e
-        | None ->
-            match bodyTyparsOk collector arity with
-            | Error e -> skipBodyOpaque ctx file compiled arity e
-            | Ok() ->
-                // `Origin` is filled later by `ReferencedProject.wrap` (which
-                // knows the package's assembly + namespace from the manifest);
-                // the extractor itself records `Empty`.
-                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray(), SymbolOrigin.Empty)
-
-                ctx.DeferredBodies.[compiled] <-
-                    DeferredBody.Record(
-                        {
-                            Lexed = lexed
-                            Input = input
-                            Opens = opens
-                            Typars = collector
-                        },
-                        csts.ToArray()
-                    )
+        ctx.DeferredBodies.[compiled] <-
+            DeferredBody.Record(
+                {
+                    Lexed = lexed
+                    Input = input
+                    Opens = opens
+                    Typars = collector
+                },
+                csts.ToArray()
+            )
 
     let private extractUnionBody
         (ctx: ExtractCtx)
@@ -737,7 +704,6 @@ module VesperLib =
         (cases: UnionTypeCases<SyntaxToken>)
         : unit =
         let collector = collectorForTypeName lexed input typeName
-        let throwawayConstraints = ConstraintCollector()
         let caseShapes = ResizeArray<ExternalCaseShape>(cases.Length)
         // The per-case field-type CSTs (one array per case, index-aligned with
         // `caseShapes`); stashed in `ctx.DeferredBodies` for the finalize pass.
@@ -777,22 +743,16 @@ module VesperLib =
                         let fieldCsts = ResizeArray<Type<SyntaxToken>>(fields.Length)
 
                         for j in 0 .. fields.Length - 1 do
-                            if err.IsNone then
-                                let nameOpt, fieldTy =
-                                    match fields.[j] with
-                                    | UnionTypeField.Unnamed t -> ValueNone, t
-                                    | UnionTypeField.Named(identTok, _, t) ->
-                                        ValueSome(nameOfTok lexed input identTok), t
+                            let nameOpt, fieldTy =
+                                match fields.[j] with
+                                | UnionTypeField.Unnamed t -> ValueNone, t
+                                | UnionTypeField.Named(identTok, _, t) -> ValueSome(nameOfTok lexed input identTok), t
 
-                                match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
-                                | Error e -> err <- Some(sprintf "case %s field: %s" n e)
-                                | Ok _ ->
-                                    names.Add nameOpt
-                                    fieldCsts.Add fieldTy
+                            names.Add nameOpt
+                            fieldCsts.Add fieldTy
 
-                        if err.IsNone then
-                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
-                            caseCsts.Add(fieldCsts.ToArray())
+                        caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
+                        caseCsts.Add(fieldCsts.ToArray())
 
                 | UnionTypeCaseData.GadtNullary(name = ident) ->
                     // GADT-syntax nullary (`([]): 'T list`): the explicit return
@@ -818,45 +778,41 @@ module VesperLib =
                         let fieldCsts = ResizeArray<Type<SyntaxToken>>(specs.Length)
 
                         for j in 0 .. specs.Length - 1 do
-                            if err.IsNone then
-                                let (ArgSpec(_, nameSpec, fieldTy)) = specs.[j]
+                            let (ArgSpec(_, nameSpec, fieldTy)) = specs.[j]
 
-                                let nameOpt =
-                                    match nameSpec with
-                                    | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(nameOfTok lexed input id)
-                                    | ValueNone -> ValueNone
+                            let nameOpt =
+                                match nameSpec with
+                                | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(nameOfTok lexed input id)
+                                | ValueNone -> ValueNone
 
-                                match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
-                                | Error e -> err <- Some(sprintf "case %s field: %s" n e)
-                                | Ok _ ->
-                                    names.Add nameOpt
-                                    fieldCsts.Add fieldTy
+                            names.Add nameOpt
+                            fieldCsts.Add fieldTy
 
-                        if err.IsNone then
-                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
-                            caseCsts.Add(fieldCsts.ToArray())
+                        caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
+                        caseCsts.Add(fieldCsts.ToArray())
 
+        // A structurally-broken case (an unresolvable case name) still downgrades
+        // the whole union to `Opaque` — there's no per-case name to register and
+        // `TryLookupUnionCase` must stay total. Field *types*, by contrast, defer
+        // and degrade per-field in the finalize pass.
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
         | None ->
-            match bodyTyparsOk collector arity with
-            | Error e -> skipBodyOpaque ctx file compiled arity e
-            // `Origin` is filled later by `ReferencedProject.wrap` (which knows
-            // the package's assembly + namespace from the manifest); the
-            // extractor itself records `Empty`.
-            | Ok() ->
-                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), SymbolOrigin.Empty)
+            // `Origin` is filled later by `ReferencedProject.wrap` (which knows the
+            // package's assembly + namespace from the manifest); the extractor
+            // records `Empty`.
+            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), SymbolOrigin.Empty)
 
-                ctx.DeferredBodies.[compiled] <-
-                    DeferredBody.Union(
-                        {
-                            Lexed = lexed
-                            Input = input
-                            Opens = opens
-                            Typars = collector
-                        },
-                        caseCsts.ToArray()
-                    )
+            ctx.DeferredBodies.[compiled] <-
+                DeferredBody.Union(
+                    {
+                        Lexed = lexed
+                        Input = input
+                        Opens = opens
+                        Typars = collector
+                    },
+                    caseCsts.ToArray()
+                )
 
     /// Extract the augmentation `member`s declared inside a type body's
     /// `with`-block (`member Value: 'T` / `member IsSome: bool` on `Option`)
@@ -926,57 +882,52 @@ module VesperLib =
                         match identOrOpName lexed input ioo with
                         | ValueNone -> ()
                         | ValueSome memberName ->
+                            // Full-defer: stash the member + its signature CST. The
+                            // finalize pass (`freezeMemberSig`) translates the
+                            // signature and DROPS the member if it fails to translate
+                            // or pulls in typars beyond the type's own (it couldn't be
+                            // instantiated from the receiver's args alone). The
+                            // collector is seeded with the type's typars so the
+                            // finalize walk reads the same declaring indices.
                             let collector = collectorForTypeName lexed input typeName
-                            let throwaway = ConstraintCollector()
+                            let (CurriedSig(args, _)) = csig
+                            let isProperty = isPropSig || args.Length = 0
 
-                            // Validate + intern body typars; discard the closure —
-                            // the signature freezes from `csig` in the finalize pass.
-                            match translateCurriedSig ctx lexed input opens collector throwaway csig with
-                            | Error _ -> ()
-                            | Ok _ ->
-                                // A member whose sig pulled in typars beyond the
-                                // type's own can't be instantiated from the
-                                // receiver's args alone — skip it.
-                                if collector.Count <= arity then
-                                    let (CurriedSig(args, _)) = csig
-                                    let isProperty = isPropSig || args.Length = 0
+                            let kind =
+                                if isProperty then
+                                    MemberKind.Property
+                                else
+                                    MemberKind.Method
 
-                                    let kind =
-                                        if isProperty then
-                                            MemberKind.Property
-                                        else
-                                            MemberKind.Method
+                            members.Add
+                                {
+                                    Name = memberName
+                                    IsStatic = isStatic
+                                    IsProperty = isProperty
+                                    // Deferred: the signature CST is stashed in
+                                    // `ctx.DeferredMembers` and frozen by the `toProvider`
+                                    // finalize pass once the registry is complete (a sig may
+                                    // forward-reference a type declared later). `deferred`
+                                    // records the arities the finalize pass needs.
+                                    Signature = ExternalSignature.deferred (arity, 0)
+                                    // The `.fsi` contract layer doesn't yet publish generic
+                                    // (method-owned-typar) members.
+                                    MethodArity = 0
+                                    Origin = SymbolOrigin.Empty
+                                    Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
+                                }
 
-                                    members.Add
+                            memberCsts.Add
+                                {
+                                    Ctx =
                                         {
-                                            Name = memberName
-                                            IsStatic = isStatic
-                                            IsProperty = isProperty
-                                            // Deferred: the signature CST is stashed in
-                                            // `ctx.DeferredMembers` and frozen by the
-                                            // `toProvider` finalize pass once the registry is
-                                            // complete (a sig may forward-reference a type
-                                            // declared later). `deferred` records the arities
-                                            // the finalize pass needs.
-                                            Signature = ExternalSignature.deferred (arity, 0)
-                                            // The `.fsi` contract layer doesn't yet publish
-                                            // generic (method-owned-typar) members.
-                                            MethodArity = 0
-                                            Origin = SymbolOrigin.Empty
-                                            Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
+                                            Lexed = lexed
+                                            Input = input
+                                            Opens = opens
+                                            Typars = collector
                                         }
-
-                                    memberCsts.Add
-                                        {
-                                            Ctx =
-                                                {
-                                                    Lexed = lexed
-                                                    Input = input
-                                                    Opens = opens
-                                                    Typars = collector
-                                                }
-                                            Signature = csig
-                                        }
+                                    Signature = csig
+                                }
 
             if members.Count > 0 then
                 ctx.TypeMembers.[compiled] <- members

@@ -4,8 +4,8 @@ open System.Collections.Generic
 
 // `let inline` expansion helper. The pre-freeze `Passes.InlineExpansion` pass
 // invokes it once per call site, between `Freeze.elaborate` and the
-// `freezeTypars` cut, where `zonk` / union-find are still native (frozen-type-plan
-// 3A-1). It lived codegen-side until beat (b) relocated the expander; it stays in
+// `freezeTypars` cut, where `zonk` / union-find are still native. It lived
+// codegen-side until beat (b) relocated the expander; it stays in
 // this module (rather than the pass) because `openMethodSignature` below shares it
 // and `Codegen` no longer references the inline machinery at all.
 //
@@ -62,10 +62,10 @@ module Inline =
                 for a in args do
                     go a
             | TyUnknown _ -> ()
-            // TODO(frozen-type Phase 2): once `freeze` emits `TempTypar` for an
+            // TODO(frozen-type Phase 2): once `freeze` emits `TyTypar` for an
             // inline binding's quantified typars, this collector must yield them
             // by `index` instead of by `TyVar` root. No-op until then.
-            | TempTypar _ -> ()
+            | TyTypar _ -> ()
 
         go declTy
         acc.ToArray()
@@ -89,8 +89,8 @@ module Inline =
         | TyClass(n, args) -> TyClass(n, EqArray.map (substType subst) args)
         | TyUnknown _ -> t
         // TODO(frozen-type Phase 2): substitute by `(axis,index)` once inline
-        // bindings carry `TempTypar`. Passthrough until then.
-        | TempTypar _ -> t
+        // bindings carry `TyTypar`. Passthrough until then.
+        | TyTypar _ -> t
 
     /// Canonicalise the primitive type-name aliases a static-optimization clause
     /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a
@@ -251,25 +251,25 @@ module Inline =
 
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing
-    /// `TempTypar(Method, i)` nodes (`MethodArity` of them). This is the
+    /// `TyTypar(Method, i)` nodes (`MethodArity` of them). This is the
     /// strictly-smaller precursor of the planned `instantiate :
-    /// ExternalSignature -> level -> SemType` seam (docs/frozen-type-plan.md
-    /// §3A precursor): it lets `ClrRecipes.emitExternalCall` reconstruct an
+    /// ExternalSignature -> level -> SemType` seam: it lets
+    /// `ClrRecipes.emitExternalCall` reconstruct an
     /// external call's signature without ever authoring a `TyVar`. The fresh
     /// `TyVar`s `Instantiate` mints are transient and never escape this
     /// function — the returned `Signature` is `TyVar`-free.
     type OpenMethodSignature =
         {
             /// Curried `param -> … -> return` frozen template with method typars as
-            /// `FTTypar(Method, i)` (external-signature-plan step 3: the codegen-facing
-            /// open signature is immutable `FrozenType` data, not a `SemType`).
+            /// `FTTypar(Method, i)`: the codegen-facing open signature is immutable
+            /// `FrozenType` data, not a `SemType`.
             Signature: FrozenType
             /// Count of distinct method typars — the `MethodSpec` generic-parameter count.
             MethodArity: int
         }
 
     /// Instantiate `sym` and rewrite its method-owned typars to positional
-    /// `TempTypar(Method, i)`, `i` = first-appearance order over a pre-order
+    /// `TyTypar(Method, i)`, `i` = first-appearance order over a pre-order
     /// walk of the curried monotype (a `TyFun` visits its parameter before its
     /// result, so this is params-left-to-right then return — the order the
     /// producer's static-method emit assigns its `!!i` slots). Replaces the
@@ -302,7 +302,7 @@ module Inline =
                 for x in xs do
                     collect x
             | TyUnknown _
-            | TempTypar _ -> ()
+            | TyTypar _ -> ()
 
         collect monoSig
 
@@ -315,7 +315,7 @@ module Inline =
                 | ValueSome target -> toOpen target
                 | ValueNone ->
                     match order.TryGetValue root with
-                    | true, i -> TempTypar(TyparAxis.Method, i)
+                    | true, i -> TyTypar(TyparAxis.Method, i)
                     | _ -> TyVar root
             | TyFun(a, b) -> TyFun(toOpen a, toOpen b)
             | TyTuple xs -> TyTuple(EqArray.map toOpen xs)
@@ -323,7 +323,7 @@ module Inline =
             | TyRecord(n, xs) -> TyRecord(n, EqArray.map toOpen xs)
             | TyUnion(n, xs) -> TyUnion(n, EqArray.map toOpen xs)
             | TyClass(n, xs) -> TyClass(n, EqArray.map toOpen xs)
-            | (TyUnknown _ | TempTypar _) as other -> other
+            | (TyUnknown _ | TyTypar _) as other -> other
 
         {
             Signature = toFrozen (toOpen monoSig)

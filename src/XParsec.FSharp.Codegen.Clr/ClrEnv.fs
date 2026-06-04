@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// *count* inherited from the enclosing static method, the capture-field types in declaration order,
 /// the `Invoke` parameter / result types, and the closure's predicted `TypeDefinition` handle. All
 /// `FrozenType` fields embed the enclosing method's `FTTypar(Method, i)`; `ClrEnv.ClosureTyparMode`
-/// re-projects them onto the closure class's `!i` during the closure's own emission (frozen-type-plan 2B).
+/// re-projects them onto the closure class's `!i` during the closure's own emission.
 type internal GenericClosureShape =
     {
         TyparCount: int
@@ -399,9 +399,9 @@ type internal ClrEnv
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
 
-    // frozen-type-plan: while encoding a closure's own members (Invoke / .ctor /
+    // While encoding a closure's own members (Invoke / .ctor /
     // capture fields / its TypeSpec from inside its body), the enclosing method's
-    // `TempTypar(Method, i)` are the closure *class*'s generic parameters, so they
+    // `TyTypar(Method, i)` are the closure *class*'s generic parameters, so they
     // encode as `GenericTypeParameter i` rather than `GenericMethodTypeParameter i`.
     let mutable closureTyparMode = false
 

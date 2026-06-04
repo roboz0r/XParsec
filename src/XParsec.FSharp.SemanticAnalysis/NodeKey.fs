@@ -118,7 +118,7 @@ type NodeKind =
     /// wires it into Unification / Freeze.
     | SynthBaseBinding = 1006us
     /// Freshened binder produced when the *pre-freeze* inline-expansion pass
-    /// (`InlineExpansion`, frozen-type-plan 3A-1) splices an `inline` body. A
+    /// (`InlineExpansion`) splices an `inline` body. A
     /// distinct kind from `SynthInlineExpansion` so the pass's baked keys can
     /// never collide with the keys codegen's (now-redundant) eta-expansion still
     /// mints from the `SynthInlineExpansion` space during beat (a).

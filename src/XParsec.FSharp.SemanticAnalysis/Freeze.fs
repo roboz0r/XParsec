@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// The genuine freeze (frozen-type-plan 3B-4 / decision 1): the single
+// The genuine freeze: the single
 // `SemType → FrozenType` rebuild, run as the FINAL SemanticAnalysis pipeline step
 // on the typar-quantified, SemType-domain-settled tree that `Elaborate.run` (+
 // `Regions` / `RefCellPromotion` / `ResolvedTypes`) produced. After this the
@@ -28,7 +28,7 @@ module Freeze =
     /// the *pre-freeze* `SemType` tree (`Pipeline.analyseSem*` →
     /// `SymbolProviders.collectInlineBodies`), never `analyse`'s frozen output. So
     /// dropping them here is the freeze's first act, leaving `toFrozen` total over
-    /// what remains (frozen-type-plan 3B-4; the residual cross-package `TyVar`
+    /// what remains (the residual cross-package `TyVar`
     /// source is 3B-5/PF6).
     ///
     /// Each `.ty` is deep-`zonk`ed before conversion (= the encoder's old per-slot
@@ -49,7 +49,7 @@ module Freeze =
     /// un-ground operator reaches `freezeTy` (then this lenient arm + the placeholder
     /// can be deleted). Genuine unresolved-`TyVar` inference bugs are still caught
     /// upstream by `ResolvedTypes` (a graceful per-decl diagnostic), which runs before
-    /// the freeze. (frozen-type-plan 3B-4.)
+    /// the freeze.
     let private freezeTy (t: SemType) : FrozenType =
         let rec go (ty: SemType) : FrozenType =
             match ty with
@@ -59,7 +59,7 @@ module Freeze =
             | TyRecord(k, args) -> FTRecord(k, EqArray.map go args)
             | TyUnion(k, args) -> FTUnion(k, EqArray.map go args)
             | TyClass(k, args) -> FTClass(k, EqArray.map go args)
-            | TempTypar(axis, i) -> FTTypar(axis, i)
+            | TyTypar(axis, i) -> FTTypar(axis, i)
             | TyUnknown n -> FTUnknown n
             // The un-ground-operator residue (see the doc comment); placeholder name
             // is fixed for determinism since the node is discarded post-freeze.

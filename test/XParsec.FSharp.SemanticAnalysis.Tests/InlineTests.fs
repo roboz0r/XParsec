@@ -129,7 +129,7 @@ let tests =
                 // own expression — so the §C marker lands on a TDecl.Let. The
                 // template (decl 0) is retained verbatim, but the use site `succ
                 // 41` is now expanded *pre-freeze* by `InlineExpansion`
-                // (frozen-type-plan 3A-1): the call beta-reduces to a `Let`
+                // the call beta-reduces to a `Let`
                 // binding the argument, with `succ`'s `x + 1` body inlined (the
                 // `op_Addition` head is left for codegen's `BuiltinOps`).
                 let tast = analyse "let inline succ x = x + 1 in succ 41"
@@ -239,7 +239,7 @@ let tests =
                 | other -> failtestf "unexpected freshened shape: %A" other
             }
 
-            // frozen-type-plan 3A-3 (inline-first soundness, beta-reduction half):
+            // inline-first soundness, beta-reduction half:
             // a lambda argument bound to an inline parameter and FULLY APPLIED in
             // the body is inlined away — its closure never exists. A stored /
             // partially-applied lambda parameter survives as a real closure.

@@ -4,7 +4,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // per-target inline IL) is firmly future work — see
 // [[project_inline_il_target_specific]] for why we don't model it here.
 
-/// Raised by `mkNominal` / `mkNominalFrozen` when a nominal head resolves to a
+/// Raised by `mkNominal` when a nominal head resolves to a
 /// genuinely body-less shape (`ExternalTypeShape.Opaque` — an enum / delegate /
 /// type-extension or an unmodelled body). This is the *one* failure the
 /// contract-extraction finalize pass (`VesperLib.finalizeDeferred`) tolerates:
@@ -18,11 +18,11 @@ exception BodylessExternalShape of compiledName: string with
             "mkNominal: '%s' is an Opaque (body-less) shape — an enum / delegate / type-extension or an unmodelled body. Model its kind before a contract names it"
             this.compiledName
 
-/// SRTP / trait / default constraint captured on an external symbol's typar
-/// list. Member-trait clauses are recorded as opaque markers; default clauses
-/// carry a SemBuilder over the symbol's typar list so `Instantiate` can stamp
-/// the default target onto the freshly minted TyVar for generalisation-time
-/// defaulting.
+/// SRTP / trait / default / coercion constraint captured on an external symbol's
+/// typar list. Each carries a typar index (or indices) plus, where it has a
+/// target, a `FrozenType` template over the symbol's typars; `Instantiate`
+/// realises the target against the freshly minted TyVars (`instantiateDeclaring`)
+/// and stamps it for inference / generalisation-time defaulting.
 [<RequireQualifiedAccess>]
 type ExternalConstraint =
     /// `when 'T : equality` etc. — directly stamps a `SemanticConstraint` on
@@ -30,30 +30,27 @@ type ExternalConstraint =
     | Trait of typarIndex: int * kind: SemanticConstraintKind
     /// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)` — SRTP
     /// member trait. `typarIndices` are the participating typar slots
-    /// (the LHS of the trait). `memberName` is the compiled name. At
-    /// `Instantiate` time the caller passes the fresh-TyVar array, and the
-    /// closures produce the SemTypes describing the trait's expected member
-    /// signature. The Unification pass drains the captured signature when any
-    /// participating fresh TyVar is linked to a concrete shape — see
-    /// `Unification.drainSrtpBounds`.
-    | MemberTrait of
-        typarIndices: EqArray<int> *
-        memberName: string *
-        buildArgTypes: (SemType[] -> SemType)[] *
-        buildReturnType: (SemType[] -> SemType)
-    /// `default ^T : <ty>` — typar defaulting at generalisation. The
-    /// `buildTarget` closure takes the symbol's fresh-TyVar array (one
-    /// entry per declared typar) and returns the target `SemType` —
-    /// usually another fresh TyVar (`default ^T3 : ^T1`) or a concrete
-    /// shape (`default ^T1 : int`). `Instantiate` stamps the resolved
-    /// target onto the source TyVar's `Defaults` list so generalisation
-    /// can chase the chain and pick the first concrete shape it reaches.
-    | Default of typarIndex: int * buildTarget: (SemType[] -> SemType)
-    /// `when 'e :> <ty>` — coercion. `buildTarget` takes the symbol's
-    /// fresh-TyVar array and yields the required supertype; `Instantiate`
-    /// stamps a `SemanticConstraintKind.Coercion` onto the constrained fresh
-    /// TyVar so the first `Link` fires `checkConstraint`/`subsumes`.
-    | Coercion of typarIndex: int * buildTarget: (SemType[] -> SemType)
+    /// (the LHS of the trait). `memberName` is the compiled name. The arg /
+    /// return types are `FrozenType` templates over the symbol's declaring
+    /// typars (`FTTypar(Declaring,i)`); `Instantiate` realises them against the
+    /// fresh-TyVar array via `instantiateDeclaring`. The Unification pass drains
+    /// the captured signature when any participating fresh TyVar is linked to a
+    /// concrete shape — see `Unification.drainSrtpBounds`.
+    | MemberTrait of typarIndices: EqArray<int> * memberName: string * argTypes: FrozenType[] * returnType: FrozenType
+    /// `default ^T : <ty>` — typar defaulting at generalisation. `target` is a
+    /// `FrozenType` template over the symbol's declaring typars — usually another
+    /// typar (`default ^T3 : ^T1`) or a concrete shape (`default ^T1 : int`).
+    /// `Instantiate` realises it against the fresh-TyVar array
+    /// (`instantiateDeclaring`) and stamps the result onto the source TyVar's
+    /// `Defaults` list so generalisation can chase the chain and pick the first
+    /// concrete shape it reaches.
+    | Default of typarIndex: int * target: FrozenType
+    /// `when 'e :> <ty>` — coercion. `target` is a `FrozenType` template over the
+    /// symbol's declaring typars; `Instantiate` realises it
+    /// (`instantiateDeclaring`) and stamps a `SemanticConstraintKind.Coercion`
+    /// onto the constrained fresh TyVar so the first `Link` fires
+    /// `checkConstraint`/`subsumes`.
+    | Coercion of typarIndex: int * target: FrozenType
 
 type ExternalSymbol =
     {
@@ -163,7 +160,7 @@ type ExternalUnionCase =
         Case: ExternalCaseShape
     }
 
-/// The immutable, two-axis member descriptor (external-signature-plan): a
+/// The immutable, two-axis member descriptor: a
 /// member's tupled `(Parameters, Return)` as `FrozenType` templates. `Parameters`
 /// is the .NET-tupled argument type (`N ≥ 2` → one `FTTuple`; 0 params →
 /// `unit`); `Return` the result. Open typars are baked as `FTTypar(Declaring,i)`
@@ -220,7 +217,7 @@ type ExternalMember =
         /// member — there is nothing to pass in, unlike the declaring args); a
         /// consumer instantiates them to fresh inference vars at a call site, and
         /// codegen reads `MethodArity` to mint the `MethodSpec`'s generic-parameter
-        /// count (frozen-type-plan Step 2C).
+        /// count.
         MethodArity: int
         Origin: SymbolOrigin
         /// The interned identity: a
@@ -424,8 +421,8 @@ type IExternalSymbolProvider =
 
     /// A cross-package `val inline` body — a referenced package's `let inline`
     /// whose `.fs` source the pre-freeze `Passes.InlineExpansion` pass *splices*
-    /// at each use site rather than calling as a compiled member
-    /// (frozen-type-plan 3A-1). Looked up by the inline value's resolved
+    /// at each use site rather than calling as a compiled member.
+    /// Looked up by the inline value's resolved
     /// `SymbolKey` — the same key `TryLookup` returns and `Freeze` stamps onto a
     /// use-site `TExpr.External`. The primary, identity-robust channel
     /// (disambiguates a referenced package's `hash` from a user shadow).
@@ -441,7 +438,7 @@ type IExternalSymbolProvider =
     abstract TryLookupInlineBodyByName: name: string -> TDecl voption
 
 /// The open signature of an external module-level function as the codegen
-/// boundary sees it (external-signature-plan step 3): the curried
+/// boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as
 /// `FTTypar(Method, i)`, plus the home `Origin` the call's `MemberRef` parent is
 /// minted against and the method-typar count for the `MethodSpec`. The immutable-
@@ -504,8 +501,8 @@ module ExternalSymbols =
     /// index, shared across `Parameters` and `Return`). Reconstructs
     /// `BuildSignature`'s `TyFun(params, ret)` for a method / ctor, or the bare
     /// value type for a property. The data-form replacement for
-    /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`
-    /// (external-signature-plan step 2); equal to it on the post-freeze subset.
+    /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`;
+    /// equal to it on the post-freeze subset.
     let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
         let cache = System.Collections.Generic.Dictionary<int, SemType>()
         let methodVar = methodFreshener cache level
@@ -519,16 +516,16 @@ module ExternalSymbols =
 
     /// The *open* realisation of a member's `Signature`: declaring typars
     /// substituted from `declaringArgs`, but the member's own method typars left
-    /// as `TempTypar(Method,j)` markers — exactly the shape `BuildSignature`
-    /// produced (external-signature-plan step 2). This is the applicability-
-    /// filtering / single-pick form; a generic method's `TempTypar(Method,_)`
+    /// as `TyTypar(Method,j)` markers — exactly the shape `BuildSignature`
+    /// produced. This is the applicability-
+    /// filtering / single-pick form; a generic method's `TyTypar(Method,_)`
     /// stays a wildcard for `InferOverload.semTypeEq`, and the bind site that
     /// commits the member freshens them separately (`instantiateSignature`, or
     /// `Infer.instantiateMethodTypars`). For a non-generic member (the common
     /// case) it is byte-identical to `instantiateSignature` at any level.
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         let decl i = declaringArgs.[i]
-        let methodOpen j = TempTypar(TyparAxis.Method, j)
+        let methodOpen j = TyTypar(TyparAxis.Method, j)
         let s = m.Signature
 
         if m.IsProperty then
@@ -560,10 +557,10 @@ module ExternalSymbols =
         shape.FrozenBaseType
         |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
 
-    // --- Contract-extraction finalize fallback (semtype-scope-narrowing-plan) ----
+    // --- Contract-extraction finalize fallback ----
     //
     // The `VesperLib` finalize pass translates each stashed body / member CST to a
-    // `FrozenType` template directly (`translateTypeFrozen`), once the registry is
+    // `FrozenType` template directly (`translateType`), once the registry is
     // complete. A genuinely body-less head (`byref` / an `Opaque` shape) raises
     // `BodylessExternalShape` during that walk and is never expanded by any use
     // site, so the pass degrades it to this sentinel rather than aborting the whole

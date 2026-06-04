@@ -238,7 +238,7 @@ type ComparisonVerdict =
 /// generic parameters (`!i` in CLI metadata) versus a method's own generic
 /// parameters (`!!i`). There is deliberately no `Closure` axis — closure
 /// typars are a codegen-synthesis concept, never expressed in a frozen
-/// signature or a provider descriptor. See `docs/frozen-type-plan.md`.
+/// signature or a provider descriptor.
 [<RequireQualifiedAccess>]
 type TyparAxis =
     | Declaring
@@ -256,9 +256,9 @@ type TyparAxis =
 /// a `FrozenType` is a sound dictionary key — this is what lets it serve as the
 /// overload-identity key that retires the lossy `SymbolKey.MemberKey.argSig`
 /// string. Constructors mirror `SemType`'s shape under an `FT` prefix to avoid
-/// ambiguity when both types are in scope. See `docs/frozen-type-plan.md`.
+/// ambiguity when both types are in scope.
 ///
-/// NOTE (naming — frozen-type-plan "Open questions"): `FrozenType` / `FT*` are
+/// NOTE (naming): `FrozenType` / `FT*` are
 /// provisional; revisit before the representation is widely consumed.
 type FrozenType =
     /// A nominal constant in two roles (the `SemType.TyConst` declaring-typar
@@ -276,11 +276,11 @@ type FrozenType =
     /// An open type parameter of the enclosing generic definition: `axis`
     /// selects the declaring-type vs method axis; `index` is its position in
     /// that axis's typar list — the order `freeze` quantifies in, which is the
-    /// single index-minting point (see frozen-type-plan Edge A).
+    /// single index-minting point.
     | FTTypar of axis: TyparAxis * index: int
     /// Mirror of `SemType.TyUnknown`: a nominal head that resolved to no type
     /// shape. Carried so `freeze` is total; whether it may legitimately reach
-    /// the backend is a frozen-type-plan open question (likely a hard error).
+    /// the backend is an open question (likely a hard error).
     | FTUnknown of name: string
 
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
@@ -323,21 +323,22 @@ type SemType =
     /// inference hole). Must never reach the backend — `ClrEncoder` treats it as
     /// an internal error.
     | TyUnknown of name: string
-    /// An elaborated, **post-freeze-only** open type parameter — the same node
-    /// `FrozenType.FTTypar` carries (axis + index), living transitionally on
-    /// `SemType` so Freeze can produce it and Codegen can consume it *before* the
-    /// TAST type fields are swapped to `FrozenType` (a later, mechanical session;
-    /// see `docs/frozen-type-plan.md`). It replaces the old declaring-typar
-    /// `TyConst "'A"` markers and the leftover-`TyVar` static-fn typars: after
-    /// `freeze` runs, no `TyVar` remains in any TAST `.ty` field — every open
-    /// typar is a `TempTypar`, and a `TyVar` reaching Codegen is a bug.
+    /// An elaborated open type parameter — the `SemType` counterpart of
+    /// `FrozenType.FTTypar` (the same axis + index). It is the canonical
+    /// representation of an open typar on the post-freeze `SemType` subset:
+    /// `freeze` rewrites every surviving `TyVar` to one, so afterwards no `TyVar`
+    /// remains in any TAST `.ty` field — every open typar is a `TyTypar`, and a
+    /// `TyVar` reaching Codegen is a bug. It replaces the old declaring-typar
+    /// `TyConst "'A"` markers and the leftover-`TyVar` static-fn typars. It also
+    /// rides the inference-side template helpers that work in `SemType` but must
+    /// name an open typar (`ofFrozen`, `ExternalSymbols.openSignature`).
     ///
     /// **Invariant: never produced during inference.** Unification / generalisation
     /// never see it (they run before `freeze`); their match arms treat it as
     /// impossible (`failwith`) — a free invariant check. Only `freeze` mints it
     /// (the single index-minting point, Edge A) and only Codegen + post-freeze
     /// walks read it.
-    | TempTypar of axis: TyparAxis * index: int
+    | TyTypar of axis: TyparAxis * index: int
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero
@@ -528,10 +529,10 @@ module MeasureTerm =
         else
             m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.ofList
 
-/// The `SemType` ↔ `FrozenType` bridge (frozen-type-plan §3B-1). `toFrozen` is
+/// The `SemType` ↔ `FrozenType` bridge. `toFrozen` is
 /// the Edge-A sink-side conversion; `ofFrozen` its inverse. On the *post-freeze*
 /// `SemType` subset (`{TyConst, TyFun, TyTuple, TyRecord, TyUnion, TyClass,
-/// TempTypar, TyUnknown}`) the two are mutual inverses — the cases are 1:1 with
+/// TyTypar, TyUnknown}`) the two are mutual inverses — the cases are 1:1 with
 /// `{FTConst, FTFun, FTTuple, FTRecord, FTUnion, FTClass, FTTypar, FTUnknown}`.
 /// `TyVar` is the sole case with no `FrozenType` counterpart (the point of the
 /// split): `toFrozen` rejects it with a hard error mirroring `ClrEncoder`'s
@@ -550,7 +551,7 @@ module FrozenTypeBridge =
         | TyRecord(key, args) -> FTRecord(key, EqArray.map toFrozen args)
         | TyUnion(key, args) -> FTUnion(key, EqArray.map toFrozen args)
         | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
-        | TempTypar(axis, index) -> FTTypar(axis, index)
+        | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
 
@@ -561,7 +562,7 @@ module FrozenTypeBridge =
     /// *same* signature (a split parameter/return `ExternalSignature`) must share
     /// one `methodVar` memo so a repeated method index resolves to the same var
     /// across the whole signature. `ofFrozen` is the identity case (both
-    /// placeholders map straight back to their `TempTypar` markers).
+    /// placeholders map straight back to their `TyTypar` markers).
     let rec instantiateWith (declaring: int -> SemType) (methodVar: int -> SemType) (template: FrozenType) : SemType =
         let go = instantiateWith declaring methodVar
 
@@ -577,13 +578,13 @@ module FrozenTypeBridge =
         | FTUnknown name -> TyUnknown name
 
     /// `FrozenType -> SemType`. Total — every `FrozenType` case has a `SemType`
-    /// counterpart (`FTTypar` lands on the post-freeze-only `TempTypar`). The
+    /// counterpart (`FTTypar` lands on the post-freeze-only `TyTypar`). The
     /// identity realisation of `instantiateWith`: each placeholder maps straight
-    /// back to its self-describing `TempTypar` marker.
+    /// back to its self-describing `TyTypar` marker.
     let ofFrozen (ft: FrozenType) : SemType =
-        instantiateWith (fun i -> TempTypar(TyparAxis.Declaring, i)) (fun j -> TempTypar(TyparAxis.Method, j)) ft
+        instantiateWith (fun i -> TyTypar(TyparAxis.Declaring, i)) (fun j -> TyTypar(TyparAxis.Method, j)) ft
 
-    // --- Template freshening (external-signature-plan step 1) ----------------
+    // --- Template freshening ----------------
     //
     // A `FrozenType` template is an external descriptor's body with its open
     // typars baked as `FTTypar(Declaring,i)` / `FTTypar(Method,j)` placeholders.
@@ -596,7 +597,7 @@ module FrozenTypeBridge =
     // applied *after* freshening (the type-shape half carries no constraints).
 
     /// The placeholder a contract-layer descriptor carries between extraction and
-    /// the `ExtractCtx.toProvider` finalize pass (semtype-scope-narrowing-plan).
+    /// the `ExtractCtx.toProvider` finalize pass.
     /// A body's `FrozenType` can't be built at extraction time — it may forward-
     /// reference a type registered later in the same package — so the shape holds
     /// this until `VesperLib.finalizeDeferred` translates the stashed CST and
@@ -620,10 +621,20 @@ module FrozenTypeBridge =
     /// field, union-case field, interface arg, base type, or abbreviation body):
     /// `FTTypar(Declaring,i) → declaringArgs.[i]`. These descriptors carry no
     /// method axis (only members do), so a `FTTypar(Method,_)` here is a producer
-    /// bug — it fails loud rather than fabricating a var. Needs no `level`.
+    /// bug — it fails loud rather than fabricating a var. An out-of-range declaring
+    /// index degrades to `TyUnknown` rather than crashing — the `SemType`
+    /// counterpart of `substituteDeclaring`'s arity-mismatch arm — so a template
+    /// that names more typars than the use site supplies (an under-applied generic
+    /// abbrev, a body referencing an undeclared typar) surfaces as a use-site
+    /// diagnostic instead of an `IndexOutOfRange`. Needs no `level`.
     let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
         instantiateWith
-            (fun i -> declaringArgs.[i])
+            (fun i ->
+                if i < declaringArgs.Length then
+                    declaringArgs.[i]
+                else
+                    TyUnknown "<arity-mismatch>"
+            )
             (fun j ->
                 failwithf
                     "FrozenTypeBridge.instantiateDeclaring: unexpected method typar %d in a type-shape template"
@@ -631,12 +642,49 @@ module FrozenTypeBridge =
             )
             template
 
+    /// The largest declaring-typar index a template references, or `-1` if it
+    /// references none. `freezeMemberSig` uses this to DROP a member whose
+    /// signature names a typar beyond the declaring type's arity
+    /// (`maxDeclaringIndex >= declaringArity`): such a member can't be instantiated
+    /// from the receiver's declaring args alone, so it's removed rather than
+    /// surfaced with an unrealisable slot. This is a policy choice — drop vs.
+    /// degrade — not crash-avoidance: both realisers (`instantiateDeclaring`,
+    /// `substituteDeclaring`) degrade an out-of-range declaring index to `Unknown`
+    /// on their own. A method typar is a producer bug here (type-shape / contract
+    /// templates carry no method axis).
+    let rec maxDeclaringIndex (template: FrozenType) : int =
+        let maxOf (args: EqArray<FrozenType>) =
+            let mutable m = -1
+
+            for i in 0 .. args.Length - 1 do
+                m <- max m (maxDeclaringIndex args.[i])
+
+            m
+
+        match template with
+        | FTConst(_, args)
+        | FTRecord(_, args)
+        | FTUnion(_, args)
+        | FTClass(_, args) -> maxOf args
+        | FTFun(arg, result) -> max (maxDeclaringIndex arg) (maxDeclaringIndex result)
+        | FTTuple items -> maxOf items
+        | FTTypar(TyparAxis.Declaring, i) -> i
+        | FTTypar(TyparAxis.Method, j) ->
+            failwithf "FrozenTypeBridge.maxDeclaringIndex: unexpected method typar %d in a type-shape template" j
+        | FTUnknown _ -> -1
+
     /// The `FrozenType → FrozenType` use-site substitution codegen applies to a
-    /// type-shape template directly (external-signature-plan step 4: "codegen reads
-    /// the template directly and does its own `FTTypar(Declaring,i) ↦ tyArgs.[i]`
-    /// substitution — a trivial total walk on `FrozenType`. No `instantiate`, no
-    /// `SemType`."). The frozen sibling of `instantiateDeclaring`; a method typar is
-    /// a producer bug (type-shape templates carry no method axis), so it fails loud.
+    /// type-shape template directly: codegen reads the template and does its own
+    /// `FTTypar(Declaring,i) ↦ tyArgs.[i]` substitution — a trivial total walk on
+    /// `FrozenType`, touching no `SemType` and no inference state. The frozen
+    /// sibling of `instantiateDeclaring`; a method typar is a producer bug
+    /// (type-shape templates carry no method axis), so it fails loud.
+    ///
+    /// Used to expand an abbreviation body against use-site args. Because
+    /// `resolveTypeName` deliberately tolerates an arity mismatch (an under-applied
+    /// generic abbrev still resolves), a declaring index can land past the provided
+    /// args; that leaf degrades to `FTUnknown` rather than crashing — the frozen
+    /// counterpart of `translateType`'s unresolved-name → `FTUnknown` arm.
     let rec substituteDeclaring (declaringArgs: FrozenType[]) (template: FrozenType) : FrozenType =
         let go = substituteDeclaring declaringArgs
 
@@ -647,7 +695,11 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
         | FTClass(key, args) -> FTClass(key, EqArray.map go args)
-        | FTTypar(TyparAxis.Declaring, i) -> declaringArgs.[i]
+        | FTTypar(TyparAxis.Declaring, i) ->
+            if i < declaringArgs.Length then
+                declaringArgs.[i]
+            else
+                FTUnknown "<abbrev-arity-mismatch>"
         | FTTypar(TyparAxis.Method, j) ->
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
         | FTUnknown name -> FTUnknown name

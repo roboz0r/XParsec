@@ -8,14 +8,14 @@ open XParsec.FSharp.SemanticAnalysis
 // Post: ctx.Bindings.Escape populated for every binding-site TypeVar that
 //       participated in the region graph; TypeVar.Region set on those TypeVars.
 //
-// frozen-type-plan 3A-2: Regions runs on the post-inline `TExpr` tree (after
+// Regions runs on the post-inline `TExpr` tree (after
 // `Freeze.run`, before `RefCellPromotion`) rather than the Desugared CST.
 // Inlining both removes closures (escape shrinks) and exposes new ones, so the
 // escape map must be computed on the tree codegen actually emits. The walk reads
 // each node's inline `.ty` and resolves a `TExpr.Var` to its binding region off
 // the carried binding-site `NodeKey`. Running post-freeze is escape-equivalent:
 // the only type-directed decision is `isAllocation`, and a typar is
-// non-allocating whether it shows as `TyVar` (pre-freeze) or `TempTypar` (post).
+// non-allocating whether it shows as `TyVar` (pre-freeze) or `TyTypar` (post).
 //
 // Two structural facts the CST pass relied on are rebuilt here:
 //   - `let … and …` / `let rec` flatten into nested `TExpr.Let`s (and separate
@@ -179,7 +179,7 @@ module Regions =
         // A post-freeze open typar (`!i` / `!!i`): like a free `TyVar`, whether
         // it allocates is unknown — treat as non-allocating, matching the
         // pre-freeze `TyVar` view this pass used to see.
-        | TempTypar _ -> false
+        | TyTypar _ -> false
 
     let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
 
@@ -220,12 +220,12 @@ module Regions =
     /// Add an outlives edge from each captured binding's region to the closure
     /// region `r`. (AddEdge drops self-edges, so no `captured <> r` guard needed.)
     //
-    // TODO(frozen-type-plan 3A-3, byref-capture half): this is where a surviving
+    // TODO(byref-capture half): this is where a surviving
     // closure's captures are known. Once a byref-like predicate exists, a capture
     // whose binding type is byref-like (`Span`/`ref struct`) combined with this
     // closure's solved escape (`HeapShared`) is the reject site — match F# and
     // error. A non-escaping such capture could instead be made to compile via a
-    // ref-struct closure ABI (frozen-type-plan option 1), so a program F# rejects
+    // ref-struct closure ABI, so a program F# rejects
     // outright could compile here. Both need the predicate we do not have yet.
     let private addCaptureEdges (s: State) (freeVars: HashSet<NodeKey>) (r: RegionId) : unit =
         for bs in freeVars do

@@ -25,11 +25,11 @@ module Pipeline =
         NameResolution.run ctx file
         Unification.run ctx file
         Validation.run ctx file
-        // `Elaborate.run` (frozen-type-plan 3B-4, renamed from `Freeze`): CST →
+        // `Elaborate.run` (renamed from `Freeze`): CST →
         // typar-quantified `TastFileG<SemType>`, inline call sites already expanded.
         let tast0 = Elaborate.run ctx file
-        // Escape analysis on the post-inline `TExpr` tree (frozen-type-plan 3A-2 /
-        // decision 4): elaboration has already expanded inline call sites, so the
+        // Escape analysis on the post-inline `TExpr` tree: elaboration has already
+        // expanded inline call sites, so the
         // region graph is built over the closures codegen actually emits. Populates
         // `ctx.Bindings.Escape` (keyed by binder `NodeKey`) for the next pass.
         Regions.run ctx tast0.Decls
@@ -52,7 +52,7 @@ module Pipeline =
         ctx, tast
 
     /// The production entry: every pass **plus the final `SemType → FrozenType`
-    /// freeze** (frozen-type-plan 3B-4). The SemanticAnalysis assembly's output is
+    /// freeze**. The SemanticAnalysis assembly's output is
     /// the frozen tree; codegen consumes it. `SemType` consumers use the `…Sem…`
     /// variants above.
     let analyseWithContextFor

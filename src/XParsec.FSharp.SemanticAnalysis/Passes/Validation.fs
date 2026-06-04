@@ -40,7 +40,7 @@ module Validation =
         | TyClass(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyUnknown _ -> false
         // Post-freeze leaf; this check runs pre-freeze and never sees it.
-        | TempTypar _ -> false
+        | TyTypar _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,

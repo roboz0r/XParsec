@@ -8,13 +8,13 @@ namespace XParsec.FSharp.SemanticAnalysis
 // need to re-query the side tables.
 //
 // The TAST term/declaration cluster is parameterized over its type field
-// (`'ty`): `TExprG<'ty>` etc. (frozen-type-plan decision 1 / Step 3B no-op
-// parameterization). Today every consumer instantiates it at `SemType` through
+// (`'ty`): `TExprG<'ty>` etc. (no-op parameterization). Today every consumer
+// instantiates it at `SemType` through
 // the central aliases at the bottom of this file (`type TExpr = TExprG<SemType>`,
 // …), so this is a pure additive change — the bare names mean exactly what they
-// meant before. The Step 3B cutover then makes `freeze` produce `TExprG<FrozenType>`
+// meant before. The cutover then makes `freeze` produce `TExprG<FrozenType>`
 // (the single SemType→FrozenType rebuild point) and reads it in codegen, without
-// re-touching every annotation. See `docs/frozen-type-plan.md`.
+// re-touching every annotation.
 
 [<RequireQualifiedAccess>]
 type TConstValue =
@@ -422,8 +422,8 @@ and TTypeMemberG<'ty> =
         /// (`"'C"`, for the `GenericParam` row) with the post-unification
         /// union-find *root* `TypeVar`. `Freeze.remapMemberTypes` uses these roots to
         /// flip the method axis in `Params` / `ReturnTy` / `Body` to
-        /// `TempTypar(Method, i)` (frozen-type-plan 2E-1), exactly as the declaring
-        /// type's typars ride `TempTypar(Declaring, i)`; codegen's encoder resolves
+        /// `TyTypar(Method, i)`, exactly as the declaring
+        /// type's typars ride `TyTypar(Declaring, i)`; codegen's encoder resolves
         /// both axes by index (`!!i` / `!i`) with no ambient window. This list still
         /// feeds the `GenericParam` rows and the `GENERIC` header arity. Empty for a
         /// non-generic member.
@@ -519,10 +519,10 @@ type TastFileG<'ty> =
     }
 
 // ---------------------------------------------------------------------------
-// Central monomorphic aliases (frozen-type-plan Step 3B no-op parameterization).
+// Central monomorphic SemType aliases (no-op parameterization over the type field).
 // Every consumer today speaks `SemType`; these aliases let the bare TAST names
 // continue to mean exactly that, so parameterizing the cluster above is a pure
-// additive change ([[feedback_additive_changes_with_aliases]]). The Step 3B
+// additive change ([[feedback_additive_changes_with_aliases]]). The
 // cutover introduces a parallel `FrozenType` instantiation (`freeze : TExprG<SemType>
 // -> TExprG<FrozenType>`) without re-touching every annotation here.
 // ---------------------------------------------------------------------------
@@ -548,11 +548,11 @@ type TAbstractMethod = TAbstractMethodG<SemType>
 type TastFile = TastFileG<SemType>
 
 // ---------------------------------------------------------------------------
-// Parallel frozen aliases (frozen-type-plan Step 3B-4). The `SemType → FrozenType`
+// Parallel frozen aliases. The `SemType → FrozenType`
 // freeze (the final pipeline step; `Pipeline.analyse`'s output) and codegen speak
 // these. The bare names above STAY `SemType` (inference, the SemType-domain passes
 // `Regions` / `RefCellPromotion` / `ResolvedTypes`, tests, any non-codegen API).
-// `SemType` becomes codegen-irrelevant, not gone. See `docs/frozen-type-plan.md`.
+// `SemType` becomes codegen-irrelevant, not gone.
 // ---------------------------------------------------------------------------
 
 module Frozen =

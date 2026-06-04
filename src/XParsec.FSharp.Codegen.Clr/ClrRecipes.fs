@@ -20,8 +20,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
 
     /// Decurry a `FrozenType` arrow chain into `(params, return)` — the `FrozenType`
-    /// analogue of `ClrEnv.decurryTy`, for the open module-function template
-    /// (external-signature-plan step 3). A curried `p1 -> … -> pN -> ret` peels to
+    /// analogue of `ClrEnv.decurryTy`, for the open module-function template.
+    /// A curried `p1 -> … -> pN -> ret` peels to
     /// `([p1; …; pN], ret)`.
     let rec decurryFrozen (t: FrozenType) : FrozenType list * FrozenType =
         match t with
@@ -405,8 +405,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome openSig ->
             // The symbol's open curried signature *template*, with its method typars already self-
             // describing `FTTypar(Method, i)` (`ICodegenSymbols.TryLookupOpenSignature` instantiates +
-            // freezes in the symbol layer, so codegen authors no `TypeVar` and never touches `Instantiate`,
-            // external-signature-plan step 3). Its nominal heads are already kind-correct (`'T option` ⇒
+            // freezes in the symbol layer, so codegen authors no `TypeVar` and never touches
+            // `Instantiate`). Its nominal heads are already kind-correct (`'T option` ⇒
             // `FTUnion`), so they encode + recover against the producer's emitted signature unchanged.
             let methodArity = openSig.MethodArity
             let openParamTys, openRetTy = decurryFrozen openSig.Signature

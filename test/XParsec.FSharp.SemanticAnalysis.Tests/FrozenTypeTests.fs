@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The `SemType` ↔ `FrozenType` round-trip oracle (frozen-type-plan §3B-1). The
+// The `SemType` ↔ `FrozenType` round-trip oracle. The
 // bridge is the keystone of the 3B cutover: every later slice (3B-2's encoder
 // flip, 3B-4's tree flip) relies on `toFrozen` / `ofFrozen` being mutual
 // inverses on the post-freeze subset, so an IL-byte-identical claim can rest on
@@ -100,7 +100,7 @@ let tests =
                     | TyRecord _ -> "TyRecord"
                     | TyUnion _ -> "TyUnion"
                     | TyClass _ -> "TyClass"
-                    | TempTypar _ -> "TempTypar"
+                    | TyTypar _ -> "TyTypar"
                     | TyUnknown _ -> "TyUnknown"
                     | TyVar _ -> "TyVar"
 
@@ -114,7 +114,7 @@ let tests =
                         "TyRecord"
                         "TyUnion"
                         "TyClass"
-                        "TempTypar"
+                        "TyTypar"
                         "TyUnknown"
                     ] do
                     Expect.isTrue (Set.contains expected seen) (sprintf "sample covers %s" expected)

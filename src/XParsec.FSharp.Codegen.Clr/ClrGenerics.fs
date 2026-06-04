@@ -208,7 +208,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         // The `parent` TypeSpec above was minted under the caller's ambient closure
         // mode (off at a construction site inside a static method → `!!i`; on inside
         // an enclosing closure's body → `!i`); the member-ref signature below speaks
-        // the closure's own typars, so force closure mode on (frozen-type-plan 2B):
+        // the closure's own typars, so force closure mode on:
         // the embedded `FTTypar(Method, i)` encode to the closure class's `!i`.
         let savedMode = env.ClosureTyparMode
         env.ClosureTyparMode <- true

@@ -66,8 +66,8 @@ let rec private tyName (t: SemType) : string =
     | TyUnion(n, _)
     | TyClass(n, _) -> SymbolKeyOps.simpleName n
     | TyUnknown n -> "?" + n
-    | TempTypar(TyparAxis.Declaring, i) -> "!" + string i
-    | TempTypar(TyparAxis.Method, i) -> "!!" + string i
+    | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
+    | TyTypar(TyparAxis.Method, i) -> "!!" + string i
 
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
@@ -617,8 +617,8 @@ type private Renderer() =
                 | TyUnion(n, _)
                 | TyClass(n, _) -> SymbolKeyOps.simpleName n
                 | TyUnknown n -> "?" + n
-                | TempTypar(TyparAxis.Declaring, i) -> "!" + string i
-                | TempTypar(TyparAxis.Method, i) -> "!!" + string i
+                | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
+                | TyTypar(TyparAxis.Method, i) -> "!!" + string i
 
             push "type "
 

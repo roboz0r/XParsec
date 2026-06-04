@@ -387,6 +387,9 @@ let tests =
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.AmbientShapes <- ambient
                 VesperLib.extractSymbols ctx parsed
+                // Vals are stashed during extraction and built into `ctx.Symbols` by
+                // the finalize pass once the registry is complete.
+                VesperLib.finalizeDeferred ctx
 
                 // Locate each val by its source name suffix so the assertion does
                 // not hinge on the exact module-path compilation.
@@ -453,6 +456,7 @@ let tests =
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
 
                 let mutable found = ValueNone
 
@@ -593,11 +597,12 @@ let tests =
             test "A reference to an Opaque-shaped type is refused at bake time" {
                 // The consumer half of the residue: a signature naming a type whose
                 // in-scope shape is `Opaque` (an enum / delegate / unmodelled body)
-                // has no kind to bake.
-                // The argless val's builder runs at extraction
-                // (`extractValSig` bakes a typar-free signature eagerly), so the
-                // refusal surfaces there. Seeded through the ambient so the path is
-                // exercised directly.
+                // has no kind to bake. The val signature is translated in the finalize
+                // pass, where `mkNominal`'s `Opaque` arm raises `BodylessExternalShape`;
+                // the pass tolerates it as a per-val skip (the symbol is dropped and
+                // recorded in `ctx.Skipped`) rather than minting a placeholder or
+                // aborting the whole provider build. Seeded through the ambient so the
+                // path is exercised directly.
                 let ambient name =
                     if name = "Dep.Widget" then
                         ValueSome(ExternalTypeShape.Opaque 1)
@@ -635,12 +640,20 @@ let tests =
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.AmbientShapes <- ambient
 
-                // The name resolves through the ambient shape, but baking the
-                // argless signature runs `mkNominal`'s `Opaque` arm, which refuses
-                // it — so extraction itself throws rather than minting a placeholder.
-                Expect.throws
-                    (fun () -> VesperLib.extractSymbols ctx parsed)
-                    "baking a signature with an Opaque head throws"
+                // Extraction stashes the val; the finalize pass translates it, hits
+                // the `Opaque` arm, and drops the val (recording the reason) rather
+                // than minting a placeholder or aborting the build.
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let qualifiedRegistered =
+                    ctx.Symbols.Keys |> Seq.exists (fun k -> k.EndsWith ".qualified")
+
+                Expect.isFalse qualifiedRegistered "an Opaque-headed val is not registered as a symbol"
+
+                let skipped = ctx.Skipped |> Seq.exists (fun (_, msg) -> msg.Contains "qualified")
+
+                Expect.isTrue skipped "the dropped val is recorded in ctx.Skipped"
             }
 
             test "ModuleSuffix flag applied to the innermost module" {
@@ -791,7 +804,7 @@ let tests =
             }
 
             test "finalize fills real templates on extracted shapes" {
-                // Post the `toProvider` finalize pass (external-signature-plan step 5),
+                // Post the `toProvider` finalize pass,
                 // every extracted shape's deferred `FrozenType` template is filled —
                 // no `<deferred>` sentinel survives — and instantiates without
                 // throwing. Genuinely body-less heads (`byref`) degrade to the

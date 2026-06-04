@@ -45,7 +45,7 @@ module ResolvedTypes =
                     go a
             | TyUnknown _ -> ()
             // Post-freeze leaf; this check runs pre-freeze and never sees it.
-            | TempTypar _ -> ()
+            | TyTypar _ -> ()
 
         go t
 

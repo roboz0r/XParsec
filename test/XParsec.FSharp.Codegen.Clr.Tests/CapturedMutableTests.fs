@@ -354,8 +354,8 @@ let tests =
                         (sprintf "closure %s should inherit mkPair's typars (count > 0)" c.Name)
 
                 // Both closures carry *the same* typar count — the inner closure's
-                // typars are not re-derived but inherited verbatim (frozen-type-plan
-                // 2B: closures carry the enclosing method's typar count).
+                // typars are not re-derived but inherited verbatim (closures carry
+                // the enclosing method's typar count).
                 let inner = closures.[0] // registered first (leaves-first walk)
                 let outer = closures.[1]
 

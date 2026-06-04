@@ -243,8 +243,7 @@ module SymbolProviders =
                             // any local nominal keys minted while analysing them.
                             // Cross-package inline bodies must re-enter the *SemType*
                             // inline pass at the consumer, so collect them off the
-                            // pre-freeze (`analyseSemFor`) tree, not the frozen output
-                            // (frozen-type-plan 3B-4 / 3B-5).
+                            // pre-freeze (`analyseSemFor`) tree, not the frozen output.
                             let tast = Pipeline.analyseSemFor manifest.Name provider parsed.Input parsed.Lexed f
 
                             for (name, decl) in collectInlineBodies tast do
@@ -266,7 +265,7 @@ module SymbolProviders =
         )
 
     /// Wrap `inner` so it ALSO serves cross-package inline bodies
-    /// (frozen-type-plan 3A-1): every `IExternalSymbolProvider` member delegates
+    /// every `IExternalSymbolProvider` member delegates
     /// to `inner`, and the two inline-body channels read the pre-built maps.
     /// `byKey` is keyed by the inline value's resolved `SymbolKey` (the
     /// identity-robust primary channel); `byName` is the source-name residue the
@@ -329,8 +328,8 @@ module SymbolProviders =
                          // Rekey the inline bodies by the resolved `SymbolKey` the
                          // consumer's use-site `TExpr.External` carries — looked up
                          // through this same `provider`, so the body's key is exactly
-                         // the key `Resolution.ExternalValue` stamps (frozen-type-plan
-                         // 3A-1). A name with no resolvable symbol contributes only to
+                         // the key `Resolution.ExternalValue` stamps. A name with no
+                         // resolvable symbol contributes only to
                          // the by-name residue. The wrapped provider serves both
                          // channels to the front-end inline pass (the sole consumer
                          // since beat (b) retired codegen's inline expansion); the raw

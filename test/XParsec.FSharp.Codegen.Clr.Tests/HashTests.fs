@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
 // loaded as a cross-package inline body (`SymbolProviders.inlineBodies`) and
 // spliced at each `hash` use site by the pre-freeze `Passes.InlineExpansion` pass
-// (frozen-type-plan 3A-1), reached through the provider's `IInlineBodyProvider`
+// reached through the provider's `IInlineBodyProvider`
 // channel. So `hash 5` freezes to the two `ExternalMember` nodes
 // (`EqualityComparer<int>.Default` static property +
 // `GetHashCode` instance method) that P4 emits — the same `EqualityComparer<T>`

@@ -768,12 +768,12 @@ let tests =
                 | TTypeKind.Class(_, ctorParams, members, _, _, _, _, _, _) ->
                     Expect.equal ctorParams.Length 1 "one ctor param"
                     Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
-                    // The declaring typar freezes to `TempTypar(Declaring, 0)`, which
+                    // The declaring typar freezes to `TyTypar(Declaring, 0)`, which
                     // the backend reads as a `GenericTypeParameter` index.
-                    Expect.equal (ctorParams.[0].Type) (TempTypar(TyparAxis.Declaring, 0)) "ctor param type marker"
+                    Expect.equal (ctorParams.[0].Type) (TyTypar(TyparAxis.Declaring, 0)) "ctor param type marker"
                     Expect.equal members.Length 1 "one member"
                     Expect.equal (members.[0].Name) "Value" "member name"
-                    Expect.equal (members.[0].ReturnTy) (TempTypar(TyparAxis.Declaring, 0)) "member returns the typar"
+                    Expect.equal (members.[0].ReturnTy) (TyTypar(TyparAxis.Declaring, 0)) "member returns the typar"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

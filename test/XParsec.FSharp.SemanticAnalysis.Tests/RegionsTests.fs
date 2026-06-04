@@ -299,7 +299,7 @@ let tests =
                 // `let f (x as y) = x` — Freeze's `translatePat` drops the `as`
                 // node and surfaces only the inner binder `x` (the alias `y`
                 // isn't a `TPat` binder yet; downstream `Var`s find it via the
-                // side tables). frozen-type-plan 3A-2: Regions now walks the
+                // side tables). Regions now walks the
                 // post-Freeze `TExpr`, so it stamps the surviving inner binder's
                 // region — the `as`-node key no longer exists to stamp.
                 let input = "let f (x as y) = x"
@@ -462,7 +462,7 @@ let tests =
 
             test "list literal at module top is precisely analysed (no spurious HeapShared)" {
                 // `let xs = [ 1; 2 ]` lowers to nested `UnionCons("Cons", …)`
-                // before Regions runs (frozen-type-plan 3A-2: the pass walks the
+                // before Regions runs (the pass walks the
                 // post-Freeze `TExpr`), so the list allocation is modelled
                 // precisely as a module-top composite — `LocalStack`, not the
                 // old pessimistic `HeapShared` fallback the CST pass produced for
