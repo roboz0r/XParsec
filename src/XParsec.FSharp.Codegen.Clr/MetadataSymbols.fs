@@ -306,6 +306,13 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
     let enumerateClassMembers (t: Type) : ExternalMember[] =
         let origin = originOf t (Some(MetadataMapping.metadataName t))
         let declKey = MetadataMapping.declTypeKey t
+        // The declaring type's typar count — `BuildSignature`'s declaring axis
+        // width, the `declaringMarkers` length `ExternalSignature.ofClosure` needs.
+        let arity =
+            if t.IsGenericType then
+                t.GetGenericArguments().Length
+            else
+                0
 
         let properties =
             t.GetProperties declaredFlags
@@ -318,6 +325,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                             IsProperty = true
                             BuildSignature = build
+                            Signature = ExternalSignature.ofClosure (true, arity, 0, build)
                             MethodArity = 0
                             Origin = origin
                             Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
@@ -343,6 +351,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         IsStatic = m.IsStatic
                         IsProperty = false
                         BuildSignature = build
+                        Signature = ExternalSignature.ofClosure (false, arity, MetadataMapping.methodArityOf m, build)
                         MethodArity = MetadataMapping.methodArityOf m
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
@@ -371,6 +380,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         IsStatic = false
                         IsProperty = false
                         BuildSignature = build
+                        Signature = ExternalSignature.ofClosure (false, arity, 0, build)
                         MethodArity = 0
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
@@ -448,13 +458,24 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         else
                             0
 
+                    let interfaces = buildClassInterfaces t
+                    let baseType = buildClassBaseType t
+                    // Freeze the closures on the declaring-typar markers (step 1):
+                    // each interface arg / the base type with `'i` baked as
+                    // `FTTypar(Declaring,i)`.
+                    let markers = declaringMarkers arity
+
                     let shape: ExternalClassShape =
                         {
                             Arity = arity
                             IsInterface = t.IsInterface
                             Members = enumerateClassMembers t
-                            Interfaces = buildClassInterfaces t
-                            BaseType = buildClassBaseType t
+                            Interfaces = interfaces
+                            BaseType = baseType
+                            FrozenInterfaces =
+                                interfaces markers
+                                |> Array.map (fun (name, args) -> name, Array.map toFrozen args)
+                            FrozenBaseType = baseType |> ValueOption.map (fun f -> toFrozen (f markers))
                             Flags = decodeClassFlags t
                             Origin = originOf t None
                         }
@@ -496,6 +517,12 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         let origin = originOf st (Some(MetadataMapping.metadataName st))
                         let declKey = MetadataMapping.declTypeKey st
 
+                        let arity =
+                            if st.IsGenericType then
+                                st.GetGenericArguments().Length
+                            else
+                                0
+
                         match st.GetProperty(memberName, declaredFlags) with
                         | (null: PropertyInfo) when memberName = ".ctor" ->
                             st.GetConstructors declaredFlags
@@ -513,6 +540,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         IsStatic = false
                                         IsProperty = false
                                         BuildSignature = build
+                                        Signature = ExternalSignature.ofClosure (false, arity, 0, build)
                                         MethodArity = 0
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
@@ -536,6 +564,13 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         IsStatic = m.IsStatic
                                         IsProperty = false
                                         BuildSignature = build
+                                        Signature =
+                                            ExternalSignature.ofClosure (
+                                                false,
+                                                arity,
+                                                MetadataMapping.methodArityOf m,
+                                                build
+                                            )
                                         MethodArity = MetadataMapping.methodArityOf m
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
@@ -551,6 +586,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                                         IsProperty = true
                                         BuildSignature = build
+                                        Signature = ExternalSignature.ofClosure (true, arity, 0, build)
                                         MethodArity = 0
                                         Origin = origin
                                         // A property carries no parameters → empty argSig.

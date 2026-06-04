@@ -81,7 +81,28 @@ type ExternalFieldShape =
         Name: string
         IsMutable: bool
         BuildType: SemType[] -> SemType
+        /// The `FrozenType`-template form of `BuildType` (external-signature-plan
+        /// step 1): the field type with the enclosing type's typars baked as
+        /// `FTTypar(Declaring,i)`. Populated alongside `BuildType` during the
+        /// two-headed window; `BuildType` is deleted in step 5. Contract-layer
+        /// (`VesperLib`) producers store the `deferredTemplate` sentinel here at
+        /// extraction and the `ExtractCtx.toProvider` finalize pass fills it once
+        /// the registry is complete (a field type may forward-reference a type
+        /// declared later in the same package — see the finalize pass).
+        Frozen: FrozenType
     }
+
+    /// Store the legacy closure with a deferred template sentinel. The real
+    /// template is derived by the finalize pass (`ExternalSymbols`) once
+    /// extraction has registered every shape — running the closure mid-extraction
+    /// would miss intra-package forward references.
+    static member create(name: string, isMutable: bool, build: SemType[] -> SemType) : ExternalFieldShape =
+        {
+            Name = name
+            IsMutable = isMutable
+            BuildType = build
+            Frozen = deferredTemplate
+        }
 
 /// Per-case shape inside an `ExternalTypeShape.Union`. `FieldNames` is
 /// `ValueNone` for positional fields and `ValueSome name` for `of x: int`-
@@ -92,7 +113,26 @@ type ExternalCaseShape =
         Name: string
         FieldNames: string voption[]
         BuildFieldTypes: (SemType[] -> SemType)[]
+        /// The `FrozenType`-template form of each entry in `BuildFieldTypes`
+        /// (external-signature-plan step 1), index-aligned with it. Deleted with
+        /// the closures in step 5. Contract-layer producers store `deferredTemplate`
+        /// sentinels here at extraction; the `ExtractCtx.toProvider` finalize pass
+        /// fills them once the registry is complete.
+        FrozenFieldTypes: FrozenType[]
     }
+
+    /// Store the legacy closures with deferred template sentinels (one per
+    /// field). The real templates are derived by the finalize pass
+    /// (`ExternalSymbols`) once extraction has registered every shape.
+    static member create
+        (name: string, fieldNames: string voption[], builds: (SemType[] -> SemType)[])
+        : ExternalCaseShape =
+        {
+            Name = name
+            FieldNames = fieldNames
+            BuildFieldTypes = builds
+            FrozenFieldTypes = builds |> Array.map (fun _ -> deferredTemplate)
+        }
 
 /// Result of a reverse union-case lookup (`IExternalSymbolProvider.TryLookupUnionCase`):
 /// the declaring union's identity plus the matched case shape. A record rather
@@ -117,6 +157,66 @@ type ExternalUnionCase =
         Case: ExternalCaseShape
     }
 
+/// The immutable, two-axis member descriptor (external-signature-plan): the
+/// `FrozenType`-template form of `ExternalMember.BuildSignature`. `Parameters`
+/// is the .NET-tupled argument type (`N ≥ 2` → one `FTTuple`; 0 params →
+/// `unit`); `Return` the result. Open typars are baked as `FTTypar(Declaring,i)`
+/// (the declaring type's typars) / `FTTypar(Method,j)` (the method's own) — the
+/// `DeclaringArity` / `MethodArity` counts give each axis's width. For a
+/// property (`ExternalMember.IsProperty`) there are no parameters: `Parameters`
+/// is `unit` and the value type lives in `Return`; consumers gate reconstruction
+/// on `IsProperty` (see `ExternalSymbols.instantiateSignature`). The two-axis
+/// data form is what unblocks generic external static methods (`truncate`).
+type ExternalSignature =
+    {
+        DeclaringArity: int
+        MethodArity: int
+        Parameters: FrozenType
+        Return: FrozenType
+    }
+
+    /// The deferred sentinel a contract-layer member carries between extraction
+    /// and the `ExtractCtx.toProvider` finalize pass (which fills `Parameters` /
+    /// `Return` via `ofClosure` once the registry is complete). `DeclaringArity`
+    /// / `MethodArity` are recorded eagerly so the finalize pass needs only the
+    /// closure. Metadata-layer (`MetadataSymbols`, reflection-backed) members
+    /// skip this and call `ofClosure` directly — their closures are total and
+    /// registry-independent.
+    static member deferred(declaringArity: int, methodArity: int) : ExternalSignature =
+        {
+            DeclaringArity = declaringArity
+            MethodArity = methodArity
+            Parameters = deferredTemplate
+            Return = deferredTemplate
+        }
+
+    /// Derive the two-axis signature from a legacy `BuildSignature` closure
+    /// during the two-headed window: freeze the closure on `declaringMarkers`,
+    /// then split. A method / ctor closure yields `TyFun(params, ret)`; a
+    /// property closure yields the bare value type. Retired in step 5.
+    static member ofClosure
+        (isProperty: bool, declaringArity: int, methodArity: int, build: SemType[] -> SemType)
+        : ExternalSignature =
+        let frozen = templateOfClosure declaringArity build
+
+        let parameters, ret =
+            if isProperty then
+                FTConst("unit", EqArray.empty), frozen
+            else
+                match frozen with
+                | FTFun(p, r) -> p, r
+                // A non-property member whose closure isn't a `TyFun` is not a
+                // shape the metadata / contract layers produce; fold it as a
+                // nullary value rather than fabricate a parameter slot.
+                | other -> FTConst("unit", EqArray.empty), other
+
+        {
+            DeclaringArity = declaringArity
+            MethodArity = methodArity
+            Parameters = parameters
+            Return = ret
+        }
+
 /// A resolved member (static/instance method or property getter) on an external
 /// type. `BuildSignature` is parameterised over the
 /// *enclosing type's* typars, exactly like `ExternalFieldShape.BuildType`:
@@ -130,6 +230,12 @@ type ExternalMember =
         IsStatic: bool
         IsProperty: bool
         BuildSignature: SemType[] -> SemType
+        /// The `FrozenType`-template form of `BuildSignature` (external-signature
+        /// -plan step 1): the tupled `(params, ret)` with the declaring + method
+        /// typars baked as `FTTypar` placeholders. Populated alongside
+        /// `BuildSignature` during the two-headed window; `BuildSignature` is
+        /// deleted in step 5. `ExternalSymbols.instantiateSignature` realises it.
+        Signature: ExternalSignature
         /// The count of the member's *own* generic type parameters — the
         /// method-owned typar axis (`Take<TSource>` ⇒ 1), distinct from the
         /// declaring type's typars `BuildSignature` substitutes. `0` for a
@@ -207,6 +313,13 @@ type ExternalClassShape =
         /// The declared base type, if any (`ValueNone` for interfaces and for
         /// `System.Object` itself). Substitutes the declaring type's typars.
         BaseType: (SemType[] -> SemType) voption
+        /// The `FrozenType`-template form of `Interfaces` (external-signature-plan
+        /// step 1): each interface's type args with the declaring typars baked as
+        /// `FTTypar(Declaring,i)`. Deleted with `Interfaces` in step 5.
+        FrozenInterfaces: (string * FrozenType[])[]
+        /// The `FrozenType`-template form of `BaseType` (external-signature-plan
+        /// step 1). Deleted with `BaseType` in step 5.
+        FrozenBaseType: FrozenType voption
         Flags: ExternalClassFlags
         Origin: SymbolOrigin
     }
@@ -222,6 +335,8 @@ type ExternalClassShape =
             Members = [||]
             Interfaces = fun _ -> [||]
             BaseType = ValueNone
+            FrozenInterfaces = [||]
+            FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
             Origin = origin
         }
@@ -231,7 +346,10 @@ type ExternalClassShape =
 /// arrays expect at instantiation).
 [<RequireQualifiedAccess>]
 type ExternalTypeShape =
-    | Abbrev of arity: int * body: (SemType[] -> SemType)
+    /// `body` is the legacy declaring-typar closure; `frozen` its
+    /// `FrozenType`-template form (external-signature-plan step 1), populated
+    /// alongside it during the two-headed window and the sole survivor in step 5.
+    | Abbrev of arity: int * body: (SemType[] -> SemType) * frozen: FrozenType
     /// Field order matches source. `origin` is filled by the layer that knows
     /// where the type lives (`ReferencedProject.wrap` from the manifest's
     /// assembly + namespace); the inner extractor records `SymbolOrigin.Empty`.
@@ -370,6 +488,95 @@ module ExternalSymbols =
     /// `TryLookupMember`) keep projecting it directly.
     let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
         provider.TryLookupType(SymbolKeyOps.qualifiedName key)
+
+    /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
+    /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
+    /// index, shared across `Parameters` and `Return`). Reconstructs
+    /// `BuildSignature`'s `TyFun(params, ret)` for a method / ctor, or the bare
+    /// value type for a property. The data-form replacement for
+    /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`
+    /// (external-signature-plan step 2); equal to it on the post-freeze subset.
+    let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
+        let cache = System.Collections.Generic.Dictionary<int, SemType>()
+        let methodVar = methodFreshener cache level
+        let decl i = declaringArgs.[i]
+        let s = m.Signature
+
+        if m.IsProperty then
+            instantiateWith decl methodVar s.Return
+        else
+            TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
+
+    // --- Contract-extraction finalize pass (external-signature-plan step 1) ----
+    //
+    // A contract-layer descriptor's `SemType[] -> SemType` closure can't be
+    // frozen at construction: it may forward-reference a type registered later in
+    // the same package (the registry is incomplete mid-extraction), and a
+    // genuinely body-less head (`byref`) throws inside `mkNominal` whenever it
+    // runs. So extraction stores `deferredTemplate` sentinels and this pass —
+    // run by `VesperLib.ExtractCtx.toProvider` once every shape is registered —
+    // derives the real templates. The residual genuinely-partial heads (never
+    // expanded, so their template is never read) degrade to `FTUnknown` rather
+    // than abort the whole provider build. Strict `templateOfClosure` /
+    // `ExternalSignature.ofClosure` stay for the metadata layer and the oracle.
+
+    let private unfreezable = FTUnknown "<unfreezable external template>"
+
+    let private freezeTemplateTolerant (arity: int) (closure: SemType[] -> SemType) : FrozenType =
+        try
+            templateOfClosure arity closure
+        with _ ->
+            unfreezable
+
+    /// Derive the deferred `FrozenType` templates on a freshly-extracted type
+    /// shape (`Record` fields, `Union` case fields, `Abbrev` body). Run after the
+    /// registry is complete. `Class` / `Intrinsic` / `Opaque` carry no contract-
+    /// layer closure to freeze (`VesperLib` classes are `ExternalClassShape.basic`,
+    /// already template-empty), so they pass through unchanged.
+    let finalizeTypeShapeTemplates (shape: ExternalTypeShape) : ExternalTypeShape =
+        match shape with
+        | ExternalTypeShape.Record(arity, fields, origin) ->
+            let fields' =
+                fields
+                |> Array.map (fun f ->
+                    { f with
+                        Frozen = freezeTemplateTolerant arity f.BuildType
+                    }
+                )
+
+            ExternalTypeShape.Record(arity, fields', origin)
+        | ExternalTypeShape.Union(arity, cases, origin) ->
+            let cases' =
+                cases
+                |> Array.map (fun c ->
+                    { c with
+                        FrozenFieldTypes = c.BuildFieldTypes |> Array.map (freezeTemplateTolerant arity)
+                    }
+                )
+
+            ExternalTypeShape.Union(arity, cases', origin)
+        | ExternalTypeShape.Abbrev(arity, build, _) ->
+            ExternalTypeShape.Abbrev(arity, build, freezeTemplateTolerant arity build)
+        | ExternalTypeShape.Class _
+        | ExternalTypeShape.Intrinsic _
+        | ExternalTypeShape.Opaque _ -> shape
+
+    /// Derive a freshly-extracted member's deferred `Signature`. The declaring /
+    /// method arities were recorded eagerly on the sentinel; only the templates
+    /// are filled here.
+    let finalizeMemberTemplate (m: ExternalMember) : ExternalMember =
+        let s = m.Signature
+
+        let signature =
+            try
+                ExternalSignature.ofClosure (m.IsProperty, s.DeclaringArity, m.MethodArity, m.BuildSignature)
+            with _ ->
+                { s with
+                    Parameters = FTConst("unit", EqArray.empty)
+                    Return = unfreezable
+                }
+
+        { m with Signature = signature }
 
     let mono (name: string) (ty: SemType) : ExternalSymbol =
         {

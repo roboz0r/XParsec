@@ -739,7 +739,7 @@ let tests =
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.option`1" with
                 | ValueNone -> failtest "Microsoft.FSharp.Core.option shape not found"
-                | ValueSome(ExternalTypeShape.Abbrev(arity, build)) ->
+                | ValueSome(ExternalTypeShape.Abbrev(arity, build, _)) ->
                     Expect.equal arity 1 "option has one typar"
                     let body = build [| TyConst("int", EqArray.empty) |]
 
@@ -786,6 +786,72 @@ let tests =
                             // assert by substituting the first typar.
                             failtestf "Ok field shape: %A" okFieldType
                 | other -> failtestf "Expected Union shape; got %A" other
+            }
+
+            test "external-signature oracle: finalized templates match their closures on real shapes" {
+                // The step-1 oracle against the *real* extracted provider, post the
+                // `toProvider` finalize pass: for every extracted shape's closure,
+                // `frozen ≡ toFrozen (closure markers)` (law 1) and `instantiate
+                // frozen args ≡ closure args` on ground args (law 2). Genuinely
+                // body-less heads (`byref`) freeze to the `<unfreezable>` sentinel —
+                // their closure throws, so they are excluded from the laws. This
+                // guards the finalize pass against drift once producers build
+                // templates natively (step 5).
+                let provider, _ = builtProvider.Value
+
+                let unfreezable = FTUnknown "<unfreezable external template>"
+
+                /// Ground args for an arity-`n` declaring substitution.
+                let argsFor (n: int) : SemType[] =
+                    Array.init n (fun i -> TyConst(sprintf "g%d" i, EqArray.empty))
+
+                /// Assert the two laws for one closure + its finalized template at
+                /// the given declaring arity. Skips the genuinely-partial closures.
+                let checkLaws (label: string) (arity: int) (build: SemType[] -> SemType) (frozen: FrozenType) =
+                    if frozen <> unfreezable then
+                        let viaClosure = build (declaringMarkers arity)
+
+                        Expect.equal
+                            frozen
+                            (toFrozen viaClosure)
+                            (sprintf "law 1 (template ≡ frozen closure): %s" label)
+
+                        let args = argsFor arity
+
+                        Expect.equal
+                            (instantiate frozen args 0)
+                            (build args)
+                            (sprintf "law 2 (instantiate ≡ closure): %s" label)
+
+                // A representative cross-section: the `option` abbrev, the `Result`
+                // union's case fields, and a record if the lib has one. Reaching
+                // every shape needs the raw table; the public surface gives us these
+                // three well-known names.
+                match provider.TryLookupType "Microsoft.FSharp.Core.option`1" with
+                | ValueSome(ExternalTypeShape.Abbrev(arity, build, frozen)) ->
+                    checkLaws "option abbrev" arity build frozen
+                | _ -> failtest "option abbrev not found"
+
+                match provider.TryLookupType "Microsoft.FSharp.Core.Result`2" with
+                | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
+                    for c in cases do
+                        c.BuildFieldTypes
+                        |> Array.iteri (fun i b ->
+                            checkLaws (sprintf "Result.%s field %d" c.Name i) arity b c.FrozenFieldTypes.[i]
+                        )
+                | _ -> failtest "Result union not found"
+
+                // A member signature, if `Option.Map` is published with one.
+                match provider.TryLookupMember("Microsoft.FSharp.Core.option`1", "Map") with
+                | ValueSome m when m.Signature.Return <> unfreezable ->
+                    let args = argsFor m.Signature.DeclaringArity
+
+                    if m.MethodArity = 0 then
+                        Expect.equal
+                            (ExternalSymbols.instantiateSignature m args 0)
+                            (m.BuildSignature args)
+                            "member law 2 (instantiateSignature ≡ BuildSignature)"
+                | _ -> ()
             }
 
             test "Phase 5: `when 'T : equality` captured + applied to fresh TyVar" {

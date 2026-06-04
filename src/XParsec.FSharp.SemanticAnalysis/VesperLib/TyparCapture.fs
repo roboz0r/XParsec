@@ -200,6 +200,24 @@ module VesperLibTyparCapture =
         /// namespace opens) before calling `toProvider`. The same mechanism
         /// `ReferencedProject` uses for Vesper packages.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
+            // Finalize the deferred `FrozenType` templates (external-signature-plan
+            // step 1). Extraction stored `deferredTemplate` sentinels because a
+            // descriptor closure can't be frozen mid-walk — it may forward-
+            // reference a type registered later in the package. The registry is now
+            // complete, so derive the real templates (tolerantly: a genuinely body-
+            // less head degrades to `FTUnknown`). Done in place before the provider
+            // closes over the tables.
+            let shapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
+
+            for k in shapeKeys do
+                ctx.TypeShapes.[k] <- ExternalSymbols.finalizeTypeShapeTemplates ctx.TypeShapes.[k]
+
+            for kv in ctx.TypeMembers do
+                let members = kv.Value
+
+                for i in 0 .. members.Count - 1 do
+                    members.[i] <- ExternalSymbols.finalizeMemberTemplate members.[i]
+
             // Reverse case-name index for `TryLookupUnionCase` (Gap 2 Layer B):
             // bare case name -> (declaring union compiled name, arity, case
             // shape). Built once here, after extraction has fully populated

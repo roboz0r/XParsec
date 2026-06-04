@@ -492,7 +492,7 @@ module VesperLibTypeTranslate =
             TyClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
             TyRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
-        | ValueSome(ExternalTypeShape.Abbrev(_, build)) ->
+        | ValueSome(ExternalTypeShape.Abbrev(_, build, _)) ->
             // Expand the abbreviation to its body. `build` is the *defining*
             // package's `translateType` builder, whose nominal heads already kind
             // through `mkNominal` against that package's scope (its own shapes plus

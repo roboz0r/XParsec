@@ -311,7 +311,7 @@ module FreezeExpr =
             let underlyingClassName (shape: ExternalTypeShape) (qualified: string) : string voption =
                 match shape with
                 | ExternalTypeShape.Class _ -> ValueSome(SymbolKeyOps.arityName qualified arity)
-                | ExternalTypeShape.Abbrev(a, build) ->
+                | ExternalTypeShape.Abbrev(a, build, _) ->
                     match build (Array.create a BuiltinTypes.tyUnit) with
                     | TyClass(key, _) -> ValueSome(SymbolKeyOps.qualifiedName key)
                     | _ -> ValueNone

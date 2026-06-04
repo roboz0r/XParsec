@@ -494,7 +494,10 @@ module VesperLib =
         | Ok build ->
             match bodyTyparsOk collector arity with
             | Error e -> skipBodyOpaque ctx file compiled arity e
-            | Ok() -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, build)
+            // Deferred frozen body: filled by the `toProvider` finalize pass once
+            // the registry is complete (the body may forward-reference a type
+            // declared later in the package, and a body-less head can't be frozen).
+            | Ok() -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Abbrev(arity, build, deferredTemplate)
 
     let private extractRecordBody
         (ctx: ExtractCtx)
@@ -518,13 +521,7 @@ module VesperLib =
 
                 match translateType ctx lexed input opens collector throwawayConstraints fieldTy with
                 | Error e -> err <- Some e
-                | Ok b ->
-                    shapes.Add
-                        {
-                            Name = nameOfTok lexed input identTok
-                            IsMutable = mutableTok.IsSome
-                            BuildType = b
-                        }
+                | Ok b -> shapes.Add(ExternalFieldShape.create (nameOfTok lexed input identTok, mutableTok.IsSome, b))
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -574,13 +571,7 @@ module VesperLib =
                 | UnionTypeCaseData.Nullary ident ->
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
-                    | ValueSome n ->
-                        caseShapes.Add
-                            {
-                                Name = n
-                                FieldNames = [||]
-                                BuildFieldTypes = [||]
-                            }
+                    | ValueSome n -> caseShapes.Add(ExternalCaseShape.create (n, [||], [||]))
 
                 | UnionTypeCaseData.Nary(ident, _, fields, _) ->
                     match caseName ident with
@@ -604,12 +595,7 @@ module VesperLib =
                                     builds.Add b
 
                         if err.IsNone then
-                            caseShapes.Add
-                                {
-                                    Name = n
-                                    FieldNames = names.ToArray()
-                                    BuildFieldTypes = builds.ToArray()
-                                }
+                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray(), builds.ToArray()))
 
                 | UnionTypeCaseData.GadtNullary(name = ident) ->
                     // GADT-syntax nullary (`([]): 'T list`): the explicit return
@@ -619,13 +605,7 @@ module VesperLib =
                     // the front-end's `TypeRegistration.inspectCaseData` takes.
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
-                    | ValueSome n ->
-                        caseShapes.Add
-                            {
-                                Name = n
-                                FieldNames = [||]
-                                BuildFieldTypes = [||]
-                            }
+                    | ValueSome n -> caseShapes.Add(ExternalCaseShape.create (n, [||], [||]))
 
                 | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(specs, _))) ->
                     // GADT-syntax n-ary (`(::): Head: 'T * Tail: 'T list -> 'T list`):
@@ -654,12 +634,7 @@ module VesperLib =
                                     builds.Add b
 
                         if err.IsNone then
-                            caseShapes.Add
-                                {
-                                    Name = n
-                                    FieldNames = names.ToArray()
-                                    BuildFieldTypes = builds.ToArray()
-                                }
+                            caseShapes.Add(ExternalCaseShape.create (n, names.ToArray(), builds.ToArray()))
 
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
@@ -761,6 +736,10 @@ module VesperLib =
                                             IsStatic = isStatic
                                             IsProperty = isProperty
                                             BuildSignature = builder
+                                            // Deferred: filled by the `toProvider` finalize pass
+                                            // once the registry is complete (a sig may
+                                            // forward-reference a type declared later).
+                                            Signature = ExternalSignature.deferred (arity, 0)
                                             // The `.fsi` contract layer doesn't yet publish
                                             // generic (method-owned-typar) members.
                                             MethodArity = 0

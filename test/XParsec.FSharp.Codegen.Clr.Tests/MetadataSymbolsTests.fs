@@ -137,6 +137,64 @@ let tests =
                 | ValueNone -> failtest "GetHashCode did not resolve"
             }
 
+            test "external-signature oracle: eager templates match their closures (metadata path)" {
+                // The step-1 oracle on the *eager* (reflection-backed) provider —
+                // `MetadataSymbols` freezes at construction (its closures are total
+                // and registry-independent, unlike the contract layer's). For a
+                // member: `Signature` round-trips its `BuildSignature` —
+                // `instantiateSignature ≡ BuildSignature` on ground args (the method
+                // axis is checked structurally where present). For a class:
+                // `FrozenInterfaces` / `FrozenBaseType` match the closures on the
+                // declaring-typar markers.
+                let checkMember (label: string) (m: ExternalMember) =
+                    let args =
+                        Array.init m.Signature.DeclaringArity (fun i -> TyConst(sprintf "g%d" i, EqArray.empty))
+
+                    if m.MethodArity = 0 then
+                        Expect.equal
+                            (ExternalSymbols.instantiateSignature m args 0)
+                            (m.BuildSignature args)
+                            (sprintf "instantiateSignature ≡ BuildSignature: %s" label)
+                    else
+                        // Generic method: the closure bakes `TempTypar(Method,_)`; the
+                        // template freezes it to `FTTypar(Method,_)` and freshens on
+                        // instantiate. Assert the frozen template equals the freeze of
+                        // the closure on markers (law 1), which is axis-exact.
+                        Expect.equal
+                            m.Signature.Return
+                            (match toFrozen (m.BuildSignature(declaringMarkers m.Signature.DeclaringArity)) with
+                             | FTFun(_, r) -> r
+                             | other -> other)
+                            (sprintf "law 1 (generic-method return): %s" label)
+
+                match provider.TryLookupMember(eqComparer, "Default") with
+                | ValueSome m -> checkMember "EqualityComparer.Default" m
+                | ValueNone -> failtest "Default did not resolve"
+
+                match provider.TryLookupMember(eqComparer, "GetHashCode") with
+                | ValueSome m -> checkMember "EqualityComparer.GetHashCode" m
+                | ValueNone -> failtest "GetHashCode did not resolve"
+
+                // A class with interfaces + base type: `List`1` implements
+                // `IEnumerable<'T>` etc. and bases on `Object`.
+                match provider.TryLookupType "System.Collections.Generic.List`1" with
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    let markers = declaringMarkers info.Arity
+
+                    let expectedInterfaces =
+                        info.Interfaces markers
+                        |> Array.map (fun (n, args) -> n, Array.map toFrozen args)
+
+                    Expect.equal info.FrozenInterfaces expectedInterfaces "law 1 (class interfaces)"
+
+                    let expectedBase = info.BaseType |> ValueOption.map (fun f -> toFrozen (f markers))
+                    Expect.equal info.FrozenBaseType expectedBase "law 1 (class base type)"
+
+                    for m in info.Members do
+                        checkMember (sprintf "List.%s" m.Name) m
+                | other -> failtestf "expected List`1 as a Class shape, got %A" other
+            }
+
             test "an unknown type misses" {
                 Expect.isTrue (provider.TryLookupType "No.Such.Type`9" |> ValueOption.isNone) "unknown type miss"
             }
