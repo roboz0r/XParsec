@@ -63,7 +63,7 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
 
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyse MockBuiltins.provider input lexed file
+    Pipeline.analyseSem MockBuiltins.provider input lexed file
 
 /// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
 /// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable
@@ -343,8 +343,10 @@ let private compileContract
     : TastFile * ClrArtifact =
     let provider = SymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseFor project.AssemblyName provider input lexed file
-    let artifact = Codegen.compile provider (withCore project) tast
+    // 3B-4 checkpoint: callers assert on the returned `SemType` tast, but the real
+    // `analyse` output is frozen — return the SemType tree, compile the frozen one.
+    let tast = Pipeline.analyseSemFor project.AssemblyName provider input lexed file
+    let artifact = Codegen.compile provider (withCore project) (Freeze.run tast)
     tast, artifact
 
 /// The default compile path — now resolved through the contract stack
@@ -556,7 +558,7 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 let private analyseErrors (src: string) : Diagnostic list =
     let provider = SymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseSem provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
 /// Analyse `src`; assert it produced an error diagnostic whose message contains
@@ -590,7 +592,7 @@ let private analyseOptionErrors (src: string) : Diagnostic list =
         SymbolProviders.buildContract (defaultManifests @ [ vesperOptionManifest ])
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseSem provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
 /// Analyse `src` against the Option contract; assert NO error diagnostics —
@@ -690,7 +692,7 @@ let private analyseResultErrors (src: string) : Diagnostic list =
         SymbolProviders.buildContract (defaultManifests @ [ vesperResultManifest ])
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseSem provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
 /// Analyse `src` against the Result contract; assert NO error diagnostics —
@@ -790,7 +792,7 @@ let private analyseChoiceErrors (src: string) : Diagnostic list =
         SymbolProviders.buildContract (defaultManifests @ [ vesperChoiceManifest ])
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = Pipeline.analyseSem provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
 /// Analyse `src` against the Choice contract; assert NO error diagnostics —

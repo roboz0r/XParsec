@@ -18,7 +18,7 @@ let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 /// MockBuiltins ]`), returning the frozen `TastFile`.
 let private analyseWith (provider: IExternalSymbolProvider) (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyse provider input lexed file
+    Pipeline.analyseSem provider input lexed file
 
 let private errors (tast: TastFile) : Diagnostic list =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)

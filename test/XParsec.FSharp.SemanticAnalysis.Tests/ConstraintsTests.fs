@@ -22,7 +22,7 @@ let private analyseUnif (input: string) =
 
 let private analyseFull (input: string) =
     let lexed, file = parseFile input
-    let ctx, _ = Pipeline.analyseWithContext MockBuiltins.provider input lexed file
+    let ctx, _ = Pipeline.analyseSemWithContext MockBuiltins.provider input lexed file
     ctx
 
 let private hasMessage (ctx: PassContext) (fragment: string) =

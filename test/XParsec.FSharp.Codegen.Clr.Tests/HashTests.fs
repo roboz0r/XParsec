@@ -39,7 +39,7 @@ let tests =
                 Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.fs"
 
                 let lexed, file = parseFile "let v = hash 5"
-                let tast = Pipeline.analyse provider "let v = hash 5" lexed file
+                let tast = Pipeline.analyseSem provider "let v = hash 5" lexed file
                 Expect.isEmpty (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)) "no errors"
 
                 match EqArray.toList tast.Decls with

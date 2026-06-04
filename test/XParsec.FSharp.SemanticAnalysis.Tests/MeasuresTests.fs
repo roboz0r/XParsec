@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyse MockBuiltins.provider input lexed file
+    Pipeline.analyseSem MockBuiltins.provider input lexed file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with

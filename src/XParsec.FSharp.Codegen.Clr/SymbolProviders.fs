@@ -241,7 +241,11 @@ module SymbolProviders =
                             // The inline bodies belong to the referenced package, so its
                             // own assembly name (`manifest.Name`) is the home assembly for
                             // any local nominal keys minted while analysing them.
-                            let tast = Pipeline.analyseFor manifest.Name provider parsed.Input parsed.Lexed f
+                            // Cross-package inline bodies must re-enter the *SemType*
+                            // inline pass at the consumer, so collect them off the
+                            // pre-freeze (`analyseSemFor`) tree, not the frozen output
+                            // (frozen-type-plan 3B-4 / 3B-5).
+                            let tast = Pipeline.analyseSemFor manifest.Name provider parsed.Input parsed.Lexed f
 
                             for (name, decl) in collectInlineBodies tast do
                                 acc <- Map.add name decl acc

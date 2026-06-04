@@ -546,3 +546,32 @@ type TSecondaryCtor = TSecondaryCtorG<SemType>
 type TBaseCtorCall = TBaseCtorCallG<SemType>
 type TAbstractMethod = TAbstractMethodG<SemType>
 type TastFile = TastFileG<SemType>
+
+// ---------------------------------------------------------------------------
+// Parallel frozen aliases (frozen-type-plan Step 3B-4). The `SemType → FrozenType`
+// freeze (the final pipeline step; `Pipeline.analyse`'s output) and codegen speak
+// these. The bare names above STAY `SemType` (inference, the SemType-domain passes
+// `Regions` / `RefCellPromotion` / `ResolvedTypes`, tests, any non-codegen API).
+// `SemType` becomes codegen-irrelevant, not gone. See `docs/frozen-type-plan.md`.
+// ---------------------------------------------------------------------------
+
+module Frozen =
+    type TPat = TPatG<FrozenType>
+    type HoleSpec = HoleSpecG<FrozenType>
+    type TExpr = TExprG<FrozenType>
+    type TMatchArm = TMatchArmG<FrozenType>
+    type FormatSink = FormatSinkG<FrozenType>
+    type FormatSeg = FormatSegG<FrozenType>
+    type TStaticOptClause = TStaticOptClauseG<FrozenType>
+    type TDecl = TDeclG<FrozenType>
+    type TTypeDecl = TTypeDeclG<FrozenType>
+    type TTypeKind = TTypeKindG<FrozenType>
+    type TUnionCase = TUnionCaseG<FrozenType>
+    type TRecordField = TRecordFieldG<FrozenType>
+    type TTypeMember = TTypeMemberG<FrozenType>
+    type TStaticLet = TStaticLetG<FrozenType>
+    type TCtorLet = TCtorLetG<FrozenType>
+    type TSecondaryCtor = TSecondaryCtorG<FrozenType>
+    type TBaseCtorCall = TBaseCtorCallG<FrozenType>
+    type TAbstractMethod = TAbstractMethodG<FrozenType>
+    type TastFile = TastFileG<FrozenType>

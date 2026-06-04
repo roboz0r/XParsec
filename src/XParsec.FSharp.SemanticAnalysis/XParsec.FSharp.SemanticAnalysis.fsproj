@@ -16,6 +16,7 @@
     <Compile Include="SideTypes.fs" />
     <Compile Include="Tast.fs" />
     <Compile Include="TastWalk.fs" />
+    <Compile Include="TastConvert.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="VesperLib\Manifest.fs" />
     <Compile Include="VesperLib\TyparCapture.fs" />
@@ -44,9 +45,10 @@
     <Compile Include="Passes\Validation.fs" />
     <Compile Include="FreezeExpr.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />
-    <Compile Include="Freeze.fs" />
+    <Compile Include="Elaborate.fs" />
     <Compile Include="Passes\RefCellPromotion.fs" />
     <Compile Include="ResolvedTypes.fs" />
+    <Compile Include="Freeze.fs" />
     <Compile Include="Pipeline.fs" />
     <None Include="README.md" />
     <None Include="docs\architecture.md" />

@@ -950,7 +950,7 @@ let interfaceImplTests =
                         ]
 
                 let lexed, file = parseFile src
-                let ctx, tast = Pipeline.analyseWithContext provider src lexed file
+                let ctx, tast = Pipeline.analyseSemWithContext provider src lexed file
 
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
@@ -984,7 +984,7 @@ let interfaceImplTests =
                         ]
 
                 let lexed, file = parseFile src
-                let _, tast = Pipeline.analyseWithContext provider src lexed file
+                let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
@@ -1018,7 +1018,7 @@ let interfaceImplTests =
                         ]
 
                 let lexed, file = parseFile src
-                let ctx, tast = Pipeline.analyseWithContext provider src lexed file
+                let ctx, tast = Pipeline.analyseSemWithContext provider src lexed file
 
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
@@ -1054,7 +1054,7 @@ let interfaceImplTests =
                         ]
 
                 let lexed, file = parseFile src
-                let _, tast = Pipeline.analyseWithContext provider src lexed file
+                let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
@@ -1080,7 +1080,7 @@ let interfaceImplTests =
                         ]
 
                 let lexed, file = parseFile src
-                let _, tast = Pipeline.analyseWithContext provider src lexed file
+                let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 

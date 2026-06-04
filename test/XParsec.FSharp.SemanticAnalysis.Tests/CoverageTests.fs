@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyse MockBuiltins.provider input lexed file
+    Pipeline.analyseSem MockBuiltins.provider input lexed file
 
 let private declType (tast: TastFile) : SemType =
     // A surfaced `TDecl.Type` (rung 2: unions) is ignored here — these tests
@@ -914,7 +914,7 @@ let tests =
 
                 let input = "let r = Math.pi"
                 let lexed, file = parseFile input
-                let tast = Pipeline.analyse provider input lexed file
+                let tast = Pipeline.analyseSem provider input lexed file
 
                 Expect.equal (declType tast) BuiltinTypes.tyFloat "r : float"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

@@ -58,7 +58,15 @@ module Codegen =
     /// they are spliced pre-freeze by `Passes.InlineExpansion` (frozen-type-plan
     /// 3A-1), reaching the front end through the `IInlineBodyProvider` channel of
     /// the same `symbols` provider, so codegen takes no separate inline-body map.
-    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: TastFile) : ClrArtifact =
+    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: Frozen.TastFile) : ClrArtifact =
+        // frozen-type-plan 3B-4 checkpoint: `analyse` now outputs `TastFileG<FrozenType>`,
+        // but the codegen internals (`Assembler` / emit / encoder tree-fed members) still
+        // read `SemType`. Bridge the frozen tree back via `ofFrozen` here until the
+        // codegen-internal flip lands (the follow-up slice deletes this line). `ofFrozen`
+        // is total and the round-trip is identity on the post-freeze subset, so this is
+        // behaviour- and IL-preserving.
+        let tast = TastConvert.file ofFrozen tast
+
         match project.OutputKind with
         | Library -> assemble symbols project tast false
         | Exe -> assemble symbols project tast true

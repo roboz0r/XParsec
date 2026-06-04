@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyse MockBuiltins.provider input lexed file
+    Pipeline.analyseSem MockBuiltins.provider input lexed file
 
 let private hasResolvedTypesDiag (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "ResolvedTypes")
@@ -58,7 +58,7 @@ let tests =
                 let lexed, file = parseFile "let x = 1"
 
                 let ctx, _ =
-                    Pipeline.analyseWithContext MockBuiltins.provider "let x = 1" lexed file
+                    Pipeline.analyseSemWithContext MockBuiltins.provider "let x = 1" lexed file
 
                 let freeTv = TypeVar()
                 let freeTy = TyVar freeTv
@@ -101,7 +101,7 @@ let tests =
                 let lexed, file = parseFile "let id = fun x -> x"
 
                 let ctx, tast =
-                    Pipeline.analyseWithContext MockBuiltins.provider "let id = fun x -> x" lexed file
+                    Pipeline.analyseSemWithContext MockBuiltins.provider "let id = fun x -> x" lexed file
 
                 let idKey =
                     match tast.Decls with
@@ -151,7 +151,7 @@ let tests =
             test "primitive annotations pin to TyConst via the opaque fallback with a null provider" {
                 let bindingTy (src: string) : SemType =
                     let lexed, file = parseFile src
-                    let tast = Pipeline.analyse ExternalSymbols.nullProvider src lexed file
+                    let tast = Pipeline.analyseSem ExternalSymbols.nullProvider src lexed file
 
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple(_, ty), _, _, _) ] -> ty
