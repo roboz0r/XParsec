@@ -50,6 +50,7 @@
     <Compile Include="ComparisonModuleTests.fs" />
     <Compile Include="ListModuleTests.fs" />
     <Compile Include="ArrayModuleTests.fs" />
+    <Compile Include="SeqModuleTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

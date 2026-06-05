@@ -5,6 +5,21 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
+/// The `externalMemberCache` key — a *structural* value, NOT a `sprintf "%A"`
+/// string. `%A` renders an `EqArray` (a `FrozenType`'s type args) as its bare
+/// runtime type name, so two members differing only inside their args — e.g.
+/// `IEnumerable<!!0>.GetEnumerator` vs `IEnumerable<!!1>.GetEnumerator`, the two
+/// enumerator sources of a 1-typar and a 2-typar method in one module — would key
+/// identically and the first method's `MemberRef` (parent `TypeSpec` baking `!!1`)
+/// would be reused by the second (which has no `!!1`), emitting a malformed token
+/// (`BadImageFormatException` at JIT). `FrozenType`/`SymbolKey` are immutable with
+/// structural equality (via `EqArray`), so keying on the values themselves is both
+/// correct and cheap.
+[<RequireQualifiedAccess>]
+type internal ExternalMemberCacheKey =
+    | Ref of key: SymbolKey * isProperty: bool * isStatic: bool * memberTy: FrozenType
+    | On of key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType
+
 /// The identity bridge: a resolved external symbol's
 /// `Origin`/`SymbolKey` → an `AssemblyRef`/`TypeRef`/`TypeSpec`/`MemberRef`, with no per-member
 /// hand-coding. Mints member / constructor / field references and generic-static-method specs against
@@ -27,7 +42,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// `SymbolKey` (+ instantiation) → minted `MemberRef`, so a member is reified once across a
     /// compilation (mechanism B's codegen memo, §7.2).
-    let externalMemberCache = Dictionary<string, EntityHandle>()
+    let externalMemberCache = Dictionary<ExternalMemberCacheKey, EntityHandle>()
 
     /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
     /// `void`-return fix) directly from the member's open `FrozenType` signature template:
@@ -140,7 +155,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | SymbolKey.TypeKey(_, ns, name) -> ns, name
             | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
 
-        let memoKey = sprintf "%A|%b|%b|%A" key isProperty isStatic memberTy
+        let memoKey = ExternalMemberCacheKey.Ref(key, isProperty, isStatic, memberTy)
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h
@@ -204,7 +219,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | SymbolKey.TypeKey(_, ns, name) -> ns, name
             | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
 
-        let memoKey = sprintf "on|%A|%A|%b|%b|%A" key declTy isProperty isStatic memberTy
+        let memoKey = ExternalMemberCacheKey.On(key, declTy, isProperty, isStatic, memberTy)
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h

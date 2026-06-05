@@ -98,6 +98,28 @@ module EmitResolve =
         match receiverTy with
         | FTUnion _
         | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
+        // A *generic* external class receiver (`ResizeArray<int>` = `List`1<int>`)
+        // carries its instantiation in its own args. Recovering the declaring
+        // typars from the member's open signature (the `ExternalMemberRef` path)
+        // fails for a member that does not mention `'T` — `Count: int` recovers
+        // nothing for declaring arg 0. Read the declaring instantiation straight
+        // off the receiver type instead (like the union/record case), BUT only
+        // when the member is declared on the receiver's *own* generic type: the
+        // `ExternalMemberRefOn` parent is the receiver type itself, so it is wrong
+        // for a member inherited from a different declaring type — e.g.
+        // `IEnumerator`1<int>.MoveNext()` is really `IEnumerator::MoveNext()` on
+        // the non-generic base, which the recover path mints correctly (declArity
+        // 0). Gate on declaring-key == receiver-key.
+        | FTClass(rKey, args) when
+            args.Length > 0
+            && (
+                match key with
+                | SymbolKey.MemberKey(declKey, _, _, _) ->
+                    SymbolKeyOps.qualifiedName declKey = SymbolKeyOps.qualifiedName rKey
+                | _ -> false
+            )
+            ->
+            env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
     /// The static-member equivalent. Generic-union *static* augmentation members

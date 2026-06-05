@@ -906,6 +906,109 @@ let typeChecksArray (src: string) : unit =
     | [] -> ()
     | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
 
+// ---- Vesper.Seq runtime harness (vesper-lib-test-plan Phase 3) --------------
+// Mirrors the Array harness. `Vesper.Seq` is *not* in `defaultManifests` (its
+// `Seq` module would shadow resolution elsewhere), so driver programs opt in by
+// stacking the Seq contract and referencing a once-built `Vesper.Seq.dll`. The
+// DLL is BCL-only (proven by `PackageBuildTriage`): the explicit-enumerator
+// terminals `fold`/`reduce`/`toArray` drive `source.GetEnumerator()` /
+// `MoveNext` / `Current` over `IEnumerator<'T>`, and `truncate` delegates to the
+// generic external `System.Linq.Enumerable.Take<TSource>`.
+//
+// Depends on Vesper.Core (`Fun`, `int`, `'T[]`) AND Vesper.List (the `seq<'T>` /
+// `ResizeArray<'T>` abbreviations declared in `list.fsi`), so both DLLs are in
+// `References` and both manifests in the contract stack — the same `[core, list]`
+// stack `buildPackage "Vesper.Seq"` resolves through.
+//
+// A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` (a
+// real BCL `IEnumerable<int>`) — the Vesper cons-list declares `IEnumerable<'T>`
+// in its `.fsi` but does not implement it in `list.fs`, so a list value is not a
+// runtime seq (get-enumerator-gaps.md Gap 2). `Range` sidesteps that entirely.
+
+let vesperSeqSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Seq", fileName)
+
+let vesperSeqManifest: string = srcManifest "Vesper.Seq"
+
+/// Compile `Vesper.Seq.dll` from `src/Vesper.Seq/seq.fs` against the Vesper.Core +
+/// Vesper.List contracts (so `Fun` / `'T[]` / the `seq<'T>` + `ResizeArray<'T>`
+/// abbreviations resolve from source), load it into the Default
+/// `AssemblyLoadContext`, and return its path. Depends on both `Vesper.Core` and
+/// `Vesper.List`, so both DLLs are in `References`. (Loaded into the Default ALC so
+/// a `runEntryPoint` driver program — which runs in a fresh ALC that falls back to
+/// Default — can resolve it.)
+let vesperSeqDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-seq"
+         let seqPath = IO.Path.Combine(outDir, "Vesper.Seq.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Seq" with
+                 OutputPath = Some seqPath
+                 References = [ vesperCoreDll.Value; vesperListDll.Value ]
+             }
+
+         let src = IO.File.ReadAllText(vesperSeqSource "seq.fs")
+
+         let provider =
+             SymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest ]
+
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+         let artifact = Codegen.compile provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath seqPath |> ignore
+         seqPath)
+
+/// Compile a driver program that `open`s `Vesper.Collections` and exercises the
+/// `Seq` module, run it in-process, and assert exit 0 with trimmed stdout equal to
+/// `expected`. The Seq contract is stacked on the default manifests and
+/// `Vesper.Seq.dll` is added to `References`. The `Seq`-module counterpart of
+/// `runs`.
+let runsSeq (expected: string) (src: string) : unit =
+    let provider =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperSeqManifest ])
+
+    let baseProject = withCore (ProjectInfo.defaults "SeqCorpus")
+
+    let project =
+        { baseProject with
+            References = baseProject.References @ [ vesperSeqDll.Value ]
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+    let artifact = Codegen.compile provider project tast
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsSeq` for a multi-line expected block.
+let runsSeqLines (expected: string list) (src: string) : unit =
+    runsSeq (String.concat "\n" expected) src
+
+/// `analyseErrors` against the default contract stack PLUS the `Vesper.Seq`
+/// contract — the front-end-only probe for cross-package Seq use.
+let private analyseSeqErrors (src: string) : Diagnostic list =
+    let provider =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperSeqManifest ])
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseSem provider src lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// Analyse `src` against the Seq contract; assert NO error diagnostics —
+/// `typeChecks`'s Seq-aware twin.
+let typeChecksSeq (src: string) : unit =
+    match analyseSeqErrors src with
+    | [] -> ()
+    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
 // `System.Reflection.Metadata` so a test can read raw metadata (Method/Field

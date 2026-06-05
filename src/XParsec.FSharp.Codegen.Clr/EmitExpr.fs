@@ -1346,17 +1346,34 @@ module EmitExpr =
 
             let total = (if isStatic then 0 else 1) + pushedArgs
 
-            if isStatic then
-                b.Add(ILInstr.Call(handle, total, 1))
-            else
-                b.Add(ILInstr.Callvirt(handle, total, 1))
-
             // A method returning a function value applied further (rare): the
             // result type is the consumed `App` node's type.
             let resultTy =
                 match argList with
                 | ValueSome(_, ty) -> ty
                 | ValueNone -> typeOfExpr head
+
+            // An external method whose F# return is `unit` is a .NET **void**
+            // method (the unit→void mapping the member-ref signature encodes, same
+            // as `IDisposable.Dispose` above): the `call`/`callvirt` pushes nothing,
+            // so it must declare 0 results — modelling 1 leaves a phantom value the
+            // statement discard underflows on (`InvalidProgramException`). Reify the
+            // `unit` value afterwards so a value-position consumer still gets one,
+            // exactly like the `for` / `stelem` unit expressions.
+            let returnsVoid =
+                match resultTy with
+                | FTConst("unit", _) -> true
+                | _ -> false
+
+            let resultCount = if returnsVoid then 0 else 1
+
+            if isStatic then
+                b.Add(ILInstr.Call(handle, total, resultCount))
+            else
+                b.Add(ILInstr.Callvirt(handle, total, resultCount))
+
+            if returnsVoid then
+                EmitTypes.buildUnitValue env b
 
             foldInvoke env b resultTy rest
 
