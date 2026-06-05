@@ -444,22 +444,23 @@ module Unification =
     let rec private inferSecondaryCtorBody
         (ctx: PassContext)
         (expected: SemType)
+        (fieldTypes: Map<string, SemType>)
         (ace: AdditionalConstrExpr<SyntaxToken>)
         : unit =
         match ace with
         | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
             inferBinding ctx b
-            inferSecondaryCtorBody ctx expected body
+            inferSecondaryCtorBody ctx expected fieldTypes body
         | AdditionalConstrExpr.SequenceAfter(stmt = s; rest = rest) ->
             infer ctx s |> ignore
-            inferSecondaryCtorBody ctx expected rest
+            inferSecondaryCtorBody ctx expected fieldTypes rest
         | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
-            inferSecondaryCtorBody ctx expected before
+            inferSecondaryCtorBody ctx expected fieldTypes before
             infer ctx e |> ignore
         | AdditionalConstrExpr.Conditional(cond = c; thenBranch = t; elseBranch = el) ->
             infer ctx c |> ignore
-            inferSecondaryCtorBody ctx expected t
-            inferSecondaryCtorBody ctx expected el
+            inferSecondaryCtorBody ctx expected fieldTypes t
+            inferSecondaryCtorBody ctx expected fieldTypes el
         | AdditionalConstrExpr.Init initExpr ->
             match initExpr with
             | AdditionalConstrInitExpr.Expression e ->
@@ -472,9 +473,21 @@ module Unification =
                     unify ctx (CstKeys.ofExpr e) (tupleOrSingle argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
+            // Explicit field-init `{ f = e; … }` (structs-handoff #2): infer each
+            // initialiser and unify it against the named field's declared type so a
+            // literal (`0`, `false`) or a generic field (`'T`) pins correctly. An
+            // unknown field name leaves the type open (no constraint) — the field
+            // resolution diagnostic belongs to a later pass, not inference.
             | AdditionalConstrInitExpr.Explicit(initializers = inits) ->
-                for FieldInitializer(expr = e) in inits do
-                    infer ctx e |> ignore
+                for FieldInitializer(longIdent = li; expr = e) in inits do
+                    let initTy = infer ctx e
+
+                    if not li.Idents.IsEmpty then
+                        let fieldName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+                        match Map.tryFind fieldName fieldTypes with
+                        | Some fieldTy -> unify ctx (CstKeys.ofExpr e) initTy fieldTy
+                        | None -> ()
 
     /// Type every secondary ctor (B-11) of a class under its typar scope: link
     /// param annotations, seed param binding-site TyVars, then infer each body.
@@ -489,6 +502,18 @@ module Unification =
                 let expected =
                     info.CtorParams |> Array.map (fun p -> p.Type) |> Array.toList |> tupleOrSingle
 
+                // Declared field types (ctor-param backing fields + explicit `val`
+                // fields), keyed by name, so an explicit field-init `{ f = e }`
+                // unifies `e` against `f`'s type. `val` fields win a name clash
+                // (a positional ctor param sharing a name is the backing store).
+                let fieldTypes =
+                    Map.ofSeq (
+                        seq {
+                            for p in info.CtorParams -> p.Name, p.Type
+                            for f in info.InstanceFields -> f.Name, f.Type
+                        }
+                    )
+
                 for sc in info.SecondaryCtors do
                     fillSecondaryCtorParamTypes ctx sc.Params sc.ParamPat
 
@@ -500,7 +525,7 @@ module Unification =
                     enterLevel ctx
 
                     try
-                        inferSecondaryCtorBody ctx expected sc.Body
+                        inferSecondaryCtorBody ctx expected fieldTypes sc.Body
                     finally
                         exitLevel ctx
             finally

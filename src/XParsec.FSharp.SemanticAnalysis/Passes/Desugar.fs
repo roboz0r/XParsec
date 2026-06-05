@@ -151,6 +151,38 @@ module Desugar =
             // ops they contain get compiled-name entries. Without this,
             // Unification's `inferInfix` falls through to a free TyVar and the
             // member's body type doesn't pin to a concrete type.
+            // A secondary ctor's body (`new(args) = …`, B-11) is an
+            // `AdditionalConstrExpr`, not a plain `Expr` — walk each embedded
+            // expression so a `let`-preamble RHS, a chain-call arg, or an explicit
+            // field-init `{ f = e }` (structs-handoff #2) gets its operator
+            // compiled-name entries. Mirrors `NameResolution.walkCtorBody`.
+            let rec walkCtorBody (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
+                match ace with
+                | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
+                    CstWalk.iterExpr walker () b.expr
+                    walkCtorBody body
+                | AdditionalConstrExpr.SequenceAfter(stmt = s; rest = rest) ->
+                    CstWalk.iterExpr walker () s
+                    walkCtorBody rest
+                | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
+                    walkCtorBody before
+                    CstWalk.iterExpr walker () e
+                | AdditionalConstrExpr.Conditional(cond = c; thenBranch = t; elseBranch = el) ->
+                    CstWalk.iterExpr walker () c
+                    walkCtorBody t
+                    walkCtorBody el
+                | AdditionalConstrExpr.Init initExpr ->
+                    match initExpr with
+                    | AdditionalConstrInitExpr.Expression e
+                    | AdditionalConstrInitExpr.Delegated(expr = e) -> CstWalk.iterExpr walker () e
+                    | AdditionalConstrInitExpr.Explicit(inherits = inh; initializers = inits) ->
+                        match inh with
+                        | ValueSome(ClassInheritsDecl(expr = ValueSome e)) -> CstWalk.iterExpr walker () e
+                        | _ -> ()
+
+                        for FieldInitializer(expr = e) in inits do
+                            CstWalk.iterExpr walker () e
+
             let walkMemberElems (elems: TypeDefnElement<SyntaxToken> seq) =
                 for el in elems do
                     match el with
@@ -160,6 +192,7 @@ module Desugar =
                         | MethodOrPropDefn.Property(defn = b) -> CstWalk.iterExpr walker () b.expr
                         | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
                         | _ -> ()
+                    | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(body = body)) -> walkCtorBody body
                     | _ -> ()
 
             for td in defs do

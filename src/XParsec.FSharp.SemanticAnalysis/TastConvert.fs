@@ -159,11 +159,18 @@ module TastConvert =
             Init = expr f cl.Init
         }
 
+    let ctorFieldInit (f: 'a -> 'b) (fi: TCtorFieldInitG<'a>) : TCtorFieldInitG<'b> =
+        {
+            Field = fi.Field
+            Init = expr f fi.Init
+        }
+
     let secondaryCtor (f: 'a -> 'b) (sc: TSecondaryCtorG<'a>) : TSecondaryCtorG<'b> =
         {
             Params = EqArray.map (fun (k, ty) -> k, f ty) sc.Params
             Lets = EqArray.map (ctorLet f) sc.Lets
             PrimaryArgs = EqArray.map (expr f) sc.PrimaryArgs
+            FieldInits = EqArray.map (ctorFieldInit f) sc.FieldInits
         }
 
     let baseCtorCall (f: 'a -> 'b) (bc: TBaseCtorCallG<'a>) : TBaseCtorCallG<'b> =

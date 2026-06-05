@@ -468,17 +468,34 @@ and TCtorLetG<'ty> =
         Init: TExprG<'ty>
     }
 
+/// One `field = expr` initialiser of a secondary constructor's explicit
+/// field-init block (`new(s) = { stack = s; started = false }`,
+/// structs-handoff #2). `Field` names a declared instance field (an explicit
+/// `val` or a primary-ctor backing field); `Init` is the value stored into it
+/// (`ldarg.0; <Init>; stfld Field`). Used only when a secondary ctor takes the
+/// explicit-init form instead of chaining to the primary ctor.
+and TCtorFieldInitG<'ty> = { Field: string; Init: TExprG<'ty> }
+
 /// A secondary constructor (vesper-set-sprint-plan §1.9 / B-11). Codegen emits a
 /// `.ctor` overload: `Params` are the overload's parameters (`ldarg` after
-/// `this`); `Lets` run as locals in declaration order; then the body chains to
-/// the primary `.ctor` with `PrimaryArgs` (`ldarg.0; <args>; call instance void
-/// SelfType::.ctor`). There is no usable `this` before the chain call, so the
-/// `Lets` / `PrimaryArgs` only reference the ctor params and earlier lets.
+/// `this`); `Lets` run as locals in declaration order. The body then takes one
+/// of two shapes, never both:
+/// - **Chain form** (`new(args) = SelfType(...)`): `FieldInits` is empty and the
+///   body chains to the primary `.ctor` with `PrimaryArgs` (`ldarg.0; <args>;
+///   call instance void SelfType::.ctor`). There is no usable `this` before the
+///   chain call, so `Lets` / `PrimaryArgs` only reference the ctor params and
+///   earlier lets.
+/// - **Explicit field-init form** (`new(args) = { f = e; … }`, structs-handoff
+///   #2): `PrimaryArgs` is empty and each `FieldInits` entry stores into a
+///   declared field (`ldarg.0; <Init>; stfld f`). No primary chain — the fields
+///   not listed are left default-initialised. `this`'s storage is the freshly
+///   allocated (zeroed) instance, so `Init` may reference ctor params and lets.
 and TSecondaryCtorG<'ty> =
     {
         Params: EqArray<NodeKey * 'ty>
         Lets: EqArray<TCtorLetG<'ty>>
         PrimaryArgs: EqArray<TExprG<'ty>>
+        FieldInits: EqArray<TCtorFieldInitG<'ty>>
     }
 
 /// An `inherit Base(args)` base-constructor invocation (vesper-set-sprint-plan
@@ -555,6 +572,7 @@ type TRecordField = TRecordFieldG<SemType>
 type TTypeMember = TTypeMemberG<SemType>
 type TStaticLet = TStaticLetG<SemType>
 type TCtorLet = TCtorLetG<SemType>
+type TCtorFieldInit = TCtorFieldInitG<SemType>
 type TSecondaryCtor = TSecondaryCtorG<SemType>
 type TBaseCtorCall = TBaseCtorCallG<SemType>
 type TAbstractMethod = TAbstractMethodG<SemType>
@@ -584,6 +602,7 @@ module Frozen =
     type TTypeMember = TTypeMemberG<FrozenType>
     type TStaticLet = TStaticLetG<FrozenType>
     type TCtorLet = TCtorLetG<FrozenType>
+    type TCtorFieldInit = TCtorFieldInitG<FrozenType>
     type TSecondaryCtor = TSecondaryCtorG<FrozenType>
     type TBaseCtorCall = TBaseCtorCallG<FrozenType>
     type TAbstractMethod = TAbstractMethodG<FrozenType>

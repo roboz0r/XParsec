@@ -546,6 +546,8 @@ module InlineExpansion =
                             { sc with
                                 Lets = sc.Lets |> EqArray.map (fun cl -> { cl with Init = walkExpr cl.Init })
                                 PrimaryArgs = sc.PrimaryArgs |> EqArray.map walkExpr
+                                FieldInits =
+                                    sc.FieldInits |> EqArray.map (fun fi -> { fi with Init = walkExpr fi.Init })
                             }
                         ),
                         baseCtorCall

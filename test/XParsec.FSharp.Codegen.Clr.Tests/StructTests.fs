@@ -237,4 +237,101 @@ let structTests =
                 Expect.equal (sumOf.GetParameters().Length) 2 "SumOf has two scalar parameters (tuple flattened)"
                 Expect.equal (sumOf.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "SPoint(3,4).Sum() returns 7"
             }
+
+            // structs-handoff #2: a secondary ctor of the explicit field-init form
+            // `new(args) = { f = e; … }`. Unlike a chain-form `new`, it stores
+            // directly into the declared `val` fields (no primary-`.ctor` chain).
+            test "a struct secondary ctor with an explicit field-init block initialises val fields" {
+                let _, artifact =
+                    compileSource
+                        "StructFieldInit"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Pair ="
+                                "    val mutable A: int"
+                                "    val mutable B: int"
+                                "    new(a: int, b: int) = { A = a; B = b }"
+                                "    member this.Sum() = this.A + this.B"
+                                "    static member SumOf(a: int, b: int) : int ="
+                                "        let p = Pair(a, b)"
+                                "        p.Sum()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Pair"
+                Expect.isTrue ty.IsValueType "Pair is a value type"
+
+                // The two-arg secondary ctor must exist alongside the (empty) primary.
+                let ctor = ty.GetConstructor [| typeof<int>; typeof<int> |]
+                Expect.isNotNull ctor "the two-arg secondary ctor is emitted"
+
+                // Construct directly: the field-init block stored both args.
+                let boxed = Activator.CreateInstance(ty, [| box 3; box 4 |])
+                let fieldA = ty.GetField("A", BindingFlags.Public ||| BindingFlags.Instance)
+                let fieldB = ty.GetField("B", BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.equal (fieldA.GetValue boxed :?> int) 3 "field A initialised from the first ctor param"
+                Expect.equal (fieldB.GetValue boxed :?> int) 4 "field B initialised from the second ctor param"
+
+                // And through a member that constructs + reads back.
+                let sumOf = ty.GetMethod("SumOf", BindingFlags.Public ||| BindingFlags.Static)
+                Expect.equal (sumOf.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "Pair(3,4).Sum() returns 7"
+            }
+
+            test "a field-init ctor runs its let-preamble before storing fields" {
+                // The `let d = a + a` preamble binds a local the field-init block
+                // then reads — proving lets execute ahead of the `stfld` stores.
+                let _, artifact =
+                    compileSource
+                        "StructFieldInitLet"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type LetPair ="
+                                "    val mutable A: int"
+                                "    val mutable B: int"
+                                "    new(a: int) = let d = a + a in { A = a; B = d }"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "LetPair"
+
+                let boxed = Activator.CreateInstance(ty, [| box 5 |])
+                let fieldA = ty.GetField("A", BindingFlags.Public ||| BindingFlags.Instance)
+                let fieldB = ty.GetField("B", BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.equal (fieldA.GetValue boxed :?> int) 5 "A = a"
+                Expect.equal (fieldB.GetValue boxed :?> int) 10 "B = the let-bound a + a"
+            }
+
+            // The shape `Vesper.Set`'s hand-written enumerator needs: a field from a
+            // ctor param plus a bool-literal field (`new(s) = { stack = s; started = false }`).
+            test "a field-init ctor mixes a param-sourced field and a bool-literal field" {
+                let _, artifact =
+                    compileSource
+                        "StructFieldInitMixed"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Iter ="
+                                "    val mutable Cur: int"
+                                "    val mutable Started: bool"
+                                "    new(c: int) = { Cur = c; Started = false }"
+                                "    member this.IsStarted() = this.Started"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Iter"
+
+                let boxed = Activator.CreateInstance(ty, [| box 11 |])
+                let fieldCur = ty.GetField("Cur", BindingFlags.Public ||| BindingFlags.Instance)
+
+                let fieldStarted =
+                    ty.GetField("Started", BindingFlags.Public ||| BindingFlags.Instance)
+
+                Expect.equal (fieldCur.GetValue boxed :?> int) 11 "Cur initialised from the ctor param"
+                Expect.equal (fieldStarted.GetValue boxed :?> bool) false "Started initialised from the bool literal"
+            }
         ]

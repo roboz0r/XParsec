@@ -470,15 +470,47 @@ module internal NominalEmit =
                                 let prep (e: Frozen.TExpr) = Emit.expandBuiltinOps e
 
                                 let lets = [ for l in sc.Lets -> { l with Init = prep l.Init } ]
-                                let primaryArgs = [ for a in sc.PrimaryArgs -> prep a ]
 
-                                let scBody =
-                                    Cil.buildBody
-                                        memberEncodeLocals
-                                        bodyStream
-                                        (IlIr.lower (
-                                            Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef primaryArgs
-                                        ))
+                                // A secondary ctor takes one of two forms (Tast
+                                // `TSecondaryCtorG`): the explicit field-init
+                                // form stores into declared fields and skips the
+                                // primary chain (structs-handoff #2); otherwise
+                                // it chains to the primary `.ctor`.
+                                let ctorIr =
+                                    if not sc.FieldInits.IsEmpty then
+                                        // Resolve each named field to its handle — a generic
+                                        // class routes through a `MemberRef` on the open
+                                        // self-`TypeSpec` (as `ctorFieldRefs` does); a mono
+                                        // class uses the raw `Def` token. Both ctor-param
+                                        // backing fields and explicit `val` fields are eligible.
+                                        let fieldHandleOf name =
+                                            if isGeneric then
+                                                icodegen.UserGenericMemberRef(
+                                                    td.Key,
+                                                    typarMarkers,
+                                                    UserMemberKind.ClassMember(ClassMember.Field name)
+                                                )
+                                            else
+                                                match
+                                                    (fieldHandles @ instanceFieldHandles)
+                                                    |> List.tryFind (fun (n, _, _) -> n = name)
+                                                with
+                                                | Some(_, h, _) -> h
+                                                | None ->
+                                                    failwithf
+                                                        "Emit: class '%s' secondary ctor inits unknown field '%s'"
+                                                        td.Name
+                                                        name
+
+                                        let fieldInits =
+                                            [ for fi in sc.FieldInits -> fieldHandleOf fi.Field, prep fi.Init ]
+
+                                        Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
+                                    else
+                                        let primaryArgs = [ for a in sc.PrimaryArgs -> prep a ]
+                                        Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef primaryArgs
+
+                                let scBody = Cil.buildBody memberEncodeLocals bodyStream (IlIr.lower ctorIr)
 
                                 let h =
                                     ctx.AddMethodWithParamList(

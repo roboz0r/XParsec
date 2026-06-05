@@ -229,6 +229,13 @@ module Elaborate =
                     Params = sc.Params |> EqArray.map (fun (k, ty) -> k, f ty)
                     Lets = sc.Lets |> EqArray.map ctorLet
                     PrimaryArgs = sc.PrimaryArgs |> EqArray.map (mapExprTypes f)
+                    FieldInits =
+                        sc.FieldInits
+                        |> EqArray.map (fun fi ->
+                            { fi with
+                                Init = mapExprTypes f fi.Init
+                            }
+                        )
                 }
 
             let baseCtor (bc: TBaseCtorCall) =
@@ -616,6 +623,20 @@ module Elaborate =
 
         let lets = ResizeArray<TCtorLet>()
         let mutable primaryArgs = EqArray.empty
+        let fieldInits = ResizeArray<TCtorFieldInit>()
+
+        // The explicit field-init form `new(args) = { f = e; … }`
+        // (structs-handoff #2): each `FieldInitializer` stores into a declared
+        // instance field. The `LongIdent` is a single field-name segment (the
+        // last segment names the field); there is no primary-ctor chain.
+        let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) =
+            for FieldInitializer(longIdent = li; expr = e) in inits do
+                if not li.Idents.IsEmpty then
+                    fieldInits.Add
+                        {
+                            Field = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                            Init = translateExpr ctx e
+                        }
 
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
@@ -638,7 +659,7 @@ module Elaborate =
                 match initExpr with
                 | AdditionalConstrInitExpr.Expression e
                 | AdditionalConstrInitExpr.Delegated(expr = e) -> primaryArgs <- chainArgs e
-                | AdditionalConstrInitExpr.Explicit _ -> ()
+                | AdditionalConstrInitExpr.Explicit(initializers = inits) -> fieldInitsOf inits
 
         go sc.Body
 
@@ -646,6 +667,7 @@ module Elaborate =
             Params = parms
             Lets = EqArray.ofSeq lets
             PrimaryArgs = primaryArgs
+            FieldInits = EqArray.ofSeq fieldInits
         }
 
     /// Build the `TDecl.Type` wrapper shared by record / union / interface

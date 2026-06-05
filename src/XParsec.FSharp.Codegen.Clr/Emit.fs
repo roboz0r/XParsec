@@ -250,6 +250,56 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// Build a secondary constructor body of the explicit field-init form
+    /// (`new(args) = { f = e; … }`, structs-handoff #2): run the `let`-preamble
+    /// into locals, then store each `field = expr` initialiser through `this`
+    /// (`ldarg.0; <init>; stfld field`). Unlike `buildSecondaryCtor` there is
+    /// **no** primary `.ctor` chain — fields not listed are left default
+    /// (zero)-initialised, which is exactly the value-type construction
+    /// contract (`newobj` passes `&temp` after zeroing it). `this` is `ldarg.0`;
+    /// the overload's parameters are `ldarg.1…`. `fieldInits` pairs each field's
+    /// resolved handle with its (already op-expanded) initialiser, in source
+    /// order.
+    let buildSecondaryCtorFieldInit
+        (ctx: EmitContext)
+        (prms: EqArray<NodeKey * FrozenType>)
+        (lets: Frozen.TCtorLet list)
+        (fieldInits: (EntityHandle * Frozen.TExpr) list)
+        : ILBody =
+        let b = IlBuilder()
+        let args = Dictionary<NodeKey, int>()
+        prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- 1 + i)
+
+        let env =
+            {
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
+                Args = args
+                SelfKey = ValueNone
+                CaptureFields = Dictionary<NodeKey, EntityHandle>()
+                Unions = ctx.Unions
+                Records = ctx.Records
+                Classes = ctx.Classes
+                StaticMethods = ctx.StaticMethods
+            }
+
+        for l in lets do
+            let slot = b.Local l.Type
+            env.Slots.[l.Binder] <- slot
+            buildExpr env b l.Init
+            b.Add(ILInstr.Stloc slot)
+
+        for (field, init) in fieldInits do
+            b.Add(ILInstr.Ldarg 0)
+            buildExpr env b init
+            b.Add(ILInstr.Stfld field)
+
+        b.Add ILInstr.Ret
+        b.Body
+
     /// Build a class primary `.ctor` body that chains to a *base* constructor
     /// (vesper-set-sprint-plan §2.5 / B-4 `inherit Base(args)`): `ldarg.0;
     /// <baseArgs>; call instance void Base::.ctor(…)`, then store each ctor param
