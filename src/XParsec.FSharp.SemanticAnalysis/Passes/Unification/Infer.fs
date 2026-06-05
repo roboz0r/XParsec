@@ -689,11 +689,38 @@ module UnificationInfer =
                 | _ -> ValueNone
             | _ -> ValueNone
 
-    /// The element-type + enumerator-shape probe for `for x in src do …` (B-6 /
-    /// §4.4). `srcTy` is either `IEnumerable<'T>` itself, an external class that
+    and private tryLocalInterfaceEnumerator
+        (ctx: PassContext)
+        (nameKey: SymbolKey)
+        (args: EqArray<SemType>)
+        : (SemType * ForInEnumerator) voption =
+        let ienumName = "System.Collections.Generic.IEnumerable`1"
+
+        match TypeRegistry.tryClassByKey ctx.Types nameKey with
+        | ValueSome info ->
+            let picked =
+                info.InterfaceImpls
+                |> Array.tryPick (fun impl ->
+                    match impl.Resolved with
+                    | ValueSome resolved ->
+                        match zonk (instantiateMember (info.TypeParams, args) resolved) with
+                        | TyClass(ifaceKey, ifaceArgs) when
+                            SymbolKeyOps.qualifiedName ifaceKey = ienumName && ifaceArgs.Length = 1
+                            ->
+                            Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
+                        | _ -> None
+                    | ValueNone -> None
+                )
+
+            match picked with
+            | Some r -> ValueSome r
+            | None -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// `srcTy` is either `IEnumerable<'T>` itself, an external class that
     /// implements it (the directly-implemented interface set the metadata layer
-    /// surfaces through `ExternalClassShape.Interfaces`), or — as the §4.4
-    /// fallback — a source exposing a pattern-based `GetEnumerator()`. Returns the
+    /// surfaces through `ExternalClassShape.Interfaces`), or
+    /// a source exposing a pattern-based `GetEnumerator()`. Returns the
     /// `'T` so `inferForIn` can pin the loop pattern's type, plus the
     /// `ForInEnumerator` codegen reads off the frozen node.
     and private tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
@@ -723,7 +750,9 @@ module UnificationInfer =
                     with
                     | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone
-            | _ -> ValueNone
+            // A project-local source is invisible to the external provider; fall
+            // back to the user-interface probe (Gap 2 interface variant).
+            | _ -> tryLocalInterfaceEnumerator ctx nameKey args
         | _ -> ValueNone
 
     and private inferForIn

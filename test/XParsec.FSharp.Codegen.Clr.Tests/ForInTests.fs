@@ -186,4 +186,30 @@ let forInTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "Take(Range(1,5), 3) yields the first three"
             }
+
+            test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C(e: System.Collections.Generic.IEnumerator<int>) ="
+                            "    interface System.Collections.Generic.IEnumerable<int> with"
+                            "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<int> = e"
+                            ""
+                            "let f (c: C) ="
+                            "    for x in c do"
+                            "        printfn \"%d\" x"
+                        ]
+
+                let provider = SymbolProviders.buildContract defaultManifests
+                let lexed, file = parseFile src
+                let tast = Pipeline.analyseSem provider src lexed file
+
+                let errors =
+                    tast.Diagnostics
+                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                    |> Seq.toList
+
+                Expect.isEmpty errors (sprintf "user-interface for-in should type-check; got %A" errors)
+            }
         ]
