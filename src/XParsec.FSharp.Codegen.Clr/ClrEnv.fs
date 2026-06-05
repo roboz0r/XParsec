@@ -124,6 +124,9 @@ type internal ClrEnv
 
     let eObject = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Object")))
 
+    // `System.ValueType` — the IL base type of every `[<Struct>]` value type
+    let eValueType = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueType")))
+
     let eTextWriter =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "TextWriter")))
 
@@ -241,6 +244,11 @@ type internal ClrEnv
     /// can reference the type before its row is added (was string-keyed by
     /// simple/arity name).
     let userTypes = Dictionary<SymbolKey, EntityHandle>()
+
+    /// Project-local `[<Struct>]` value-type keys.
+    /// `encodeType` reads this to emit a user struct as `ELEMENT_TYPE_VALUETYPE`
+    /// rather than `ELEMENT_TYPE_CLASS` in every signature.
+    let userValueTypes = System.Collections.Generic.HashSet<SymbolKey>()
 
     /// Generic user unions by `SymbolKey` → (typar names, cases); a case is
     /// `(caseName, [(fieldMetaName, declTy)])` with `declTy` carrying declaring-typar markers
@@ -441,6 +449,7 @@ type internal ClrEnv
     member _.EVesperList1 = eVesperList1
     member _.EListModule = eListModule
     member _.EObject = eObject
+    member _.EValueType = eValueType
     member _.ETextWriter = eTextWriter
     member _.EConsole = eConsole
     member _.EFormatter = eFormatter
@@ -464,6 +473,7 @@ type internal ClrEnv
     member _.EnvAsm = envAsm
 
     member _.UserTypes = userTypes
+    member _.UserValueTypes = userValueTypes
     member _.GenericUnions = genericUnions
     member _.GenericRecords = genericRecords
     member _.GenericClasses = genericClasses

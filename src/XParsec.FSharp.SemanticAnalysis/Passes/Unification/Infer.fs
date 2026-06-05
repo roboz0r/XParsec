@@ -1040,7 +1040,13 @@ module UnificationInfer =
                 match tryClassChainMember ctx clsSimple args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
-                    resolveLocalInstanceMember ctx diagKey clsSimple info.TypeParams args info.Members memberName
+                    // An explicit `val x: T` instance field read (struct enumerator
+                    // state, B-7-adjacent). Instantiate the field's declared type
+                    // with the receiver's type args, mirroring the member path.
+                    match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
+                    | Some fld -> instantiateMember (info.TypeParams, args) fld.Type
+                    | None ->
+                        resolveLocalInstanceMember ctx diagKey clsSimple info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static

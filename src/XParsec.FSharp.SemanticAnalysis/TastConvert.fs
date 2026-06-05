@@ -194,7 +194,8 @@ module TastConvert =
                            isSealed,
                            staticLets,
                            secondaryCtors,
-                           baseCtor) ->
+                           baseCtor,
+                           isStruct) ->
             TTypeKindG.Class(
                 EqArray.map (recordField f) fields,
                 EqArray.map (recordField f) ctorParams,
@@ -204,7 +205,8 @@ module TastConvert =
                 isSealed,
                 EqArray.map (staticLet f) staticLets,
                 EqArray.map (secondaryCtor f) secondaryCtors,
-                ValueOption.map (baseCtorCall f) baseCtor
+                ValueOption.map (baseCtorCall f) baseCtor,
+                isStruct
             )
 
     let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a>) : TTypeDeclG<'b> =

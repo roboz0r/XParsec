@@ -154,8 +154,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                             _isSealed,
                             _staticLets,
                             _secondaryCtors,
-                            _baseCtorCall) ->
+                            _baseCtorCall,
+                            isStruct) ->
             provider.RegisterUserType(td.Key, toEntity (predictTypeDef typeCounts NominalKind.Class i))
+
+            if isStruct then
+                provider.RegisterUserValueType td.Key
 
             if not td.TypeParams.IsEmpty then
                 let shape = [ for p in ctorParams -> p.Name, p.Type ]
@@ -218,7 +222,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // Static-let *fields* add to the field table, not here.
     let classMethodTotal =
         classDecls
-        |> List.sumBy (fun (_, _, _, members, _, interfaces, _, staticLets, secondaryCtors, _) ->
+        |> List.sumBy (fun (_, _, _, members, _, interfaces, _, staticLets, secondaryCtors, _, _) ->
             1
             + List.length members
             + List.sumBy (fun (_, ms) -> List.length ms) interfaces
@@ -275,16 +279,24 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     // A user class opts in to `Sealed` via `[<Sealed>]` (B-8); without it the
     // class is open (Phase 2 / B-4 wires inheritance). Unions / records reuse
-    // this with `isSealed = true`.
-    let classAttrsOf (isSealed: bool) =
+    // this with `isSealed = true`. A `[<Struct>]` value type
+    // (vesper-set-sprint-phase-6) is always sealed and uses sequential layout
+    // (the F# default for value types) instead of auto layout.
+    let classAttrsOf (isSealed: bool) (isValueType: bool) =
+        let layout =
+            if isValueType then
+                TypeAttributes.SequentialLayout
+            else
+                TypeAttributes.AutoLayout
+
         let baseAttrs =
             TypeAttributes.Class
             ||| TypeAttributes.Public
-            ||| TypeAttributes.AutoLayout
+            ||| layout
             ||| TypeAttributes.AnsiClass
             ||| TypeAttributes.BeforeFieldInit
 
-        if isSealed then
+        if isSealed || isValueType then
             baseAttrs ||| TypeAttributes.Sealed
         else
             baseAttrs
@@ -553,6 +565,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Interfaces = [ ifaceSpec ]
                     IsSealed = true
                     BaseType = provider.ObjectType
+                    IsValueType = false
                 }
             )
 
@@ -658,7 +671,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         for row in Seq.append unionTypes (Seq.append recordTypes classTypes) do
             let metaName = SymbolKeyOps.arityName row.Name (List.length row.Typars)
 
-            let attrs = classAttrsOf row.IsSealed
+            let attrs = classAttrsOf row.IsSealed row.IsValueType
 
             let typeHandle =
                 ctx.AddClass(attrs, row.Namespace, metaName, row.BaseType, row.FirstField, row.FirstMethod)

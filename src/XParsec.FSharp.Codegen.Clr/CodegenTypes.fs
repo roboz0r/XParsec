@@ -25,7 +25,12 @@ type internal EmittedTypeRow =
         /// `inherit` clause (B-4 Step 2.5) resolves its parent's `TypeSpec` here
         /// while the declaring-type typars are ambient. Pre-resolved during emit
         /// because a generic parent's encoding needs that ambient context.
+        /// A `[<Struct>]` type resolves it to `System.ValueType`.
         BaseType: EntityHandle
+        /// `true` for a `[<Struct>]` value type (vesper-set-sprint-phase-6):
+        /// `classAttrsOf` then flips `SequentialLayout` + `Sealed` instead of
+        /// `AutoLayout`, and the base type is `System.ValueType`.
+        IsValueType: bool
     }
 
 /// Drives the offset arithmetic in `predictTypeDef`; the order here matches the
@@ -68,7 +73,8 @@ type internal PartitionedTypeDecls =
             bool *
             Frozen.TStaticLet list *
             Frozen.TSecondaryCtor list *
-            Frozen.TBaseCtorCall voption) list
+            Frozen.TBaseCtorCall voption *
+            bool) list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in
@@ -79,12 +85,14 @@ type internal NominalEmissionInput =
     | Union of cases: Frozen.TUnionCase list
     | Record of fields: Frozen.TRecordField list
     /// `ctorParams` become backing fields; `baseType` defaults to `Object`
-    /// (`ValueNone`); the `fields` slot is reserved for future mutable instance
-    /// fields. `isSealed` reflects `[<Sealed>]`. Each `staticLets` entry becomes
-    /// a private static field + an entry in the synthesised `.cctor`.
-    /// `interfaces` (B-2, §5.3) pairs each implemented interface type with its
-    /// already-typed member bodies: codegen emits one `InterfaceImpl` row per
-    /// entry and one virtual `MethodDefinition` per member (implicit impl).
+    /// (`ValueNone`) — or `System.ValueType` when `isStruct`. `fields` are the
+    /// explicit `val [mutable] x: T` instance fields (each a `FieldDefinition`).
+    /// `isSealed` reflects `[<Sealed>]` (a struct is always sealed). Each
+    /// `staticLets` entry becomes a private static field + an entry in the
+    /// synthesised `.cctor`. `interfaces` (B-2, §5.3) pairs each implemented
+    /// interface type with its already-typed member bodies: codegen emits one
+    /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member
+    /// (implicit impl). `isStruct` ⇒ value-type emission (vesper-set-sprint-phase-6).
     | Class of
         fields: Frozen.TRecordField list *
         ctorParams: Frozen.TRecordField list *
@@ -93,7 +101,8 @@ type internal NominalEmissionInput =
         staticLets: Frozen.TStaticLet list *
         secondaryCtors: Frozen.TSecondaryCtor list *
         baseCtorCall: Frozen.TBaseCtorCall voption *
-        interfaces: (FrozenType * Frozen.TTypeMember list) list
+        interfaces: (FrozenType * Frozen.TTypeMember list) list *
+        isStruct: bool
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

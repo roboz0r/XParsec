@@ -102,12 +102,17 @@ module TypeDefnPatterns =
             Body: ObjectModelBody<'T>
         }
 
-    /// Project a `TypeDefn.Class` or `TypeDefn.Anon` into its primary fields.
-    /// All other `TypeDefn` shapes yield `ValueNone`.
+    /// Project a `TypeDefn.Class`, `TypeDefn.Anon`, or `TypeDefn.Struct` into its
+    /// primary fields. The `struct … end` shape carries the same
+    /// `(typeName, primaryConstr, asDefn, body)` quartet and is handled
+    /// identically through the front-end (its value-type-ness is recorded
+    /// separately on `ClassTypeInfo.IsValueType`, see `isStructShape`). All other
+    /// `TypeDefn` shapes yield `ValueNone`.
     let tryClassLikeDecl (td: TypeDefn<'T>) : ClassLikeDecl<'T> voption =
         match td with
         | TypeDefn.Class(typeName = tn; primaryConstr = pc; asDefn = asD; body = body)
-        | TypeDefn.Anon(typeName = tn; primaryConstr = pc; asDefn = asD; body = body) ->
+        | TypeDefn.Anon(typeName = tn; primaryConstr = pc; asDefn = asD; body = body)
+        | TypeDefn.Struct(typeName = tn; primaryConstr = pc; asDefn = asD; body = body) ->
             ValueSome
                 {
                     TypeName = tn
@@ -116,6 +121,15 @@ module TypeDefnPatterns =
                     Body = body
                 }
         | _ -> ValueNone
+
+    /// `true` for the explicit `type X = struct … end` shape — a value type even
+    /// without a `[<Struct>]` attribute. The attribute form lands as
+    /// `Class`/`Anon`, so `registerClassTypeDefn` ORs this with the decoded
+    /// attribute verdict.
+    let isStructShape (td: TypeDefn<'T>) : bool =
+        match td with
+        | TypeDefn.Struct _ -> true
+        | _ -> false
 
     /// Project the `body` field from any object-model `TypeDefn` shape:
     /// `Class | Anon | Struct | Interface`. The four shapes share the same

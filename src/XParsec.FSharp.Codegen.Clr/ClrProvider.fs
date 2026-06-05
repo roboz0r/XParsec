@@ -36,12 +36,20 @@ type ClrProvider
 
     member _.ObjectType: EntityHandle = env.EObject.Value
 
+    /// `System.ValueType` — the IL base type of a `[<Struct>]` value type
+    /// (vesper-set-sprint-phase-6).
+    member _.ValueTypeBase: EntityHandle = env.EValueType.Value
+
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
     member _.ObjectCtorRef: EntityHandle = env.EObjectCtor.Value
 
     /// Register a user type emitted into this assembly so `encodeType` can reference it (by its
     /// predicted `TypeDefinition` handle) before its row is added.
     member _.RegisterUserType(key: SymbolKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
+
+    /// Record a project-local `[<Struct>]` value type so `encodeType` emits it as
+    /// `ELEMENT_TYPE_VALUETYPE` (vesper-set-sprint-phase-6).
+    member _.RegisterUserValueType(key: SymbolKey) : unit = env.UserValueTypes.Add key |> ignore
 
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
     /// `TypeSpec`. A no-op for a monomorphic union (its `Def` tokens are used).

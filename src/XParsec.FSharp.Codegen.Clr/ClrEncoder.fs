@@ -13,6 +13,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let reprs = env.Reprs
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let userTypes = env.UserTypes
+    let userValueTypes = env.UserValueTypes
     let envAsm = env.EnvAsm
 
     let externalClassRef n = env.ExternalClassRef n
@@ -85,6 +86,14 @@ type internal ClrEncoder(env: ClrEnv) =
         // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
         // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
         // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly), R9.
+        // `obj` → `ELEMENT_TYPE_OBJECT`, not `class System.Object`. This matters
+        // for interface-impl / override matching: an interface method declared as
+        // `CompareTo(object)` / `GetEnumerator()`-returning-`object` is encoded by
+        // the BCL metadata with the primitive `object` token, so a user member
+        // implementing it must match that encoding (see the `.Object()` recipes the
+        // synthesised structural-equality triple already uses, and
+        // [[reference_object_override_elementtype]]).
+        | FTConst("obj", _) -> te.Object()
         | FTConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
         | FTConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
         | FTConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)
@@ -159,11 +168,15 @@ type internal ClrEncoder(env: ClrEnv) =
             // Checked *before* the external-class arm so a project-local class wins over an
             // accidental same-named external one (asm-discrimination, Phase 6D).
             let handle = userTypes.[key]
+            // A `[<Struct>]` value type must encode as `ELEMENT_TYPE_VALUETYPE`
+            // (vesper-set-sprint-phase-6) so a signature referencing it matches the
+            // value-type `TypeDefinition`; a plain class is `ELEMENT_TYPE_CLASS`.
+            let isVt = userValueTypes.Contains key
 
             if args.IsEmpty then
-                te.Type(handle, false)
+                te.Type(handle, isVt)
             else
-                let g = te.GenericInstantiation(handle, args.Length, false)
+                let g = te.GenericInstantiation(handle, args.Length, isVt)
 
                 for a in args do
                     encodeType (g.AddArgument()) a

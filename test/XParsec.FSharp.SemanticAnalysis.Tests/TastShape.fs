@@ -685,7 +685,7 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
-            | TTypeKind.Class(_, ctorParams, members, _, _, isSealed, staticLets, secondaryCtors, _) ->
+            | TTypeKind.Class(_, ctorParams, members, _, _, isSealed, staticLets, secondaryCtors, _, _) ->
                 if isSealed then
                     push "[<Sealed>] "
 

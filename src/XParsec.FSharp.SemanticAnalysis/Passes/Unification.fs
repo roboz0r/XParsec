@@ -708,6 +708,18 @@ module Unification =
                                 | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
                                 | _ -> ()
 
+                            // Explicit `val [mutable] x: T` instance fields are
+                            // always annotated; translate each under the class's
+                            // typar scope (already entered) and link the placeholder
+                            // TyVar so `this.x` reads / `this.x <- …` writes type
+                            // against the declared field type in member bodies.
+                            for fld in info.InstanceFields do
+                                match fld.Type with
+                                | TyVar tv ->
+                                    let translated = translateType ctx fld.TypeCst
+                                    (UnionFind.find tv).Link <- ValueSome translated
+                                | _ -> ()
+
                             // Inheritance (Step 2.2): type the base-ctor call and
                             // bring `base` into scope before any member body walks.
                             // Both no-op for parent-less classes. Runs after the

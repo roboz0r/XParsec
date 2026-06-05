@@ -210,7 +210,8 @@ module Elaborate =
                           isSealed,
                           staticLets,
                           secondaryCtors,
-                          baseCtorCall) ->
+                          baseCtorCall,
+                          isStruct) ->
             let staticLet (sl: TStaticLet) =
                 { sl with
                     Type = f sl.Type
@@ -246,7 +247,8 @@ module Elaborate =
                 isSealed,
                 staticLets |> EqArray.map staticLet,
                 secondaryCtors |> EqArray.map secondary,
-                baseCtorCall |> ValueOption.map baseCtor
+                baseCtorCall |> ValueOption.map baseCtor,
+                isStruct
             )
 
     /// The deferred typar cut. Walk every `SemType` in a
@@ -827,6 +829,21 @@ module Elaborate =
                     }
                 )
 
+            // Explicit `val [mutable] x: T` instance fields (vesper-set-sprint-phase-6).
+            // Their linked placeholder TyVars are zonked + cut to declaring typars by
+            // the later `freezeTypars`/`field` mapper, exactly as `ctorParams`.
+            let instanceFields =
+                EqArray.ofSeq (
+                    seq {
+                        for fld in info.InstanceFields ->
+                            {
+                                Name = fld.Name
+                                Type = fld.Type
+                                IsMutable = fld.IsMutable
+                            }
+                    }
+                )
+
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
             let selfTy = TyClass(info.Key, declTyparArgs info.TypeParams)
@@ -950,7 +967,7 @@ module Elaborate =
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Class(
-                        EqArray.empty,
+                        instanceFields,
                         ctorParams,
                         members,
                         baseType,
@@ -958,7 +975,8 @@ module Elaborate =
                         info.IsSealed,
                         staticLets,
                         secondaryCtors,
-                        baseCtorCall
+                        baseCtorCall,
+                        info.IsValueType
                     ))
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.

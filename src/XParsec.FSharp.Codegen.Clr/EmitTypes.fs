@@ -92,7 +92,18 @@ module EmitTypes =
         {
             Name: string
             Typars: string list
+            /// Primary-constructor backing fields, `(name, handle, type)` in
+            /// declaration order. Its *length* is the primary ctor's arity (a
+            /// `TExpr.New` matches against it), so explicit `val` fields are kept
+            /// out of it — they live in `InstanceFields`.
             Fields: (string * EntityHandle * FrozenType) list
+            /// Explicit `val [mutable] x: T` instance fields (vesper-set-sprint-phase-6),
+            /// `(name, handle, type)`. Default-initialised (not set by the primary
+            /// ctor); a `this.x` `FieldGet`/`FieldSet` resolves its handle here.
+            InstanceFields: (string * EntityHandle * FrozenType) list
+            /// `true` for a `[<Struct>]` value type — drives `isValueType` at use
+            /// sites (box on `:>`, `unbox.any` on `:?>`).
+            IsValueType: bool
             Ctor: EntityHandle
             Members: Dictionary<string, EmittedMember>
             /// `static let` backing fields keyed by source name (B-10); a

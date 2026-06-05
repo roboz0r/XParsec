@@ -266,6 +266,23 @@ type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
     member val Type = ty
     member val DeclKey = declKey
 
+/// An explicit instance field declared with `val [mutable] x: T`
+/// (vesper-set-sprint-phase-6 / structs-handoff). `Type` starts as a placeholder
+/// TyVar stamped at registration and is linked by Unification's `fillClassMembers`
+/// from `TypeCst` (the field is always annotated). `IsMutable` reflects the
+/// `mutable` keyword — `Freeze` projects it onto `TTypeKind.Class.fields` so a
+/// `this.x <- …` mutation in a member body type-checks and codegen emits a
+/// writable `FieldDefinition`. `DeclKey` anchors the field's identity (and a
+/// `this.x` `FieldGet`/`FieldSet` resolves against the class member walk, not
+/// a binder, so it is currently informational).
+[<Sealed>]
+type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, typeCst: Type<SyntaxToken>, declKey: NodeKey) =
+    member val Name = name
+    member val Type = ty
+    member val IsMutable = isMutable
+    member val TypeCst = typeCst
+    member val DeclKey = declKey
+
 /// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).
 /// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
 /// by Unification's `fillClassMembers` once the `Init` expression is inferred.
@@ -398,6 +415,17 @@ type ClassTypeInfo
     /// block. `Freeze` projects them onto `TTypeKind.Class.interfaces` for codegen
     /// (Step 5.3, deferred).
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+    /// `[<Struct>]` (or the `type X = struct … end` shape,
+    /// vesper-set-sprint-phase-6). Stamped by `registerClassTypeDefn`; `Freeze`
+    /// projects it onto `TTypeKind.Class.isStruct` so codegen emits a
+    /// `System.ValueType`-based value type. A struct is implicitly sealed.
+    member val IsValueType: bool = false with get, set
+    /// Explicit `val [mutable] x: T` instance fields in declaration order
+    /// (vesper-set-sprint-phase-6). Stamped by `registerClassTypeDefn`; field
+    /// types are linked by Unification's `fillClassMembers`; `Freeze` projects
+    /// each onto a `TRecordField` in `TTypeKind.Class.fields`. Empty unless the
+    /// class declares any `val` fields.
+    member val InstanceFields: ClassFieldInfo[] = [||] with get, set
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. Promoted from a 2-tuple ahead of

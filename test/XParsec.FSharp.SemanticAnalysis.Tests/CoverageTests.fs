@@ -723,7 +723,8 @@ let tests =
                                   isSealed,
                                   staticLets,
                                   secondaryCtors,
-                                  baseCtorCall) ->
+                                  baseCtorCall,
+                                  _isStruct) ->
                     Expect.equal baseCtorCall ValueNone "no inherit clause ⇒ no base-ctor call"
                     Expect.equal fields.Length 0 "B-1 has no instance fields"
                     Expect.equal staticLets.Length 0 "no static lets on this class"
@@ -765,7 +766,7 @@ let tests =
                 Expect.equal (EqArray.toList typeDecl.TypeParams) [ "'a" ] "one declared typar"
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, ctorParams, members, _, _, _, _, _, _) ->
+                | TTypeKind.Class(_, ctorParams, members, _, _, _, _, _, _, _) ->
                     Expect.equal ctorParams.Length 1 "one ctor param"
                     Expect.equal (ctorParams.[0].Name) "value" "ctor param name"
                     // The declaring typar freezes to `TyTypar(Declaring, 0)`, which
@@ -796,7 +797,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, _, members, _, _, _, staticLets, _, _) ->
+                | TTypeKind.Class(_, _, members, _, _, _, staticLets, _, _, _) ->
                     Expect.equal staticLets.Length 1 "one static let"
                     Expect.equal (staticLets.[0].Name) "x" "static-let name"
                     Expect.equal (staticLets.[0].Type) BuiltinTypes.tyInt "static-let type inferred to int"
@@ -846,7 +847,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
 
                 match typeDecl.Kind with
-                | TTypeKind.Class(_, ctorParams, _, _, _, _, _, secondaryCtors, _) ->
+                | TTypeKind.Class(_, ctorParams, _, _, _, _, _, secondaryCtors, _, _) ->
                     Expect.equal ctorParams.Length 1 "primary ctor has one param"
                     Expect.equal secondaryCtors.Length 1 "one secondary ctor"
                     Expect.equal (secondaryCtors.[0].Params.Length) 0 "new() takes no params"
@@ -884,7 +885,7 @@ let tests =
                     match d with
                     | TDecl.Type t ->
                         match t.Kind with
-                        | TTypeKind.Class(_, _, members, _, _, _, _, _, _) ->
+                        | TTypeKind.Class(_, _, members, _, _, _, _, _, _, _) ->
                             for m in EqArray.toList members do
                                 TastWalk.iterExpr collect m.Body
                         | _ -> ()

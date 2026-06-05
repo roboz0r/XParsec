@@ -245,14 +245,15 @@ module internal NominalEmit =
 
                 recordCtor, registerRecord
 
-            | NominalEmissionInput.Class(_instanceFields,
+            | NominalEmissionInput.Class(instanceFields,
                                          ctorParams,
                                          baseType,
                                          _isSealed,
                                          staticLets,
                                          secondaryCtors,
                                          baseCtorCall,
-                                         _interfaces) ->
+                                         _interfaces,
+                                         isStruct) ->
                 // Resolve the parent handle for the IL `TypeDefinition.BaseType`
                 // (B-4 Step 2.5). A non-generic parent (`Shape`) is the parent's
                 // `TypeDefinition` token directly — the base-type column rejects a
@@ -267,7 +268,12 @@ module internal NominalEmit =
                     // A generic parent's open args ride `FTTypar(Declaring, i)` nodes
                     // (Freeze remaps `info.BaseType`), encoded `!i` directly — no window.
                     baseTypeHandle <- icodegen.TypeToken bt
-                | ValueNone -> ()
+                | ValueNone ->
+                    // A `[<Struct>]` value type extends `System.ValueType`; a plain
+                    // parent-less class keeps the `Object` default. v1 structs never
+                    // carry an `inherit`, so this is the only struct base path.
+                    if isStruct then
+                        baseTypeHandle <- provider.ValueTypeBase
 
                 let fieldHandles =
                     ctorParams
@@ -277,6 +283,22 @@ module internal NominalEmit =
                         let h = ctx.AddField(FieldAttributes.Public, p.Name, sigBlob)
                         asm.FieldCount <- asm.FieldCount + 1
                         p.Name, toEntity h, p.Type
+                    )
+
+                // Explicit `val [mutable] x: T` instance fields
+                // (vesper-set-sprint-phase-6). Emitted after the ctor-param backing
+                // fields; default-initialised (the primary ctor doesn't touch them).
+                // All are writable `Public` fields — a `mutable` one admits
+                // `this.x <- …`; an immutable one is currently writable too
+                // (InitOnly tightening is deferred, see structs-handoff).
+                let instanceFieldHandles =
+                    instanceFields
+                    |> List.map (fun f ->
+                        let sigBlob = provider.FieldSignature f.Type
+
+                        let h = ctx.AddField(FieldAttributes.Public, f.Name, sigBlob)
+                        asm.FieldCount <- asm.FieldCount + 1
+                        f.Name, toEntity h, f.Type
                     )
 
                 let staticFieldHandles =
@@ -357,6 +379,10 @@ module internal NominalEmit =
                             (EqArray.toList bcc.Args)
                             (EqArray.toList bcc.CtorParams)
                             ctorFieldRefs
+                    | ValueNone when isStruct ->
+                        // A value-type ctor stores its params and returns — no
+                        // `System.ValueType::.ctor` chain (value types don't chain).
+                        Emit.buildStructCtor ctorFieldRefs
                     | ValueNone -> Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
 
                 let ctorBodyOffset =
@@ -386,6 +412,8 @@ module internal NominalEmit =
                             Name = td.Name
                             Typars = EqArray.toList td.TypeParams
                             Fields = fieldHandles
+                            InstanceFields = instanceFieldHandles
+                            IsValueType = isStruct
                             Ctor = toEntity classCtor
                             Members = Dictionary()
                             StaticFields = staticFieldsDict
@@ -471,6 +499,8 @@ module internal NominalEmit =
                             Name = td.Name
                             Typars = EqArray.toList td.TypeParams
                             Fields = fieldHandles
+                            InstanceFields = instanceFieldHandles
+                            IsValueType = isStruct
                             Ctor = toEntity classCtor
                             Members = emittedMembers
                             StaticFields = staticFieldsDict
@@ -487,7 +517,7 @@ module internal NominalEmit =
         // order matches emission order below.
         let classInterfaces =
             match input with
-            | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces) -> interfaces
+            | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _) -> interfaces
             | _ -> []
 
         let ifaceMembers =
@@ -953,7 +983,14 @@ module internal NominalEmit =
             match input with
             | NominalEmissionInput.Union _
             | NominalEmissionInput.Record _ -> true
-            | NominalEmissionInput.Class(_, _, _, isSealed, _, _, _, _) -> isSealed
+            // A value type is implicitly sealed (no derivation), so a struct's row
+            // is sealed regardless of the `[<Sealed>]` attribute.
+            | NominalEmissionInput.Class(_, _, _, isSealed, _, _, _, _, isStruct) -> isSealed || isStruct
+
+        let rowIsValueType =
+            match input with
+            | NominalEmissionInput.Class(_, _, _, _, _, _, _, _, isStruct) -> isStruct
+            | _ -> false
 
         rows.Add(
             {
@@ -965,5 +1002,6 @@ module internal NominalEmit =
                 Interfaces = interfaces
                 IsSealed = rowIsSealed
                 BaseType = baseTypeHandle
+                IsValueType = rowIsValueType
             }
         )

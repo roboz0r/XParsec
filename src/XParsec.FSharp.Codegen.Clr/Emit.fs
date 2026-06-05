@@ -350,6 +350,25 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
+    /// A value-type (`[<Struct>]`) primary constructor: store each ctor-param into
+    /// its backing field and return. Unlike `buildClosureCtor` there is **no**
+    /// chained base-`.ctor` call — `System.ValueType` has no accessible
+    /// constructor and value types do not chain. `ldarg 0` is the managed pointer
+    /// to the value being initialised (`newobj` on a value type passes `&temp`),
+    /// so `stfld` writes through it exactly as for a reference type.
+    let buildStructCtor (fields: EntityHandle list) : ILBody =
+        let b = IlBuilder()
+
+        fields
+        |> List.iteri (fun i field ->
+            b.Add(ILInstr.Ldarg 0)
+            b.Add(ILInstr.Ldarg(i + 1))
+            b.Add(ILInstr.Stfld field)
+        )
+
+        b.Add ILInstr.Ret
+        b.Body
+
     /// Build a union case's static factory body: allocate via the union's
     /// parameterless ctor, stamp the discriminant `tag`, store each factory
     /// parameter into its field, and return the object. `fieldHandles` are in

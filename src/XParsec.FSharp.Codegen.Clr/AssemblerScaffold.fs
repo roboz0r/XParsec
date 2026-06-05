@@ -47,7 +47,8 @@ module internal AssemblerScaffold =
                                    isSealed,
                                    staticLets,
                                    secondaryCtors,
-                                   baseCtorCall) ->
+                                   baseCtorCall,
+                                   isStruct) ->
                     classes.Add(
                         td,
                         EqArray.toList fields,
@@ -58,7 +59,8 @@ module internal AssemblerScaffold =
                         isSealed,
                         EqArray.toList staticLets,
                         EqArray.toList secondaryCtors,
-                        baseCtorCall
+                        baseCtorCall,
+                        isStruct
                     )
             | _ -> ()
 

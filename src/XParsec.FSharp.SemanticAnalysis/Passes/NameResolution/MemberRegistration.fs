@@ -207,7 +207,11 @@ module NameResolutionMemberRegistration =
                     // The non-MethodOrPropSig form is the property-signature form
                     // (`abstract Item : int with get`).
                     diagnose "Abstract property signatures are not yet supported"
-            | TypeDefnElement.Member(MemberDefn.Value _) -> diagnose "`val` members are not yet supported"
+            | TypeDefnElement.Member(MemberDefn.Value _) ->
+                // `val [mutable] x: T` explicit instance fields (B-7-adjacent) are
+                // *not* `TypeMemberInfo`s — class registration extracts them
+                // separately via `extractInstanceFields`.
+                ()
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
                 // Secondary constructors (B-11) aren't `TypeMemberInfo`s — class
                 // registration extracts them separately via `extractSecondaryCtors`.
@@ -255,6 +259,29 @@ module NameResolutionMemberRegistration =
 
                 let members = extractMembers ctx declKey memberEls
                 acc.Add(ClassInterfaceImplInfo(ifaceTyp, members, memberEls, declKey))
+            | _ -> ()
+
+        acc.ToArray()
+
+    /// Collect `val [mutable] x: T` explicit instance fields (B-7-adjacent,
+    /// vesper-set-sprint-phase-6) declared in a class / struct body. Each becomes
+    /// a `ClassFieldInfo` with a placeholder TyVar (linked by Unification from the
+    /// annotation `TypeCst`) and the source `mutable` flag. `static val` is not a
+    /// thing F# accepts here, so a `staticToken` is ignored.
+    let private extractInstanceFields
+        (ctx: PassContext)
+        (elements: TypeDefnElement<SyntaxToken> seq)
+        : ClassFieldInfo[] =
+        let acc = ResizeArray<ClassFieldInfo>()
+
+        for el in elements do
+            match el with
+            | TypeDefnElement.Member(MemberDefn.Value(mutableToken = mut; ident = id; typ = t)) ->
+                let name = ctx.NameOf id
+                let declKey = NodeKey.ofToken id NodeKind.DeclLetBinding
+                let tv = TypeVar()
+                tv.Level <- 0
+                acc.Add(ClassFieldInfo(name, TyVar tv, mut.IsSome, t, declKey))
             | _ -> ()
 
         acc.ToArray()
@@ -367,6 +394,12 @@ module NameResolutionMemberRegistration =
                     info.IsSealed <- classAttrs.IsSealed
                     info.AllowNullLiteral <- classAttrs.AllowNullLiteral
                     info.InterfaceImpls <- extractInterfaceImpls ctx body.elements
+
+                    // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
+                    // type. A struct is implicitly sealed (no derivation), so the
+                    // emitted `TypeAttributes.Sealed` rides `IsValueType` too.
+                    info.IsValueType <- classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
+                    info.InstanceFields <- extractInstanceFields ctx body.elements
 
                     TypeRegistry.registerClass ctx.Types name info
 

@@ -531,7 +531,8 @@ module InlineExpansion =
                                   isSealed,
                                   staticLets,
                                   secondaryCtors,
-                                  baseCtorCall) ->
+                                  baseCtorCall,
+                                  isStruct) ->
                     TTypeKind.Class(
                         fields,
                         ctorParams,
@@ -552,7 +553,8 @@ module InlineExpansion =
                             { bc with
                                 Args = bc.Args |> EqArray.map walkExpr
                             }
-                        )
+                        ),
+                        isStruct
                     )
 
             decls

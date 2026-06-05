@@ -137,22 +137,31 @@ module Attributes =
     let private allowNullLiteralNames =
         [ "AllowNullLiteral"; "AllowNullLiteralAttribute" ]
 
+    /// `[<Struct>]` opts a class-shaped type into value-type (`System.ValueType`)
+    /// emission (vesper-set-sprint-phase-6 / structs-handoff). The bare
+    /// `type X = struct … end` shape (no attribute) lands as `TypeDefn.Struct`
+    /// and is normalised to the same flag by `registerClassTypeDefn`.
+    let private structNames = [ "Struct"; "StructAttribute" ]
+
     /// Decoded class-shaping attributes. `IsSealed` flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
     /// `AllowNullLiteral` is consumed only by the front end (Unification's
-    /// `Expr.Null` arm). Both default to `false` — silently ignored attributes
-    /// (`[<Struct>]`, `[<DefaultValue>]`, etc.) leave them unchanged.
+    /// `Expr.Null` arm); `IsValueType` flips `System.ValueType` base +
+    /// value-type layout (`[<Struct>]`, B-7-adjacent). All default to `false` —
+    /// silently ignored attributes (`[<DefaultValue>]`, etc.) leave them unchanged.
     [<Struct>]
     type ClassAttributeVerdict =
         {
             IsSealed: bool
             AllowNullLiteral: bool
+            IsValueType: bool
         }
 
         static member Default =
             {
                 IsSealed = false
                 AllowNullLiteral = false
+                IsValueType = false
             }
 
     /// Decode an attribute set list into a `ClassAttributeVerdict`. Mirrors
@@ -164,6 +173,7 @@ module Attributes =
         | ValueSome sets ->
             let mutable isSealed = false
             let mutable allowNullLiteral = false
+            let mutable isValueType = false
 
             for AttributeSet(attributes = entries) in sets do
                 for Attribute(construction = construction), _sep in entries do
@@ -175,9 +185,11 @@ module Attributes =
                     match attributeShortName ctx attrTy with
                     | ValueSome n when List.contains n sealedNames -> isSealed <- true
                     | ValueSome n when List.contains n allowNullLiteralNames -> allowNullLiteral <- true
+                    | ValueSome n when List.contains n structNames -> isValueType <- true
                     | _ -> ()
 
             {
                 IsSealed = isSealed
                 AllowNullLiteral = allowNullLiteral
+                IsValueType = isValueType
             }

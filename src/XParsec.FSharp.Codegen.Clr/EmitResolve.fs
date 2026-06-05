@@ -202,7 +202,10 @@ module EmitResolve =
         | false, _ ->
             match env.Classes.TryGetValue key with
             | true, c ->
-                match c.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
+                // Primary-ctor backing fields first, then explicit `val` instance
+                // fields (vesper-set-sprint-phase-6) — both resolve identically
+                // through the `ClassMember.Field` member ref.
+                match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
                 | Some(_, h, _) ->
                     memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h
                 | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName

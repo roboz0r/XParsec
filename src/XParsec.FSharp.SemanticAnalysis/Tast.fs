@@ -355,6 +355,13 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
     /// these args before storing fields. `ValueNone` for a parent-less class (the
     /// primary `.ctor` then chains to `System.Object::.ctor`). Always present
     /// together with a `ValueSome baseType`.
+    /// `isStruct` reflects `[<Struct>]` (or the `struct … end` shape,
+    /// vesper-set-sprint-phase-6): codegen emits a `System.ValueType`-based
+    /// value type (sealed, sequential layout, ctor without a base-ctor chain)
+    /// instead of a reference class. `fields` (the explicit `val [mutable] x: T`
+    /// instance fields) are now populated for both structs and classes that
+    /// declare them — each emits a `FieldDefinition` and a mutable one admits
+    /// `this.x <- …`.
     | Class of
         fields: EqArray<TRecordFieldG<'ty>> *
         ctorParams: EqArray<TRecordFieldG<'ty>> *
@@ -364,7 +371,8 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
         isSealed: bool *
         staticLets: EqArray<TStaticLetG<'ty>> *
         secondaryCtors: EqArray<TSecondaryCtorG<'ty>> *
-        baseCtorCall: TBaseCtorCallG<'ty> voption
+        baseCtorCall: TBaseCtorCallG<'ty> voption *
+        isStruct: bool
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty

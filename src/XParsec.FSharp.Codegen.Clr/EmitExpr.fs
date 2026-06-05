@@ -179,7 +179,7 @@ module EmitExpr =
     /// User records / unions / classes are reference types (rung 2); the BCL
     /// primitives bound as `TyConst` are value types. `string` / `obj` are
     /// reference types despite being `TyConst`.
-    let private isValueType (ty: FrozenType) : bool =
+    let private isValueType (env: EmitEnv) (ty: FrozenType) : bool =
         match ty with
         | FTConst(n, _) ->
             match n with
@@ -201,7 +201,37 @@ module EmitExpr =
             | "char"
             | "decimal" -> true
             | _ -> false
+        // A user-declared `[<Struct>]` type emitted into this assembly
+        // (vesper-set-sprint-phase-6): the `EmittedClass.IsValueType` flag drives
+        // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type.
+        | FTClass(key, _) ->
+            match env.Classes.TryGetValue key with
+            | true, c -> c.IsValueType
+            | false, _ -> false
         | _ -> false
+
+    /// Load a value-type receiver as a managed pointer (`this` byref) for an
+    /// address-based member call (struct-codegen #1, structs-handoff.md). A method
+    /// / property call on an *unboxed* struct needs the receiver **address**, not
+    /// its value: a `let`/slot-bound local is addressed in place (`ldloca slot`)
+    /// so a mutating member persists; any other receiver expression (an arg, a
+    /// capture, a nested call) is spilled to a fresh temp and addressed there.
+    /// Leaves the address on the stack; the caller pushes args then `constrained.
+    /// <recvTy>` immediately before the `callvirt`.
+    let private loadStructReceiverAddr
+        (buildExpr: EmitEnv -> IlBuilder -> Frozen.TExpr -> unit)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (receiver: Frozen.TExpr)
+        (receiverTy: FrozenType)
+        : unit =
+        match receiver with
+        | TExprG.Var(binding, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
+        | _ ->
+            buildExpr env b receiver
+            let tmp = b.Local receiverTy
+            b.Add(ILInstr.Stloc tmp)
+            b.Add(ILInstr.Ldloca tmp)
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
@@ -274,7 +304,7 @@ module EmitExpr =
             // indistinguishable from a class here; supporting it is Step 4.4's job
             // (it must record struct-ness on the node — the provider's
             // `ExternalClassShape` doesn't surface it).
-            if isValueType varTy then
+            if isValueType env varTy then
                 failwithf
                     "Emit: `use` over a value-type binder is out of scope (vesper-set-sprint-phase-4 §4.4): %A"
                     varTy
@@ -1012,11 +1042,20 @@ module EmitExpr =
             // `call` skips virtual dispatch so an `override` doesn't recurse.
             let receiverTy = typeOfExpr receiver
             let handle = resolveInstanceMember env receiverTy name
-            buildExpr env b receiver
 
             match via, receiverTy with
-            | CallVia.Self, FTClass _ -> b.Add(ILInstr.Callvirt(handle, 1, 1))
-            | _ -> b.Add(ILInstr.Call(handle, 1, 1))
+            | CallVia.Self, FTClass _ when isValueType env receiverTy ->
+                // Property get on an *unboxed* struct: address the receiver and
+                // `call` the getter against it.
+                // `constrained.` is only needed to dispatch a virtual / interface slot.
+                loadStructReceiverAddr buildExpr env b receiver receiverTy
+                b.Add(ILInstr.Call(handle, 1, 1))
+            | CallVia.Self, FTClass _ ->
+                buildExpr env b receiver
+                b.Add(ILInstr.Callvirt(handle, 1, 1))
+            | _ ->
+                buildExpr env b receiver
+                b.Add(ILInstr.Call(handle, 1, 1))
 
         | TExprG.MethodCall(receiver, key, via, args, _) ->
             let name = SymbolKeyOps.simpleName key
@@ -1028,14 +1067,31 @@ module EmitExpr =
             // body calling `base.M()` invokes the parent — not itself.
             let receiverTy = typeOfExpr receiver
             let handle = resolveInstanceMember env receiverTy name
-            buildExpr env b receiver
-
-            for a in args do
-                buildExpr env b a
 
             match via, receiverTy with
-            | CallVia.Self, FTClass _ -> b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
-            | _ -> b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
+            | CallVia.Self, FTClass _ when isValueType env receiverTy ->
+                // Method call on an *unboxed* struct: address the receiver, push the
+                // args, then `call` the member against the address.
+                loadStructReceiverAddr buildExpr env b receiver receiverTy
+
+                for a in args do
+                    buildExpr env b a
+
+                b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
+            | CallVia.Self, FTClass _ ->
+                buildExpr env b receiver
+
+                for a in args do
+                    buildExpr env b a
+
+                b.Add(ILInstr.Callvirt(handle, 1 + args.Length, 1))
+            | _ ->
+                buildExpr env b receiver
+
+                for a in args do
+                    buildExpr env b a
+
+                b.Add(ILInstr.Call(handle, 1 + args.Length, 1))
 
         | TExprG.StaticPropertyGet(key, _) ->
             let handle = resolveStaticMember env key
@@ -1164,7 +1220,7 @@ module EmitExpr =
             buildExpr env b source
             let srcTy = typeOfExpr source
 
-            if isValueType srcTy then
+            if isValueType env srcTy then
                 b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
 
         | TExprG.Downcast(source, ty) ->
@@ -1174,7 +1230,7 @@ module EmitExpr =
             buildExpr env b source
             let token = env.Provider.TypeToken ty
 
-            if isValueType ty then
+            if isValueType env ty then
                 b.Add(ILInstr.UnboxAny token)
             else
                 b.Add(ILInstr.Castclass token)
