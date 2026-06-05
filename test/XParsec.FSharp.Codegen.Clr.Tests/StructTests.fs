@@ -334,4 +334,96 @@ let structTests =
                 Expect.equal (fieldCur.GetValue boxed :?> int) 11 "Cur initialised from the ctor param"
                 Expect.equal (fieldStarted.GetValue boxed :?> bool) false "Started initialised from the bool literal"
             }
+
+            // structs-handoff #3: generic structs. `SetIterator<'T>` is generic, so
+            // the value-type flag must ride the generic self-`TypeSpec` (base type,
+            // ctor field `MemberRef`s, signature encoding). These prove a generic
+            // value type constructs, reflects as a generic value type, and reads a
+            // ctor-param field back through a member.
+            test "a generic `[<Struct>]` type emits as a generic value type" {
+                let _, artifact =
+                    compileSource
+                        "GenericStructShape"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Box<'T>(value: 'T) ="
+                                "    member this.Value = value"
+                                "let b = Box<int>(42)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Box`1"
+                Expect.isNotNull ty "the assembly contains the generic struct type Box`1"
+                Expect.isTrue ty.IsValueType "Box`1 emits as a value type"
+                Expect.isTrue ty.IsSealed "a value type is sealed"
+                Expect.isTrue ty.IsGenericTypeDefinition "Box`1 is a generic type definition"
+
+                let inst = ty.MakeGenericType [| typeof<int> |]
+                let boxed = Activator.CreateInstance(inst, [| box 42 |])
+                let valField = inst.GetField("value", BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.equal (valField.GetValue boxed :?> int) 42 "the ctor-param field stores the generic value"
+            }
+
+            test "a generic struct dispatches a member that reads a generic ctor-param field (boxed)" {
+                // Boxed dispatch through the generic self-`TypeSpec`: the ctor stores
+                // `value` into the open `Box\`1<!0>::value` field and `Get()` reads it
+                // back. A `CLASS`-tagged self-`TypeSpec` would fault "value type
+                // mismatch" before `Get()` ever runs (structs-handoff #3).
+                let _, artifact =
+                    compileSource
+                        "GenericStructMember"
+                        (String.concat
+                            "\n"
+                            [ "[<Struct>]"; "type Box<'T>(value: 'T) ="; "    member this.Get() = value" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let inst = (asm.GetType "Box`1").MakeGenericType [| typeof<int> |]
+
+                let boxed = Activator.CreateInstance(inst, [| box 99 |])
+                let get = inst.GetMethod("Get", declaredInstance, null, [||], null)
+                Expect.equal (get.Invoke(boxed, [||]) :?> int) 99 "Get() reads the generic ctor-param field"
+            }
+
+            // The `SetIterator<'T>` shape: a generic struct with a `val mutable`
+            // field plus an explicit field-init secondary ctor, boxed to an
+            // interface — the full prerequisite for phase-6's hand-written enumerator.
+            test "a generic struct with a val field + field-init ctor round-trips boxed to an interface" {
+                let _, artifact =
+                    compileSource
+                        "GenericStructIter"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Cell<'T> ="
+                                "    val mutable Item: 'T"
+                                "    val mutable Started: bool"
+                                "    new(x: 'T) = { Item = x; Started = false }"
+                                "    member this.Get() = this.Item"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let openTy = asm.GetType "Cell`1"
+                Expect.isTrue openTy.IsValueType "Cell`1 is a value type"
+                let ty = openTy.MakeGenericType [| typeof<int> |]
+
+                let ctor =
+                    openTy.GetConstructors() |> Array.find (fun c -> c.GetParameters().Length = 1)
+
+                Expect.isNotNull ctor "the one-arg field-init secondary ctor is emitted"
+
+                let boxed = Activator.CreateInstance(ty, [| box 7 |])
+                let itemFld = ty.GetField("Item", BindingFlags.Public ||| BindingFlags.Instance)
+
+                let startedFld =
+                    ty.GetField("Started", BindingFlags.Public ||| BindingFlags.Instance)
+
+                Expect.equal (itemFld.GetValue boxed :?> int) 7 "Item initialised from the generic ctor param"
+                Expect.equal (startedFld.GetValue boxed :?> bool) false "Started initialised from the bool literal"
+
+                let get = ty.GetMethod("Get", declaredInstance, null, [||], null)
+                Expect.equal (get.Invoke(boxed, [||]) :?> int) 7 "Get() reads the val field back"
+            }
         ]

@@ -111,7 +111,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // provider can mint `MemberRef`s on its `TypeSpec`.
     do
         unionDecls
-        |> List.iteri (fun i (td, cases, _) ->
+        |> List.iteri (fun i ud ->
+            let td = ud.Decl
             // Types are keyed by their nominal `SymbolKey` (which embeds namespace,
             // arity, and home assembly) so same-named overloads (`Choice\`2`…
             // `Choice\`7`) and same-name-different-namespace types don't collide in
@@ -121,7 +122,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             if not td.TypeParams.IsEmpty then
                 let shape =
                     [
-                        for c in cases ->
+                        for c in ud.Cases ->
                             c.Name,
                             [
                                 for fi in 0 .. c.Fields.Length - 1 -> sprintf "%s_%d" c.Name fi, snd c.Fields.[fi]
@@ -133,36 +134,35 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     do
         recordDecls
-        |> List.iteri (fun i (td, fields, _) ->
+        |> List.iteri (fun i rd ->
+            let td = rd.Decl
             provider.RegisterUserType(td.Key, toEntity (predictTypeDef typeCounts NominalKind.Record i))
 
             if not td.TypeParams.IsEmpty then
-                let shape = [ for f in fields -> f.Name, f.Type ]
+                let shape = [ for f in rd.Fields -> f.Name, f.Type ]
                 provider.RegisterGenericRecord(td.Key, EqArray.toList td.TypeParams, shape)
         )
 
     do
         classDecls
-        |> List.iteri (fun
-                           i
-                           (td,
-                            _fields,
-                            ctorParams,
-                            _members,
-                            _baseType,
-                            _interfaces,
-                            _isSealed,
-                            _staticLets,
-                            _secondaryCtors,
-                            _baseCtorCall,
-                            isStruct) ->
+        |> List.iteri (fun i cd ->
+            let td = cd.Decl
             provider.RegisterUserType(td.Key, toEntity (predictTypeDef typeCounts NominalKind.Class i))
 
-            if isStruct then
+            if cd.IsStruct then
                 provider.RegisterUserValueType td.Key
 
             if not td.TypeParams.IsEmpty then
-                let shape = [ for p in ctorParams -> p.Name, p.Type ]
+                // Both the ctor-param backing fields and the explicit `val [mutable]
+                // x: T` instance fields must be in the generic-class registry: a
+                // generic struct's field-init ctor and member-body `ldfld`/`stfld`
+                // reference the `val` fields by name through a `MemberRef` on the open
+                // self-`TypeSpec` (structs-handoff #3), so an unregistered `val` field
+                // fails resolution ("generic class … has no field").
+                let shape =
+                    [ for p in cd.CtorParams -> p.Name, p.Type ]
+                    @ [ for f in cd.Fields -> f.Name, f.Type ]
+
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, shape)
         )
 
@@ -186,34 +186,34 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // equality triple (C-Attr `Structural`) + the optional comparison pair.
     let unionMethodTotal =
         unionDecls
-        |> List.sumBy (fun (td, cases, members) ->
+        |> List.sumBy (fun ud ->
             let triple =
-                match td.EqualitySupport with
+                match ud.Decl.EqualitySupport with
                 | EqualityVerdict.Structural -> 3
                 | _ -> 0
 
             let pair =
-                match td.ComparisonSupport with
+                match ud.Decl.ComparisonSupport with
                 | ComparisonVerdict.Structural -> 2
                 | _ -> 0
 
-            1 + List.length cases + List.length members + triple + pair
+            1 + List.length ud.Cases + List.length ud.Members + triple + pair
         )
 
     let recordMethodTotal =
         recordDecls
-        |> List.sumBy (fun (td, _, members) ->
+        |> List.sumBy (fun rd ->
             let triple =
-                match td.EqualitySupport with
+                match rd.Decl.EqualitySupport with
                 | EqualityVerdict.Structural -> 3
                 | _ -> 0
 
             let pair =
-                match td.ComparisonSupport with
+                match rd.Decl.ComparisonSupport with
                 | ComparisonVerdict.Structural -> 2
                 | _ -> 0
 
-            1 + List.length members + triple + pair
+            1 + List.length rd.Members + triple + pair
         )
 
     // Per class: `.ctor` + per member + one virtual method per interface-impl
@@ -222,12 +222,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // Static-let *fields* add to the field table, not here.
     let classMethodTotal =
         classDecls
-        |> List.sumBy (fun (_, _, _, members, _, interfaces, _, staticLets, secondaryCtors, _, _) ->
+        |> List.sumBy (fun cd ->
             1
-            + List.length members
-            + List.sumBy (fun (_, ms) -> List.length ms) interfaces
-            + (if List.isEmpty staticLets then 0 else 1)
-            + List.length secondaryCtors
+            + List.length cd.Members
+            + List.sumBy (fun (_, ms) -> List.length ms) cd.Interfaces
+            + (if List.isEmpty cd.StaticLets then 0 else 1)
+            + List.length cd.SecondaryCtors
         )
 
     let closureMethodTotal = 2 * List.length closures

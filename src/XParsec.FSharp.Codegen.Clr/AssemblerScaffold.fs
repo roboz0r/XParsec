@@ -37,8 +37,20 @@ module internal AssemblerScaffold =
             | TDeclG.Type td ->
                 match td.Kind with
                 | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
-                | TTypeKindG.Union(cases, members) -> unions.Add(td, EqArray.toList cases, EqArray.toList members)
-                | TTypeKindG.Record(fields, members) -> records.Add(td, EqArray.toList fields, EqArray.toList members)
+                | TTypeKindG.Union(cases, members) ->
+                    unions.Add
+                        {
+                            Decl = td
+                            Cases = EqArray.toList cases
+                            Members = EqArray.toList members
+                        }
+                | TTypeKindG.Record(fields, members) ->
+                    records.Add
+                        {
+                            Decl = td
+                            Fields = EqArray.toList fields
+                            Members = EqArray.toList members
+                        }
                 | TTypeKindG.Class(fields,
                                    ctorParams,
                                    members,
@@ -49,19 +61,20 @@ module internal AssemblerScaffold =
                                    secondaryCtors,
                                    baseCtorCall,
                                    isStruct) ->
-                    classes.Add(
-                        td,
-                        EqArray.toList fields,
-                        EqArray.toList ctorParams,
-                        EqArray.toList members,
-                        baseType,
-                        [ for (ifaceTy, ms) in ifaces -> ifaceTy, EqArray.toList ms ],
-                        isSealed,
-                        EqArray.toList staticLets,
-                        EqArray.toList secondaryCtors,
-                        baseCtorCall,
-                        isStruct
-                    )
+                    classes.Add
+                        {
+                            Decl = td
+                            Fields = EqArray.toList fields
+                            CtorParams = EqArray.toList ctorParams
+                            Members = EqArray.toList members
+                            BaseType = baseType
+                            Interfaces = [ for (ifaceTy, ms) in ifaces -> ifaceTy, EqArray.toList ms ]
+                            IsSealed = isSealed
+                            StaticLets = EqArray.toList staticLets
+                            SecondaryCtors = EqArray.toList secondaryCtors
+                            BaseCtorCall = baseCtorCall
+                            IsStruct = isStruct
+                        }
             | _ -> ()
 
         {

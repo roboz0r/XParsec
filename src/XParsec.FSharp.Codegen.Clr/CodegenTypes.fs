@@ -58,23 +58,46 @@ type internal TypeDefCounts =
 /// One disjoint walk over `tast.Decls`: every `TDecl.Type` is routed to exactly
 /// one list by its `TTypeKind`. Adding a new nominal kind is one field + one
 /// `match` arm in `partitionTypeDecls`.
+/// A partitioned union declaration: its `TTypeDecl`, cases, and members.
+type internal UnionDecl =
+    {
+        Decl: Frozen.TTypeDecl
+        Cases: Frozen.TUnionCase list
+        Members: Frozen.TTypeMember list
+    }
+
+/// A partitioned record declaration: its `TTypeDecl`, fields, and members.
+type internal RecordDecl =
+    {
+        Decl: Frozen.TTypeDecl
+        Fields: Frozen.TRecordField list
+        Members: Frozen.TTypeMember list
+    }
+
+/// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`
+/// instance fields; `CtorParams` become backing fields. `BaseType`/`BaseCtorCall`
+/// carry the optional `inherit`. `IsStruct` flags a `[<Struct>]` value type.
+type internal ClassDecl =
+    {
+        Decl: Frozen.TTypeDecl
+        Fields: Frozen.TRecordField list
+        CtorParams: Frozen.TRecordField list
+        Members: Frozen.TTypeMember list
+        BaseType: FrozenType voption
+        Interfaces: (FrozenType * Frozen.TTypeMember list) list
+        IsSealed: bool
+        StaticLets: Frozen.TStaticLet list
+        SecondaryCtors: Frozen.TSecondaryCtor list
+        BaseCtorCall: Frozen.TBaseCtorCall voption
+        IsStruct: bool
+    }
+
 type internal PartitionedTypeDecls =
     {
         Interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list
-        Unions: (Frozen.TTypeDecl * Frozen.TUnionCase list * Frozen.TTypeMember list) list
-        Records: (Frozen.TTypeDecl * Frozen.TRecordField list * Frozen.TTypeMember list) list
-        Classes:
-            (Frozen.TTypeDecl *
-            Frozen.TRecordField list *
-            Frozen.TRecordField list *
-            Frozen.TTypeMember list *
-            FrozenType voption *
-            (FrozenType * Frozen.TTypeMember list) list *
-            bool *
-            Frozen.TStaticLet list *
-            Frozen.TSecondaryCtor list *
-            Frozen.TBaseCtorCall voption *
-            bool) list
+        Unions: UnionDecl list
+        Records: RecordDecl list
+        Classes: ClassDecl list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in

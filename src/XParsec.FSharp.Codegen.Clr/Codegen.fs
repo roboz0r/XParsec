@@ -21,38 +21,28 @@ module Codegen =
 
         asm.EmitInterfaces()
 
-        for (td, cases, members) in asm.UnionDecls do
-            NominalEmit.emit asm (NominalEmissionInput.Union cases) td members asm.UnionTypes
+        for ud in asm.UnionDecls do
+            NominalEmit.emit asm (NominalEmissionInput.Union ud.Cases) ud.Decl ud.Members asm.UnionTypes
 
-        for (td, fields, members) in asm.RecordDecls do
-            NominalEmit.emit asm (NominalEmissionInput.Record fields) td members asm.RecordTypes
+        for rd in asm.RecordDecls do
+            NominalEmit.emit asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members asm.RecordTypes
 
-        for (td,
-             fields,
-             ctorParams,
-             members,
-             baseType,
-             interfaces,
-             isSealed,
-             staticLets,
-             secondaryCtors,
-             baseCtorCall,
-             isStruct) in asm.ClassDecls do
+        for cd in asm.ClassDecls do
             NominalEmit.emit
                 asm
                 (NominalEmissionInput.Class(
-                    fields,
-                    ctorParams,
-                    baseType,
-                    isSealed,
-                    staticLets,
-                    secondaryCtors,
-                    baseCtorCall,
-                    interfaces,
-                    isStruct
+                    cd.Fields,
+                    cd.CtorParams,
+                    cd.BaseType,
+                    cd.IsSealed,
+                    cd.StaticLets,
+                    cd.SecondaryCtors,
+                    cd.BaseCtorCall,
+                    cd.Interfaces,
+                    cd.IsStruct
                 ))
-                td
-                members
+                cd.Decl
+                cd.Members
                 asm.ClassTypes
 
         asm.EmitClosures()

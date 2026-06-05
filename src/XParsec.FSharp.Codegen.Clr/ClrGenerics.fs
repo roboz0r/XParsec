@@ -14,6 +14,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let genericRecords = env.GenericRecords
     let genericClasses = env.GenericClasses
     let genericClosures = env.GenericClosures
+    let userValueTypes = env.UserValueTypes
     let encodeType te t = enc.EncodeType(te, t)
 
     // Unions are keyed by their nominal `SymbolKey` (which embeds the arity, so
@@ -138,7 +139,12 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let typars, _ = genericClasses.[key]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(userTypes.[key], List.length typars, false)
+        // A `[<Struct>]` value type's generic self-`TypeSpec` (the MemberRef parent
+        // for its ctor / fields / members) must carry the `VALUETYPE` tag, else the
+        // GENERICINST encodes as `CLASS` and the loader faults "value type mismatch"
+        // when constructing or dispatching on a generic struct (structs-handoff #3).
+        let isVt = userValueTypes.Contains key
+        let g = te.GenericInstantiation(userTypes.[key], List.length typars, isVt)
 
         for a in args do
             encodeType (g.AddArgument()) a
