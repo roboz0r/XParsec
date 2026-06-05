@@ -299,6 +299,16 @@ type ICodegenProvider =
     /// targets alike.
     abstract TypeToken: ty: FrozenType -> EntityHandle
 
+    /// Whether a *referenced-assembly / referenced-package* nominal type
+    /// (`fullName` = its arity-qualified compiled name) is a .NET value type
+    /// (`struct`). The metadata layer reads it off `Type.IsValueType`; the contract
+    /// layer reads it off the `.fsi` `struct … end` form (structs-handoff #6). The
+    /// expression walker consults this so `EmitExpr.isValueType` recognises an
+    /// external struct the same way it already recognises a project-local one —
+    /// driving `:>`-box / `:?>`-unbox / value-receiver dispatch. `false` for every
+    /// reference type and any unresolved name.
+    abstract IsExternalValueType: fullName: string -> bool
+
     /// `System.Decimal::.ctor(int32, int32, int32, bool, uint8)` — emits a
     /// `decimal` constant the way F# / Roslyn do, from `Decimal.GetBits`.
     abstract DecimalCtor: EntityHandle

@@ -995,9 +995,30 @@ module VesperLib =
                     ctx.TypeShapes.[compiled] <-
                         ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
 
+        | TypeSignature.Struct(typeName = typeName) ->
+            // A `type X = struct … end` value type. Same nominal `Class` shape as a
+            // reference class, but the contract must publish its value-type-ness so a
+            // consumer's encoder emits `ELEMENT_TYPE_VALUETYPE` (not `CLASS`) for it —
+            // without that flag a referenced-package struct in any signature faults the
+            // loader with "value type mismatch" (structs-handoff #6). The metadata
+            // layer reads the same flag off `Type.IsValueType`; here it rides the
+            // syntactic `struct … end` form (a `[<Struct>]`-attributed `Class`/`Anon`
+            // would need attribute decode — its canonical surface is this form).
+            match registerTypeDecl ctx lexed input path typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) ->
+                let shape =
+                    { ExternalClassShape.basic (arity, false, SymbolOrigin.Empty) with
+                        Flags =
+                            { ExternalClassFlags.Default with
+                                IsValueType = true
+                            }
+                    }
+
+                ctx.TypeShapes.[compiled] <- ExternalTypeShape.Class shape
+
         | TypeSignature.Anon(typeName = typeName)
         | TypeSignature.Class(typeName = typeName)
-        | TypeSignature.Struct(typeName = typeName)
         | TypeSignature.AbstractType typeName ->
             // Nominal types with no front-end-modelled body shape (a class, an
             // opaque abstract type). Resolve as a non-interface `Class` so codegen

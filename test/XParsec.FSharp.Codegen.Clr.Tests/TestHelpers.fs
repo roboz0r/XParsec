@@ -1145,6 +1145,47 @@ let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : by
             ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
             buf
 
+/// The *return type's* element-type tag in a method's MethodDef signature, found
+/// by `(declaringType, methodName)`. Parses the signature blob through a
+/// `BlobReader` — skipping the calling-convention header + compressed param count
+/// — and returns the first byte of the return type, i.e. its `ELEMENT_TYPE_*` tag.
+/// For a method returning a user/referenced nominal type that is the encoder's
+/// `VALUETYPE`-vs-`CLASS` decision point: `0x11` (ELEMENT_TYPE_VALUETYPE) vs `0x12`
+/// (ELEMENT_TYPE_CLASS). Read straight off the emitted metadata — no loader, no
+/// referenced assembly needed. Throws if the method is not found.
+let peMethodReturnElementType (bytes: byte[]) (declaringType: string) (methodName: string) : byte =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    let qualifiedOf (td: TypeDefinition) =
+        let name = md.GetString td.Name
+        let ns = md.GetString td.Namespace
+
+        if System.String.IsNullOrEmpty ns then
+            name
+        else
+            sprintf "%s.%s" ns name
+
+    let methodHandle =
+        md.TypeDefinitions
+        |> Seq.tryPick (fun tdh ->
+            let td = md.GetTypeDefinition tdh
+
+            if qualifiedOf td = declaringType then
+                td.GetMethods()
+                |> Seq.tryFind (fun mdh -> md.GetString(md.GetMethodDefinition(mdh).Name) = methodName)
+            else
+                None
+        )
+
+    match methodHandle with
+    | None -> failwithf "peMethodReturnElementType: no method '%s' on type '%s'" methodName declaringType
+    | Some mdh ->
+        let mutable r = md.GetBlobReader((md.GetMethodDefinition mdh).Signature)
+        r.ReadSignatureHeader() |> ignore // calling convention (HASTHIS etc.)
+        r.ReadCompressedInteger() |> ignore // parameter count
+        r.ReadByte() // return type's ELEMENT_TYPE_* tag
+
 /// Format a PE byte array as a hex string (`"02 00 01 …"`), capped so a test
 /// failure message stays readable.
 let formatIlBytes (bytes: byte[]) : string =

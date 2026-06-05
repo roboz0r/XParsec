@@ -195,6 +195,7 @@ type ClrProvider
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
         member _.TypeToken(ty) = recipes.TypeToken(ty)
+        member _.IsExternalValueType(fullName) = env.ExternalIsValueType fullName
         member _.DecimalCtor = env.EDecimalCtor.Value
         member _.ExceptionCtor = env.EExceptionCtor.Value
 

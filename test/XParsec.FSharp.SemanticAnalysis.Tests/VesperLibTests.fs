@@ -531,6 +531,62 @@ let tests =
                         (Seq.toList ctx.TypeShapes.Keys)
             }
 
+            test "A `struct … end` value type extracts as a Class shape flagged IsValueType" {
+                // structs-handoff #6: a `type X = struct … end` value type in a `.fsi`
+                // must surface its value-type-ness through the provider, or a consumer's
+                // encoder emits `ELEMENT_TYPE_CLASS` for a referenced-package struct and
+                // the loader faults "value type mismatch". Extraction registers a
+                // `Class` shape (no front-end-modelled body) whose `Flags.IsValueType`
+                // is `true` — the contract-layer twin of the metadata layer's
+                // `Type.IsValueType` read.
+                let input =
+                    "namespace App\n\nmodule M =\n    type Point =\n        struct\n            val X: int\n            val Y: int\n        end\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+
+                let pointShape =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "Point" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match pointShape with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    Expect.isTrue shape.Flags.IsValueType "the struct's Class shape is flagged IsValueType"
+                    Expect.isFalse shape.IsInterface "a struct is not an interface"
+                | ValueSome other -> failtestf "expected a Class shape for the struct; got %A" other
+                | ValueNone -> failtestf "struct registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+            }
+
             test "A GADT-cased union extracts as a genuine Union shape" {
                 // The cons-list shape (operator cases with explicit return types):
                 // `([])` and `(::)` are GADT-syntax. GADT-case extraction

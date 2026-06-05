@@ -203,11 +203,14 @@ module EmitExpr =
             | _ -> false
         // A user-declared `[<Struct>]` type emitted into this assembly
         // (vesper-set-sprint-phase-6): the `EmittedClass.IsValueType` flag drives
-        // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type.
+        // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
+        // struct that lives in a *referenced* package (not in `env.Classes`) is
+        // recognised the same way via the provider's external value-type flag —
+        // the contract/metadata layer's `IsValueType` (structs-handoff #6).
         | FTClass(key, _) ->
             match env.Classes.TryGetValue key with
             | true, c -> c.IsValueType
-            | false, _ -> false
+            | false, _ -> env.Provider.IsExternalValueType(SymbolKeyOps.qualifiedName key)
         | _ -> false
 
     /// Load a value-type receiver as a managed pointer (`this` byref) for an
@@ -857,7 +860,18 @@ module EmitExpr =
                 // F# forbids two ctors of the same signature, so arity is a key.
                 let argCount = args.Length
 
-                if argCount = List.length c.Fields then
+                if argCount = 0 && c.IsValueType then
+                    // Parameterless value-type construction (`Counter()`) — the
+                    // idiomatic CLR lowering is `initobj` on a zeroed scratch local,
+                    // not `newobj` against the synthesised parameterless `.ctor`
+                    // (structs-handoff #5). A struct's parameterless ctor only
+                    // zero-inits anyway, so this is equivalent and avoids relying on
+                    // the JIT tolerating an explicit value-type `.ctor()` call.
+                    let slot = b.Local ty
+                    b.Add(ILInstr.Ldloca slot)
+                    b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
+                    b.Add(ILInstr.Ldloc slot)
+                elif argCount = List.length c.Fields then
                     // Primary. Monomorphic: the ctor's `Def` token directly.
                     // Generic: a `MemberRef` on the receiver's instantiated
                     // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.

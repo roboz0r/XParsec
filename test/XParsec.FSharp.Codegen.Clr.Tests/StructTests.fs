@@ -183,6 +183,33 @@ let structTests =
                 Expect.equal (run.Invoke(null, [||]) :?> int) 2 "two Bump()s on the same local leave N = 2"
             }
 
+            // structs-handoff #5: a parameterless struct construction (`Counter()`)
+            // lowers to `ldloca; initobj; ldloc` on a scratch local, not a `newobj`
+            // against the synthesised parameterless `.ctor`. The field reads back as
+            // its zero-init default, proving `initobj` produced a usable zeroed value.
+            test "a parameterless struct construction zero-inits its fields via initobj" {
+                let _, artifact =
+                    compileSource
+                        "StructInitObj"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Counter ="
+                                "    val mutable N: int"
+                                "    member this.Get() = this.N"
+                                "    static member Fresh() : int ="
+                                "        let c = Counter()"
+                                "        c.Get()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Counter"
+                let fresh = ty.GetMethod("Fresh", BindingFlags.Public ||| BindingFlags.Static)
+                Expect.isNotNull fresh "Fresh emitted as a static method"
+                Expect.equal (fresh.Invoke(null, [||]) :?> int) 0 "an initobj-constructed Counter has N = 0"
+            }
+
             test "a struct upcast `:>` to an interface boxes (round-trips through the interface)" {
                 let _, artifact =
                     compileSource
@@ -457,5 +484,68 @@ let structTests =
 
                 let get = ty.GetMethod("Get", declaredInstance, null, [||], null)
                 Expect.equal (get.Invoke(boxed, [||]) :?> int) 7 "Get() reads the val field back"
+            }
+
+            // structs-handoff #6: a `[<Struct>]` declared in a *referenced package*
+            // and consumed by name. The contract `.fsi` publishes a `struct … end`
+            // value type; a consumer compiled against that contract must encode the
+            // referenced type as `ELEMENT_TYPE_VALUETYPE` (0x11), not `CLASS` (0x12) —
+            // a wrong tag faults the loader "value type mismatch". This is the
+            // cross-package twin of the project-local struct-signature path: it stands
+            // up a synthetic producer package (manifest + `.fsi`, no DLL needed — the
+            // emitted *signature* is the encoder's decisive output) and reads the
+            // consumer's emitted MethodDef signature straight off the metadata.
+            test "a struct declared in a referenced package encodes as VALUETYPE in a consumer signature" {
+                // The package directory name IS the package identity (`buildClosure`
+                // resolves `depends-on` against it), so it must equal the manifest
+                // `name` — hence `Vesper.PointPkg`, not a descriptive slug.
+                let outDir = tmpDir "Vesper.PointPkg"
+                let manifestPath = System.IO.Path.Combine(outDir, "manifest.toml")
+                let fsiPath = System.IO.Path.Combine(outDir, "point.fsi")
+
+                // `depends-on = []`: the `int` field type resolves from the
+                // `Vesper.Core` manifest we pass explicitly in the flat stack below,
+                // so no sibling-package closure resolution is triggered.
+                System.IO.File.WriteAllText(
+                    manifestPath,
+                    "[core]\nname = \"Vesper.PointPkg\"\nnamespace = \"Vesper\"\ndepends-on = []\nfiles = [\"point.fsi\"]\n"
+                )
+
+                System.IO.File.WriteAllText(
+                    fsiPath,
+                    "namespace Vesper\n\ntype Point =\n    struct\n        val X: int\n        val Y: int\n    end\n"
+                )
+
+                let provider = SymbolProviders.buildContract [ vesperCoreManifest; manifestPath ]
+
+                // Identity over the referenced struct: forces `Point` into the
+                // emitted method's signature (return + param) without constructing it.
+                let src =
+                    "namespace App\n\nopen Vesper\n\nmodule Consumer =\n    let echo (p: Point) : Point = p\n"
+
+                let project = ProjectInfo.library "StructXPkgConsumer"
+                let lexed, file = parseFile src
+                let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                if not (List.isEmpty errors) then
+                    failwithf "consumer failed to analyse: %A" (errors |> List.map (fun d -> d.Message))
+
+                let artifact = Codegen.compile provider project tast
+                let bytes = Codegen.toBytes artifact
+
+                // Find `echo`'s declaring (module) type without hard-coding the
+                // emitted module-type name.
+                let declType =
+                    match peMethodNames bytes |> List.filter (fun (_, m) -> m = "echo") with
+                    | (t, _) :: _ -> t
+                    | [] -> failwithf "no `echo` method emitted; methods: %A" (peMethodNames bytes)
+
+                let elem = peMethodReturnElementType bytes declType "echo"
+
+                // 0x11 = ELEMENT_TYPE_VALUETYPE, 0x12 = ELEMENT_TYPE_CLASS.
+                Expect.notEqual elem 0x12uy "the referenced struct must NOT encode as ELEMENT_TYPE_CLASS"
+                Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE (structs-handoff #6)"
             }
         ]
