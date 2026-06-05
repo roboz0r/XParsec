@@ -66,7 +66,7 @@ type ClosureMember =
     | Invoke
 
 /// Which member of an emitted *generic* record a `GenericRecordMemberRef`
-/// resolves to. The records-plan §B2 analogue of `UnionMember`, but minus the
+/// resolves to. The analogue of `UnionMember`, but minus the
 /// tag/factory machinery — a record has one nameless shape with one ctor
 /// taking the fields in declaration order, and fields are keyed by their
 /// source-level name (not by `<case>_<index>`). A monomorphic record skips
@@ -195,7 +195,7 @@ type ICodegenProvider =
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
     /// at `tyArgs`. The mirror of `TryEmitUnionCons` for records: when
     /// `env.Records` doesn't hold the type (it lives in another package — e.g.
-    /// `Vesper.Ref\`1` in `Vesper.Core.dll`, per records-plan §B7), the
+    /// `Vesper.Ref\`1` in `Vesper.Core.dll`), the
     /// provider looks the record up through its external symbol stack and
     /// mints a `MemberRef` on the instantiated `TypeSpec`.
     /// `ValueNone` ⇒ the type is unknown to the provider (no contract / metadata

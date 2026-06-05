@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Structural comparison (records-plan §B6, brainstorm-comparison §9):
+// Structural comparison (brainstorm-comparison §9):
 // `<` / `>` / `<=` / `>=` on records and unions, opt-in via
 // `[<StructuralComparison>]`. The emit side ships an `int CompareTo(Self)` +
 // `int CompareTo(object)` pair (the comparison parallel of the equality

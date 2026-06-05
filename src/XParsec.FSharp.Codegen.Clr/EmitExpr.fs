@@ -854,8 +854,8 @@ module EmitExpr =
 
         | TExprG.RecordCons(srcFields, ty) ->
             // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
-            // to the type's *declaration* order before the ctor is invoked
-            // (records-plan §B3): the ctor's parameter slots correspond to
+            // to the type's *declaration* order before the ctor is invoked:
+            // the ctor's parameter slots correspond to
             // declaration order so the field-store sequence in `buildRecordCtor`
             // lines up. A generic record's `.ctor` is a `MemberRef` on its own
             // `TypeSpec` (`Box\`1<!0>::.ctor`), exactly like a generic union's

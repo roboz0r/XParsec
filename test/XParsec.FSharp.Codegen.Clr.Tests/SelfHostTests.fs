@@ -67,8 +67,8 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // `Vesper.Ref<'T>` ships in `Vesper.Core.dll` alongside `Fun`2`
-            // (records-plan §B7), so the captured-mutable promotion resolves the
+            // `Vesper.Ref<'T>` ships in `Vesper.Core.dll` alongside `Fun`2`,
+            // so the captured-mutable promotion resolves the
             // cell type through the normal external-reference path. The bytes come
             // from `vesperCoreDll`'s shared compile (prim-types-min.fs + core-types.fs).
             test "Vesper.Core.dll contains Vesper.Ref`1" {

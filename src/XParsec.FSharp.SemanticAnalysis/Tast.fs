@@ -300,8 +300,7 @@ and TTypeDeclG<'ty> =
         Kind: TTypeKindG<'ty>
         /// Equality posture for this type (records / unions / interfaces).
         /// Defaults to `Structural` — interfaces ignore it (no triple is ever
-        /// synthesised), records / unions consume it in the codegen loops. See
-        /// [`docs/records-plan.md`](docs/records-plan.md) §B4.
+        /// synthesised), records / unions consume it in the codegen loops.
         EqualitySupport: EqualityVerdict
         /// Comparison posture for this type (records / unions / interfaces).
         /// Defaults to `NoComparison` — interfaces ignore it (no pair is ever
@@ -309,8 +308,7 @@ and TTypeDeclG<'ty> =
         /// decide whether to emit the `IComparable<Self>` / `IComparable`
         /// `InterfaceImpl`s and the `CompareTo(Self)` / `CompareTo(object)`
         /// pair. Per brainstorm-comparison §9 the default is **opt-in**, so an
-        /// unannotated record / union skips the pair. See
-        /// [`docs/records-plan.md`](docs/records-plan.md) §B6.
+        /// unannotated record / union skips the pair.
         ComparisonSupport: ComparisonVerdict
     }
 
@@ -324,7 +322,7 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
     /// (`with member …` / `static member …`) — empty for v1, where records carry
-    /// only their field shape. See docs/records-plan.md §B1.
+    /// only their field shape.
     | Record of fields: EqArray<TRecordFieldG<'ty>> * members: EqArray<TTypeMemberG<'ty>>
     /// Class type emission (vesper-set-sprint-plan Phase 1 / B-1).
     /// `fields` are mutable instance fields — empty in B-1 (the classes-plan v1

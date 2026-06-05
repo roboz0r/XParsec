@@ -704,7 +704,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) selfTy
         toEntity (ctx.TypeSpec tsB)
 
-    // ---- Structural comparison (records-plan §B6) ----
+    // ---- Structural comparison ----
 
     let comparerTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()

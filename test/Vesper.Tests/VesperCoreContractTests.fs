@@ -149,7 +149,7 @@ let vesperSeqContractTests =
 /// Vesper.Comparison — the ordering family relocated out of Vesper.Core's
 /// `ops-platform.fsi` (operators-plan.md O2). Same golden-file bar: `comparison.fsi`
 /// must parse with zero recovery diagnostics; the impl `comparison.fs` (the four
-/// operator bodies as static-optimization over inline IL, records-plan §B6)
+/// operator bodies as static-optimization over inline IL)
 /// must parse too.
 [<Tests>]
 let vesperComparisonContractTests =

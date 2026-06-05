@@ -4,7 +4,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// C-Attr (docs/records-plan.md §B4 + §B6): decode the small set of
+// C-Attr: decode the small set of
 // attributes that govern a record / union's equality AND comparison postures,
 // off the type's `TypeName.attributes` CST node. The decoder is intentionally
 // syntactic — F# attributes resolve by short name (with the `Attribute` suffix
@@ -63,7 +63,7 @@ module Attributes =
     /// are silently ignored.
     ///
     /// `ValueNone` ⇒ no equality-relevant attribute present — the caller falls
-    /// back to its default rule (records-plan §B4 / brainstorm §8): an
+    /// back to its default rule (brainstorm §8): an
     /// all-immutable record / any union ⇒ `Structural`; a mutable record ⇒
     /// `Reference`.
     let decodeEqualityAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : EqualityVerdict voption =

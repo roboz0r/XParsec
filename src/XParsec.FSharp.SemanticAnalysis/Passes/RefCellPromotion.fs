@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis
 //       `TExpr.Var x` in the binding's scope reads through `x.contents`; every
 //       `TExpr.Assignment(Var x, v)` writes through `x.contents <- v`. The cell
 //       type lives in `Vesper.Core.dll` and the codegen resolves it through
-//       the cross-package record path (records-plan §B7) — no `TDecl.Type` is
+//       the cross-package record path — no `TDecl.Type` is
 //       synthesised into the consumer PE.
 
 module RefCellPromotion =

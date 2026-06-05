@@ -451,7 +451,7 @@ let tests =
                 let tast =
                     analyse "type R = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet q = { p with Y = 5 }"
 
-                // The type decl now surfaces too (records-plan §B1) — [type; p; q].
+                // The type decl now surfaces too — [type; p; q].
                 let qDecl =
                     match tast.Decls with
                     | EqList [ _; _; d ] -> d

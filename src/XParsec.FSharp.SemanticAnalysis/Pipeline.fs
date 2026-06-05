@@ -33,8 +33,8 @@ module Pipeline =
         // region graph is built over the closures codegen actually emits. Populates
         // `ctx.Bindings.Escape` (keyed by binder `NodeKey`) for the next pass.
         Regions.run ctx tast0.Decls
-        // TAST→TAST promotion of `let mutable` cells captured by escaping closures
-        // (records-plan §B7). Reads `ctx.Bindings.Escape` / `ctx.Bindings.Binding`;
+        // TAST→TAST promotion of `let mutable` cells captured by escaping closures.
+        // Reads `ctx.Bindings.Escape` / `ctx.Bindings.Binding`;
         // running before ResolvedTypes keeps the validation sweep observing
         // post-promotion types.
         let tast1 = RefCellPromotion.run ctx tast0

@@ -34,7 +34,7 @@ let tests =
                 ] -> test src { runs expected src }
 
             // a captured `let mutable` cell shared across three invocations of
-            // the escaping closure (records-plan §B7 promotion to Vesper.Ref)
+            // the escaping closure (promotion to Vesper.Ref)
             yield
                 test "captured mutable counter: three invocations share the cell" {
                     runsLines

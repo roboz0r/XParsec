@@ -684,7 +684,7 @@ module Emit =
             b.Add(ILInstr.Brtrue returnLabel)
 
     /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`
-    /// the union implements (records-plan §B6). A `null` `other` sorts
+    /// the union implements. A `null` `other` sorts
     /// before any non-null value (brainstorm-comparison §5.3, matching BCL
     /// convention), so this returns `1` in that case; otherwise the shared tag/
     /// field lex walk. The walk stores its current `c` in a local and branches

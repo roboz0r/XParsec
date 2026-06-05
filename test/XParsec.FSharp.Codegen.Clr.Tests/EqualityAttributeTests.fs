@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// C-Attr (docs/records-plan.md §B4): the equality-triple emission gate on a
+// C-Attr: the equality-triple emission gate on a
 // record / union comes from the type's attributes (filled by
 // `NameResolution.registerRecordTypeDefn` / `registerUnionTypeDefn` via the
 // `Passes.Attributes` decoder). These tests pin every verdict path against
@@ -130,7 +130,7 @@ let tests =
             }
 
             test "default verdict for a union is unchanged (triple emitted)" {
-                // Reasserts the records-plan §B4 default: a union with no
+                // Reasserts the default: a union with no
                 // attribute still emits the triple.
                 let src =
                     String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]

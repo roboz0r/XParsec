@@ -159,8 +159,8 @@ module EmitResolve =
     /// Resolve a field by name on a record / class receiver to its emit handle.
     /// A monomorphic type returns the field's `Def` token; a *generic* one
     /// returns a `MemberRef` on the receiver's instantiated `TypeSpec`
-    /// (`Box<int>::Value`) — the records-plan §B3 mirror of
-    /// `resolveInstanceMember`. A referenced-assembly record (records-plan §B7)
+    /// (`Box<int>::Value`) — the mirror of
+    /// `resolveInstanceMember`. A referenced-assembly record
     /// goes through the provider's `TryResolveExternalRecordField`. Classes reach
     /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
     /// name)` by `Freeze.translateClassMember` (vesper-set-sprint-plan Phase 1 /

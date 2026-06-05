@@ -753,7 +753,7 @@ module Elaborate =
     /// `RecordTypeInfo`. Field types are remapped through the declaring-type
     /// typars (a no-op for a monomorphic record — `TypeParams` empty — but the
     /// right shape for the generic record path, exactly like `tryUnionType`).
-    /// Augmentation members are out of scope for v1 (records-plan §B1) — the
+    /// Augmentation members are out of scope for v1 — the
     /// member list stays empty; the front end never registers them under a record
     /// today.
     let private tryRecordType

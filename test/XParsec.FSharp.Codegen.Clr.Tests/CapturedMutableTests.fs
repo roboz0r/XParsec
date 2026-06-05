@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Captured-mutable promotion (records-plan §B7): `let mutable` captured by an
+// Captured-mutable promotion: `let mutable` captured by an
 // escaping closure is rewritten to a `Vesper.Ref<'T>` cell so the closure and
 // outer frame share the same heap-allocated reference. The cell type lives in
 // `Vesper.Core.dll`; the codegen resolves it through the cross-package record

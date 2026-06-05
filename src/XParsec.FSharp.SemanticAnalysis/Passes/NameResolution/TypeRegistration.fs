@@ -161,8 +161,8 @@ module NameResolutionTypeRegistration =
                     let info =
                         RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, key)
 
-                    // C-Attr: explicit equality attribute wins; absent, records-plan
-                    // §B4 default ⇒ Structural when every field is immutable,
+                    // C-Attr: explicit equality attribute wins; absent, the default
+                    // ⇒ Structural when every field is immutable,
                     // Reference otherwise. Feeds Unification.checkConstraint and the
                     // codegen triple gate (Freeze copies it onto EqualitySupport).
                     info.EqualitySupport <-
@@ -314,8 +314,8 @@ module NameResolutionTypeRegistration =
                     let info =
                         UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, key)
 
-                    // C-Attr: union equality defaults to Structural (records-plan
-                    // §B4 / brainstorm §8); explicit attribute overrides.
+                    // C-Attr: union equality defaults to Structural
+                    // (brainstorm §8); explicit attribute overrides.
                     info.EqualitySupport <-
                         match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
                         | ValueSome v -> v
