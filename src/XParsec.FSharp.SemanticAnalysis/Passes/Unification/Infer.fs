@@ -80,6 +80,7 @@ module UnificationInfer =
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
                     inferExternalStaticMember ctx key metaName args li.Idents.[0]
                 | ValueNone -> inferFieldAccess ctx key recv li.Idents.[0]
+            | Expr.IndexedLookup(expr = recv; indexExpr = idx) -> inferIndexedLookup ctx key recv idx
             | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic ctx args rt
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
@@ -1084,6 +1085,11 @@ module UnificationInfer =
 
             root.PendingDotAccess <- access :: root.PendingDotAccess
             TyVar resultTv
+        // `arr.Length` on a rank-1 intrinsic array. The element type is irrelevant
+        // to the result (`int`); the dedicated `ldlen` IL path Freeze synthesises
+        // needs no member metadata, so this is resolved structurally rather than
+        // through the provider (the intrinsic `'T[]` has no nominal member table).
+        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" -> BuiltinTypes.tyInt
         | _ -> errorTy ctx diagKey (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
 
     /// Application-site overload resolution for a static external method call
@@ -1160,6 +1166,23 @@ module UnificationInfer =
         let fieldName = ctx.NameOf fieldTok
         let rTy = infer ctx receiver
         resolveFieldStep ctx key rTy fieldName
+
+    /// `arr.[i]` — the receiver is a rank-1 array `'T[]` and the index an `int`;
+    /// the result is the element type. The element stays a fresh var unified
+    /// against the receiver so an as-yet-unresolved receiver (a bare `[]`) is
+    /// pinned from context the same way an array literal is.
+    and private inferIndexedLookup
+        (ctx: PassContext)
+        (key: NodeKey)
+        (receiver: Expr<SyntaxToken>)
+        (index: Expr<SyntaxToken>)
+        : SemType =
+        let recvTy = infer ctx receiver
+        let elemTy = TyVar(freshTyVar ctx)
+        unify ctx key recvTy (TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy))
+        let idxTy = infer ctx index
+        unify ctx (CstKeys.ofExpr index) idxTy BuiltinTypes.tyInt
+        elemTy
 
     /// `new T(args)`. Mirrors a single application against the ctor, kept inline
     /// so a bare `Expr.New` doesn't need to fabricate an `Expr.App` first.

@@ -673,6 +673,12 @@ module FreezeExpr =
                 let key = LocalSymbolKey.ofMember unionKey segName MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy)
+        // `arr.Length` on an intrinsic rank-1 array — the dedicated `ldlen` IL
+        // form (no member metadata, no type operand). `array.Length` parses as a
+        // local-headed LongIdent field chain (not `DotLookup`), so this is the
+        // arm that fires for it; mirrors the `DotLookup` array guard.
+        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && segName = "Length" ->
+            TExpr.ILIntrinsic("ldlen", ValueNone, EqArray.singleton receiver, stepTy)
         | _ -> TExpr.FieldGet(receiver, segName, stepTy)
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its
@@ -1039,14 +1045,40 @@ module FreezeExpr =
                     LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName MemberKind.Property
 
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
+            // `arr.Length` on an intrinsic rank-1 array — the dedicated `ldlen`
+            // IL form (no member metadata, no type operand). Mirrors the
+            // structural resolution in `resolveFieldStep`.
+            | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
+                TExpr.ILIntrinsic("ldlen", ValueNone, EqArray.singleton receiver, ty)
             | _ -> TExpr.FieldGet(receiver, memberName, ty)
         | Expr.Null _ -> TExpr.Null ty
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
+        // `arr.[i]` — emitted as the `ldelem <elem>` intrinsic (F# treats array
+        // access as inline IL). The node's result type IS the element type, which
+        // doubles as the opcode's type operand.
+        | Expr.IndexedLookup(expr = r; indexExpr = idx) ->
+            let receiver = translateExpr ctx r
+            let index = translateExpr ctx idx
+            TExpr.ILIntrinsic("ldelem", ValueSome ty, EqArray.ofList [ receiver; index ], ty)
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->
             let opCode = stitchIlInstruction ctx parts
-            TExpr.ILIntrinsic(opCode, EqArray.ofSeq (seq { for a in args -> translateExpr ctx a }), ty)
+            let tArgs = EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
+
+            // `(# "newarr !0" type ('T) count : 'T[] #)` — the element type is the
+            // sole arg of the result array type, recovered here rather than from
+            // the (dropped) source `type (…)` operand. Normalise the mnemonic to
+            // a bare `newarr`; codegen reads the element type off `typeOperand`.
+            if opCode.StartsWith("newarr") then
+                let elem =
+                    match Unification.zonk ty with
+                    | TyConst(name, eargs) when name = RuntimeNames.arrayName 1 && eargs.Length = 1 -> eargs.[0]
+                    | other -> failwithf "Freeze: 'newarr' result is not a rank-1 array: %A" other
+
+                TExpr.ILIntrinsic("newarr", ValueSome elem, tArgs, ty)
+            else
+                TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty)
         | Expr.LibraryOnlyStaticOptimization _ ->
             // The clause chain nests left-fold (outermost = the last `when` in
             // source order). Peel it into a flat source-ordered clause list plus

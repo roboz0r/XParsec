@@ -154,6 +154,27 @@ module Cil =
         il.Encoder.Token(t)
         il.Adjust 0
 
+    /// `newarr <elem>` — allocate a 1-D zero-based array of `elem`: pops the
+    /// element count, pushes the array reference. Net stack-neutral.
+    let emitNewarr (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Newarr)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
+    /// `ldelem <elem>` — load the element at an index: pops the array reference
+    /// and the index, pushes the element (net −1). The generic `ldelem` (a.k.a.
+    /// `ldelem.any`) carries a type token, so it serves any element type.
+    let emitLdelem (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldelem)
+        il.Encoder.Token(t)
+        il.Adjust -1
+
+    /// `ldlen` — load an array's length as a native int: pops the array
+    /// reference, pushes the length (net 0). No type operand.
+    let emitLdlen (il: Il) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldlen)
+        il.Adjust 0
+
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
 
     // ---- Inline-IL value ops (the value-level `(# "op" args : ty #)`) ----

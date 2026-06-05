@@ -38,7 +38,7 @@ module EmitLower =
         | TExprG.StaticFieldGet(_, _, ty) -> ty
         | TExprG.ExternalMember(_, _, _, _, ty) -> ty
         | TExprG.Format(_, _, ty) -> ty
-        | TExprG.ILIntrinsic(_, _, ty) -> ty
+        | TExprG.ILIntrinsic(_, _, _, ty) -> ty
         | TExprG.StaticOptimization(_, _, ty) -> ty
         | TExprG.Upcast(_, ty) -> ty
         | TExprG.Downcast(_, ty) -> ty
@@ -188,7 +188,7 @@ module EmitLower =
                 )
 
             TExprG.Format(sink, segs, t)
-        | TExprG.ILIntrinsic(op, args, t) -> TExprG.ILIntrinsic(op, EqArray.map f args, t)
+        | TExprG.ILIntrinsic(op, operand, args, t) -> TExprG.ILIntrinsic(op, operand, EqArray.map f args, t)
         | TExprG.StaticOptimization(clauses, def, t) ->
             TExprG.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
         | TExprG.Upcast(src, t) -> TExprG.Upcast(f src, t)
@@ -247,14 +247,20 @@ module EmitLower =
     module private BuiltinOps =
 
         let private ilBin (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> Frozen.TExpr =
-            fun operands retTy -> TExprG.ILIntrinsic(op, operands, retTy)
+            fun operands retTy -> TExprG.ILIntrinsic(op, ValueNone, operands, retTy)
 
         /// `not (# op … #)`, realised as `ceq (# op … #) false` — the derived ops
         /// with no direct opcode (`<>` = `not =`, `<=` = `not >`, `>=` = `not <`).
         let private ilBinNot (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> Frozen.TExpr =
             fun operands retTy ->
-                let inner = TExprG.ILIntrinsic(op, operands, retTy)
-                TExprG.ILIntrinsic("ceq", EqArray.ofList [ inner; TExprG.Const(TConstValue.Bool false, retTy) ], retTy)
+                let inner = TExprG.ILIntrinsic(op, ValueNone, operands, retTy)
+
+                TExprG.ILIntrinsic(
+                    "ceq",
+                    ValueNone,
+                    EqArray.ofList [ inner; TExprG.Const(TConstValue.Bool false, retTy) ],
+                    retTy
+                )
 
         /// compiled name → (arity, body builder over the operand expressions).
         /// `&&` / `||` are intentionally absent — they short-circuit and freeze to

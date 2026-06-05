@@ -36,7 +36,7 @@ let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
         b.Add(ILInstr.Mark elseL)
         buildExpr b f
         b.Add(ILInstr.Mark endL)
-    | TExpr.ILIntrinsic(op, args, _) ->
+    | TExpr.ILIntrinsic(op, _, args, _) ->
         for a in args do
             buildExpr b a
 
@@ -84,7 +84,7 @@ let tests =
     let cInt n = TExpr.Const(TConstValue.Int n, tyInt)
 
     let ceq a b =
-        TExpr.ILIntrinsic("ceq", EqArray.ofList [ a; b ], tyBool)
+        TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool)
 
     // Lower into a standalone `Il` (no metadata context — the demo bodies carry no
     // tokens) to read the maxStack the live tracker computes, for cross-checking

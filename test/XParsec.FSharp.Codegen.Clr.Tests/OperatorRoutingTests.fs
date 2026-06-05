@@ -43,6 +43,7 @@ let tests =
                                TExprG.Lambda(_,
                                              TExprG.Lambda(_,
                                                            TExprG.ILIntrinsic("ceq",
+                                                                              _,
                                                                               EqList [ TExprG.Var _; TExprG.Var _ ],
                                                                               FTConst("bool", _)),
                                                            _),

@@ -25,7 +25,9 @@ let tests =
                 match tast.Decls with
                 | EqList [ TDecl.Let(TPat.NamedSimple _,
                                      TExpr.Lambda(_,
-                                                  TExpr.Lambda(_, TExpr.ILIntrinsic("ceq", args, TyConst("bool", _)), _),
+                                                  TExpr.Lambda(_,
+                                                               TExpr.ILIntrinsic("ceq", _, args, TyConst("bool", _)),
+                                                               _),
                                                   _),
                                      true,
                                      _) ] ->

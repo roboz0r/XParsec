@@ -88,7 +88,7 @@ let tests =
 
                  // Unary negation has no narrow/sign variants — a single `neg` IL body.
                  match inlines.["op_UnaryNegation"] with
-                 | TDecl.Let(_, TExpr.Lambda(_, TExpr.ILIntrinsic("neg", _, _), _), true, _) -> ()
+                 | TDecl.Let(_, TExpr.Lambda(_, TExpr.ILIntrinsic("neg", _, _, _), _), true, _) -> ()
                  | other -> failtestf "op_UnaryNegation should be a single `neg` inline, got %A" other
              }
 

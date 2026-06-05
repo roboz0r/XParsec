@@ -1086,16 +1086,25 @@ module Elaborate =
         // shares the namespace (the F# rule that mandates
         // `[<CompilationRepresentation(ModuleSuffix)>]`), so they emit onto a real
         // holder type. Deeper nesting takes the innermost module's name.
-        | ModuleElem.Module(ModuleDefn.ModuleDefn(ident = ident; body = ModuleDefnBody(elements = inner))) ->
+        | ModuleElem.Module(ModuleDefn.ModuleDefn(
+            attributes = attrs; ident = ident; body = ModuleDefnBody(elements = inner))) ->
             match inner with
             | ValueSome innerElems ->
                 let moduleName = ctx.NameOf ident
 
                 let holderName =
+                    // The `…Module` suffix the compiled holder takes when it would
+                    // otherwise clash with a same-named type — either a *project*
+                    // type in this namespace, or one the author pinned with
+                    // `[<CompilationRepresentation(ModuleSuffix)>]` (e.g.
+                    // `Vesper.Array`'s `Array` module over the intrinsic `'T[]`,
+                    // which has no project type to collide with but must still
+                    // compile to `ArrayModule` to match its contract + FSharp.Core).
                     if
                         ctx.Types.Union.ContainsKey moduleName
                         || ctx.Types.Record.ContainsKey moduleName
                         || ctx.Types.Class.ContainsKey moduleName
+                        || VesperLibTypeTranslate.hasModuleSuffix ctx.Lexed ctx.Input attrs
                     then
                         moduleName + "Module"
                     else

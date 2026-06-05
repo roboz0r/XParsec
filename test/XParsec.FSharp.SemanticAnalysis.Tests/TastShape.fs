@@ -476,7 +476,7 @@ type private Renderer() =
                 push "."
                 push name
             | ValueNone -> push name
-        | TExpr.ILIntrinsic(opCode, args, _) ->
+        | TExpr.ILIntrinsic(opCode, _, args, _) ->
             push "(# \""
             push opCode
             push "\""

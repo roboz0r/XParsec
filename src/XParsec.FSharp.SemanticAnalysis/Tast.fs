@@ -209,7 +209,14 @@ type TExprG<'ty> =
     /// in `TastFile.IntrinsicReprTypes`; operator `.fs` bodies (`(=)` → `ceq`,
     /// `(+)` → `add`, …) lower to this so codegen owns no per-operator dispatch.
     /// See docs/operators-plan.md.
-    | ILIntrinsic of opCode: string * args: EqArray<TExprG<'ty>> * ty: 'ty
+    ///
+    /// `typeOperand` carries the single type token a tokenful array opcode needs
+    /// (`newarr`/`ldelem` → the element type); `ValueNone` for the balanced
+    /// stack ops that take no operand (the operator surface, and `ldlen`). The
+    /// array forms are synthesised by Freeze from `arr.[i]` / `Array.zeroCreate`
+    /// rather than written as `(# … #)` in source — F# treats array access as an
+    /// IL intrinsic, so codegen owns one emission path for all three.
+    | ILIntrinsic of opCode: string * typeOperand: 'ty voption * args: EqArray<TExprG<'ty>> * ty: 'ty
     /// F# library-only static optimization: a default expression plus a list of
     /// type-specialized clauses (`expr when ^T : int = … when ^T : ^T = …`).
     /// `clauses` are in source order; at `let inline` expansion the first clause

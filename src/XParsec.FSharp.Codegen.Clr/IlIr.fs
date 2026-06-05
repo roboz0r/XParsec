@@ -60,6 +60,16 @@ type ILInstr =
     /// receiver (managed pointer) without boxing. Net 0 (the `callvirt` adjusts). The
     /// duck-typed struct enumerator's member calls (§4.4).
     | Constrained of EntityHandle
+    /// `newarr <elem>` — allocate a 1-D zero-based array of `elem`; pops the
+    /// element count, pushes the array reference (net 0).
+    | Newarr of EntityHandle
+    /// `ldelem <elem>` — load the element at an index from an array; pops the
+    /// array reference and the index, pushes the element (net −1).
+    | Ldelem of EntityHandle
+    /// `ldlen` — load an array's length as a native int; pops the array
+    /// reference, pushes the length (net 0). F#'s `arr.Length` narrows the
+    /// result to int32 with a following `conv.i4`.
+    | Ldlen
     | Newobj of EntityHandle * argc: int
     | Call of EntityHandle * argc: int * pushes: int
     | Callvirt of EntityHandle * argc: int * pushes: int
@@ -158,11 +168,17 @@ module private InstrDelta =
         | ILInstr.Box _
         | ILInstr.UnboxAny _
         | ILInstr.Constrained _
+        // `newarr` pops the count and pushes the array ref; `ldlen` pops the
+        // array ref and pushes the length — both net 0.
+        | ILInstr.Newarr _
+        | ILInstr.Ldlen
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
+        // `ldelem` pops the array ref + index, pushes the element (net −1).
+        | ILInstr.Ldelem _ -> -1
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -251,11 +267,14 @@ module IlIr =
         | ILInstr.Box _
         | ILInstr.UnboxAny _
         | ILInstr.Constrained _
+        | ILInstr.Newarr _
+        | ILInstr.Ldlen
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
+        | ILInstr.Ldelem _ -> -1
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -478,6 +497,9 @@ module IlIr =
             | ILInstr.UnboxAny t -> Cil.emitUnboxAny il t
             | ILInstr.Initobj t -> Cil.emitInitobj il t
             | ILInstr.Constrained t -> Cil.emitConstrained il t
+            | ILInstr.Newarr t -> Cil.emitNewarr il t
+            | ILInstr.Ldelem t -> Cil.emitLdelem il t
+            | ILInstr.Ldlen -> Cil.emitLdlen il
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes
             | ILInstr.Callvirt(m, argc, pushes) -> Cil.emitCallvirt il m argc pushes

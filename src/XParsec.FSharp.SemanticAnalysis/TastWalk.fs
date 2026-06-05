@@ -202,7 +202,8 @@ module TastWalk =
                     )
 
                 TExpr.Format(sink, segs, f ty)
-            | TExpr.ILIntrinsic(op, args, ty) -> TExpr.ILIntrinsic(op, EqArray.map pe args, f ty)
+            | TExpr.ILIntrinsic(op, operand, args, ty) ->
+                TExpr.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty)
             // The default rebuild substitutes typars inside constraints too —
             // `Freeze.mapExprTypes` (used to push a remap through generic
             // member bodies) needs this. Passes that resolve clauses to a
@@ -354,7 +355,7 @@ module TastWalk =
             | TExpr.UnionCons(_, args, _)
             | TExpr.New(_, args, _)
             | TExpr.StaticMethodCall(_, args, _)
-            | TExpr.ILIntrinsic(_, args, _) ->
+            | TExpr.ILIntrinsic(_, _, args, _) ->
                 for x in args do
                     walk x
             | TExpr.MethodCall(r, _, _, args, _) ->

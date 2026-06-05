@@ -815,6 +815,97 @@ let failsWithChoice (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
+// ---- Vesper.Array runtime harness (vesper-lib-test-plan Phase 3) ------------
+// Mirrors the Option/Result/Choice harnesses. `Vesper.Array` is *not* in
+// `defaultManifests` (its `Array` module would shadow resolution elsewhere), so
+// driver programs opt in by stacking the Array contract and referencing a
+// once-built `Vesper.Array.dll`. The DLL is BCL-only (proven by
+// `PackageBuildTriage`): `arr.[i]`/`arr.Length`/`Array.zeroCreate` lower to the
+// `ldelem`/`ldlen`/`newarr` IL intrinsics, no FSharp.Core. (Array *literals*
+// `[| … |]` in a driver still route through FSharp.Core's `ArrayModule.OfList`,
+// which is harmless in-process — but the rows here build arrays through our own
+// `zeroCreate` so they stay on the BCL-only path.)
+
+let vesperArraySource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Array", fileName)
+
+let vesperArrayManifest: string = srcManifest "Vesper.Array"
+
+/// Compile `Vesper.Array.dll` from `src/Vesper.Array/array.fs` against the
+/// Vesper.Core contract (so `Fun` / `int` / the `'T[]` intrinsic resolve from
+/// source), load it into the Default `AssemblyLoadContext`, and return its path.
+/// Depends on `Vesper.Core` only. (Loaded into the Default ALC so a
+/// `runEntryPoint` driver program — which runs in a fresh ALC that falls back to
+/// Default — can resolve it.)
+let vesperArrayDll: Lazy<string> =
+    lazy
+        (let outDir = tmpDir "vesper-array"
+         let arrayPath = IO.Path.Combine(outDir, "Vesper.Array.dll")
+
+         let project =
+             { ProjectInfo.library "Vesper.Array" with
+                 OutputPath = Some arrayPath
+                 References = [ vesperCoreDll.Value ]
+             }
+
+         let src = IO.File.ReadAllText(vesperArraySource "array.fs")
+         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let lexed, file = parseFile src
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+         let artifact = Codegen.compile provider project tast
+         Codegen.materialise artifact
+         AssemblyLoadContext.Default.LoadFromAssemblyPath arrayPath |> ignore
+         arrayPath)
+
+/// Compile a driver program that `open`s `Vesper.Collections` and exercises the
+/// `Array` module, run it in-process, and assert exit 0 with trimmed stdout equal
+/// to `expected`. The Array contract is stacked on the default manifests and
+/// `Vesper.Array.dll` is added to `References`. The `Array`-module counterpart of
+/// `runs`.
+let runsArray (expected: string) (src: string) : unit =
+    let provider =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperArrayManifest ])
+
+    let baseProject = withCore (ProjectInfo.defaults "ArrayCorpus")
+
+    let project =
+        { baseProject with
+            References = baseProject.References @ [ vesperArrayDll.Value ]
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+    let artifact = Codegen.compile provider project tast
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsArray` for a multi-line expected block.
+let runsArrayLines (expected: string list) (src: string) : unit =
+    runsArray (String.concat "\n" expected) src
+
+/// `analyseErrors` against the default contract stack PLUS the `Vesper.Array`
+/// contract — the front-end-only probe for cross-package Array use.
+let private analyseArrayErrors (src: string) : Diagnostic list =
+    let provider =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperArrayManifest ])
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseSem provider src lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// Analyse `src` against the Array contract; assert NO error diagnostics —
+/// `typeChecks`'s Array-aware twin.
+let typeChecksArray (src: string) : unit =
+    match analyseArrayErrors src with
+    | [] -> ()
+    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
 // `System.Reflection.Metadata` so a test can read raw metadata (Method/Field

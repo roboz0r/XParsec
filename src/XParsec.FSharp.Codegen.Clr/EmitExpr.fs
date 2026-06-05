@@ -613,6 +613,58 @@ module EmitExpr =
             EmitTypes.buildUnitValue env b
         | TExprG.ForIn(pat, _, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
 
+        | TExprG.ForTo(var, startExpr, endExpr, body, _) ->
+            // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
+            // once (F# semantics) into the loop-variable and a hidden limit local;
+            // the loop is exited *before* the increment when `i = limit`, so the
+            // final iteration runs without `i+1` overflowing (the standard F#
+            // lowering — matters at `b = Int32.MaxValue`). Shape:
+            //   i = a; limit = b
+            //   if i > limit goto loopEnd          // empty/degenerate range
+            //   loopBody: body; pop…
+            //             if i = limit goto loopEnd // last iteration, no overflow
+            //             i = i + 1; goto loopBody
+            //   loopEnd:
+            let intTy = FTConst("int", EqArray.empty)
+            let iSlot = b.Local intTy
+            let limitSlot = b.Local intTy
+            env.Slots.[var] <- iSlot
+
+            buildExpr env b startExpr
+            b.Add(ILInstr.Stloc iSlot)
+            buildExpr env b endExpr
+            b.Add(ILInstr.Stloc limitSlot)
+
+            let loopBody = b.Label()
+            let loopEnd = b.Label()
+            let baseDepth = b.Depth
+
+            // `i > limit` (signed) → exit before the first iteration on an empty range.
+            b.Add(ILInstr.Ldloc iSlot)
+            b.Add(ILInstr.Ldloc limitSlot)
+            b.Add(ILInstr.Bin ILOpCode.Cgt)
+            b.Add(ILInstr.Brtrue loopEnd)
+
+            b.Add(ILInstr.Mark loopBody)
+            buildExpr env b body
+
+            while b.Depth > baseDepth do
+                b.Add ILInstr.Pop
+
+            // `i = limit` → done (skips the increment that would overflow at MaxValue).
+            b.Add(ILInstr.Ldloc iSlot)
+            b.Add(ILInstr.Ldloc limitSlot)
+            b.Add(ILInstr.Beq loopEnd)
+            b.Add(ILInstr.Ldloc iSlot)
+            b.Add(ILInstr.LdcI4 1)
+            b.Add(ILInstr.Bin ILOpCode.Add)
+            b.Add(ILInstr.Stloc iSlot)
+            b.Add(ILInstr.Br loopBody)
+            b.SetDepth baseDepth
+            b.Add(ILInstr.Mark loopEnd)
+            // `for` is a unit expression — leave the single reified `unit` value.
+            EmitTypes.buildUnitValue env b
+
         | TExprG.Sequential(items, _) ->
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item
@@ -1025,7 +1077,36 @@ module EmitExpr =
 
         | TExprG.Format(sink, segments, _) -> EmitFormat.buildFormat buildExpr env b sink segments
 
-        | TExprG.ILIntrinsic(opCode, args, _) ->
+        | TExprG.ILIntrinsic("newarr", operand, args, _) ->
+            // `Array.zeroCreate count` — push the count, then `newarr <elem>`.
+            // The element type rides `typeOperand` (Freeze recovered it from the
+            // result array type).
+            for a in args do
+                buildExpr env b a
+
+            match operand with
+            | ValueSome elem -> b.Add(ILInstr.Newarr(env.Provider.TypeToken elem))
+            | ValueNone -> failwith "Emit: 'newarr' without an element type operand"
+
+        | TExprG.ILIntrinsic("ldelem", operand, args, _) ->
+            // `arr.[i]` — push the array then the index, then `ldelem <elem>`.
+            for a in args do
+                buildExpr env b a
+
+            match operand with
+            | ValueSome elem -> b.Add(ILInstr.Ldelem(env.Provider.TypeToken elem))
+            | ValueNone -> failwith "Emit: 'ldelem' without an element type operand"
+
+        | TExprG.ILIntrinsic("ldlen", _, args, _) ->
+            // `arr.Length` — push the array, `ldlen` (native int), then `conv.i4`
+            // to narrow to the int32 F# `.Length` returns.
+            for a in args do
+                buildExpr env b a
+
+            b.Add ILInstr.Ldlen
+            b.Add(ILInstr.Un ILOpCode.Conv_i4)
+
+        | TExprG.ILIntrinsic(opCode, _, args, _) ->
             // Push each operand, then append the mapped opcode. The dispatch
             // (which opcode for which operator/primitive) lives in the operator
             // `.fs` body this node was lowered from, not here — codegen only

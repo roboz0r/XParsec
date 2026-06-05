@@ -437,7 +437,7 @@ module Regions =
                 | FormatSeg.Hole(_, a) -> inferRegion s ctx a |> ignore
 
             RegionId.Unknown
-        | TExpr.ILIntrinsic(_, args, _) ->
+        | TExpr.ILIntrinsic(_, _, args, _) ->
             for a in args do
                 inferRegion s ctx a |> ignore
 

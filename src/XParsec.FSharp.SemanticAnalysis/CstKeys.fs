@@ -103,6 +103,10 @@ module CstKeys =
         // every nested clause in a chain would share) so each clause node keys
         // distinctly — same rationale as the `InfixApp` operator-token choice.
         | Expr.LibraryOnlyStaticOptimization(whenToken = t) -> t
+        // Key off the `[` token (not the receiver's first token, which the
+        // receiver sub-expression already owns) so the two never collide —
+        // same rationale as the `InfixApp` operator-token choice.
+        | Expr.IndexedLookup(lBracket = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -173,6 +177,7 @@ module CstKeys =
                 | Expr.New _ -> NodeKind.ExprNew
                 | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
                 | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
+                | Expr.IndexedLookup _ -> NodeKind.ExprIndexedLookup
                 | _ -> NodeKind.Unknown
 
             NodeKey.ofToken (firstTokenOfExpr e) kind

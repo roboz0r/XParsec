@@ -57,6 +57,10 @@ type NodeKind =
     | ExprStaticUpcast = 37us
     | ExprDynamicTypeTest = 38us
     | ExprDynamicDowncast = 39us
+    /// Indexed array lookup (`arr.[i]`). Keyed off the `[` token (not the
+    /// receiver's first token) so a lookup node never collides with its
+    /// receiver sub-expression's key — same rationale as `ExprInfixApp`.
+    | ExprIndexedLookup = 40us
 
     | PatConst = 100us
     | PatIdent = 101us

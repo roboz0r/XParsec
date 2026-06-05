@@ -17,7 +17,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   Vesper.Choice  — BUILDS (BCL-only).
 //   Vesper.Option  — BUILDS (BCL-only) after the front-end + `unit`-repr fixes.
 //   Vesper.Result  — BUILDS (BCL-only) after the `unit`-repr fix.
-//   Vesper.Array   — front-end: indexed `arr.[i]` lookup unhandled in CstKeys.
+//   Vesper.Array   — BUILDS (BCL-only) after the `'T[]` intrinsic codegen landed
+//                    (`arr.[i]`/`arr.Length`/`newarr` → `ldelem`/`ldlen`/`newarr`).
 //   Vesper.Seq     — BUILDS (BCL-only)
 //
 // Out of scope here:
@@ -65,10 +66,12 @@ let tests =
 
             // ---- At-risk: documented feature gap ------------------------------
 
-            // PENDING — gated on `'T[]` intrinsic codegen, but the first wall is
-            // earlier (front-end): an indexed `arr.[i]` lookup trips
-            // "CstKeys.firstTokenOfExpr: TODO IndexedLookup" during Unification.
-            ptest "Vesper.Array builds BCL-only (front-end: IndexedLookup CstKey)" { buildsBclOnly "Vesper.Array" }
+            // `array.fs` (`zeroCreate` + `fold`) compiles to a BCL-only DLL. The
+            // `'T[]` intrinsic codegen landed end-to-end: `arr.[i]` and `arr.Length`
+            // lower (via Freeze) to the `ldelem`/`ldlen` IL intrinsics, and
+            // `Array.zeroCreate`'s `(# "newarr !0" … #)` to `newarr <elem>` — all
+            // three carry their element type on `TExprG.ILIntrinsic.typeOperand`.
+            test "Vesper.Array builds BCL-only" { buildsBclOnly "Vesper.Array" }
 
             // The explicit-enumerator terminals `fold` / `reduce` / `toArray` now
             // compile BCL-only. The metadata provider surfaces interface members
