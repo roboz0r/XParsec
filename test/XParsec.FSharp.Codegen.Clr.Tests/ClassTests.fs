@@ -118,6 +118,36 @@ let monoTests =
                 Expect.equal (getY.Invoke(instance, [||]) :?> int) 9 "Point(7,9).Y = 9"
             }
 
+            // static-members-gap.md: a tupled member `M(a, b)` is a single tuple
+            // argument pattern; `Elaborate.memberParams` must flatten it to one
+            // parameter per component (F# compiles it to a method with N scalar
+            // params, not a `Tuple<_,_>`). A missing flatten dropped the bindings
+            // and codegen threw "no binding for variable".
+            test "a two-parameter instance member binds both args (Add(3,4) returns 7)" {
+                let _, artifact =
+                    compileSource
+                        "ClsAdd2"
+                        (String.concat
+                            "\n"
+                            [
+                                "type T() ="
+                                "    member this.Add(a: int, b: int) : int = a + b"
+                                "let t = T()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "T"
+
+                let m =
+                    ty.GetMethod("Add", declaredInstance, null, [| typeof<int>; typeof<int> |], null)
+
+                Expect.isNotNull m "Add emitted as an instance method taking two int params"
+                Expect.equal (m.GetParameters().Length) 2 "Add has two scalar parameters (tuple flattened)"
+
+                let instance = Activator.CreateInstance(ty, [||])
+                Expect.equal (m.Invoke(instance, [| box 3; box 4 |]) :?> int) 7 "T().Add(3, 4) returns 7"
+            }
+
             test "a class with no ctor params + a method that references no captures emits cleanly" {
                 let _, artifact =
                     compileSource
@@ -230,6 +260,26 @@ let staticTests =
 
                 let result = m.Invoke(null, [||]) :?> int
                 Expect.equal result 1 "C.M() returns 1"
+            }
+
+            // static-members-gap.md: same tuple-flatten requirement on the static
+            // path. `static member M(a, b)` parses as one tuple arg pattern.
+            test "a two-parameter static member binds both args (M(3,4) returns 7)" {
+                let _, artifact =
+                    compileSource
+                        "ClsStaticAdd2"
+                        (String.concat "\n" [ "type T ="; "    static member M(a: int, b: int) : int = a + b" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "T"
+
+                let m =
+                    ty.GetMethod("M", declaredStatic, null, [| typeof<int>; typeof<int> |], null)
+
+                Expect.isNotNull m "M emitted as a static method taking two int params"
+                Expect.isTrue m.IsStatic "M is static"
+                Expect.equal (m.GetParameters().Length) 2 "M has two scalar parameters (tuple flattened)"
+                Expect.equal (m.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "T.M(3, 4) returns 7"
             }
 
             // static field via `static let`:

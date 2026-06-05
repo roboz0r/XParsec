@@ -210,4 +210,31 @@ let structTests =
                 let cmp = asCmp.Invoke(null, [| h |]) :?> IComparable
                 Expect.equal (cmp.CompareTo(null)) 9 "the boxed struct keeps its field value through `:>`"
             }
+
+            // static-members-gap.md: the natural shape `SumOf(a, b)` that the
+            // unboxed-dispatch test above had to sidestep. A tupled static member
+            // now flattens to two scalar params, so it can take its own args and
+            // forward them to the struct ctor.
+            test "a two-parameter static member on a struct binds both args (SumOf(3,4) returns 7)" {
+                let _, artifact =
+                    compileSource
+                        "StructStaticAdd2"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type SPoint(x: int, y: int) ="
+                                "    member this.Sum() = x + y"
+                                "    static member SumOf(a: int, b: int) : int ="
+                                "        let p = SPoint(a, b)"
+                                "        p.Sum()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "SPoint"
+                let sumOf = ty.GetMethod("SumOf", BindingFlags.Public ||| BindingFlags.Static)
+                Expect.isNotNull sumOf "SumOf emitted as a static method"
+                Expect.equal (sumOf.GetParameters().Length) 2 "SumOf has two scalar parameters (tuple flattened)"
+                Expect.equal (sumOf.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "SPoint(3,4).Sum() returns 7"
+            }
         ]

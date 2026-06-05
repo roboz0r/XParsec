@@ -350,15 +350,31 @@ module Elaborate =
 
     /// Member parameter list as `(bindingKey, ty)` pairs in declaration order
     /// (`this` is separate). The binding key is the same one `translatePat` mints,
-    /// so a `Var` reference in the body resolves to it. Only simple parameters (a
-    /// single ident per arg group) are surfaced (v1).
+    /// so a `Var` reference in the body resolves to it.
+    ///
+    /// A tupled member (`M(a, b)`) is *one* `argumentPats` entry that translates to
+    /// a `TPat.Tuple`; F# compiles it to a .NET method with one parameter per tuple
+    /// component (not an actual `Tuple<_,_>`), so we flatten the tuple to one
+    /// `(key, ty)` per component. The sequential order lines up with both
+    /// `Emit.buildMember`'s `args.[k] <- baseIdx + i` slots and the emitted method
+    /// signature. Curried members (`M a b`) appear as multiple `argumentPats`
+    /// entries and compose with the flatten. Non-simple components (wildcards,
+    /// nested destructuring) bind nothing and are dropped.
     let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<NodeKey * SemType> =
+        let rec flatten (tp: TPat) =
+            seq {
+                match tp with
+                | TPat.NamedSimple(k, ty) -> yield (k, ty)
+                | TPat.Tuple(items, _) ->
+                    for it in items do
+                        yield! flatten it
+                | _ -> ()
+            }
+
         EqArray.ofSeq (
             seq {
                 for p in b.argumentPats do
-                    match translatePat ctx p with
-                    | TPat.NamedSimple(k, ty) -> yield (k, ty)
-                    | _ -> ()
+                    yield! flatten (translatePat ctx p)
             }
         )
 
