@@ -342,33 +342,6 @@ module internal TypeDefnHelpers =
 [<RequireQualifiedAccess>]
 module AdditionalConstrExpr =
 
-    let private pRecordInit: FSParser<AdditionalConstrInitExpr<SyntaxToken>> =
-        parser {
-            let! lBrace = pLBrace
-            // Helper for inherits: inherit Type(expr) — now optional
-            let! inherits =
-                opt (
-                    parser {
-                        let! inh = pInherit
-                        let! t = Type.parse
-                        let! e = opt Expr.parseAtomic
-                        return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
-                    }
-                )
-
-            let! inits = many FieldInitializer.parse
-            let! rBrace = pRBrace
-            return AdditionalConstrInitExpr.Explicit(lBrace, inherits, inits, rBrace)
-        }
-
-    let private pDelegatedInit: FSParser<AdditionalConstrInitExpr<SyntaxToken>> =
-        parser {
-            let! newTok = pNew
-            let! t = Type.parse
-            let! e = Expr.parseSeqBlock
-            return AdditionalConstrInitExpr.Delegated(newTok, t, e)
-        }
-
     // Local virtual-sep parser modeled on ExpressionParsing.pSepVirt: matches `;`
     // or emits a layout-sensitive VirtualSep when the next token is an expression
     // starter at the enclosing SeqBlock indent.
@@ -396,6 +369,39 @@ module AdditionalConstrExpr =
                         return! failSep
                 else
                     return! failSep
+        }
+
+    let private pRecordInit: FSParser<AdditionalConstrInitExpr<SyntaxToken>> =
+        parser {
+            let! lBrace = pLBrace
+            // Helper for inherits: inherit Type(expr) — now optional
+            let! inherits =
+                opt (
+                    parser {
+                        let! inh = pInherit
+                        let! t = Type.parse
+                        let! e = opt Expr.parseAtomic
+                        return ClassInheritsDecl.ClassInheritsDecl(inh, t, e)
+                    }
+                )
+
+            // Field initialisers are `;`- (or newline-) separated, mirroring a
+            // record literal (`ExpressionParsing.pRecordFieldsAndClose`). `many`
+            // here used to stop after the first `f = e`, leaving the `;` to fail
+            // `pRBrace`. `sepBy` (0+) keeps the inherits-only `{ inherit … }` form
+            // valid (no fields).
+            let! inits, _seps = withContext OffsideContext.SeqBlock (sepBy FieldInitializer.parse pCtorSepVirt)
+            let! _trailingSep = opt pCtorSepVirt
+            let! rBrace = pRBrace
+            return AdditionalConstrInitExpr.Explicit(lBrace, inherits, inits, rBrace)
+        }
+
+    let private pDelegatedInit: FSParser<AdditionalConstrInitExpr<SyntaxToken>> =
+        parser {
+            let! newTok = pNew
+            let! t = Type.parse
+            let! e = Expr.parseSeqBlock
+            return AdditionalConstrInitExpr.Delegated(newTok, t, e)
         }
 
     // Mirrors ExpressionParsing.pLetOrUseIn: real `in`, or VirtualIn when the next

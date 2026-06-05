@@ -1,0 +1,91 @@
+module                       'module'          KWModule            tok=   0  pos=   0
+                             'Test'            Identifier          tok=   2  pos=   7
+TypeDefn.Anon:
+  TypeName                   'Pair'            Identifier          tok=  15  pos= 333
+  =                          '='               OpEquality          tok=  17  pos= 338
+  begin                      <virt>            KWBegin             tok=virt  pos= 344
+    Val:
+      val                    'val'             KWVal               tok=  20  pos= 344
+      mutable                'mutable'         KWMutable           tok=  22  pos= 348
+      ident                  'A'               Identifier          tok=  24  pos= 356
+      :                      ':'               OpColon             tok=  25  pos= 357
+      NamedType:
+        Ident                'int'             Identifier          tok=  27  pos= 359
+    Val:
+      val                    'val'             KWVal               tok=  30  pos= 367
+      mutable                'mutable'         KWMutable           tok=  32  pos= 371
+      ident                  'B'               Identifier          tok=  34  pos= 379
+      :                      ':'               OpColon             tok=  35  pos= 380
+      NamedType:
+        Ident                'int'             Identifier          tok=  37  pos= 382
+    AdditionalConstructor:
+      new                    'new'             KWNew               tok=  40  pos= 390
+      ParenBlock             '('               KWLParen            tok=  41  pos= 393
+        Pat.Tuple:
+          Pat.Typed:
+            Pat.NamedSimple  'a'               Identifier          tok=  42  pos= 394
+            Colon            ':'               OpColon             tok=  43  pos= 395
+            NamedType:
+              Ident          'int'             Identifier          tok=  45  pos= 397
+          ,                  ','               OpComma             tok=  46  pos= 400
+          Pat.Typed:
+            Pat.NamedSimple  'b'               Identifier          tok=  48  pos= 402
+            Colon            ':'               OpColon             tok=  49  pos= 403
+            NamedType:
+              Ident          'int'             Identifier          tok=  51  pos= 405
+                             ')'               KWRParen            tok=  52  pos= 408
+      =                      '='               OpEquality          tok=  54  pos= 410
+      {                      '{'               KWLBrace            tok=  56  pos= 412
+      Ident                  'A'               Identifier          tok=  58  pos= 414
+      =                      '='               OpEquality          tok=  60  pos= 416
+      Ident                  'a'               Identifier          tok=  62  pos= 418
+      Ident                  'B'               Identifier          tok=  65  pos= 421
+      =                      '='               OpEquality          tok=  67  pos= 423
+      Ident                  'b'               Identifier          tok=  69  pos= 425
+      }                      '}'               KWRBrace            tok=  71  pos= 427
+  end                        <virt>            KWEnd               tok=virt  pos= 484
+TypeDefn.Anon:
+  TypeName                   'LetPair'         Identifier          tok=  78  pos= 489
+  =                          '='               OpEquality          tok=  80  pos= 497
+  begin                      <virt>            KWBegin             tok=virt  pos= 503
+    Val:
+      val                    'val'             KWVal               tok=  83  pos= 503
+      mutable                'mutable'         KWMutable           tok=  85  pos= 507
+      ident                  'A'               Identifier          tok=  87  pos= 515
+      :                      ':'               OpColon             tok=  88  pos= 516
+      NamedType:
+        Ident                'int'             Identifier          tok=  90  pos= 518
+    Val:
+      val                    'val'             KWVal               tok=  93  pos= 526
+      mutable                'mutable'         KWMutable           tok=  95  pos= 530
+      ident                  'B'               Identifier          tok=  97  pos= 538
+      :                      ':'               OpColon             tok=  98  pos= 539
+      NamedType:
+        Ident                'int'             Identifier          tok= 100  pos= 541
+    AdditionalConstructor:
+      new                    'new'             KWNew               tok= 103  pos= 549
+      ParenBlock             '('               KWLParen            tok= 104  pos= 552
+        Pat.Typed:
+          Pat.NamedSimple    'a'               Identifier          tok= 105  pos= 553
+          Colon              ':'               OpColon             tok= 106  pos= 554
+          NamedType:
+            Ident            'int'             Identifier          tok= 108  pos= 556
+                             ')'               KWRParen            tok= 109  pos= 559
+      =                      '='               OpEquality          tok= 111  pos= 561
+      Let                    'let'             KWLet               tok= 113  pos= 563
+        Pat.NamedSimple      'd'               Identifier          tok= 115  pos= 567
+        =                    '='               OpEquality          tok= 117  pos= 569
+          InfixApp           '+'               op_Addition         tok= 121  pos= 573
+            Ident            'a'               Identifier          tok= 119  pos= 571
+            Ident            'a'               Identifier          tok= 123  pos= 575
+      in                     'in'              KWIn                tok= 125  pos= 577
+      Body:
+        {                    '{'               KWLBrace            tok= 127  pos= 580
+        Ident                'A'               Identifier          tok= 129  pos= 582
+        =                    '='               OpEquality          tok= 131  pos= 584
+        Ident                'a'               Identifier          tok= 133  pos= 586
+        Ident                'B'               Identifier          tok= 136  pos= 589
+        =                    '='               OpEquality          tok= 138  pos= 591
+        Ident                'd'               Identifier          tok= 140  pos= 593
+        }                    '}'               KWRBrace            tok= 142  pos= 595
+  end                        <virt>            KWEnd               tok=virt  pos= 597
