@@ -305,6 +305,38 @@ let structTests =
                 Expect.equal (fieldB.GetValue boxed :?> int) 10 "B = the let-bound a + a"
             }
 
+            // structs-handoff #4: an immutable `val x: T` (no `mutable`) emits as
+            // `InitOnly`. Validation forbids `this.x <- …` on it, so it is only ever
+            // written by a ctor — here the field-init secondary ctor's `stfld`, which
+            // InitOnly permits. The field still round-trips its ctor-stored value.
+            test "an immutable struct val field emits as InitOnly and is set by a field-init ctor" {
+                let _, artifact =
+                    compileSource
+                        "StructInitOnly"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type Ro ="
+                                "    val A: int"
+                                "    val mutable B: int"
+                                "    new(a: int, b: int) = { A = a; B = b }"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Ro"
+
+                let fieldA = ty.GetField("A", BindingFlags.Public ||| BindingFlags.Instance)
+                let fieldB = ty.GetField("B", BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.isTrue fieldA.IsInitOnly "an immutable val field is InitOnly"
+                Expect.isFalse fieldB.IsInitOnly "a mutable val field stays writable"
+
+                // The InitOnly field is still written by the field-init ctor.
+                let boxed = Activator.CreateInstance(ty, [| box 3; box 4 |])
+                Expect.equal (fieldA.GetValue boxed :?> int) 3 "InitOnly field initialised from the ctor"
+                Expect.equal (fieldB.GetValue boxed :?> int) 4 "mutable field initialised from the ctor"
+            }
+
             // The shape `Vesper.Set`'s hand-written enumerator needs: a field from a
             // ctor param plus a bool-literal field (`new(s) = { stack = s; started = false }`).
             test "a field-init ctor mixes a param-sourced field and a bool-literal field" {

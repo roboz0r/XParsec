@@ -288,15 +288,25 @@ module internal NominalEmit =
                 // Explicit `val [mutable] x: T` instance fields
                 // (vesper-set-sprint-phase-6). Emitted after the ctor-param backing
                 // fields; default-initialised (the primary ctor doesn't touch them).
-                // All are writable `Public` fields — a `mutable` one admits
-                // `this.x <- …`; an immutable one is currently writable too
-                // (InitOnly tightening is deferred, see structs-handoff).
+                // A `mutable` field is plain writable `Public` (admits `this.x <- …`);
+                // an immutable one is `Public ||| InitOnly` (structs-handoff #4). This
+                // is verifiable because Validation rejects `this.x <- …` on a
+                // non-mutable field, so an immutable field is only ever written by a
+                // ctor — the field-init secondary ctor's `stfld` sequence, which
+                // InitOnly permits (an `initonly` field may be set in any ctor of the
+                // declaring type).
                 let instanceFieldHandles =
                     instanceFields
                     |> List.map (fun f ->
                         let sigBlob = provider.FieldSignature f.Type
 
-                        let h = ctx.AddField(FieldAttributes.Public, f.Name, sigBlob)
+                        let attrs =
+                            if f.IsMutable then
+                                FieldAttributes.Public
+                            else
+                                FieldAttributes.Public ||| FieldAttributes.InitOnly
+
+                        let h = ctx.AddField(attrs, f.Name, sigBlob)
                         asm.FieldCount <- asm.FieldCount + 1
                         f.Name, toEntity h, f.Type
                     )
