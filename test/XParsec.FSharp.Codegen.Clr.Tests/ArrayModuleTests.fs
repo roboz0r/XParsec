@@ -7,19 +7,21 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The behavioral runtime suite for `Vesper.Array` (vesper-lib-test-plan Phase 3),
 // the codebase's first *generic intrinsic* (`'T[]`) to emit end-to-end. The
-// surface is two functions over the intrinsic array:
-//   * `zeroCreate : int -> 'T[]` — open-coded over the `newarr !0` IL intrinsic.
-//   * `fold : ('State -> 'T -> 'State) -> 'State -> 'T[] -> 'State` — a counted
-//     index loop (`for i = 0 to array.Length - 1 do … array.[i] …`), exercising
-//     `ldlen` (`.Length`) and `ldelem` (`.[i]`) plus the `for-to` loop emitter.
+// surface has grown from the `zeroCreate`/`fold` starter to the FSharp.Core-shaped
+// subset built only from counted index loops, indexed read (`arr.[i]` → `ldelem`)
+// and write (`arr.[i] <- v` → `stelem`), `.Length` (`ldlen`), and `Vesper.Fun`
+// application: length/isEmpty/get/set/create/init/copy/append/rev/map/mapi/iter/
+// iteri/fold/foldBack. Three test groups:
+//   * `Array` — REFLECTION-INVOKE over `buildPackage "Vesper.Array"` for the pure
+//     data producer `zeroCreate` (its result is a BCL `int[]`, asserted directly).
+//   * `ArrayModuleRuntime` — DRIVER PROGRAMS for `fold` (the HOF) and the
+//     `.Length` / `.[i]` read + `.[i] <- v` write intrinsics.
+//   * `ArrayModuleSurface` — DRIVER PROGRAMS for the grown module functions.
 //
-// Two routes, mirroring `OptionTests` / `ListModuleTests`:
-//   * REFLECTION-INVOKE over `buildPackage "Vesper.Array"` for `zeroCreate` (the
-//     pure-data producer — its result is a BCL `int[]`, asserted directly).
-//   * DRIVER PROGRAMS for `fold` (the HOF — its `folder` is a `Vesper.Fun`, built
-//     naturally by a lambda) and for the `.Length` / `.[i]` access intrinsics.
-//     Arrays are built through our own `zeroCreate`, so every row stays on the
-//     BCL-only path (no FSharp.Core `ArrayModule.OfList` from an `[| … |]` literal).
+// Arrays are built through our own `zeroCreate` / `init` / `create`, so every row
+// stays on the BCL-only path (no FSharp.Core `ArrayModule.OfList` from an
+// `[| … |]` literal). Folders/mappers are *curried* (`fun s -> fun x -> …`) per
+// the Freeze multi-arg-lambda gap the plan documents.
 
 // ---- reflection over the built Vesper.Array.dll (zeroCreate, pure-data) -------
 
@@ -117,6 +119,163 @@ let runtimeTests =
                      + "let xs : int[] = Array.zeroCreate 3\n"
                      + "printfn \"%d\" xs.[0]")
             }
+
+            // `arr.[i] <- v` lowers to `stelem <elem>` (the `SetArray` inline
+            // body); writing then reading the slot proves the store landed.
+            test "indexed assignment writes an element" {
+                runsArray
+                    "7"
+                    ("open Vesper.Collections\n"
+                     + "let xs : int[] = Array.zeroCreate 3\n"
+                     + "xs.[1] <- 7\n"
+                     + "printfn \"%d\" xs.[1]")
+            }
+
+            // The store mutates in place: other slots stay zero-initialised.
+            test "indexed assignment leaves other slots untouched" {
+                runsArray
+                    "0"
+                    ("open Vesper.Collections\n"
+                     + "let xs : int[] = Array.zeroCreate 3\n"
+                     + "xs.[0] <- 9\n"
+                     + "printfn \"%d\" xs.[2]")
+            }
+        ]
+
+// ---- expanded module surface: behavioural driver programs --------------------
+// The grown `Array` surface (length/isEmpty/get/set/create/init/copy/append/rev/
+// map/mapi/iter/iteri/foldBack). Each is built only from counted loops, indexed
+// get/set, `.Length`, and `Vesper.Fun` application — so every row stays on the
+// BCL-only path. Arrays are constructed via `Array.init` / `Array.create` /
+// `Array.zeroCreate` (never `[| … |]` literals, which would route through
+// FSharp.Core), and results read back with `Array.fold` / `Array.get` / `.[i]`.
+
+[<Tests>]
+let surfaceTests =
+    let prelude = "open Vesper.Collections\n"
+    // Sum an int[] — the standard "read back every element" probe.
+    let sumDecl =
+        "let sum (a: int[]) : int = Array.fold (fun s -> fun x -> s + x) 0 a\n"
+
+    testList
+        "ArrayModuleSurface"
+        [
+            test "length reports the element count" {
+                runsArray "4" (prelude + "printfn \"%d\" (Array.length (Array.init 4 (fun i -> i)))")
+            }
+
+            test "isEmpty is true for the empty array" {
+                runsArray
+                    "true"
+                    (prelude
+                     + "let xs : int[] = Array.zeroCreate 0\n"
+                     + "printfn \"%b\" (Array.isEmpty xs)")
+            }
+
+            test "isEmpty is false for a non-empty array" {
+                runsArray "false" (prelude + "printfn \"%b\" (Array.isEmpty (Array.init 2 (fun i -> i)))")
+            }
+
+            test "get reads the element at an index" {
+                runsArray "9" (prelude + "printfn \"%d\" (Array.get (Array.init 4 (fun i -> i * i)) 3)")
+            }
+
+            test "set writes the element at an index" {
+                runsArray
+                    "5"
+                    (prelude
+                     + "let xs : int[] = Array.zeroCreate 3\n"
+                     + "Array.set xs 1 5\n"
+                     + "printfn \"%d\" (Array.get xs 1)")
+            }
+
+            test "create fills every slot with the value" {
+                runsArray "21" (prelude + sumDecl + "printfn \"%d\" (sum (Array.create 3 7))")
+            }
+
+            test "init builds from the index generator" {
+                // [|0;1;2;3|] sums to 6.
+                runsArray "6" (prelude + sumDecl + "printfn \"%d\" (sum (Array.init 4 (fun i -> i)))")
+            }
+
+            test "copy duplicates the elements" {
+                runsArray
+                    "3"
+                    (prelude
+                     + sumDecl
+                     + "printfn \"%d\" (sum (Array.copy (Array.init 3 (fun i -> i))))")
+            }
+
+            test "copy is a distinct array (mutating the copy leaves the source)" {
+                runsArray
+                    "0"
+                    (prelude
+                     + "let xs : int[] = Array.zeroCreate 3\n"
+                     + "let ys : int[] = Array.copy xs\n"
+                     + "Array.set ys 0 9\n"
+                     + "printfn \"%d\" (Array.get xs 0)")
+            }
+
+            test "append concatenates two arrays (length)" {
+                runsArray
+                    "4"
+                    (prelude
+                     + "printfn \"%d\" (Array.length (Array.append (Array.init 2 (fun i -> i)) (Array.init 2 (fun i -> i))))")
+            }
+
+            test "append concatenates two arrays (contents)" {
+                // [|0;1|] ++ [|10;11|] sums to 22.
+                runsArray
+                    "22"
+                    (prelude
+                     + sumDecl
+                     + "printfn \"%d\" (sum (Array.append (Array.init 2 (fun i -> i)) (Array.init 2 (fun i -> i + 10))))")
+            }
+
+            test "rev reverses the order" {
+                // rev [|0;1;2|] = [|2;1;0|]; head is 2.
+                runsArray "2" (prelude + "printfn \"%d\" (Array.get (Array.rev (Array.init 3 (fun i -> i))) 0)")
+            }
+
+            test "map applies the function to every element" {
+                // map (+10) [|0;1;2|] = [|10;11;12|]; sums to 33.
+                runsArray
+                    "33"
+                    (prelude
+                     + sumDecl
+                     + "printfn \"%d\" (sum (Array.map (fun x -> x + 10) (Array.init 3 (fun i -> i))))")
+            }
+
+            test "mapi feeds the index to the function" {
+                // mapi (fun i _ -> i) over a length-3 array = [|0;1;2|]; sums to 3.
+                runsArray
+                    "3"
+                    (prelude
+                     + sumDecl
+                     + "printfn \"%d\" (sum (Array.mapi (fun i -> fun x -> i) (Array.init 3 (fun i -> i))))")
+            }
+
+            test "iter visits every element in order" {
+                runsArrayLines
+                    [ "0"; "1"; "2" ]
+                    (prelude + "Array.iter (fun x -> printfn \"%d\" x) (Array.init 3 (fun i -> i))")
+            }
+
+            test "iteri pairs each element with its index" {
+                // print i for each slot of a length-3 array → 0,1,2.
+                runsArrayLines
+                    [ "0"; "1"; "2" ]
+                    (prelude
+                     + "Array.iteri (fun i -> fun x -> printfn \"%d\" i) (Array.init 3 (fun i -> i))")
+            }
+
+            test "foldBack threads right-to-left" {
+                // foldBack (fun x acc -> x - acc) [|1;2;3|] 0 = 1-(2-(3-0)) = 2.
+                runsArray
+                    "2"
+                    (prelude
+                     + "printfn \"%d\" (Array.foldBack (fun x -> fun acc -> x - acc) (Array.init 3 (fun i -> i + 1)) 0)")
+            }
         ]
 
 // ---- front-end regression guard (analysis only) ------------------------------
@@ -140,5 +299,21 @@ let frontEndTests =
             test "array .Length / indexed lookup type-check" {
                 typeChecksArray "let len (xs: int[]) : int = xs.Length"
                 typeChecksArray "let first (xs: int[]) : int = xs.[0]"
+            }
+
+            test "indexed assignment type-checks" {
+                typeChecksArray "let put (xs: int[]) (v: int) : unit = xs.[0] <- v"
+            }
+
+            test "Array.set / Array.get type-check" {
+                typeChecksArray "open Vesper.Collections\nlet put (xs: int[]) (v: int) : unit = Array.set xs 0 v"
+                typeChecksArray "open Vesper.Collections\nlet at (xs: int[]) : int = Array.get xs 0"
+            }
+
+            test "Array.map / Array.iter type-check" {
+                typeChecksArray "open Vesper.Collections\nlet bump (xs: int[]) : int[] = Array.map (fun x -> x + 1) xs"
+
+                typeChecksArray
+                    "open Vesper.Collections\nlet shout (xs: int[]) : unit = Array.iter (fun x -> printfn \"%d\" x) xs"
             }
         ]

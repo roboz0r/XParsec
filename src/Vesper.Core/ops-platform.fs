@@ -187,6 +187,35 @@ module Operators =
     /// (`SymbolProviders.inlineBodies`) — no Vesper runtime dependency.
     let inline not (value: bool) : bool = (# "ceq" value false : bool #)
 
+    /// Indexed read of a single-dimensional, zero-based array — the lowering
+    /// target the front end desugars `arr.[i]` to (mirroring F#'s
+    /// `IntrinsicFunctions.GetArray`). The `(# "ldelem.any !0" … #)` inline IL
+    /// loads the element typed by the array's element type `'T`; as a
+    /// cross-package inline its body splices at each use site, so the `ldelem` is
+    /// emitted *inline* (no call). The platform mnemonic (`ldelem.any`) lives in
+    /// this per-target file, NOT the target-agnostic Semantic Analysis layer — a
+    /// different backend ships a different `ops-platform.fs` with its own element
+    /// read. `arr.[i]` syntax routes here exactly as `a + b` routes to `(+)`.
+    let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
+
+    /// Indexed write of a single-dimensional, zero-based array — the lowering
+    /// target the front end desugars `arr.[i] <- value` to (mirroring F#'s
+    /// `IntrinsicFunctions.SetArray`). The `(# "stelem.any !0" … #)` inline IL
+    /// stores the element typed by the array's element type `'T`; as a
+    /// cross-package inline its body splices at each use site, so the `stelem` is
+    /// emitted *inline* (no call). The platform mnemonic (`stelem.any`) lives in
+    /// this per-target file, NOT the target-agnostic Semantic Analysis layer —
+    /// the write mirror of `GetArray`. The assignment yields `unit`.
+    let inline SetArray (array: 'T[]) (index: int) (value: 'T) : unit =
+        (# "stelem.any !0" type ('T) array index value : unit #)
+
+    /// Length of a single-dimensional, zero-based array — the lowering target the
+    /// front end desugars `arr.Length` to. The `(# "ldlen" … #)` inline IL reads the
+    /// array length (a native int the codegen narrows to `int` with `conv.i4`,
+    /// matching F#'s own `ldlen; conv.i4`). Same per-target / inline-splice stance as
+    /// `GetArray`: the `ldlen` mnemonic lives here, not in Semantic Analysis.
+    let inline GetArrayLength (array: 'T[]) : int = (# "ldlen" array : int #)
+
     /// Raise the given exception. The parameter is a typar bounded by `:> exn`,
     /// matching F#'s `raise: 'e :> exn -> 'a` — only an exception type can be
     /// passed. The contract extractor captures the `:> exn` coercion constraint

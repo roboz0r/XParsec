@@ -282,6 +282,51 @@ module Operators =
         ///
         val inline not: value: bool -> bool
 
+        /// <summary>Indexed read of a single-dimensional, zero-based array — the
+        /// lowering target the front end desugars <c>arr.[i]</c> to (mirroring F#'s
+        /// <c>IntrinsicFunctions.GetArray</c>).</summary>
+        ///
+        /// <param name="array">The array.</param>
+        /// <param name="index">The index.</param>
+        ///
+        /// <returns>The element at the given index.</returns>
+        ///
+        /// <remarks>Inline; the <c>(# "ldelem.any" … #)</c> body splices at each use
+        /// site so the element load is emitted inline (no call). The platform
+        /// mnemonic lives in <c>ops-platform.fs</c>, not the target-agnostic
+        /// Semantic Analysis layer.</remarks>
+        val inline GetArray: array: 'T[] -> index: int -> 'T
+
+        /// <summary>Indexed write of a single-dimensional, zero-based array — the
+        /// lowering target the front end desugars <c>arr.[i] &lt;- value</c> to
+        /// (mirroring F#'s <c>IntrinsicFunctions.SetArray</c>).</summary>
+        ///
+        /// <param name="array">The array.</param>
+        /// <param name="index">The index.</param>
+        /// <param name="value">The value to store.</param>
+        ///
+        /// <returns>Unit; the store has no result.</returns>
+        ///
+        /// <remarks>Inline; the <c>(# "stelem.any" … #)</c> body splices at each use
+        /// site so the element store is emitted inline (no call) — the write mirror
+        /// of <c>GetArray</c>. The platform mnemonic lives in
+        /// <c>ops-platform.fs</c>, not the target-agnostic Semantic Analysis
+        /// layer.</remarks>
+        val inline SetArray: array: 'T[] -> index: int -> value: 'T -> unit
+
+        /// <summary>Length of a single-dimensional, zero-based array — the lowering
+        /// target the front end desugars <c>arr.Length</c> to.</summary>
+        ///
+        /// <param name="array">The array.</param>
+        ///
+        /// <returns>The number of elements.</returns>
+        ///
+        /// <remarks>Inline; the <c>(# "ldlen" … #)</c> body splices at each use site
+        /// so the length read is emitted inline (codegen narrows the native int with
+        /// <c>conv.i4</c>, matching F#'s <c>ldlen; conv.i4</c>). The platform mnemonic
+        /// lives in <c>ops-platform.fs</c>, not Semantic Analysis.</remarks>
+        val inline GetArrayLength: array: 'T[] -> int
+
         /// <summary>Raise the given exception.</summary>
         ///
         /// <param name="exn">The exception to raise.</param>

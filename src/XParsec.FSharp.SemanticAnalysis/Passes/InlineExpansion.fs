@@ -181,6 +181,14 @@ module InlineExpansion =
                 | TyFun(a1, r1), TyFun(a2, r2) ->
                     go a1 a2
                     go r1 r2
+                // A generic intrinsic carries its args structurally — notably the
+                // array `'T[]` = `TyConst("[]", ['T])`, whose element typar is only
+                // reachable by descending here (the `GetArray`/`GetArrayLength`
+                // inline bodies pin `'T` solely through their `'T[]` parameter). The
+                // codegen twin `EmitLower.matchInstantiation` has the same arm.
+                | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
                 | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]

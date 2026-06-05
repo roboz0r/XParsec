@@ -673,12 +673,13 @@ module FreezeExpr =
                 let key = LocalSymbolKey.ofMember unionKey segName MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy)
-        // `arr.Length` on an intrinsic rank-1 array — the dedicated `ldlen` IL
-        // form (no member metadata, no type operand). `array.Length` parses as a
-        // local-headed LongIdent field chain (not `DotLookup`), so this is the
-        // arm that fires for it; mirrors the `DotLookup` array guard.
+        // `arr.Length` on an intrinsic rank-1 array desugars to the core
+        // `GetArrayLength` inline function (the `ldlen` mnemonic lives in
+        // `ops-platform.fs`, spliced here by `InlineExpansion`). `array.Length`
+        // parses as a local-headed LongIdent field chain (not `DotLookup`), so this
+        // `fieldStep` arm is the one that fires; mirrors the `DotLookup` array guard.
         | TyConst(name, _) when name = RuntimeNames.arrayName 1 && segName = "Length" ->
-            TExpr.ILIntrinsic("ldlen", ValueNone, EqArray.singleton receiver, stepTy)
+            TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(recvTy, stepTy)), receiver, stepTy)
         | _ -> TExpr.FieldGet(receiver, segName, stepTy)
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its
@@ -945,6 +946,23 @@ module FreezeExpr =
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let fieldName = ctx.NameOf li.Idents.[0]
                 TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty)
+            // `arr.[i] <- v` desugars to the core `SetArray` inline function (the
+            // write mirror of the `IndexedLookup` → `GetArray` read path below):
+            // the `stelem` mnemonic lives in Vesper.Core's `ops-platform.fs`,
+            // spliced at this use site by `InlineExpansion` — never invented in this
+            // target-agnostic pass. Emit a curried `External` call whose type is
+            // rebuilt from the resolved operand types (`ty` is the assignment's
+            // `unit` result).
+            | Expr.IndexedLookup(expr = arrE; indexExpr = idxE) ->
+                let arrTy = typeOfKey ctx (CstKeys.ofExpr arrE)
+                let idxTy = typeOfKey ctx (CstKeys.ofExpr idxE)
+                let valTy = typeOfKey ctx (CstKeys.ofExpr right)
+                let valuePartial = TyFun(valTy, ty)
+                let idxPartial = TyFun(idxTy, valuePartial)
+                let setExpr = TExpr.External("SetArray", ValueNone, TyFun(arrTy, idxPartial))
+                let app1 = TExpr.App(setExpr, translateExpr ctx arrE, idxPartial)
+                let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial)
+                TExpr.App(app2, translateExpr ctx right, ty)
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 li.Idents.Length > 1
                 && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
@@ -1045,38 +1063,58 @@ module FreezeExpr =
                     LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName MemberKind.Property
 
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
-            // `arr.Length` on an intrinsic rank-1 array — the dedicated `ldlen`
-            // IL form (no member metadata, no type operand). Mirrors the
-            // structural resolution in `resolveFieldStep`.
+            // `(expr).Length` on an intrinsic rank-1 array desugars to the core
+            // `GetArrayLength` inline function — the `ldlen` mnemonic lives in
+            // `ops-platform.fs`, spliced by `InlineExpansion`. Mirrors the
+            // `fieldStep` array guard (the LongIdent-chain form).
             | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
-                TExpr.ILIntrinsic("ldlen", ValueNone, EqArray.singleton receiver, ty)
+                TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(rTy, ty)), receiver, ty)
             | _ -> TExpr.FieldGet(receiver, memberName, ty)
         | Expr.Null _ -> TExpr.Null ty
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
-        // `arr.[i]` — emitted as the `ldelem <elem>` intrinsic (F# treats array
-        // access as inline IL). The node's result type IS the element type, which
-        // doubles as the opcode's type operand.
+        // `arr.[i]` desugars to the core `GetArray` inline function (mirroring F#'s
+        // `IntrinsicFunctions.GetArray`): the `ldelem` mnemonic lives in
+        // Vesper.Core's `ops-platform.fs`, spliced at this use site by
+        // `InlineExpansion` — never invented in this target-agnostic pass. Mirrors
+        // the operator path (`translateInfix`): emit a curried `External` call whose
+        // type is rebuilt from the resolved operand types. `ty` is the element type.
         | Expr.IndexedLookup(expr = r; indexExpr = idx) ->
-            let receiver = translateExpr ctx r
-            let index = translateExpr ctx idx
-            TExpr.ILIntrinsic("ldelem", ValueSome ty, EqArray.ofList [ receiver; index ], ty)
+            let arrTy = typeOfKey ctx (CstKeys.ofExpr r)
+            let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
+            let partialTy = TyFun(idxTy, ty)
+            let getTy = TyFun(arrTy, partialTy)
+            let getExpr = TExpr.External("GetArray", ValueNone, getTy)
+            let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy)
+            TExpr.App(app1, translateExpr ctx idx, ty)
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->
             let opCode = stitchIlInstruction ctx parts
             let tArgs = EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
 
-            // `(# "newarr !0" type ('T) count : 'T[] #)` — the element type is the
-            // sole arg of the result array type, recovered here rather than from
-            // the (dropped) source `type (…)` operand. Normalise the mnemonic to
-            // a bare `newarr`; codegen reads the element type off `typeOperand`.
-            if opCode.StartsWith("newarr") then
+            // The tokenful array opcodes (`newarr`/`ldelem.any`) carry a single
+            // element-type operand. The source `!0` placeholder is unparsed tokens,
+            // so the element is recovered from the node's declared types — `newarr`'s
+            // result is the array (`elem` = its argument), `ldelem`'s result IS the
+            // element. The mnemonics ORIGINATE in per-target library source
+            // (`array.fs`'s `zeroCreate`, `ops-platform.fs`'s `GetArray`), so this is
+            // interpreting source IL, not inventing it. The mnemonic is normalised
+            // (`ldelem.any` → `ldelem`) to the form codegen's emit arm reads.
+            if opCode.StartsWith "newarr" then
                 let elem =
                     match Unification.zonk ty with
                     | TyConst(name, eargs) when name = RuntimeNames.arrayName 1 && eargs.Length = 1 -> eargs.[0]
                     | other -> failwithf "Freeze: 'newarr' result is not a rank-1 array: %A" other
 
                 TExpr.ILIntrinsic("newarr", ValueSome elem, tArgs, ty)
+            elif opCode.StartsWith "ldelem" then
+                TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ty), tArgs, ty)
+            elif opCode.StartsWith "stelem" then
+                // `arr.[i] <- v` / `SetArray`. The store's result is `unit`, so the
+                // element type is recovered from the value operand (the 3rd arg:
+                // array, index, value), not the node's result type as `ldelem` does.
+                let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[2]))
+                TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty)
             else
                 TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty)
         | Expr.LibraryOnlyStaticOptimization _ ->

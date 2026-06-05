@@ -169,6 +169,15 @@ module Cil =
         il.Encoder.Token(t)
         il.Adjust -1
 
+    /// `stelem <elem>` — store the element at an index: pops the array reference,
+    /// the index, and the value (net −3). The write mirror of `emitLdelem`; the
+    /// generic `stelem` (a.k.a. `stelem.any`) carries a type token, so it serves
+    /// any element type.
+    let emitStelem (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Stelem)
+        il.Encoder.Token(t)
+        il.Adjust -3
+
     /// `ldlen` — load an array's length as a native int: pops the array
     /// reference, pushes the length (net 0). No type operand.
     let emitLdlen (il: Il) : unit =

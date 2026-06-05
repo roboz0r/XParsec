@@ -1097,6 +1097,23 @@ module EmitExpr =
             | ValueSome elem -> b.Add(ILInstr.Ldelem(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'ldelem' without an element type operand"
 
+        | TExprG.ILIntrinsic("stelem", operand, args, _) ->
+            // `arr.[i] <- v` — push the array, the index, then the value, then
+            // `stelem <elem>`. The element type rides `typeOperand` (Freeze
+            // recovered it from the value operand).
+            for a in args do
+                buildExpr env b a
+
+            match operand with
+            | ValueSome elem -> b.Add(ILInstr.Stelem(env.Provider.TypeToken elem))
+            | ValueNone -> failwith "Emit: 'stelem' without an element type operand"
+
+            // The store is a `unit` expression but `stelem` leaves nothing on the
+            // stack; reify the `unit` value so it behaves like every other unit
+            // expression (`for`, `()` literal) — a function body that is a bare
+            // `arr.[i] <- v` must leave the unit return value for `ret`.
+            EmitTypes.buildUnitValue env b
+
         | TExprG.ILIntrinsic("ldlen", _, args, _) ->
             // `arr.Length` — push the array, `ldlen` (native int), then `conv.i4`
             // to narrow to the int32 F# `.Length` returns.
@@ -1249,8 +1266,20 @@ module EmitExpr =
                     // the application's *result* type instead), matched against
                     // the declared parameter types to recover the instantiation
                     // (by `FTTypar(Method, i)` index).
-                    let actualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
-                    let inst = matchInstantiation sm.Typars sm.ParamTys actualTys
+                    let paramActualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
+
+                    // Parameters alone may not mention every typar — e.g.
+                    // `zeroCreate: int -> 'T[]` carries `'T` only in its result.
+                    // When the call is saturated (no further `Invoke`), also match
+                    // the declared result type against the call's actual result
+                    // type so those return-only typars are recovered.
+                    // First-occurrence-wins keeps the parameter matches authoritative.
+                    let defTys, actualTys =
+                        match rest with
+                        | [] -> sm.ParamTys @ [ sm.ResultTy ], paramActualTys @ [ typeOfExpr e ]
+                        | _ -> sm.ParamTys, paramActualTys
+
+                    let inst = matchInstantiation sm.Typars defTys actualTys
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
             b.Add(ILInstr.Call(callHandle, sm.Arity, 1))

@@ -66,6 +66,11 @@ type ILInstr =
     /// `ldelem <elem>` — load the element at an index from an array; pops the
     /// array reference and the index, pushes the element (net −1).
     | Ldelem of EntityHandle
+    /// `stelem <elem>` — store the element at an index into an array; pops the
+    /// array reference, the index, and the value (net −3). The write mirror of
+    /// `Ldelem`; the generic `stelem` carries a type token, so it serves any
+    /// element type.
+    | Stelem of EntityHandle
     /// `ldlen` — load an array's length as a native int; pops the array
     /// reference, pushes the length (net 0). F#'s `arr.Length` narrows the
     /// result to int32 with a following `conv.i4`.
@@ -179,6 +184,8 @@ module private InstrDelta =
         | ILInstr.Initobj _ -> -1
         // `ldelem` pops the array ref + index, pushes the element (net −1).
         | ILInstr.Ldelem _ -> -1
+        // `stelem` pops the array ref + index + value, pushes nothing (net −3).
+        | ILInstr.Stelem _ -> -3
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -275,6 +282,7 @@ module IlIr =
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
         | ILInstr.Ldelem _ -> -1
+        | ILInstr.Stelem _ -> -3
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -499,6 +507,7 @@ module IlIr =
             | ILInstr.Constrained t -> Cil.emitConstrained il t
             | ILInstr.Newarr t -> Cil.emitNewarr il t
             | ILInstr.Ldelem t -> Cil.emitLdelem il t
+            | ILInstr.Stelem t -> Cil.emitStelem il t
             | ILInstr.Ldlen -> Cil.emitLdlen il
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes

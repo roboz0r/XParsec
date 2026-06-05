@@ -1085,11 +1085,18 @@ module UnificationInfer =
 
             root.PendingDotAccess <- access :: root.PendingDotAccess
             TyVar resultTv
-        // `arr.Length` on a rank-1 intrinsic array. The element type is irrelevant
-        // to the result (`int`); the dedicated `ldlen` IL path Freeze synthesises
-        // needs no member metadata, so this is resolved structurally rather than
-        // through the provider (the intrinsic `'T[]` has no nominal member table).
-        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" -> BuiltinTypes.tyInt
+        // `arr.Length` on a rank-1 intrinsic array resolves to the core
+        // `GetArrayLength` inline function (scheme `'T[] -> int`), grounding the
+        // call so `InlineExpansion` can splice the source `ldlen` — the same path as
+        // `arr.[i]`/`GetArray`. No member metadata on the intrinsic `'T[]`.
+        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArrayLength" with
+            | ValueSome sym ->
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx diagKey (sym.Instantiate ctx.CurrentLevel) (TyFun(rTy, resultTy))
+                resultTy
+            | ValueNone ->
+                errorTy ctx diagKey "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
         | _ -> errorTy ctx diagKey (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
 
     /// Application-site overload resolution for a static external method call
@@ -1178,11 +1185,20 @@ module UnificationInfer =
         (index: Expr<SyntaxToken>)
         : SemType =
         let recvTy = infer ctx receiver
-        let elemTy = TyVar(freshTyVar ctx)
-        unify ctx key recvTy (TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy))
         let idxTy = infer ctx index
-        unify ctx (CstKeys.ofExpr index) idxTy BuiltinTypes.tyInt
-        elemTy
+
+        // `arr.[i]` resolves to the core `GetArray` inline function, exactly as an
+        // operator resolves through `inferInfix`: instantiate its scheme
+        // (`'T[] -> int -> 'T`) and unify against `arr -> idx -> result`. That pins
+        // the array element type, the `int` index, and the result — and (like every
+        // resolved call) grounds the types so `InlineExpansion` can splice the
+        // source `ldelem` at the use site. The mnemonic never originates here.
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArray" with
+        | ValueSome sym ->
+            let resultTy = TyVar(freshTyVar ctx)
+            unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(recvTy, TyFun(idxTy, resultTy)))
+            resultTy
+        | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
 
     /// `new T(args)`. Mirrors a single application against the ctor, kept inline
     /// so a bare `Expr.New` doesn't need to fabricate an `Expr.App` first.
