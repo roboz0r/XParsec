@@ -16,10 +16,10 @@ type internal ClrEncoder(env: ClrEnv) =
     let userValueTypes = env.UserValueTypes
     let envAsm = env.EnvAsm
 
-    let externalClassRef n = env.ExternalClassRef n
-    let externalIsValueType n = env.ExternalIsValueType n
-    let externalRecordRef (n, a) = env.ExternalRecordRef(n, a)
-    let externalUnionRef (n, a) = env.ExternalUnionRef(n, a)
+    let externalClassRef key = env.ExternalClassRef key
+    let externalIsValueType key = env.ExternalIsValueType key
+    let externalRecordRef (key, a) = env.ExternalRecordRef(key, a)
+    let externalUnionRef (key, a) = env.ExternalUnionRef(key, a)
 
     let eUnit = env.EUnit
     let eValueTuple = env.EValueTuple
@@ -49,19 +49,17 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalClass|_|) (t: FrozenType) =
         match t with
         | FTClass(key, args) ->
-            let qual = SymbolKeyOps.qualifiedName key
-
-            match externalClassRef qual with
+            match externalClassRef key with
             // A struct external type (`List`1+Enumerator`, §4.4) must encode as a
             // `VALUETYPE` element; every reference type stays `false`.
-            | ValueSome tref -> Some(tref, externalIsValueType qual, args)
+            | ValueSome tref -> Some(tref, externalIsValueType key, args)
             | ValueNone -> None
         | _ -> None
 
     let (|ExternalRecord|_|) (t: FrozenType) =
         match t with
         | FTRecord(key, args) ->
-            match externalRecordRef (SymbolKeyOps.qualifiedName key, args.Length) with
+            match externalRecordRef (key, args.Length) with
             | ValueSome(tref, _) -> Some(tref, args)
             | ValueNone -> None
         | _ -> None
@@ -69,7 +67,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalUnion|_|) (t: FrozenType) =
         match t with
         | FTUnion(key, args) ->
-            match externalUnionRef (SymbolKeyOps.qualifiedName key, args.Length) with
+            match externalUnionRef (key, args.Length) with
             | ValueSome(tref, _) -> Some(tref, args)
             | ValueNone -> None
         | _ -> None

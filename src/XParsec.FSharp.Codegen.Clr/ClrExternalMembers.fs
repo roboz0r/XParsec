@@ -28,9 +28,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
     let symbols = env.Symbols
     let arityOfMetaName n = env.ArityOfMetaName n
-    let externalClassRef n = env.ExternalClassRef n
-    let externalRecordRef fullName arity = env.ExternalRecordRef(fullName, arity)
-    let externalUnionRef fullName arity = env.ExternalUnionRef(fullName, arity)
+    let externalClassRef key = env.ExternalClassRef key
+    let externalRecordRef key arity = env.ExternalRecordRef(key, arity)
+    let externalUnionRef key arity = env.ExternalUnionRef(key, arity)
     let encodeType te t = enc.EncodeType(te, t)
     let methodSpec handle args = enc.MethodSpec(handle, args)
 
@@ -172,7 +172,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 recoverOpenTypars declArity methodArity (openTemplate chosen isProperty) memberTy
 
             let tref =
-                match externalClassRef declFullName with
+                match externalClassRef declKey with
                 | ValueSome t -> t
                 | ValueNone ->
                     failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
@@ -259,10 +259,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint the `MemberRef` for a referenced-assembly record's `.ctor`, instantiated at `args`.
     /// Parameter types are the declared fields in their *open* typar form.
-    let externalRecordCtor (fullName: string) (args: FrozenType list) : EntityHandle voption =
+    let externalRecordCtor (key: SymbolKey) (args: FrozenType list) : EntityHandle voption =
         let arity = List.length args
 
-        match externalRecordRef fullName arity with
+        match externalRecordRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, fields) ->
             let parent = externalTypeSpec tref args
@@ -294,13 +294,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// emitted generic factory. Returns the handle + the field count. `ValueNone` ⇒ the union (or the case)
     /// is unknown to the provider, in which case the caller falls back to its hard error.
     let externalUnionFactory
-        (fullName: string)
+        (key: SymbolKey)
         (caseName: string)
         (args: FrozenType list)
         : (EntityHandle * int) voption =
+        let fullName = SymbolKeyOps.qualifiedName key
         let arity = List.length args
 
-        match externalUnionRef fullName arity with
+        match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
@@ -340,10 +341,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// + type mirror the union emitter (`NominalEmit.fs`: a public `_tag` of type `int`, and tags assigned
     /// by case declaration order). `_tag` is non-generic, so its signature needs no marker typars even on a
     /// generic union. `ValueNone` ⇒ the union (or the case) is unknown to the provider.
-    let externalUnionTag (fullName: string) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
+    let externalUnionTag (key: SymbolKey) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
         let arity = List.length args
 
-        match externalUnionRef fullName arity with
+        match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
             match cases |> Array.tryFindIndex (fun c -> c.Name = caseName) with
@@ -361,14 +362,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// generic field definition; the returned `FrozenType` is that type after the use-site substitution.
     /// `ValueNone` ⇒ unknown union / case / field index.
     let externalUnionCaseField
-        (fullName: string)
+        (key: SymbolKey)
         (args: FrozenType list)
         (caseName: string)
         (fieldIndex: int)
         : (EntityHandle * FrozenType) voption =
         let arity = List.length args
 
-        match externalUnionRef fullName arity with
+        match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
@@ -399,7 +400,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// landing where an `Exception` is expected), which produces a malformed object that faults the CLR
     /// at throw/dispatch time. Falls back to the first arity match when the types can't disambiguate
     /// (single overload, or arg types the metadata params don't equal).
-    let externalCtor (fullName: string) (tyArgs: FrozenType list) (argTypes: FrozenType list) : CtorRecipe voption =
+    let externalCtor (key: SymbolKey) (tyArgs: FrozenType list) (argTypes: FrozenType list) : CtorRecipe voption =
+        // The member table is genuinely string-keyed — the `.ctor` overload set is
+        // looked up by the declaring type's compiled name (the genuine string
+        // boundary); only the *type-shape* ref routes through the key funnel.
+        let fullName = SymbolKeyOps.qualifiedName key
         let candidates = symbols.TryLookupMembers(fullName, ".ctor")
         let arity = List.length argTypes
 
@@ -427,7 +432,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
                 | _ -> 0
 
-            match externalClassRef fullName with
+            match externalClassRef key with
             | ValueNone -> ValueNone
             | ValueSome tref ->
                 let parent = externalTypeSpec tref tyArgs
@@ -466,13 +471,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Returns the field handle plus its *substituted* declared type so a `FieldGet` knows the value
     /// type a subsequent encode expects.
     let externalRecordField
-        (fullName: string)
+        (key: SymbolKey)
         (args: FrozenType list)
         (fieldName: string)
         : (EntityHandle * FrozenType) voption =
         let arity = List.length args
 
-        match externalRecordRef fullName arity with
+        match externalRecordRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, fields) ->
             match fields |> Array.tryFind (fun f -> f.Name = fieldName) with
@@ -498,20 +503,18 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
         externalMemberRefOn key declTy isProperty isStatic memberTy
 
-    member _.ExternalRecordCtor(fullName, args) = externalRecordCtor fullName args
+    member _.ExternalRecordCtor(key, args) = externalRecordCtor key args
 
-    member _.ExternalUnionFactory(fullName, caseName, args) =
-        externalUnionFactory fullName caseName args
+    member _.ExternalUnionFactory(key, caseName, args) = externalUnionFactory key caseName args
 
-    member _.ExternalUnionTag(fullName, args, caseName) = externalUnionTag fullName args caseName
+    member _.ExternalUnionTag(key, args, caseName) = externalUnionTag key args caseName
 
-    member _.ExternalUnionCaseField(fullName, args, caseName, fieldIndex) =
-        externalUnionCaseField fullName args caseName fieldIndex
+    member _.ExternalUnionCaseField(key, args, caseName, fieldIndex) =
+        externalUnionCaseField key args caseName fieldIndex
 
-    member _.ExternalCtor(fullName, tyArgs, argTypes) = externalCtor fullName tyArgs argTypes
+    member _.ExternalCtor(key, tyArgs, argTypes) = externalCtor key tyArgs argTypes
 
-    member _.ExternalRecordField(fullName, args, fieldName) =
-        externalRecordField fullName args fieldName
+    member _.ExternalRecordField(key, args, fieldName) = externalRecordField key args fieldName
 
     /// `MethodSpec` instantiating a generic static method (R3) — a call site (`fold<int,int>`) or a
     /// recursive self-call (`fold<!!0,!!1>`).

@@ -164,7 +164,7 @@ type ICodegenProvider =
     /// path to disambiguate overloads — a v1 picker matches arity only, future
     /// pickers can match by parameter type. The internal `PrintfFormat` recipe
     /// ignores them.
-    abstract TryEmitCtor: className: string * tyArgs: FrozenType list * argTypes: FrozenType list -> CtorRecipe voption
+    abstract TryEmitCtor: key: SymbolKey * tyArgs: FrozenType list * argTypes: FrozenType list -> CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values
     /// are already on the stack in declaration order beneath the call. The list
@@ -206,8 +206,7 @@ type ICodegenProvider =
     /// the type's external field shape (today: the contract's field order is
     /// the declaration order, so the source-order initialiser drives a separate
     /// reorder if needed).
-    abstract TryEmitRecordCons:
-        typeName: string * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
+    abstract TryEmitRecordCons: key: SymbolKey * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
 
     /// A `MemberRef` to one named field on a *referenced-assembly* record,
     /// instantiated at `tyArgs` — the sibling of `TryEmitRecordCons` for the
@@ -217,7 +216,7 @@ type ICodegenProvider =
     /// so a `FieldGet` knows the value type a subsequent encode/store expects.
     /// `ValueNone` ⇒ unknown record, or unknown field on a known record.
     abstract TryResolveExternalRecordField:
-        typeName: string * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
+        key: SymbolKey * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
 
     /// The `_tag : int` discriminator field `MemberRef` on a *referenced-package*
     /// union, instantiated at `tyArgs`, plus `caseName`'s tag value (its
@@ -226,14 +225,14 @@ type ICodegenProvider =
     /// Layer C); the union emitter (`NominalEmit.fs`) fixes both the field name and
     /// the declaration-order tagging. `ValueNone` ⇒ unknown union / case.
     abstract ExternalUnionTag:
-        unionName: string * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
+        key: SymbolKey * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
 
     /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package
     /// union, instantiated at `tyArgs`, plus that field's substituted declared
     /// type — the field-extract slot a `match … Some x` binds. The union sibling of
     /// `TryResolveExternalRecordField`. `ValueNone` ⇒ unknown union / case / field.
     abstract ExternalUnionCaseField:
-        unionName: string * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
+        key: SymbolKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
             (EntityHandle * FrozenType) voption
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
@@ -300,14 +299,14 @@ type ICodegenProvider =
     abstract TypeToken: ty: FrozenType -> EntityHandle
 
     /// Whether a *referenced-assembly / referenced-package* nominal type
-    /// (`fullName` = its arity-qualified compiled name) is a .NET value type
+    /// (identified by its nominal `SymbolKey`) is a .NET value type
     /// (`struct`). The metadata layer reads it off `Type.IsValueType`; the contract
     /// layer reads it off the `.fsi` `struct … end` form (structs-handoff #6). The
     /// expression walker consults this so `EmitExpr.isValueType` recognises an
     /// external struct the same way it already recognises a project-local one —
     /// driving `:>`-box / `:?>`-unbox / value-receiver dispatch. `false` for every
     /// reference type and any unresolved name.
-    abstract IsExternalValueType: fullName: string -> bool
+    abstract IsExternalValueType: key: SymbolKey -> bool
 
     /// `System.Decimal::.ctor(int32, int32, int32, bool, uint8)` — emits a
     /// `decimal` constant the way F# / Roslyn do, from `Decimal.GetBits`.

@@ -106,7 +106,7 @@ type ClrProvider
     member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
-            match env.ExternalClassRef(SymbolKeyOps.qualifiedName key) with
+            match env.ExternalClassRef key with
             | ValueSome tref -> tref
             | ValueNone -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
@@ -195,7 +195,7 @@ type ClrProvider
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
         member _.TypeToken(ty) = recipes.TypeToken(ty)
-        member _.IsExternalValueType(fullName) = env.ExternalIsValueType fullName
+        member _.IsExternalValueType(key) = env.ExternalIsValueType key
         member _.DecimalCtor = env.EDecimalCtor.Value
         member _.ExceptionCtor = env.EExceptionCtor.Value
 
@@ -241,11 +241,13 @@ type ClrProvider
                         recipes.EmitExternalCall(ns, name, fnTy)
                     | _ -> ValueNone
 
-        member _.TryEmitCtor(className, tyArgs, argTypes) =
-            if className = PrintfSpec.printfFormatName then
+        member _.TryEmitCtor(key, tyArgs, argTypes) =
+            // The internal `PrintfFormat` ctor is recognised by key identity (the
+            // node's result `FTClass(printfFormatKey, _)`), not by string name.
+            if RuntimeNames.isPrintfFormatKey key then
                 ValueSome(recipes.EmitPrintfFormatCtor(tyArgs))
             else
-                ext.ExternalCtor(className, tyArgs, argTypes)
+                ext.ExternalCtor(key, tyArgs, argTypes)
 
         member _.TryEmitUnionCons(key, caseName, tyArgs) =
             let elem () =
@@ -274,9 +276,7 @@ type ClrProvider
                 // the instantiated `TypeSpec` (vesper-lib-test-plan Gap 2 Layer B).
                 // The fields are already on the stack in declaration order, so the
                 // recipe is a static `call` pushing the one union value back.
-                let typeName = SymbolKeyOps.qualifiedName key
-
-                match ext.ExternalUnionFactory(typeName, caseName, tyArgs) with
+                match ext.ExternalUnionFactory(key, caseName, tyArgs) with
                 | ValueSome(handle, argCount) ->
                     ValueSome
                         {
@@ -297,27 +297,27 @@ type ClrProvider
         member _.UserClosureMemberRef(name, args, which) =
             generics.GenericClosureMemberRef(name, args, which)
 
-        member _.TryEmitRecordCons(typeName, tyArgs, _fieldNames) =
+        member _.TryEmitRecordCons(key, tyArgs, _fieldNames) =
             let zonkedArgs = tyArgs
 
-            match ext.ExternalRecordCtor(typeName, zonkedArgs) with
+            match ext.ExternalRecordCtor(key, zonkedArgs) with
             | ValueNone -> ValueNone
             | ValueSome handle ->
                 let argCount =
-                    match env.ExternalRecordShape(typeName, List.length zonkedArgs) with
+                    match env.ExternalRecordShape(key, List.length zonkedArgs) with
                     | ValueSome(fields, _) -> fields.Length
                     | ValueNone -> 0
 
                 ValueSome { Handle = handle; ArgCount = argCount }
 
-        member _.TryResolveExternalRecordField(typeName, tyArgs, fieldName) =
-            ext.ExternalRecordField(typeName, tyArgs, fieldName)
+        member _.TryResolveExternalRecordField(key, tyArgs, fieldName) =
+            ext.ExternalRecordField(key, tyArgs, fieldName)
 
-        member _.ExternalUnionTag(unionName, tyArgs, caseName) =
-            ext.ExternalUnionTag(unionName, tyArgs, caseName)
+        member _.ExternalUnionTag(key, tyArgs, caseName) =
+            ext.ExternalUnionTag(key, tyArgs, caseName)
 
-        member _.ExternalUnionCaseField(unionName, tyArgs, caseName, fieldIndex) =
-            ext.ExternalUnionCaseField(unionName, tyArgs, caseName, fieldIndex)
+        member _.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex) =
+            ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

@@ -100,10 +100,10 @@ module EmitExpr =
 
                     tagRef, c.Tag, fieldRef
                 | false, _ ->
-                    match env.Provider.ExternalUnionTag(qualName, tyArgs, caseName) with
+                    match env.Provider.ExternalUnionTag(key, tyArgs, caseName) with
                     | ValueSome(tagRef, tagValue) ->
                         let fieldRef i =
-                            match env.Provider.ExternalUnionCaseField(qualName, tyArgs, caseName, i) with
+                            match env.Provider.ExternalUnionCaseField(key, tyArgs, caseName, i) with
                             | ValueSome(fieldRef, _) -> fieldRef
                             | ValueNone ->
                                 failwithf "Emit: external union '%s' case '%s' has no field %d" qualName caseName i
@@ -210,7 +210,7 @@ module EmitExpr =
         | FTClass(key, _) ->
             match env.Classes.TryGetValue key with
             | true, c -> c.IsValueType
-            | false, _ -> env.Provider.IsExternalValueType(SymbolKeyOps.qualifiedName key)
+            | false, _ -> env.Provider.IsExternalValueType key
         | _ -> false
 
     /// Load a value-type receiver as a managed pointer (`this` byref) for an
@@ -890,9 +890,17 @@ module EmitExpr =
                         failwithf "Emit: generic secondary-constructor call sites not yet supported ('%s')" className
                     | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
             | ValueNone ->
-                match env.Provider.TryEmitCtor(className, tyArgs, argTypes) with
-                | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
-                | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+                // The external ctor is identified by the construction's result-type
+                // key (`ty = FTClass(key, _)` — also the `PrintfFormat` printf-literal
+                // case); `className` survives only for the error message. A `New`
+                // whose `ty` isn't a `TyClass` is a defensive CST error path the
+                // project-local arm already missed — it has no resolvable ctor.
+                match ty with
+                | FTClass(ctorKey, _) ->
+                    match env.Provider.TryEmitCtor(ctorKey, tyArgs, argTypes) with
+                    | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
+                    | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+                | _ -> failwithf "Emit: no constructor recipe for '%s'" className
 
         | TExprG.App _ -> buildAppCall env b e
 
@@ -932,7 +940,7 @@ module EmitExpr =
                 // `Ref<'T>` shape — multi-field external records will revisit).
                 let fieldNames = [ for (n, _) in srcFields -> n ]
 
-                match env.Provider.TryEmitRecordCons(qualName, tyArgs, fieldNames) with
+                match env.Provider.TryEmitRecordCons(key, tyArgs, fieldNames) with
                 | ValueSome recipe ->
                     for (_, e) in srcFields do
                         buildExpr env b e

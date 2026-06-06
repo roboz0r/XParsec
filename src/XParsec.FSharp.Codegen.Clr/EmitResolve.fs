@@ -212,6 +212,6 @@ module EmitResolve =
             | false, _ ->
                 let qualName = SymbolKeyOps.qualifiedName key
 
-                match env.Provider.TryResolveExternalRecordField(qualName, tyArgs, fieldName) with
+                match env.Provider.TryResolveExternalRecordField(key, tyArgs, fieldName) with
                 | ValueSome(handle, _) -> handle
                 | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" qualName

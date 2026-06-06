@@ -267,6 +267,14 @@ type internal ClrEnv
     // ride their own provider methods.
     let genericClosures = Dictionary<string, GenericClosureShape>()
 
+    let arityOfMetaName (name: string) : int =
+        match name.LastIndexOf '`' with
+        | i when i >= 0 ->
+            match System.Int32.TryParse(name.Substring(i + 1)) with
+            | true, n -> n
+            | _ -> 0
+        | _ -> 0
+
     let externalAsmRef (asm: string option) : EntityHandle =
         match asm with
         | None ->
@@ -286,23 +294,39 @@ type internal ClrEnv
 
             toEntity (ctx.AssemblyRef an)
 
-    // The carried `SymbolKey` is projected to its arity-qualified qualified name
-    // (`Vesper.Option`1`), but a provider may key the type bare (`Vesper.Option`,
-    // contract layer) or arity-suffixed (metadata layer). Probe both so the lookup
-    // is insensitive to which form the projection produced (Phase 5.4).
-    let lookupClassShape (fullName: string) : ExternalClassShape voption =
-        match symbols.TryLookupType fullName with
-        | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
-        | _ ->
-            match symbols.TryLookupType(SymbolKeyOps.bareName fullName) with
-            | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
-            | _ -> ValueNone
+    // The single key→string funnel for *type-shape* lookups. A provider may key a
+    // generic type bare (`Vesper.Option`, contract layer) or arity-suffixed
+    // (`Vesper.Option`1`, metadata layer). A `SymbolKey`'s `qualifiedName` is the
+    // already-well-formed compiled name (arity suffix retained, nested `+` segments
+    // intact), so this probes that form and then its bare fallback — the *one* place
+    // the two registration conventions are reconciled, replacing the per-lookup
+    // `bareName` dual probe that used to leak into every shape consumer.
+    // `bareName` strips at the first
+    // backtick, so the qual-first order is what keeps a nested `List`1+Enumerator`
+    // resolvable (its bare form would mangle to `List`).
+    let lookupTypeByKey (key: SymbolKey) : ExternalTypeShape voption =
+        let qual = SymbolKeyOps.qualifiedName key
 
-    let externalClassRef (fullName: string) : EntityHandle voption =
-        match lookupClassShape fullName with
+        match symbols.TryLookupType qual with
+        | ValueSome _ as hit -> hit
+        | ValueNone ->
+            let bare = SymbolKeyOps.bareName qual
+
+            if bare = qual then
+                ValueNone
+            else
+                symbols.TryLookupType bare
+
+    let lookupClassShape (key: SymbolKey) : ExternalClassShape voption =
+        match lookupTypeByKey key with
+        | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
+        | _ -> ValueNone
+
+    let externalClassRef (key: SymbolKey) : EntityHandle voption =
+        match lookupClassShape key with
         | ValueSome info ->
             let ns = info.Origin.Namespace
-            let simple = SymbolOrigin.StripNamespace ns fullName
+            let simple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
             let asm = externalAsmRef info.Origin.Assembly
 
             // A nested type's `TypeRef` (`List`1+Enumerator`, the duck-typed struct
@@ -329,42 +353,26 @@ type internal ClrEnv
     /// class. Drives the `VALUETYPE` vs `CLASS` element tag in `encodeType` and the
     /// value-receiver dispatch for the duck-typed struct enumerator
     /// (`List`1+Enumerator`, vesper-set-sprint-phase-4 §4.4).
-    let externalIsValueType (fullName: string) : bool =
-        match lookupClassShape fullName with
+    let externalIsValueType (key: SymbolKey) : bool =
+        match lookupClassShape key with
         | ValueSome info -> info.Flags.IsValueType
         | _ -> false
 
-    /// Referenced-assembly record shape by name + arity. The contract layer keys generic records by
-    /// the bare compiled name (`Vesper.Ref`), the metadata layer by the arity-suffixed key
-    /// (`Vesper.Ref`1`); both forms are probed.
-    let externalRecordShape (fullName: string) (arity: int) : (ExternalFieldShape[] * SymbolOrigin) voption =
-        let probe (key: string) =
-            match symbols.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Assembly.IsSome ->
-                Some(fields, origin)
-            | _ -> None
+    /// Referenced-assembly record shape by `SymbolKey` + arity. The bare-vs-arity-
+    /// suffixed registration split (contract layer keys `Vesper.Ref`, metadata layer
+    /// `Vesper.Ref`1`) is reconciled once inside `lookupTypeByKey`.
+    let externalRecordShape (key: SymbolKey) (arity: int) : (ExternalFieldShape[] * SymbolOrigin) voption =
+        match lookupTypeByKey key with
+        | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Assembly.IsSome ->
+            ValueSome(fields, origin)
+        | _ -> ValueNone
 
-        // Probe the as-given name, its bare form, and the arity-suffixed bare form
-        // so the lookup matches whether the caller passed a bare or arity-qualified
-        // name and whether the provider keyed it bare or suffixed (Phase 5.4).
-        let bare = SymbolKeyOps.bareName fullName
-
-        let candidates =
-            if arity > 0 then
-                [ fullName; bare; SymbolKeyOps.arityName bare arity ]
-            else
-                [ fullName; bare ]
-
-        match candidates |> List.tryPick probe with
-        | Some v -> ValueSome v
-        | None -> ValueNone
-
-    let externalRecordRef (fullName: string) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
-        match externalRecordShape fullName arity with
+    let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
+        match externalRecordShape key arity with
         | ValueNone -> ValueNone
         | ValueSome(fields, origin) ->
             let ns = origin.Namespace
-            let bareSimple = SymbolOrigin.StripNamespace ns fullName
+            let bareSimple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
 
             // Metadata `TypeRef` simple names carry the `` `n `` arity suffix; the contract-layer key
             // (`Vesper.Ref`) lacks it, the metadata-layer key (`Vesper.Ref`1`) has it. Add when absent.
@@ -372,36 +380,22 @@ type internal ClrEnv
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
 
-    /// Referenced-assembly union shape by name + arity — the mirror of
+    /// Referenced-assembly union shape by `SymbolKey` + arity — the mirror of
     /// `externalRecordShape` for cross-package case construction (`Some` / `None`,
-    /// vesper-lib-test-plan Gap 2 Layer B). The contract layer keys generic unions
-    /// by the bare compiled name (`Vesper.Option`), the metadata layer by the
-    /// arity-suffixed key (`Vesper.Option`1`); both forms are probed.
-    let externalUnionShape (fullName: string) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
-        let probe (key: string) =
-            match symbols.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Union(a, cases, origin)) when a = arity && origin.Assembly.IsSome ->
-                Some(cases, origin)
-            | _ -> None
+    /// vesper-lib-test-plan Gap 2 Layer B). The bare-vs-arity-suffixed registration
+    /// split is reconciled once inside `lookupTypeByKey`.
+    let externalUnionShape (key: SymbolKey) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
+        match lookupTypeByKey key with
+        | ValueSome(ExternalTypeShape.Union(a, cases, origin)) when a = arity && origin.Assembly.IsSome ->
+            ValueSome(cases, origin)
+        | _ -> ValueNone
 
-        let bare = SymbolKeyOps.bareName fullName
-
-        let candidates =
-            if arity > 0 then
-                [ fullName; bare; SymbolKeyOps.arityName bare arity ]
-            else
-                [ fullName; bare ]
-
-        match candidates |> List.tryPick probe with
-        | Some v -> ValueSome v
-        | None -> ValueNone
-
-    let externalUnionRef (fullName: string) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
-        match externalUnionShape fullName arity with
+    let externalUnionRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
+        match externalUnionShape key arity with
         | ValueNone -> ValueNone
         | ValueSome(cases, origin) ->
             let ns = origin.Namespace
-            let bareSimple = SymbolOrigin.StripNamespace ns fullName
+            let bareSimple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
 
             let simple = SymbolKeyOps.arityName bareSimple arity
 
@@ -412,14 +406,6 @@ type internal ClrEnv
     // `TyTypar(Method, i)` are the closure *class*'s generic parameters, so they
     // encode as `GenericTypeParameter i` rather than `GenericMethodTypeParameter i`.
     let mutable closureTyparMode = false
-
-    let arityOfMetaName (name: string) : int =
-        match name.LastIndexOf '`' with
-        | i when i >= 0 ->
-            match System.Int32.TryParse(name.Substring(i + 1)) with
-            | true, n -> n
-            | _ -> 0
-        | _ -> 0
 
     let rec decurryTy (t: FrozenType) : FrozenType list * FrozenType =
         match t with
@@ -492,9 +478,9 @@ type internal ClrEnv
     member _.DecurryTy t = decurryTy t
 
     member _.ExternalAsmRef asm = externalAsmRef asm
-    member _.ExternalClassRef fullName = externalClassRef fullName
-    member _.ExternalIsValueType fullName = externalIsValueType fullName
-    member _.ExternalRecordShape(fullName, arity) = externalRecordShape fullName arity
-    member _.ExternalRecordRef(fullName, arity) = externalRecordRef fullName arity
-    member _.ExternalUnionShape(fullName, arity) = externalUnionShape fullName arity
-    member _.ExternalUnionRef(fullName, arity) = externalUnionRef fullName arity
+    member _.ExternalClassRef key = externalClassRef key
+    member _.ExternalIsValueType key = externalIsValueType key
+    member _.ExternalRecordShape(key, arity) = externalRecordShape key arity
+    member _.ExternalRecordRef(key, arity) = externalRecordRef key arity
+    member _.ExternalUnionShape(key, arity) = externalUnionShape key arity
+    member _.ExternalUnionRef(key, arity) = externalUnionRef key arity
