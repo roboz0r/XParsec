@@ -239,6 +239,9 @@ let staticTests =
     let declaredStatic =
         BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly
 
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
     testList
         "ClassStatic"
         [
@@ -339,6 +342,112 @@ let staticTests =
 
                 let instance = Activator.CreateInstance(ty, [||])
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
+            }
+
+            // G10 (vesper-set-phase-9-handoff): a static *operator* member's body
+            // was never inferred. `MemberRegistration.memberNameOf` and
+            // `Unification.fillTypeMembers` both only recognised `Pat.NamedSimple`
+            // heads, so a `Pat.Op` member got no `TypeMemberInfo` and Unification
+            // skipped its body — leaving every application in it a free TyVar that
+            // crashed Freeze (`translateApp: expected function type … free TypeVar`).
+            // The `(+)` body here contains applications (the `+` on the fields, the
+            // `V(...)` ctor) that only freeze once the body is inferred; it now
+            // emits as `op_Addition`. (`set.fs`'s `static member (-)`/`(+)` shape.)
+            test "a static operator member's body is inferred (op_Addition(V 3, V 4).N = 7)" {
+                let _, artifact =
+                    compileSource
+                        "ClsOpMember"
+                        (String.concat
+                            "\n"
+                            [
+                                "type V(n: int) ="
+                                "    member this.N = n"
+                                "    static member (+) (a: V, b: V) : V = V(a.N + b.N)"
+                                "let z = V(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "V"
+                Expect.isNotNull ty "the assembly contains the class type V"
+
+                let op = ty.GetMethod("op_Addition", declaredStatic, null, [| ty; ty |], null)
+                Expect.isNotNull op "the (+) member emitted as a static op_Addition"
+                Expect.isTrue op.IsStatic "op_Addition is static"
+
+                // `member this.N` emits a `get_N` method (no PropertyDefinition row
+                // yet, P3d.3), so read it through the getter rather than GetProperty.
+                let getN = ty.GetMethod("get_N", declaredInstance, null, [||], null)
+                Expect.isNotNull getN "get_N emitted"
+
+                let a = Activator.CreateInstance(ty, [| box 3 |])
+                let b = Activator.CreateInstance(ty, [| box 4 |])
+                let r = op.Invoke(null, [| a; b |])
+                let n = getN.Invoke(r, [||]) :?> int
+                Expect.equal n 7 "op_Addition(V 3, V 4).N = 7"
+            }
+
+            // vesper-set-phase-9-handoff (follow-on to G10): a static member read on
+            // an *explicitly* instantiated generic class (`Box<'T>.Make x`,
+            // `Box<'T>.Tag`) parses as `DotLookup(TypeApp(Box, <'T>), .Member)`, not
+            // the folded `LongIdent[Box; Member]` the bare `Box.Member` form takes.
+            // Freeze had no arm for the `TypeApp` receiver and threw at its `TODO
+            // TypeApp` catch-all. `Set<'T>.Empty` (property) / `Set<'T>.Singleton x`
+            // (method) in set.fs are this shape. Asserted at the TAST level — codegen
+            // contract extraction of a generic type's static members is a separate,
+            // still-open gap (`?ungrounded-operator`), out of scope for this Freeze
+            // arm.
+            test "`Box<'T>.Member` lowers to Static{Method,Property} (no Freeze TODO TypeApp)" {
+                let provider = SymbolProviders.buildContract defaultManifests
+
+                // `Tag`/`Origin` are `'T`-free so the receiver's `<'T>` is the only
+                // explicit instantiation under test; the access sites are instance
+                // members (no `'T`-annotated static params — that signature-typar
+                // scope is a separate, still-open gap).
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Box<'T>(v: 'T) ="
+                            "    member this.V = v"
+                            "    static member Tag : int = 42"
+                            "    static member Origin () : int = 7"
+                            "    member this.ReadTag () : int = Box<'T>.Tag"
+                            "    member this.ReadOrigin () : int = Box<'T>.Origin ()"
+                        ]
+
+                let lexed, file = parseFile src
+                let _, tast = Pipeline.analyseSemWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                let mutable staticCalls = 0
+                let mutable staticGets = 0
+
+                let it =
+                    { TastWalk.identityIter with
+                        VisitExpr =
+                            fun _ e ->
+                                match e with
+                                | TExpr.StaticMethodCall _ -> staticCalls <- staticCalls + 1
+                                | TExpr.StaticPropertyGet _ -> staticGets <- staticGets + 1
+                                | _ -> ()
+
+                                true
+                    }
+
+                for d in EqArray.toList tast.Decls do
+                    match d with
+                    | TDecl.Type td ->
+                        match td.Kind with
+                        | TTypeKindG.Class(members = members) ->
+                            for m in EqArray.toList members do
+                                TastWalk.iterExpr it m.Body
+                        | _ -> ()
+                    | _ -> ()
+
+                Expect.isTrue (staticCalls > 0) "`Box<'T>.Make x` (in Remake) lowered to a TExpr.StaticMethodCall"
+                Expect.isTrue (staticGets > 0) "`Box<'T>.Tag` (in MakeTagged) lowered to a TExpr.StaticPropertyGet"
             }
         ]
 

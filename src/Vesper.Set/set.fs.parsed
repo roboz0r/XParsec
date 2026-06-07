@@ -6159,10 +6159,8 @@ namespace                                                                       
                 ParenBlock                                                                          '('               KWLParen            tok=7151  pos=25481
                   Fun                                                                               'fun'             KWFun               tok=7152  pos=25482
                   Pats:
-                    Pat.Named:
-                      Ident                                                                         'acc'             Identifier          tok=7154  pos=25486
-                      Args:
-                        Pat.NamedSimple                                                             'k'               Identifier          tok=7156  pos=25490
+                    Pat.NamedSimple                                                                 'acc'             Identifier          tok=7154  pos=25486
+                    Pat.NamedSimple                                                                 'k'               Identifier          tok=7156  pos=25490
                   Arrow                                                                             '->'              OpArrowRight        tok=7158  pos=25492
                   Body:
                     App:
@@ -6484,10 +6482,8 @@ namespace                                                                       
             ParenBlock                                                                              '('               KWLParen            tok=7504  pos=26560
               Fun                                                                                   'fun'             KWFun               tok=7505  pos=26561
               Pats:
-                Pat.Named:
-                  Ident                                                                             'x'               Identifier          tok=7507  pos=26565
-                  Args:
-                    Pat.NamedSimple                                                                 'z'               Identifier          tok=7509  pos=26567
+                Pat.NamedSimple                                                                     'x'               Identifier          tok=7507  pos=26565
+                Pat.NamedSimple                                                                     'z'               Identifier          tok=7509  pos=26567
               Arrow                                                                                 '->'              OpArrowRight        tok=7511  pos=26569
               Body:
                 App:
@@ -6843,10 +6839,8 @@ namespace                                                                       
                     ParenBlock                                                                      '('               KWLParen            tok=7852  pos=27454
                       Fun                                                                           'fun'             KWFun               tok=7853  pos=27455
                       Pats:
-                        Pat.Named:
-                          Ident                                                                     'acc'             Identifier          tok=7855  pos=27459
-                          Args:
-                            Pat.NamedSimple                                                         'k'               Identifier          tok=7857  pos=27463
+                        Pat.NamedSimple                                                             'acc'             Identifier          tok=7855  pos=27459
+                        Pat.NamedSimple                                                             'k'               Identifier          tok=7857  pos=27463
                       Arrow                                                                         '->'              OpArrowRight        tok=7859  pos=27465
                       Body:
                         App:
@@ -7321,10 +7315,8 @@ namespace                                                                       
             ParenBlock                                                                              '('               KWLParen            tok=8374  pos=28728
               Fun                                                                                   'fun'             KWFun               tok=8375  pos=28729
               Pats:
-                Pat.Named:
-                  Ident                                                                             's1'              Identifier          tok=8377  pos=28733
-                  Args:
-                    Pat.NamedSimple                                                                 's2'              Identifier          tok=8379  pos=28736
+                Pat.NamedSimple                                                                     's1'              Identifier          tok=8377  pos=28733
+                Pat.NamedSimple                                                                     's2'              Identifier          tok=8379  pos=28736
               Arrow                                                                                 '->'              OpArrowRight        tok=8381  pos=28739
               Body:
                 HighPrecedenceApp:

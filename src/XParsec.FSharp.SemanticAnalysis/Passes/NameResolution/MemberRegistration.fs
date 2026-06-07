@@ -92,13 +92,26 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// A member's name from its head pattern. `this.M`-shaped heads parse as
-    /// `Pat.NamedSimple` for the member-name token; the `this`/alias is in
-    /// `MethodOrPropDefn`'s `ident` field, not the head pattern.
-    let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : (string * SyntaxToken) voption =
+    /// A member's name + the node key its body is inferred under, from its head
+    /// pattern. `this.M`-shaped heads parse as `Pat.NamedSimple` for the
+    /// member-name token; the `this`/alias is in `MethodOrPropDefn`'s `ident`
+    /// field, not the head pattern. The key is `CstKeys.ofPat` of the *leaf*
+    /// pattern — the exact key Unification's `inferBinding` links the inferred
+    /// signature under — so a `Pat.Op` head (`static member (+) (a, b) = …`) keys
+    /// on `(lParen, PatOp)`, not `(opToken, PatIdent)`; otherwise the registered
+    /// `TypeMemberInfo.Type` placeholder never receives the body type (and SRTP /
+    /// member dispatch read it back as a free TyVar). For `Pat.NamedSimple` this
+    /// equals the old `(id, PatIdent)` key, so named members are unaffected.
+    let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : (string * NodeKey) voption =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
-            | Pat.NamedSimple id -> ValueSome(ctx.NameOf id, id)
+            | Pat.NamedSimple id -> ValueSome(ctx.NameOf id, CstKeys.ofPat p)
+            // Operator-named member head: register under the operator's compiled
+            // name (`op_Addition`) so a use site's desugared `op_*` head finds it.
+            | Pat.Op io ->
+                match Desugar.opPatCompiledName ctx.NameOf io with
+                | ValueSome n -> ValueSome(n, CstKeys.ofPat p)
+                | ValueNone -> ValueNone
             | Pat.EnclosedBlock(pat = inner) -> walk inner
             | Pat.Typed(pat = inner) -> walk inner
             | _ -> ValueNone
@@ -145,10 +158,9 @@ module NameResolutionMemberRegistration =
                     Severity = Severity.Error
                 }
 
-        let addMember mName kind isStatic isOverride mTok : TypeMemberInfo =
+        let addMember mName kind isStatic isOverride (mKey: NodeKey) : TypeMemberInfo =
             let tv = TypeVar()
             tv.Level <- 0
-            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
             let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
             cmi.IsOverride <- isOverride
             memberInfos.Add cmi
@@ -156,8 +168,8 @@ module NameResolutionMemberRegistration =
 
         let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
             match memberNameOf ctx b with
-            | ValueSome(mName, mTok) ->
-                let cmi = addMember mName kind isStatic isOverride mTok
+            | ValueSome(mName, mKey) ->
+                let cmi = addMember mName kind isStatic isOverride mKey
                 // A concrete generic method (`member this.Map<'C> …`, B-12) carries
                 // its own typars on the binding's `typarDefns`. Stamp prototype
                 // TyVars so Unification scopes the signature against them and Freeze
@@ -167,14 +179,20 @@ module NameResolutionMemberRegistration =
             | ValueNone -> ()
 
         let registerAutoProperty id isStatic isOverride =
-            addMember (ctx.NameOf id) ClassMemberKind.Property isStatic isOverride id
+            addMember
+                (ctx.NameOf id)
+                ClassMemberKind.Property
+                isStatic
+                isOverride
+                (NodeKey.ofToken id NodeKind.PatIdent)
             |> ignore
 
         let registerAbstractMethod idOrOp tds isStatic =
             match identOrOpNameTok ctx idOrOp with
             | ValueSome(mName, mTok) ->
                 // An `abstract` signature is a slot declaration, never an override.
-                let cmi = addMember mName ClassMemberKind.Method isStatic false mTok
+                let cmi =
+                    addMember mName ClassMemberKind.Method isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent)
                 // The method's own `<'C, …>` typars get prototype TyVars so
                 // Unification scopes the signature against them and Freeze can
                 // surface them as GenericMethodParameters.

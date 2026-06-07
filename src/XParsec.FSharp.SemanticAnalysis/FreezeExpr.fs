@@ -550,6 +550,40 @@ module FreezeExpr =
         | ValueSome(declKey, _) -> ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | ValueNone -> ValueNone
 
+    /// `ClassName<'args>.Member` — a static member access on an *explicitly*
+    /// instantiated generic class. It parses as `DotLookup(TypeApp(ClassName,
+    /// <'args>), .Member)` rather than the folded `LongIdent[ClassName; Member]`
+    /// the bare `ClassName.Member` form takes (`StaticMember` / `StaticMethod`).
+    /// The type args only pin the generic instantiation (already carried on the
+    /// node's `ty`); the receiver is a type, so it lowers to the same
+    /// receiver-less static get / call. Returns the member's `Kind` so the caller
+    /// routes a property read vs a method call (the method form is `App`-wrapped).
+    [<return: Struct>]
+    let private (|TypeAppStaticMember|_|)
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        : (SymbolKey * string * ClassMemberKind) voption =
+        match e with
+        | Expr.DotLookup(expr = Expr.TypeApp(expr = classExpr); longIdentOrOp = LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 1
+            ->
+            let classNameOpt =
+                match classExpr with
+                | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent cli) when cli.Idents.Length = 1 ->
+                    ValueSome(ctx.NameOf cli.Idents.[0])
+                | _ -> ValueNone
+
+            match classNameOpt with
+            | ValueSome className ->
+                let memberName = ctx.NameOf li.Idents.[0]
+
+                match tryClassMember ctx className memberName with
+                | ValueSome(declKey, m) when m.IsStatic -> ValueSome(declKey, memberName, m.Kind)
+                | _ -> ValueNone
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     /// `[1; 2; 3]` parses as `EnclosedBlock(ParenKind.List, Sequential [...])`;
     /// a one-item literal `[1]` skips the Sequential wrapper.
     let private listLiteralItems (body: Expr<SyntaxToken>) : Expr<SyntaxToken> list =
@@ -830,6 +864,20 @@ module FreezeExpr =
             let argsList = peelOneArg (translateExpr ctx) arg
             let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
             TExpr.StaticMethodCall(key, argsList, ty)
+        // `ClassName<'args>.Method args` — static-method call on an explicitly
+        // instantiated generic class (e.g. `Set<'T>.Singleton value`). The
+        // `<'args>`-bearing receiver makes the funcExpr a `DotLookup` over a
+        // `TypeApp` rather than a folded `LongIdent`; same `StaticMethodCall`
+        // lowering as the folded `StaticMethod` arms above.
+        | Expr.App(funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExprs = args) ->
+            let argsList = peelCtorArgs (translateExpr ctx) args
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+            TExpr.StaticMethodCall(key, argsList, ty)
+        | Expr.HighPrecedenceApp(
+            funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExpr = arg) ->
+            let argsList = peelOneArg (translateExpr ctx) arg
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+            TExpr.StaticMethodCall(key, argsList, ty)
         // `ClassName.X` — static property read (or method-as-value).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
             let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Property
@@ -1048,6 +1096,15 @@ module FreezeExpr =
                     ValueSome(translateExpr ctx r)
 
             TExpr.ExternalMember(receiver, info.Key, memberName, info.IsProperty, ty)
+        // `ClassName<'args>.Prop` — local static property read on an explicitly
+        // instantiated generic class (e.g. `Set<'T>.Empty`). Same lowering as the
+        // folded `ClassName.Member` form; the `<'args>` only pinned the generic
+        // instantiation in inference and is carried on `ty`. The method form
+        // (`Set<'T>.Singleton value`) is `App`-wrapped and handled with the other
+        // static-method arms.
+        | TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Property) ->
+            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Property
+            TExpr.StaticPropertyGet(key, ty)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
             let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))

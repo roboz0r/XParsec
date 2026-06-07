@@ -282,19 +282,25 @@ module Unification =
                     match d with
                     | MethodOrPropDefn.Method(defn = b)
                     | MethodOrPropDefn.Property(defn = b) ->
-                        let mNameOpt =
+                        // The member's body-inference key — `CstKeys.ofPat` of the
+                        // *leaf* head pattern, the exact key `inferBinding` links the
+                        // inferred signature under, and the key registration stamped
+                        // as `mInfo.DeclKey`. A `Pat.Op` head keys on `(lParen, PatOp)`
+                        // (not `(opToken, PatIdent)`), so the operator member's
+                        // `mInfo.Type` placeholder actually receives the body type.
+                        let mKeyOpt =
                             let rec walkP (p: Pat<SyntaxToken>) =
                                 match p with
-                                | Pat.NamedSimple id -> ValueSome id
+                                | Pat.NamedSimple _
+                                | Pat.Op _ -> ValueSome(CstKeys.ofPat p)
                                 | Pat.EnclosedBlock(pat = inner)
                                 | Pat.Typed(pat = inner) -> walkP inner
                                 | _ -> ValueNone
 
                             walkP b.headPat
 
-                        match mNameOpt with
-                        | ValueSome mTok ->
-                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+                        match mKeyOpt with
+                        | ValueSome mKey ->
                             let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey)
 
                             match mInfoOpt with

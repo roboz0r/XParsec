@@ -103,17 +103,45 @@ let tests =
             //   got no `DesugaredForm.OpName`. Fixed by recursing into `InterfaceImpl`
             //   bodies in `Desugar.walkMemberElems`; gated by the `StructTests` row
             //   "an infix operator inside a struct interface member resolves".
-            // Current LIVE blocker (reached after G4):
-            //   Freeze.translatePat "TODO Named (…)" — a constructor-application
-            //   pattern (`Named(longIdent, [arg])`) used as a *curried lambda
-            //   parameter* (`translateFun` arg position) somewhere in the Set closure.
-            //   `translatePat` lowers `Named` only in its union-case arm (FreezeExpr.fs
-            //   ~230); a `Named` reaching the catch-all (line 252) is a lambda/binding
-            //   destructure it doesn't handle yet. Next session: instrument to pin the
-            //   exact source site, then add a `translatePat` arm.
-            // Still ahead after that: the four Phase-5-deferred interfaces
-            //   (IComparable / IStructuralEquatable / ICollection / IReadOnlyCollection),
-            //   `use`, and `for x in this`.
+            //   G9 (CLOSED) — Freeze.translatePat "TODO Named (acc [k])" on the
+            //   `fun acc k -> add comparer k acc` lambda in `Set.ofArray` (set.fs:747).
+            //   Root cause was a PARSER bug, not a Freeze gap: the `fun` parser used
+            //   `many1 Pat.parse` (full patterns), so `acc k` parsed as the applied
+            //   pattern `Named(acc, [k])` instead of two atomic binders. The F# grammar
+            //   is `FUN atomicPatterns RARROW`; fixed by switching the lambda to
+            //   `Pat.parseAtomicBindingArgMany1` (the same atomic parser the let/member
+            //   binding heads use). Gated by the 5 updated `fun`-parsing golden rows.
+            //   G10 (CLOSED) — Freeze.translateApp "expected function type … free
+            //   TypeVar" on `SetTree.diff …` inside `Set<'T>`'s `static member (-)`.
+            //   Root cause: a static *operator* member's body was never inferred.
+            //   `memberNameOf`/`fillTypeMembers` only recognised `Pat.NamedSimple`
+            //   heads, so a `Pat.Op` member got no `TypeMemberInfo` and Unification
+            //   skipped its body — every application in it stayed a free TyVar. Fix:
+            //   register + infer `Pat.Op` members, keyed by `CstKeys.ofPat` of the
+            //   head (the `(lParen, PatOp)` key `inferBinding` links under — keying on
+            //   the op token left `mInfo.Type` an unlinked placeholder). Also closed
+            //   the `Set<'T>.Empty` / `Set<'T>.Singleton x` follow-on: a static member
+            //   read on an *explicitly* instantiated generic class parses as
+            //   `DotLookup(TypeApp(Set, <'T>), .Member)` — added the inference +
+            //   Freeze arms (property → StaticPropertyGet, method → StaticMethodCall).
+            //   All gated by `ClassStatic` rows.
+            // Current state (reached after G10): Freeze no longer crashes — the build
+            // now runs to completion and surfaces the full diagnostic WALL of the
+            // remaining Phase-5/6-deferred features (~232 analysis errors). Dominant
+            // categories, in rough size order:
+            //   - 34× "Free type parameter 'T is not declared …" — the class's typars
+            //     are absent from a *generic member's signature annotations*
+            //     (`static member Singleton (x: 'T) : Set<'T>`, the `Set<'T>` operator
+            //     params). `inferBinding` swaps in a fresh typar scope seeded only by
+            //     the binding's *own* `<'a>`, dropping the enclosing class typars. The
+            //     next blocker to fix.
+            //   - "Unresolved qualified name: SetTree.*" — the nested `SetTree` module's
+            //     functions don't resolve from `Set<'T>` member / `module Set` bodies.
+            //   - "for-in: source is not a supported enumerable" (G7), `:>` upcasts
+            //     (SetTreeNode→SetTree, →IEnumerator), "Unknown class type
+            //     'IEqualityComparer'", and "Unknown operator symbol op_LessThan/…".
+            //   - the four Phase-5-deferred interfaces (IComparable /
+            //     IStructuralEquatable / ICollection / IReadOnlyCollection), `use`.
             // Flip `ptest`→`test` once the remaining gaps close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

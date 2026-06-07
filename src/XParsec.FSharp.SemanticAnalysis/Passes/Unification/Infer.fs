@@ -79,7 +79,12 @@ module UnificationInfer =
                 | ValueSome(metaName, typeArgsCst) ->
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
                     inferExternalStaticMember ctx key metaName args li.Idents.[0]
-                | ValueNone -> inferFieldAccess ctx key recv li.Idents.[0]
+                | ValueNone ->
+                    // `ClassName<'args>.Member` on a *local* class/union — resolve its
+                    // static member before falling to value-receiver field access.
+                    match tryLocalTypeAppStaticMember ctx recv li.Idents.[0] with
+                    | ValueSome ty -> ty
+                    | ValueNone -> inferFieldAccess ctx key recv li.Idents.[0]
             | Expr.IndexedLookup(expr = recv; indexExpr = idx) -> inferIndexedLookup ctx key recv idx
             | Expr.New(typ = t; expr = argExpr) -> inferNew ctx key t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic ctx args rt
@@ -235,6 +240,52 @@ module UnificationInfer =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
         | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
+
+    /// `ClassName<'args>.Member` where the receiver is an *explicitly* instantiated
+    /// **local** class/union (`Set<'T>.Empty`, `Box<'T>.Tag`). The bare folded
+    /// `ClassName.Member` form resolves its static member in `inferIdent`, but the
+    /// `<'args>`-bearing form parses as `DotLookup(TypeApp(ClassName, <'args>),
+    /// .Member)`; inferring the `TypeApp` receiver as a value yields the ctor
+    /// function type (→ a spurious "non-class" member-read error). Resolve the
+    /// static member directly here, mirroring `inferIdent`'s `tryStaticMember`: a
+    /// fresh type-param instance + substitution; the surrounding context (the
+    /// member's annotated return type) pins the instantiation, so the explicit
+    /// `<'args>` aren't separately unified (matching the folded form, which has
+    /// none). The applied static-*method* form (`ClassName<'args>.M args`) is
+    /// handled separately by the App arm.
+    and private tryLocalTypeAppStaticMember
+        (ctx: PassContext)
+        (recv: Expr<SyntaxToken>)
+        (memberTok: SyntaxToken)
+        : SemType voption =
+        match recv with
+        | Expr.TypeApp(expr = classExpr) ->
+            let classNameOpt =
+                match classExpr with
+                | Expr.Ident t -> ValueSome(ctx.NameOf t)
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                    ValueSome(ctx.NameOf li.Idents.[0])
+                | _ -> ValueNone
+
+            match classNameOpt with
+            | ValueNone -> ValueNone
+            | ValueSome className ->
+                let memberName = ctx.NameOf memberTok
+
+                let resolve (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
+                    match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
+                    | Some m ->
+                        let _, subst = freshNamedInstance ctx typeParams
+                        ValueSome(substituteWith subst m.Type)
+                    | None -> ValueNone
+
+                match ctx.Types.Class.TryGetValue className with
+                | true, info -> resolve info.TypeParams info.Members
+                | false, _ ->
+                    match ctx.Types.Union.TryGetValue className with
+                    | true, info -> resolve info.TypeParams info.Members
+                    | false, _ -> ValueNone
+        | _ -> ValueNone
 
     and private inferApp
         (ctx: PassContext)
