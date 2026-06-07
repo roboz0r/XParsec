@@ -852,7 +852,14 @@ module Expr =
                         (indent + 1)
                         funTok.PositionedToken
                         (parser {
-                            let! pats = many1 Pat.parse
+                            // Grammar (above): FUN atomicPatterns RARROW. Lambda
+                            // parameters are *atomic* patterns — a bare identifier is
+                            // a simple binder, NOT a constructor head that swallows the
+                            // following parameters. `Pat.parse` would parse `fun acc k`
+                            // as the applied pattern `acc k` (`Pat.Named acc [k]`);
+                            // `parseAtomicBindingArgMany1` (the same parser the let/
+                            // member binding heads use) keeps them as separate binders.
+                            let! pats = Pat.parseAtomicBindingArgMany1
 
                             let! arrow =
                                 recoverWithVirtualToken

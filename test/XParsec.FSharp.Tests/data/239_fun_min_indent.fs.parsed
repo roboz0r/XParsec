@@ -99,10 +99,8 @@ FunctionOrValue:
     =                          '='               OpEquality          tok= 223  pos=1887
       Fun                      'fun'             KWFun               tok= 226  pos=1893
       Pats:
-        Pat.Named:
-          Ident                'x'               Identifier          tok= 229  pos=1902
-          Args:
-            Pat.NamedSimple    'y'               Identifier          tok= 234  pos=1955
+        Pat.NamedSimple        'x'               Identifier          tok= 229  pos=1902
+        Pat.NamedSimple        'y'               Identifier          tok= 234  pos=1955
       Arrow                    '->'              OpArrowRight        tok= 236  pos=1957
       Body:
         InfixApp               '+'               op_Addition         tok= 243  pos=2010

@@ -1,38 +1,36 @@
 AnonymousModule:
 FunctionOrValue:
-  let                              'let'             KWLet               tok=   0  pos=   0
-    Pat.NamedSimple                'HashSample'      Identifier          tok=   2  pos=   4
+  let                            'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple              'HashSample'      Identifier          tok=   2  pos=   4
     Pats:
-      Pat.NamedSimple              'tab'             Identifier          tok=   4  pos=  15
-    =                              '='               OpEquality          tok=   6  pos=  19
+      Pat.NamedSimple            'tab'             Identifier          tok=   4  pos=  15
+    =                            '='               OpEquality          tok=   6  pos=  19
       App:
         Func:
           LongIdentOrOp:
             LongIdent:
-                                   'tab'             Identifier          tok=   9  pos=  25
-                                   'Iterate'         Identifier          tok=  11  pos=  29
+                                 'tab'             Identifier          tok=   9  pos=  25
+                                 'Iterate'         Identifier          tok=  11  pos=  29
         Args:
-          ParenBlock               '('               KWLParen            tok=  13  pos=  37
-            Fun                    'fun'             KWFun               tok=  14  pos=  38
+          ParenBlock             '('               KWLParen            tok=  13  pos=  37
+            Fun                  'fun'             KWFun               tok=  14  pos=  38
             Pats:
-              Pat.Named:
-                Ident              'c'               Identifier          tok=  16  pos=  42
-                Args:
-                  Pat.NamedSimple  'v'               Identifier          tok=  18  pos=  44
-            Arrow                  '->'              OpArrowRight        tok=  20  pos=  46
+              Pat.NamedSimple    'c'               Identifier          tok=  16  pos=  42
+              Pat.NamedSimple    'v'               Identifier          tok=  18  pos=  44
+            Arrow                '->'              OpArrowRight        tok=  20  pos=  46
             Body:
               App:
                 Func:
-                  Ident            'printfn'         Identifier          tok=  23  pos=  57
+                  Ident          'printfn'         Identifier          tok=  23  pos=  57
                 Args:
-                  StringLiteral    '"'               StringOpen          tok=  25  pos=  65
+                  StringLiteral  '"'               StringOpen          tok=  25  pos=  65
                   Parts:
-                    Text           'Entry ('         StringFragment      tok=  26  pos=  66
-                    FormatSpec     '%O'              FormatPlaceholder   tok=  27  pos=  73
-                    Text           ','               StringFragment      tok=  28  pos=  75
-                    FormatSpec     '%O'              FormatPlaceholder   tok=  29  pos=  76
-                    Text           ')'               StringFragment      tok=  30  pos=  78
-                                   '"'               StringClose         tok=  31  pos=  79
-                  Ident            'c'               Identifier          tok=  33  pos=  81
-                  Ident            'v'               Identifier          tok=  35  pos=  83
-                                   ')'               KWRParen            tok=  36  pos=  84
+                    Text         'Entry ('         StringFragment      tok=  26  pos=  66
+                    FormatSpec   '%O'              FormatPlaceholder   tok=  27  pos=  73
+                    Text         ','               StringFragment      tok=  28  pos=  75
+                    FormatSpec   '%O'              FormatPlaceholder   tok=  29  pos=  76
+                    Text         ')'               StringFragment      tok=  30  pos=  78
+                                 '"'               StringClose         tok=  31  pos=  79
+                  Ident          'c'               Identifier          tok=  33  pos=  81
+                  Ident          'v'               Identifier          tok=  35  pos=  83
+                                 ')'               KWRParen            tok=  36  pos=  84
