@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
-// Verbatim copy of FSharp.Core/set.fs (namespace + `Microsoft.FSharp.*` opens are the only diffs).
-// Authored target source for Vesper.Set — runtime impl mirroring FSharp.Core's FSharpSet`1.
-// NOT yet compiled by our own backend (mirrors the Vesper.List/List.fs stance): the impl uses
-// FSharp.Core idioms (OptimizedClosures.FSharpFunc, LanguagePrimitives.FastGenericComparer,
-// the SR.* string-resource indirection, etc.) that are out of scope for the present self-host
-// rung; this file is parse-tested today, compiled once the backend supports the surface.
+// Adapted from FSharp.Core/set.fs — runtime impl mirroring FSharp.Core's FSharpSet`1.
+// Phase 9 of the Vesper.Set sprint (vesper-set-sprint-phase-9.md) rewrote the FSharp.Core
+// idioms this self-host rung cannot carry: OptimizedClosures.FSharpFunc.Adapt + f.Invoke(a,b)
+// became direct `f a b` calls; LanguagePrimitives.FastGenericComparer<'T> became
+// Comparer<'T>.Default; LanguagePrimitives.anyToStringShowingNull became `sprintf "%O"`; and
+// the SR.* string-resource indirection was inlined to English literals. The struct enumerator
+// (SetIterator<'T>) already replaced the original IEnumerator object expression (Phase 6).
 
 namespace Vesper.Collections
 
@@ -226,22 +227,25 @@ module internal SetTree =
                 elif c = 0 then true
                 else mem comparer k tn.Right
 
+    // Upstream returns `'T voption`; Vesper's `Option` is already a struct
+    // (`ValueOption` was dropped as redundant — vesper-set-gaps.md §C / core-types.fsi),
+    // so `Some` / `None` carry the same no-allocation guarantee `ValueSome` / `ValueNone` did.
     let rec tryGet (comparer: IComparer<'T>) k (t: SetTree<'T>) =
         if isEmpty t then
-            ValueNone
+            None
         else
             let c = comparer.Compare(k, t.Key)
 
             if t.Height = 1 then
                 if c = 0 then
-                    ValueSome t.Key
+                    Some t.Key
                 else
-                    ValueNone
+                    None
             else
                 let tn = asNode t
 
                 if c < 0 then tryGet comparer k tn.Left
-                elif c = 0 then ValueSome tn.Key
+                elif c = 0 then Some tn.Key
                 else tryGet comparer k tn.Right
 
     let rec iter f (t: SetTree<'T>) =
@@ -255,31 +259,31 @@ module internal SetTree =
             f tn.Key
             iter f tn.Right
 
-    let rec foldBackOpt (f: OptimizedClosures.FSharpFunc<_, _, _>) (t: SetTree<'T>) x =
+    let rec foldBackOpt f (t: SetTree<'T>) x =
         if isEmpty t then
             x
         else if t.Height = 1 then
-            f.Invoke(t.Key, x)
+            f t.Key x
         else
             let tn = asNode t
-            foldBackOpt f tn.Left (f.Invoke(tn.Key, (foldBackOpt f tn.Right x)))
+            foldBackOpt f tn.Left (f tn.Key (foldBackOpt f tn.Right x))
 
     let foldBack f m x =
-        foldBackOpt (OptimizedClosures.FSharpFunc<_, _, _>.Adapt f) m x
+        foldBackOpt f m x
 
-    let rec foldOpt (f: OptimizedClosures.FSharpFunc<_, _, _>) x (t: SetTree<'T>) =
+    let rec foldOpt f x (t: SetTree<'T>) =
         if isEmpty t then
             x
         else if t.Height = 1 then
-            f.Invoke(x, t.Key)
+            f x t.Key
         else
             let tn = asNode t
             let x = foldOpt f x tn.Left in
-            let x = f.Invoke(x, tn.Key)
+            let x = f x tn.Key
             foldOpt f x tn.Right
 
     let fold f x m =
-        foldOpt (OptimizedClosures.FSharpFunc<_, _, _>.Adapt f) x m
+        foldOpt f x m
 
     let rec forall f (t: SetTree<'T>) =
         if isEmpty t then
@@ -373,16 +377,16 @@ module internal SetTree =
             acc
         else if t.Height = 1 then
             match tryGet comparer t.Key a with
-            | ValueSome v -> add comparer v acc
-            | ValueNone -> acc
+            | Some v -> add comparer v acc
+            | None -> acc
         else
             let tn = asNode t
             let acc = intersectionAuxFromSmall comparer a tn.Right acc
 
             let acc =
                 match tryGet comparer tn.Key a with
-                | ValueSome v -> add comparer v acc
-                | ValueNone -> acc
+                | Some v -> add comparer v acc
+                | None -> acc
 
             intersectionAuxFromSmall comparer a tn.Left acc
 
@@ -437,8 +441,8 @@ module internal SetTree =
 
     let partition1With comparer1 comparer2 partitioner k acc1 acc2 =
         match partitioner k with
-        | Choice1Of2 v -> struct (add comparer1 v acc1, acc2)
-        | Choice2Of2 v -> struct (acc1, add comparer2 v acc2)
+        | Choice1Of2 v -> (add comparer1 v acc1, acc2)
+        | Choice2Of2 v -> (acc1, add comparer2 v acc2)
 
     let partitionWith
         (comparer1: IComparer<'T1>)
@@ -450,19 +454,19 @@ module internal SetTree =
         // go largest-first, reducing AVL rotations — same strategy as partitionAux.
         let rec go (t: SetTree<'T>) acc1 acc2 =
             if isEmpty t then
-                struct (acc1, acc2)
+                (acc1, acc2)
             else if t.Height = 1 then
                 partition1With comparer1 comparer2 partitioner t.Key acc1 acc2
             else
                 let tn = asNode t
-                let struct (acc1, acc2) = go tn.Right acc1 acc2
+                let acc1, acc2 = go tn.Right acc1 acc2
 
-                let struct (acc1, acc2) =
+                let acc1, acc2 =
                     partition1With comparer1 comparer2 partitioner tn.Key acc1 acc2
 
                 go tn.Left acc1 acc2
 
-        let struct (t1, t2) = go t empty empty
+        let t1, t2 = go t empty empty
         t1, t2
 
     let rec minimumElementAux (t: SetTree<'T>) n =
@@ -504,12 +508,12 @@ module internal SetTree =
     let minimumElement s =
         match minimumElementOpt s with
         | Some k -> k
-        | None -> invalidArg "s" (SR.GetString(SR.setContainsNoElements))
+        | None -> invalidArg "s" "The set contains no elements"
 
     let maximumElement s =
         match maximumElementOpt s with
         | Some k -> k
-        | None -> invalidArg "s" (SR.GetString(SR.setContainsNoElements))
+        | None -> invalidArg "s" "The set contains no elements"
 
     // collapseLHS:
     // a) Always returns either [] or a list starting with SetOne.
@@ -527,10 +531,10 @@ module internal SetTree =
                 collapseLHS (xn.Left :: SetTree xn.Key :: xn.Right :: rest)
 
     let notStarted () =
-        raise (InvalidOperationException(SR.GetString(SR.enumerationNotStarted)))
+        raise (InvalidOperationException("Enumeration has not started. Call MoveNext."))
 
     let alreadyFinished () =
-        raise (InvalidOperationException(SR.GetString(SR.enumerationAlreadyFinished)))
+        raise (InvalidOperationException("Enumeration already finished."))
 
     let unexpectedStackForMoveNext () =
         failwith "Please report error: Set iterator, unexpected stack for moveNext"
@@ -750,7 +754,7 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
     // set (it is just a lookup into a .NET table of type-instantiation-indexed static fields).
 
     static let empty: Set<'T> =
-        let comparer = LanguagePrimitives.FastGenericComparer<'T>
+        let comparer = Comparer<'T>.Default
         Set<'T>(comparer, SetTree.empty)
 
     member internal set.Comparer = comparer
@@ -774,8 +778,7 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         SetTree.iter x s.Tree
 
     member s.Fold f z =
-        let f = OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
-        SetTree.fold (fun x z -> f.Invoke(z, x)) z s.Tree
+        SetTree.fold (fun x z -> f z x) z s.Tree
 
     member s.IsEmpty = SetTree.isEmpty s.Tree
 
@@ -786,8 +789,8 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
             let t1, t2 = SetTree.partition s.Comparer f s.Tree in Set(s.Comparer, t1), Set(s.Comparer, t2)
 
     member internal s.PartitionWith(partitioner: 'T -> Choice<'T1, 'T2>) : Set<'T1> * Set<'T2> =
-        let comparer1 = LanguagePrimitives.FastGenericComparer<'T1>
-        let comparer2 = LanguagePrimitives.FastGenericComparer<'T2>
+        let comparer1 = Comparer<'T1>.Default
+        let comparer2 = Comparer<'T2>.Default
         let t1, t2 = SetTree.partitionWith comparer1 comparer2 partitioner s.Tree
         Set(comparer1, t1), Set(comparer2, t2)
 
@@ -798,7 +801,7 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
             Set(s.Comparer, SetTree.filter s.Comparer f s.Tree)
 
     member s.Map f : Set<'U> =
-        let comparer = LanguagePrimitives.FastGenericComparer<'U>
+        let comparer = Comparer<'U>.Default
         Set(comparer, SetTree.fold (fun acc k -> SetTree.add comparer (f k) acc) SetTree.empty s.Tree)
 
     member s.Exists f =
@@ -882,8 +885,11 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         this.ComputeHashCode()
 
     override this.Equals that =
-        match that with
-        | :? Set<'T> as that ->
+        // Vesper has the `:?` test / `:?>` downcast expression forms but not the
+        // `:? T as x` *match-pattern* form yet (vesper-set-gaps.md §B-4), so the
+        // structural-equality check is spelled as an explicit test + downcast.
+        if that :? Set<'T> then
+            let that = that :?> Set<'T>
             use e1 = (this :> seq<_>).GetEnumerator()
             use e2 = (that :> seq<_>).GetEnumerator()
 
@@ -893,7 +899,8 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
                 (m1 = m2) && (not m1 || ((e1.Current = e2.Current) && loop ()))
 
             loop ()
-        | _ -> false
+        else
+            false
 
     interface IComparable with
         member this.CompareTo(that: objnull) =
@@ -901,8 +908,8 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
 
     interface IStructuralEquatable with
         member this.Equals(that, comparer) =
-            match that with
-            | :? Set<'T> as that ->
+            if that :? Set<'T> then
+                let that = that :?> Set<'T>
                 use e1 = (this :> seq<_>).GetEnumerator()
                 use e2 = (that :> seq<_>).GetEnumerator()
 
@@ -912,7 +919,8 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
                     (m1 = m2) && (not m1 || (comparer.Equals(e1.Current, e2.Current) && loop ()))
 
                 loop ()
-            | _ -> false
+            else
+                false
 
         member this.GetHashCode(comparer) =
             let combineHash x y =
@@ -962,31 +970,34 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         Set<'T>.Empty.Add x
 
     new(elements: seq<'T>) =
-        let comparer = LanguagePrimitives.FastGenericComparer<'T>
+        let comparer = Comparer<'T>.Default
         Set(comparer, SetTree.ofSeq comparer elements)
 
     static member Create(elements: seq<'T>) =
         Set<'T>(elements)
 
     static member FromArray(arr: 'T array) : Set<'T> =
-        let comparer = LanguagePrimitives.FastGenericComparer<'T>
+        let comparer = Comparer<'T>.Default
         Set(comparer, SetTree.ofArray comparer arr)
 
     override x.ToString() =
+        // Cons-terminated patterns (`h :: []`) rather than the `[h1; h2]`
+        // list-literal pattern form, which Vesper's front end doesn't lower yet
+        // (vesper-set-gaps.md §B-4 / list-literal patterns); semantically identical.
         match List.ofSeq (Seq.truncate 4 x) with
         | [] -> "set []"
-        | [ h1 ] ->
-            let txt1 = LanguagePrimitives.anyToStringShowingNull h1
+        | h1 :: [] ->
+            let txt1 = sprintf "%O" h1
             StringBuilder().Append("set [").Append(txt1).Append("]").ToString()
-        | [ h1; h2 ] ->
-            let txt1 = LanguagePrimitives.anyToStringShowingNull h1
-            let txt2 = LanguagePrimitives.anyToStringShowingNull h2
+        | h1 :: h2 :: [] ->
+            let txt1 = sprintf "%O" h1
+            let txt2 = sprintf "%O" h2
 
             StringBuilder().Append("set [").Append(txt1).Append("; ").Append(txt2).Append("]").ToString()
-        | [ h1; h2; h3 ] ->
-            let txt1 = LanguagePrimitives.anyToStringShowingNull h1
-            let txt2 = LanguagePrimitives.anyToStringShowingNull h2
-            let txt3 = LanguagePrimitives.anyToStringShowingNull h3
+        | h1 :: h2 :: h3 :: [] ->
+            let txt1 = sprintf "%O" h1
+            let txt2 = sprintf "%O" h2
+            let txt3 = sprintf "%O" h3
 
             StringBuilder()
                 .Append("set [")
@@ -998,9 +1009,9 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
                 .Append("]")
                 .ToString()
         | h1 :: h2 :: h3 :: _ ->
-            let txt1 = LanguagePrimitives.anyToStringShowingNull h1
-            let txt2 = LanguagePrimitives.anyToStringShowingNull h2
-            let txt3 = LanguagePrimitives.anyToStringShowingNull h3
+            let txt1 = sprintf "%O" h1
+            let txt2 = sprintf "%O" h2
+            let txt3 = sprintf "%O" h3
 
             StringBuilder()
                 .Append("set [")

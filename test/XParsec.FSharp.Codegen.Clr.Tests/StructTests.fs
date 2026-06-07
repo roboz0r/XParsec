@@ -714,4 +714,63 @@ let structTests =
                 Expect.notEqual elem 0x12uy "the referenced struct must NOT encode as ELEMENT_TYPE_CLASS"
                 Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE"
             }
+
+            // vesper-set-sprint-phase-9 (G4) — `set.fs`'s `SetIterator.MoveNext`
+            // shape: an infix operator (`t.Height = 1`) *inside a struct interface
+            // member body*, where `t` is a class instance popped from a list-typed
+            // `val` field (`match this.Stack with | t :: rest -> …`). Desugar only
+            // walked the type's *own* members, never `interface … with member …`
+            // bodies, so the `=` node got no `DesugaredForm.OpName` entry and Freeze
+            // threw `InfixApp … missing DesugaredForm entry`. None of the enumerator
+            // tests above caught it: their interface members contain no infix
+            // operator. This drives the boxed enumerator over the true `=` branch.
+            test "an infix operator inside a struct interface member resolves (SetIterator.MoveNext shape)" {
+                let _, artifact =
+                    compileSource
+                        "StructIfaceInfix"
+                        (String.concat
+                            "\n"
+                            [
+                                "type List<'T> ="
+                                "    | ([]): List<'T>"
+                                "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
+                                "and 'T list = List<'T>"
+                                "type Node(h: int) ="
+                                "    member this.Height = h"
+                                "[<Struct>]"
+                                "type Iter ="
+                                "    val mutable Stack: Node list"
+                                "    val mutable Hit: bool"
+                                "    new(n: Node) = { Stack = n :: []; Hit = false }"
+                                "    interface System.Collections.IEnumerator with"
+                                "        member this.Current = box 0"
+                                "        member this.MoveNext() ="
+                                "            match this.Stack with"
+                                "            | [] -> false"
+                                "            | t :: rest ->"
+                                "                if t.Height = 1 then"
+                                "                    this.Stack <- rest"
+                                "                    this.Hit <- true"
+                                "                    true"
+                                "                else"
+                                "                    false"
+                                "        member this.Reset() = ()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Iter"
+                Expect.isTrue ty.IsValueType "Iter is a value type"
+
+                // Box the struct and drive `MoveNext` through `IEnumerator`. The
+                // ctor seeds a single-element stack whose `Node.Height = 1`, so the
+                // first `MoveNext` takes the `=`-true branch (pops the stack, sets
+                // `Hit`) and returns true — proving the interface-body `=` both
+                // froze and ran. A second call hits the `[]` arm and returns false.
+                let nodeTy = asm.GetType "Node"
+                let node = Activator.CreateInstance(nodeTy, [| box 1 |])
+                let boxed = Activator.CreateInstance(ty, [| node |])
+                let e = boxed :?> System.Collections.IEnumerator
+                Expect.isTrue (e.MoveNext()) "first MoveNext takes the `t.Height = 1` true branch"
+                Expect.isFalse (e.MoveNext()) "second MoveNext hits the empty-stack arm"
+            }
         ]

@@ -87,4 +87,33 @@ let tests =
             // two-axis `ExternalSignature` template, instantiated at the call site,
             // and emitted via a `MethodSpec`.
             test "Vesper.Seq builds BCL-only" { buildsBclOnly "Vesper.Seq" }
+
+            // Vesper.Set — the sprint target (vesper-set-sprint-phase-9.md §9.7).
+            // Phase 9's *source rewrites* (§9.1-9.6) have landed: `set.fs` no longer
+            // references any FSharp.Core idiom (OptimizedClosures / FastGenericComparer
+            // / anyToStringShowingNull / SR.GetString are gone), `ValueOption` → the
+            // struct `Option`, and the `:? T as x` / `[a; b]` patterns are spelled with
+            // the supported `:?`+`:?>` / cons-terminated forms. The build now reaches
+            // *Freeze* and stops at the first remaining BACKEND gap (out of Phase 9
+            // scope — these are Phase 5/6 follow-ups). Gaps cleared so far:
+            //   G4 (CLOSED) — Freeze "InfixApp ... missing DesugaredForm entry" on the
+            //   `t.Height = 1` inside `[<Struct>]` SetIterator's `IEnumerator.MoveNext`.
+            //   Root cause was *not* type resolution: `Desugar` only walked a type's
+            //   own members, never `interface … with member …` bodies, so the `=` node
+            //   got no `DesugaredForm.OpName`. Fixed by recursing into `InterfaceImpl`
+            //   bodies in `Desugar.walkMemberElems`; gated by the `StructTests` row
+            //   "an infix operator inside a struct interface member resolves".
+            // Current LIVE blocker (reached after G4):
+            //   Freeze.translatePat "TODO Named (…)" — a constructor-application
+            //   pattern (`Named(longIdent, [arg])`) used as a *curried lambda
+            //   parameter* (`translateFun` arg position) somewhere in the Set closure.
+            //   `translatePat` lowers `Named` only in its union-case arm (FreezeExpr.fs
+            //   ~230); a `Named` reaching the catch-all (line 252) is a lambda/binding
+            //   destructure it doesn't handle yet. Next session: instrument to pin the
+            //   exact source site, then add a `translatePat` arm.
+            // Still ahead after that: the four Phase-5-deferred interfaces
+            //   (IComparable / IStructuralEquatable / ICollection / IReadOnlyCollection),
+            //   `use`, and `for x in this`.
+            // Flip `ptest`→`test` once the remaining gaps close.
+            ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

@@ -183,7 +183,7 @@ module Desugar =
                         for FieldInitializer(expr = e) in inits do
                             CstWalk.iterExpr walker () e
 
-            let walkMemberElems (elems: TypeDefnElement<SyntaxToken> seq) =
+            let rec walkMemberElems (elems: TypeDefnElement<SyntaxToken> seq) =
                 for el in elems do
                     match el with
                     | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
@@ -193,6 +193,17 @@ module Desugar =
                         | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
                         | _ -> ()
                     | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(body = body)) -> walkCtorBody body
+                    // An `interface Foo with member …` body holds member bodies too —
+                    // their operators need compiled-name entries exactly as the type's
+                    // own members do, or Unification's `inferInfix` falls through to a
+                    // free TyVar and Freeze throws `InfixApp … missing DesugaredForm`.
+                    // The members nest under `ObjectMembers`; reproject each onto a
+                    // `TypeDefnElement.Member` and recurse (mirrors `extractInterfaceImpls`).
+                    | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(objectMembers = objMembersOpt)) ->
+                        match objMembersOpt with
+                        | ValueSome(ObjectMembers(memberDefns = mds)) ->
+                            walkMemberElems (seq { for md in mds -> TypeDefnElement.Member md })
+                        | ValueNone -> ()
                     | _ -> ()
 
             for td in defs do
