@@ -275,15 +275,24 @@ module UnificationInfer =
                     | ValueSome ty -> ty
                     | ValueNone ->
 
-                        let mutable currTy = infer ctx fn
+                        match
+                            (if args.Length = 1 then
+                                 tryInferLocalCtorApp ctx key fn args.[0]
+                             else
+                                 ValueNone)
+                        with
+                        | ValueSome ty -> ty
+                        | ValueNone ->
 
-                        for a in args do
-                            let argTy = infer ctx a
-                            let resultTy = TyVar(freshTyVar ctx)
-                            unify ctx key currTy (TyFun(argTy, resultTy))
-                            currTy <- resultTy
+                            let mutable currTy = infer ctx fn
 
-                        currTy
+                            for a in args do
+                                let argTy = infer ctx a
+                                let resultTy = TyVar(freshTyVar ctx)
+                                unify ctx key currTy (TyFun(argTy, resultTy))
+                                currTy <- resultTy
+
+                            currTy
 
     /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
     /// printf entry point with a plain-literal format argument, the format spec
@@ -377,11 +386,14 @@ module UnificationInfer =
             match tryInferExternalGenericCtorApp ctx key fn arg with
             | ValueSome ty -> ty
             | ValueNone ->
-                let fnTy = infer ctx fn
-                let argTy = infer ctx arg
-                let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key fnTy (TyFun(argTy, resultTy))
-                resultTy
+                match tryInferLocalCtorApp ctx key fn arg with
+                | ValueSome ty -> ty
+                | ValueNone ->
+                    let fnTy = infer ctx fn
+                    let argTy = infer ctx arg
+                    let resultTy = TyVar(freshTyVar ctx)
+                    unify ctx key fnTy (TyFun(argTy, resultTy))
+                    resultTy
 
     and private inferRange
         (ctx: PassContext)
@@ -1407,6 +1419,76 @@ module UnificationInfer =
                     ValueSome(inferExternalCtorOn ctx key (SymbolKeyOps.qualifiedName clsKey) args receiverTy argExpr)
                 | _ -> ValueNone
         | _ -> ValueNone
+
+    /// Construction of a *local* generic class/struct through a **secondary**
+    /// constructor (B-11): `SetIterator<'T>(s)` / `OnceEnum(x)`. The existing
+    /// ctor-as-function path (`tryClassCtorAsFunction`) builds its function type
+    /// from the *primary* ctor's params only — for a type whose primary is
+    /// parameterless and whose construction goes through a `new(args)` overload,
+    /// that leaves the type arguments ungrounded (the primary's `unit` arg never
+    /// unifies them against the call's value arg). This selects the secondary ctor
+    /// by its parameter arity and unifies *its* params — carrying the type args —
+    /// against the call, so `OnceEnum(x:'T)` grounds to `OnceEnum<'T>`. Declines
+    /// (`ValueNone`) when the arity matches the primary (the existing path handles
+    /// it), when the head isn't a local class, or when no secondary matches —
+    /// keeping the blast radius to the previously-unsupported secondary case.
+    and private tryInferLocalCtorApp
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType voption =
+        let headExpr, explicitTyArgs =
+            match fn with
+            | Expr.TypeApp(expr = h; types = ts) -> h, ValueSome [ for t in ts -> translateType ctx t ]
+            | _ -> fn, ValueNone
+
+        let headName =
+            match headExpr with
+            | Expr.Ident tok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent)) ->
+                ValueSome(ctx.NameOf tok)
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                li.Idents.Length = 1
+                && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
+                ->
+                ValueSome(ctx.NameOf li.Idents.[0])
+            | _ -> ValueNone
+
+        match headName with
+        | ValueNone -> ValueNone
+        | ValueSome name ->
+            match ctx.Types.Class.TryGetValue name with
+            | false, _ -> ValueNone
+            | true, info ->
+                let argTy = infer ctx argExpr
+
+                let argArity =
+                    match resolveStep argTy with
+                    | TyTuple xs -> xs.Length
+                    | TyConst("unit", _) -> 0
+                    | _ -> 1
+
+                if argArity = info.CtorParams.Length then
+                    ValueNone
+                else
+                    match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argArity) with
+                    | None -> ValueNone
+                    | Some sc ->
+                        let args, subst = freshNamedInstance ctx info.TypeParams
+                        let receiverTy = TyClass(info.Key, args)
+
+                        // Explicit type args (`SetIterator<'T>(s)`) pin the
+                        // instantiation up front, mirroring `inferTypeApp`.
+                        match explicitTyArgs with
+                        | ValueSome ex when ex.Length = args.Length ->
+                            List.iter2 (fun a e -> unify ctx key a e) (EqArray.toList args) ex
+                        | _ -> ()
+
+                        let paramTys =
+                            sc.Params |> Array.map (fun p -> substituteWith subst p.Type) |> Array.toList
+
+                        unify ctx key (tupleOrSingle paramTys) argTy
+                        ValueSome receiverTy
 
     /// Explicit type application on a value/constructor head: `Set<'T>(args)`
     /// (`set.fs` construction sites), `Box<int>(x)`, etc. The CST shape is

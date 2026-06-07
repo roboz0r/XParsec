@@ -88,6 +88,9 @@ type ClrProvider
     member _.InstanceMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         enc.InstanceMethodSignature(paramTys, retTy)
 
+    member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+        enc.InstanceMethodSignatureVoid(paramTys)
+
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's

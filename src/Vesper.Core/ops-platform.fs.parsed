@@ -2228,247 +2228,282 @@ namespace                                              'namespace'       KWNames
                   Ident                                'bool'            Identifier          tok=2541  pos=10579
               #)                                       '#)'              KWRHashParen        tok=2543  pos=10584
       FunctionOrValue:
-        let                                            'let'             KWLet               tok=2574  pos=11297
-          inline                                       'inline'          KWInline            tok=2576  pos=11301
-          Pat.NamedSimple                              'GetArray'        Identifier          tok=2578  pos=11308
+        let                                            'let'             KWLet               tok=2571  pos=11209
+          inline                                       'inline'          KWInline            tok=2573  pos=11213
+          Pat.NamedSimple                              'box'             Identifier          tok=2575  pos=11220
           Pats:
-            ParenBlock                                 '('               KWLParen            tok=2580  pos=11317
+            ParenBlock                                 '('               KWLParen            tok=2577  pos=11224
               Pat.Typed:
-                Pat.NamedSimple                        'array'           Identifier          tok=2581  pos=11318
-                Colon                                  ':'               OpColon             tok=2582  pos=11323
-                ArrayType:
-                  VarType:
-                    Typar.Named:
-                                                       ''T'              TypeParameter       tok=2584  pos=11325
-                                                       '['               KWLBracket          tok=2585  pos=11327
-                                                       ']'               KWRBracket          tok=2586  pos=11328
-                                                       ')'               KWRParen            tok=2587  pos=11329
-            ParenBlock                                 '('               KWLParen            tok=2589  pos=11331
-              Pat.Typed:
-                Pat.NamedSimple                        'index'           Identifier          tok=2590  pos=11332
-                Colon                                  ':'               OpColon             tok=2591  pos=11337
-                NamedType:
-                  Ident                                'int'             Identifier          tok=2593  pos=11339
-                                                       ')'               KWRParen            tok=2594  pos=11342
-          ReturnColon                                  ':'               OpColon             tok=2596  pos=11344
-          VarType:
-            Typar.Named:
-                                                       ''T'              TypeParameter       tok=2598  pos=11346
-          =                                            '='               OpEquality          tok=2600  pos=11349
-            ILIntrinsic:
-              (#                                       '(#'              KWLHashParen        tok=2602  pos=11351
-              StringLiteral                            '"'               StringOpen          tok=2604  pos=11354
-              Parts:
-                Text                                   'ldelem.any...'   StringFragment      tok=2605  pos=11355
-                                                       '"'               StringClose         tok=2606  pos=11368
-              ILTypeArg:
-                type                                   'type'            KWType              tok=2608  pos=11370
-                (                                      '('               KWLParen            tok=2610  pos=11375
-                typeToken                              ''T'              TypeParameter       tok=2611  pos=11376
-                )                                      ')'               KWRParen            tok=2612  pos=11378
-              Arg:
-                Ident                                  'array'           Identifier          tok=2614  pos=11380
-              Arg:
-                Ident                                  'index'           Identifier          tok=2616  pos=11386
-              ILReturnType:
-                :                                      ':'               OpColon             tok=2618  pos=11392
+                Pat.NamedSimple                        'value'           Identifier          tok=2578  pos=11225
+                Colon                                  ':'               OpColon             tok=2579  pos=11230
                 VarType:
                   Typar.Named:
-                                                       ''T'              TypeParameter       tok=2620  pos=11394
-              #)                                       '#)'              KWRHashParen        tok=2622  pos=11397
-      FunctionOrValue:
-        let                                            'let'             KWLet               tok=2650  pos=12027
-          inline                                       'inline'          KWInline            tok=2652  pos=12031
-          Pat.NamedSimple                              'SetArray'        Identifier          tok=2654  pos=12038
-          Pats:
-            ParenBlock                                 '('               KWLParen            tok=2656  pos=12047
-              Pat.Typed:
-                Pat.NamedSimple                        'array'           Identifier          tok=2657  pos=12048
-                Colon                                  ':'               OpColon             tok=2658  pos=12053
-                ArrayType:
-                  VarType:
-                    Typar.Named:
-                                                       ''T'              TypeParameter       tok=2660  pos=12055
-                                                       '['               KWLBracket          tok=2661  pos=12057
-                                                       ']'               KWRBracket          tok=2662  pos=12058
-                                                       ')'               KWRParen            tok=2663  pos=12059
-            ParenBlock                                 '('               KWLParen            tok=2665  pos=12061
-              Pat.Typed:
-                Pat.NamedSimple                        'index'           Identifier          tok=2666  pos=12062
-                Colon                                  ':'               OpColon             tok=2667  pos=12067
-                NamedType:
-                  Ident                                'int'             Identifier          tok=2669  pos=12069
-                                                       ')'               KWRParen            tok=2670  pos=12072
-            ParenBlock                                 '('               KWLParen            tok=2672  pos=12074
-              Pat.Typed:
-                Pat.NamedSimple                        'value'           Identifier          tok=2673  pos=12075
-                Colon                                  ':'               OpColon             tok=2674  pos=12080
-                VarType:
-                  Typar.Named:
-                                                       ''T'              TypeParameter       tok=2676  pos=12082
-                                                       ')'               KWRParen            tok=2677  pos=12084
-          ReturnColon                                  ':'               OpColon             tok=2679  pos=12086
+                                                       ''T'              TypeParameter       tok=2581  pos=11232
+                                                       ')'               KWRParen            tok=2582  pos=11234
+          ReturnColon                                  ':'               OpColon             tok=2584  pos=11236
           NamedType:
-            Ident                                      'unit'            Identifier          tok=2681  pos=12088
-          =                                            '='               OpEquality          tok=2683  pos=12093
+            Ident                                      'obj'             Identifier          tok=2586  pos=11238
+          =                                            '='               OpEquality          tok=2588  pos=11242
             ILIntrinsic:
-              (#                                       '(#'              KWLHashParen        tok=2686  pos=12103
-              StringLiteral                            '"'               StringOpen          tok=2688  pos=12106
+              (#                                       '(#'              KWLHashParen        tok=2590  pos=11244
+              StringLiteral                            '"'               StringOpen          tok=2592  pos=11247
               Parts:
-                Text                                   'stelem.any...'   StringFragment      tok=2689  pos=12107
-                                                       '"'               StringClose         tok=2690  pos=12120
+                Text                                   'box !0'          StringFragment      tok=2593  pos=11248
+                                                       '"'               StringClose         tok=2594  pos=11254
               ILTypeArg:
-                type                                   'type'            KWType              tok=2692  pos=12122
-                (                                      '('               KWLParen            tok=2694  pos=12127
-                typeToken                              ''T'              TypeParameter       tok=2695  pos=12128
-                )                                      ')'               KWRParen            tok=2696  pos=12130
+                type                                   'type'            KWType              tok=2596  pos=11256
+                (                                      '('               KWLParen            tok=2598  pos=11261
+                typeToken                              ''T'              TypeParameter       tok=2599  pos=11262
+                )                                      ')'               KWRParen            tok=2600  pos=11264
               Arg:
-                Ident                                  'array'           Identifier          tok=2698  pos=12132
-              Arg:
-                Ident                                  'index'           Identifier          tok=2700  pos=12138
-              Arg:
-                Ident                                  'value'           Identifier          tok=2702  pos=12144
+                Ident                                  'value'           Identifier          tok=2602  pos=11266
               ILReturnType:
-                :                                      ':'               OpColon             tok=2704  pos=12150
+                :                                      ':'               OpColon             tok=2604  pos=11272
                 NamedType:
-                  Ident                                'unit'            Identifier          tok=2706  pos=12152
-              #)                                       '#)'              KWRHashParen        tok=2708  pos=12157
+                  Ident                                'obj'             Identifier          tok=2606  pos=11274
+              #)                                       '#)'              KWRHashParen        tok=2608  pos=11278
       FunctionOrValue:
-        let                                            'let'             KWLet               tok=2727  pos=12580
-          inline                                       'inline'          KWInline            tok=2729  pos=12584
-          Pat.NamedSimple                              'GetArrayLe...'   Identifier          tok=2731  pos=12591
+        let                                            'let'             KWLet               tok=2639  pos=11991
+          inline                                       'inline'          KWInline            tok=2641  pos=11995
+          Pat.NamedSimple                              'GetArray'        Identifier          tok=2643  pos=12002
           Pats:
-            ParenBlock                                 '('               KWLParen            tok=2733  pos=12606
+            ParenBlock                                 '('               KWLParen            tok=2645  pos=12011
               Pat.Typed:
-                Pat.NamedSimple                        'array'           Identifier          tok=2734  pos=12607
-                Colon                                  ':'               OpColon             tok=2735  pos=12612
+                Pat.NamedSimple                        'array'           Identifier          tok=2646  pos=12012
+                Colon                                  ':'               OpColon             tok=2647  pos=12017
                 ArrayType:
                   VarType:
                     Typar.Named:
-                                                       ''T'              TypeParameter       tok=2737  pos=12614
-                                                       '['               KWLBracket          tok=2738  pos=12616
-                                                       ']'               KWRBracket          tok=2739  pos=12617
-                                                       ')'               KWRParen            tok=2740  pos=12618
-          ReturnColon                                  ':'               OpColon             tok=2742  pos=12620
+                                                       ''T'              TypeParameter       tok=2649  pos=12019
+                                                       '['               KWLBracket          tok=2650  pos=12021
+                                                       ']'               KWRBracket          tok=2651  pos=12022
+                                                       ')'               KWRParen            tok=2652  pos=12023
+            ParenBlock                                 '('               KWLParen            tok=2654  pos=12025
+              Pat.Typed:
+                Pat.NamedSimple                        'index'           Identifier          tok=2655  pos=12026
+                Colon                                  ':'               OpColon             tok=2656  pos=12031
+                NamedType:
+                  Ident                                'int'             Identifier          tok=2658  pos=12033
+                                                       ')'               KWRParen            tok=2659  pos=12036
+          ReturnColon                                  ':'               OpColon             tok=2661  pos=12038
+          VarType:
+            Typar.Named:
+                                                       ''T'              TypeParameter       tok=2663  pos=12040
+          =                                            '='               OpEquality          tok=2665  pos=12043
+            ILIntrinsic:
+              (#                                       '(#'              KWLHashParen        tok=2667  pos=12045
+              StringLiteral                            '"'               StringOpen          tok=2669  pos=12048
+              Parts:
+                Text                                   'ldelem.any...'   StringFragment      tok=2670  pos=12049
+                                                       '"'               StringClose         tok=2671  pos=12062
+              ILTypeArg:
+                type                                   'type'            KWType              tok=2673  pos=12064
+                (                                      '('               KWLParen            tok=2675  pos=12069
+                typeToken                              ''T'              TypeParameter       tok=2676  pos=12070
+                )                                      ')'               KWRParen            tok=2677  pos=12072
+              Arg:
+                Ident                                  'array'           Identifier          tok=2679  pos=12074
+              Arg:
+                Ident                                  'index'           Identifier          tok=2681  pos=12080
+              ILReturnType:
+                :                                      ':'               OpColon             tok=2683  pos=12086
+                VarType:
+                  Typar.Named:
+                                                       ''T'              TypeParameter       tok=2685  pos=12088
+              #)                                       '#)'              KWRHashParen        tok=2687  pos=12091
+      FunctionOrValue:
+        let                                            'let'             KWLet               tok=2715  pos=12721
+          inline                                       'inline'          KWInline            tok=2717  pos=12725
+          Pat.NamedSimple                              'SetArray'        Identifier          tok=2719  pos=12732
+          Pats:
+            ParenBlock                                 '('               KWLParen            tok=2721  pos=12741
+              Pat.Typed:
+                Pat.NamedSimple                        'array'           Identifier          tok=2722  pos=12742
+                Colon                                  ':'               OpColon             tok=2723  pos=12747
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                                       ''T'              TypeParameter       tok=2725  pos=12749
+                                                       '['               KWLBracket          tok=2726  pos=12751
+                                                       ']'               KWRBracket          tok=2727  pos=12752
+                                                       ')'               KWRParen            tok=2728  pos=12753
+            ParenBlock                                 '('               KWLParen            tok=2730  pos=12755
+              Pat.Typed:
+                Pat.NamedSimple                        'index'           Identifier          tok=2731  pos=12756
+                Colon                                  ':'               OpColon             tok=2732  pos=12761
+                NamedType:
+                  Ident                                'int'             Identifier          tok=2734  pos=12763
+                                                       ')'               KWRParen            tok=2735  pos=12766
+            ParenBlock                                 '('               KWLParen            tok=2737  pos=12768
+              Pat.Typed:
+                Pat.NamedSimple                        'value'           Identifier          tok=2738  pos=12769
+                Colon                                  ':'               OpColon             tok=2739  pos=12774
+                VarType:
+                  Typar.Named:
+                                                       ''T'              TypeParameter       tok=2741  pos=12776
+                                                       ')'               KWRParen            tok=2742  pos=12778
+          ReturnColon                                  ':'               OpColon             tok=2744  pos=12780
           NamedType:
-            Ident                                      'int'             Identifier          tok=2744  pos=12622
-          =                                            '='               OpEquality          tok=2746  pos=12626
+            Ident                                      'unit'            Identifier          tok=2746  pos=12782
+          =                                            '='               OpEquality          tok=2748  pos=12787
             ILIntrinsic:
-              (#                                       '(#'              KWLHashParen        tok=2748  pos=12628
-              StringLiteral                            '"'               StringOpen          tok=2750  pos=12631
+              (#                                       '(#'              KWLHashParen        tok=2751  pos=12797
+              StringLiteral                            '"'               StringOpen          tok=2753  pos=12800
               Parts:
-                Text                                   'ldlen'           StringFragment      tok=2751  pos=12632
-                                                       '"'               StringClose         tok=2752  pos=12637
+                Text                                   'stelem.any...'   StringFragment      tok=2754  pos=12801
+                                                       '"'               StringClose         tok=2755  pos=12814
+              ILTypeArg:
+                type                                   'type'            KWType              tok=2757  pos=12816
+                (                                      '('               KWLParen            tok=2759  pos=12821
+                typeToken                              ''T'              TypeParameter       tok=2760  pos=12822
+                )                                      ')'               KWRParen            tok=2761  pos=12824
               Arg:
-                Ident                                  'array'           Identifier          tok=2754  pos=12639
+                Ident                                  'array'           Identifier          tok=2763  pos=12826
+              Arg:
+                Ident                                  'index'           Identifier          tok=2765  pos=12832
+              Arg:
+                Ident                                  'value'           Identifier          tok=2767  pos=12838
               ILReturnType:
-                :                                      ':'               OpColon             tok=2756  pos=12645
+                :                                      ':'               OpColon             tok=2769  pos=12844
                 NamedType:
-                  Ident                                'int'             Identifier          tok=2758  pos=12647
-              #)                                       '#)'              KWRHashParen        tok=2760  pos=12651
+                  Ident                                'unit'            Identifier          tok=2771  pos=12846
+              #)                                       '#)'              KWRHashParen        tok=2773  pos=12851
       FunctionOrValue:
-        let                                            'let'             KWLet               tok=2800  pos=13584
-          inline                                       'inline'          KWInline            tok=2802  pos=13588
-          Pat.NamedSimple                              'raise'           Identifier          tok=2804  pos=13595
+        let                                            'let'             KWLet               tok=2792  pos=13274
+          inline                                       'inline'          KWInline            tok=2794  pos=13278
+          Pat.NamedSimple                              'GetArrayLe...'   Identifier          tok=2796  pos=13285
           Pats:
-            ParenBlock                                 '('               KWLParen            tok=2806  pos=13601
+            ParenBlock                                 '('               KWLParen            tok=2798  pos=13300
               Pat.Typed:
-                Pat.NamedSimple                        'e'               Identifier          tok=2807  pos=13602
-                Colon                                  ':'               OpColon             tok=2808  pos=13603
+                Pat.NamedSimple                        'array'           Identifier          tok=2799  pos=13301
+                Colon                                  ':'               OpColon             tok=2800  pos=13306
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                                       ''T'              TypeParameter       tok=2802  pos=13308
+                                                       '['               KWLBracket          tok=2803  pos=13310
+                                                       ']'               KWRBracket          tok=2804  pos=13311
+                                                       ')'               KWRParen            tok=2805  pos=13312
+          ReturnColon                                  ':'               OpColon             tok=2807  pos=13314
+          NamedType:
+            Ident                                      'int'             Identifier          tok=2809  pos=13316
+          =                                            '='               OpEquality          tok=2811  pos=13320
+            ILIntrinsic:
+              (#                                       '(#'              KWLHashParen        tok=2813  pos=13322
+              StringLiteral                            '"'               StringOpen          tok=2815  pos=13325
+              Parts:
+                Text                                   'ldlen'           StringFragment      tok=2816  pos=13326
+                                                       '"'               StringClose         tok=2817  pos=13331
+              Arg:
+                Ident                                  'array'           Identifier          tok=2819  pos=13333
+              ILReturnType:
+                :                                      ':'               OpColon             tok=2821  pos=13339
+                NamedType:
+                  Ident                                'int'             Identifier          tok=2823  pos=13341
+              #)                                       '#)'              KWRHashParen        tok=2825  pos=13345
+      FunctionOrValue:
+        let                                            'let'             KWLet               tok=2865  pos=14278
+          inline                                       'inline'          KWInline            tok=2867  pos=14282
+          Pat.NamedSimple                              'raise'           Identifier          tok=2869  pos=14289
+          Pats:
+            ParenBlock                                 '('               KWLParen            tok=2871  pos=14295
+              Pat.Typed:
+                Pat.NamedSimple                        'e'               Identifier          tok=2872  pos=14296
+                Colon                                  ':'               OpColon             tok=2873  pos=14297
                 VarType:
                   Typar.Named:
-                                                       ''TExceptio...'   TypeParameter       tok=2810  pos=13605
-                                                       ')'               KWRParen            tok=2811  pos=13616
-          ReturnColon                                  ':'               OpColon             tok=2813  pos=13618
+                                                       ''TExceptio...'   TypeParameter       tok=2875  pos=14299
+                                                       ')'               KWRParen            tok=2876  pos=14310
+          ReturnColon                                  ':'               OpColon             tok=2878  pos=14312
           VarType:
             Typar.Named:
-                                                       ''T'              TypeParameter       tok=2815  pos=13620
-          =                                            '='               OpEquality          tok=2817  pos=13623
+                                                       ''T'              TypeParameter       tok=2880  pos=14314
+          =                                            '='               OpEquality          tok=2882  pos=14317
             ILIntrinsic:
-              (#                                       '(#'              KWLHashParen        tok=2819  pos=13625
-              StringLiteral                            '"'               StringOpen          tok=2821  pos=13628
+              (#                                       '(#'              KWLHashParen        tok=2884  pos=14319
+              StringLiteral                            '"'               StringOpen          tok=2886  pos=14322
               Parts:
-                Text                                   'throw'           StringFragment      tok=2822  pos=13629
-                                                       '"'               StringClose         tok=2823  pos=13634
+                Text                                   'throw'           StringFragment      tok=2887  pos=14323
+                                                       '"'               StringClose         tok=2888  pos=14328
               Arg:
-                Ident                                  'e'               Identifier          tok=2825  pos=13636
+                Ident                                  'e'               Identifier          tok=2890  pos=14330
               ILReturnType:
-                :                                      ':'               OpColon             tok=2827  pos=13638
+                :                                      ':'               OpColon             tok=2892  pos=14332
                 VarType:
                   Typar.Named:
-                                                       ''T'              TypeParameter       tok=2829  pos=13640
-              #)                                       '#)'              KWRHashParen        tok=2831  pos=13643
+                                                       ''T'              TypeParameter       tok=2894  pos=14334
+              #)                                       '#)'              KWRHashParen        tok=2896  pos=14337
       FunctionOrValue:
-        let                                            'let'             KWLet               tok=2868  pos=14443
-          inline                                       'inline'          KWInline            tok=2870  pos=14447
-          Pat.NamedSimple                              'failwith'        Identifier          tok=2872  pos=14454
+        let                                            'let'             KWLet               tok=2933  pos=15137
+          inline                                       'inline'          KWInline            tok=2935  pos=15141
+          Pat.NamedSimple                              'failwith'        Identifier          tok=2937  pos=15148
           Pats:
-            ParenBlock                                 '('               KWLParen            tok=2874  pos=14463
+            ParenBlock                                 '('               KWLParen            tok=2939  pos=15157
               Pat.Typed:
-                Pat.NamedSimple                        'message'         Identifier          tok=2875  pos=14464
-                Colon                                  ':'               OpColon             tok=2876  pos=14471
+                Pat.NamedSimple                        'message'         Identifier          tok=2940  pos=15158
+                Colon                                  ':'               OpColon             tok=2941  pos=15165
                 NamedType:
-                  Ident                                'string'          Identifier          tok=2878  pos=14473
-                                                       ')'               KWRParen            tok=2879  pos=14479
-          ReturnColon                                  ':'               OpColon             tok=2881  pos=14481
+                  Ident                                'string'          Identifier          tok=2943  pos=15167
+                                                       ')'               KWRParen            tok=2944  pos=15173
+          ReturnColon                                  ':'               OpColon             tok=2946  pos=15175
           VarType:
             Typar.Named:
-                                                       ''T'              TypeParameter       tok=2883  pos=14483
-          =                                            '='               OpEquality          tok=2885  pos=14486
+                                                       ''T'              TypeParameter       tok=2948  pos=15177
+          =                                            '='               OpEquality          tok=2950  pos=15180
             App:
               Func:
-                Ident                                  'raise'           Identifier          tok=2887  pos=14488
+                Ident                                  'raise'           Identifier          tok=2952  pos=15182
               Args:
-                ParenBlock                             '('               KWLParen            tok=2889  pos=14494
-                  New                                  'new'             KWNew               tok=2890  pos=14495
+                ParenBlock                             '('               KWLParen            tok=2954  pos=15188
+                  New                                  'new'             KWNew               tok=2955  pos=15189
                     NamedType:
                       LongIdent:
-                                                       'System'          Identifier          tok=2892  pos=14499
-                                                       'Exception'       Identifier          tok=2894  pos=14506
+                                                       'System'          Identifier          tok=2957  pos=15193
+                                                       'Exception'       Identifier          tok=2959  pos=15200
                     Arg:
-                      ParenBlock                       '('               KWLParen            tok=2895  pos=14515
-                        Ident                          'message'         Identifier          tok=2896  pos=14516
-                                                       ')'               KWRParen            tok=2897  pos=14523
-                                                       ')'               KWRParen            tok=2898  pos=14524
+                      ParenBlock                       '('               KWLParen            tok=2960  pos=15209
+                        Ident                          'message'         Identifier          tok=2961  pos=15210
+                                                       ')'               KWRParen            tok=2962  pos=15217
+                                                       ')'               KWRParen            tok=2963  pos=15218
       FunctionOrValue:
-        let                                            'let'             KWLet               tok=2923  pos=15058
-          inline                                       'inline'          KWInline            tok=2925  pos=15062
-          Pat.NamedSimple                              'invalidArg'      Identifier          tok=2927  pos=15069
+        let                                            'let'             KWLet               tok=2988  pos=15752
+          inline                                       'inline'          KWInline            tok=2990  pos=15756
+          Pat.NamedSimple                              'invalidArg'      Identifier          tok=2992  pos=15763
           Pats:
-            ParenBlock                                 '('               KWLParen            tok=2929  pos=15080
+            ParenBlock                                 '('               KWLParen            tok=2994  pos=15774
               Pat.Typed:
-                Pat.NamedSimple                        'argumentNa...'   Identifier          tok=2930  pos=15081
-                Colon                                  ':'               OpColon             tok=2931  pos=15093
+                Pat.NamedSimple                        'argumentNa...'   Identifier          tok=2995  pos=15775
+                Colon                                  ':'               OpColon             tok=2996  pos=15787
                 NamedType:
-                  Ident                                'string'          Identifier          tok=2933  pos=15095
-                                                       ')'               KWRParen            tok=2934  pos=15101
-            ParenBlock                                 '('               KWLParen            tok=2936  pos=15103
+                  Ident                                'string'          Identifier          tok=2998  pos=15789
+                                                       ')'               KWRParen            tok=2999  pos=15795
+            ParenBlock                                 '('               KWLParen            tok=3001  pos=15797
               Pat.Typed:
-                Pat.NamedSimple                        'message'         Identifier          tok=2937  pos=15104
-                Colon                                  ':'               OpColon             tok=2938  pos=15111
+                Pat.NamedSimple                        'message'         Identifier          tok=3002  pos=15798
+                Colon                                  ':'               OpColon             tok=3003  pos=15805
                 NamedType:
-                  Ident                                'string'          Identifier          tok=2940  pos=15113
-                                                       ')'               KWRParen            tok=2941  pos=15119
-          ReturnColon                                  ':'               OpColon             tok=2943  pos=15121
+                  Ident                                'string'          Identifier          tok=3005  pos=15807
+                                                       ')'               KWRParen            tok=3006  pos=15813
+          ReturnColon                                  ':'               OpColon             tok=3008  pos=15815
           VarType:
             Typar.Named:
-                                                       ''T'              TypeParameter       tok=2945  pos=15123
-          =                                            '='               OpEquality          tok=2947  pos=15126
+                                                       ''T'              TypeParameter       tok=3010  pos=15817
+          =                                            '='               OpEquality          tok=3012  pos=15820
             App:
               Func:
-                Ident                                  'raise'           Identifier          tok=2950  pos=15136
+                Ident                                  'raise'           Identifier          tok=3015  pos=15830
               Args:
-                ParenBlock                             '('               KWLParen            tok=2952  pos=15142
-                  New                                  'new'             KWNew               tok=2953  pos=15143
+                ParenBlock                             '('               KWLParen            tok=3017  pos=15836
+                  New                                  'new'             KWNew               tok=3018  pos=15837
                     NamedType:
                       LongIdent:
-                                                       'System'          Identifier          tok=2955  pos=15147
-                                                       'ArgumentEx...'   Identifier          tok=2957  pos=15154
+                                                       'System'          Identifier          tok=3020  pos=15841
+                                                       'ArgumentEx...'   Identifier          tok=3022  pos=15848
                     Arg:
-                      ParenBlock                       '('               KWLParen            tok=2958  pos=15171
+                      ParenBlock                       '('               KWLParen            tok=3023  pos=15865
                         Tuple:
-                          Ident                        'message'         Identifier          tok=2959  pos=15172
-                          Ident                        'argumentNa...'   Identifier          tok=2962  pos=15181
-                                                       ')'               KWRParen            tok=2963  pos=15193
-                                                       ')'               KWRParen            tok=2964  pos=15194
-    end                                                <virt>            KWEnd               tok=virt  pos=15196
+                          Ident                        'message'         Identifier          tok=3024  pos=15866
+                          Ident                        'argumentNa...'   Identifier          tok=3027  pos=15875
+                                                       ')'               KWRParen            tok=3028  pos=15887
+                                                       ')'               KWRParen            tok=3029  pos=15888
+    end                                                <virt>            KWEnd               tok=virt  pos=15890

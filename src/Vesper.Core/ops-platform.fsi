@@ -282,6 +282,21 @@ module Operators =
         ///
         val inline not: value: bool -> bool
 
+        /// <summary>Box a value to <c>obj</c> (mirroring FSharp.Core's
+        /// <c>box</c>).</summary>
+        ///
+        /// <param name="value">The value to box.</param>
+        ///
+        /// <returns>The value boxed as <c>obj</c>.</returns>
+        ///
+        /// <remarks>Inline; the <c>(# "box !0" … #)</c> body splices at each use
+        /// site so the box is emitted inline (no call). The boxed element type
+        /// rides the <c>!0</c> placeholder — Freeze recovers it from the
+        /// argument's static type and codegen emits <c>box &lt;T&gt;</c>. The
+        /// platform mnemonic lives in <c>ops-platform.fs</c>, not the
+        /// target-agnostic Semantic Analysis layer.</remarks>
+        val inline box: value: 'T -> obj
+
         /// <summary>Indexed read of a single-dimensional, zero-based array — the
         /// lowering target the front end desugars <c>arr.[i]</c> to (mirroring F#'s
         /// <c>IntrinsicFunctions.GetArray</c>).</summary>

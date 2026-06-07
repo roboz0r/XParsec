@@ -161,6 +161,7 @@ module Emit =
         (thisKey: NodeKey voption)
         (baseKey: NodeKey voption)
         (prms: EqArray<NodeKey * FrozenType>)
+        (voidReturn: bool)
         (body: Frozen.TExpr)
         : ILBody =
         let b = IlBuilder()
@@ -199,6 +200,14 @@ module Emit =
             }
 
         buildExpr env b body
+
+        // A `void`-returning interface-impl member (e.g. `IDisposable.Dispose`):
+        // the body still leaves the `unit`-as-value `System.ValueTuple` on the
+        // stack (every Vesper expression yields a value), but a `void` method must
+        // `ret` empty-stacked — pop the residual unit first.
+        if voidReturn then
+            b.Add ILInstr.Pop
+
         b.Add ILInstr.Ret
         b.Body
 
@@ -251,7 +260,7 @@ module Emit =
         b.Body
 
     /// Build a secondary constructor body of the explicit field-init form
-    /// (`new(args) = { f = e; … }`, structs-handoff #2): run the `let`-preamble
+    /// (`new(args) = { f = e; … }`): run the `let`-preamble
     /// into locals, then store each `field = expr` initialiser through `this`
     /// (`ldarg.0; <init>; stfld field`). Unlike `buildSecondaryCtor` there is
     /// **no** primary `.ctor` chain — fields not listed are left default

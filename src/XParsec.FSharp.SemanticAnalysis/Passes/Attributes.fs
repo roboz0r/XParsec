@@ -138,7 +138,7 @@ module Attributes =
         [ "AllowNullLiteral"; "AllowNullLiteralAttribute" ]
 
     /// `[<Struct>]` opts a class-shaped type into value-type (`System.ValueType`)
-    /// emission (vesper-set-sprint-phase-6 / structs-handoff). The bare
+    /// emission (vesper-set-sprint-phase-6). The bare
     /// `type X = struct … end` shape (no attribute) lands as `TypeDefn.Struct`
     /// and is normalised to the same flag by `registerClassTypeDefn`.
     let private structNames = [ "Struct"; "StructAttribute" ]

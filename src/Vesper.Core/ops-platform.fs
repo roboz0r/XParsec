@@ -187,6 +187,16 @@ module Operators =
     /// (`SymbolProviders.inlineBodies`) — no Vesper runtime dependency.
     let inline not (value: bool) : bool = (# "ceq" value false : bool #)
 
+    /// Box a value to `obj`. FSharp.Core's `box` (`prim-types.fs`): the
+    /// `(# "box !0" … #)` inline IL boxes a value type to its boxed reference
+    /// (and is a no-op the JIT erases on a reference type). The boxed element
+    /// type rides the `!0` placeholder; like the array ops below, Freeze recovers
+    /// it from the argument's static type (not the IL string) and codegen emits a
+    /// `box <T>`. As a cross-package inline its body splices at each use site, so
+    /// it pins no Vesper runtime dependency. Needed by `set.fs`'s struct
+    /// enumerator (`IEnumerator.Current = box this.current`).
+    let inline box (value: 'T) : obj = (# "box !0" type ('T) value : obj #)
+
     /// Indexed read of a single-dimensional, zero-based array — the lowering
     /// target the front end desugars `arr.[i]` to (mirroring F#'s
     /// `IntrinsicFunctions.GetArray`). The `(# "ldelem.any !0" … #)` inline IL

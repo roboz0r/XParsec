@@ -625,8 +625,8 @@ module Elaborate =
         let mutable primaryArgs = EqArray.empty
         let fieldInits = ResizeArray<TCtorFieldInit>()
 
-        // The explicit field-init form `new(args) = { f = e; … }`
-        // (structs-handoff #2): each `FieldInitializer` stores into a declared
+        // The explicit field-init form `new(args) = { f = e; … }`:
+        // each `FieldInitializer` stores into a declared
         // instance field. The `LongIdent` is a single field-name segment (the
         // last segment names the field); there is no primary-ctor chain.
         let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) =

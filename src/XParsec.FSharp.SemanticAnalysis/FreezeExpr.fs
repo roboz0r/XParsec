@@ -1115,6 +1115,14 @@ module FreezeExpr =
                 // array, index, value), not the node's result type as `ldelem` does.
                 let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[2]))
                 TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty)
+            elif opCode.StartsWith "box" then
+                // `box value` — the boxed element type is the *argument's* static
+                // type (the result is always `obj`), so recover it from the single
+                // value operand. A value type emits `box <T>`; a reference type's
+                // box is the JIT-erased identity (codegen leaves it as `box`, which
+                // the runtime treats as a no-op on a ref type).
+                let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[0]))
+                TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty)
             else
                 TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty)
         | Expr.LibraryOnlyStaticOptimization _ ->

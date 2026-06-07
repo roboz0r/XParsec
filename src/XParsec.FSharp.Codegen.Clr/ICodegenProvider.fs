@@ -91,6 +91,12 @@ type ClassMember =
     /// The primary `instance void .ctor(p0, p1, …)` — parameter types are
     /// the ctor params in declaration order.
     | Ctor
+    /// A secondary `instance void .ctor(p0, …)` (B-11) selected by its parameter
+    /// signature — F# forbids two ctors of the same signature, so `paramTys`
+    /// (the ctor params in declaration order, written in the type's declaring-typar
+    /// markers) keys the overload. Distinct from `Ctor` because the param types are
+    /// the ctor's own, not the type's fields.
+    | SecondaryCtor of paramTys: FrozenType list
     /// The backing field named `fieldName` for a primary-ctor parameter.
     | Field of fieldName: string
     /// An augmentation member (`get_X` instance property, `M` instance method,
@@ -301,7 +307,7 @@ type ICodegenProvider =
     /// Whether a *referenced-assembly / referenced-package* nominal type
     /// (identified by its nominal `SymbolKey`) is a .NET value type
     /// (`struct`). The metadata layer reads it off `Type.IsValueType`; the contract
-    /// layer reads it off the `.fsi` `struct … end` form (structs-handoff #6). The
+    /// layer reads it off the `.fsi` `struct … end` form. The
     /// expression walker consults this so `EmitExpr.isValueType` recognises an
     /// external struct the same way it already recognises a project-local one —
     /// driving `:>`-box / `:?>`-unbox / value-receiver dispatch. `false` for every

@@ -473,7 +473,7 @@ module Unification =
                     unify ctx (CstKeys.ofExpr e) (tupleOrSingle argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
-            // Explicit field-init `{ f = e; … }` (structs-handoff #2): infer each
+            // Explicit field-init `{ f = e; … }`: infer each
             // initialiser and unify it against the named field's declared type so a
             // literal (`0`, `false`) or a generic field (`'T`) pins correctly. An
             // unknown field name leaves the type open (no constraint) — the field

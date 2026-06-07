@@ -157,7 +157,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 // x: T` instance fields must be in the generic-class registry: a
                 // generic struct's field-init ctor and member-body `ldfld`/`stfld`
                 // reference the `val` fields by name through a `MemberRef` on the open
-                // self-`TypeSpec` (structs-handoff #3), so an unregistered `val` field
+                // self-`TypeSpec`, so an unregistered `val` field
                 // fails resolution ("generic class … has no field").
                 let shape =
                     [ for p in cd.CtorParams -> p.Name, p.Type ]

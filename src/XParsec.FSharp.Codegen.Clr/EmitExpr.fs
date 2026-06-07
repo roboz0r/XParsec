@@ -206,7 +206,7 @@ module EmitExpr =
         // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
         // struct that lives in a *referenced* package (not in `env.Classes`) is
         // recognised the same way via the provider's external value-type flag —
-        // the contract/metadata layer's `IsValueType` (structs-handoff #6).
+        // the contract/metadata layer's `IsValueType`.
         | FTClass(key, _) ->
             match env.Classes.TryGetValue key with
             | true, c -> c.IsValueType
@@ -214,7 +214,7 @@ module EmitExpr =
         | _ -> false
 
     /// Load a value-type receiver as a managed pointer (`this` byref) for an
-    /// address-based member call (struct-codegen #1, structs-handoff.md). A method
+    /// address-based member call. A method
     /// / property call on an *unboxed* struct needs the receiver **address**, not
     /// its value: a `let`/slot-bound local is addressed in place (`ldloca slot`)
     /// so a mutating member persists; any other receiver expression (an arg, a
@@ -863,8 +863,8 @@ module EmitExpr =
                 if argCount = 0 && c.IsValueType then
                     // Parameterless value-type construction (`Counter()`) — the
                     // idiomatic CLR lowering is `initobj` on a zeroed scratch local,
-                    // not `newobj` against the synthesised parameterless `.ctor`
-                    // (structs-handoff #5). A struct's parameterless ctor only
+                    // not `newobj` against the synthesised parameterless `.ctor`.
+                    // A struct's parameterless ctor only
                     // zero-inits anyway, so this is equivalent and avoids relying on
                     // the JIT tolerating an explicit value-type `.ctor()` call.
                     let slot = b.Local ty
@@ -880,14 +880,23 @@ module EmitExpr =
 
                     b.Add(ILInstr.Newobj(ctorRef, argCount))
                 else
-                    match c.SecondaryCtors |> List.tryFind (fun (a, _) -> a = argCount) with
-                    | Some(_, h) when List.isEmpty c.Typars -> b.Add(ILInstr.Newobj(h, argCount))
-                    | Some _ ->
-                        // Generic secondary-ctor *call sites* need a `MemberRef` on
-                        // the instantiated `TypeSpec`; the secondary-ctor *bodies*
-                        // already emit. Deferred until a `ClassMember.SecondaryCtor`
-                        // ref variant lands.
-                        failwithf "Emit: generic secondary-constructor call sites not yet supported ('%s')" className
+                    match c.SecondaryCtors |> List.tryFind (fun (a, _, _) -> a = argCount) with
+                    | Some(_, _, h) when List.isEmpty c.Typars -> b.Add(ILInstr.Newobj(h, argCount))
+                    | Some(_, paramTys, h) ->
+                        // Generic secondary-ctor call site: a `MemberRef` on the
+                        // instantiated `TypeSpec` (`OnceEnum<int>::.ctor`), keyed by
+                        // the ctor's declared param signature — the bodies already
+                        // emit; this is the missing construction-side ref.
+                        let ctorRef =
+                            memberRef
+                                env
+                                c.Typars
+                                classKey
+                                tyArgs
+                                (UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys))
+                                h
+
+                        b.Add(ILInstr.Newobj(ctorRef, argCount))
                     | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
             | ValueNone ->
                 // The external ctor is identified by the construction's result-type
@@ -1191,6 +1200,18 @@ module EmitExpr =
             // expression (`for`, `()` literal) — a function body that is a bare
             // `arr.[i] <- v` must leave the unit return value for `ret`.
             EmitTypes.buildUnitValue env b
+
+        | TExprG.ILIntrinsic("box", operand, args, _) ->
+            // `box value` — push the value, then `box <T>`. The boxed type rides
+            // `typeOperand` (Freeze recovered it from the argument's static type).
+            // Identical instruction to the value-type `:>`-upcast path above; the
+            // runtime treats `box` on a reference type as a no-op.
+            for a in args do
+                buildExpr env b a
+
+            match operand with
+            | ValueSome elem -> b.Add(ILInstr.Box(env.Provider.TypeToken elem))
+            | ValueNone -> failwith "Emit: 'box' without a type operand"
 
         | TExprG.ILIntrinsic("ldlen", _, args, _) ->
             // `arr.Length` — push the array, `ldlen` (native int), then `conv.i4`

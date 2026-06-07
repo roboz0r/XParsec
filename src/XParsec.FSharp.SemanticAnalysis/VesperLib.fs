@@ -1000,7 +1000,7 @@ module VesperLib =
             // reference class, but the contract must publish its value-type-ness so a
             // consumer's encoder emits `ELEMENT_TYPE_VALUETYPE` (not `CLASS`) for it —
             // without that flag a referenced-package struct in any signature faults the
-            // loader with "value type mismatch" (structs-handoff #6). The metadata
+            // loader with "value type mismatch". The metadata
             // layer reads the same flag off `Type.IsValueType`; here it rides the
             // syntactic `struct … end` form (a `[<Struct>]`-attributed `Class`/`Anon`
             // would need attribute decode — its canonical surface is this form).

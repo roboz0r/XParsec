@@ -154,7 +154,7 @@ module Desugar =
             // A secondary ctor's body (`new(args) = …`, B-11) is an
             // `AdditionalConstrExpr`, not a plain `Expr` — walk each embedded
             // expression so a `let`-preamble RHS, a chain-call arg, or an explicit
-            // field-init `{ f = e }` (structs-handoff #2) gets its operator
+            // field-init `{ f = e }` gets its operator
             // compiled-name entries. Mirrors `NameResolution.walkCtorBody`.
             let rec walkCtorBody (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
                 match ace with

@@ -532,7 +532,7 @@ let tests =
             }
 
             test "A `struct … end` value type extracts as a Class shape flagged IsValueType" {
-                // structs-handoff #6: a `type X = struct … end` value type in a `.fsi`
+                // A `type X = struct … end` value type in a `.fsi`
                 // must surface its value-type-ness through the provider, or a consumer's
                 // encoder emits `ELEMENT_TYPE_CLASS` for a referenced-package struct and
                 // the loader faults "value type mismatch". Extraction registers a

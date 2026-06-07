@@ -142,7 +142,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         // A `[<Struct>]` value type's generic self-`TypeSpec` (the MemberRef parent
         // for its ctor / fields / members) must carry the `VALUETYPE` tag, else the
         // GENERICINST encodes as `CLASS` and the loader faults "value type mismatch"
-        // when constructing or dispatching on a generic struct (structs-handoff #3).
+        // when constructing or dispatching on a generic struct.
         let isVt = userValueTypes.Contains key
         let g = te.GenericInstantiation(userTypes.[key], List.length typars, isVt)
 
@@ -158,6 +158,25 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         match which with
         | ClassMember.Ctor ->
             let paramTys = fields |> List.map snd
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    List.length paramTys,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeType (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+        | ClassMember.SecondaryCtor paramTys ->
+            // Same `.ctor` MemberRef shape as the primary, but the parameter
+            // signature is the secondary ctor's own (the `paramTys` are in the
+            // type's declaring-typar markers, so they encode as `!i` against the
+            // instantiated parent `TypeSpec`).
             let s = BlobBuilder()
 
             BlobEncoder(s)

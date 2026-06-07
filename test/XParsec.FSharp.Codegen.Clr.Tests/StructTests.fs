@@ -13,8 +13,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // The boxed-interface path is the one `Vesper.Set`'s struct enumerator needs:
 // construct a struct, coerce it to an interface (box), dispatch through the
-// boxed reference (callvirt) — value-type *method dispatch on an unboxed local*
-// is deliberately out of scope (see structs-handoff.md).
+// boxed reference (callvirt). Value-type method dispatch on an unboxed local is
+// also covered below (address-based `call` on the receiver).
 
 [<Tests>]
 let structTests =
@@ -108,7 +108,7 @@ let structTests =
             }
 
             test "a method call on an unboxed struct local dispatches by address" {
-                // structs-handoff #1: `p.Sum()` on a `let`-bound struct value needs
+                // `p.Sum()` on a `let`-bound struct value needs
                 // the receiver *address* (`ldloca` + `constrained. callvirt`), not a
                 // by-value `callvirt` (invalid IL on an unboxed value type).
                 let _, artifact =
@@ -183,7 +183,7 @@ let structTests =
                 Expect.equal (run.Invoke(null, [||]) :?> int) 2 "two Bump()s on the same local leave N = 2"
             }
 
-            // structs-handoff #5: a parameterless struct construction (`Counter()`)
+            // A parameterless struct construction (`Counter()`)
             // lowers to `ldloca; initobj; ldloc` on a scratch local, not a `newobj`
             // against the synthesised parameterless `.ctor`. The field reads back as
             // its zero-init default, proving `initobj` produced a usable zeroed value.
@@ -265,7 +265,7 @@ let structTests =
                 Expect.equal (sumOf.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "SPoint(3,4).Sum() returns 7"
             }
 
-            // structs-handoff #2: a secondary ctor of the explicit field-init form
+            // A secondary ctor of the explicit field-init form
             // `new(args) = { f = e; … }`. Unlike a chain-form `new`, it stores
             // directly into the declared `val` fields (no primary-`.ctor` chain).
             test "a struct secondary ctor with an explicit field-init block initialises val fields" {
@@ -332,7 +332,7 @@ let structTests =
                 Expect.equal (fieldB.GetValue boxed :?> int) 10 "B = the let-bound a + a"
             }
 
-            // structs-handoff #4: an immutable `val x: T` (no `mutable`) emits as
+            // An immutable `val x: T` (no `mutable`) emits as
             // `InitOnly`. Validation forbids `this.x <- …` on it, so it is only ever
             // written by a ctor — here the field-init secondary ctor's `stfld`, which
             // InitOnly permits. The field still round-trips its ctor-stored value.
@@ -394,7 +394,7 @@ let structTests =
                 Expect.equal (fieldStarted.GetValue boxed :?> bool) false "Started initialised from the bool literal"
             }
 
-            // structs-handoff #3: generic structs. `SetIterator<'T>` is generic, so
+            // Generic structs. `SetIterator<'T>` is generic, so
             // the value-type flag must ride the generic self-`TypeSpec` (base type,
             // ctor field `MemberRef`s, signature encoding). These prove a generic
             // value type constructs, reflects as a generic value type, and reads a
@@ -429,7 +429,7 @@ let structTests =
                 // Boxed dispatch through the generic self-`TypeSpec`: the ctor stores
                 // `value` into the open `Box\`1<!0>::value` field and `Get()` reads it
                 // back. A `CLASS`-tagged self-`TypeSpec` would fault "value type
-                // mismatch" before `Get()` ever runs (structs-handoff #3).
+                // mismatch" before `Get()` ever runs.
                 let _, artifact =
                     compileSource
                         "GenericStructMember"
@@ -486,7 +486,173 @@ let structTests =
                 Expect.equal (get.Invoke(boxed, [||]) :?> int) 7 "Get() reads the val field back"
             }
 
-            // structs-handoff #6: a `[<Struct>]` declared in a *referenced package*
+            // vesper-set-sprint-phase-6 (B-3-alt) — the struct *enumerator* shape.
+            // A generic struct that IS the enumerator: it implements
+            // `IEnumerator<'T>` (generic `Current`) + the non-generic `IEnumerator`
+            // (`Current : obj`, `MoveNext`, `Reset`) + `IDisposable`, mutating its
+            // own `val mutable` state through the byref `this` across `MoveNext`
+            // calls on the *boxed* struct. This is `SetTree.SetIterator<'T>` minus
+            // the AVL stack — the object expression `mkIEnumerator` is replaced by.
+            test "a generic struct enumerator implements the three IEnumerator interfaces and advances boxed" {
+                let _, artifact =
+                    compileSource
+                        "StructEnumerator"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type OnceEnum<'T> ="
+                                "    val mutable Item: 'T"
+                                "    val mutable Started: bool"
+                                "    new(x: 'T) = { Item = x; Started = false }"
+                                "    interface System.Collections.Generic.IEnumerator<'T> with"
+                                "        member this.Current = this.Item"
+                                "    interface System.Collections.IEnumerator with"
+                                "        member this.Current = box this.Item"
+                                "        member this.MoveNext() ="
+                                "            if this.Started then"
+                                "                false"
+                                "            else"
+                                "                this.Started <- true"
+                                "                true"
+                                "        member this.Reset() = ()"
+                                "    interface System.IDisposable with"
+                                "        member this.Dispose() = ()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let openTy = asm.GetType "OnceEnum`1"
+                Expect.isTrue openTy.IsValueType "OnceEnum`1 is a value type"
+                let ty = openTy.MakeGenericType [| typeof<int> |]
+
+                // Box the struct and drive it through the generic `IEnumerator<int>`.
+                // The mutation in `MoveNext` must survive across calls (byref `this`
+                // into the box), so the second `MoveNext` reports the end.
+                let boxed = Activator.CreateInstance(ty, [| box 42 |])
+                let e = boxed :?> System.Collections.Generic.IEnumerator<int>
+                Expect.isTrue (e.MoveNext()) "first MoveNext starts the single-element enumeration"
+                Expect.equal e.Current 42 "Current yields the ctor-stored item through IEnumerator<int>"
+                Expect.isFalse (e.MoveNext()) "second MoveNext reports the end (Started mutation persisted)"
+
+                // The non-generic `IEnumerator.Current` boxes the item.
+                let boxed2 = Activator.CreateInstance(ty, [| box 7 |])
+                let ng = boxed2 :?> System.Collections.IEnumerator
+                Expect.isTrue (ng.MoveNext()) "non-generic MoveNext advances"
+                Expect.equal (ng.Current :?> int) 7 "non-generic Current boxes the item"
+            }
+
+            // NOTE (B-3-alt limitation): a struct enumerator must inline its advance
+            // / read logic *directly* in the interface members (as the test above
+            // does), not factor it into a public member the interface forwards to.
+            // Two gaps block the forwarded shape and keep `set.fs`'s `SetIterator`
+            // on the inlined form:
+            //   * same name (`member this.MoveNext() = this.MoveNext()`) resolves the
+            //     inner call to the interface method ⇒ infinite recursion;
+            //   * distinct name (`… = this.Advance()`) calls the helper by *value*
+            //     ⇒ the mutation to `this` happens on a copy and is lost.
+            // Both are separate from this phase's struct-enumerator support; the
+            // inlined form is the supported shape.
+
+            // The full B-3-alt wiring: a class whose `GetEnumerator()` *constructs*
+            // the struct enumerator and returns it `:>`-upcast (boxed) to the
+            // interface — exactly `Set<'T>.GetEnumerator()` ⇒ `SetTree.mkIEnumerator`.
+            // Phase 5's codegen test stored a ctor-supplied enumerator; here the
+            // enumerator is built in-method from a struct value type.
+            test "a class GetEnumerator constructs a struct enumerator and returns it boxed (yields the element)" {
+                let _, artifact =
+                    compileSource
+                        "StructEnumeratorSeq"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type OnceEnum<'T> ="
+                                "    val mutable Item: 'T"
+                                "    val mutable Started: bool"
+                                "    new(x: 'T) = { Item = x; Started = false }"
+                                "    interface System.Collections.Generic.IEnumerator<'T> with"
+                                "        member this.Current = this.Item"
+                                "    interface System.Collections.IEnumerator with"
+                                "        member this.Current = box this.Item"
+                                "        member this.MoveNext() ="
+                                "            if this.Started then"
+                                "                false"
+                                "            else"
+                                "                this.Started <- true"
+                                "                true"
+                                "        member this.Reset() = ()"
+                                "    interface System.IDisposable with"
+                                "        member this.Dispose() = ()"
+                                "type OnceSeq<'T>(x: 'T) ="
+                                "    interface System.Collections.Generic.IEnumerable<'T> with"
+                                "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> ="
+                                "            OnceEnum(x) :> System.Collections.Generic.IEnumerator<'T>"
+                                "    interface System.Collections.IEnumerable with"
+                                "        member this.GetEnumerator() : System.Collections.IEnumerator ="
+                                "            OnceEnum(x) :> System.Collections.IEnumerator"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let seqTy = (asm.GetType "OnceSeq`1").MakeGenericType [| typeof<int> |]
+
+                let s =
+                    Activator.CreateInstance(seqTy, [| box 99 |]) :?> System.Collections.Generic.IEnumerable<int>
+
+                Expect.equal
+                    (s |> Seq.toList)
+                    [ 99 ]
+                    "enumerating the seq via its struct enumerator yields the single element"
+            }
+
+            // The `set.fs` construction shape: an *explicit* type application at the
+            // construction site (`SetIterator<'T>(s.Tree)` → here `OnceEnum<'T>(x)`).
+            // The secondary-ctor type args ground from both the explicit `<'T>` and
+            // the value arg; without the local-secondary-ctor inference path the
+            // result type's arg leaks as a free `TyVar` (`?ungrounded-operator`).
+            test "a class GetEnumerator constructs the struct enumerator with explicit type args (Set<'T> shape)" {
+                let _, artifact =
+                    compileSource
+                        "StructEnumeratorTypeApp"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type OnceEnum<'T> ="
+                                "    val mutable Item: 'T"
+                                "    val mutable Started: bool"
+                                "    new(x: 'T) = { Item = x; Started = false }"
+                                "    interface System.Collections.Generic.IEnumerator<'T> with"
+                                "        member this.Current = this.Item"
+                                "    interface System.Collections.IEnumerator with"
+                                "        member this.Current = box this.Item"
+                                "        member this.MoveNext() ="
+                                "            if this.Started then"
+                                "                false"
+                                "            else"
+                                "                this.Started <- true"
+                                "                true"
+                                "        member this.Reset() = ()"
+                                "    interface System.IDisposable with"
+                                "        member this.Dispose() = ()"
+                                "type OnceSeq<'T>(x: 'T) ="
+                                "    interface System.Collections.Generic.IEnumerable<'T> with"
+                                "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> ="
+                                "            OnceEnum<'T>(x) :> System.Collections.Generic.IEnumerator<'T>"
+                                "    interface System.Collections.IEnumerable with"
+                                "        member this.GetEnumerator() : System.Collections.IEnumerator ="
+                                "            OnceEnum<'T>(x) :> System.Collections.IEnumerator"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let seqTy = (asm.GetType "OnceSeq`1").MakeGenericType [| typeof<int> |]
+
+                let s =
+                    Activator.CreateInstance(seqTy, [| box 5 |]) :?> System.Collections.Generic.IEnumerable<int>
+
+                Expect.equal (s |> Seq.toList) [ 5 ] "explicit-type-app construction enumerates to the single element"
+            }
+
+            // A `[<Struct>]` declared in a *referenced package*
             // and consumed by name. The contract `.fsi` publishes a `struct … end`
             // value type; a consumer compiled against that contract must encode the
             // referenced type as `ELEMENT_TYPE_VALUETYPE` (0x11), not `CLASS` (0x12) —
@@ -546,6 +712,6 @@ let structTests =
 
                 // 0x11 = ELEMENT_TYPE_VALUETYPE, 0x12 = ELEMENT_TYPE_CLASS.
                 Expect.notEqual elem 0x12uy "the referenced struct must NOT encode as ELEMENT_TYPE_CLASS"
-                Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE (structs-handoff #6)"
+                Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE"
             }
         ]

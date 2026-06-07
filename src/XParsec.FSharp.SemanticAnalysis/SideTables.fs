@@ -267,7 +267,7 @@ type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
     member val DeclKey = declKey
 
 /// An explicit instance field declared with `val [mutable] x: T`
-/// (vesper-set-sprint-phase-6 / structs-handoff). `Type` starts as a placeholder
+/// (vesper-set-sprint-phase-6). `Type` starts as a placeholder
 /// TyVar stamped at registration and is linked by Unification's `fillClassMembers`
 /// from `TypeCst` (the field is always annotated). `IsMutable` reflects the
 /// `mutable` keyword — `Freeze` projects it onto `TTypeKind.Class.fields` so a

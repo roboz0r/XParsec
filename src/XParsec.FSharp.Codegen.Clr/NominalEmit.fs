@@ -289,7 +289,7 @@ module internal NominalEmit =
                 // (vesper-set-sprint-phase-6). Emitted after the ctor-param backing
                 // fields; default-initialised (the primary ctor doesn't touch them).
                 // A `mutable` field is plain writable `Public` (admits `this.x <- …`);
-                // an immutable one is `Public ||| InitOnly` (structs-handoff #4). This
+                // an immutable one is `Public ||| InitOnly`. This
                 // is verifiable because Validation rejects `this.x <- …` on a
                 // non-mutable field, so an immutable field is only ever written by a
                 // ctor — the field-init secondary ctor's `stfld` sequence, which
@@ -484,7 +484,7 @@ module internal NominalEmit =
                                 // A secondary ctor takes one of two forms (Tast
                                 // `TSecondaryCtorG`): the explicit field-init
                                 // form stores into declared fields and skips the
-                                // primary chain (structs-handoff #2); otherwise
+                                // primary chain; otherwise
                                 // it chains to the primary `.ctor`.
                                 let ctorIr =
                                     if not sc.FieldInits.IsEmpty then
@@ -532,7 +532,10 @@ module internal NominalEmit =
                                     )
 
                                 asm.MethodCount <- asm.MethodCount + 1
-                                yield (sc.Params.Length, toEntity h)
+                                // Carry the declared param types (declaring-typar
+                                // markers) so a generic secondary-ctor call site can
+                                // mint a `MemberRef` on the instantiated `TypeSpec`.
+                                yield (sc.Params.Length, paramTys, toEntity h)
                         ]
 
                 let registerClass (emittedMembers: Dictionary<string, Emit.EmittedMember>) =
@@ -605,6 +608,20 @@ module internal NominalEmit =
             let methodTypars = mem.MethodTypeParams
             let isGenericMethod = not methodTypars.IsEmpty
 
+            // An interface-impl member conforming to a `void` BCL slot
+            // (`IDisposable.Dispose` / `IEnumerator.Reset`): its `unit` return must
+            // encode as genuine `void` to bind to the slot, and its body must `ret`
+            // empty-stacked (pop the residual `unit`-as-value). Only interface
+            // impls get this — a class's own `unit`-returning method keeps the
+            // `unit`-as-`ValueTuple` convention its callers expect.
+            let returnsVoid =
+                isIfaceImpl
+                && (
+                    match mem.ReturnTy with
+                    | FTConst("unit", _) -> true
+                    | _ -> false
+                )
+
             let bodyOffset =
                 Cil.buildBody
                     memberEncodeLocals
@@ -615,6 +632,7 @@ module internal NominalEmit =
                             mem.ThisKey
                             mem.BaseKey
                             mem.Params
+                            returnsVoid
                             // Inline splicing ran pre-freeze (Passes.InlineExpansion);
                             // codegen only collapses the residual saturated built-in ops.
                             (Emit.expandBuiltinOps mem.Body)
@@ -629,7 +647,11 @@ module internal NominalEmit =
             // needs the `GENERIC` calling-convention header count; its own typars ride
             // `FTTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
             let signature =
-                if isGenericMethod then
+                if returnsVoid then
+                    // Interface-impl member conforming to a `void` slot — `void`
+                    // return, not the `unit`-as-`ValueTuple` the general path emits.
+                    provider.InstanceMethodSignatureVoid paramTys
+                elif isGenericMethod then
                     provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
                 elif mem.IsStatic then
                     provider.StaticMethodSignature(paramTys, mem.ReturnTy)

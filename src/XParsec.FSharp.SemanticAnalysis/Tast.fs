@@ -469,8 +469,8 @@ and TCtorLetG<'ty> =
     }
 
 /// One `field = expr` initialiser of a secondary constructor's explicit
-/// field-init block (`new(s) = { stack = s; started = false }`,
-/// structs-handoff #2). `Field` names a declared instance field (an explicit
+/// field-init block (`new(s) = { stack = s; started = false }`).
+/// `Field` names a declared instance field (an explicit
 /// `val` or a primary-ctor backing field); `Init` is the value stored into it
 /// (`ldarg.0; <Init>; stfld Field`). Used only when a secondary ctor takes the
 /// explicit-init form instead of chaining to the primary ctor.
@@ -485,8 +485,8 @@ and TCtorFieldInitG<'ty> = { Field: string; Init: TExprG<'ty> }
 ///   call instance void SelfType::.ctor`). There is no usable `this` before the
 ///   chain call, so `Lets` / `PrimaryArgs` only reference the ctor params and
 ///   earlier lets.
-/// - **Explicit field-init form** (`new(args) = { f = e; … }`, structs-handoff
-///   #2): `PrimaryArgs` is empty and each `FieldInits` entry stores into a
+/// - **Explicit field-init form** (`new(args) = { f = e; … }`):
+///   `PrimaryArgs` is empty and each `FieldInits` entry stores into a
 ///   declared field (`ldarg.0; <Init>; stfld f`). No primary chain — the fields
 ///   not listed are left default-initialised. `this`'s storage is the freshly
 ///   allocated (zeroed) instance, so `Init` may reference ctor params and lets.

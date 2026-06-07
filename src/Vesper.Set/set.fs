@@ -511,14 +511,6 @@ module internal SetTree =
         | Some k -> k
         | None -> invalidArg "s" (SR.GetString(SR.setContainsNoElements))
 
-    // Imperative left-to-right iterators.
-    [<NoEquality; NoComparison>]
-    type SetIterator<'T> when 'T: comparison =
-        {
-            mutable stack: SetTree<'T> list // invariant: always collapseLHS result
-            mutable started: bool // true when MoveNext has been called
-        }
-
     // collapseLHS:
     // a) Always returns either [] or a list starting with SetOne.
     // b) The "fringe" of the set stack is unchanged.
@@ -534,25 +526,11 @@ module internal SetTree =
                 let xn = asNode x
                 collapseLHS (xn.Left :: SetTree xn.Key :: xn.Right :: rest)
 
-    let mkIterator s =
-        {
-            stack = collapseLHS [ s ]
-            started = false
-        }
-
     let notStarted () =
         raise (InvalidOperationException(SR.GetString(SR.enumerationNotStarted)))
 
     let alreadyFinished () =
         raise (InvalidOperationException(SR.GetString(SR.enumerationAlreadyFinished)))
-
-    let current i =
-        if i.started then
-            match i.stack with
-            | k :: _ -> k.Key
-            | [] -> alreadyFinished ()
-        else
-            notStarted ()
 
     let unexpectedStackForMoveNext () =
         failwith "Please report error: Set iterator, unexpected stack for moveNext"
@@ -560,37 +538,74 @@ module internal SetTree =
     let unexpectedstateInSetTreeCompareStacks () =
         failwith "unexpected state in SetTree.compareStacks"
 
-    let rec moveNext i =
-        if i.started then
-            match i.stack with
-            | [] -> false
-            | t :: rest ->
-                if t.Height = 1 then
-                    i.stack <- collapseLHS rest
-                    not i.stack.IsEmpty
+    // Imperative left-to-right iterator (vesper-set-sprint-phase-6 / B-3-alt). A
+    // `[<Struct>]` enumerator replaces the original `IEnumerator<'T>` object
+    // expression in `mkIEnumerator` — Vesper's front end has no object-expression
+    // support, but value-type emission + interface impls cover this shape. The
+    // advance / read logic is *inlined* in the interface members rather than
+    // factored into public `MoveNext`/`Current` the interface forwards to: a
+    // struct member calling another struct member on `this` is not yet supported
+    // (it copies `this`, losing the mutation), so the bodies that mutate
+    // `this.stack` / `this.started` must run directly in the interface methods.
+    [<NoEquality; NoComparison>]
+    [<Struct>]
+    type SetIterator<'T> when 'T: comparison =
+        // The source tree, kept so `Reset` can rebuild the stack. Immutable
+        // (`val`, no `mutable`) ⇒ emitted `InitOnly`, written only by the ctor.
+        val root: SetTree<'T>
+        val mutable stack: SetTree<'T> list // invariant: always collapseLHS result
+        val mutable started: bool // true when MoveNext has been called
+
+        new(s: SetTree<'T>) =
+            {
+                root = s
+                stack = collapseLHS [ s ]
+                started = false
+            }
+
+        interface IEnumerator<'T> with
+            member this.Current =
+                if this.started then
+                    match this.stack with
+                    | k :: _ -> k.Key
+                    | [] -> alreadyFinished ()
                 else
-                    unexpectedStackForMoveNext ()
-        else
-            i.started <- true // The first call to MoveNext "starts" the enumeration.
-            not i.stack.IsEmpty
+                    notStarted ()
 
-    let mkIEnumerator s =
-        let mutable i = mkIterator s
+        interface IEnumerator with
+            member this.Current =
+                box (
+                    if this.started then
+                        match this.stack with
+                        | k :: _ -> k.Key
+                        | [] -> alreadyFinished ()
+                    else
+                        notStarted ()
+                )
 
-        { new IEnumerator<_> with
-            member _.Current = current i
-          interface IEnumerator with
-              member _.Current = box (current i)
+            member this.MoveNext() =
+                if this.started then
+                    match this.stack with
+                    | [] -> false
+                    | t :: rest ->
+                        if t.Height = 1 then
+                            this.stack <- collapseLHS rest
+                            not this.stack.IsEmpty
+                        else
+                            unexpectedStackForMoveNext ()
+                else
+                    this.started <- true // The first call to MoveNext "starts" the enumeration.
+                    not this.stack.IsEmpty
 
-              member _.MoveNext() =
-                  moveNext i
+            member this.Reset() =
+                this.stack <- collapseLHS [ this.root ]
+                this.started <- false
 
-              member _.Reset() =
-                  i <- mkIterator s
-          interface IDisposable with
-              member _.Dispose() =
-                  ()
-        }
+        interface IDisposable with
+            member this.Dispose() = ()
+
+    let mkIEnumerator (s: SetTree<'T>) : IEnumerator<'T> =
+        new SetIterator<'T>(s) :> IEnumerator<'T>
 
     /// Set comparison.  Note this can be expensive.
     let rec compareStacks (comparer: IComparer<'T>) (l1: SetTree<'T> list) (l2: SetTree<'T> list) : int =

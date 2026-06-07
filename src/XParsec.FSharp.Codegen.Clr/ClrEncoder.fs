@@ -510,6 +510,30 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
+    /// `instance void M(params…)` — an instance method whose return is genuine
+    /// `void`. A Vesper `unit`-returning method normally encodes its return as
+    /// `System.ValueTuple` (the `unit`-as-value convention) and leaves that value
+    /// on the stack, but an interface-impl member conforming to a BCL slot whose
+    /// return is `void` (e.g. `IDisposable.Dispose` / `IEnumerator.Reset`) must
+    /// match the slot's `void` signature, or the runtime reports the method
+    /// "does not have an implementation". The body is emitted in void mode
+    /// (`Emit.buildMember ~voidReturn:true` pops the trailing `unit` value).
+    member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) (p)
+                )
+            )
+
+        s
+
     /// `instance b Invoke(a)` — the closure's concrete `Invoke` override signature.
     member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder =
         let msig = BlobBuilder()
