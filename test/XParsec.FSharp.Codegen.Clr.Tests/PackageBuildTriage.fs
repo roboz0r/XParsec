@@ -167,12 +167,24 @@ let tests =
             // conformance unify) and normalises its `System.Object` params to `obj`;
             // and `:?>` admits a still-unresolved source TyVar (G21 — `that :?> Set<'T>`
             // on an interface member's unannotated `obj` param). Gated by the
-            // `ClassCoercion` "G21"/"G22" rows. The 38 remaining are the genuine
-            // *backend* features + their TyVar cascade (see vesper-set-g-wall.md):
-            //   - ~33 "ResolvedTypes: … unresolved TyVar" + 2 "<unfreezable …>" + the
-            //     lone "SetTree`1 vs unit" — pure cascade of the below.
-            //   - G7: 2 `op_LeftShift` cascades + the `for-in` source — now the sole
-            //     remaining root.
+            // `ClassCoercion` "G21"/"G22" rows. G7 (`for-in`) is also CLOSED — but the
+            // 2 `op_LeftShift` it was thought to cascade were a MISDIAGNOSIS (wall 38 →
+            // 36): the bitwise/shift operator family was simply absent from the
+            // *contract surface*. A parenthesised binding head `(<<<)`/`(&&&)` lexes to
+            // a *generic* operator token (not the distinct enum), so the contract
+            // extractor's `opTokenToCompiled` mapped it to no compiled name and dropped
+            // the val — fixed by covering those tokens + their source text. The shift's
+            // `int32` param then dealiased to `int` (a primitive *alias* now follows its
+            // `type int32 = int` definition through `mkNominal`'s `Abbrev` arm rather
+            // than freezing the alias spelling). The `for-in` front end itself always
+            // resolved (`Set<'T> : IEnumerable<'T>` → `tryLocalInterfaceEnumerator`);
+            // gated by the `ForIn` + `BitwiseOperators` rows. The 36 remaining are NOT
+            // for-in cascade — three independent roots + their ~33 TyVar cascade:
+            //   - 2 "<unfreezable …>" at `comparer.GetHashCode(x)` (G22-area: the
+            //     deferred external dot-access drain freezes an unfreezable template).
+            //   - the lone "SetTree`1 vs unit" in `SetTree.compareStacks` (the
+            //     `SetTreeNode(...) :> SetTree<'T>` cons-list cast).
+            //   - ~33 "ResolvedTypes: … unresolved TyVar" cascading from the above.
             // Flip `ptest`→`test` once the remaining gaps close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

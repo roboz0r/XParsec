@@ -81,4 +81,31 @@ let tests =
                 // &&& binds tighter than |||: (13 &&& 11) ||| 4 = 9 ||| 4 = 13
                 Expect.equal (output.Trim()) "13" "(13 &&& 11) ||| 4 = 13"
             }
+
+            // A *deferred* operand pins the *contract-surface* resolution path, not
+            // the ground SRTP-synthesis fast path the cases above exercise: in a
+            // generalisable local function the shift/bitwise operands are still
+            // unsolved typars when the infix is typed, so `inferInfix` falls past
+            // `tryPrimitiveTraitCandidate` to `OpenScope.tryResolve` on the compiled
+            // op name. That lookup missed entirely until the contract extractor
+            // mapped the *parenthesised* binding heads `(<<<)` / `(&&&)` (which lex
+            // to generic operator tokens, not the distinct enum) to their compiled
+            // names — and the shift's `int32` param dealiased to `int` so the `1`
+            // literal unifies. This is the exact `Set<'T>.ComputeHashCode` shape.
+            test "bitwise ops in a generalisable local function resolve through the contract surface" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let combineHash x y = (x <<< 1) + (y &&& 255) + 631"
+                            "printfn \"%d\" (combineHash 3 11)"
+                        ]
+
+                let _, artifact = compileSource "BitwiseDeferred" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                // (3 <<< 1) + (11 &&& 255) + 631 = 6 + 11 + 631 = 648
+                Expect.equal (output.Replace("\r", "").Trim()) "648" "deferred-operand bitwise resolves and computes"
+            }
         ]

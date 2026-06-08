@@ -33,54 +33,16 @@ module VesperLibTypeTranslate =
         else
             nameOfTok lexed input li.Idents.[li.Idents.Length - 1]
 
-    /// Map an operator token (`+`, `<|`, etc.) to its compiled name
-    /// (`op_Addition`, `op_PipeLeft`, etc.). The Token-enum match covers the
-    /// well-known operators with dedicated enum values; the text fallback
-    /// covers generic operators the lexer collapses to `OpGeneric`.
-    let opTokenToCompiled (tok: SyntaxToken) (text: string) : string voption =
-        match tok.Token with
-        | Token.OpAddition -> ValueSome "op_Addition"
-        | Token.OpSubtraction -> ValueSome "op_Subtraction"
-        | Token.OpMultiply -> ValueSome "op_Multiply"
-        | Token.OpDivision -> ValueSome "op_Division"
-        | Token.OpModulus -> ValueSome "op_Modulus"
-        | Token.OpLessThan -> ValueSome "op_LessThan"
-        | Token.OpGreaterThan -> ValueSome "op_GreaterThan"
-        | Token.OpLessThanOrEqual -> ValueSome "op_LessThanOrEqual"
-        | Token.OpGreaterThanOrEqual -> ValueSome "op_GreaterThanOrEqual"
-        | Token.OpEquality -> ValueSome "op_Equality"
-        | Token.OpInequality -> ValueSome "op_Inequality"
-        | Token.OpAmpAmp -> ValueSome "op_BooleanAnd"
-        | Token.OpBarBar -> ValueSome "op_BooleanOr"
-        | Token.OpPipeRight -> ValueSome "op_PipeRight"
-        | Token.OpPipeLeft -> ValueSome "op_PipeLeft"
-        | Token.OpComposeRight -> ValueSome "op_ComposeRight"
-        | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
-        | Token.KWColonColon -> ValueSome "op_ColonColon"
-        | _ ->
-            // Only operators that appear inside `.fsi` val sigs need to land
-            // here; the type checker picks them up by compiled name.
-            match text with
-            | "|>" -> ValueSome "op_PipeRight"
-            | "<|" -> ValueSome "op_PipeLeft"
-            | ">>" -> ValueSome "op_ComposeRight"
-            | "<<" -> ValueSome "op_ComposeLeft"
-            | "||>" -> ValueSome "op_PipeRight2"
-            | "<||" -> ValueSome "op_PipeLeft2"
-            | "|||>" -> ValueSome "op_PipeRight3"
-            | "<|||" -> ValueSome "op_PipeLeft3"
-            | "@" -> ValueSome "op_Append"
-            | "^" -> ValueSome "op_Concatenate"
-            | "?" -> ValueSome "op_Dynamic"
-            | "?<-" -> ValueSome "op_DynamicAssignment"
-            | ".." -> ValueSome "op_Range"
-            | ".. .." -> ValueSome "op_RangeStep"
-            | _ -> ValueNone
-
     let identOrOpName (lexed: Lexed) (input: string) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
         | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
-        | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) -> opTokenToCompiled opTok (nameOfTok lexed input opTok)
+        // `(::)` is a binding head only the contract surface needs to name (cons
+        // has no `op_` member in expression position — see `OperatorNames.ofToken`),
+        // so it is mapped here before delegating to the shared resolver.
+        | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) when opTok.Token = Token.KWColonColon ->
+            ValueSome "op_ColonColon"
+        | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) ->
+            OperatorNames.ofParenSymbolic (nameOfTok lexed input opTok) opTok
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome "op_Range"
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome "op_RangeStep"
         | IdentOrOp.StarOp _ -> ValueSome "op_Multiply"
@@ -499,6 +461,35 @@ module VesperLibTypeTranslate =
                 "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"
                 compiled
 
+    /// A primitive *alias* (`type int32 = int`, `type uint = uint32`, `type int8 =
+    /// sbyte`) dealiases to the underlying primitive its own `.fsi` declares — the
+    /// canonical intrinsic the front end (`Translate.fs`'s abbreviation expansion)
+    /// and the codegen IL encoder key on. Resolved from the abbreviation
+    /// *definition* registered in `ctx.TypeShapes` (via `mkNominal`'s existing
+    /// `Abbrev` arm), never a hardcoded direction: `int32`'s `Abbrev` RHS is the
+    /// frozen `int`, so this returns `FTConst "int"`. A true intrinsic (`int`,
+    /// `sbyte` — an `Intrinsic` shape) or a primitive whose package registers no
+    /// shape returns `ValueNone`, leaving the bare `FTConst name` the caller bakes.
+    /// Without this an alias param (`shift: int32` on `(<<<)`) froze as a nominal
+    /// `FTConst "int32"` that never unified with an `int` literal at the use site.
+    let private dealiasPrimitiveAbbrev (ctx: ExtractCtx) (opens: string list) (name: string) : FrozenType voption =
+        match resolveTypeName ctx opens name 0 with
+        | Ok compiled ->
+            match ExtractCtx.shapeOf ctx compiled with
+            | ValueSome(ExternalTypeShape.Abbrev _) ->
+                // Collapse to the dealiased primitive ONLY when the abbreviation
+                // bottoms out at *another* primitive (`int32 = int`, `uint =
+                // uint32`). A primitive that is itself declared as an abbreviation
+                // of a *non-primitive* (`bool = Boolean`, the BCL `System.Boolean`,
+                // which resolves to no in-scope shape during extraction) keeps its
+                // canonical `FTConst name` — the form the front end and codegen key
+                // on — rather than dealiasing to an unresolved `Boolean`.
+                match mkNominal ctx compiled EqArray.empty with
+                | FTConst(p, args) when args.IsEmpty && isPrimitiveName p -> ValueSome(FTConst(p, EqArray.empty))
+                | _ -> ValueNone
+            | _ -> ValueNone
+        | Error _ -> ValueNone
+
     /// `CST → FrozenType` translation: every val
     /// signature, type-shape body (record field, union-case field, abbreviation
     /// RHS), constraint target, and augmentation-member signature is translated
@@ -562,7 +553,9 @@ module VesperLibTypeTranslate =
             let name = longIdentName lexed input li
 
             if isPrimitiveName name then
-                Ok(FTConst(name, EqArray.empty))
+                match dealiasPrimitiveAbbrev ctx opens name with
+                | ValueSome ft -> Ok ft
+                | ValueNone -> Ok(FTConst(name, EqArray.empty))
             else
                 match resolveTypeName ctx opens name 0 with
                 // A name that resolves to nothing in scope bakes a `FTUnknown`

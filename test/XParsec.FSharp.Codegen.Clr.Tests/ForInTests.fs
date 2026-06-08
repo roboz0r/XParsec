@@ -187,6 +187,49 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "Take(Range(1,5), 3) yields the first three"
             }
 
+            // A *generic* user class implementing `IEnumerable<'T>` walked by
+            // `for x in this` inside its own member — the verbatim shape of
+            // `Set<'T>.ComputeHashCode` (`set.fs`), the G7 driver. Exercises the
+            // generic interface-enumerator probe (`tryLocalInterfaceEnumerator`
+            // instantiates the class typar with the use-site arg) *and* the bitwise
+            // shift operator surface (`x <<< 1`) the contract now publishes: the
+            // `(<<<)` val froze with an `int32` shift param that dealiases to `int`,
+            // so the loop body's `combineHash` resolves. Run it at `int` to prove
+            // the whole path codegens and the enumerator actually walks the elements.
+            test "generic for-in over `this` with a bitwise-shift loop body runs" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C<'T>(items: System.Collections.Generic.IEnumerable<'T>) ="
+                            "    interface System.Collections.Generic.IEnumerable<'T> with"
+                            "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> = items.GetEnumerator()"
+                            "    interface System.Collections.IEnumerable with"
+                            "        member this.GetEnumerator() : System.Collections.IEnumerator = items.GetEnumerator() :> System.Collections.IEnumerator"
+                            "    member this.ComputeHashCode() ="
+                            "        let mutable res = 0"
+                            "        for x in this do"
+                            "            res <- (res <<< 1) + (hash x) + 631"
+                            "        res"
+                            "let c = C<int>(System.Linq.Enumerable.Range(1, 3))"
+                            "printfn \"%d\" (c.ComputeHashCode())"
+                        ]
+
+                let _, artifact = compileSource "GenericForInShift" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                // 0,1,2,3 folded: res starts 0; combineHash res (hash e) =
+                // (res<<<1)+hash(e)+631. hash of an int is the int itself.
+                // e=1: (0<<<1)+1+631=632; e=2: (632<<<1)+2+631=1897;
+                // e=3: (1897<<<1)+3+631=4428.
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "4428"
+                    "for-in folds the three elements with the shift body"
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

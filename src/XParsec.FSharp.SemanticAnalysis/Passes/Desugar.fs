@@ -12,43 +12,6 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Desugar =
 
-    /// Only the supported subset is listed; extend as more operators come online.
-    let private infixOpName (t: Token) : string voption =
-        match t with
-        | Token.OpAddition -> ValueSome "op_Addition"
-        | Token.OpSubtraction -> ValueSome "op_Subtraction"
-        | Token.OpMultiply -> ValueSome "op_Multiply"
-        | Token.OpDivision -> ValueSome "op_Division"
-        | Token.OpModulus -> ValueSome "op_Modulus"
-        | Token.OpLessThan -> ValueSome "op_LessThan"
-        | Token.OpGreaterThan -> ValueSome "op_GreaterThan"
-        | Token.OpLessThanOrEqual -> ValueSome "op_LessThanOrEqual"
-        | Token.OpGreaterThanOrEqual -> ValueSome "op_GreaterThanOrEqual"
-        | Token.OpEquality -> ValueSome "op_Equality"
-        | Token.OpInequality -> ValueSome "op_Inequality"
-        // Bitwise binary ops. A *bare* use site (`a &&& b`) lexes to the distinct
-        // `Token` (`Token.ofCustomOperator`'s isBare arms), so the enum match is
-        // reliable here; a binding head `(&&&)` is generic and resolves by text
-        // (`opCompiledNameOfText`).
-        | Token.OpBitwiseAnd -> ValueSome "op_BitwiseAnd"
-        | Token.OpBitwiseOr -> ValueSome "op_BitwiseOr"
-        | Token.OpExclusiveOr -> ValueSome "op_ExclusiveOr"
-        | Token.OpLeftShift -> ValueSome "op_LeftShift"
-        | Token.OpRightShift -> ValueSome "op_RightShift"
-        // Source `&&` / `||` lex as OpAmpAmp / OpBarBar, not OpBooleanAnd /
-        // OpBooleanOr (those share OpFamily.OpGeneric — see memory note
-        // about Token-encoding aliases).
-        | Token.OpAmpAmp -> ValueSome "op_BooleanAnd"
-        | Token.OpBarBar -> ValueSome "op_BooleanOr"
-        // Pipes and composition are polymorphic FSharp.Core functions,
-        // not language intrinsics — they resolve through the same provider
-        // path as any other named operator.
-        | Token.OpPipeRight -> ValueSome "op_PipeRight"
-        | Token.OpPipeLeft -> ValueSome "op_PipeLeft"
-        | Token.OpComposeRight -> ValueSome "op_ComposeRight"
-        | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
-        | _ -> ValueNone
-
     /// Compiled name for a symbolic operator used as a *value* (`(+)` →
     /// "op_Addition"). A parenthesised operator denotes the same FSharp.Core
     /// member the infix form desugars to, so the mapping is shared. Consumed
@@ -57,7 +20,7 @@ module Desugar =
     /// (`+` → `OpAddition`), so this enum match is reliable there; an operator
     /// inside parens (a binding head / value) lexes to a *generic* operator token
     /// and must be resolved by source text — see `opPatCompiledName`.
-    let symbolicOpCompiledName (t: Token) : string voption = infixOpName t
+    let symbolicOpCompiledName (t: Token) : string voption = OperatorNames.ofToken t
 
     /// Compiled name for an operator-named binding *head* (`let (=) x y = …` →
     /// "op_Equality", `let (~-) n = …` → "op_UnaryNegation"), so an operator
@@ -77,13 +40,7 @@ module Desugar =
         match io with
         | IdentOrOp.StarOp _ -> ValueSome "op_Multiply"
         | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome "op_Nil"
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) ->
-            match symbolicOpCompiledName tok.Token with
-            | ValueSome n -> ValueSome n
-            | ValueNone ->
-                match OperatorInfo.TryCreate tok.PositionedToken with
-                | ValueSome op -> ValueSome(op.GetName(nameOf tok))
-                | ValueNone -> ValueNone
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> OperatorNames.ofParenSymbolic (nameOf tok) tok
         | _ -> ValueNone
 
     /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and
@@ -115,7 +72,7 @@ module Desugar =
             match op.Token with
             | Token.KWColonColon -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.ConsExpr)
             | _ ->
-                match infixOpName op.Token with
+                match symbolicOpCompiledName op.Token with
                 | ValueSome name -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.OpName name)
                 | ValueNone -> ()
         | Expr.PrefixApp(op, _) ->
