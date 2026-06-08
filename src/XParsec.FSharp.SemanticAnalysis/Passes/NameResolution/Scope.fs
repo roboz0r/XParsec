@@ -271,86 +271,129 @@ module NameResolutionScope =
                     }
                 )
             | ValueNone ->
-                let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+                // G15: `Module.member` where `Module` is a *local* (in-file) module
+                // and `member` one of its `let`-bound values/functions. The module
+                // tree is flattened before this walk, so the sibling is unresolvable
+                // by the provider (which only knows dependency packages) and by the
+                // local head lookup (a module name is not a value binding). Resolve
+                // it against the pre-pass `LocalModules` registry and record a
+                // use-site `Binding` entry pointing at the member's binding site —
+                // exactly the shape a single-ident local resolves to, so Unification
+                // (`inferIdentDefault` → `instantiateBinding`) and Freeze
+                // (`translateIdent` → `TExpr.Var`) treat it as an ordinary local
+                // reference. The module name is the second-to-last segment (handles
+                // the 2-segment `SetTree.add`).
+                let tryLocalModuleMember () : bool =
+                    if li.Idents.Length >= 2 then
+                        let moduleName = ctx.NameOf li.Idents.[li.Idents.Length - 2]
+                        let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
-                | ValueSome sym -> ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
-                | ValueNone ->
-                    // `Result2.Ok` — two-segment qualified ctor; resolves through
-                    // ctx.Types.Union, suppress so Unification picks it up.
-                    let isQualifiedCtor =
-                        li.Idents.Length = 2
-                        && TypeRegistry.localQualifiedCase
-                            ctx.Types
-                            (ctx.NameOf li.Idents.[0])
-                            (ctx.NameOf li.Idents.[1])
+                        match ctx.Resolution.LocalModules.TryGetValue moduleName with
+                        | true, members ->
+                            match members.TryGetValue memberName with
+                            | true, bindingKey ->
+                                ctx.Bindings.Binding.Set(
+                                    CstKeys.ofExpr e,
+                                    {
+                                        BindingSite = bindingKey
+                                        IsInline = false
+                                        IsMutable = false
+                                    }
+                                )
 
-                    // `Math.Pi` / `Box.Empty` — two-segment qualified static member,
-                    // incl. union augmentation statics (P3d.3). Same suppression.
-                    let isQualifiedStatic =
-                        li.Idents.Length = 2
-                        && (let typeName = ctx.NameOf li.Idents.[0]
-                            let memberName = ctx.NameOf li.Idents.[1]
-
-                            let staticIn (members: TypeMemberInfo[]) =
-                                members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
-
-                            (ctx.Types.Class.ContainsKey typeName
-                             && staticIn ctx.Types.Class.[typeName].Members)
-                            || (ctx.Types.Union.ContainsKey typeName
-                                && staticIn ctx.Types.Union.[typeName].Members))
-
-                    // `Result.Ok` / `Option.Some` — a qualified *external* union case.
-                    // The declaring union may be generic (`Result\`2`), but it is
-                    // written without type args, so there is no `Expr.TypeApp` to
-                    // recover the arity from. The case name is globally unique in the
-                    // provider's reverse index, so resolve it arity-free instead of
-                    // probing the union type at a guessed arity — this is what the old
-                    // `isExternalStaticMember` prefix arity-scan was doing for these by
-                    // accident. Mirrors the single-ident `TryLookupUnionCase`
-                    // suppression and the local `isQualifiedCtor` arm; Unification /
-                    // Freeze resolve the case.
-                    let isExternalQualifiedCase =
-                        li.Idents.Length >= 2
-                        && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
-
-                    // A non-generic external static member folds into one LongIdent
-                    // (`System.Console.Out`), so the receiver type is the *prefix*
-                    // (all but the last segment). If that resolves as an external
-                    // type, leave the member to Unification's tryExternalStaticLongIdent
-                    // (which falls through silently when the tail isn't accessible, so
-                    // suppression here doesn't manufacture a member that isn't there).
-                    // A *generic* receiver requires explicit type args (a TypeApp,
-                    // handled by `ResolvedType` above), so the prefix probe is arity-0.
-                    let isExternalStaticMember =
-                        li.Idents.Length >= 2
-                        && (let prefix =
-                                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
-                                |> String.concat "."
-
-                            resolvesAsExternalType ctx prefix)
-
-                    if
-                        isQualifiedCtor
-                        || isQualifiedStatic
-                        || isExternalQualifiedCase
-                        // A generic external-type receiver written qualified
-                        // (`System.Collections.Generic.List<int>.Empty`) was resolved
-                        // at exact arity by the enclosing TypeApp visit, stamping this
-                        // LongIdent's `ResolvedType`.
-                        || ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
-                        || resolvesAsExternalType ctx qualName
-                        || isExternalStaticMember
-                    then
-                        ()
+                                true
+                            | false, _ -> false
+                        | false, _ -> false
                     else
-                        ctx.Diagnostics.Add
-                            {
-                                Key = CstKeys.ofExpr e
-                                Message = sprintf "Unresolved qualified name: %s" qualName
-                                Code = ""
-                                Severity = Severity.Error
-                            }
+                        false
+
+                // Everything below G15: the qualified name names something outside
+                // the local-module registry — an external value, a local qualified
+                // ctor/static, an external union case/static, or genuinely unresolved.
+                let resolveQualifiedExternal () =
+                    let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+                    match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
+                    | ValueSome sym -> ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
+                    | ValueNone ->
+                        // `Result2.Ok` — two-segment qualified ctor; resolves through
+                        // ctx.Types.Union, suppress so Unification picks it up.
+                        let isQualifiedCtor =
+                            li.Idents.Length = 2
+                            && TypeRegistry.localQualifiedCase
+                                ctx.Types
+                                (ctx.NameOf li.Idents.[0])
+                                (ctx.NameOf li.Idents.[1])
+
+                        // `Math.Pi` / `Box.Empty` — two-segment qualified static member,
+                        // incl. union augmentation statics (P3d.3). Same suppression.
+                        let isQualifiedStatic =
+                            li.Idents.Length = 2
+                            && (let typeName = ctx.NameOf li.Idents.[0]
+                                let memberName = ctx.NameOf li.Idents.[1]
+
+                                let staticIn (members: TypeMemberInfo[]) =
+                                    members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
+
+                                (ctx.Types.Class.ContainsKey typeName
+                                 && staticIn ctx.Types.Class.[typeName].Members)
+                                || (ctx.Types.Union.ContainsKey typeName
+                                    && staticIn ctx.Types.Union.[typeName].Members))
+
+                        // `Result.Ok` / `Option.Some` — a qualified *external* union case.
+                        // The declaring union may be generic (`Result\`2`), but it is
+                        // written without type args, so there is no `Expr.TypeApp` to
+                        // recover the arity from. The case name is globally unique in the
+                        // provider's reverse index, so resolve it arity-free instead of
+                        // probing the union type at a guessed arity — this is what the old
+                        // `isExternalStaticMember` prefix arity-scan was doing for these by
+                        // accident. Mirrors the single-ident `TryLookupUnionCase`
+                        // suppression and the local `isQualifiedCtor` arm; Unification /
+                        // Freeze resolve the case.
+                        let isExternalQualifiedCase =
+                            li.Idents.Length >= 2
+                            && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
+
+                        // A non-generic external static member folds into one LongIdent
+                        // (`System.Console.Out`), so the receiver type is the *prefix*
+                        // (all but the last segment). If that resolves as an external
+                        // type, leave the member to Unification's tryExternalStaticLongIdent
+                        // (which falls through silently when the tail isn't accessible, so
+                        // suppression here doesn't manufacture a member that isn't there).
+                        // A *generic* receiver requires explicit type args (a TypeApp,
+                        // handled by `ResolvedType` above), so the prefix probe is arity-0.
+                        let isExternalStaticMember =
+                            li.Idents.Length >= 2
+                            && (let prefix =
+                                    seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                                    |> String.concat "."
+
+                                resolvesAsExternalType ctx prefix)
+
+                        if
+                            isQualifiedCtor
+                            || isQualifiedStatic
+                            || isExternalQualifiedCase
+                            // A generic external-type receiver written qualified
+                            // (`System.Collections.Generic.List<int>.Empty`) was resolved
+                            // at exact arity by the enclosing TypeApp visit, stamping this
+                            // LongIdent's `ResolvedType`.
+                            || ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
+                            || resolvesAsExternalType ctx qualName
+                            || isExternalStaticMember
+                        then
+                            ()
+                        else
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = CstKeys.ofExpr e
+                                    Message = sprintf "Unresolved qualified name: %s" qualName
+                                    Code = ""
+                                    Severity = Severity.Error
+                                }
+
+                if not (tryLocalModuleMember ()) then
+                    resolveQualifiedExternal ()
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
             (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
             ->

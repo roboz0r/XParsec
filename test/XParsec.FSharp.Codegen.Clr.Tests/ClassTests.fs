@@ -232,6 +232,40 @@ let monoTests =
                 let result = m.Invoke(instance, [||]) :?> int
                 Expect.equal result 1 "sealed C().M() still returns 1"
             }
+
+            // vesper-set-g-wall.md G14: F# lets each member name its own
+            // self-identifier, independently of the type-level `as` alias.
+            // `Set<'T>` (no `as` clause) spells its members `member s.Add`,
+            // `member x.Choose`, … — before the fix only the default `this`
+            // was bound, so every `s` / `x` receiver (and `s.Member` access)
+            // went unresolved. Here `First` (self-id `a`) reads `Second`
+            // (self-id `b`) through its own self-id; both must resolve and the
+            // qualified `a.Second` must round-trip.
+            test "two instance members with distinct self-ids resolve (First reads a.Second)" {
+                let _, artifact =
+                    compileSource
+                        "ClsSelfIds"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    member a.First = a.Second + 1"
+                                "    member b.Second = 10"
+                                "let c = C()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                let getFirst = ty.GetMethod("get_First", declaredInstance, null, [||], null)
+                let getSecond = ty.GetMethod("get_Second", declaredInstance, null, [||], null)
+                Expect.isNotNull getFirst "get_First emitted (self-id `a` bound)"
+                Expect.isNotNull getSecond "get_Second emitted (self-id `b` bound)"
+
+                let instance = Activator.CreateInstance(ty, [||])
+                Expect.equal (getSecond.Invoke(instance, [||]) :?> int) 10 "C().Second = 10"
+                Expect.equal (getFirst.Invoke(instance, [||]) :?> int) 11 "C().First reads a.Second + 1 = 11"
+            }
         ]
 
 [<Tests>]
@@ -342,6 +376,56 @@ let staticTests =
 
                 let instance = Activator.CreateInstance(ty, [||])
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
+            }
+
+            // G13 (vesper-set-g-wall): `static let` on a *generic* class. The field
+            // lives on the open generic `TypeDefinition` (one instance per closed
+            // instantiation, `.cctor`-initialised); its `.cctor` store and the
+            // member-body read both mint a `MemberRef` on the self-`TypeSpec`
+            // (`Box\`1<!0>::tag`), not a raw `Def` token. Read it back at two
+            // instantiations to prove the per-instantiation field resolves.
+            // (`set.fs`'s `static let empty` cache shape.)
+            test "a generic class `static let` reads back at two instantiations (Box<int>/Box<string>.Tag() = 99)" {
+                let _, artifact =
+                    compileSource
+                        "ClsStaticLetGeneric"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'T>(v: 'T) ="
+                                "    static let tag = 99"
+                                "    member this.V = v"
+                                "    member this.Tag () = tag"
+                                "let b = Box(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = asm.GetType "Box`1"
+                Expect.isNotNull boxTy "the assembly contains the generic class Box`1"
+
+                let readTag (argTy: Type) (ctorArg: obj) =
+                    let inst = boxTy.MakeGenericType argTy
+                    let ctor = inst.GetConstructors().[0]
+                    let value = ctor.Invoke [| ctorArg |]
+
+                    let m =
+                        inst.GetMethod(
+                            "Tag",
+                            BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly,
+                            null,
+                            [||],
+                            null
+                        )
+
+                    Expect.isNotNull m "Tag emitted as an instance method"
+                    m.Invoke(value, [||]) :?> int
+
+                Expect.equal (readTag typeof<int> (box 0)) 99 "Box<int>().Tag() reads the static-let field tag = 99"
+
+                Expect.equal
+                    (readTag typeof<string> (box "x"))
+                    99
+                    "Box<string>().Tag() reads its own per-instantiation static-let field tag = 99"
             }
 
             // G10 (vesper-set-phase-9-handoff): a static *operator* member's body
@@ -1321,5 +1405,178 @@ let interfaceImplCodegenTests =
                 let nonGenericEnum = asNonGeneric.GetEnumerator()
                 Expect.isTrue (nonGenericEnum.MoveNext()) "the non-generic enumerator advances to the first element"
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
+            }
+        ]
+
+[<Tests>]
+let coercionTests =
+    // vesper-set-g-wall §G19/G20: implicit class→interface / class→base upcasts.
+    // G19 = a class value flowing into an interface-typed parameter (the
+    // `Comparer<'T>.Default` → `IComparer<'T>` shape pervasive in set.fs);
+    // G20 = an explicit `:>` to a base or a declared interface. The fix is in
+    // `subsumes` (interface walk) + `tryCoerceUpcast`/`unifyArg` (which unify the
+    // witness's type args so a generic / wildcard target is pinned) + the
+    // interface-impl resolution pre-pass (so a class knows its interfaces before
+    // any member body is typed). Front-end gates assert no diagnostic; the base
+    // upcast also round-trips through codegen (ref-type upcast erases).
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    let analyseErrs src =
+        let provider = SymbolProviders.buildContract defaultManifests
+        let lexed, file = parseFile src
+        let _, tast = Pipeline.analyseSemWithContext provider src lexed file
+        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    testList
+        "ClassCoercion"
+        [
+            test "G19: a class value coerces to an interface-typed ctor param (secondary-ctor chain call)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C(comparer: System.Collections.Generic.IComparer<int>) ="
+                            "    member this.Cmp = comparer"
+                            "    new() = C(System.Collections.Generic.Comparer<int>.Default)"
+                        ]
+
+                let errs = analyseErrs src
+                Expect.isEmpty errs (sprintf "Comparer<int> coerces to the IComparer<int> ctor param: %A" errs)
+            }
+
+            test "G19: a class value coerces to an interface-typed function argument" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let f (c: System.Collections.Generic.IComparer<int>) = 0"
+                            "let g () = f (System.Collections.Generic.Comparer<int>.Default)"
+                        ]
+
+                let errs = analyseErrs src
+                Expect.isEmpty errs (sprintf "Comparer<int> coerces to the IComparer<int> arg: %A" errs)
+            }
+
+            test "G19: a class member's forward call to a sibling-module fn coerces a subtype arg to an interface param" {
+                // The G19 *forward-reference* residue: `walkElems` types class member
+                // bodies before it walks module-level `let`s, so `M.useCmp` has no
+                // scheme yet when `C.Run` is typed. Without the annotation-derived
+                // forward scheme (`prebindModuleFunctionSchemes`), the subtype arg
+                // `Comparer<'T>` monomorphically pins `useCmp`'s param TyVar, clashing
+                // with its own `IComparer<'T>` annotation once its body is typed. This
+                // mirrors `SetTree.add`'s shape in set.fs.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "module M ="
+                            "    let useCmp (c: System.Collections.Generic.IComparer<'T>) (x: 'T) = x"
+                            "type C<'T>(comparer: System.Collections.Generic.Comparer<'T>) ="
+                            "    member this.Run (k: 'T) = M.useCmp comparer k"
+                        ]
+
+                let errs = analyseErrs src
+
+                Expect.isEmpty
+                    errs
+                    (sprintf "forward module call upcasts the Comparer<'T> arg to IComparer<'T>: %A" errs)
+            }
+
+            test "G20: `(this :> System.IComparable)` upcasts a class to a declared interface" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    interface System.IComparable with"
+                            "        member this.CompareTo(o: obj) = 0"
+                            "    member this.AsCmp () = (this :> System.IComparable)"
+                        ]
+
+                let errs = analyseErrs src
+                Expect.isEmpty errs (sprintf "C upcasts to its declared IComparable: %A" errs)
+            }
+
+            test "G22: an external interface member's unannotated param resolves for member access (IEqualityComparer)" {
+                // `IStructuralEquatable.Equals(that, comparer)` has *unannotated*
+                // params; `comparer` is pinned to the external
+                // `System.Collections.IEqualityComparer` only by the conformance unify
+                // that runs *after* the body — so `comparer.Equals(…)` was deferred as
+                // a pending dot-access on a free TyVar, and the drain (Engine.fs) only
+                // knew project-local classes, mis-reporting "Unknown class type
+                // 'IEqualityComparer'". The drain now resolves an external receiver
+                // through the provider, the deferred mirror of `resolveFieldStep`.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Collections"
+                            "type C() ="
+                            "    interface IStructuralEquatable with"
+                            "        member this.Equals(that, comparer) ="
+                            "            let _ = comparer.GetHashCode(that)"
+                            "            comparer.Equals(that, that)"
+                            "        member this.GetHashCode(comparer) = 0"
+                        ]
+
+                let errs = analyseErrs src
+
+                Expect.isEmpty
+                    errs
+                    (sprintf "comparer.Equals/GetHashCode resolve on the IEqualityComparer param: %A" errs)
+            }
+
+            test "G21: `that :?> C` downcasts an interface member's unannotated (obj) param" {
+                // `that` is pinned to `obj` only by the conformance unify after the
+                // body, so at the downcast site it is still a free TyVar. The check
+                // used to fire "Cannot downcast type 'TyVar …'"; an unresolved source
+                // is now admitted (runtime-checked, like `obj`).
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Collections"
+                            "type C() ="
+                            "    interface IStructuralEquatable with"
+                            "        member this.Equals(that, comparer) ="
+                            "            if that :? C then"
+                            "                let _ = that :?> C"
+                            "                true"
+                            "            else"
+                            "                false"
+                            "        member this.GetHashCode(comparer) = 0"
+                        ]
+
+                let errs = analyseErrs src
+                Expect.isEmpty errs (sprintf "that :?> C admitted for the obj-typed interface param: %A" errs)
+            }
+
+            test "G20: `(this :> Shape)` upcasts a derived class to its base and round-trips" {
+                let _, artifact =
+                    compileSource
+                        "UpcastBase"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Shape(x: int) ="
+                                "    member this.Raw = x"
+                                "type Circle(r: int) ="
+                                "    inherit Shape(r)"
+                                "    member this.AsShape () = (this :> Shape).Raw"
+                                "let c = Circle(7)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let circle = asm.GetType "Circle"
+                let asShape = circle.GetMethod("AsShape", declaredInstance, null, [||], null)
+                Expect.isNotNull asShape "AsShape emitted"
+
+                let instance = Activator.CreateInstance(circle, [| box 7 |])
+
+                Expect.equal
+                    (asShape.Invoke(instance, [||]) :?> int)
+                    7
+                    "(this :> Shape).Raw reads the inherited field = 7"
             }
         ]

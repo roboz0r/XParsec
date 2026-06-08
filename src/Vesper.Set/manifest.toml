@@ -19,6 +19,9 @@
 #
 # Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`) and Vesper.List
 # (the `Set` module surfaces `Set.toList` / `Set.ofList`, naming `'T list`).
+# Also on Vesper.Comparison (the ordering operators `< > <= >=` used throughout
+# `SetTree.mk`/`rebalance`/`balance`/`add`) and Vesper.Printf (`sprintf`, used in
+# the invariant-violation error messages) — see vesper-set-g-wall.md G17/G18.
 # `name` and `depends-on` are recorded here per the package-split-plan package
 # schema; the root-manifest / a la carte loader wiring (PS-Loader) is a
 # separate follow-up.
@@ -33,7 +36,7 @@
 name = "Vesper.Set"
 namespace = "Vesper.Collections"
 description = "The immutable AVL-tree set type and the Set module (FSharp.Core verbatim)."
-depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Array", "Vesper.Seq", "Vesper.Choice", "Vesper.Option"]
+depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Array", "Vesper.Seq", "Vesper.Choice", "Vesper.Option", "Vesper.Comparison", "Vesper.Printf"]
 
 # Contract `.fsi` files in compile order (one, today).
 files = [

@@ -815,19 +815,32 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // The per-instantiation generic-static-let lowering is deferred
-            // (vesper-set-sprint-plan §1.8 risk register): a `static let` on a
-            // generic class is diagnosed and dropped.
-            test "TAST: `static let` on a generic class is diagnosed (deferred)" {
+            // G13 (vesper-set-g-wall): `static let` on a *generic* class is now
+            // supported — the field rides the open generic `TypeDefinition` (one per
+            // closed instantiation, `.cctor`-initialised) and codegen mints the
+            // read/store as a `MemberRef` on the self-`TypeSpec`. The front-end no
+            // longer rejects it; it surfaces in `staticLets` like the mono case.
+            test "TAST: `static let` on a generic class surfaces with no diagnostic (G13)" {
                 let tast =
                     analyse "type Box<'a>() =\n    static let x = 42\n    static member Get () = x"
 
-                Expect.isNonEmpty tast.Diagnostics "generic static let is rejected"
+                Expect.isEmpty tast.Diagnostics "generic static let is accepted"
 
-                Expect.isTrue
-                    (tast.Diagnostics
-                     |> List.exists (fun d -> d.Message.Contains "static let" && d.Message.Contains "generic"))
-                    "diagnostic mentions the deferred generic static let"
+                let typeDecl =
+                    tast.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (
+                        function
+                        | TDecl.Type t -> Some t
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
+
+                match typeDecl.Kind with
+                | TTypeKind.Class(_, _, _, _, _, _, staticLets, _, _, _) ->
+                    Expect.equal staticLets.Length 1 "the generic class's `static let` surfaces in staticLets"
+                    Expect.equal staticLets.[0].Name "x" "static-let name"
+                | other -> failtestf "expected TTypeKind.Class, got %A" other
             }
 
             // vesper-set-sprint-plan §1.9 / B-11: a `new(...)` overload surfaces in

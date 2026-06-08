@@ -311,7 +311,9 @@ module internal NominalEmit =
                         f.Name, toEntity h, f.Type
                     )
 
-                let staticFieldHandles =
+                // Emit the field *definitions* (always on the open generic
+                // `TypeDefinition`, so the `Def` token is the right thing to define).
+                let staticFieldDefs =
                     staticLets
                     |> List.map (fun sl ->
                         let h =
@@ -324,6 +326,25 @@ module internal NominalEmit =
                         asm.FieldCount <- asm.FieldCount + 1
                         sl.Name, toEntity h
                     )
+
+                // The handle every `ldsfld`/`stsfld` *references*. A generic class
+                // reaches its own `static let` field through a `MemberRef` on the open
+                // self-`TypeSpec` (`Set\`1<!0>::empty`), the static analogue of the
+                // ctor-field `MemberRef`s above (G13); a mono class uses the `Def`
+                // token directly.
+                let staticFieldHandles =
+                    if isGeneric then
+                        [
+                            for (name, _) in staticFieldDefs ->
+                                name,
+                                icodegen.UserGenericMemberRef(
+                                    td.Key,
+                                    typarMarkers,
+                                    UserMemberKind.ClassMember(ClassMember.Field name)
+                                )
+                        ]
+                    else
+                        staticFieldDefs
 
                 let staticFieldsDict = Dictionary<string, EntityHandle>()
 

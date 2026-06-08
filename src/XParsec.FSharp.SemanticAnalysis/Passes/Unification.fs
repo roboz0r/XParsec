@@ -8,6 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngine
 open UnificationTranslate
 open UnificationInfer
+open UnificationInferForwardSchemes
 
 // Algorithm J + Rémy's levels.
 //
@@ -498,10 +499,14 @@ module Unification =
                 match e with
                 | Expr.HighPrecedenceApp(argExpr = argExpr) ->
                     let argTy = infer ctx argExpr
-                    unify ctx (CstKeys.ofExpr argExpr) argTy expected
+                    // Chain call to the primary ctor: admit an implicit
+                    // class→interface upcast on the args (G19), e.g.
+                    // `new() = Set(Comparer<'T>.Default, …)` into an `IComparer<'T>`
+                    // primary-ctor param.
+                    unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
                 | Expr.App(argExprs = argExprs) ->
                     let argTys = [ for a in argExprs -> infer ctx a ]
-                    unify ctx (CstKeys.ofExpr e) (tupleOrSingle argTys) expected
+                    unifyArg ctx (CstKeys.ofExpr e) (tupleOrSingle argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
             // Explicit field-init `{ f = e; … }`: infer each
@@ -614,25 +619,6 @@ module Unification =
             ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)
         | ValueNone -> ()
 
-    /// Map the only modelled reference supertype `System.Object` to the front-end
-    /// primitive `obj` so a user member annotated `obj` conforms to an external
-    /// interface signature that surfaces `System.Object` (the two are
-    /// interchangeable — `InferOverload.isObjectTy`). The metadata layer renders
-    /// `System.Object` as `TyClass("System.Object", [])` (it isn't in
-    /// `IntrinsicRepr.defaults`), while `translateType` renders the user's `obj` as
-    /// `TyConst "obj"`; without this bridge `IComparable.CompareTo(obj)` would fail
-    /// to unify. Recurses structurally; every other nominal is left untouched.
-    let rec private normalizeObj (t: SemType) : SemType =
-        match t with
-        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> TyConst("obj", EqArray.empty)
-        | TyClass(n, args) -> TyClass(n, EqArray.map normalizeObj args)
-        | TyFun(a, r) -> TyFun(normalizeObj a, normalizeObj r)
-        | TyTuple xs -> TyTuple(EqArray.map normalizeObj xs)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map normalizeObj args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map normalizeObj args)
-        | TyConst(n, args) -> TyConst(n, EqArray.map normalizeObj args)
-        | other -> other
-
     /// Type-check the member bodies of one resolved `interface IFace with member …`
     /// block against the interface's external signatures (B-2,
     /// vesper-set-sprint-phase-5 §5.2). For each impl member, unify its
@@ -679,18 +665,19 @@ module Unification =
             | _ -> ()
         | _ -> ()
 
-    /// Resolve + verify each `interface IFace with member …` block (B-2,
-    /// vesper-set-sprint-phase-5 §5.1) on a class, then type its member bodies.
-    /// The interface type resolves under the class's typar scope (so a generic
-    /// interface arg like `IEnumerable<'T>` binds to the class's typar); it must
-    /// map to a type the provider reports as an interface, else a diagnostic fires
-    /// and `Resolved` stays `ValueNone`. Member bodies type-check through
-    /// `fillTypeMembers` exactly like the class's own members — `this` re-binds to
-    /// the class instance via `info.ThisKey`. Once typed, each body's signature is
-    /// conformance-checked against the interface (§5.2, `checkInterfaceConformance`).
-    /// Runs after the class's own `fillTypeMembers` / `fillSecondaryCtors`, so ctor
-    /// params and the base call are already seeded and `PrelinkExtras` is a no-op here.
-    let private fillInterfaceImpls (ctx: PassContext) (info: ClassTypeInfo) : unit =
+    /// §5.2 resolution pre-pass (B-2, vesper-set-sprint-phase-5 §5.1): resolve
+    /// each `interface IFace with member …` block's interface type and stamp
+    /// `impl.Resolved` *before* any member body — the class's own members or a
+    /// sibling interface block — is typed. The interface type resolves under the
+    /// class's typar scope (so a generic interface arg like `IEnumerable<'T>`
+    /// binds to the class's typar); it must map to a type the provider reports as
+    /// an interface, else a diagnostic fires and `Resolved` stays `ValueNone`.
+    /// `subsumes` reads `InterfaceImpls.Resolved` to admit a class→interface
+    /// upcast (G19/G20: `this :> seq<_>`, a `Set` value flowing into an
+    /// `IComparer` slot), so the class must already know its declared interfaces
+    /// at every coercion site, not only once its own block's body is reached.
+    /// Body typing + conformance stay in `fillInterfaceImpls`.
+    let private resolveInterfaceImpls (ctx: PassContext) (info: ClassTypeInfo) : unit =
         for impl in info.InterfaceImpls do
             let resolved =
                 let savedScope = ctx.Resolution.TyparScope
@@ -722,6 +709,16 @@ module Unification =
 
                 ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)
 
+    /// Type-check each `interface IFace with member …` block's member bodies and
+    /// conformance-check them against the interface. Member bodies type through
+    /// `fillTypeMembers` exactly like the class's own members — `this` re-binds to
+    /// the class instance via `info.ThisKey`. Once typed, each body's signature is
+    /// conformance-checked against the interface (§5.2, `checkInterfaceConformance`).
+    /// Runs after `resolveInterfaceImpls` (so every `impl.Resolved` is stamped) and
+    /// after the class's own `fillTypeMembers` / `fillSecondaryCtors`, so ctor
+    /// params and the base call are already seeded and `PrelinkExtras` is a no-op here.
+    let private fillInterfaceImpls (ctx: PassContext) (info: ClassTypeInfo) : unit =
+        for impl in info.InterfaceImpls do
             fillTypeMembers
                 ctx
                 {
@@ -813,6 +810,12 @@ module Unification =
                                 finally
                                     exitLevel ctx
 
+                        // Resolve interface-impl types up front so member bodies
+                        // (the class's own and the interface blocks) all see the
+                        // class as implementing its declared interfaces at every
+                        // `:>` / argument-coercion site (G19/G20).
+                        resolveInterfaceImpls ctx info
+
                         fillTypeMembers
                             ctx
                             {
@@ -894,6 +897,20 @@ module Unification =
         for (m, openScope) in pairs do
             ctx.Resolution.OpenScope <- openScope
             fillUnionFieldTypes ctx m
+
+        // G19 residue: seed annotation-derived schemes for module-level functions
+        // *before* class member bodies are typed, so a class member's forward
+        // reference to a sibling-module function (`SetTree.add`) instantiates a
+        // fresh signature and the argument-coercion site can upcast a subtype
+        // argument (`Comparer<'T>` → `IComparer<'T>`) instead of monomorphically
+        // pinning the function's param. See `prebindModuleFunctionSchemes`.
+        for (m, openScope) in pairs do
+            ctx.Resolution.OpenScope <- openScope
+
+            match m with
+            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+                prebindModuleFunctionSchemes ctx bindings
+            | _ -> ()
 
         for (m, openScope) in pairs do
             ctx.Resolution.OpenScope <- openScope

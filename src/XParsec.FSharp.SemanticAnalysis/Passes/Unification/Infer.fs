@@ -12,6 +12,7 @@ open UnificationInferLiterals
 open UnificationInferResolve
 open UnificationInferPat
 open UnificationInferOverload
+open UnificationInferForwardSchemes
 
 module UnificationInfer =
 
@@ -339,9 +340,21 @@ module UnificationInfer =
 
                             for a in args do
                                 let argTy = infer ctx a
-                                let resultTy = TyVar(freshTyVar ctx)
-                                unify ctx key currTy (TyFun(argTy, resultTy))
-                                currTy <- resultTy
+
+                                match resolveStep currTy with
+                                | TyFun(dom, cod) ->
+                                    // Allow an implicit class→interface / class→base
+                                    // upcast on the argument (G19): a `Comparer<'T>`
+                                    // value flows into an `IComparer<'T>` parameter.
+                                    // `unifyArg` accepts a ground subtype and otherwise
+                                    // falls back to plain unification (which links vars
+                                    // and reports a genuine mismatch).
+                                    unifyArg ctx key argTy dom
+                                    currTy <- cod
+                                | _ ->
+                                    let resultTy = TyVar(freshTyVar ctx)
+                                    unify ctx key currTy (TyFun(argTy, resultTy))
+                                    currTy <- resultTy
 
                             currTy
 
@@ -442,9 +455,19 @@ module UnificationInfer =
                 | ValueNone ->
                     let fnTy = infer ctx fn
                     let argTy = infer ctx arg
-                    let resultTy = TyVar(freshTyVar ctx)
-                    unify ctx key fnTy (TyFun(argTy, resultTy))
-                    resultTy
+
+                    match resolveStep fnTy with
+                    | TyFun(dom, cod) ->
+                        // Admit an implicit class→interface / class→base upcast on
+                        // the argument (G19): a primary-ctor application `C(arg)`
+                        // (incl. the local-class ctor-as-function) flows a
+                        // `Comparer<'T>` into an `IComparer<'T>` parameter.
+                        unifyArg ctx key argTy dom
+                        cod
+                    | _ ->
+                        let resultTy = TyVar(freshTyVar ctx)
+                        unify ctx key fnTy (TyFun(argTy, resultTy))
+                        resultTy
 
     and private inferRange
         (ctx: PassContext)
@@ -1321,7 +1344,7 @@ module UnificationInfer =
                     |> tupleOrSingle
 
                 let argTy = infer ctx argExpr
-                unify ctx (CstKeys.ofExpr argExpr) argTy expected
+                unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
                 receiverTy
             | ValueNone ->
                 // Fall through to the external-class path: `new System.Exception(msg)`
@@ -1715,8 +1738,11 @@ module UnificationInfer =
         | TyConst("obj", _) -> true
         | _ -> false
 
-    /// `e :> T` — explicit upcast. `subsumes src tgt` must be `Equal`
-    /// (redundant but legal) or `Subtype`; the result type is the target.
+    /// `e :> T` — explicit upcast. `src` must instantiate `T`'s nominal (itself
+    /// — a redundant but legal upcast — a base, or a declared interface);
+    /// `tryCoerceUpcast` both verifies that and unifies the witness's type args
+    /// against `T`'s, so a free var in the target (`this :> seq<_>`) is pinned.
+    /// The result type is the target.
     and private inferStaticUpcast
         (ctx: PassContext)
         (key: NodeKey)
@@ -1726,10 +1752,7 @@ module UnificationInfer =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
 
-        match subsumes ctx srcTy tgtTy with
-        | SubsumeOutcome.Equal
-        | SubsumeOutcome.Subtype -> ()
-        | SubsumeOutcome.Unrelated ->
+        if not (tryCoerceUpcast ctx key srcTy tgtTy) then
             ctx.Error(
                 key,
                 sprintf "Cannot upcast type '%A' to '%A' — no inheritance relationship" (zonk srcTy) (zonk tgtTy)
@@ -1778,7 +1801,17 @@ module UnificationInfer =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
 
-        if not (isObjTy srcTy) then
+        // A still-unresolved source TyVar is admitted (runtime-checked, like `obj`):
+        // an interface/override member's unannotated param (`that` in
+        // `IStructuralEquatable.Equals`) is pinned to `obj` only by the *conformance*
+        // unify that runs after the body — so the operand is a free var here. We
+        // can't prove unrelatedness of an unknown type, so no static error (G21).
+        let isUnresolvedVar =
+            match resolveStep srcTy with
+            | TyVar _ -> true
+            | _ -> false
+
+        if not (isObjTy srcTy) && not isUnresolvedVar then
             match subsumes ctx tgtTy srcTy with
             | SubsumeOutcome.Subtype -> ()
             | SubsumeOutcome.Equal ->
@@ -1896,39 +1929,11 @@ module UnificationInfer =
                 ctx.Resolution.TyparScope.[kv.Key] <- kv.Value
         | ValueNone -> ()
 
+        seedBindingTypars ctx b
+
         match b.typarDefns with
-        | ValueSome(TyparDefns(defns = ds; constraints = bindingConstraints)) ->
-            for TyparDefn(typar = t) in ds do
-                match t with
-                | Typar.Named(ident = id)
-                | Typar.Static(ident = id) ->
-                    let n = ctx.NameOf id
-
-                    if not (ctx.Resolution.TyparScope.ContainsKey n) then
-                        // Reuse the member's prototype typar (B-12) when the seed
-                        // names it, so the inferred signature shares roots with
-                        // `TypeMemberInfo.MethodTypeParams`; otherwise mint fresh.
-                        let tv =
-                            match ctx.Resolution.BindingTyparSeed with
-                            | ValueSome seed ->
-                                match seed.TryGetValue n with
-                                | true, proto -> proto
-                                | _ ->
-                                    let tv = TypeVar()
-                                    tv.Level <- ctx.CurrentLevel
-                                    tv
-                            | ValueNone ->
-                                let tv = TypeVar()
-                                tv.Level <- ctx.CurrentLevel
-                                tv
-
-                        ctx.Resolution.TyparScope.[n] <- tv
-                | Typar.Anon _ -> ()
-
-            match bindingConstraints with
-            | ValueSome cs -> translateConstraints ctx cs
-            | ValueNone -> ()
-        | ValueNone -> ()
+        | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
+        | _ -> ()
 
         // The member-typar seed (B-12) is for this binding's own typars only;
         // clear it so a nested `let`-binding in the body mints fresh typars
@@ -1985,7 +1990,14 @@ module UnificationInfer =
         for b in bindings do
             match b.headPat with
             | Pat.NamedSimple _
-            | Pat.Op _ -> tvOf ctx (CstKeys.ofPat b.headPat) |> ignore
+            | Pat.Op _ ->
+                let key = CstKeys.ofPat b.headPat
+                tvOf ctx key |> ignore
+                // Drop any annotation-derived forward scheme
+                // (`prebindModuleFunctionSchemes`) so this group's bodies type with
+                // monomorphic self/sibling references — no polymorphic recursion,
+                // exactly as before the pre-pass. The real scheme is rebuilt below.
+                ctx.Bindings.Scheme.Remove key
             | _ -> ()
 
         for b in bindings do

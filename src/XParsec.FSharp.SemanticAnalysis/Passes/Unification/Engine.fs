@@ -259,7 +259,8 @@ module UnificationEngine =
 
     /// The result of the subtyping query `subsumes`: `Equal` when the two
     /// types are the same nominal type (with invariant args in v1), `Subtype`
-    /// when `src` is a strict descendant of `tgt` along the `inherit` chain,
+    /// when `src` is a strict descendant of `tgt` — either along the `inherit`
+    /// chain or because `src` (or a base) declares `tgt` as an interface —
     /// `Unrelated` otherwise.
     [<RequireQualifiedAccess>]
     type SubsumeOutcome =
@@ -267,138 +268,200 @@ module UnificationEngine =
         | Subtype
         | Unrelated
 
+    // Canonical nominal name for subtype comparison. A primitive intrinsic
+    // binding (`type exn = (# "System.Exception" #)`, prim-types-exn.fs) stays
+    // a *non-transparent* `TyConst "exn"` (Translate.fs) — it never expands to
+    // its RHS the way a plain abbreviation does. Its CLI representation is the
+    // BCL type name the external `inherit`-chain walk surfaces. Mapping through
+    // it makes a user-facing `exn` and a metadata-surfaced
+    // `TyClass("System.Exception", _)` the *same* nominal. The identity
+    // `exn === System.Exception` therefore originates from prim-types-exn.fs,
+    // not a literal baked into the unifier — retarget the core lib and this follows.
+    //
+    // Resolution order (local-first / provider-fallback):
+    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`,
+    //      keyed by the unqualified name it declared);
+    //   2. a *referenced* package's intrinsics, riding the provider as
+    //      `ExternalTypeShape.Intrinsic repr` (the self-compiled `exn` is local;
+    //      a consumer's `exn` comes from Vesper.Core through the provider).
+    // `n` here is the unqualified nominal (`translateType` strips an external
+    // intrinsic to its short name so `exn` unifies with literals), so the
+    // provider tier resolves it through the *same* ambient open scope
+    // `translateType` used — `exn` ⇒ `Vesper.exn` ⇒ `Intrinsic "System.Exception"`.
+    // Memoized per `PassContext`: `canonName` runs inside the subtype recursive
+    // walk, so without the cache every node would round-trip the composite
+    // provider / MetadataLoadContext through that ambient candidate list. A name
+    // that is neither a local nor a provider intrinsic caches its own identity.
+    let private canonName (ctx: PassContext) (n: string) : string =
+        match ctx.IntrinsicCanonCache.TryGetValue n with
+        | true, repr -> repr
+        | _ ->
+            let providerIntrinsicRepr (c: string) : string voption =
+                match ctx.Provider.TryLookupType c with
+                | ValueSome(ExternalTypeShape.Intrinsic repr) -> ValueSome repr
+                | _ -> ValueNone
+
+            let repr =
+                match ctx.Types.IntrinsicReprTypes.TryGetValue n with
+                | true, repr -> repr
+                | _ ->
+                    match OpenScope.tryResolve ctx.Resolution.OpenScope providerIntrinsicRepr n with
+                    | ValueSome repr -> repr
+                    | ValueNone -> n
+
+            ctx.IntrinsicCanonCache.[n] <- repr
+            repr
+
+    // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
+    // (so the `exn` bound participates), not just `TyClass`.
+    let private subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =
+        match resolveStep ty with
+        // Surface the *qualified* canonical name so an external `TyClass`
+        // (`System.Exception`) reconciles with the `exn` `TyConst` through
+        // `canonName`'s repr map. `parentOf` splits the simple segment back off
+        // for the project-local class lookup.
+        | TyClass(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
+        | TyConst(n, args) -> ValueSome(struct (canonName ctx n, args))
+        | _ -> ValueNone
+
+    // The instantiated declared base of nominal `(name, args)`: the
+    // project-local class table first, then the external provider.
+    // `ExternalTypeShape.Class.BaseType` carries the BCL `inherit` chain
+    // (`InvalidOperationException :> Exception :> …`), written over the
+    // declaring type's typars, so we apply the receiver's `args`, exactly
+    // like the user-class `instantiateMember` path. Both reads are pure —
+    // `ctx.Types.Class` is a plain lookup and `TryLookupType` is
+    // contractually thread-safe and side-effect free — so `subsumes` stays
+    // the read-only query the `:?` coercion site and the constraint checker
+    // rely on (no undo trace).
+    let private subtypeParentOf (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType voption =
+        // `name` is the qualified canonical name `subtypeNominalOf` surfaces (so it
+        // feeds `canonName`'s repr map); the project-local class table is keyed by the
+        // bare simple segment, the provider by the qualified name. Re-derive the
+        // simple segment through the shared `shortName` rule rather than a
+        // hand-rolled last-`.` split — `shortName` also strips the `` `N `` arity
+        // suffix the qualified name retains, so a generic local class
+        // (`MyNs.Box`1`) resolves to its bare table key (`Box`) instead of missing.
+        let simple = SymbolKeyOps.shortName name
+
+        match ctx.Types.Class.TryGetValue simple with
+        | true, info ->
+            match info.BaseType with
+            | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
+            | ValueNone -> ValueNone
+        | false, _ ->
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Class shape) ->
+                ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
+            | _ -> ValueNone
+
+    // The interfaces a nominal `(name, args)` declares, surfaced as
+    // `(canonical-name, instantiated-args)` nominal pairs (the same form
+    // `subtypeNominalOf` yields, so the subtype walk treats an interface exactly
+    // like a base). Project-local `interface … with` impls first (their
+    // `Resolved` type is written over the class's typars, so the receiver's
+    // `args` substitute exactly as in `subtypeParentOf`), then the external
+    // provider's frozen interface list (already a full transitive set from the
+    // metadata `GetInterfaces()`). Same purity contract as `subtypeParentOf`.
+    let private subtypeInterfacesOf
+        (ctx: PassContext)
+        (name: string)
+        (args: EqArray<SemType>)
+        : struct (string * EqArray<SemType>) list =
+        let simple = SymbolKeyOps.shortName name
+
+        match ctx.Types.Class.TryGetValue simple with
+        | true, info ->
+            [
+                for impl in info.InterfaceImpls do
+                    match impl.Resolved with
+                    | ValueSome ifaceTy ->
+                        match subtypeNominalOf ctx (instantiateMember (info.TypeParams, args) ifaceTy) with
+                        | ValueSome p -> yield p
+                        | ValueNone -> ()
+                    | ValueNone -> ()
+            ]
+        | false, _ ->
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Class shape) ->
+                ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
+                |> Array.toList
+                |> List.map (fun (n, ta) -> struct (canonName ctx n, EqArray.ofArray ta))
+            | _ -> []
+
+    /// Find the instantiation of `src` (or one of its bases / interfaces) whose
+    /// canonical nominal name is `tgtName`, returning that supertype's type
+    /// args; `ValueNone` if `src` does not subtype `tgtName`. Reflexive — `src`
+    /// itself when its name is `tgtName`. Read-only (it only *reads* the class
+    /// table / provider, like `subsumes`); the caller `unify`s the returned args
+    /// against the target's so a free var in the target is pinned. The single
+    /// authoritative subtype walk: direct interfaces at each level (class→interface,
+    /// G19/G20), then up the `inherit` chain (class→base, user + BCL); `subsumes`
+    /// is layered on top of it. `seen` short-circuits a cyclic `inherit` chain.
+    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtName: string) : EqArray<SemType> voption =
+        let nominalOf = subtypeNominalOf ctx
+
+        let rec walk (seen: HashSet<string>) (cur: SemType) : EqArray<SemType> voption =
+            match nominalOf cur with
+            | ValueNone -> ValueNone
+            | ValueSome(struct (s, sa)) ->
+                if s = tgtName then
+                    ValueSome sa
+                elif not (seen.Add s) then
+                    ValueNone
+                else
+                    let viaIface =
+                        subtypeInterfacesOf ctx s sa
+                        |> List.tryPick (fun (struct (iname, ia)) -> if iname = tgtName then Some ia else None)
+
+                    match viaIface with
+                    | Some ia -> ValueSome ia
+                    | None ->
+                        match subtypeParentOf ctx s sa with
+                        | ValueSome parentInstance -> walk seen parentInstance
+                        | ValueNone -> ValueNone
+
+        walk (HashSet<string>()) src
+
     /// Subtyping query distinct from `unify`: does a value of type `src`
     /// coerce to the statically-known type `tgt`? A **pure read** of
     /// `ctx.Types.Class` — never mutates `Link` / `Constraints`, so it's safe
-    /// to call from the read-only coercion sites (`:>` / `:?` / `:?>`) without
-    /// an undo trace (inheritance-plan §"Why subsumes being read-only is
-    /// load-bearing"). Reflexivity is `Equal` (callers distinguish a redundant
-    /// upcast from a real one); the parent-chain walk yields `Subtype`. Args
-    /// are invariant in v1 — `List<Circle>` does not subsume `List<Shape>`.
-    let subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
-        // Canonical nominal name for subtype comparison. A primitive intrinsic
-        // binding (`type exn = (# "System.Exception" #)`, prim-types-exn.fs) stays
-        // a *non-transparent* `TyConst "exn"` (Translate.fs) — it never expands to
-        // its RHS the way a plain abbreviation does. Its CLI representation is the
-        // BCL type name the external `inherit`-chain walk surfaces. Mapping through
-        // it makes a user-facing `exn` and a metadata-surfaced
-        // `TyClass("System.Exception", _)` the *same* nominal. The identity
-        // `exn === System.Exception` therefore originates from prim-types-exn.fs,
-        // not a literal baked into the unifier — retarget the core lib and this follows.
-        //
-        // Resolution order (local-first / provider-fallback):
-        //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`,
-        //      keyed by the unqualified name it declared);
-        //   2. a *referenced* package's intrinsics, riding the provider as
-        //      `ExternalTypeShape.Intrinsic repr` (the self-compiled `exn` is local;
-        //      a consumer's `exn` comes from Vesper.Core through the provider).
-        // `n` here is the unqualified nominal (`translateType` strips an external
-        // intrinsic to its short name so `exn` unifies with literals), so the
-        // provider tier resolves it through the *same* ambient open scope
-        // `translateType` used — `exn` ⇒ `Vesper.exn` ⇒ `Intrinsic "System.Exception"`.
-        // Memoized per `PassContext`: `canonName` runs inside `subsumes`' recursive
-        // walk, so without the cache every node would round-trip the composite
-        // provider / MetadataLoadContext through that ambient candidate list. A name
-        // that is neither a local nor a provider intrinsic caches its own identity.
-        let providerIntrinsicRepr (c: string) : string voption =
-            match ctx.Provider.TryLookupType c with
-            | ValueSome(ExternalTypeShape.Intrinsic repr) -> ValueSome repr
-            | _ -> ValueNone
-
-        let canonName (n: string) : string =
-            match ctx.IntrinsicCanonCache.TryGetValue n with
-            | true, repr -> repr
-            | _ ->
-                let repr =
-                    match ctx.Types.IntrinsicReprTypes.TryGetValue n with
-                    | true, repr -> repr
-                    | _ ->
-                        match OpenScope.tryResolve ctx.Resolution.OpenScope providerIntrinsicRepr n with
-                        | ValueSome repr -> repr
-                        | ValueNone -> n
-
-                ctx.IntrinsicCanonCache.[n] <- repr
-                repr
-
-        // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
-        // (so the `exn` bound participates), not just `TyClass`.
-        let nominalOf (ty: SemType) : struct (string * EqArray<SemType>) voption =
-            match resolveStep ty with
-            // Surface the *qualified* canonical name so an external `TyClass`
-            // (`System.Exception`) reconciles with the `exn` `TyConst` through
-            // `canonName`'s repr map. `parentOf` splits the simple segment back off
-            // for the project-local class lookup.
-            | TyClass(n, args) -> ValueSome(struct (canonName (SymbolKeyOps.qualifiedName n), args))
-            | TyConst(n, args) -> ValueSome(struct (canonName n, args))
-            | _ -> ValueNone
-
-        // The instantiated declared base of nominal `(name, args)`: the
-        // project-local class table first, then the external provider.
-        // `ExternalTypeShape.Class.BaseType` carries the BCL `inherit` chain
-        // (`InvalidOperationException :> Exception :> …`), written over the
-        // declaring type's typars, so we apply the receiver's `args`, exactly
-        // like the user-class `instantiateMember` path. Both reads are pure —
-        // `ctx.Types.Class` is a plain lookup and `TryLookupType` is
-        // contractually thread-safe and side-effect free — so `subsumes` stays
-        // the read-only query the `:>` / `:?` / `:?>` coercion sites and the
-        // constraint checker rely on (no undo trace).
-        let parentOf (name: string) (args: EqArray<SemType>) : SemType voption =
-            // `name` is the qualified canonical name `nominalOf` surfaces (so it feeds
-            // `canonName`'s repr map); the project-local class table is keyed by the
-            // bare simple segment, the provider by the qualified name. Re-derive the
-            // simple segment through the shared `shortName` rule rather than a
-            // hand-rolled last-`.` split — `shortName` also strips the `` `N `` arity
-            // suffix the qualified name retains, so a generic local class
-            // (`MyNs.Box`1`) resolves to its bare table key (`Box`) instead of missing.
-            let simple = SymbolKeyOps.shortName name
-
-            match ctx.Types.Class.TryGetValue simple with
-            | true, info ->
-                match info.BaseType with
-                | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
-                | ValueNone -> ValueNone
-            | false, _ ->
-                match ctx.Provider.TryLookupType name with
-                | ValueSome(ExternalTypeShape.Class shape) ->
-                    ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
-                | _ -> ValueNone
-
-        // `seen` short-circuits a cyclic `inherit` chain re-entering a class.
-        let rec go (seen: HashSet<string>) (src: SemType) (tgt: SemType) : SubsumeOutcome =
-            match nominalOf src, nominalOf tgt with
-            | ValueSome(struct (s, sa)), ValueSome(struct (t, ta)) when s = t ->
-                // Same nominal. v1 treats args as invariant: every pair must
-                // itself be `Equal` (a fresh chain walk per arg) for the whole to
-                // be `Equal`; any non-`Equal` arg makes them unrelated. The length
-                // guard is belt-and-suspenders — equal canonical names imply equal
-                // arity in a well-formed program.
-                if
-                    sa.Length = ta.Length
-                    && EqArray.forall2 (fun a b -> go (HashSet<string>()) a b = SubsumeOutcome.Equal) sa ta
-                then
+    /// to call from the read-only coercion site (`:?`) without an undo trace
+    /// (inheritance-plan §"Why subsumes being read-only is load-bearing").
+    /// Reflexivity is `Equal` (callers distinguish a redundant cast from a real
+    /// one); the parent-chain / interface walk yields `Subtype`. Args are
+    /// invariant in v1 — `List<Circle>` does not subsume `List<Shape>`. The
+    /// argument / `:>` coercion sites use `tryCoerceUpcast` instead, which
+    /// *unifies* the witness's type args (so a free var in the target, e.g. the
+    /// `_` in `this :> seq<_>`, is pinned).
+    ///
+    /// Layered on `tryUpcastWitness` — the witness is reflexive and stops at the
+    /// first name match, exactly `subsumes`' semantics — so the subtype traversal
+    /// lives in one place. `src` subsumes `tgt` iff `src` reaches `tgt`'s nominal
+    /// with invariant-equal args; reflexive (same root nominal) is `Equal`, a
+    /// base/interface hop is `Subtype`. Non-nominal operands fall back to identity.
+    let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
+        match subtypeNominalOf ctx src, subtypeNominalOf ctx tgt with
+        | ValueSome(struct (s, _)), ValueSome(struct (t, ta)) ->
+            match tryUpcastWitness ctx src t with
+            // v1 args are invariant: every witnessed arg must itself be `Equal`.
+            // The length guard is belt-and-suspenders — a name match implies equal
+            // arity in a well-formed program.
+            | ValueSome wargs when
+                wargs.Length = ta.Length
+                && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
+                ->
+                if s = t then
                     SubsumeOutcome.Equal
                 else
-                    SubsumeOutcome.Unrelated
-            | ValueSome(struct (s, sa)), ValueSome _ ->
-                // Different nominal names → walk `src`'s parent chain toward
-                // `tgt`, now spanning user classes *and* external (BCL) chains.
-                if not (seen.Add s) then
-                    SubsumeOutcome.Unrelated
-                else
-                    match parentOf s sa with
-                    | ValueSome parentInstance ->
-                        match go seen parentInstance tgt with
-                        | SubsumeOutcome.Unrelated -> SubsumeOutcome.Unrelated
-                        | _ -> SubsumeOutcome.Subtype
-                    | ValueNone -> SubsumeOutcome.Unrelated
-            | _ ->
-                // Non-nominal operands (vars, funcs, tuples): identity only.
-                if resolveStep src = resolveStep tgt then
-                    SubsumeOutcome.Equal
-                else
-                    SubsumeOutcome.Unrelated
-
-        go (HashSet<string>()) src tgt
+                    SubsumeOutcome.Subtype
+            | _ -> SubsumeOutcome.Unrelated
+        | _ ->
+            // Non-nominal operands (vars, funcs, tuples): identity only.
+            if resolveStep src = resolveStep tgt then
+                SubsumeOutcome.Equal
+            else
+                SubsumeOutcome.Unrelated
 
     [<RequireQualifiedAccess>]
     type private NominalKind =
@@ -410,13 +473,15 @@ module UnificationEngine =
     /// (`TyRecord` / `TyClass` / `TyUnion`) and report which kind it is. The
     /// arg list rides along so `drainPendingDotAccess` can substitute the
     /// type's typars when resolving deferred field / member accesses.
-    let rec private tryResolveNominal (t: SemType) : (NominalKind * string * EqArray<SemType>) voption =
+    let rec private tryResolveNominal (t: SemType) : (NominalKind * SymbolKey * EqArray<SemType>) voption =
         match t with
-        // Bare simple name: `resolveDotSource` looks each up in the project-local
-        // tables (`ctx.Types.Record` bare, `tryUnion` re-deriving arity from args).
-        | TyRecord(n, args) -> ValueSome(NominalKind.Record, SymbolKeyOps.simpleName n, args)
-        | TyClass(n, args) -> ValueSome(NominalKind.Class, SymbolKeyOps.simpleName n, args)
-        | TyUnion(n, args) -> ValueSome(NominalKind.Union, SymbolKeyOps.simpleName n, args)
+        // The full key rides along so `resolveDotSource` can both project the simple
+        // name (project-local table lookups: `ctx.Types.Record` bare, `tryUnion`
+        // re-deriving arity from args) and recover the qualified name for an external
+        // class's provider lookup (G22).
+        | TyRecord(n, args) -> ValueSome(NominalKind.Record, n, args)
+        | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)
+        | TyUnion(n, args) -> ValueSome(NominalKind.Union, n, args)
         | TyVar tv ->
             match (UnionFind.find tv).Link with
             | ValueSome target -> tryResolveNominal target
@@ -454,21 +519,35 @@ module UnificationEngine =
         /// `Resolved` shape carries. The drain defers to `tryClassChainMember`,
         /// which threads the substitution up the chain per parent.
         | ClassChain of name: string * args: EqArray<SemType>
+        /// An *external* class/interface (not in `ctx.Types.Class`): a deferred
+        /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
+        /// (`System.Collections.IEqualityComparer`, G22). The drain resolves the
+        /// member through the provider — the deferred mirror of `resolveFieldStep`'s
+        /// external arm — keyed by the *qualified* name (`qualName`).
+        | ExternalClass of qualName: string * args: EqArray<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
         match tryResolveNominal linkTarget with
         | ValueNone -> DotSource.NotNominal
-        | ValueSome(NominalKind.Record, name, args) ->
+        | ValueSome(NominalKind.Record, key, args) ->
+            let name = SymbolKeyOps.simpleName key
+
             match ctx.Types.Record.TryGetValue name with
             | true, info ->
                 DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
             | false, _ -> DotSource.UnknownType(name, "record")
-        | ValueSome(NominalKind.Class, name, args) ->
+        | ValueSome(NominalKind.Class, key, args) ->
+            let name = SymbolKeyOps.simpleName key
+
             if ctx.Types.Class.ContainsKey name then
                 DotSource.ClassChain(name, args)
             else
-                DotSource.UnknownType(name, "class")
-        | ValueSome(NominalKind.Union, name, args) ->
+                // Not project-local — an external (BCL/contract) class or interface
+                // whose member resolves through the provider by its qualified name.
+                DotSource.ExternalClass(SymbolKeyOps.qualifiedName key, args)
+        | ValueSome(NominalKind.Union, key, args) ->
+            let name = SymbolKeyOps.simpleName key
+
             match TypeRegistry.tryUnion ctx.Types name args.Length with
             | ValueSome info ->
                 DotSource.Resolved(
@@ -537,6 +616,25 @@ module UnificationEngine =
                 (SymbolKeyOps.qualifiedName k1)
         | _ -> ()
 #endif
+
+    /// Bridge an external signature's `System.Object` (minted by the provider as
+    /// `TyClass("System.Object", [])`, since it isn't in `IntrinsicRepr.defaults`)
+    /// to the user-facing `TyConst "obj"` that `translateType` produces — without
+    /// this an external method's `obj` parameter (`IEqualityComparer.Equals(obj,
+    /// obj)`) fails to unify with an `obj`-typed argument. Shared by the deferred
+    /// drain here and `Unification`'s interface-conformance path; defined here so
+    /// both — the drain upstream of that module and the conformance check — can
+    /// normalise the external signatures they open.
+    let rec normalizeObj (t: SemType) : SemType =
+        match t with
+        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> TyConst("obj", EqArray.empty)
+        | TyClass(n, args) -> TyClass(n, EqArray.map normalizeObj args)
+        | TyFun(a, r) -> TyFun(normalizeObj a, normalizeObj r)
+        | TyTuple xs -> TyTuple(EqArray.map normalizeObj xs)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map normalizeObj args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map normalizeObj args)
+        | TyConst(n, args) -> TyConst(n, EqArray.map normalizeObj args)
+        | other -> other
 
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
@@ -669,6 +767,31 @@ module UnificationEngine =
                     | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) ty
                     | ValueNone ->
                         ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" name d.MemberName)
+            | DotSource.ExternalClass(qualName, args) ->
+                // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
+                // TyVar resolved to a BCL/contract class or interface (G22, e.g. the
+                // `comparer: IEqualityComparer` parameter of an `IStructuralEquatable`
+                // member, pinned by the interface-conformance unify only *after* the
+                // body — and its dot-accesses — were deferred). Resolve each member
+                // through the provider and record it for Freeze.
+                let pending = root.PendingDotAccess
+                root.PendingDotAccess <- []
+                let argArr = args.AsSpan().ToArray()
+
+                for d in pending do
+                    match ctx.Provider.TryLookupMember(qualName, d.MemberName) with
+                    | ValueSome m when not m.IsStatic ->
+                        ctx.Resolution.ExternalAccess.Set(
+                            d.UseKey,
+                            {
+                                Key = m.Key
+                                IsStatic = false
+                                IsProperty = m.IsProperty
+                            }
+                        )
+
+                        unify ctx d.UseKey (TyVar d.ResultTv) (normalizeObj (ExternalSymbols.openSignature m argArr))
+                    | _ -> ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" qualName d.MemberName)
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = not in the table, fall through to structural / deferred
@@ -1046,3 +1169,43 @@ module UnificationEngine =
                         remaining <- b :: remaining
 
             root.SrtpBounds <- List.rev remaining
+
+    /// Coerce `src` to the nominal target `tgt` as an implicit/`:>` upcast: when
+    /// `src` (or a base / interface) instantiates `tgt`'s nominal, `unify` the
+    /// witness's type args against `tgt`'s — pinning any inference var in `tgt`
+    /// (the `_` in `this :> seq<_>`) and any unresolved arg of `src`
+    /// (`Comparer<'T> ⊳ IComparer<'T>` links the two `'T`s) — then return `true`.
+    /// Returns `false` when `src` is not a subtype of `tgt`, leaving the caller
+    /// to fall back to a plain `unify` (and its mismatch diagnostic). Unlike
+    /// `subsumes` this *mutates* (it links type args), so it belongs only at the
+    /// coercion sites — argument / ctor unification and `:>` — never the
+    /// read-only constraint checker.
+    let tryCoerceUpcast (ctx: PassContext) (key: NodeKey) (src: SemType) (tgt: SemType) : bool =
+        match subtypeNominalOf ctx tgt with
+        | ValueNone -> false
+        | ValueSome(struct (tname, targs)) ->
+            match tryUpcastWitness ctx src tname with
+            | ValueSome sargs when sargs.Length = targs.Length ->
+                for i in 0 .. targs.Length - 1 do
+                    unify ctx key sargs.[i] targs.[i]
+
+                true
+            | _ -> false
+
+    /// Unify an *argument* against its expected parameter type, admitting the
+    /// implicit class→interface / class→base upcast F# inserts at a coercion
+    /// point (G19): a `Comparer<'T>` value flows into an `IComparer<'T>` slot, a
+    /// derived class into a base-typed slot. `tryCoerceUpcast` both accepts the
+    /// subtype and unifies its type args; anything that isn't a subtype defers to
+    /// plain `unify`, which links type variables and reports a genuine mismatch.
+    /// Tuples are walked element-wise so a tupled ctor argument
+    /// (`Set(comparer, tree)`) coerces each component independently. Used at every
+    /// argument / chain-call coercion site (application, primary/secondary ctors).
+    let rec unifyArg (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+        match resolveStep actual, resolveStep expected with
+        | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
+            for i in 0 .. aa.Length - 1 do
+                unifyArg ctx key aa.[i] bb.[i]
+        | a, b ->
+            if not (tryCoerceUpcast ctx key a b) then
+                unify ctx key a b

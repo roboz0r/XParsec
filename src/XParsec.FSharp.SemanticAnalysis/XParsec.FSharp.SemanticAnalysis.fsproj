@@ -39,6 +39,7 @@
     <Compile Include="Passes\Unification\InferResolve.fs" />
     <Compile Include="Passes\Unification\InferPat.fs" />
     <Compile Include="Passes\Unification\InferOverload.fs" />
+    <Compile Include="Passes\Unification\InferForwardSchemes.fs" />
     <Compile Include="Passes\Unification\Infer.fs" />
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />

@@ -107,8 +107,9 @@ module EmitTypes =
             Ctor: EntityHandle
             Members: Dictionary<string, EmittedMember>
             /// `static let` backing fields keyed by source name (B-10); a
-            /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. Only
-            /// monomorphic classes populate this (generic `static let` deferred).
+            /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. A mono class
+            /// stores the field `Def` token, a generic class a `MemberRef` on the
+            /// open self-`TypeSpec` (G13).
             StaticFields: Dictionary<string, EntityHandle>
             /// Secondary constructors (B-11) keyed by arity → (declared param types,
             /// `.ctor` handle). A `TExpr.New` whose arg count differs from the

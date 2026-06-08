@@ -420,13 +420,14 @@ module NameResolutionMemberRegistration =
 
     /// `ClassStaticLetInfo` placeholders for a class body's `static let` preamble
     /// (B-10). Only simple `static let x = …` (single named binder) is supported.
-    /// Per-instantiation cache lowering for a generic class is deferred, so a
-    /// `static let` on a generic class is diagnosed and dropped. Instance `let`
-    /// and `[static] do` preamble entries are not yet modelled (silently skipped).
+    /// A generic class's `static let` lowers to a per-instantiation static field
+    /// (one field on the open generic `TypeDefinition`, its `.cctor` running once
+    /// per closed instantiation — codegen mints the read/store as a `MemberRef` on
+    /// the self-`TypeSpec`, G13). Instance `let` and `[static] do` preamble entries
+    /// are not yet modelled (silently skipped).
     let private extractStaticLets
         (ctx: PassContext)
         (declKey: NodeKey)
-        (isGeneric: bool)
         (preamble: ImmutableArray<ClassFunctionOrValueDefn<SyntaxToken>>)
         : ClassStaticLetInfo[] =
         let acc = ResizeArray<ClassStaticLetInfo>()
@@ -446,12 +447,9 @@ module NameResolutionMemberRegistration =
                 for b in bindings do
                     match bindingsOfPat ctx b.headPat with
                     | [ (name, key) ] ->
-                        if isGeneric then
-                            diagnose "`static let` on a generic class is not yet supported"
-                        else
-                            let tv = TypeVar()
-                            tv.Level <- 0
-                            acc.Add(ClassStaticLetInfo(name, TyVar tv, key, b.expr))
+                        let tv = TypeVar()
+                        tv.Level <- 0
+                        acc.Add(ClassStaticLetInfo(name, TyVar tv, key, b.expr))
                     | _ -> diagnose "Only simple `static let x = …` bindings are supported"
             | _ -> ()
 
@@ -507,8 +505,7 @@ module NameResolutionMemberRegistration =
 
                     let members = memberInfos.ToArray()
 
-                    let staticLets =
-                        extractStaticLets ctx declKey (not typeParams.IsEmpty) body.classPreamble
+                    let staticLets = extractStaticLets ctx declKey body.classPreamble
 
                     let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
 

@@ -468,6 +468,8 @@ type SideTable<'V>() =
 
     member _.Set(key: NodeKey, value: 'V) = dict[key] <- value
 
+    member _.Remove(key: NodeKey) = dict.Remove key |> ignore
+
     member _.ContainsKey(key: NodeKey) = dict.ContainsKey key
 
     /// Callers must treat the returned dictionary as read-only once Freeze starts.
@@ -824,6 +826,26 @@ type PassContextResolution =
         /// (the proven-out case); records / classes / abbrevs follow as their
         /// consumers migrate.
         ResolvedType: SideTable<SymbolKey>
+        /// G15/G16: project-local *module* member registry. Maps a local module's
+        /// short name (`SetTree`) → its directly-declared `let` value/function
+        /// bindings (member name → the binding-site `NodeKey` `bindingsOfPat` mints
+        /// for the head pattern). Populated by `NameResolution.registerLocalModules`,
+        /// a pre-pass over the *un-flattened* module tree — the flattened element
+        /// walk (`CstWalk.walkModuleTreeWith`) erases module boundaries, so a
+        /// sibling module's function would otherwise be unresolvable. Read by the
+        /// qualified-name path (`SetTree.add` resolves to the member's binding site,
+        /// recorded as a use-site `Binding` entry so Unification/Freeze treat it as
+        /// an ordinary local reference) and by the nested-type body walk (an
+        /// enclosing module's bindings enter the type-body scope, unqualified — G16).
+        /// The `SetTree` *module* and a same-named `SetTree<'T>` *type* coexist:
+        /// this table is keyed independently of `Types.Class`.
+        LocalModules: Dictionary<string, Dictionary<string, NodeKey>>
+        /// G16: maps a local *type*'s short name (`SetIterator`) → the short name
+        /// of the module it is declared inside (`SetTree`). Populated alongside
+        /// `LocalModules`; consulted by the nested-type body walk to merge the
+        /// enclosing module's bindings into the member-body scope. Absent for a
+        /// type declared at namespace / file top level.
+        TypeEnclosingModule: Dictionary<string, string>
     }
 
 module PassContextResolution =
@@ -841,6 +863,8 @@ module PassContextResolution =
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
+            LocalModules = Dictionary<_, _>()
+            TypeEnclosingModule = Dictionary<_, _>()
         }
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,

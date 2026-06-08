@@ -145,16 +145,34 @@ let tests =
             //   `fillTypeMembers` keeps the member typars in `EnclosingTypars` across
             //   the body so nested `let`s (`Comparer<'U>.Default`) resolve them too.
             //   Gated by the SemanticAnalysis "G12" rows.
-            // Current state (reached after G12): every "Free type parameter" error is
-            // gone; the build surfaces the rest of the Phase-5/6-deferred WALL.
-            // Dominant categories, in rough size order:
-            //   - "Unresolved qualified name: SetTree.*" — the nested `SetTree` module's
-            //     functions don't resolve from `Set<'T>` member / `module Set` bodies.
-            //   - "for-in: source is not a supported enumerable" (G7), `:>` upcasts
-            //     (SetTreeNode→SetTree, →IEnumerator), "Unknown class type
-            //     'IEqualityComparer'", and "Unknown operator symbol op_LessThan/…".
-            //   - the four Phase-5-deferred interfaces (IComparable /
-            //     IStructuralEquatable / ICollection / IReadOnlyCollection), `use`.
+            // Current state (after G19 fully closed, 2026-06-07): the wall is down
+            // to 44 analysis errors (from 197 → 121 → 72 → 71 → 50 → 44). G20 is
+            // CLOSED — class→interface and class→base `:>` upcasts now type-check:
+            // `subsumes` walks declared interfaces (local `interface … with` impls +
+            // the external provider's frozen interface list) as well as the `inherit`
+            // chain, an interface-impl resolution pre-pass stamps `InterfaceImpls.Resolved`
+            // before any member body is typed, and `:>`/argument coercion go through
+            // `tryCoerceUpcast`, which *unifies* the witness supertype's type args so a
+            // generic / wildcard target is pinned (`this :> seq<_>`). G19 is CLOSED:
+            // the coercion engine (`unifyArg`) handles in-scope `Comparer<'T>.Default`
+            // → `IComparer<'T>` slots, and the *forward-reference* residue (a class
+            // member calling a sibling-module function whose `let` is generalised AFTER
+            // class members) closed via `prebindModuleFunctionSchemes` — an
+            // annotation-derived scheme pre-pass run before `fillClassMembers`, so the
+            // forward call instantiates fresh and `unifyArg` upcasts the subtype arg.
+            // Both gated by the `ClassCoercion` rows. G21 + G22 are now CLOSED too
+            // (wall 44 → 38): the deferred dot-access drain (Engine.fs) resolves an
+            // *external* receiver through the provider (G22 — `comparer.Equals` on the
+            // `IEqualityComparer` interface param, pinned only by the post-body
+            // conformance unify) and normalises its `System.Object` params to `obj`;
+            // and `:?>` admits a still-unresolved source TyVar (G21 — `that :?> Set<'T>`
+            // on an interface member's unannotated `obj` param). Gated by the
+            // `ClassCoercion` "G21"/"G22" rows. The 38 remaining are the genuine
+            // *backend* features + their TyVar cascade (see vesper-set-g-wall.md):
+            //   - ~33 "ResolvedTypes: … unresolved TyVar" + 2 "<unfreezable …>" + the
+            //     lone "SetTree`1 vs unit" — pure cascade of the below.
+            //   - G7: 2 `op_LeftShift` cascades + the `for-in` source — now the sole
+            //     remaining root.
             // Flip `ptest`→`test` once the remaining gaps close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

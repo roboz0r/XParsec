@@ -52,8 +52,28 @@ module NameResolution =
             /// Unification's `fillBaseCtorCall` sees its idents bound. `ValueNone`
             /// for unions and classes without an `inherit` clause.
             InheritsExpr: Expr<SyntaxToken> voption
+            /// G16: the enclosing module's `let` value/function bindings (member
+            /// name → binding-site `NodeKey`), present when this type is declared
+            /// inside a `module Foo = …`. Entered as the lowest-priority layer of
+            /// every member-body scope so a nested type's method can reference a
+            /// module sibling unqualified (`collapseLHS`, `notStarted` in
+            /// `SetIterator`). `ValueNone` for a top-level type. The same map
+            /// `LocalModules` registers for G15's *qualified* resolution.
+            EnclosingModuleMembers: System.Collections.Generic.Dictionary<string, NodeKey> voption
             Elements: TypeDefnElements<SyntaxToken>
         }
+
+    /// The self-identifier token an *instance* member declares for its own
+    /// body (`s` in `member s.Add …`, `x` in `member x.Choose …`). F# scopes
+    /// this name to that single member, independently of the type-level `as`
+    /// alias. `AutoProperty` / `AbstractSignature` carry none; a `_` self-id is
+    /// returned here and filtered by the caller (it binds nothing).
+    let private selfIdentOf (d: MethodOrPropDefn<SyntaxToken>) : SyntaxToken voption =
+        match d with
+        | MethodOrPropDefn.Method(ident = ValueSome(struct (selfId, _)))
+        | MethodOrPropDefn.Property(ident = ValueSome(struct (selfId, _)))
+        | MethodOrPropDefn.PropertyWithGetSet(identPrefix = ValueSome(struct (selfId, _))) -> ValueSome selfId
+        | _ -> ValueNone
 
     /// Walk every method / property / auto-property body of a class or union with
     /// an instance scope binding `this` (or the `as` alias) and every
@@ -126,8 +146,24 @@ module NameResolution =
         let mergeStaticLets (m: Scope) =
             (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
 
-        let instanceScope = [ mergeStaticLets scopeMap ]
-        let staticScope: Scope list = [ staticLetScope ]
+        // G16: the enclosing module's value bindings are visible — unqualified — to
+        // every member body of a type nested in that module (F# spec §8.7). They
+        // enter as the *lowest-priority* tail layer so `this` / ctor params /
+        // static lets shadow on a name clash. `Map.empty` (no enclosing module)
+        // leaves resolution unchanged.
+        let moduleMemberScope: Scope =
+            match w.EnclosingModuleMembers with
+            | ValueSome members ->
+                let mutable m = Map.empty
+
+                for kv in members do
+                    m <- Map.add kv.Key (kv.Value, false) m
+
+                m
+            | ValueNone -> Map.empty
+
+        let instanceScope = [ mergeStaticLets scopeMap; moduleMemberScope ]
+        let staticScope: Scope list = [ staticLetScope; moduleMemberScope ]
 
         // Primary `inherit Base(args)` expression (B-4): name-resolve under a
         // scope of `static let`s plus the primary-ctor params, but without
@@ -140,7 +176,7 @@ module NameResolution =
             for p in w.CtorParams do
                 ctorScope <- Map.add p.Name (p.DeclKey, false) ctorScope
 
-            CstWalk.iterExpr walker [ ctorScope ] e
+            CstWalk.iterExpr walker [ ctorScope; moduleMemberScope ] e
         | ValueNone -> ()
 
         // Secondary constructors (B-11). The body is an `AdditionalConstrExpr`,
@@ -193,7 +229,7 @@ module NameResolution =
                     }
                 )
 
-            walkCtorBody [ scScope ] sc.Body
+            walkCtorBody [ scScope; moduleMemberScope ] sc.Body
 
         // Body walk shared by a class/union's own members and by each
         // `interface IFace with member …` block's members (B-2): an interface
@@ -201,7 +237,29 @@ module NameResolution =
         let walkMemberDefn (md: MemberDefn<SyntaxToken>) =
             match md with
             | MemberDefn.Member(staticToken = s; defn = d) ->
-                let scope = if s.IsSome then staticScope else instanceScope
+                // F# scopes each *instance* member's own self-identifier to that
+                // member's body (`member s.Add …`, `member x.Choose …`), distinct
+                // from the type-level `as` alias / default `this` that already
+                // seeds `instanceScope`. Bind the member's self-id to the same
+                // `ThisKey` (so Unification still types it as `this`) when it
+                // differs from the bound self-name and isn't `_`. Without this a
+                // member written with any other self-id leaves both `s` and
+                // `s.Member` unresolved. Static members have no self-id.
+                let scope =
+                    if s.IsSome then
+                        staticScope
+                    else
+                        match selfIdentOf d with
+                        | ValueSome selfId ->
+                            let name = ctx.NameOf selfId
+
+                            if name = "_" || name = w.ThisName then
+                                instanceScope
+                            else
+                                // Highest-priority layer: a fresh self-id, so it can
+                                // only shadow (never collide with) the instance scope.
+                                Map.add name (w.ThisKey, false) Map.empty :: instanceScope
+                        | ValueNone -> instanceScope
 
                 match d with
                 | MethodOrPropDefn.Method(defn = b)
@@ -226,6 +284,20 @@ module NameResolution =
                 for md in mds do
                     walkMemberDefn md
             | _ -> ()
+
+    /// G16: the member bindings of the module a local type is declared inside, if
+    /// any — looked up via the `TypeEnclosingModule` → `LocalModules` registries the
+    /// pre-pass populated. `ValueNone` for a top-level type.
+    let private enclosingModuleMembers
+        (ctx: PassContext)
+        (typeName: string)
+        : System.Collections.Generic.Dictionary<string, NodeKey> voption =
+        match ctx.Resolution.TypeEnclosingModule.TryGetValue typeName with
+        | true, moduleName ->
+            match ctx.Resolution.LocalModules.TryGetValue moduleName with
+            | true, members -> ValueSome members
+            | false, _ -> ValueNone
+        | false, _ -> ValueNone
 
     let private walkClassBodies
         (ctx: PassContext)
@@ -270,6 +342,7 @@ module NameResolution =
                                     match info.BaseType, body.inherits with
                                     | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
                                     | _ -> ValueNone
+                                EnclosingModuleMembers = enclosingModuleMembers ctx name
                                 Elements = body.elements
                             }
                     | false, _ -> ()
@@ -304,6 +377,7 @@ module NameResolution =
                                 StaticLets = [||]
                                 SecondaryCtors = [||]
                                 InheritsExpr = ValueNone
+                                EnclosingModuleMembers = enclosingModuleMembers ctx name
                                 Elements = elems
                             }
                     | _ -> ()
@@ -393,7 +467,85 @@ module NameResolution =
             ctx.Resolution.OpenScope <- openScope
             scope <- walkModuleElem ctx walker scope m
 
+    /// The simple (last-segment) name of any named `TypeDefn` shape; `ValueNone`
+    /// for the nameless `Missing` / `SkipsTokens` placeholders.
+    let private typeDefnSimpleName (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : string voption =
+        let nameOf (TypeName(ident = li)) =
+            if li.Idents.Length >= 1 then
+                ValueSome(ctx.NameOf li.Idents.[li.Idents.Length - 1])
+            else
+                ValueNone
+
+        match td with
+        | TypeDefn.Abbrev(typeName = tn)
+        | TypeDefn.Record(typeName = tn)
+        | TypeDefn.Union(typeName = tn)
+        | TypeDefn.Anon(typeName = tn)
+        | TypeDefn.Class(typeName = tn)
+        | TypeDefn.Struct(typeName = tn)
+        | TypeDefn.Interface(typeName = tn)
+        | TypeDefn.Enum(typeName = tn)
+        | TypeDefn.Delegate(typeName = tn)
+        | TypeDefn.TypeExtension(typeName = tn)
+        | TypeDefn.AbstractType(typeName = tn) -> nameOf tn
+        | TypeDefn.Missing
+        | TypeDefn.SkipsTokens _ -> ValueNone
+
+    /// G15/G16 pre-pass. Walk the *un-flattened* module tree and, for every named
+    /// `module Foo = …`, record (a) its directly-`let`-bound values/functions into
+    /// `LocalModules` (member name → binding-site `NodeKey`) and (b) each type it
+    /// nests into `TypeEnclosingModule` (type name → `Foo`). Both registries are
+    /// keyed by the innermost module short name. The subsequent flattened walk
+    /// erases these boundaries, so this is the only place the module structure is
+    /// captured for name resolution. Mirrors `Elaborate.translateModuleElem`'s
+    /// holder walk (which records the same boundaries for *emission*).
+    let private registerLocalModules (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
+        let registerLet (moduleName: string) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
+            let members =
+                match ctx.Resolution.LocalModules.TryGetValue moduleName with
+                | true, d -> d
+                | false, _ ->
+                    let d = System.Collections.Generic.Dictionary<string, NodeKey>()
+                    ctx.Resolution.LocalModules.[moduleName] <- d
+                    d
+
+            for b in bindings do
+                for (name, key) in bindingsOfPat ctx b.headPat do
+                    members.[name] <- key
+
+        let rec walk (moduleName: string voption) (elems: ModuleElems<SyntaxToken>) =
+            for e in elems do
+                match e with
+                | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+                    match moduleName with
+                    | ValueSome m -> registerLet m bindings
+                    | ValueNone -> ()
+                | ModuleElem.Type defs ->
+                    match moduleName with
+                    | ValueSome m ->
+                        for td in defs do
+                            match typeDefnSimpleName ctx td with
+                            | ValueSome n -> ctx.Resolution.TypeEnclosingModule.[n] <- m
+                            | ValueNone -> ()
+                    | ValueNone -> ()
+                | ModuleElem.Module(ModuleDefn.ModuleDefn(ident = ident; body = ModuleDefnBody(elements = inner))) ->
+                    match inner with
+                    | ValueSome innerElems -> walk (ValueSome(ctx.NameOf ident)) innerElems
+                    | ValueNone -> ()
+                | _ -> ()
+
+        match file with
+        | ImplementationFile.AnonymousModule elems -> walk ValueNone elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walk ValueNone elems
+        | ImplementationFile.Namespaces groups ->
+            for g in groups do
+                match g with
+                | NamespaceDeclGroup.Named(elements = elems)
+                | NamespaceDeclGroup.Global(elements = elems) -> walk ValueNone elems
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
+        // G15/G16: capture local-module structure before the flattened walk erases it.
+        registerLocalModules ctx file
         let walker = mkWalker ctx
         // Seed the walk from the stable ambient prelude. walkElems overwrites
         // ctx.Resolution.OpenScope per element, so the seed is read from

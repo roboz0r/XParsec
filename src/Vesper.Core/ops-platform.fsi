@@ -282,6 +282,53 @@ module Operators =
         ///
         val inline not: value: bool -> bool
 
+        /// <summary>Ignore the passed value — discard it and yield <c>unit</c>
+        /// (mirroring FSharp.Core's <c>ignore</c>).</summary>
+        ///
+        /// <param name="value">The value to ignore.</param>
+        ///
+        /// <returns><c>unit</c>.</returns>
+        ///
+        /// <remarks>Inline — the body is <c>()</c>, so the argument is evaluated
+        /// (for its effects) then discarded. A plain identifier, resolved through
+        /// the ambient open scope like <c>not</c> / <c>hash</c>; the cross-package
+        /// inline-body splice (<c>SymbolProviders.inlineBodies</c>) delivers the
+        /// body to each use site, so this pins no Vesper runtime dependency. Used
+        /// by <c>set.fs</c>'s <c>ICollection.Add</c> / <c>.Remove</c>.</remarks>
+        ///
+        /// <example id="ignore-example">
+        /// <code lang="fsharp">
+        /// ignore 55555   //  Evaluates to ()
+        /// </code>
+        /// </example>
+        ///
+        val inline ignore: value: 'T -> unit
+
+        /// <summary>Test whether the given reference value is <c>null</c>
+        /// (mirroring FSharp.Core's <c>isNull</c>).</summary>
+        ///
+        /// <param name="value">The value to test.</param>
+        ///
+        /// <returns><c>true</c> when the value is <c>null</c>, otherwise
+        /// <c>false</c>.</returns>
+        ///
+        /// <remarks>Inline — lowers to a CIL <c>ceq</c> of the value against
+        /// <c>null</c> (the same reference-equality shape <c>nativeptr.isNullPtr</c>
+        /// uses, in place of FSharp.Core's <c>match box value with null</c>). The
+        /// <c>when 'T: null</c> constraint restricts it to reference types. The
+        /// cross-package inline-body splice delivers the body to each use site, so
+        /// this pins no Vesper runtime dependency. Used by <c>set.fs</c>'s
+        /// <c>SetTree.isEmpty</c>.</remarks>
+        ///
+        /// <example id="isNull-example">
+        /// <code lang="fsharp">
+        /// isNull null        //  Evaluates to true
+        /// isNull "Not null"  //  Evaluates to false
+        /// </code>
+        /// </example>
+        ///
+        val inline isNull: value: 'T -> bool when 'T: null
+
         /// <summary>Box a value to <c>obj</c> (mirroring FSharp.Core's
         /// <c>box</c>).</summary>
         ///

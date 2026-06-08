@@ -187,6 +187,22 @@ module Operators =
     /// (`SymbolProviders.inlineBodies`) — no Vesper runtime dependency.
     let inline not (value: bool) : bool = (# "ceq" value false : bool #)
 
+    /// Ignore the passed value — discard it and yield `unit`. The body is `()`,
+    /// so the inline splice evaluates the argument (for its effects) then drops
+    /// it. A plain identifier, resolved through the ambient open scope like `not`;
+    /// as a cross-package inline its body splices at each use site, so it pins no
+    /// Vesper runtime dependency. Needed by `set.fs`'s read-only `ICollection`
+    /// members (`Add` / `Remove` ignore their argument before raising).
+    let inline ignore (value: 'T) : unit = ()
+
+    /// Test whether a reference value is `null`. `when 'T: null` restricts it to a
+    /// reference type. Lowers to a CIL `ceq` of the value against `null` — the
+    /// same inline-IL shape `nativeptr.isNullPtr` uses — rather than FSharp.Core's
+    /// `match box value with null -> …` pattern. As a cross-package inline its
+    /// body splices at each use site. Needed by `set.fs`'s `SetTree.isEmpty`
+    /// (the empty tree is the `null` reference).
+    let inline isNull (value: 'T when 'T: null) : bool = (# "ceq" value null : bool #)
+
     /// Box a value to `obj`. FSharp.Core's `box` (`prim-types.fs`): the
     /// `(# "box !0" … #)` inline IL boxes a value type to its boxed reference
     /// (and is a no-op the JIT erases on a reference type). The boxed element

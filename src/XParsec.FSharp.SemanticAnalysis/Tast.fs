@@ -446,9 +446,10 @@ and TTypeMemberG<'ty> =
 /// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).
 /// Codegen emits one private static field per entry and concatenates the
 /// `Init` expressions into a synthesised `.cctor`; a `static let`-bound name
-/// referenced in a member body lowers to `TExpr.StaticFieldGet`. Per-instantiation
-/// generic-static-let is deferred (the front-end rejects `static let` on a generic
-/// class), so `Init` is always emitted in a monomorphic class context.
+/// referenced in a member body lowers to `TExpr.StaticFieldGet`. On a *generic*
+/// class the field rides the open `TypeDefinition` (one per closed instantiation,
+/// `.cctor`-initialised) and the read/store mint a `MemberRef` on the self-
+/// `TypeSpec` at the declaring typars (G13).
 and TStaticLetG<'ty> =
     {
         Name: string

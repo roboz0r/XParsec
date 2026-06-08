@@ -164,9 +164,10 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key
 
     /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle
-    /// (vesper-set-sprint-plan §1.8 / B-10). Only monomorphic classes declare
-    /// `static let`s (generic `static let` is deferred), so the field handle is
-    /// always a `Def` token — no `MemberRef`-on-`TypeSpec` path.
+    /// (vesper-set-sprint-plan §1.8 / B-10). The handle was chosen at emit time
+    /// (`NominalEmit`): a mono class stores the field's `Def` token, a *generic*
+    /// class stores a `MemberRef` on the open self-`TypeSpec` (`Set\`1<!0>::empty`,
+    /// G13). Either way this is a direct dictionary read.
     let resolveStaticField (env: EmitEnv) (declKey: SymbolKey) (name: string) : EntityHandle =
         // `declKey` is the declaring class's nominal `SymbolKey.TypeKey`, carried on
         // the `StaticFieldGet` node (Phase 4) — the emitted class table is keyed by

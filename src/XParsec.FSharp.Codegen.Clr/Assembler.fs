@@ -153,15 +153,18 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 provider.RegisterUserValueType td.Key
 
             if not td.TypeParams.IsEmpty then
-                // Both the ctor-param backing fields and the explicit `val [mutable]
-                // x: T` instance fields must be in the generic-class registry: a
-                // generic struct's field-init ctor and member-body `ldfld`/`stfld`
-                // reference the `val` fields by name through a `MemberRef` on the open
-                // self-`TypeSpec`, so an unregistered `val` field
-                // fails resolution ("generic class … has no field").
+                // The ctor-param backing fields, the explicit `val [mutable] x: T`
+                // instance fields, and the `static let` backing fields must all be in
+                // the generic-class registry: a generic struct's field-init ctor and
+                // member-body `ldfld`/`stfld` reference the `val` fields by name
+                // through a `MemberRef` on the open self-`TypeSpec`, and a generic
+                // `static let` read/store (`ldsfld`/`stsfld`) goes through the same
+                // `ClassMember.Field` `MemberRef` (G13) — an unregistered field fails
+                // resolution ("generic class … has no field").
                 let shape =
                     [ for p in cd.CtorParams -> p.Name, p.Type ]
                     @ [ for f in cd.Fields -> f.Name, f.Type ]
+                    @ [ for sl in cd.StaticLets -> sl.Name, sl.Type ]
 
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, shape)
         )
