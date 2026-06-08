@@ -137,6 +137,104 @@ module NameResolutionMemberRegistration =
                     | ValueNone -> ()
             ]
 
+    /// Free typar names in a member's *signature* (argument-pattern annotations
+    /// then return type, source order) that are neither an enclosing-type typar
+    /// nor one of the member's own explicit `<'C>` typars — the *implicit*
+    /// member-level generic params (G12). In real F# `member s.Map f : Set<'U>` /
+    /// `s.PartitionWith(p: 'T -> Choice<'T1,'T2>)` generalise `'U` / `'T1`,`'T2`
+    /// as method generic parameters; registering them here lets the B-12 machinery
+    /// (inference scope seed + Freeze `GenericMethodParameters`) carry them through
+    /// rather than the strict member scope diagnosing them as free. No off-the-shelf
+    /// free-typar walker over `Type<SyntaxToken>` exists at this layer, so this
+    /// small one walks only the structural cases that can carry a typar.
+    let private implicitMemberTypars
+        (ctx: PassContext)
+        (classTypars: string list)
+        (b: Binding<SyntaxToken>)
+        : string list =
+        let known =
+            System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+
+        for n in classTypars do
+            known.Add n |> ignore
+
+        for n in memberTyparNames ctx b.typarDefns do
+            known.Add n |> ignore
+
+        let seen = System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+        let acc = ResizeArray<string>()
+
+        let addTypar (t: Typar<SyntaxToken>) =
+            match typarName ctx t with
+            | ValueSome n ->
+                if not (known.Contains n) && seen.Add n then
+                    acc.Add n
+            | ValueNone -> ()
+
+        let rec walkTy (t: Type<SyntaxToken>) =
+            match t with
+            | Type.VarType tp -> addTypar tp
+            | Type.ParenType(typ = inner)
+            | Type.SuffixedType(baseType = inner)
+            | Type.DottedType(baseType = inner)
+            | Type.ArrayType(baseType = inner)
+            | Type.AnonymousSubtype(typ = inner) -> walkTy inner
+            | Type.FunctionType(fromType = f; toType = into) ->
+                walkTy f
+                walkTy into
+            | Type.TupleType(types = ts)
+            | Type.StructTupleType(types = ts) ->
+                for ty in ts do
+                    walkTy ty
+            | Type.GenericType(typeArgs = args) ->
+                for a in args do
+                    match a with
+                    | TypeArg.Type at -> walkTy at
+                    | TypeArg.Measure _ -> ()
+            | Type.WhenConstrainedType(typ = inner) -> walkTy inner
+            | Type.SubtypeConstraint(typar = tp; typ = inner) ->
+                addTypar tp
+                walkTy inner
+            | Type.UnionType(left = l; right = r) ->
+                walkTy l
+                walkTy r
+            | Type.AnonRecordType(fields = fs) ->
+                for AnonRecordField(typ = ty) in fs do
+                    walkTy ty
+            | Type.NamedType _
+            | Type.Null _
+            | Type.MeasureType _
+            | Type.ILIntrinsic _
+            | Type.Missing
+            | Type.SkipsTokens _ -> ()
+
+        // Only a `(p : T)` annotation contributes a signature type; an unannotated
+        // binder carries no typar.
+        let rec walkPat (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.Typed(pat = inner; typ = t) ->
+                walkTy t
+                walkPat inner
+            | Pat.EnclosedBlock(pat = inner)
+            | Pat.Attributed(pat = inner)
+            | Pat.Optional(pat = inner)
+            | Pat.As(pat = inner) -> walkPat inner
+            | Pat.Tuple(patterns = ps)
+            | Pat.StructTuple(patterns = ps)
+            | Pat.Elems(pats = ps) ->
+                for sub in ps do
+                    walkPat sub
+            | _ -> ()
+
+        for ap in b.argumentPats do
+            walkPat ap
+
+        match b.returnType with
+        | ValueSome(ReturnType(typ = t)) -> walkTy t
+        | ValueNone -> ()
+
+        List.ofSeq acc
+
     /// `TypeMemberInfo` placeholders for a type body's / augmentation's member
     /// elements. Shared by class registration (`body.elements`) and union
     /// augmentation (`extensions.elements`). Unsupported element kinds emit a
@@ -145,6 +243,7 @@ module NameResolutionMemberRegistration =
     let extractMembers
         (ctx: PassContext)
         (declKey: NodeKey)
+        (classTypars: string list)
         (elements: TypeDefnElement<SyntaxToken> seq)
         : TypeMemberInfo[] =
         let memberInfos = ResizeArray<TypeMemberInfo>()
@@ -175,7 +274,21 @@ module NameResolutionMemberRegistration =
                 // TyVars so Unification scopes the signature against them and Freeze
                 // surfaces them as GenericMethodParameters — mirroring the abstract
                 // path. A property's `typarDefns` is absent ⇒ empty.
-                cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx b.typarDefns)
+                //
+                // Then append the member's *implicit* signature typars (G12) — a
+                // `'U` that appears only in a param/return annotation, never as a
+                // class typar or explicit `<'a>`. F# generalises these as method
+                // generic params; without registration the strict member scope
+                // diagnoses them as free. Only methods can introduce them (a
+                // property can't be generic), so skip the property kind.
+                let explicit = memberTyparNames ctx b.typarDefns
+
+                let implicit =
+                    match kind with
+                    | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
+                    | _ -> []
+
+                cmi.MethodTypeParams <- mkTypeParams (explicit @ implicit)
             | ValueNone -> ()
 
         let registerAutoProperty id isStatic isOverride =
@@ -259,6 +372,7 @@ module NameResolutionMemberRegistration =
     /// Unification, which links each impl's `Resolved` and types its bodies.
     let private extractInterfaceImpls
         (ctx: PassContext)
+        (classTypars: string list)
         (elements: TypeDefnElement<SyntaxToken> seq)
         : ClassInterfaceImplInfo[] =
         let acc = ResizeArray<ClassInterfaceImplInfo>()
@@ -275,7 +389,7 @@ module NameResolutionMemberRegistration =
                         ImmutableArray.CreateRange(seq { for md in mds -> TypeDefnElement.Member md })
                     | ValueNone -> ImmutableArray.Empty
 
-                let members = extractMembers ctx declKey memberEls
+                let members = extractMembers ctx declKey classTypars memberEls
                 acc.Add(ClassInterfaceImplInfo(ifaceTyp, members, memberEls, declKey))
             | _ -> ()
 
@@ -376,11 +490,12 @@ module NameResolutionMemberRegistration =
                             Severity = Severity.Error
                         }
                 else
-                    let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                    let classTyparNames = typarNamesOfTypeName ctx tn
+                    let typeParams = mkTypeParams classTyparNames
                     let ctorParams = extractCtorParams ctx declKey pc
 
                     let memberInfos =
-                        ResizeArray<TypeMemberInfo>(extractMembers ctx declKey body.elements)
+                        ResizeArray<TypeMemberInfo>(extractMembers ctx declKey classTyparNames body.elements)
 
                     let thisName =
                         match asD with
@@ -411,7 +526,7 @@ module NameResolutionMemberRegistration =
 
                     info.IsSealed <- classAttrs.IsSealed
                     info.AllowNullLiteral <- classAttrs.AllowNullLiteral
-                    info.InterfaceImpls <- extractInterfaceImpls ctx body.elements
+                    info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
 
                     // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
                     // type. A struct is implicitly sealed (no derivation), so the
@@ -673,7 +788,8 @@ module NameResolutionMemberRegistration =
 
                     match ctx.Types.Union.TryGetValue name with
                     | true, info ->
-                        info.Members <- extractMembers ctx info.DeclKey elems
+                        let unionTyparNames = [ for (n, _) in info.TypeParams -> n ]
+                        info.Members <- extractMembers ctx info.DeclKey unionTyparNames elems
                         info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
                     | false, _ -> ()
                 | _ -> ()

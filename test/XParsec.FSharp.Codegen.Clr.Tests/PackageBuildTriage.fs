@@ -125,16 +125,29 @@ let tests =
             //   `DotLookup(TypeApp(Set, <'T>), .Member)` — added the inference +
             //   Freeze arms (property → StaticPropertyGet, method → StaticMethodCall).
             //   All gated by `ClassStatic` rows.
-            // Current state (reached after G10): Freeze no longer crashes — the build
-            // now runs to completion and surfaces the full diagnostic WALL of the
-            // remaining Phase-5/6-deferred features (~232 analysis errors). Dominant
-            // categories, in rough size order:
-            //   - 34× "Free type parameter 'T is not declared …" — the class's typars
-            //     are absent from a *generic member's signature annotations*
-            //     (`static member Singleton (x: 'T) : Set<'T>`, the `Set<'T>` operator
-            //     params). `inferBinding` swaps in a fresh typar scope seeded only by
-            //     the binding's *own* `<'a>`, dropping the enclosing class typars. The
-            //     next blocker to fix.
+            //   G11 (CLOSED) — 34× "Free type parameter 'T is not declared …" — the
+            //   class's typars were absent from a *generic member's signature
+            //   annotations* (`static member Singleton (x: 'T) : Set<'T>`, the
+            //   `Set<'T>` operator params). `inferBinding` minted a fresh typar scope
+            //   seeded only by the binding's *own* `<'a>`, dropping the enclosing class
+            //   typars `fillTypeMembers` had put in scope. Fixed by a new
+            //   `Resolution.EnclosingTypars` slot: `fillTypeMembers` /
+            //   `fillSecondaryCtors` set it to the class typar scope and `inferBinding`
+            //   seeds its fresh scope from it first. Gated by the SemanticAnalysis
+            //   "G11" rows. Cleared 28 of the 34 (every class-typar case).
+            //   G12 (CLOSED) — 6× "Free type parameter 'U/'T1/'T2 …" — *implicit*
+            //   member-level generic params (`member s.Map f : Set<'U>`,
+            //   `s.PartitionWith(p: 'T -> Choice<'T1,'T2>)`). Distinct from G11: these
+            //   typars are neither class typars nor explicit `<'a>` on the member.
+            //   Fixed by registering them: `MemberRegistration.implicitMemberTypars`
+            //   walks the member signature for free typars not in the enclosing-type /
+            //   explicit-typar lists and appends them to `MethodTypeParams`;
+            //   `fillTypeMembers` keeps the member typars in `EnclosingTypars` across
+            //   the body so nested `let`s (`Comparer<'U>.Default`) resolve them too.
+            //   Gated by the SemanticAnalysis "G12" rows.
+            // Current state (reached after G12): every "Free type parameter" error is
+            // gone; the build surfaces the rest of the Phase-5/6-deferred WALL.
+            // Dominant categories, in rough size order:
             //   - "Unresolved qualified name: SetTree.*" — the nested `SetTree` module's
             //     functions don't resolve from `Set<'T>` member / `module Set` bodies.
             //   - "for-in: source is not a supported enumerable" (G7), `:>` upcasts

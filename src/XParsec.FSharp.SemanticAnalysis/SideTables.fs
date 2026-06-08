@@ -758,6 +758,19 @@ type PassContextResolution =
         /// `ValueNone` for every other binding (fresh typars, the existing
         /// behaviour). See vesper-set-sprint-plan §1.10.
         mutable BindingTyparSeed: Dictionary<string, TypeVar> voption
+        /// The enclosing type's type-parameter scope (class / union typars), kept
+        /// in scope across a member-body walk. `inferBinding` mints a *fresh* scope
+        /// per binding (so sibling bindings' `'a`s stay distinct); without this it
+        /// would drop the class typars that `fillTypeMembers` put in scope, so a
+        /// generic member's *signature* annotation (`(x: 'T)`, `: Set<'T>`) would
+        /// find an empty scope and — under `TyparScopeStrict` — diagnose "Free type
+        /// parameter 'T". When set, `inferBinding` seeds its fresh scope with these
+        /// typars first (the binding's own `<'a>` typars seed after, shadowing on a
+        /// name clash). `fillTypeMembers` / `fillSecondaryCtors` set it; `ValueNone`
+        /// for every non-member binding (the existing behaviour). Persists across
+        /// nested `let`s in a member body so they too see the class typars
+        /// (vesper-set-phase-9-handoff §G11).
+        mutable EnclosingTypars: Dictionary<string, TypeVar> voption
         /// When true, `translateType` rejects any `'a` not already present in
         /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
         /// fill-in walk: implicit free typars in a record / DU declaration aren't
@@ -820,6 +833,7 @@ module PassContextResolution =
             AmbientOpenScope = ambient
             TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
+            EnclosingTypars = ValueNone
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
             ExternalValue = SideTable<_>()

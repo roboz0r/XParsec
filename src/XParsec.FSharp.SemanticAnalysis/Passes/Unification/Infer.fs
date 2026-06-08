@@ -1881,6 +1881,21 @@ module UnificationInfer =
         let savedScope = ctx.Resolution.TyparScope
         ctx.Resolution.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
+        // Seed the enclosing type's typars (class / union `<'T>`) first so a
+        // generic member's signature annotation (`(x: 'T)`, `: Set<'T>`) resolves
+        // them rather than diagnosing "Free type parameter 'T" under strict scope.
+        // The binding's own `<'a>` typars seed below, shadowing on a name clash.
+        // `EnclosingTypars` carries the class typars (G11) and, for a generic
+        // member's body walk, the member's own explicit `<'C>` + implicit signature
+        // typars (G12) — so both the signature annotation here and any nested `let`
+        // in the body resolve them rather than diagnosing them free under strict
+        // member scope.
+        match ctx.Resolution.EnclosingTypars with
+        | ValueSome enclosing ->
+            for kv in enclosing do
+                ctx.Resolution.TyparScope.[kv.Key] <- kv.Value
+        | ValueNone -> ()
+
         match b.typarDefns with
         | ValueSome(TyparDefns(defns = ds; constraints = bindingConstraints)) ->
             for TyparDefn(typar = t) in ds do

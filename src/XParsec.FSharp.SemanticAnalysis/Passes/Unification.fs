@@ -258,8 +258,13 @@ module Unification =
     let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
         let savedScope = ctx.Resolution.TyparScope
         let savedStrict = ctx.Resolution.TyparScopeStrict
-        ctx.Resolution.TyparScope <- scopeOfTypeParams fc.TypeParams
+        let savedEnclosing = ctx.Resolution.EnclosingTypars
+        let classScope = scopeOfTypeParams fc.TypeParams
+        ctx.Resolution.TyparScope <- classScope
         ctx.Resolution.TyparScopeStrict <- true
+        // Keep the class typars in scope across each member body's `inferBinding`
+        // (which mints a fresh scope and would otherwise drop them) — G11.
+        ctx.Resolution.EnclosingTypars <- ValueSome classScope
 
         try
             fc.PrelinkExtras()
@@ -317,6 +322,7 @@ module Unification =
                             // `MethodTypeParams` — the same roots Freeze surfaces
                             // and codegen installs as the ambient `!!i` set.
                             let savedSeed = ctx.Resolution.BindingTyparSeed
+                            let savedMemberEnclosing = ctx.Resolution.EnclosingTypars
 
                             match mInfoOpt with
                             | Some mInfo when not mInfo.MethodTypeParams.IsEmpty ->
@@ -326,6 +332,23 @@ module Unification =
                                     seed.[n] <- ptv
 
                                 ctx.Resolution.BindingTyparSeed <- ValueSome seed
+
+                                // Keep the member's own typars (explicit `<'C>` +
+                                // implicit signature typars, G12) in `EnclosingTypars`
+                                // for the body walk, alongside the class typars — so a
+                                // nested `let comparer = Comparer<'U>.Default` in the
+                                // body resolves `'U` rather than diagnosing it free.
+                                // `inferBinding` clears `BindingTyparSeed` after the
+                                // member's own binding, so without this the member
+                                // typars would vanish in nested scopes (mirror G11's
+                                // class-typar persistence).
+                                let memberEnclosing =
+                                    Dictionary<string, TypeVar>(classScope, System.StringComparer.Ordinal)
+
+                                for (n, ptv) in mInfo.MethodTypeParams do
+                                    memberEnclosing.[n] <- ptv
+
+                                ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
                             | _ -> ()
 
                             enterLevel ctx
@@ -335,6 +358,7 @@ module Unification =
                             finally
                                 exitLevel ctx
                                 ctx.Resolution.BindingTyparSeed <- savedSeed
+                                ctx.Resolution.EnclosingTypars <- savedMemberEnclosing
                         | ValueNone -> ()
                     | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
                         enterLevel ctx
@@ -407,6 +431,7 @@ module Unification =
         finally
             ctx.Resolution.TyparScope <- savedScope
             ctx.Resolution.TyparScopeStrict <- savedStrict
+            ctx.Resolution.EnclosingTypars <- savedEnclosing
 
     /// Link each secondary-ctor param placeholder TyVar to its declared-type
     /// annotation. Index walk mirrors `MemberRegistration.ctorParamsOfPat`'s
@@ -501,8 +526,13 @@ module Unification =
         if info.SecondaryCtors.Length > 0 then
             let savedScope = ctx.Resolution.TyparScope
             let savedStrict = ctx.Resolution.TyparScopeStrict
-            ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
+            let savedEnclosing = ctx.Resolution.EnclosingTypars
+            let classScope = scopeOfTypeParams info.TypeParams
+            ctx.Resolution.TyparScope <- classScope
             ctx.Resolution.TyparScopeStrict <- true
+            // Class typars stay in scope across each secondary ctor body's
+            // `inferBinding` (G11), mirroring `fillTypeMembers`.
+            ctx.Resolution.EnclosingTypars <- ValueSome classScope
 
             try
                 let expected =
@@ -537,6 +567,7 @@ module Unification =
             finally
                 ctx.Resolution.TyparScope <- savedScope
                 ctx.Resolution.TyparScopeStrict <- savedStrict
+                ctx.Resolution.EnclosingTypars <- savedEnclosing
 
     /// Type the `inherit Base(args)` invocation (Step 2.2) against the parent's
     /// primary-ctor signature, under the derived class's typar scope (already set
