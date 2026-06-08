@@ -61,7 +61,9 @@ module UnificationInferOverload =
         | _ -> []
 
     /// `ValueNone` = none applicable, or no unique best (ambiguous — the caller diagnoses).
-    and pickStaticOverload
+    /// Static/instance/ctor agnostic: pure arity + `argAssignable` + specificity ranking
+    /// over any `ExternalMember[]` candidate set (callers pre-filter by static-ness).
+    and pickBestOverload
         (typeArgs: SemType[])
         (candidates: ExternalMember[])
         (argElems: SemType list)
@@ -105,9 +107,9 @@ module UnificationInferOverload =
     /// arrive ground (frozen) and `ofFrozen` recovers the ground `SemType` the picker
     /// compares. Identity (which `ExternalMember`) is what's returned, so no `SemType`
     /// crosses back to the emission side.
-    let pickStaticOverloadFrozen
+    let pickBestOverloadFrozen
         (typeArgs: FrozenType[])
         (candidates: ExternalMember[])
         (argElems: FrozenType list)
         : ExternalMember voption =
-        pickStaticOverload (Array.map ofFrozen typeArgs) candidates (List.map ofFrozen argElems)
+        pickBestOverload (Array.map ofFrozen typeArgs) candidates (List.map ofFrozen argElems)

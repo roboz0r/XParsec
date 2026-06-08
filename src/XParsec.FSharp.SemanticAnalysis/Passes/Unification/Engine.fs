@@ -55,6 +55,16 @@ module UnificationEngine =
         | TyConst("unit", _) -> []
         | single -> [ single ]
 
+    /// The call-site argument arity of a (shallow-resolved) .NET-style tupled
+    /// argument: the tuple width, `0` for `unit`, else `1`. The count `argElemsOf`
+    /// would yield, without materialising the element list — used to select a
+    /// constructor overload by arity.
+    let argArityOf (argTy: SemType) : int =
+        match resolveStep argTy with
+        | TyTuple xs -> xs.Length
+        | TyConst("unit", _) -> 0
+        | _ -> 1
+
     /// The single SemType a parameter list presents as a function argument:
     /// `unit` for none, the bare type for one, a tuple for many. Inverse of
     /// `argElemsOf`.

@@ -905,6 +905,75 @@ let tests =
                 | _ -> ()
             }
 
+            test "objnull abbrev (`obj | null`) extracts to obj [Set G5 handoff root 1]" {
+                // `type objnull = obj | null` (prim-types-object.fsi) is a *nullable
+                // reference type*; its abbrev RHS parses to `Type.UnionType(obj, |,
+                // null)`. The contract extractor's `translateType` used to refuse every
+                // `UnionType`, so the abbrev froze to the `<unfreezable external
+                // template>` sentinel and every consumer reference thawed to a
+                // `TyUnknown` that `unify` rejects (set.fs:906 `IComparable.CompareTo`'s
+                // `that: objnull`). The fix collapses the `T | null` form to its
+                // non-null part `T` — Vesper SemTypes carry no nullability axis. Gated
+                // through the synthetic-`.fsi` extract+finalize path (sibling to
+                // "finalize fills real templates", which guards the dual sentinel).
+                let input =
+                    "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let unfreezable = FTUnknown "<unfreezable external template>"
+
+                // The abbrev body, post-finalize, must be the non-null part `obj` —
+                // not the sentinel the blanket UnionType-refusal used to leave.
+                let objnullShape =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "objnull" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match objnullShape with
+                | ValueSome(ExternalTypeShape.Abbrev(arity, frozen)) ->
+                    Expect.equal arity 0 "objnull is nullary"
+                    Expect.notEqual frozen unfreezable "objnull did not freeze to the <unfreezable> sentinel"
+
+                    match frozen with
+                    | FTConst("obj", _) -> ()
+                    | other -> failtestf "expected objnull to freeze to FTConst(\"obj\"); got %A" other
+                | ValueSome other -> failtestf "expected an Abbrev shape for objnull; got %A" other
+                | ValueNone ->
+                    failtestf "objnull abbrev registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+            }
+
             test "Phase 5: `when 'T : equality` captured + applied to fresh TyVar" {
                 // `Seq.contains` in seq.fsi declares
                 //   val inline contains: value:'T -> source: seq<'T> -> bool when 'T: equality

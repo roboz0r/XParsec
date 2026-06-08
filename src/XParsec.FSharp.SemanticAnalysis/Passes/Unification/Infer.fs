@@ -294,69 +294,55 @@ module UnificationInfer =
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : SemType =
-        match tryInferPrintfApp ctx key fn args with
-        | ValueSome ty -> ty
-        | ValueNone ->
-            // A .NET static method is tupled: `String.Concat ("a", "b")` is one
-            // tuple argument. Resolve a multi-overload static method by its arg
-            // types at the call site before the generic curried application path.
-            match
-                (if args.Length = 1 then
-                     tryInferExternalStaticMethodCall ctx key fn args.[0]
-                 else
-                     ValueNone)
-            with
-            | ValueSome ty -> ty
-            | ValueNone ->
+        // The tupled, .NET-style probes (static method, generic/local ctor,
+        // instance method) only apply to a single tupled argument; `single` runs
+        // one of them iff there is exactly one arg, declining otherwise.
+        let single probe =
+            if args.Length = 1 then
+                probe ctx key fn args.[0]
+            else
+                ValueNone
 
-                // `new`-less ctor-as-function sugar on an external class (`Exn "x"`).
-                // Probed before the generic application path so the head resolves to the
-                // external constructor instead of leaking a fresh TyVar (the latter only
-                // generalises when it reaches the binding's type — buried as an argument
-                // it dangles, which `ResolvedTypes` flags as an unresolved TyVar).
-                match tryInferExternalCtorApp ctx key fn args with
-                | ValueSome ty -> ty
-                | ValueNone ->
+        // The generic curried-application fallback: the head is a function, each
+        // arg unifies against the next domain. Reached only when no specialised
+        // probe claims the call.
+        let inferGenericApp () =
+            let mutable currTy = infer ctx fn
 
-                    match
-                        (if args.Length = 1 then
-                             tryInferExternalGenericCtorApp ctx key fn args.[0]
-                         else
-                             ValueNone)
-                    with
-                    | ValueSome ty -> ty
-                    | ValueNone ->
+            for a in args do
+                let argTy = infer ctx a
 
-                        match
-                            (if args.Length = 1 then
-                                 tryInferLocalCtorApp ctx key fn args.[0]
-                             else
-                                 ValueNone)
-                        with
-                        | ValueSome ty -> ty
-                        | ValueNone ->
+                match resolveStep currTy with
+                | TyFun(dom, cod) ->
+                    // Allow an implicit class→interface / class→base upcast on the
+                    // argument (G19): a `Comparer<'T>` value flows into an
+                    // `IComparer<'T>` parameter. `unifyArg` accepts a ground subtype
+                    // and otherwise falls back to plain unification (which links vars
+                    // and reports a genuine mismatch).
+                    unifyArg ctx key argTy dom
+                    currTy <- cod
+                | _ ->
+                    let resultTy = TyVar(freshTyVar ctx)
+                    unify ctx key currTy (TyFun(argTy, resultTy))
+                    currTy <- resultTy
 
-                            let mutable currTy = infer ctx fn
+            currTy
 
-                            for a in args do
-                                let argTy = infer ctx a
-
-                                match resolveStep currTy with
-                                | TyFun(dom, cod) ->
-                                    // Allow an implicit class→interface / class→base
-                                    // upcast on the argument (G19): a `Comparer<'T>`
-                                    // value flows into an `IComparer<'T>` parameter.
-                                    // `unifyArg` accepts a ground subtype and otherwise
-                                    // falls back to plain unification (which links vars
-                                    // and reports a genuine mismatch).
-                                    unifyArg ctx key argTy dom
-                                    currTy <- cod
-                                | _ ->
-                                    let resultTy = TyVar(freshTyVar ctx)
-                                    unify ctx key currTy (TyFun(argTy, resultTy))
-                                    currTy <- resultTy
-
-                            currTy
+        // Specialised resolution probes, tried in order; the first `ValueSome`
+        // wins. The order is load-bearing — a non-spaced external ctor must reach
+        // `tryInferExternalCtorApp` before the generic fallback types its class
+        // name as a function and leaks a fresh, unpinned result TyVar (which only
+        // generalises when it reaches the binding's type; buried as an argument it
+        // dangles, and `ResolvedTypes` flags it). A .NET static method is tupled
+        // (`String.Concat ("a", "b")` is one tuple arg), resolved by its arg types
+        // at the call site before the curried path.
+        tryInferPrintfApp ctx key fn args
+        |> ValueOption.orElseWith (fun () -> single tryInferExternalStaticMethodCall)
+        |> ValueOption.orElseWith (fun () -> tryInferExternalCtorApp ctx key fn args)
+        |> ValueOption.orElseWith (fun () -> single tryInferExternalGenericCtorApp)
+        |> ValueOption.orElseWith (fun () -> single tryInferLocalCtorApp)
+        |> ValueOption.orElseWith (fun () -> single tryInferExternalInstanceMethodCall)
+        |> ValueOption.defaultWith inferGenericApp
 
     /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
     /// printf entry point with a plain-literal format argument, the format spec
@@ -441,33 +427,16 @@ module UnificationInfer =
         (fn: Expr<SyntaxToken>)
         (arg: Expr<SyntaxToken>)
         : SemType =
-        // `f(x)` — same shape as `Expr.App fn [|arg|]`, a separate CST case. A
-        // no-space method call (`String.Concat("a", "b")`) is a HighPrecedenceApp,
-        // so the call-site overload resolver is checked here too.
-        match tryInferExternalStaticMethodCall ctx key fn arg with
-        | ValueSome ty -> ty
-        | ValueNone ->
-            match tryInferExternalGenericCtorApp ctx key fn arg with
-            | ValueSome ty -> ty
-            | ValueNone ->
-                match tryInferLocalCtorApp ctx key fn arg with
-                | ValueSome ty -> ty
-                | ValueNone ->
-                    let fnTy = infer ctx fn
-                    let argTy = infer ctx arg
-
-                    match resolveStep fnTy with
-                    | TyFun(dom, cod) ->
-                        // Admit an implicit class→interface / class→base upcast on
-                        // the argument (G19): a primary-ctor application `C(arg)`
-                        // (incl. the local-class ctor-as-function) flows a
-                        // `Comparer<'T>` into an `IComparer<'T>` parameter.
-                        unifyArg ctx key argTy dom
-                        cod
-                    | _ ->
-                        let resultTy = TyVar(freshTyVar ctx)
-                        unify ctx key fnTy (TyFun(argTy, resultTy))
-                        resultTy
+        // `f(x)` — the same call as `Expr.App fn [|arg|]`, only a separate CST case
+        // (the parser splits on the space before `(`). Associativity is already
+        // resolved; the inference rule must not differ between the two. Route through
+        // `inferApp` so the non-spaced form gets the *same* probe chain — printf,
+        // external static method, external ctor sugar, instance-method overload,
+        // generic/local ctor — as the spaced form, instead of skipping straight to
+        // the generic-application fallback (which typed an external ctor head as a
+        // function and leaked a fresh, unpinned result TyVar under a non-pinning sink
+        // like `raise`). Infer-resolution-gaps-plan.md Gap A.
+        inferApp ctx key fn (ImmutableArray.Create arg)
 
     and private inferRange
         (ctx: PassContext)
@@ -1220,15 +1189,47 @@ module UnificationInfer =
                 errorTy ctx diagKey "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
         | _ -> errorTy ctx diagKey (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
 
+    /// Commit a call-site-resolved external overload (static or instance): record
+    /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
+    /// Freeze reads it, freshen the member's method-owned typars (`Take<TSource>`)
+    /// via `ExternalSymbols.instantiateSignature` so the argument types drive their
+    /// solution (a non-generic overload is unchanged), unify the signature against
+    /// `argTy -> result`, and return the result type. Shared by the static and
+    /// instance probes so the two cannot drift; `chosen.IsStatic` is authoritative
+    /// for both (the instance probe pre-filters to non-static candidates).
+    and private commitExternalOverload
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (chosen: ExternalMember)
+        (declArgs: SemType[])
+        (argTy: SemType)
+        : SemType =
+        let fnKey = CstKeys.ofExpr fn
+
+        ctx.Resolution.ExternalAccess.Set(
+            fnKey,
+            {
+                Key = chosen.Key
+                IsStatic = chosen.IsStatic
+                IsProperty = chosen.IsProperty
+            }
+        )
+
+        let memberSig =
+            ExternalSymbols.instantiateSignature chosen declArgs ctx.CurrentLevel
+
+        (freshTv ctx fnKey).Link <- ValueSome memberSig
+        let resultTy = TyVar(freshTyVar ctx)
+        unify ctx key memberSig (TyFun(argTy, resultTy))
+        resultTy
+
     /// Application-site overload resolution for a static external method call
     /// (`String.Concat("a", "b")`). Fires only when the member name has >1 mapped
     /// overload — single-candidate access keeps the existing single-pick path, so
-    /// behaviour is unchanged everywhere it already worked. Commits the chosen
-    /// `SymbolKey` to `ExternalAccess` keyed on the member node where Freeze reads it.
-    /// The chosen member's method-owned typars (`Take<TSource>`) are freshened to
-    /// inference vars by `ExternalSymbols.instantiateSignature` so the argument
-    /// types drive their solution (superseding the former `BuildSignature` +
-    /// `instantiateMethodTypars` pair).
+    /// behaviour is unchanged everywhere it already worked. The commit (access
+    /// record + method-typar freshening + unification) is shared with the instance
+    /// probe via `commitExternalOverload`.
     and private tryInferExternalStaticMethodCall
         (ctx: PassContext)
         (key: NodeKey)
@@ -1251,29 +1252,8 @@ module UnificationInfer =
             else
                 let argTy = infer ctx argExpr
 
-                match pickStaticOverload typeArgs candidates (argElemsOf argTy) with
-                | ValueSome chosen ->
-                    let fnKey = CstKeys.ofExpr fn
-
-                    ctx.Resolution.ExternalAccess.Set(
-                        fnKey,
-                        {
-                            Key = chosen.Key
-                            IsStatic = chosen.IsStatic
-                            IsProperty = chosen.IsProperty
-                        }
-                    )
-
-                    // Instantiate the method-owned typars (`Take<TSource>`) to fresh
-                    // vars so the argument types drive their solution; a non-generic
-                    // overload is unchanged.
-                    let memberSig =
-                        ExternalSymbols.instantiateSignature chosen typeArgs ctx.CurrentLevel
-
-                    (freshTv ctx fnKey).Link <- ValueSome memberSig
-                    let resultTy = TyVar(freshTyVar ctx)
-                    unify ctx key memberSig (TyFun(argTy, resultTy))
-                    ValueSome resultTy
+                match pickBestOverload typeArgs candidates (argElemsOf argTy) with
+                | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs argTy)
                 | ValueNone ->
                     ValueSome(
                         errorTy
@@ -1284,6 +1264,64 @@ module UnificationInfer =
                                 memberName
                                 metaName)
                     )
+
+    /// Call-site overload resolution for an external *instance* method call
+    /// (`sb.Append("x")`, `recv.M(args)`). The instance sibling of
+    /// `tryInferExternalStaticMethodCall`: where the static probe keys off a folded
+    /// type-qualified LongIdent, this one keys off a single-ident `DotLookup` whose
+    /// receiver `infer`s to a *ground external* `TyClass`. Fires only when the member
+    /// name has >1 instance overload — otherwise the single-pick `resolveFieldStep`
+    /// path (reached via the generic fallback's `infer ctx fn`) is already correct,
+    /// so this declines and behaviour is unchanged. The reason it must exist:
+    /// `resolveFieldStep` resolves `.Member` through `TryLookupMember` (singular),
+    /// which grabs an *arbitrary* overload without consulting the argument types —
+    /// harmless while the receiver is a deferred TyVar (the dot-access parks and the
+    /// chain stays generic), but once Gap A grounds the receiver eagerly that picks
+    /// e.g. `Append(char[], int, int)` for a single `string` arg
+    /// (`string vs TyTuple`). Resolving by the call-site argument types here makes
+    /// the grounded pick match the overload a correct call intends.
+    /// Infer-resolution-gaps-plan.md Gap C. Declines (so the old path runs) on any
+    /// shape it can't confidently resolve, so it never *introduces* an error.
+    and private tryInferExternalInstanceMethodCall
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType voption =
+        match fn with
+        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            // TODO(perf): `infer` is not memoised, so on the *decline* path the
+            // receiver is inferred here and then again by the fallback's
+            // `infer ctx fn` (which re-infers `recv`). On a fluent chain
+            // (`sb.Append(..).Append(..)`) this re-inflates at every level. If it
+            // shows up, thread the already-computed receiver `SemType` out of the
+            // probe instead of re-inferring.
+            match resolveStep (infer ctx recv) with
+            // External only: a project-local class routes through the local
+            // instance-member path (`resolveLocalInstanceMember`), unchanged.
+            | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
+                let clsQual = SymbolKeyOps.qualifiedName clsKey
+                let memberName = ctx.NameOf li.Idents.[0]
+
+                let candidates =
+                    ctx.Provider.TryLookupMembers(clsQual, memberName)
+                    |> Array.filter (fun m -> not m.IsStatic)
+
+                if candidates.Length <= 1 then
+                    // 0 / 1 instance overload: the single-pick path is unambiguous.
+                    ValueNone
+                else
+                    let declArgs = typeArgs |> EqArray.toList |> List.toArray
+                    let argTy = infer ctx argExpr
+
+                    match pickBestOverload declArgs candidates (argElemsOf argTy) with
+                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs argTy)
+                    // No unique best on the argument types: decline rather than
+                    // error, so the existing single-pick path keeps the prior
+                    // behaviour (this probe only ever *improves* a confident pick).
+                    | ValueNone -> ValueNone
+            | _ -> ValueNone
+        | _ -> ValueNone
 
     and private inferFieldAccess
         (ctx: PassContext)
@@ -1336,14 +1374,31 @@ module UnificationInfer =
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
                 let subst = mkNamedTypeSubst info.TypeParams args
+                let argTy = infer ctx argExpr
+                let argArity = argArityOf argTy
+
+                // Prefer the primary constructor when its arity matches; otherwise
+                // fall back to a secondary `new(...)` constructor of the right arity.
+                // A type whose *only* constructor is an explicit `new(...)` (e.g. the
+                // `[<Struct>]` `SetIterator<'T>` with `val` fields + `new(s)`) has an
+                // empty `CtorParams`, so `new SetIterator<'T>(s)` must resolve through
+                // `SecondaryCtors` — the `new`-keyword twin of `tryInferLocalCtorApp`'s
+                // secondary-ctor path for the application form.
+                let secondary =
+                    if argArity = info.CtorParams.Length then
+                        None
+                    else
+                        info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argArity)
 
                 let expected =
-                    info.CtorParams
-                    |> Array.map (fun p -> substituteWith subst p.Type)
-                    |> Array.toList
+                    match secondary with
+                    | Some sc -> sc.Params |> Array.map (fun p -> substituteWith subst p.Type) |> Array.toList
+                    | None ->
+                        info.CtorParams
+                        |> Array.map (fun p -> substituteWith subst p.Type)
+                        |> Array.toList
                     |> tupleOrSingle
 
-                let argTy = infer ctx argExpr
                 unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
                 receiverTy
             | ValueNone ->
@@ -1393,7 +1448,7 @@ module UnificationInfer =
             let argTy = infer ctx argExpr
             let typeArgs = args |> EqArray.toList |> List.toArray
 
-            match pickStaticOverload typeArgs ctors (argElemsOf argTy) with
+            match pickBestOverload typeArgs ctors (argElemsOf argTy) with
             | ValueSome chosen ->
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
@@ -1535,12 +1590,7 @@ module UnificationInfer =
             | false, _ -> ValueNone
             | true, info ->
                 let argTy = infer ctx argExpr
-
-                let argArity =
-                    match resolveStep argTy with
-                    | TyTuple xs -> xs.Length
-                    | TyConst("unit", _) -> 0
-                    | _ -> 1
+                let argArity = argArityOf argTy
 
                 if argArity = info.CtorParams.Length then
                     ValueNone
@@ -1611,8 +1661,27 @@ module UnificationInfer =
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (returnType: ReturnType<SyntaxToken> voption)
         : SemType =
-        for a in args do
-            infer ctx a |> ignore
+        let argTys = [| for a in args -> infer ctx a |]
+
+        // A bare `null` operand mints its own fresh TypeVar (`Expr.Null`) with no
+        // pinning context. In a binary compare against a typed operand — the
+        // `(# "ceq" value null : bool #)` shape of `isNull` — that var never links,
+        // and because `isNull` is `inline` it rides the spliced body into every
+        // caller, surfacing as a spurious `ResolvedTypes: unresolved TyVar`. Pin
+        // each `null` operand to the first non-`null` operand's type (the
+        // type-checker still treats the *instruction* as opaque; this only solves
+        // the otherwise-context-free `null` leaf).
+        let isNullOperand (e: Expr<SyntaxToken>) =
+            match e with
+            | Expr.Null _ -> true
+            | _ -> false
+
+        match Seq.tryFindIndex (isNullOperand >> not) args with
+        | Some anchor ->
+            for i in 0 .. args.Length - 1 do
+                if isNullOperand args.[i] then
+                    unify ctx (CstKeys.ofExpr args.[i]) argTys.[i] argTys.[anchor]
+        | None -> ()
 
         match returnType with
         | ValueSome(ReturnType(typ = t)) -> translateType ctx t

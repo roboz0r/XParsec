@@ -394,7 +394,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs` and
     /// picked by call-site arity **and argument types**. Two ctors of the same arity (e.g.
     /// `ArgumentException(string, string)` vs `(string, Exception)`) are disambiguated by re-running the
-    /// front end's `pickStaticOverload` against the zonked call-site arg types — the chosen `SymbolKey`
+    /// front end's `pickBestOverload` against the zonked call-site arg types — the chosen `SymbolKey`
     /// isn't carried on `TExpr.New`, so codegen re-picks rather than threading it through. Picking the
     /// wrong same-arity ctor mints a `newobj` whose signature disagrees with the pushed values (a `string`
     /// landing where an `Exception` is expected), which produces a malformed object that faults the CLR
@@ -423,7 +423,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let typeArgsArr = tyArgs |> List.toArray
                 let argElems = argTypes
 
-                match Passes.UnificationInferOverload.pickStaticOverloadFrozen typeArgsArr applicable argElems with
+                match Passes.UnificationInferOverload.pickBestOverloadFrozen typeArgsArr applicable argElems with
                 | ValueSome m -> m
                 | ValueNone -> applicable.[0]
 

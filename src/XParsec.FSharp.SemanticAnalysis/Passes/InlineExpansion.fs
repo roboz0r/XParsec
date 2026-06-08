@@ -113,28 +113,6 @@ module InlineExpansion =
         TastWalk.iterExpr it core
         bad
 
-    /// Does `e` contain a `TExpr.StaticOptimization` anywhere? A local inline
-    /// body that does must be expanded with the call site's derived type
-    /// arguments (so the `when ^T : …` clause resolves against the monomorphised
-    /// operand type); one that doesn't keeps the zero-type-arg path. A visit-only
-    /// walk over `TastWalk.iterExpr` that short-circuits the moment it finds one.
-    let private containsStaticOpt (e: TExpr) : bool =
-        let mutable found = false
-
-        let it =
-            { TastWalk.identityIter with
-                VisitExpr =
-                    fun _ ex ->
-                        match ex with
-                        | TExpr.StaticOptimization _ ->
-                            found <- true
-                            false // found it; no need to descend this subtree
-                        | _ -> not found // stop recursing once any has been found
-            }
-
-        TastWalk.iterExpr it e
-        found
-
     /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic, so
     /// codegen can encode it. Mirrors `EmitLower.isGroundType`: the cross-package
     /// equality / `hash` inline bodies reach `EqualityComparer<^T>`, emittable
@@ -342,7 +320,18 @@ module InlineExpansion =
                 let decl = localInlines.[k]
 
                 match decl with
-                | TDecl.Let(_, value, _, declTy) when containsStaticOpt value ->
+                // Derive the call-site type arguments and substitute the body's
+                // quantified typars — needed both to resolve a `StaticOptimization`
+                // clause AND, for any generic local inline, to GROUND the body's
+                // typars to the caller's types. Without it, a typar reachable only
+                // through the body (e.g. `asNode`'s `value :?> SetTreeNode<'T>`
+                // result, or `isEmpty`'s `isNull` typar) stays a free `TyVar` root of
+                // the *callee's* scheme: beta-reduction binds the value params but
+                // never unifies that typar, so it pollutes the caller's frozen TAST
+                // as a `ResolvedTypes` "unresolved TyVar". The external path
+                // (`expandExternalAt`) already always derives — this is the local
+                // twin of that.
+                | TDecl.Let(_, _, _, declTy) ->
                     Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
                     |> Inline.freshen mint
                 | _ -> Inline.inlineExpand decl [||] |> Inline.freshen mint

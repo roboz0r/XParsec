@@ -238,10 +238,9 @@ let structTests =
                 Expect.equal (cmp.CompareTo(null)) 9 "the boxed struct keeps its field value through `:>`"
             }
 
-            // static-members-gap.md: the natural shape `SumOf(a, b)` that the
-            // unboxed-dispatch test above had to sidestep. A tupled static member
-            // now flattens to two scalar params, so it can take its own args and
-            // forward them to the struct ctor.
+            // The natural shape `SumOf(a, b)` that the unboxed-dispatch test above had
+            // to sidestep. A tupled static member now flattens to two scalar params,
+            // so it can take its own args and forward them to the struct ctor.
             test "a two-parameter static member on a struct binds both args (SumOf(3,4) returns 7)" {
                 let _, artifact =
                     compileSource

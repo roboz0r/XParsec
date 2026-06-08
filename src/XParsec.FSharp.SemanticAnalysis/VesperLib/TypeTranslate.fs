@@ -612,7 +612,14 @@ module VesperLibTypeTranslate =
 
         | Type.DottedType(baseTy, _, _) -> translateType ctx lexed input opens typars constraints baseTy
 
-        | Type.UnionType _ -> Error "Union types (e.g. `obj | null`) not supported"
+        | Type.UnionType(left, _, right) ->
+            // A nullable reference type `T | null` (F# nullable refs, e.g.
+            // `type objnull = obj | null`). Vesper SemTypes carry no nullability
+            // axis, so the nullable form collapses to its non-null part `T`.
+            // Any other union shape (not `… | null`) is genuinely unrepresentable.
+            match right with
+            | Type.Null _ -> translateType ctx lexed input opens typars constraints left
+            | _ -> Error "Union types (e.g. `obj | null`) not supported"
         | Type.Null _ -> Error "Null types not supported"
         | Type.ILIntrinsic _ -> Error "Inline IL not supported"
         | Type.MeasureType _ -> Error "Measure types not supported"

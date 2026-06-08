@@ -118,11 +118,10 @@ let monoTests =
                 Expect.equal (getY.Invoke(instance, [||]) :?> int) 9 "Point(7,9).Y = 9"
             }
 
-            // static-members-gap.md: a tupled member `M(a, b)` is a single tuple
-            // argument pattern; `Elaborate.memberParams` must flatten it to one
-            // parameter per component (F# compiles it to a method with N scalar
-            // params, not a `Tuple<_,_>`). A missing flatten dropped the bindings
-            // and codegen threw "no binding for variable".
+            // A tupled member `M(a, b)` is a single tuple argument pattern;
+            // `Elaborate.memberParams` must flatten it to one parameter per component
+            // (F# compiles it to a method with N scalar params, not a `Tuple<_,_>`).
+            // A missing flatten dropped the bindings and codegen threw "no binding for variable".
             test "a two-parameter instance member binds both args (Add(3,4) returns 7)" {
                 let _, artifact =
                     compileSource
@@ -299,8 +298,8 @@ let staticTests =
                 Expect.equal result 1 "C.M() returns 1"
             }
 
-            // static-members-gap.md: same tuple-flatten requirement on the static
-            // path. `static member M(a, b)` parses as one tuple arg pattern.
+            // Same tuple-flatten requirement on the static path:
+            // `static member M(a, b)` parses as one tuple arg pattern.
             test "a two-parameter static member binds both args (M(3,4) returns 7)" {
                 let _, artifact =
                     compileSource
