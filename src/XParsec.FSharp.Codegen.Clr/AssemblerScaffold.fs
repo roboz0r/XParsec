@@ -6,83 +6,9 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 /// Stateless helpers shared by the converged `Assembler` and the `Codegen`
-/// facade: forward-handle prediction, the `tast.Decls` partition, signature
-/// builders, and the hand-written-body test seam (`assembleWith`).
+/// facade: signature builders and the hand-written-body test seam
+/// (`assembleWith`).
 module internal AssemblerScaffold =
-
-    /// Forward-handle prediction for the deferred `TypeDefinition` rows.
-    /// `<Module>` occupies row 1; the trailing emission loop walks interfaces →
-    /// unions → records → classes → closures. The i-th type of `kind` lands at
-    /// `2 + (sum of prior-kind counts) + i`.
-    let predictTypeDef (counts: TypeDefCounts) (kind: NominalKind) (i: int) : TypeDefinitionHandle =
-        let priorRows =
-            match kind with
-            | NominalKind.Interface -> 0
-            | NominalKind.Union -> counts.Interfaces
-            | NominalKind.Record -> counts.Interfaces + counts.Unions
-            | NominalKind.Class -> counts.Interfaces + counts.Unions + counts.Records
-            | NominalKind.Closure -> counts.Interfaces + counts.Unions + counts.Records + counts.Classes
-
-        MetadataTokens.TypeDefinitionHandle(2 + priorRows + i)
-
-    /// Single-walk partition of `tast.Decls` by `TTypeKind`.
-    let partitionTypeDecls (decls: EqArray<Frozen.TDecl>) : PartitionedTypeDecls =
-        let interfaces = ResizeArray()
-        let unions = ResizeArray()
-        let records = ResizeArray()
-        let classes = ResizeArray()
-
-        for d in decls do
-            match d with
-            | TDeclG.Type td ->
-                match td.Kind with
-                | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
-                | TTypeKindG.Union(cases, members) ->
-                    unions.Add
-                        {
-                            Decl = td
-                            Cases = EqArray.toList cases
-                            Members = EqArray.toList members
-                        }
-                | TTypeKindG.Record(fields, members) ->
-                    records.Add
-                        {
-                            Decl = td
-                            Fields = EqArray.toList fields
-                            Members = EqArray.toList members
-                        }
-                | TTypeKindG.Class(fields,
-                                   ctorParams,
-                                   members,
-                                   baseType,
-                                   ifaces,
-                                   isSealed,
-                                   staticLets,
-                                   secondaryCtors,
-                                   baseCtorCall,
-                                   isStruct) ->
-                    classes.Add
-                        {
-                            Decl = td
-                            Fields = EqArray.toList fields
-                            CtorParams = EqArray.toList ctorParams
-                            Members = EqArray.toList members
-                            BaseType = baseType
-                            Interfaces = [ for (ifaceTy, ms) in ifaces -> ifaceTy, EqArray.toList ms ]
-                            IsSealed = isSealed
-                            StaticLets = EqArray.toList staticLets
-                            SecondaryCtors = EqArray.toList secondaryCtors
-                            BaseCtorCall = baseCtorCall
-                            IsStruct = isStruct
-                        }
-            | _ -> ()
-
-        {
-            Interfaces = List.ofSeq interfaces
-            Unions = List.ofSeq unions
-            Records = List.ofSeq records
-            Classes = List.ofSeq classes
-        }
 
     /// `int Main(string[])` — the synthesised entry point's signature.
     let mainSignature () : BlobBuilder =
@@ -98,14 +24,6 @@ module internal AssemblerScaffold =
 
         sigB
 
-    /// An abstract interface method (no body).
-    let abstractMethodAttrs =
-        MethodAttributes.Public
-        ||| MethodAttributes.Abstract
-        ||| MethodAttributes.Virtual
-        ||| MethodAttributes.HideBySig
-        ||| MethodAttributes.NewSlot
-
     /// `FTFun('A, 'B)` ⇒ `(['A], 'B)`.
     let rec decurry (t: FrozenType) : FrozenType list * FrozenType =
         match t with
@@ -116,13 +34,6 @@ module internal AssemblerScaffold =
 
     let argNames (n: int) : string list =
         [ for i in 0 .. n - 1 -> sprintf "arg%d" i ]
-
-    /// A property is emitted (and referenced) as `get_<name>`; a method keeps
-    /// its name.
-    let memberMetaName (mem: Frozen.TTypeMember) : string =
-        match mem.Kind with
-        | TMemberKind.Property -> "get_" + mem.Name
-        | TMemberKind.Method -> mem.Name
 
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method. The
     /// signature's open typars are self-describing `TyTypar` nodes (Freeze remaps the

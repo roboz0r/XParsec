@@ -40,6 +40,18 @@ type MetadataContext() =
     /// Cheap to recreate per body — the struct just wraps `ilBuilder`.
     member _.BodyStream = MethodBodyStreamEncoder(ilBuilder)
 
+    // ---- Def-table row cursors ----
+    // Handle = row number = add order, so the next row's handle derives from
+    // the builder's own row count. Callers must read these rather than maintain
+    // a parallel count — a hand-kept counter can silently drift from the adds,
+    // shifting every downstream predicted handle.
+    member _.FieldRowCount: int = mb.GetRowCount(TableIndex.Field)
+
+    /// The handle the *next* `AddParameter` will return (a method's `ParamList`
+    /// start; past-the-end for a zero-parameter method).
+    member _.NextParamHandle: ParameterHandle =
+        MetadataTokens.ParameterHandle(mb.GetRowCount(TableIndex.Param) + 1)
+
     member _.UserString(s: string) : UserStringHandle = mb.GetOrAddUserString(s)
     member _.String(s: string) : StringHandle = mb.GetOrAddString(s)
     member _.Blob(b: BlobBuilder) : BlobHandle = mb.GetOrAddBlob(b)

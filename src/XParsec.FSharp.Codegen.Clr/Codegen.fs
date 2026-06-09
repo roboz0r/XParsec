@@ -5,63 +5,79 @@ open XParsec.FSharp.SemanticAnalysis
 // Entry points: the `compile` / `materialise` pair from
 // [backend-design-plan](../XParsec.FSharp.SemanticAnalysis/docs/backend-design-plan.md).
 // `compile` is deterministic given the same inputs; `materialise` (re-exported
-// from `Materialise`) is the only side effect. The emission machinery lives in
-// `Assembler` (the converged spine) + `NominalEmit` (the per-type bodies);
-// `assemble` here only sequences the phases.
+// from `Materialise`) is the only side effect. `Layout.build` enumerates every
+// ranged-table row as data; the Bind phase pre-fills the registries from the
+// layout; the Prepare phase builds every signature/body against resolved
+// handles; the write/finalise tail walks the layout mechanically. `assemble`
+// sequences the phases — no ordering exists for a caller to get wrong.
 
 module Codegen =
+
+    let private classInput (cd: ClassDecl) : NominalEmissionInput =
+        NominalEmissionInput.Class(
+            cd.Fields,
+            cd.CtorParams,
+            cd.BaseType,
+            cd.IsSealed,
+            cd.StaticLets,
+            cd.SecondaryCtors,
+            cd.BaseCtorCall,
+            cd.Interfaces,
+            cd.IsStruct
+        )
 
     let private assemble
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tast: Frozen.TastFile)
-        (emitEntryPoint: bool)
         : ClrArtifact =
         let asm = Assembler(symbols, project, tast)
 
-        asm.EmitInterfaces()
-
+        // Bind: pre-fill the registries with layout-derived handles, so any
+        // prepared body can reference any type / member / factory / static fn
+        // / closure ctor with no emission-order discipline.
         for ud in asm.UnionDecls do
-            NominalEmit.emit asm (NominalEmissionInput.Union ud.Cases) ud.Decl ud.Members asm.UnionTypes
+            NominalEmit.register asm (NominalEmissionInput.Union ud.Cases) ud.Decl ud.Members
 
         for rd in asm.RecordDecls do
-            NominalEmit.emit asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members asm.RecordTypes
+            NominalEmit.register asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members
 
         for cd in asm.ClassDecls do
-            NominalEmit.emit
-                asm
-                (NominalEmissionInput.Class(
-                    cd.Fields,
-                    cd.CtorParams,
-                    cd.BaseType,
-                    cd.IsSealed,
-                    cd.StaticLets,
-                    cd.SecondaryCtors,
-                    cd.BaseCtorCall,
-                    cd.Interfaces,
-                    cd.IsStruct
-                ))
-                cd.Decl
-                cd.Members
-                asm.ClassTypes
+            NominalEmit.register asm (classInput cd) cd.Decl cd.Members
 
-        asm.EmitClosures()
-        asm.EmitStaticMethods()
-        let mainDef = asm.EmitMain emitEntryPoint
-        asm.Finalise(mainDef, emitEntryPoint)
+        asm.BindClosures()
+
+        // Prepare: build every signature + body against the resolved handles.
+        asm.PrepareInterfaces()
+
+        for ud in asm.UnionDecls do
+            NominalEmit.prepare asm (NominalEmissionInput.Union ud.Cases) ud.Decl ud.Members
+
+        for rd in asm.RecordDecls do
+            NominalEmit.prepare asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members
+
+        for cd in asm.ClassDecls do
+            NominalEmit.prepare asm (classInput cd) cd.Decl cd.Members
+
+        asm.PrepareClosures()
+        asm.PrepareStaticMethods()
+        asm.PrepareMain()
+
+        // Write the MethodDef table in layout order, then the TypeDef rows +
+        // sorted GenericParams, and serialise.
+        asm.WriteMethods()
+        asm.Finalise()
 
     /// TAST + symbol context → in-memory PE artifact. `ProjectInfo.OutputKind`
-    /// routes to the executable (`Main` + `Program`) or library tail of the one
-    /// converged assembler.
+    /// decides (via the layout) whether `Main` + the "Program" holder exist
+    /// and whether the PE serialises with an entry point.
     ///
     /// Cross-package `val inline` bodies (milestone M) are no longer threaded here:
     /// they are spliced pre-freeze by `Passes.InlineExpansion`, reaching the front
     /// end through the `IInlineBodyProvider` channel of
     /// the same `symbols` provider, so codegen takes no separate inline-body map.
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: Frozen.TastFile) : ClrArtifact =
-        match project.OutputKind with
-        | Library -> assemble symbols project tast false
-        | Exe -> assemble symbols project tast true
+        assemble symbols project tast
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies, independent of any

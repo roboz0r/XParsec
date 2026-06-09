@@ -3,58 +3,6 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
-/// One deferred `TypeDefinition` row (`unionTypes` / `recordTypes` /
-/// `closureTypes`). Method/field rows are all added first, then the trailing
-/// pass walks these. `Interfaces` carries pre-minted `InterfaceImpl` entity
-/// handles — pre-minted because their `TypeSpec` encoding needs the
-/// type-typars / closure-typars ambient that is only live during this type's
-/// emit window.
-type internal EmittedTypeRow =
-    {
-        Name: string
-        Namespace: string
-        Typars: string list
-        FirstField: FieldDefinitionHandle
-        FirstMethod: MethodDefinitionHandle
-        Interfaces: EntityHandle list
-        /// Unions / records / closures are always sealed (rung 2 forbids
-        /// inheritance); classes opt in via `[<Sealed>]`.
-        IsSealed: bool
-        /// The IL `TypeDefinition.BaseType` handle. `System.Object` for unions /
-        /// records / closures and for a parent-less class; a class with an
-        /// `inherit` clause (B-4 Step 2.5) resolves its parent's `TypeSpec` here
-        /// while the declaring-type typars are ambient. Pre-resolved during emit
-        /// because a generic parent's encoding needs that ambient context.
-        /// A `[<Struct>]` type resolves it to `System.ValueType`.
-        BaseType: EntityHandle
-        /// `true` for a `[<Struct>]` value type (vesper-set-sprint-phase-6):
-        /// `classAttrsOf` then flips `SequentialLayout` + `Sealed` instead of
-        /// `AutoLayout`, and the base type is `System.ValueType`.
-        IsValueType: bool
-    }
-
-/// Drives the offset arithmetic in `predictTypeDef`; the order here matches the
-/// trailing TypeDefinition emission order (interfaces → unions → records →
-/// classes → closures → holders).
-[<RequireQualifiedAccess>]
-type internal NominalKind =
-    | Interface
-    | Union
-    | Record
-    | Class
-    | Closure
-
-/// Count of `TypeDefinition`s that will land in the trailing emission loop,
-/// grouped by `NominalKind`. Consulted by `predictTypeDef` at every
-/// forward-handle site.
-type internal TypeDefCounts =
-    {
-        Interfaces: int
-        Unions: int
-        Records: int
-        Classes: int
-    }
-
 /// One disjoint walk over `tast.Decls`: every `TDecl.Type` is routed to exactly
 /// one list by its `TTypeKind`. Adding a new nominal kind is one field + one
 /// `match` arm in `partitionTypeDecls`.
