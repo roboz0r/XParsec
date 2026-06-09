@@ -272,20 +272,27 @@ let tests =
             // closure inside a monomorphic static method. Inner closures
             // inherit the enclosing closure's set verbatim.
             //
-            // The helper bundles the four-line `lower + collectStaticFns +
-            // typar map + discoverClosures` recipe each test uses.
+            // The helper bundles the `lower + collectModuleValues +
+            // collectStaticFns + typar map + discoverClosures` recipe each
+            // test uses.
 
             let discover (src: string) : Emit.Closure list =
                 let tast = analyse src
                 let lowered = Emit.lower (Freeze.run tast).Decls
-                let staticFns, staticFnKeys = Emit.collectStaticFns tast.ModuleMembers lowered
+                let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered
+                let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
+
+                let staticFns, staticFnKeys =
+                    Emit.collectStaticFns tast.ModuleMembers moduleValueKeys lowered
 
                 let typarsMap = Dictionary<NodeKey, int>()
 
                 for fn in staticFns do
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
 
-                let closures, _ = Emit.discoverClosures staticFnKeys typarsMap lowered
+                let closures, _ =
+                    Emit.discoverClosures staticFnKeys moduleValueKeys typarsMap lowered
+
                 closures
 
             test "C1: a closure inside a generic static fn carries that fn's typars" {

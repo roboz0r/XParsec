@@ -672,6 +672,20 @@ module FrozenTypeBridge =
             failwithf "FrozenTypeBridge.maxDeclaringIndex: unexpected method typar %d in a type-shape template" j
         | FTUnknown _ -> -1
 
+    /// `true` when the type is fully ground: no open typar on either axis and no
+    /// `FTUnknown` (a leaked inference metavar the front end never resolved). The
+    /// `FrozenType` sibling of `Passes.InlineExpansion`'s `SemType` `isGroundType`.
+    let rec ftIsGround (t: FrozenType) : bool =
+        match t with
+        | FTTypar _
+        | FTUnknown _ -> false
+        | FTConst(_, args)
+        | FTRecord(_, args)
+        | FTUnion(_, args)
+        | FTClass(_, args) -> args |> EqArray.forall ftIsGround
+        | FTFun(a, b) -> ftIsGround a && ftIsGround b
+        | FTTuple items -> items |> EqArray.forall ftIsGround
+
     /// The `FrozenType → FrozenType` use-site substitution codegen applies to a
     /// type-shape template directly: codegen reads the template and does its own
     /// `FTTypar(Declaring,i) ↦ tyArgs.[i]` substitution — a trivial total walk on

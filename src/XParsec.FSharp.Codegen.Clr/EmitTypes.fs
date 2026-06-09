@@ -126,6 +126,10 @@ module EmitTypes =
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
         }
 
+    /// A named module holder's identity: `(namespace, holderName)` as recorded in
+    /// `TastFile.ModuleMembers`. One static holder class per `module Foo = …`.
+    type HolderKey = string option * string
+
     /// A top-level function lowered to a **static method**: `let [rec] f p0 p1 …`
     /// becomes `static f(p0, p1, …)`, curried parameters flattened. Eligible only
     /// when the function never escapes as a value and captures no module-level
@@ -134,13 +138,29 @@ module EmitTypes =
         {
             Key: NodeKey
             Name: string
-            /// `Some(namespace, holderName)` when from a named `module Foo = …`
-            /// (recorded in `TastFile.ModuleMembers`): emits as a public static
-            /// method on a `Foo` holder type. `None` ⇒ the anonymous "Program" holder.
-            Holder: (string option * string) option
+            /// `Some holderKey` when from a named `module Foo = …`: emits as a
+            /// public static method on the `Foo` holder type. `None` ⇒ the
+            /// anonymous "Program" holder.
+            Holder: HolderKey option
             Params: (NodeKey * FrozenType) list
             Body: Frozen.TExpr
             ResultTy: FrozenType
+        }
+
+    /// A module-level value (`let x = e` at module scope) lowered to a `public
+    /// static` field on its module holder, initialised by the holder's `.cctor`
+    /// (module-representation-plan). Only values on a *named* module classify
+    /// (anonymous "Program" values keep their `Main`-local treatment, see
+    /// `collectModuleValues`), so the holder is always known. `Init` is the
+    /// initialiser the `.cctor` evaluates and `stsfld`s — taken from the lowered
+    /// decls, so built-in operators are already expanded.
+    type ModuleValue =
+        {
+            Key: NodeKey
+            Name: string
+            Ty: FrozenType
+            Init: Frozen.TExpr
+            Holder: HolderKey
         }
 
     /// Emission handle + shape of a static-method function, resolved before any
@@ -158,6 +178,27 @@ module EmitTypes =
             ResultTy: FrozenType
             Typars: int
             ParamTys: FrozenType list
+        }
+
+    /// The run-wide registries every builder needs: the provider seam, the
+    /// metadata writer, and the shared dictionaries that resolve a `Lambda` value
+    /// to its emitted closure, its `.ctor` handle, the nominal type tables, and a
+    /// top-level function to a direct `call`. Per-method state is layered on top
+    /// inside each builder as an `EmitEnv` (via `EmitEnv.ofContext`).
+    type EmitContext =
+        {
+            Provider: ICodegenProvider
+            Ctx: MetadataContext
+            ClosureByNode: Dictionary<Frozen.TExpr, Closure>
+            CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            Unions: Dictionary<SymbolKey, EmittedUnion>
+            Records: Dictionary<SymbolKey, EmittedRecord>
+            Classes: Dictionary<SymbolKey, EmittedClass>
+            StaticMethods: Dictionary<NodeKey, StaticMethodRef>
+            /// Module-level value bindings → their emitted `public static` field
+            /// (`ldsfld`). Shared by every body builder so a module value resolves
+            /// uniformly in any method/ctor/cctor (module-representation-plan §3).
+            ModuleValues: Dictionary<NodeKey, EntityHandle>
         }
 
     /// Per-method codegen state, layered on top of the run-wide `EmitContext`.
@@ -180,7 +221,46 @@ module EmitTypes =
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
+            /// Module-level values (`let x = e` at module scope), lowered to a
+            /// `public static` field on their module holder and resolved here by
+            /// binding `NodeKey` → field handle (`ldsfld`). See
+            /// [module-representation-plan](../XParsec.FSharp.SemanticAnalysis/docs/module-representation-plan.md).
+            ModuleValues: Dictionary<NodeKey, EntityHandle>
         }
+
+    /// `EmitEnv` constructors layering per-method state over the run-wide
+    /// `EmitContext`, so a new shared registry is a change here — not in every
+    /// builder.
+    module EmitEnv =
+        /// `args` maps each parameter to its `ldarg` index; locals (`Slots`)
+        /// always start empty. `selfKey` / `captureFields` are the
+        /// closure-`Invoke` extras — every other builder has neither.
+        let create
+            (ctx: EmitContext)
+            (selfKey: NodeKey voption)
+            (captureFields: Dictionary<NodeKey, EntityHandle>)
+            (args: Dictionary<NodeKey, int>)
+            : EmitEnv =
+            {
+                Provider = ctx.Provider
+                Ctx = ctx.Ctx
+                Slots = Dictionary<NodeKey, int>()
+                ClosureByNode = ctx.ClosureByNode
+                CtorHandleByNode = ctx.CtorHandleByNode
+                Args = args
+                SelfKey = selfKey
+                CaptureFields = captureFields
+                Unions = ctx.Unions
+                Records = ctx.Records
+                Classes = ctx.Classes
+                StaticMethods = ctx.StaticMethods
+                ModuleValues = ctx.ModuleValues
+            }
+
+        /// The common builder shape: parameters only — no recursive self, no
+        /// captures.
+        let ofContext (ctx: EmitContext) (args: Dictionary<NodeKey, int>) : EmitEnv =
+            create ctx ValueNone (Dictionary()) args
 
     /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
     /// BCL struct `System.ValueTuple` (its `prim-types-min.fs` binding), not

@@ -318,6 +318,138 @@ let staticTests =
                 Expect.equal (m.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "T.M(3, 4) returns 7"
             }
 
+            // module-representation-plan: a module-level value (`let x = e` at
+            // module scope) is a `public static` field on its module holder,
+            // initialised by the holder's `.cctor`, read everywhere as `ldsfld` —
+            // never a `Main` local or a closure capture. These rows pin the four
+            // reference contexts that the `set.fs` Phase-9 wall hit (none of which
+            // worked before: the module value had no storage, and a Library has no
+            // `Main`). The field lands on the named-module holder (`Helper`).
+
+            // (1) An instance member body reads a module value.
+            test "an instance member reads a module-level value via a static field (Get() = 42)" {
+                let _, artifact =
+                    compileSource
+                        "ModuleValMember"
+                        (String.concat
+                            "\n"
+                            [
+                                "module Helper ="
+                                "    let seed : int = 42"
+                                ""
+                                "type Box(v: int) ="
+                                "    member this.Get () = Helper.seed"
+                                "let b = Box(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let helper = asm.GetType "Helper"
+                Expect.isNotNull helper "the named-module holder Helper is emitted"
+
+                let seedField = helper.GetField("seed", BindingFlags.Public ||| BindingFlags.Static)
+                Expect.isNotNull seedField "the module value `seed` is a public static field on Helper"
+
+                let boxTy = asm.GetType "Box"
+                let inst = boxTy.GetConstructors().[0].Invoke [| box 0 |]
+                let m = boxTy.GetMethod("Get", declaredInstance, null, [||], null)
+                Expect.equal (m.Invoke(inst, [||]) :?> int) 42 "Box().Get() reads the module value seed = 42"
+            }
+
+            // (2) A *generic* class `static let` initialiser references a module
+            //     value (the `set.fs` `static let empty = … SetTree.empty` shape:
+            //     a module value read inside a generic class's `.cctor`).
+            test "a generic class `static let` reads a module value through the cctor (SeedV() = 42)" {
+                let _, artifact =
+                    compileSource
+                        "ModuleValGenericStaticLet"
+                        (String.concat
+                            "\n"
+                            [
+                                "module Helper ="
+                                "    let seed : int = 42"
+                                ""
+                                "type Box<'T>(v: int) ="
+                                "    static let s : int = Helper.seed"
+                                "    member this.V = v"
+                                "    static member SeedV () = s"
+                                "let b = Box<int>(0)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let boxTy = (asm.GetType "Box`1").MakeGenericType typeof<int>
+                let m = boxTy.GetMethod("SeedV", declaredStatic, null, [||], null)
+                Expect.isNotNull m "SeedV emitted as a static method"
+
+                Expect.equal
+                    (m.Invoke(null, [||]) :?> int)
+                    42
+                    "Box<int>.SeedV() reads the static-let `s`, built in the cctor from the module value seed = 42"
+            }
+
+            // (3) A sibling module function reading a module value emits as a real
+            //     static method (a direct `ldsfld`), not a closure capturing it.
+            test "a module function reading a module value emits as a static method (get() = 42)" {
+                let _, artifact =
+                    compileSource
+                        "ModuleValFn"
+                        (String.concat
+                            "\n"
+                            [ "module Helper ="; "    let seed : int = 42"; "    let get () : int = seed" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let helper = asm.GetType "Helper"
+                let m = helper.GetMethod("get", declaredStatic)
+                Expect.isNotNull m "get emitted as a static method on Helper (not a closure capturing seed)"
+                Expect.isTrue m.IsStatic "get is a static method"
+                Expect.equal (m.Invoke(null, [| () |]) :?> int) 42 "Helper.get () reads seed = 42"
+            }
+
+            // (4) A module value initialised from an *earlier* module value — the
+            //     cctor evaluates initialisers in declaration order.
+            test "a module value initialised from an earlier module value (cctor order: b = 2)" {
+                let _, artifact =
+                    compileSource
+                        "ModuleValChain"
+                        (String.concat "\n" [ "module Helper ="; "    let a : int = 1"; "    let b : int = a + 1" ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let helper = asm.GetType "Helper"
+                let bField = helper.GetField("b", BindingFlags.Public ||| BindingFlags.Static)
+                Expect.equal (bField.GetValue null :?> int) 2 "b = a + 1 = 2, the cctor ran a's init first"
+            }
+
+            // (5) A module value's initialiser must resolve entirely to other
+            //     module values / static methods inside the holder `.cctor`. The
+            //     bare `seed = f` reference makes `f` escape as a value, demoting
+            //     it to a closure held in a `Main` local — which a `.cctor`
+            //     cannot see — so the assembler fails with a targeted message
+            //     rather than the generic `buildVarLoad` "no binding" crash.
+            test "a module value whose init needs a Main local fails with a targeted error" {
+                let msg =
+                    try
+                        compileSource
+                            "ModuleValUnresolvable"
+                            (String.concat
+                                "\n"
+                                [
+                                    "module Helper ="
+                                    "    let f = fun (x: int) -> x + 1"
+                                    "    let seed : int -> int = f"
+                                ])
+                        |> ignore
+
+                        ""
+                    with e ->
+                        e.Message
+
+                Expect.stringContains msg "module value 'seed'" "the failure names the module value"
+
+                Expect.stringContains
+                    msg
+                    "neither a module value nor a static method"
+                    "the failure states the resolution rule"
+            }
+
             // static field via `static let`:
             //   `type C() = static let x = 42; static member Get() = x` — C.Get() = 42
             test "a class `static let` becomes a static field initialised by the cctor (Get() = 42)" {

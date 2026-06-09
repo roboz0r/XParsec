@@ -155,6 +155,66 @@ module EmitClosures =
         go body
         acc
 
+    /// Classify which top-level bindings are **module values**
+    /// (module-representation-plan): a non-inline `let name = <plain value>` (no
+    /// lambda parameters) on a *named* module holder, whose type is fully ground —
+    /// no open typar (a generic value compiles to a generic method, not a field)
+    /// and no `FTUnknown` (a leaked inference metavar the front end never
+    /// resolved; such a value keeps its current treatment rather than crashing
+    /// contract extraction). Each becomes a `public static` field on its holder,
+    /// initialised by the holder's `.cctor`, and every reference is an `ldsfld` —
+    /// never a `Main` local or a closure capture. Generic values, function
+    /// values (lambdas), and anonymous top-level ("Program") values are out of
+    /// scope for this slice and keep their current treatment.
+    let collectModuleValues
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (decls: Frozen.TDecl list)
+        : ModuleValue list =
+        decls
+        |> List.choose (fun d ->
+            match d with
+            | TDeclG.Let(TPatG.NamedSimple(k, ty), value, isInline, _) when
+                not isInline
+                && (
+                    match value with
+                    | TExprG.Lambda _ -> false
+                    | _ -> true
+                )
+                && ftIsGround ty
+                ->
+                match Map.tryFind k.Raw moduleMembers with
+                | Some info ->
+                    Some
+                        {
+                            Key = k
+                            Name = info.Name
+                            Ty = ty
+                            Init = value
+                            Holder = info.Namespace, info.Holder
+                        }
+                | None -> None
+            | _ -> None
+        )
+
+    /// A module value's initialiser runs in its holder's `.cctor`, where only
+    /// other module values (`ldsfld`) and static-method functions (direct `call`)
+    /// resolve — any other top-level reference (an anonymous "Program" value, a
+    /// function that escaped to a closure) would need a `Main` local no `.cctor`
+    /// can see. Fail here, with the offending value and reference named, instead
+    /// of deep in `buildVarLoad`'s generic "no binding" crash.
+    let validateModuleValueInits
+        (moduleValueKeys: HashSet<NodeKey>)
+        (staticFnKeys: HashSet<NodeKey>)
+        (moduleValues: ModuleValue list)
+        : unit =
+        for mv in moduleValues do
+            for free in freeVarKeys [] mv.Init do
+                if not (moduleValueKeys.Contains free || staticFnKeys.Contains free) then
+                    failwithf
+                        "Emit: module value '%s' references top-level binding %O, which is neither a module value nor a static method, so its initialiser cannot run in the holder's .cctor (module-representation-plan)"
+                        mv.Name
+                        free
+
     /// Classify which top-level function bindings can be emitted as **static
     /// methods** rather than closures. A candidate is `let [rec] f p0 … = body`
     /// whose value peels to at least one simple parameter. Eligible only when:
@@ -167,6 +227,7 @@ module EmitClosures =
     /// Rule 2 is a fixpoint, resolved by removing offenders until stable.
     let collectStaticFns
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (moduleValueKeys: HashSet<NodeKey>)
         (decls: Frozen.TDecl list)
         : StaticFn list * HashSet<NodeKey> =
         let candidates = Dictionary<NodeKey, (NodeKey * FrozenType) list * Frozen.TExpr>()
@@ -221,7 +282,11 @@ module EmitClosures =
                 seq {
                     for k in order do
                         let ps, body = candidates.[k]
-                        KeyValuePair(k, freeVarKeys (ps |> List.map fst) body)
+                        // A reference to a module value is an `ldsfld`, not a captured
+                        // module-level local — treat those keys as bound so a function
+                        // over them stays static-method eligible (rule 2,
+                        // module-representation-plan §4).
+                        KeyValuePair(k, freeVarKeys (Seq.append moduleValueKeys (ps |> List.map fst)) body)
                 }
             )
 
@@ -316,12 +381,19 @@ module EmitClosures =
     /// `Closure.Typars`; an inner closure inherits the enclosing closure's set.
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
+        (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
         (decls: Frozen.TDecl list)
         : Closure list * Dictionary<Frozen.TExpr, Closure> =
         let order = ResizeArray<Frozen.TExpr>()
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
+
+        // A module-level value is a `public static` field (`ldsfld`), so — like a
+        // static-method reference — it is resolved without a capture
+        // (module-representation-plan §4). Fold both into the non-captured set.
+        let nonCaptured = HashSet<NodeKey>(staticFnKeys)
+        nonCaptured.UnionWith moduleValueKeys
 
         // `selfKey` is the binding key when this node is the immediate value of a
         // `let f = …` lambda — a recursive self-reference resolves to `this`.
@@ -358,7 +430,7 @@ module EmitClosures =
                         // Bind every leaf the param pattern introduces (a tuple's
                         // element bindings), not the placeholder `ParamKey` — those
                         // leaves are parameters, never captures.
-                        Captures = freeVars staticFnKeys (patKeys paramPat) selfKey body
+                        Captures = freeVars nonCaptured (patKeys paramPat) selfKey body
                         SelfKey = selfKey
                         Typars = currentTypars
                     }

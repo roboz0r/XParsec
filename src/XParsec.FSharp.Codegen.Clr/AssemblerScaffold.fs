@@ -179,7 +179,8 @@ module internal AssemblerScaffold =
             project.ModuleName,
             provider.ObjectType,
             MetadataTokens.FieldDefinitionHandle(1),
-            mainDef
+            mainDef,
+            true
         )
         |> ignore
 

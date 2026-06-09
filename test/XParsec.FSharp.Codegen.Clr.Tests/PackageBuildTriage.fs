@@ -226,16 +226,22 @@ let tests =
             //     (search `InstanceFields` + `CtorParams` before members). Gated by
             //     `StructTests.fs` "a chained property on a struct val field types the
             //     receiver as the field, not the property".
-            //   - CURRENT wall: `Emit: no binding for variable src@<off>:PatIdent`
-            //     (EmitExpr.buildVarLoad, via `Emit.buildStaticCctor`) — the generic
-            //     class `Set<'T>`'s `static let empty = … Set<'T>(comparer,
-            //     SetTree.empty)` (set.fs:756). The `.cctor` init references the
-            //     module value `SetTree.empty` (`let empty = null`, set.fs:37), which
-            //     freezes as a `TExpr.Var(moduleBindingKey)` the cctor env can't
-            //     resolve. Root: `Elaborate.fs:918` builds the generic static-let init
-            //     on the stale assumption that "the front-end rejects `static let` on a
-            //     generic class" — true before G13, now false — so the init skips the
-            //     `elaborateOne`/module-ref lowering member bodies get. Flip
-            //     `ptest`→`test` once that (and any following backend gaps) close.
+            //   - CLOSED (2026-06-09): `Emit: no binding for variable src@<off>:PatIdent`
+            //     (EmitExpr.buildVarLoad, via `Emit.buildStaticCctor`) — a reference to
+            //     a module-level value (`SetTree.empty`) from a `.cctor`/member body.
+            //     The handoff's "stale generic `static let`" diagnosis was wrong: module
+            //     values had no real storage at all (they were `Main` locals, and a
+            //     Library has no `Main`). Fixed by emitting module values as `public
+            //     static` fields on their module holder, initialised by the holder's
+            //     `.cctor`, referenced via `ldsfld` (module-representation-plan). Gated
+            //     by `ClassStatic` "module value …" rows.
+            //   - CURRENT wall: `ClrProvider: type '?ungrounded-operator' could not be
+            //     resolved during contract extraction` (ClrProvider.InstanceMethodSignature,
+            //     ClrProvider.fs:89). An *instance member* of `Set<'T>` has a leaked
+            //     inference metavar (`FTUnknown "?ungrounded-operator"`, Freeze.fs:66) in
+            //     its signature — a front-end grounding gap (likely an SRTP/operator
+            //     default that never resolved on the member, cf. `srtp_arith_default_chain`),
+            //     surfacing at contract extraction. Distinct from the module-value wall.
+            //     Flip `ptest`→`test` once it (and any following gaps) close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

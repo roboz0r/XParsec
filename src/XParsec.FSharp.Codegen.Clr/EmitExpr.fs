@@ -27,7 +27,14 @@ module EmitExpr =
                 | false, _ ->
                     match env.Slots.TryGetValue key with
                     | true, slot -> b.Add(ILInstr.Ldloc slot)
-                    | false, _ -> failwithf "Emit: no binding for variable %O" key
+                    | false, _ ->
+                        // A module-level value (`let x = e` at module scope) is a
+                        // `public static` field on its module holder; load it with
+                        // `ldsfld` (module-representation-plan §3). Last arm: a
+                        // module value is never an arg/self/capture/local.
+                        match env.ModuleValues.TryGetValue key with
+                        | true, field -> b.Add(ILInstr.Ldsfld field)
+                        | false, _ -> failwithf "Emit: no binding for variable %O" key
 
     /// The element types of a tuple `FrozenType`. A hard failure if the front end
     /// typed a tuple pattern / value as something other than `FTTuple` — an internal

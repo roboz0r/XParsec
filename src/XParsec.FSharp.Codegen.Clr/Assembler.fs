@@ -7,6 +7,15 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 
+/// One predicted method row of the holder plan (module-representation-plan §5):
+/// a value-bearing holder's `.cctor`, or a static-method function. The
+/// constructor predicts each slot's `MethodDef` handle from its position and
+/// `EmitStaticMethods` walks the *same* list, so prediction and emission cannot
+/// drift.
+type internal MethodSlot =
+    | HolderCctor of Emit.HolderKey
+    | HolderFn of Emit.StaticFn
+
 /// The converged assembler (G9 / rung-2 P3c): one spine emits every declared
 /// type and the module's value-bearing members regardless of output kind —
 /// interfaces (bodyless abstract methods), unions/records/classes (via
@@ -17,8 +26,9 @@ open AssemblerScaffold
 /// Metadata stays contiguous and only-backward-referencing via a fixed emission
 /// order:
 ///   methods: interface abstract → union/record/class ctor+factories+members →
-///            closure ctor+`Invoke` → static methods → `Main`;
-///   fields:  type fields → closure captures;
+///            closure ctor+`Invoke` → holder `.cctor`s + static methods
+///            (`methodPlan` order) → `Main`;
+///   fields:  type fields → closure captures → module-value fields;
 ///   types:   `<Module>` → interfaces → unions → records → classes → closures
 ///            → holders.
 /// Two forward references are *predicted* from row counts in the constructor: a
@@ -53,7 +63,22 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let bodyStream = ctx.BodyStream
 
     let lowered = Emit.lower tast.Decls
-    let staticFns, staticFnKeys = Emit.collectStaticFns tast.ModuleMembers lowered
+
+    // ---- Module-level values (module-representation-plan) ----
+    // Each becomes a `public static` field on its named-module holder,
+    // initialised by that holder's `.cctor`; every reference is an `ldsfld` —
+    // never a `Main` local or a closure capture (see `collectModuleValues` for
+    // the classification rules and scope cuts).
+    let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered
+    let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
+
+    let staticFns, staticFnKeys =
+        Emit.collectStaticFns tast.ModuleMembers moduleValueKeys lowered
+
+    // Every module-value initialiser must resolve entirely to other module
+    // values / static methods inside its holder `.cctor` — fail targeted here
+    // rather than deep in `buildVarLoad`.
+    do Emit.validateModuleValueInits moduleValueKeys staticFnKeys moduleValues
 
     // Order emission so every holder's methods form a contiguous `MethodDef`
     // range — named-holder groups first (first-appearance order), then the
@@ -70,7 +95,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         |> List.map (fun (h, pairs) -> h, List.map snd pairs)
 
     let holderlessFns = staticFns |> List.filter (fun fn -> fn.Holder.IsNone)
-    let staticFnsEmitOrder = (namedHolderGroups |> List.collect snd) @ holderlessFns
 
     // Each static fn's typar set by binding key; a closure walked from a generic
     // static fn's body inherits this. Computed before the `staticMethods`
@@ -82,7 +106,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             staticFnTyparsMap.[fn.Key] <- Emit.staticFnTypars fn
 
     let closures, closureByNode =
-        Emit.discoverClosures staticFnKeys staticFnTyparsMap lowered
+        Emit.discoverClosures staticFnKeys moduleValueKeys staticFnTyparsMap lowered
 
     let ctorHandleByNode =
         Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
@@ -244,19 +268,102 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         + classMethodTotal
         + closureMethodTotal
 
+    // ---- Holder plan (module-representation-plan §5) ----
+    // Each named module holder owns static fns and/or module values. Its method
+    // range is `(.cctor when it has values) ++ its static fns`; its field range is
+    // its module-value fields. Holders emit in fn-holder first-appearance order,
+    // then any value-only holder; the holder-less ("Program") fns and `Main`
+    // follow, unchanged.
+    let valuesByHolder = moduleValues |> List.groupBy (fun mv -> mv.Holder)
+
+    let valuesByHolderMap = dict valuesByHolder
+    let fnsByHolderMap = dict namedHolderGroups
+
+    let holderValues (h: Emit.HolderKey) =
+        match valuesByHolderMap.TryGetValue h with
+        | true, v -> v
+        | _ -> []
+
+    let holderFns (h: Emit.HolderKey) =
+        match fnsByHolderMap.TryGetValue h with
+        | true, v -> v
+        | _ -> []
+
+    let orderedNamedHolders =
+        let fnHolders = namedHolderGroups |> List.map fst
+
+        let valueOnly =
+            valuesByHolder
+            |> List.map fst
+            |> List.filter (fun h -> not (List.contains h fnHolders))
+
+        fnHolders @ valueOnly
+
+    // Method emission plan (cctor-first per holder), then the holder-less fns.
+    // `Main` is appended later. A slot's position is its predicted `MethodDef`
+    // row (`staticBase + 1 + i`); `EmitStaticMethods` walks this same list.
+    let methodPlan = ResizeArray<MethodSlot>()
+
+    do
+        for h in orderedNamedHolders do
+            if not (List.isEmpty (holderValues h)) then
+                methodPlan.Add(HolderCctor h)
+
+            for fn in holderFns h do
+                methodPlan.Add(HolderFn fn)
+
+        for fn in holderlessFns do
+            methodPlan.Add(HolderFn fn)
+
     let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
 
     do
-        staticFnsEmitOrder
-        |> List.iteri (fun i fn ->
-            staticMethods.[fn.Key] <-
-                {
-                    Handle = toEntity (MetadataTokens.MethodDefinitionHandle(staticBase + 1 + i))
-                    Arity = List.length fn.Params
-                    ResultTy = fn.ResultTy
-                    Typars = staticFnTyparsMap.[fn.Key]
-                    ParamTys = fn.Params |> List.map snd
-                }
+        methodPlan
+        |> Seq.iteri (fun i slot ->
+            match slot with
+            // A `.cctor` slot only occupies its predicted row — nothing calls a
+            // `.cctor` explicitly, so no handle is recorded.
+            | HolderCctor _ -> ()
+            | HolderFn fn ->
+                staticMethods.[fn.Key] <-
+                    {
+                        Handle = toEntity (MetadataTokens.MethodDefinitionHandle(staticBase + 1 + i))
+                        Arity = List.length fn.Params
+                        ResultTy = fn.ResultTy
+                        Typars = staticFnTyparsMap.[fn.Key]
+                        ParamTys = fn.Params |> List.map snd
+                    }
+        )
+
+    // ---- Module-value field-handle prediction (module-representation-plan §5) ----
+    // Module-value fields are the trailing field rows (holders emit last), after
+    // every type and closure field. Their handles are predicted from those counts
+    // so a member body built in `NominalEmit` (before holder emission) can already
+    // encode the `ldsfld` token. `EmitStaticMethods` asserts the base matches
+    // the real `FieldCount` when it adds the rows.
+    let typeFieldCount =
+        (unionDecls
+         |> List.sumBy (fun ud -> 1 + (ud.Cases |> List.sumBy (fun c -> c.Fields.Length))))
+        + (recordDecls |> List.sumBy (fun rd -> List.length rd.Fields))
+        + (classDecls
+           |> List.sumBy (fun cd -> List.length cd.CtorParams + List.length cd.Fields + List.length cd.StaticLets))
+
+    let closureFieldCount = closures |> List.sumBy (fun c -> List.length c.Captures)
+    let moduleValueFieldBase = typeFieldCount + closureFieldCount
+
+    // Field rows in holder order, each holder's values in declaration order.
+    let moduleValueFieldOrder =
+        [
+            for h in orderedNamedHolders do
+                yield! holderValues h
+        ]
+
+    let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
+
+    do
+        moduleValueFieldOrder
+        |> List.iteri (fun i mv ->
+            moduleValueFields.[mv.Key] <- toEntity (MetadataTokens.FieldDefinitionHandle(moduleValueFieldBase + 1 + i))
         )
 
     let emitCtx: Emit.EmitContext =
@@ -269,6 +376,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             Records = records
             Classes = classes
             StaticMethods = staticMethods
+            ModuleValues = moduleValueFields
         }
 
     // ---- Attribute sets ----
@@ -400,7 +508,13 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let mutable holderlessFirstMethod = ValueNone
 
     let namedHolderFirstMethod =
-        Dictionary<string option * string, MethodDefinitionHandle>(HashIdentity.Structural)
+        Dictionary<Emit.HolderKey, MethodDefinitionHandle>(HashIdentity.Structural)
+
+    // A named holder's first module-value field row (module-representation-plan
+    // §5), set by `EmitStaticMethods`; consumed by `Finalise` for the holder
+    // `TypeDefinition`'s `FieldList`.
+    let namedHolderFirstField =
+        Dictionary<Emit.HolderKey, FieldDefinitionHandle>(HashIdentity.Structural)
 
     // ---- State exposed to `NominalEmit` and the `Codegen` orchestrator ----
     member _.Provider = provider
@@ -572,12 +686,38 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
-    // ---- Static methods (P3b) ----
-    // Handles were predicted in the constructor, so recursion / cross-calls
-    // already resolve. Emitted in `staticFnsEmitOrder`, tracking each holder's
-    // first `MethodDef` for the trailing holder `TypeDefinition`.
+    // ---- Module-value fields + static methods (P3b) ----
+    // Module-value `FieldDefinition` rows first (the trailing field rows, after
+    // every type/closure field — module-representation-plan §5), then the static
+    // method / holder-`.cctor` bodies. Both emit by walking the constructor's
+    // own prediction order (`moduleValueFieldOrder` / `methodPlan`), so recursion,
+    // cross-calls, and `ldsfld` already resolve and prediction cannot drift from
+    // emission.
     member this.EmitStaticMethods() =
-        for fn in staticFnsEmitOrder do
+        // The predicted base must match the real field count; a mismatch means a
+        // type/closure field-emission path drifted from the constructor's count.
+        if moduleValueFieldBase <> fieldCount then
+            failwithf
+                "Emit: predicted module-value field base %d <> actual field count %d (module-representation-plan §5)"
+                moduleValueFieldBase
+                fieldCount
+
+        for mv in moduleValueFieldOrder do
+            // Immutable module values are `initonly` (set only in the holder's
+            // `.cctor`). A `mutable` module value is out of scope for this slice.
+            let handle =
+                ctx.AddField(
+                    FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly,
+                    mv.Name,
+                    provider.FieldSignature mv.Ty
+                )
+
+            fieldCount <- fieldCount + 1
+
+            if not (namedHolderFirstField.ContainsKey mv.Holder) then
+                namedHolderFirstField.[mv.Holder] <- handle
+
+        let emitStaticFn (fn: Emit.StaticFn) : MethodDefinitionHandle =
             // A *generic* static method (`fold`, R3): its body / signature / locals
             // embed `FTTypar(Method, i)` (freeze-quantified),
             // which the encoder maps to `!!i` directly — no ambient typar window.
@@ -605,14 +745,41 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 genericParams.Add(toEntity handle, i, sprintf "T%d" i)
 
             claimFirstMethod handle
+            handle
 
-            match fn.Holder with
-            | Some h ->
+        // A holder's `.cctor` initialises its module values in declaration order
+        // (the static analogue of the class `static let` cctor — same
+        // `buildStaticCctor` recipe, `stsfld` into each field). `mv.Init` comes
+        // from the lowered decls, so built-in operators are already expanded.
+        let emitHolderCctor (h: Emit.HolderKey) : MethodDefinitionHandle =
+            let lets = [ for mv in holderValues h -> moduleValueFields.[mv.Key], mv.Init ]
+
+            let bodyOffset =
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx lets))
+
+            let handle =
+                ctx.AddMethodWithParamList(cctorAttrs, ".cctor", provider.CctorSignature(), bodyOffset, addParams [])
+
+            claimFirstMethod handle
+            handle
+
+        for slot in methodPlan do
+            match slot with
+            | HolderCctor h ->
+                let cctor = emitHolderCctor h
+
                 if not (namedHolderFirstMethod.ContainsKey h) then
-                    namedHolderFirstMethod.[h] <- handle
-            | None ->
-                if holderlessFirstMethod.IsNone then
-                    holderlessFirstMethod <- ValueSome handle
+                    namedHolderFirstMethod.[h] <- cctor
+            | HolderFn fn ->
+                let handle = emitStaticFn fn
+
+                match fn.Holder with
+                | Some h ->
+                    if not (namedHolderFirstMethod.ContainsKey h) then
+                        namedHolderFirstMethod.[h] <- handle
+                | None ->
+                    if holderlessFirstMethod.IsNone then
+                        holderlessFirstMethod <- ValueSome handle
 
     // ---- Main (executable only) ----
     member this.EmitMain(emitEntryPoint: bool) : MethodDefinitionHandle voption =
@@ -703,22 +870,31 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             for iface in row.Interfaces do
                 ctx.AddInterfaceImplementation(closureHandle, iface)
 
-        // A holder owns no fields, so every holder's field range is empty and
-        // starts past the last (closure/union) field.
+        // A holder with no module values owns no fields, so its field range is
+        // empty and points past the last (closure/union/module-value) field.
         let holderFirstField = MetadataTokens.FieldDefinitionHandle(fieldCount + 1)
 
         // Named-module holders (R3 deferred): one static class per `module Foo`,
-        // added in first-appearance order so their `TypeDefinition` rows stay
-        // ascending by first method and precede the "Program" holder.
-        for (holderKey, _) in namedHolderGroups do
+        // in first-appearance order (fn-holders, then any value-only holder) so
+        // their `TypeDefinition` rows stay ascending by first field/method and
+        // precede the "Program" holder. A holder owning module values takes its
+        // own `FieldList` (its first module-value field) and drops
+        // `BeforeFieldInit` (its `.cctor` runs before first access).
+        for holderKey in orderedNamedHolders do
             let ns, holderName = holderKey
+
+            let firstField, beforeFieldInit =
+                match namedHolderFirstField.TryGetValue holderKey with
+                | true, f -> f, false
+                | _ -> holderFirstField, true
 
             ctx.AddProgramType(
                 defaultArg ns "",
                 holderName,
                 provider.ObjectType,
-                holderFirstField,
-                namedHolderFirstMethod.[holderKey]
+                firstField,
+                namedHolderFirstMethod.[holderKey],
+                beforeFieldInit
             )
             |> ignore
 
@@ -731,7 +907,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 | _, ValueSome m -> m
                 | ValueNone, ValueNone -> firstMethodHandle
 
-            ctx.AddProgramType("", project.ModuleName, provider.ObjectType, holderFirstField, programFirstMethod)
+            ctx.AddProgramType("", project.ModuleName, provider.ObjectType, holderFirstField, programFirstMethod, true)
             |> ignore
 
         // Every handle now exists: add `GenericParam` rows in the order SRM

@@ -114,7 +114,8 @@ module InlineExpansion =
         bad
 
     /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic, so
-    /// codegen can encode it. Mirrors `EmitLower.isGroundType`: the cross-package
+    /// codegen can encode it. The `SemType` sibling of `FrozenTypeBridge.ftIsGround`
+    /// (this one zonks; the frozen one has no vars to zonk): the cross-package
     /// equality / `hash` inline bodies reach `EqualityComparer<^T>`, emittable
     /// only when `^T` is ground; an unpinned operand leaves it free and must fall
     /// back to codegen's `BuiltinOps`.

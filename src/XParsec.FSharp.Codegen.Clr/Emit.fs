@@ -22,31 +22,19 @@ module Emit =
     type EmittedUnion = EmitTypes.EmittedUnion
     type EmittedRecord = EmitTypes.EmittedRecord
     type EmittedClass = EmitTypes.EmittedClass
+    type HolderKey = EmitTypes.HolderKey
     type StaticFn = EmitTypes.StaticFn
+    type ModuleValue = EmitTypes.ModuleValue
     type StaticMethodRef = EmitTypes.StaticMethodRef
+    type EmitContext = EmitTypes.EmitContext
 
     let expandBuiltinOps = EmitLower.expandBuiltinOps
     let lower = EmitLower.lower
+    let collectModuleValues = EmitClosures.collectModuleValues
+    let validateModuleValueInits = EmitClosures.validateModuleValueInits
     let collectStaticFns = EmitClosures.collectStaticFns
     let staticFnTypars = EmitClosures.staticFnTypars
     let discoverClosures = EmitClosures.discoverClosures
-
-    /// The run-wide registries every builder needs: the provider seam, the
-    /// metadata writer, and the shared dictionaries that resolve a `Lambda` value
-    /// to its emitted closure, its `.ctor` handle, the nominal type tables, and a
-    /// top-level function to a direct `call`. Per-method state is layered on top
-    /// inside each builder as an `EmitEnv`.
-    type EmitContext =
-        {
-            Provider: ICodegenProvider
-            Ctx: MetadataContext
-            ClosureByNode: Dictionary<Frozen.TExpr, Closure>
-            CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
-            Unions: Dictionary<SymbolKey, EmittedUnion>
-            Records: Dictionary<SymbolKey, EmittedRecord>
-            Classes: Dictionary<SymbolKey, EmittedClass>
-            StaticMethods: Dictionary<NodeKey, StaticMethodRef>
-        }
 
     /// Build the `Main` body from the *lowered* decls. Each top-level `let`
     /// binds a `Main` local — except a function lowered to a static method (P3b),
@@ -54,28 +42,17 @@ module Emit =
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
     let buildMain (ctx: EmitContext) (decls: Frozen.TDecl list) : ILBody =
         let b = IlBuilder()
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = Dictionary<NodeKey, int>()
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx (Dictionary())
 
         for d in decls do
             match d with
             | TDeclG.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
             | TDeclG.Let(TPatG.NamedSimple(binding, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
+            // A module-level value is a `public static` field initialised by its
+            // holder's `.cctor` (module-representation-plan §3); a reference loads
+            // it with `ldsfld`, so it needs no Main local.
+            | TDeclG.Let(TPatG.NamedSimple(binding, _), _, _, _) when ctx.ModuleValues.ContainsKey binding -> ()
             | TDeclG.Let(TPatG.NamedSimple(binding, _), value, _, ty) ->
                 let slot = b.Local ty
                 env.Slots.[binding] <- slot
@@ -99,22 +76,7 @@ module Emit =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = args
-                SelfKey = closure.SelfKey
-                CaptureFields = captureFields
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.create ctx closure.SelfKey captureFields args
 
         // A destructuring tuple parameter (`fun (a, b) -> …`): `ldarg.1` holds the
         // `ValueTuple`n` value; spill it to a local and `bindPattern` the leaf
@@ -142,22 +104,7 @@ module Emit =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         fn.Params |> List.iteri (fun i (k, _) -> args.[k] <- i)
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = args
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx args
 
         buildExpr env b fn.Body
         b.Add ILInstr.Ret
@@ -195,22 +142,7 @@ module Emit =
         | ValueNone -> ()
 
         prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = args
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx args
 
         buildExpr env b body
 
@@ -240,22 +172,7 @@ module Emit =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- 1 + i)
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = args
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx args
 
         for l in lets do
             let slot = b.Local l.Type
@@ -291,22 +208,7 @@ module Emit =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- 1 + i)
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = args
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx args
 
         for l in lets do
             let slot = b.Local l.Type
@@ -340,22 +242,7 @@ module Emit =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         ctorParams |> List.iteri (fun i (k, _) -> args.[k] <- 1 + i)
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = args
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx args
 
         b.Add(ILInstr.Ldarg 0)
 
@@ -381,22 +268,7 @@ module Emit =
     /// path with empty arg/slot maps.
     let buildStaticCctor (ctx: EmitContext) (lets: (EntityHandle * Frozen.TExpr) list) : ILBody =
         let b = IlBuilder()
-
-        let env =
-            {
-                Provider = ctx.Provider
-                Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
-                ClosureByNode = ctx.ClosureByNode
-                CtorHandleByNode = ctx.CtorHandleByNode
-                Args = Dictionary<NodeKey, int>()
-                SelfKey = ValueNone
-                CaptureFields = Dictionary<NodeKey, EntityHandle>()
-                Unions = ctx.Unions
-                Records = ctx.Records
-                Classes = ctx.Classes
-                StaticMethods = ctx.StaticMethods
-            }
+        let env = EmitEnv.ofContext ctx (Dictionary())
 
         for (field, init) in lets do
             buildExpr env b init

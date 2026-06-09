@@ -218,15 +218,31 @@ type MetadataContext() =
             name: string,
             baseType: EntityHandle,
             firstField: FieldDefinitionHandle,
-            firstMethod: MethodDefinitionHandle
+            firstMethod: MethodDefinitionHandle,
+            beforeFieldInit: bool
         ) : TypeDefinitionHandle =
-        mb.AddTypeDefinition(
+        // A holder owning module-value fields has a side-effecting `.cctor`; drop
+        // `BeforeFieldInit` so it runs before first member access
+        // (module-representation-plan §2.4). This is *first-access* (lazy,
+        // per-holder) initialisation — real F# runs file-scope bindings eagerly
+        // in file order via startup code, so a side-effecting initialiser could
+        // observe a different order; the pure values in this slice's scope can't
+        // tell the difference.
+        let baseAttrs =
             TypeAttributes.Class
             ||| TypeAttributes.Public
             ||| TypeAttributes.Abstract
             ||| TypeAttributes.Sealed
             ||| TypeAttributes.AutoLayout
-            ||| TypeAttributes.BeforeFieldInit,
+
+        let attrs =
+            if beforeFieldInit then
+                baseAttrs ||| TypeAttributes.BeforeFieldInit
+            else
+                baseAttrs
+
+        mb.AddTypeDefinition(
+            attrs,
             (if String.IsNullOrEmpty ns then
                  Unchecked.defaultof<StringHandle>
              else
