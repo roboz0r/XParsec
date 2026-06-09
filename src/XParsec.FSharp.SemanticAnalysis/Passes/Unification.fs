@@ -810,12 +810,12 @@ module Unification =
                                 finally
                                     exitLevel ctx
 
-                        // Resolve interface-impl types up front so member bodies
-                        // (the class's own and the interface blocks) all see the
-                        // class as implementing its declared interfaces at every
-                        // `:>` / argument-coercion site (G19/G20).
-                        resolveInterfaceImpls ctx info
-
+                        // Interface-impl types are resolved up front by
+                        // `resolveInterfaceImplsForElem` (walkElems), before *any*
+                        // module-function body or class member is typed — so every
+                        // `:>` / argument-coercion / `for x in (c: C)` site (G19/G20)
+                        // sees the class's declared interfaces, including from a module
+                        // function inferred ahead of `fillClassMembers`.
                         fillTypeMembers
                             ctx
                             {
@@ -883,6 +883,27 @@ module Unification =
                     | _ -> ()
             | _ -> ()
 
+    /// Stamp every project-local class's `InterfaceImpls.Resolved` (G19/G20) up
+    /// front — before module-function bodies or class members type — so a `:>` /
+    /// argument-coercion / `for x in (c: C)` site sees the class's declared
+    /// interfaces even when it lives in a module function inferred ahead of
+    /// `fillClassMembers`. Self-contained (manages its own typar scope); the sole
+    /// caller of `resolveInterfaceImpls`.
+    let private resolveInterfaceImplsForElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match TypeDefnPatterns.tryClassLikeDecl td with
+                | ValueSome d ->
+                    let (TypeName(ident = nameLi)) = d.TypeName
+
+                    if nameLi.Idents.Length = 1 then
+                        match ctx.Types.Class.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
+                        | true, info -> resolveInterfaceImpls ctx info
+                        | false, _ -> ()
+                | ValueNone -> ()
+        | _ -> ()
+
     let private walkElems (ctx: PassContext) (pairs: (ModuleElem<SyntaxToken> * OpenScope) list) =
         let elems = ImmutableArray.CreateRange(pairs |> List.map fst)
         fillAbbreviationBodies ctx elems
@@ -898,6 +919,12 @@ module Unification =
             ctx.Resolution.OpenScope <- openScope
             fillUnionFieldTypes ctx m
 
+        // Resolve every class's interface impls before any body types (so a
+        // module function's `for x in (c: C)` and any `:>`/coercion sees them).
+        for (m, openScope) in pairs do
+            ctx.Resolution.OpenScope <- openScope
+            resolveInterfaceImplsForElem ctx m
+
         // G19 residue: seed annotation-derived schemes for module-level functions
         // *before* class member bodies are typed, so a class member's forward
         // reference to a sibling-module function (`SetTree.add`) instantiates a
@@ -912,16 +939,28 @@ module Unification =
                 prebindModuleFunctionSchemes ctx bindings
             | _ -> ()
 
+        // Type bodies in **declaration order**, dispatching each element to its
+        // handler (each is a no-op for a non-matching element). This is the key to
+        // the module↔class dependency: a class member that calls an *earlier*
+        // module function (`Set.Add` → `SetTree.add`, declared above) sees that
+        // function's *real* generalised scheme, while a *later* module function over
+        // the class (`Set.partition set = set.Partition …`) sees the class member's
+        // already-typed body. Batching all classes before all module functions (or
+        // vice versa) cannot satisfy both directions; declaration order — sound for
+        // non-recursive F#, where a use must follow its definition — does.
+        //
+        // Without this, a class member calling an earlier module function fell back
+        // to the annotation-only `prebindModuleFunctionSchemes` stand-in, which
+        // over-generalises an *unannotated* parameter (`let add comparer k (t: …)`,
+        // `k` undeclared) into a fresh quantified typar decoupled from the function's
+        // `'T`. The member's argument (`value`) then bound that free typar and never
+        // grounded, leaking a metavar into the member signature at contract
+        // extraction. `prebind` is still seeded above so genuine forward references
+        // (mutual recursion, a `rec` module) keep a usable scheme.
         for (m, openScope) in pairs do
             ctx.Resolution.OpenScope <- openScope
             fillClassMembers ctx m
-
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
             fillUnionMembers ctx m
-
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
             walkModuleElem ctx m
 
     /// Resolve the bare-program list literals left flexible by `listLiteralTy`

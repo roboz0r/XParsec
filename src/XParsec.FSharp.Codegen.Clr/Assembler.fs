@@ -155,7 +155,17 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             if fs.NeedsClosureScope then
                 provider.EnterClosureTyparScope()
 
-            let h = ctx.AddField(fs.Attrs, fs.Name, provider.FieldSignature fs.Ty)
+            // A leaked metavar / unresolved head in a field type (e.g. a closure
+            // capture whose element typar never grounded) surfaces here as an opaque
+            // encoder failure; name the field + type so the front-end grounding gap is
+            // pinpointable rather than anonymous.
+            let fieldSig =
+                try
+                    provider.FieldSignature fs.Ty
+                with ex ->
+                    failwithf "%s (while encoding field '%s' : %A)" ex.Message fs.Name fs.Ty
+
+            let h = ctx.AddField(fs.Attrs, fs.Name, fieldSig)
 
             if fs.NeedsClosureScope then
                 provider.ExitClosureTyparScope()

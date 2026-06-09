@@ -549,16 +549,28 @@ module internal NominalEmit =
             // needs the `GENERIC` calling-convention header count; its own typars ride
             // `FTTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
             let signature =
-                if returnsVoid then
-                    // Interface-impl member conforming to a `void` slot — `void`
-                    // return, not the `unit`-as-`ValueTuple` the general path emits.
-                    provider.InstanceMethodSignatureVoid paramTys
-                elif isGenericMethod then
-                    provider.GenericMethodOnTypeSignature(methodTypars.Length, paramTys, mem.ReturnTy, not mem.IsStatic)
-                elif mem.IsStatic then
-                    provider.StaticMethodSignature(paramTys, mem.ReturnTy)
-                else
-                    provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
+                try
+                    if returnsVoid then
+                        // Interface-impl member conforming to a `void` slot — `void`
+                        // return, not the `unit`-as-`ValueTuple` the general path emits.
+                        provider.InstanceMethodSignatureVoid paramTys
+                    elif isGenericMethod then
+                        provider.GenericMethodOnTypeSignature(
+                            methodTypars.Length,
+                            paramTys,
+                            mem.ReturnTy,
+                            not mem.IsStatic
+                        )
+                    elif mem.IsStatic then
+                        provider.StaticMethodSignature(paramTys, mem.ReturnTy)
+                    else
+                        provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
+                with ex ->
+                    // A leaked metavar / unresolved head in a member signature surfaces
+                    // here as a generic encoder failure; name the member + declaring
+                    // type so the front-end grounding gap is pinpointable rather than
+                    // anonymous (vesper-set Phase 9 contract-extraction wall).
+                    failwithf "%s (while encoding signature of member '%A.%s')" ex.Message td.Key mem.Name
 
             asm.AddPrepared(
                 MethodKey.Member(td.Key, index),

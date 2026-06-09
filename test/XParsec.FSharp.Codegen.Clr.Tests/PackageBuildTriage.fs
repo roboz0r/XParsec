@@ -235,13 +235,28 @@ let tests =
             //     static` fields on their module holder, initialised by the holder's
             //     `.cctor`, referenced via `ldsfld` (module-representation-plan). Gated
             //     by `ClassStatic` "module value …" rows.
-            //   - CURRENT wall: `ClrProvider: type '?ungrounded-operator' could not be
-            //     resolved during contract extraction` (ClrProvider.InstanceMethodSignature,
-            //     ClrProvider.fs:89). An *instance member* of `Set<'T>` has a leaked
-            //     inference metavar (`FTUnknown "?ungrounded-operator"`, Freeze.fs:66) in
-            //     its signature — a front-end grounding gap (likely an SRTP/operator
-            //     default that never resolved on the member, cf. `srtp_arith_default_chain`),
-            //     surfacing at contract extraction. Distinct from the module-value wall.
+            //   - CLOSED (2026-06-09): two front-end typar-grounding gaps that each
+            //     leaked a bare `TyVar` past `ResolvedTypes`, surfacing at the backend
+            //     as `FTUnknown "?ungrounded-operator"`. (1) A nested `let rec loop
+            //     (t': SetTree<'T>) acc` (`SetTree.toList`) minted a *fresh* `'T` per
+            //     binding scope, so the inner lambda's capture of `t'` leaked — fixed by
+            //     inheriting the enclosing binding's typar scope (`inferBinding`, F#
+            //     lexical typar scoping). (2) `Set.Add`/`Remove` calling an *earlier*
+            //     module fn with an *unannotated* param (`SetTree.add … k …`) was typed
+            //     against `prebindModuleFunctionSchemes`' annotation-only stand-in, which
+            //     over-generalised `k`; the member's `value` arg bound the free typar and
+            //     leaked — fixed by typing bodies in *declaration order*
+            //     (`Unification.walkElems`) so the real scheme exists first. Both the
+            //     handoff's "SRTP/operator default" guess and its "instance member" framing
+            //     were imprecise (the first wall hit was actually a *closure-capture field*).
+            //     Gated by `InferResolution` "TyparGroundingAcrossBoundaries".
+            //   - CURRENT wall: `Emit: no binding for variable src@<off>:PatIdent`
+            //     (EmitExpr.buildVarLoad, via `Emit.buildStaticCctor` / `NominalEmit`) —
+            //     `Set<'T>`'s `static let empty = … SetTree.empty` references the *generic*
+            //     module value `SetTree.empty` (`let empty = null`), which the
+            //     module-representation v1 slice DEFERS (generic values are compiled as
+            //     generic methods, not static fields — see module-representation-plan §2.3).
+            //     A pure-codegen gap, distinct from the now-closed front-end leaks.
             //     Flip `ptest`→`test` once it (and any following gaps) close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

@@ -1983,7 +1983,21 @@ module UnificationInfer =
         let savedScope = ctx.Resolution.TyparScope
         ctx.Resolution.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
-        // Seed the enclosing type's typars (class / union `<'T>`) first so a
+        // Inherit the lexically-enclosing binding's typars (lowest priority) so a
+        // named typar inside a *nested* `let` resolves to the same TyVar as the
+        // enclosing function's — F#'s lexical typar scoping. Without this, a
+        // nested `let rec loop (t': Tree<'T>) …` inside a generic module function
+        // `toList (t: Tree<'T>)` would mint a *fresh* `'T`, generalise `loop` over
+        // it independently, and leave the (now decoupled) typar ungrounded — a
+        // leaked `TyVar` that surfaces only at codegen (a closure capturing `t'`
+        // froze with `Tree<?ungrounded>`). `savedScope` is the enclosing binding's
+        // scope precisely because the `finally` restores it per binding, so a
+        // *sibling* binding (already restored) never bleeds through — only a true
+        // lexical parent does. Enclosing-type / member typars override below.
+        for kv in savedScope do
+            ctx.Resolution.TyparScope.[kv.Key] <- kv.Value
+
+        // Seed the enclosing type's typars (class / union `<'T>`) next so a
         // generic member's signature annotation (`(x: 'T)`, `: Set<'T>`) resolves
         // them rather than diagnosing "Free type parameter 'T" under strict scope.
         // The binding's own `<'a>` typars seed below, shadowing on a name clash.

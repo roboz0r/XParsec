@@ -294,6 +294,75 @@ let tests =
             // grounded but the second operand leaked (`int -> 'b -> int`) or, in a
             // tuple param, froze to `?ungrounded-operator`. These pin the full
             // grounding so a regression points straight back here.
+            // ---- Typar grounding across nesting / module↔class boundaries -------
+            // Two `set.fs`-shaped grounding gaps that leak a bare inference `TyVar`
+            // past the front end (`ResolvedTypes` misses it) and surface only at
+            // codegen as `FTUnknown "?ungrounded-operator"`. Both compile a *library*
+            // end-to-end; the assertion is that codegen completes — pre-fix each
+            // threw at contract extraction.
+            testList
+                "TyparGroundingAcrossBoundaries"
+                [
+                    // A nested `let rec loop (t': Tree<'T>) acc` inside a generic
+                    // module function: the inner curried lambda (over `acc`) captures
+                    // the outer param `t' : Tree<'T>`. Pre-fix the nested binding minted
+                    // a *fresh* `'T` (a new typar scope per binding), generalised `loop`
+                    // over it independently, and left the closure-capture occurrence's
+                    // `'T` an ungrounded `TyVar`. Fixed by inheriting the enclosing
+                    // binding's typar scope (`inferBinding`), so nested `'T` *is* the
+                    // function's `'T` (F# lexical typar scoping).
+                    test "nested let-rec inner-lambda capture of an enclosing-typar value grounds" {
+                        compileSourceTo
+                            (ProjectInfo.library "NestedCaptureGrounds")
+                            (String.concat
+                                "\n"
+                                [
+                                    "namespace N"
+                                    "type Tree<'T>(k: 'T) ="
+                                    "    member _.Key = k"
+                                    "    member _.Done = true"
+                                    "module M ="
+                                    "    let toCount (t: Tree<'T>) (seed: int) ="
+                                    "        let rec loop (t': Tree<'T>) acc ="
+                                    "            if t'.Done then acc"
+                                    "            else loop t' (acc + 1)"
+                                    "        loop t seed"
+                                ])
+                        |> ignore
+                    }
+
+                    // A class member (`Box.Add`) calls an *earlier* sibling-module
+                    // function (`TreeM.add`) that has an *unannotated* parameter
+                    // (`k`, grounded `'T` only by its body). Pre-fix the member was
+                    // typed against `prebindModuleFunctionSchemes`' annotation-only
+                    // stand-in, which over-generalised `k` into a fresh typar; the
+                    // member's `value` argument bound it and never grounded, leaking
+                    // into the member signature. Fixed by typing bodies in declaration
+                    // order, so `TreeM.add`'s real scheme (`k : 'T`) exists when
+                    // `Box.Add` types and `value` pins to `'T`.
+                    test "class member calling an earlier module fn with an unannotated param grounds" {
+                        compileSourceTo
+                            (ProjectInfo.library "MemberCallsModuleFn")
+                            (String.concat
+                                "\n"
+                                [
+                                    "namespace N"
+                                    "open System.Collections.Generic"
+                                    "type Tree<'T>(k: 'T) ="
+                                    "    member _.Key = k"
+                                    "module TreeM ="
+                                    "    let add (comparer: IComparer<'T>) k (t: Tree<'T>) : Tree<'T> ="
+                                    "        let _ = comparer.Compare(k, t.Key)"
+                                    "        t"
+                                    "type Box<'T>(comparer: IComparer<'T>, tree: Tree<'T>) ="
+                                    "    member s.Comparer = comparer"
+                                    "    member s.Tree = tree"
+                                    "    member s.Add value : Box<'T> = Box<'T>(s.Comparer, TreeM.add s.Comparer value s.Tree)"
+                                ])
+                        |> ignore
+                    }
+                ]
+
             testList
                 "ArithmeticDefaults"
                 [
