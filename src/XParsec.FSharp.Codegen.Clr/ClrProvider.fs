@@ -323,10 +323,40 @@ type ClrProvider
             ext.ExternalRecordField(key, tyArgs, fieldName)
 
         member _.ExternalUnionTag(key, tyArgs, caseName) =
-            ext.ExternalUnionTag(key, tyArgs, caseName)
+            // The cons-list keeps op-form case names (`op_Nil` / `op_ColonColon`) in
+            // its extracted contract, so it never resolves through the generic
+            // external-union path; mirror construction (`TryEmitUnionCons`) and
+            // special-case the cross-package `match` against its known emitted layout
+            // (`Empty` tag 0, `Cons` tag 1).
+            if RuntimeNames.isVesperListKey key then
+                let elem =
+                    match tyArgs with
+                    | [ e ] -> e
+                    | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
+
+                match caseName with
+                | "Empty" -> ValueSome(recipes.EmitVesperListTagField elem, 0)
+                | "Cons" -> ValueSome(recipes.EmitVesperListTagField elem, 1)
+                | _ -> ValueNone
+            else
+                ext.ExternalUnionTag(key, tyArgs, caseName)
 
         member _.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex) =
-            ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
+            if RuntimeNames.isVesperListKey key then
+                let elem =
+                    match tyArgs with
+                    | [ e ] -> e
+                    | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
+
+                // Only `Cons` carries fields: `Cons_0` is the head (`elem`), `Cons_1`
+                // the tail (`List<elem>`). The returned type is informational (the
+                // match compiler binds the field local off the sub-pattern's own type).
+                match caseName, fieldIndex with
+                | "Cons", 0 -> ValueSome(recipes.EmitVesperListConsField(elem, 0), elem)
+                | "Cons", 1 -> ValueSome(recipes.EmitVesperListConsField(elem, 1), FTUnion(key, EqArray.ofList tyArgs))
+                | _ -> ValueNone
+            else
+                ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

@@ -301,6 +301,34 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
+    /// The `_tag : int32` discriminator field `MemberRef` on the referenced cons-list
+    /// `Vesper.Collections.List`1<elem>` — the slot a cross-package `match` against
+    /// `[]` / `::` reads. The cons-list keeps op-form case names (`op_Nil` /
+    /// `op_ColonColon`) in its extracted contract, so it never resolves through the
+    /// generic external-union path; like construction (`emitVesperListCons` /
+    /// `…Empty`), the match path special-cases it against the known emitted layout
+    /// (`Empty` tag 0, `Cons` tag 1; payload fields `Cons_0` / `Cons_1`).
+    let emitVesperListTagField (elem: FrozenType) : EntityHandle =
+        let typeSpec = vesperListTypeSpec elem
+        let s = BlobBuilder()
+        encodeType (BlobEncoder(s).FieldSignature()) (FTConst("int", EqArray.empty))
+        toEntity (ctx.MemberRef(typeSpec, "_tag", s))
+
+    /// One `Cons_<fieldIndex>` payload field `MemberRef` on the referenced cons-list
+    /// (`Cons_0` = head `'T`, `Cons_1` = tail `List<'T>`), instantiated at `elem`. The
+    /// signature blob encodes the field's *open* (declaring-typar) type so it matches
+    /// the emitted field definition; the sibling of `emitVesperListTagField`.
+    let emitVesperListConsField (elem: FrozenType) (fieldIndex: int) : EntityHandle =
+        let typeSpec = vesperListTypeSpec elem
+        let s = BlobBuilder()
+        let fte = BlobEncoder(s).FieldSignature()
+
+        match fieldIndex with
+        | 0 -> fte.GenericTypeParameter(0) // Cons_0 : 'T
+        | _ -> encodeVesperListOfTypar fte // Cons_1 : List<'T>
+
+        toEntity (ctx.MemberRef(typeSpec, sprintf "Cons_%d" fieldIndex, s))
+
     /// `Vesper.Fun`2<a,b>` as a `TypeSpec` — the interface a synthesised closure *implements* (R1/D3).
     /// A closure derives from `System.Object`, not `FSharpFunc`.
     let funInterfaceSpec (a: FrozenType) (b: FrozenType) : EntityHandle =
@@ -774,6 +802,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitListNil elem = emitListNil elem
     member _.EmitVesperListCons elem = emitVesperListCons elem
     member _.EmitVesperListEmpty elem = emitVesperListEmpty elem
+    member _.EmitVesperListTagField elem = emitVesperListTagField elem
+    member _.EmitVesperListConsField(elem, fieldIndex) = emitVesperListConsField elem fieldIndex
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy

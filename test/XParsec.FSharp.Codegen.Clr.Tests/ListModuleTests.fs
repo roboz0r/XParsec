@@ -209,6 +209,41 @@ let growRuntime =
             test "List.rev reverses the order" { runs "3" "printfn \"%d\" (List.head (List.rev [1; 2; 3]))" }
         ]
 
+// ---- external cons-list MATCH (consumer side) --------------------------------
+// `match xs with [] -> … | h :: t -> …` against the *referenced* `Vesper.List`
+// cons-union, whose `[]`/`::` cases live in `Vesper.List.dll` metadata, not in
+// this assembly. The match compiler reads the discriminator + per-case fields off
+// the emitted layout (`_tag`; `Empty` tag 0 / `Cons` tag 1; `Cons_0`/`Cons_1`)
+// through the provider's cons-list special-case (`ExternalUnionTag` /
+// `ExternalUnionCaseField`) — the sibling of construction's `TryEmitUnionCons`.
+// Before this special-case the consumer match failed at emit ("no emitted union
+// for match on 'Vesper.Collections.List`1'") because the extracted contract keeps
+// the cons-list's op-form case names (`op_Nil`/`op_ColonColon`), so it never
+// resolves through the generic external-union path.
+[<Tests>]
+let externalMatchRuntime =
+    testList
+        "ListExternalMatchRuntime"
+        [
+            // The empty-vs-cons discriminator (`_tag`) AND the `Cons_1` (tail) field:
+            // counts the spine by recursion over the external list's `[]` / `_ :: t`
+            // cases (`_` skips `Cons_0`, `t` binds `Cons_1`).
+            test "match over the external cons-list discriminates [] from :: (tail recursion)" {
+                runs
+                    "3"
+                    ("let rec len (xs: int list) : int = match xs with | [] -> 0 | _ :: t -> 1 + len t\n"
+                     + "printfn \"%d\" (len [1; 2; 3])")
+            }
+
+            // The `Cons_0` (head) field extract: binds and returns the first element.
+            test "match binds the head field (Cons_0) of the external cons-list" {
+                runs
+                    "1"
+                    ("let hd (xs: int list) : int = match xs with | [] -> 0 | h :: _ -> h\n"
+                     + "printfn \"%d\" (hd [1; 2; 3])")
+            }
+        ]
+
 // ---- front-end regression guard (analysis only) ------------------------------
 // The cheap probe the plan calls for: `List.fold` type-checks through the default
 // contract stack without running it.

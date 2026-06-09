@@ -202,13 +202,29 @@ let tests =
             //     tuple `ParamKey` and `buildClosureInvoke` `bindPattern`s the
             //     element bindings out of the `ldarg.1` `ValueTuple`n` (gated by
             //     `TupleTests.fs`). The build now reaches `NominalEmit`.
-            //   - CURRENT wall: `Emit: no emitted union for match on
-            //     'Vesper.Collections.List`1'` (EmitExpr.fs:112) — a `match` against
-            //     the *external* `List` union (cons-list `[] / ::`), whose cases are
-            //     resolved from referenced metadata, not emitted into this assembly.
-            //     The match compiler only knows `env.Unions` (locally emitted). This
-            //     is the consumer external-list match gap, NOT G6 (`use`/IDisposable)
-            //     as the phase-9 handoff anticipated. Flip `ptest`→`test` once that
-            //     (and any following backend gaps) close.
+            //   - CLOSED (2026-06-08): `Emit: no emitted union for match on
+            //     'Vesper.Collections.List`1'` (EmitExpr.fs:148) — the consumer
+            //     external-list match gap, a `match` against the *external* `List`
+            //     cons-union (`[] / ::`), whose cases live in referenced metadata,
+            //     not this assembly. The extracted contract keeps the cons-list's
+            //     op-form case names (`op_Nil`/`op_ColonColon`), so it never resolves
+            //     through the generic external-union path; the provider now mirrors
+            //     construction (`TryEmitUnionCons`) with a cons-list special-case in
+            //     `ExternalUnionTag` / `ExternalUnionCaseField`, minting the `_tag` +
+            //     `Cons_0`/`Cons_1` refs off the known emitted layout (`Empty` tag 0,
+            //     `Cons` tag 1). Gated by `ListModuleTests.fs`
+            //     "ListExternalMatchRuntime".
+            //   - CURRENT wall: `ClrProvider: could not recover declaring type
+            //     argument 0 (open FTConst("bool", …))` (ClrEncoder.fs:355, via
+            //     `externalMemberRef`) — a T-free external *property* (`bool` return,
+            //     no `'T` in its signature) on a *generic* declaring type reached as
+            //     a member receiver (EmitExpr.fs:1241). `recoverOpenTypars` can't
+            //     recover the declaring instantiation from a signature that doesn't
+            //     mention the typar; `externalMemberRefOn` (the declTy-driven sibling,
+            //     built for the enumerator's `MoveNext(): bool`) handles the
+            //     receiver-is-declaring-type case, but this is the *inherited* case
+            //     (declaring key ≠ receiver key — e.g. a generic base/interface
+            //     member), which neither path mints correctly yet. Flip `ptest`→`test`
+            //     once that (and any following backend gaps) close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]
