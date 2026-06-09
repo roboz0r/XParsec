@@ -214,17 +214,28 @@ let tests =
             //     `Cons_0`/`Cons_1` refs off the known emitted layout (`Empty` tag 0,
             //     `Cons` tag 1). Gated by `ListModuleTests.fs`
             //     "ListExternalMatchRuntime".
-            //   - CURRENT wall: `ClrProvider: could not recover declaring type
-            //     argument 0 (open FTConst("bool", …))` (ClrEncoder.fs:355, via
-            //     `externalMemberRef`) — a T-free external *property* (`bool` return,
-            //     no `'T` in its signature) on a *generic* declaring type reached as
-            //     a member receiver (EmitExpr.fs:1241). `recoverOpenTypars` can't
-            //     recover the declaring instantiation from a signature that doesn't
-            //     mention the typar; `externalMemberRefOn` (the declTy-driven sibling,
-            //     built for the enumerator's `MoveNext(): bool`) handles the
-            //     receiver-is-declaring-type case, but this is the *inherited* case
-            //     (declaring key ≠ receiver key — e.g. a generic base/interface
-            //     member), which neither path mints correctly yet. Flip `ptest`→`test`
-            //     once that (and any following backend gaps) close.
+            //   - CLOSED (2026-06-08): `ClrProvider: could not recover declaring
+            //     type argument 0 (open FTConst("bool", …))` (ClrEncoder.fs:355).
+            //     This surfaced as a *codegen* crash but was a **Freeze receiver-
+            //     typing** bug: `not this.stack.IsEmpty` (set.fs:597/602) froze
+            //     `this.stack` (a `SetTree<'T> list`) as `bool` — the type of the
+            //     final `.IsEmpty`. `recoverFieldStepTy`'s `TyClass` arm scanned only
+            //     the class's *members*, missing the `val`/ctor-param instance
+            //     fields, so an intermediate chain segment that is a field fell back
+            //     to the chain's final type. Fixed in `FreezeExpr.recoverFieldStepTy`
+            //     (search `InstanceFields` + `CtorParams` before members). Gated by
+            //     `StructTests.fs` "a chained property on a struct val field types the
+            //     receiver as the field, not the property".
+            //   - CURRENT wall: `Emit: no binding for variable src@<off>:PatIdent`
+            //     (EmitExpr.buildVarLoad, via `Emit.buildStaticCctor`) — the generic
+            //     class `Set<'T>`'s `static let empty = … Set<'T>(comparer,
+            //     SetTree.empty)` (set.fs:756). The `.cctor` init references the
+            //     module value `SetTree.empty` (`let empty = null`, set.fs:37), which
+            //     freezes as a `TExpr.Var(moduleBindingKey)` the cctor env can't
+            //     resolve. Root: `Elaborate.fs:918` builds the generic static-let init
+            //     on the stale assumption that "the front-end rejects `static let` on a
+            //     generic class" — true before G13, now false — so the init skips the
+            //     `elaborateOne`/module-ref lowering member bodies get. Flip
+            //     `ptest`→`test` once that (and any following backend gaps) close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

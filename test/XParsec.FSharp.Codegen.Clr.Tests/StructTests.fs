@@ -772,4 +772,47 @@ let structTests =
                 Expect.isTrue (e.MoveNext()) "first MoveNext takes the `t.Height = 1` true branch"
                 Expect.isFalse (e.MoveNext()) "second MoveNext hits the empty-stack arm"
             }
+
+            // Regression: a chained property access `this.field.Prop` where `field`
+            // is a `val`/ctor-param *instance field* (not a member) and `Prop`'s
+            // type differs from the field's. Freeze's `recoverFieldStepTy` resolves
+            // each intermediate chain segment's type; its `TyClass` arm used to scan
+            // only the class's *members*, missing `val`/ctor-param fields — so it
+            // fell back to the chain's *final* type and mis-typed the receiver
+            // (`this.Stack : List<int>` collapsed to `bool`, the type of `.IsEmpty`).
+            // Codegen then routed the receiver through the wrong member-ref path and
+            // faulted. This is exactly set.fs's `not this.stack.IsEmpty` shape.
+            test "a chained property on a struct val field types the receiver as the field, not the property" {
+                let _, artifact =
+                    compileSource
+                        "StructFieldChainProp"
+                        (String.concat
+                            "\n"
+                            [
+                                "type List<'T> ="
+                                "    | ([]): List<'T>"
+                                "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
+                                "    member this.IsEmpty = match this with | [] -> true | _ -> false"
+                                "and 'T list = List<'T>"
+                                "[<Struct>]"
+                                "type Wrap ="
+                                "    val mutable Stack: int list"
+                                "    new(n: int) = { Stack = (if n = 0 then [] else n :: []) }"
+                                "    member this.NotEmpty() = not this.Stack.IsEmpty"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Wrap"
+                Expect.isTrue ty.IsValueType "Wrap is a value type"
+
+                let notEmpty = ty.GetMethod("NotEmpty", declaredInstance, null, [||], null)
+
+                // `Wrap(0)` seeds `[]` ⇒ `this.Stack.IsEmpty` is true ⇒ `NotEmpty()` false.
+                let emptyWrap = Activator.CreateInstance(ty, [| box 0 |])
+                Expect.isFalse (notEmpty.Invoke(emptyWrap, [||]) :?> bool) "empty stack ⇒ NotEmpty() is false"
+
+                // `Wrap(5)` seeds `5 :: []` ⇒ `IsEmpty` false ⇒ `NotEmpty()` true.
+                let fullWrap = Activator.CreateInstance(ty, [| box 5 |])
+                Expect.isTrue (notEmpty.Invoke(fullWrap, [||]) :?> bool) "non-empty stack ⇒ NotEmpty() is true"
+            }
         ]

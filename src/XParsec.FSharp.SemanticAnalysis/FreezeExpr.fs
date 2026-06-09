@@ -673,7 +673,27 @@ module FreezeExpr =
                 | ValueNone -> None
             | TyClass(clsKey, args) ->
                 match TypeRegistry.tryClassByKey ctx.Types clsKey with
-                | ValueSome info -> memberTy (info.TypeParams, args) info.Members
+                | ValueSome info ->
+                    // A `this.x` chain segment may be an explicit `val` instance
+                    // field or a primary-ctor parameter (both emitted as fields),
+                    // not an instance member — `memberTy` alone misses it, and the
+                    // caller would then fall back to the chain's *final* type,
+                    // mis-typing the receiver (e.g. `this.stack.IsEmpty` typing
+                    // `this.stack` as `bool`). Check fields first, then members.
+                    let fieldTy =
+                        Seq.append
+                            (info.InstanceFields |> Seq.map (fun f -> f.Name, f.Type))
+                            (info.CtorParams |> Seq.map (fun p -> p.Name, p.Type))
+                        |> Seq.tryPick (fun (n, t) ->
+                            if n = segName then
+                                Some(Unification.instantiateMember (info.TypeParams, args) t)
+                            else
+                                None
+                        )
+
+                    match fieldTy with
+                    | Some _ -> fieldTy
+                    | None -> memberTy (info.TypeParams, args) info.Members
                 | ValueNone -> None
             | _ -> None
 
