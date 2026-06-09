@@ -1,10 +1,10 @@
 module XParsec.FSharp.Codegen.Clr.Tests.TupleTests
 
-// Tuple representation (tuple-representation-plan) — every tuple, at every
+// Tuple representation — every tuple, at every
 // arity, is a `System.ValueTuple`n` (no `System.Tuple`). The three testLists
-// below track the plan's steps: Step 1 = `ValueTuple`n` family resolution
-// (`ClrProvider`/`ClrEncoder`); Step 2 = encoding a bare `FTTuple` to a generic
-// instantiation TypeSpec — both pure metadata-resolution checks. Step 3 is the
+// below track the layers: `ValueTuple`n` family resolution
+// (`ClrProvider`/`ClrEncoder`); encoding a bare `FTTuple` to a generic
+// instantiation TypeSpec — both pure metadata-resolution checks. Then the
 // first *behavioural* gate: emit + reflect a constructed tuple value.
 
 open System.Reflection
@@ -189,5 +189,52 @@ let destructureTests =
             test "match on a tuple binds the sub-patterns (n, m -> n + m)" {
                 let r = invokeIntFn "let f (z: int) = match (z, z + 1) with (n, m) -> n + m" 5
                 Expect.equal r 11 "5 + 6"
+            }
+        ]
+
+/// Step 5 gate: a tuple lambda *parameter* (`fun (a, b) -> …`), the original
+/// blocker. The lambda is emitted as a closure whose `Invoke` receives the
+/// `ValueTuple`n` at `ldarg.1` and `bindPattern`s the element bindings out of it
+/// before running the body. Reusing the Step-4 `invokeIntFn` harness (a one-arg
+/// static fn returning int), each program builds such a closure and applies it.
+[<Tests>]
+let lambdaParamTests =
+    let invokeIntFn (source: string) (arg: int) : int =
+        let _, artifact = compileSource "TupleStep5" source
+        let asm = loadAssembly (Codegen.toBytes artifact)
+
+        let m =
+            asm.GetTypes()
+            |> Array.collect (fun t ->
+                t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
+            )
+            |> Array.find (fun m -> m.Name.StartsWith "fn$")
+
+        m.Invoke(null, [| box arg |]) :?> int
+
+    testList
+        "Tuple representation — Step 5 (tuple lambda parameter)"
+        [
+            test "a fun (a, b) -> a + b closure destructures its tuple param" {
+                let r = invokeIntFn "let f (z: int) = let g = fun (a, b) -> a + b in g (z, z + 1)" 5
+
+                Expect.equal r 11 "g(5, 6) = 11"
+            }
+
+            test "a tuple-param closure capturing an outer var keeps a/b as params, z as capture" {
+                let r = invokeIntFn "let f (z: int) = let g = fun (a, b) -> a + b + z in g (1, 2)" 5
+
+                Expect.equal r 8 "1 + 2 + 5 — z is captured, a/b are not"
+            }
+
+            test "a wildcard tuple param element binds nothing (fun (a, _) -> a)" {
+                // The discarded element is annotated only to ground it (it is
+                // touched by no operator); `a` grounds via `a + 0`. The point of
+                // this case is the codegen wildcard arm (no `Item2` field load),
+                // not inference.
+                let r =
+                    invokeIntFn "let f (z: int) = let g = fun (a, _: int) -> a + 0 in g (z, z + 1)" 5
+
+                Expect.equal r 5 "the second element is dropped"
             }
         ]

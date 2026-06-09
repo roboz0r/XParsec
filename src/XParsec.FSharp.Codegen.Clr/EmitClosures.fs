@@ -32,12 +32,16 @@ module EmitClosures =
     /// static-method function is a direct `call`, not a captured value.
     let private freeVars
         (staticFnKeys: HashSet<NodeKey>)
-        (paramKey: NodeKey)
+        (paramKeys: NodeKey list)
         (selfKey: NodeKey voption)
         (body: Frozen.TExpr)
         : (NodeKey * FrozenType) list =
         let bound = HashSet<NodeKey>()
-        bound.Add paramKey |> ignore
+        // Every leaf the parameter pattern binds is in scope — for a tuple param
+        // (`fun (a, b) -> …`) that is each element binding, not the placeholder slot.
+        for k in paramKeys do
+            bound.Add k |> ignore
+
         bound.UnionWith staticFnKeys // static-method references are calls, not captures
 
         match selfKey with
@@ -330,7 +334,13 @@ module EmitClosures =
                  go currentTypars ValueNone body
              | _ -> iterChildren (go currentTypars ValueNone) e) // children (and inner lambdas) first → leaves-first
 
-            let registerClosure (p: NodeKey) (pty: FrozenType) (body: Frozen.TExpr) (lamTy: FrozenType) =
+            let registerClosure
+                (p: NodeKey)
+                (pty: FrozenType)
+                (paramPat: Frozen.TPat)
+                (body: Frozen.TExpr)
+                (lamTy: FrozenType)
+                =
                 let resultTy =
                     match lamTy with
                     | FTFun(_, r) -> r
@@ -342,9 +352,13 @@ module EmitClosures =
                         Name = sprintf "<closure>$%d" counter
                         ParamKey = p
                         ParamTy = pty
+                        ParamPat = paramPat
                         ResultTy = resultTy
                         Body = body
-                        Captures = freeVars staticFnKeys p selfKey body
+                        // Bind every leaf the param pattern introduces (a tuple's
+                        // element bindings), not the placeholder `ParamKey` — those
+                        // leaves are parameters, never captures.
+                        Captures = freeVars staticFnKeys (patKeys paramPat) selfKey body
                         SelfKey = selfKey
                         Typars = currentTypars
                     }
@@ -354,13 +368,20 @@ module EmitClosures =
                 order.Add e
 
             match e with
-            | TExprG.Lambda(TPatG.NamedSimple(p, pty), body, lamTy) -> registerClosure p pty body lamTy
-            | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty), body, lamTy) ->
+            | TExprG.Lambda((TPatG.NamedSimple(p, pty) as pat), body, lamTy) -> registerClosure p pty pat body lamTy
+            | TExprG.Lambda((TPatG.Const(TConstValue.Unit, pty) as pat), body, lamTy) ->
                 // A `fun () ->` unit binder has no name to reference, but the
                 // closure's `Invoke` still allocates `ldarg.1` for the unit
                 // value the caller pushes; mint a synthetic placeholder so the
                 // `args` map (and `freeVars`'s bound set) still has a key.
-                registerClosure (mintUnitParamKey ()) pty body lamTy
+                registerClosure (mintUnitParamKey ()) pty pat body lamTy
+            | TExprG.Lambda((TPatG.Tuple(_, pty) as pat), body, lamTy) ->
+                // A tuple-param lambda (`fun (a, b) -> …`). The single `ldarg.1`
+                // carries the `ValueTuple`n` value; mint a synthetic placeholder
+                // for that slot — `buildClosureInvoke` `bindPattern`s the leaf
+                // element bindings out of it (Step 5). `pty` is the param's
+                // `FTTuple`, which the closure's `Invoke` signature encodes.
+                registerClosure (mintTupleParamKey ()) pty pat body lamTy
             | TExprG.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()
 

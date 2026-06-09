@@ -16,6 +16,12 @@ module EmitTypes =
             Name: string
             ParamKey: NodeKey
             ParamTy: FrozenType
+            /// The closure's parameter pattern. A `NamedSimple` / unit `Const`
+            /// binds `ldarg.1` directly through `ParamKey`; a `Tuple` pattern
+            /// (`fun (a, b) -> …`) is destructured out of the `ldarg.1`
+            /// `ValueTuple`n` value by `bindPattern` before the body runs, so
+            /// `ParamKey` is a synthetic placeholder for that slot.
+            ParamPat: Frozen.TPat
             ResultTy: FrozenType
             Body: Frozen.TExpr
             Captures: (NodeKey * FrozenType) list

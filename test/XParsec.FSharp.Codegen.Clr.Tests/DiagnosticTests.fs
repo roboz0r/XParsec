@@ -31,6 +31,14 @@ let tests =
                     // there (the bound value is what gets disposed), so the front end
                     // rejects it rather than letting codegen `failwithf`.
                     "simple variable patterns", "let run () =\n    use a, b = (1, 2)\n    ()\nrun ()"
+                    // an 8-element tuple — `System.ValueTuple` is emitted only for
+                    // arity 2–7 (8+ needs `TRest` nesting, still deferred), so the
+                    // front end rejects it rather than letting codegen crash in the
+                    // encoder / `ValueTupleRefs`.
+                    "elements are not yet supported", "printfn \"%A\" (1, 2, 3, 4, 5, 6, 7, 8)"
+                    // the destructuring side: an 8-element tuple *pattern* is caught
+                    // the same way (`checkTuplePat`), not just the construction site.
+                    "elements are not yet supported", "let a, b, c, d, e, f, g, h = (1, 2, 3, 4, 5, 6, 7, 8)\n()"
                 ] -> test src { failsWith fragment src }
 
             // a front-end-only positive: the duck-typed `for-in` over a source

@@ -46,6 +46,36 @@ let useTests =
                     "body runs, then Dispose() in the finally"
             }
 
+            test "`use _ = e` disposes the binder even though the body can't name it" {
+                // A wildcard `use` binder (`use _ = …`) is the RAII-guard form: the
+                // value is still parked in a local and disposed in the finally, but
+                // the body has no name for it. Codegen keys the slot off a synthetic
+                // placeholder (`mintUseBinderKey`); Validation permits `_` as a simple
+                // pattern. A regression that rejected it (or crashed the emitter) would
+                // fail here.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Res() ="
+                            "    member this.Dispose () = printfn \"disposed\""
+                            "let run () ="
+                            "    use _ = Res()"
+                            "    printfn \"body\""
+                            "run ()"
+                        ]
+
+                let _, artifact = compileSource "UseWildcard" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "body\ndisposed"
+                    "body runs, then Dispose() in the finally — the `_` binder is still disposed"
+            }
+
             test "the body's result survives the finally and is the `use` expression's value" {
                 // `compute ()` returns the body value (42); `Dispose` still runs in
                 // the finally before the return, so the parked result is reloaded

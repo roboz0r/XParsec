@@ -42,6 +42,27 @@ let private clean (label: string) (src: string) : unit =
     let errs = errorsOf src
     Expect.isEmpty errs (sprintf "%s — expected clean, got: %A" label (errs |> List.map (fun d -> d.Message)))
 
+/// The inferred `SemType` of the program's last top-level `let` — used to assert
+/// a precise grounding (not just "no errors": an over-generalised `int -> 'b ->
+/// int` is error-free yet wrong).
+let private lastLetTy (src: string) : SemType =
+    let provider = SymbolProviders.buildContract defaultManifests
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseSem provider src lexed file
+
+    tast.Decls
+    |> EqArray.toList
+    |> List.choose (fun d ->
+        match d with
+        | TDecl.Let(_, _, _, ty) -> Some ty
+        | _ -> None
+    )
+    |> List.tryLast
+    |> Option.defaultWith (fun () -> failwithf "no top-level let in: %s" src)
+
+let private groundsTo (label: string) (expected: SemType) (src: string) : unit =
+    Expect.equal (lastLetTy src) expected label
+
 [<Tests>]
 let tests =
     testList
@@ -260,6 +281,47 @@ let tests =
                                     "let inline asBoxed (x: obj) : Boxed<'T> = x :?> Boxed<'T>"
                                     "let useBoxed (x: obj) : int = (asBoxed x).Unbox"
                                 ])
+                    }
+                ]
+
+            // ---- Arithmetic-operator `default` resolution ----------------------
+            // `(+)`'s contract carries a *chain* of `default` constraints ending in
+            // `default ^T1 : int` (ops-platform.fsi). When both operands are free
+            // (`a + b`, no literal to pin a type), the chain must ground EVERY
+            // participating typar to `int`. A prior bug in `applyDefaults`
+            // discarded an unfired chained default (`default ^T2 : ^T3`) before the
+            // fixpoint could retry it once `^T3` had defaulted, so `a`/result
+            // grounded but the second operand leaked (`int -> 'b -> int`) or, in a
+            // tuple param, froze to `?ungrounded-operator`. These pin the full
+            // grounding so a regression points straight back here.
+            testList
+                "ArithmeticDefaults"
+                [
+                    let tyInt = BuiltinTypes.tyInt
+                    let tyFun a b = SemType.TyFun(a, b)
+                    let tyTup xs = SemType.TyTuple(EqArray.ofList xs)
+
+                    test "curried `a + b` grounds both operands and result to int" {
+                        groundsTo "curried" (tyFun tyInt (tyFun tyInt tyInt)) "let g a b = a + b"
+                    }
+
+                    test "tuple-param `fun (a, b) -> a + b` grounds elements to int" {
+                        groundsTo "tuple-lambda" (tyFun (tyTup [ tyInt; tyInt ]) tyInt) "let g = fun (a, b) -> a + b"
+                    }
+
+                    test "tuple-param fun-form `let g (a, b) = a + b` grounds to int" {
+                        groundsTo "tuple-fun" (tyFun (tyTup [ tyInt; tyInt ]) tyInt) "let g (a, b) = a + b"
+                    }
+
+                    test "one literal operand still grounds the free operand (a + 1)" {
+                        groundsTo "lit-operand" (tyFun tyInt tyInt) "let g a = a + 1"
+                    }
+
+                    test "chained arithmetic `a + b + c` grounds all three to int" {
+                        groundsTo
+                            "three-operand"
+                            (tyFun tyInt (tyFun tyInt (tyFun tyInt tyInt)))
+                            "let g a b c = a + b + c"
                     }
                 ]
         ]

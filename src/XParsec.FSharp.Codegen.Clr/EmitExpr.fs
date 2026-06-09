@@ -29,6 +29,42 @@ module EmitExpr =
                     | true, slot -> b.Add(ILInstr.Ldloc slot)
                     | false, _ -> failwithf "Emit: no binding for variable %O" key
 
+    /// The element types of a tuple `FrozenType`. A hard failure if the front end
+    /// typed a tuple pattern / value as something other than `FTTuple` — an internal
+    /// invariant break, not user error.
+    let private tupleElemTys (ty: FrozenType) : FrozenType list =
+        match ty with
+        | FTTuple xs -> EqArray.toList xs
+        | other -> failwithf "Emit: expected a tuple type, got: %A" other
+
+    /// Decompose a `ValueTuple`n` value held in local `srcSlot`: for each
+    /// non-wildcard element, `ldfld` its `Item` field into a fresh local and hand
+    /// that to `recur` (a wildcard binds nothing, so its field load is skipped).
+    /// A tuple never branches on shape, so this is the one tuple-destructuring
+    /// primitive behind both the match compiler (`buildMatchTest`) and the
+    /// irrefutable binder (`bindPattern`).
+    let private destructureTuple
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (srcSlot: int)
+        (ty: FrozenType)
+        (items: EqArray<Frozen.TPat>)
+        (recur: int -> Frozen.TPat -> unit)
+        : unit =
+        let refs = env.Provider.ValueTupleRefs(tupleElemTys ty)
+
+        items
+        |> EqArray.iteri (fun i subPat ->
+            match subPat with
+            | TPatG.Wildcard _ -> ()
+            | _ ->
+                let fldSlot = b.Local(typeOfPat subPat)
+                b.Add(ILInstr.Ldloc srcSlot)
+                b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                b.Add(ILInstr.Stloc fldSlot)
+                recur fldSlot subPat
+        )
+
     /// Test a pattern against the value already stored in local `scrutSlot`:
     /// branch to `nextLabel` on mismatch, and bind any pattern variables. A
     /// `Const` compares (`bne.un` skips the arm); `Wildcard` / `NamedSimple`
@@ -153,28 +189,9 @@ module EmitExpr =
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
         | TPatG.Tuple(items, ty) ->
             // A tuple pattern never fails on shape (a `ValueTuple`n` has no tag):
-            // `ldfld` each `Item` field of the scrutinee into a fresh local and
-            // recurse — only the sub-patterns can branch to `nextLabel`. A wildcard
-            // sub-pattern needs no extraction (it would always match), like the
-            // union / record arms above (tuple-representation-plan Step 4).
-            let elemTys =
-                match ty with
-                | FTTuple xs -> EqArray.toList xs
-                | other -> failwithf "Emit: tuple pattern's type is not a tuple: %A" other
-
-            let refs = env.Provider.ValueTupleRefs elemTys
-
-            items
-            |> EqArray.iteri (fun i subPat ->
-                match subPat with
-                | TPatG.Wildcard _ -> ()
-                | _ ->
-                    let fldSlot = b.Local(typeOfPat subPat)
-                    b.Add(ILInstr.Ldloc scrutSlot)
-                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
-                    b.Add(ILInstr.Stloc fldSlot)
-                    buildMatchTest env b fldSlot nextLabel subPat
-            )
+            // decompose each element and recurse — only the sub-patterns can branch
+            // to `nextLabel`, exactly like the union / record arms above.
+            destructureTuple env b scrutSlot ty items (fun s p -> buildMatchTest env b s nextLabel p)
 
     /// Bind an *irrefutable* pattern against a value already in local `srcSlot` — the
     /// shared destructuring binder for `let` / `for-in` (and, in Step 5, a tuple
@@ -182,32 +199,13 @@ module EmitExpr =
     /// branches: a `let` / `for` pattern is assumed to match on shape. A
     /// `NamedSimple` aliases its binding directly to `srcSlot` (no copy, exactly as
     /// the match arm does); a `Tuple` `ldfld`s each `ValueTuple`n` `Item` field into
-    /// a fresh local and recurses; `Wildcard` / `Const` bind nothing
-    /// (tuple-representation-plan Step 4).
+    /// a fresh local and recurses; `Wildcard` / `Const` bind nothing.
     let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: Frozen.TPat) : unit =
         match pat with
         | TPatG.Wildcard _ -> ()
         | TPatG.Const _ -> () // irrefutable in a binding position — no compare, no bind
         | TPatG.NamedSimple(binding, _) -> env.Slots.[binding] <- srcSlot
-        | TPatG.Tuple(items, ty) ->
-            let elemTys =
-                match ty with
-                | FTTuple xs -> EqArray.toList xs
-                | other -> failwithf "Emit: tuple pattern's type is not a tuple: %A" other
-
-            let refs = env.Provider.ValueTupleRefs elemTys
-
-            items
-            |> EqArray.iteri (fun i subPat ->
-                match subPat with
-                | TPatG.Wildcard _ -> () // nothing to bind — skip the field load
-                | _ ->
-                    let fldSlot = b.Local(typeOfPat subPat)
-                    b.Add(ILInstr.Ldloc srcSlot)
-                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
-                    b.Add(ILInstr.Stloc fldSlot)
-                    bindPattern env b fldSlot subPat
-            )
+        | TPatG.Tuple(items, ty) -> destructureTuple env b srcSlot ty items (bindPattern env b)
         | other -> failwithf "Emit: destructuring pattern is out of scope: %A" other
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
@@ -332,15 +330,24 @@ module EmitExpr =
         | TExprG.Let(pat, value, body, _) ->
             // A destructuring `let pat = value in body` (e.g. `let a, b = (1, 2)`).
             // Evaluate the scrutinee once into a temp, then `bindPattern` (irrefutable)
-            // pulls each leaf binding out of it before the body runs
-            // (tuple-representation-plan Step 4).
+            // pulls each leaf binding out of it before the body runs.
             let slot = b.Local(typeOfExpr value)
             buildExpr env b value
             b.Add(ILInstr.Stloc slot)
             bindPattern env b slot pat
             buildExpr env b body
 
-        | TExprG.Use(TPatG.NamedSimple(binding, varTy), value, body, dispose, _) ->
+        | TExprG.Use((TPatG.NamedSimple _ | TPatG.Wildcard _) as pat, value, body, dispose, _) ->
+            // `use x = value` (named) or `use _ = value` (wildcard). A `_` binder
+            // still parks the value in a local — it is the resource the `finally`
+            // disposes — but gives the body no name to reference it, so its slot is
+            // keyed off a synthetic placeholder. Everything downstream (slot, null
+            // check, disposal) is identical for both.
+            let binding, varTy =
+                match pat with
+                | TPatG.NamedSimple(b, ty) -> b, ty
+                | TPatG.Wildcard ty -> mintUseBinderKey (), ty
+                | _ -> failwith "Emit: unreachable — outer match admits only NamedSimple / Wildcard"
             // `use x = value in body` → `let x = value in try body finally if x <> null
             // then x.Dispose()` (B-5, vesper-set-sprint-phase-4 §4.1). The IL-IR
             // exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`,
@@ -448,10 +455,11 @@ module EmitExpr =
             b.Add(ILInstr.Mark endLabel)
             b.Add(ILInstr.Ldloc resultSlot)
         | TExprG.Use(pat, _, _, _, _) ->
-            // Unreachable for validated input: a destructuring `use` is rejected up
-            // front (`Validation.checkUseBindings` — "Only simple variable patterns
-            // can be bound in 'use' expressions"), since the bound value is what gets
-            // disposed. Kept as a defensive invariant guard.
+            // Only a genuinely destructuring `use` (tuple / record / union / const)
+            // can reach here — `NamedSimple` and `Wildcard` are handled above. Such
+            // a pattern is rejected up front (`Validation.checkUseBindings` — "Only
+            // simple variable patterns can be bound in 'use' expressions"), since the
+            // bound value is what gets disposed. Kept as a defensive invariant guard.
             failwithf "Emit: destructuring use-binding should have been rejected by Validation: %A" pat
 
         | TExprG.ForIn(pat,
@@ -461,7 +469,7 @@ module EmitExpr =
                        _) ->
             // The loop variable's type is the iterated element type; a tuple binder
             // (`for (k, v) in pairs`) stores the element to `xSlot` and `bindPattern`s
-            // it (tuple-representation-plan Step 4), a simple binder just aliases.
+            // it, a simple binder just aliases.
             let elemTy = typeOfPat pat
             // §4.4 duck-typed / pattern-based `GetEnumerator()` — C#'s non-boxing
             // `foreach`. The source exposes a public `GetEnumerator()` returning an
@@ -595,7 +603,7 @@ module EmitExpr =
         | TExprG.ForIn(pat, source, body, _, _) ->
             // The loop variable's type is the iterated element type; a tuple binder
             // (`for (k, v) in pairs`) stores the element to `xSlot` and `bindPattern`s
-            // it (tuple-representation-plan Step 4), a simple binder just aliases.
+            // it, a simple binder just aliases.
             let elemTy = typeOfPat pat
             // `for x in src do body` over an `IEnumerable<'T>` (B-6,
             // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator
@@ -1370,14 +1378,11 @@ module EmitExpr =
             // (`buildAppCall`, the `argCount`-discriminated arm), per the .NET
             // calling convention. Here a genuine tuple value is wanted: push each
             // element left-to-right, then `newobj` the `System.ValueTuple`n` ctor,
-            // which leaves the struct on the stack (no separate local needed)
-            // — tuple-representation-plan Step 3. The element types come from the
+            // which leaves the struct on the stack (no separate local needed).
+            // The element types come from the
             // node's own `FTTuple` so the ctor's generic instantiation matches the
             // pushed values' static types.
-            let elemTys =
-                match ty with
-                | FTTuple items -> EqArray.toList items
-                | other -> failwithf "Emit: Tuple expression's type is not a tuple: %A" other
+            let elemTys = tupleElemTys ty
 
             for el in elems do
                 buildExpr env b el

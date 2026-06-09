@@ -116,6 +116,19 @@ module Emit =
                 StaticMethods = ctx.StaticMethods
             }
 
+        // A destructuring tuple parameter (`fun (a, b) -> …`): `ldarg.1` holds the
+        // `ValueTuple`n` value; spill it to a local and `bindPattern` the leaf
+        // element bindings out of it before the body runs (Step 5). A
+        // `NamedSimple` / unit param needs none of this — it resolves through
+        // `args.[ParamKey] = 1` directly.
+        match closure.ParamPat with
+        | TPatG.Tuple _ ->
+            let slot = b.Local closure.ParamTy
+            b.Add(ILInstr.Ldarg 1)
+            b.Add(ILInstr.Stloc slot)
+            bindPattern env b slot closure.ParamPat
+        | _ -> ()
+
         buildExpr env b closure.Body
         b.Add ILInstr.Ret
         b.Body

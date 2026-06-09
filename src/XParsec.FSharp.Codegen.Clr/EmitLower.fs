@@ -206,16 +206,30 @@ module EmitLower =
             e
         |> ignore
 
-    /// Source of synthetic `NodeKey`s for unit-parameter binders (`fun () -> …`).
-    /// The body never references the key, but a fresh per-call key lets the
-    /// `args.[key]` dict still allocate an `ldarg` slot for the unit value the
+    /// Source of synthetic `NodeKey`s for placeholder lambda-parameter slots —
+    /// the unit binder (`fun () -> …`) and the tuple binder (`fun (a, b) -> …`).
+    /// The body never references the key (a unit value is dropped; a tuple is
+    /// destructured into its leaf bindings), but a fresh per-call key lets the
+    /// `args.[key]` dict still allocate the `ldarg.1` slot for the value the
     /// caller pushes without clashing with other binders. `Interlocked` keeps it
     /// safe across the parallel test runner.
-    let mutable private unitParamSynthCounter = 0
+    let mutable private paramSynthCounter = 0
 
-    let mintUnitParamKey () : NodeKey =
-        let c = System.Threading.Interlocked.Increment(&unitParamSynthCounter)
+    let private mintSyntheticParamKey () : NodeKey =
+        let c = System.Threading.Interlocked.Increment(&paramSynthCounter)
         NodeKey.ofSynthetic c NodeKind.SynthLambdaBody
+
+    let mintUnitParamKey () : NodeKey = mintSyntheticParamKey ()
+
+    /// The placeholder key for a destructuring tuple lambda parameter — its
+    /// `ldarg.1` `ValueTuple`n` value is `bindPattern`ed into the real leaf
+    /// bindings, so the key itself is never referenced (Step 5).
+    let mintTupleParamKey () : NodeKey = mintSyntheticParamKey ()
+
+    /// The synthetic key for a `use _ = e` binder. The value is still bound to a
+    /// local (it is the resource the `finally` disposes), but `_` gives the body
+    /// no name to reference it, so the slot is keyed off a fresh placeholder.
+    let mintUseBinderKey () : NodeKey = mintSyntheticParamKey ()
 
     /// Peel a curried `Lambda` chain of simple (`NamedSimple`) or unit-pattern
     /// (`TPatG.Const(Unit, _)`, from `fun () -> …`) parameters. A unit binder

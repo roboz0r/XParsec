@@ -193,13 +193,22 @@ let tests =
             // probe — `inferHighPrecApp` now delegates to `inferApp`, and
             // `tryInferExternalInstanceMethodCall` resolves instance overloads by the
             // call-site arg types; gated by `InferResolutionTests.fs`). The build now
-            // sails past the `analysisErrors` gate and stops at the first BACKEND gap — re-verified
-            // end-to-end by flipping this row to `ftest`:
-            //   `Emit: closure parameter destructuring is out of scope: Tuple`
-            //   (EmitClosures.fs:364) — a lambda with a *tupled* parameter
-            //   (`fun (a, b) -> …`) captured into a closure. NOT G6 (`use`/IDisposable)
-            //   as the phase-9 handoff anticipated; the next wall is closure tuple-param
-            //   destructuring in codegen. Flip `ptest`→`test` once that (and any
-            //   following backend gaps) close.
+            // sails past the `analysisErrors` gate and through the BACKEND gaps in
+            // turn — re-verified end-to-end by flipping this row to `ftest`:
+            //   - CLOSED (2026-06-08): the
+            //     `Emit: closure parameter destructuring is out of scope: Tuple`
+            //     wall — a lambda with a *tupled* parameter (`fun (a, b) -> …`)
+            //     captured into a closure. `discoverClosures` now mints a synthetic
+            //     tuple `ParamKey` and `buildClosureInvoke` `bindPattern`s the
+            //     element bindings out of the `ldarg.1` `ValueTuple`n` (gated by
+            //     `TupleTests.fs`). The build now reaches `NominalEmit`.
+            //   - CURRENT wall: `Emit: no emitted union for match on
+            //     'Vesper.Collections.List`1'` (EmitExpr.fs:112) — a `match` against
+            //     the *external* `List` union (cons-list `[] / ::`), whose cases are
+            //     resolved from referenced metadata, not emitted into this assembly.
+            //     The match compiler only knows `env.Unions` (locally emitted). This
+            //     is the consumer external-list match gap, NOT G6 (`use`/IDisposable)
+            //     as the phase-9 handoff anticipated. Flip `ptest`→`test` once that
+            //     (and any following backend gaps) close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

@@ -98,6 +98,14 @@ module UnificationInferGeneralize =
                     if visited.Add root then
                         if root.Level > outerLevel && root.Link.IsNone && not (List.isEmpty root.Defaults) then
                             acc.Add root
+                            // Follow the default-target graph: a chained default
+                            // (`default ^T3 : ^T1`) names another TyVar that may be
+                            // an *intermediate* result var (the inner `a + b` of
+                            // `a + b + c`) not reachable from the binding's surface
+                            // type. Without this it never becomes a candidate and the
+                            // tail of the chain never grounds.
+                            for target in root.Defaults do
+                                go target
 
                         match root.Link with
                         | ValueSome target -> go target
@@ -141,6 +149,13 @@ module UnificationInferGeneralize =
         let tryDefault (tv: TypeVar) : bool =
             let mutable fired = false
             let defaults = tv.Defaults
+            // A target that resolves only to a still-free TyVar is *deferrable*:
+            // a chained default like `default ^T2 : ^T3` can't fire until ^T3 is
+            // itself defaulted (e.g. to `int`) on a later pass. We must keep such
+            // a default alive rather than discard it, or the fixpoint loses the
+            // tail of the chain — `let g a b = a + b` would ground `a`/result to
+            // `int` but leak `b` as a free typar.
+            let mutable anyDeferrable = false
 
             for target in defaults do
                 if not fired then
@@ -153,10 +168,16 @@ module UnificationInferGeneralize =
                         // occurs — the default is unsatisfiable.
                         tv.Link <- ValueSome concrete
                         fired <- true
-                    | _ -> ()
+                    | ValueSome _ -> () // resolved but occurs-unsafe — permanently dead
+                    | ValueNone -> anyDeferrable <- true // target still free — retry next pass
 
-            // Clear regardless — discharged, or not worth chasing further.
-            tv.Defaults <- []
+            // Clear once discharged, or once nothing is left to chase. A deferrable
+            // default stays so the fixpoint can re-evaluate it after its target
+            // links; `while changed` only re-iterates while some default *fires*,
+            // so each TyVar is retried a bounded number of times.
+            if fired || not anyDeferrable then
+                tv.Defaults <- []
+
             fired
 
         let mutable changed = true

@@ -21,11 +21,11 @@ type CallRecipe =
 
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }
 
-/// The resolved CLR handles for one `System.ValueTuple`n` instantiation
-/// (tuple-representation-plan Step 1): the instantiated parent `TypeSpec`
+/// The resolved CLR handles for one `System.ValueTuple`n` instantiation:
+/// the instantiated parent `TypeSpec`
 /// (`ValueTuple`n<t0…t_{n-1}>`), its `.ctor(!0…!{n-1})`, and the public
-/// `Item1…Itemn` field refs in element order. Construction (Step 3) reads `Ctor`;
-/// destructuring (Step 4) reads `ItemFields`; the type encoder (Step 2) needs only
+/// `Item1…Itemn` field refs in element order. Construction reads `Ctor`;
+/// destructuring reads `ItemFields`; the type encoder needs only
 /// the `TypeSpec` shape, which `encodeType` builds itself.
 type ValueTupleHandles =
     {
@@ -317,8 +317,8 @@ type ICodegenProvider =
     /// targets alike.
     abstract TypeToken: ty: FrozenType -> EntityHandle
 
-    /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`
-    /// (tuple-representation-plan): the instantiated `TypeSpec`, its `.ctor`, and
+    /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`:
+    /// the instantiated `TypeSpec`, its `.ctor`, and
     /// the `Item1…Itemn` field refs. Construction (`newobj` the ctor) and
     /// destructuring (`ldfld` the `Item` fields) read the same source of truth.
     abstract ValueTupleRefs: elemTys: FrozenType list -> ValueTupleHandles

@@ -158,8 +158,8 @@ type ClrProvider
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)
 
     /// Resolve the `System.ValueTuple`n` family (parent `TypeSpec` + `.ctor` +
-    /// `Item1…Itemn` field refs) for an N-tuple with the given element types
-    /// (tuple-representation-plan Step 1). Arity 2–7; ≥8 throws.
+    /// `Item1…Itemn` field refs) for an N-tuple with the given element types.
+    /// Arity 2–7; ≥8 throws.
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles = enc.ValueTupleRefs elemTys
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
