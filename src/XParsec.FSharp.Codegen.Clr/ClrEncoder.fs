@@ -231,9 +231,23 @@ type internal ClrEncoder(env: ClrEnv) =
                 te.GenericTypeParameter i
             else
                 te.GenericMethodTypeParameter i
-        // The residual cases — a bare `FTTuple` (tuples reach the encoder only via a
-        // `System.ValueTuple` nominal, never structurally) — are unencodable; a stray
-        // `TyVar` can no longer reach here (it fails one hop out in `toFrozen`).
+        // A tuple value is the arity-N member of the `System.ValueTuple` struct
+        // family (tuple-representation-plan Step 2): `ValueTuple`n<t0…t_{n-1}>`, a
+        // `VALUETYPE` generic instantiation (the `true` flag mirrors the user-struct
+        // arm). This is the single source of truth for "the .NET type of a tuple" —
+        // construction (Step 3) and destructuring (Step 4) read the same handles via
+        // `ValueTupleRefs`. The nullary `unit` case never reaches here: it encodes
+        // off its `prim-types-min` repr binding (`System.ValueTuple`) in the
+        // intrinsic arm above, so this fires only for arity ≥ 2, and `EValueTupleN`
+        // rejects arity ≥ 8 (`TRest` nesting, deferred — tuple-representation-plan Risks).
+        | FTTuple items ->
+            let arity = items.Length
+            let g = te.GenericInstantiation(env.EValueTupleN arity, arity, true)
+
+            for t in items do
+                encodeType (g.AddArgument()) t
+        // The residual case — a stray `TyVar` can no longer reach here (it fails one
+        // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
     /// Encode mapping each function arrow to FSharp.Core's `FSharpFunc`2` (curried, nested), not
@@ -399,6 +413,64 @@ type internal ClrEncoder(env: ClrEnv) =
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         encodeType te ty
         toEntity (ctx.TypeSpec tsB)
+
+    /// Resolve the `System.ValueTuple`n` family for an N-tuple whose element types
+    /// are `elemTys` (tuple-representation-plan Step 1) — the single source of truth
+    /// for "the .NET handles of a tuple", shared by construction and destructuring.
+    /// Arity must be 2–7 (`EValueTupleN` enforces the bound; ≥8 `TRest` nesting is
+    /// deferred). The ctor / `Item` field signatures are element-type-independent —
+    /// they name the type's own `!0…!{n-1}` — so only the parent `TypeSpec` carries
+    /// the call-site instantiation.
+    member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles =
+        let arity = List.length elemTys
+        let entity = env.EValueTupleN arity
+
+        // `ValueTuple`n<t0…t_{n-1}>` as the member-ref parent `TypeSpec`. The `true`
+        // marks the instantiation a value type (struct), mirroring `encodeType`'s
+        // user-struct arm — a `ValueType`-tagged generic-inst, not `Class`.
+        let typeSpec =
+            let tsB = BlobBuilder()
+            let te = BlobEncoder(tsB).TypeSpecificationSignature()
+            let g = te.GenericInstantiation(entity, arity, true)
+
+            for t in elemTys do
+                encodeType (g.AddArgument()) t
+
+            toEntity (ctx.TypeSpec tsB)
+
+        // `instance void .ctor(!0…!{n-1})` — pushing the elements then `newobj`
+        // this leaves the struct on the stack (Step 3).
+        let ctorRef =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    arity,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        for i in 0 .. arity - 1 do
+                            pars.AddParameter().Type().GenericTypeParameter i
+                    )
+                )
+
+            toEntity (ctx.MemberRef(typeSpec, ".ctor", s))
+
+        // `public !i Item{i+1}` — `ValueTuple` exposes public *fields*, not
+        // properties, so element access is `ldfld`, not `call get_ItemN` (Step 4).
+        let itemFields =
+            [|
+                for i in 0 .. arity - 1 ->
+                    let s = BlobBuilder()
+                    BlobEncoder(s).FieldSignature().GenericTypeParameter i
+                    toEntity (ctx.MemberRef(typeSpec, sprintf "Item%d" (i + 1), s))
+            |]
+
+        {
+            TypeSpec = typeSpec
+            Ctor = ctorRef
+            ItemFields = itemFields
+        }
 
     member _.EncodeLocalSignature locals = encodeLocalSignature locals
 

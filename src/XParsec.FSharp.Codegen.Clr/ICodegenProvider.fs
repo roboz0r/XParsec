@@ -21,6 +21,19 @@ type CallRecipe =
 
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }
 
+/// The resolved CLR handles for one `System.ValueTuple`n` instantiation
+/// (tuple-representation-plan Step 1): the instantiated parent `TypeSpec`
+/// (`ValueTuple`n<t0…t_{n-1}>`), its `.ctor(!0…!{n-1})`, and the public
+/// `Item1…Itemn` field refs in element order. Construction (Step 3) reads `Ctor`;
+/// destructuring (Step 4) reads `ItemFields`; the type encoder (Step 2) needs only
+/// the `TypeSpec` shape, which `encodeType` builds itself.
+type ValueTupleHandles =
+    {
+        TypeSpec: EntityHandle
+        Ctor: EntityHandle
+        ItemFields: EntityHandle[]
+    }
+
 /// Which member of an emitted *generic* union a `GenericUnionMemberRef` resolves
 /// to. A generic union (`List<'T>`) is a real generic `TypeDefinition`, so every
 /// reference to one of its members — even from inside the type's own factory
@@ -303,6 +316,12 @@ type ICodegenProvider =
     /// §casting). One `TypeSpec`-based path covers mono, generic, and external
     /// targets alike.
     abstract TypeToken: ty: FrozenType -> EntityHandle
+
+    /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`
+    /// (tuple-representation-plan): the instantiated `TypeSpec`, its `.ctor`, and
+    /// the `Item1…Itemn` field refs. Construction (`newobj` the ctor) and
+    /// destructuring (`ldfld` the `Item` fields) read the same source of truth.
+    abstract ValueTupleRefs: elemTys: FrozenType list -> ValueTupleHandles
 
     /// Whether a *referenced-assembly / referenced-package* nominal type
     /// (identified by its nominal `SymbolKey`) is a .NET value type

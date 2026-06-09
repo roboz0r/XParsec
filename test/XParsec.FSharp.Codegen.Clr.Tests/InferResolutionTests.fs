@@ -22,9 +22,13 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   * single-arg / multi-arg / nullary / generic constructors
 //   * external instance-method chains off a freshly-constructed receiver
 //
-// Gaps A, B and C are now fixed (see `docs/infer-resolution-gaps-plan.md`): the
-// rows below are all `test` and green. They stay as regression gates — each name
-// still records which gap it was a symptom of, so a reintroduced divergence
+// The three resolution gaps these rows pin (A: `inferApp` ≢ `inferHighPrecApp`
+// parser-form divergence; B: the generic-application fallback leaking an unpinned
+// external result; C: eager external instance-method overload mis-pick) are now
+// fixed — `inferHighPrecApp` delegates to `inferApp` (one shared probe chain) and
+// `tryInferExternalInstanceMethodCall` resolves instance overloads by the call-site
+// arg types. The rows below are all `test` and green; they stay as regression gates,
+// each name recording the gap it was a symptom of so a reintroduced divergence
 // points straight at the failure mode.
 
 let private errorsOf (src: string) : Diagnostic list =
@@ -175,13 +179,14 @@ let tests =
                     }
                 ]
 
-            // ---- Vesper.Set G5 handoff roots 2-4 --------------------------------
+            // ---- Vesper.Set G5 roots 2-4 ----------------------------------------
             // Regression gates for three of the four inference/extraction roots fixed
-            // in the G5 wall-clearing session (`docs/vesper-set-g5-handoff.md`). Each
-            // is a leaked-free-`TyVar` (or `unify` mismatch) that `ResolvedTypes` flags
-            // on otherwise-clean F#. Root 1 (`objnull` extracts to `obj`) is a
-            // contract-extraction gate and lives in SemanticAnalysis.Tests
-            // `VesperLibTests`; roots 2-4 are pure front-end resolution and gate here.
+            // while clearing the Vesper.Set G5 analysis wall (the four deferred
+            // interfaces). Each is a leaked-free-`TyVar` (or `unify` mismatch) that
+            // `ResolvedTypes` flags on otherwise-clean F#. Root 1 (`objnull` extracts
+            // to `obj`) is a contract-extraction gate and lives in
+            // SemanticAnalysis.Tests `VesperLibTests`; roots 2-4 are pure front-end
+            // resolution and gate here.
             testList
                 "SetG5Roots"
                 [

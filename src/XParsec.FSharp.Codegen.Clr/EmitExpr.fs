@@ -1286,6 +1286,27 @@ module EmitExpr =
             b.Add ILInstr.Ldnull
             b.Add(ILInstr.Bin ILOpCode.Cgt_un)
 
+        | TExprG.Tuple(elems, ty) ->
+            // A standalone tuple *value*. The method-argument-list case never
+            // reaches here — it is flattened element-wise at the call site
+            // (`buildAppCall`, the `argCount`-discriminated arm), per the .NET
+            // calling convention. Here a genuine tuple value is wanted: push each
+            // element left-to-right, then `newobj` the `System.ValueTuple`n` ctor,
+            // which leaves the struct on the stack (no separate local needed)
+            // — tuple-representation-plan Step 3. The element types come from the
+            // node's own `FTTuple` so the ctor's generic instantiation matches the
+            // pushed values' static types.
+            let elemTys =
+                match ty with
+                | FTTuple items -> EqArray.toList items
+                | other -> failwithf "Emit: Tuple expression's type is not a tuple: %A" other
+
+            for el in elems do
+                buildExpr env b el
+
+            let refs = env.Provider.ValueTupleRefs elemTys
+            b.Add(ILInstr.Newobj(refs.Ctor, elems.Length))
+
         | other -> failwithf "Emit: unsupported expression: %A" other
 
     /// Lower a `TExprG.App` chain. Split out of `buildExpr` so the upcoming

@@ -905,7 +905,7 @@ let tests =
                 | _ -> ()
             }
 
-            test "objnull abbrev (`obj | null`) extracts to obj [Set G5 handoff root 1]" {
+            test "objnull abbrev (`obj | null`) extracts to obj [Set G5 root 1]" {
                 // `type objnull = obj | null` (prim-types-object.fsi) is a *nullable
                 // reference type*; its abbrev RHS parses to `Type.UnionType(obj, |,
                 // null)`. The contract extractor's `translateType` used to refuse every

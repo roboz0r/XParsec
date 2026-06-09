@@ -185,6 +185,21 @@ let tests =
             //   - the lone "SetTree`1 vs unit" in `SetTree.compareStacks` (the
             //     `SetTreeNode(...) :> SetTree<'T>` cons-list cast).
             //   - ~33 "ResolvedTypes: … unresolved TyVar" cascading from the above.
-            // Flip `ptest`→`test` once the remaining gaps close.
+            // FRONT END CLOSED (2026-06-08): all of the above analysis roots are fixed
+            // — the four G5 deferred interfaces (`IComparable` / `IStructuralEquatable`
+            // / `ICollection<'T>` / `IReadOnlyCollection<'T>`) now type-check and
+            // `set.fs` analyses to **0 errors** (the last 2 `raise`-area TyVar leaks
+            // closed by the `Infer` App/HPApp unification + arg-aware instance-method
+            // probe — `inferHighPrecApp` now delegates to `inferApp`, and
+            // `tryInferExternalInstanceMethodCall` resolves instance overloads by the
+            // call-site arg types; gated by `InferResolutionTests.fs`). The build now
+            // sails past the `analysisErrors` gate and stops at the first BACKEND gap — re-verified
+            // end-to-end by flipping this row to `ftest`:
+            //   `Emit: closure parameter destructuring is out of scope: Tuple`
+            //   (EmitClosures.fs:364) — a lambda with a *tupled* parameter
+            //   (`fun (a, b) -> …`) captured into a closure. NOT G6 (`use`/IDisposable)
+            //   as the phase-9 handoff anticipated; the next wall is closure tuple-param
+            //   destructuring in codegen. Flip `ptest`→`test` once that (and any
+            //   following backend gaps) close.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]
