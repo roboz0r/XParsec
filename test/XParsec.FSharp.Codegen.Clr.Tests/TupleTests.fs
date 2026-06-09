@@ -144,3 +144,50 @@ let constructTests =
                 Expect.equal (ty.GetField("Item2").GetValue result :?> string) "x" "Item2"
             }
         ]
+
+/// Step 4 gate: tuple *destructuring* through the shared irrefutable `bindPattern`
+/// (let / for-in) and the match compiler's new `TPatG.Tuple` arm. Each program is
+/// a one-arg static function returning an int; reflecting the invoke result proves
+/// the leaf bindings were pulled out of the `ValueTuple`n` `Item` fields. A
+/// wildcard sub-pattern must bind nothing (and skip the field load), a nested
+/// tuple must recurse.
+[<Tests>]
+let destructureTests =
+    let invokeIntFn (source: string) (arg: int) : int =
+        let _, artifact = compileSource "TupleStep4" source
+        let asm = loadAssembly (Codegen.toBytes artifact)
+
+        let m =
+            asm.GetTypes()
+            |> Array.collect (fun t ->
+                t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
+            )
+            |> Array.find (fun m -> m.Name.StartsWith "fn$")
+
+        m.Invoke(null, [| box arg |]) :?> int
+
+    testList
+        "Tuple representation — Step 4 (destructure a tuple)"
+        [
+            test "let a, b = (z, z + 1) binds both elements (a + b)" {
+                let r = invokeIntFn "let f (z: int) = let a, b = (z, z + 1) in a + b" 5
+                Expect.equal r 11 "5 + 6"
+            }
+
+            test "a nested let a, (b, c) recurses into the inner tuple" {
+                let r =
+                    invokeIntFn "let f (z: int) = let a, (b, c) = (z, (z + 1, z + 2)) in a + b + c" 1
+
+                Expect.equal r 6 "1 + 2 + 3"
+            }
+
+            test "a wildcard tuple element binds nothing (let a, _ = …)" {
+                let r = invokeIntFn "let f (z: int) = let a, _ = (z, z + 1) in a" 5
+                Expect.equal r 5 "the second element is dropped"
+            }
+
+            test "match on a tuple binds the sub-patterns (n, m -> n + m)" {
+                let r = invokeIntFn "let f (z: int) = match (z, z + 1) with (n, m) -> n + m" 5
+                Expect.equal r 11 "5 + 6"
+            }
+        ]

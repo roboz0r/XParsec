@@ -27,6 +27,10 @@ let tests =
                     "Cannot assign to immutable field", "type R = { x: int }\nlet r = { x = 1 }\nr.x <- 2"
                     // `use` over a type with no Dispose member
                     "Dispose", "type R() =\n    member this.value = 1\nlet run () =\n    use r = R()\n    ()\nrun ()"
+                    // a destructuring `use` — only simple variable patterns are legal
+                    // there (the bound value is what gets disposed), so the front end
+                    // rejects it rather than letting codegen `failwithf`.
+                    "simple variable patterns", "let run () =\n    use a, b = (1, 2)\n    ()\nrun ()"
                 ] -> test src { failsWith fragment src }
 
             // a front-end-only positive: the duck-typed `for-in` over a source

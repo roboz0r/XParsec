@@ -248,12 +248,40 @@ module Validation =
 
         CstWalk.walkModuleTreeWith ctx.NameOf OpenScope.empty onScope file |> ignore
 
+    /// A `use` / `use!` binding requires a *simple* variable pattern — `use x = e`
+    /// (optionally typed `use x : IDisposable = e`, or parenthesised `use (x) = e`),
+    /// or `use _ = e`. A destructuring pattern (tuple, record, union case, …) is
+    /// rejected: the bound value itself is what gets disposed, so there is no single
+    /// resource to dispose of a decomposition. Mirrors fsc's restriction (and keeps
+    /// the codegen `bindPattern` invariant — destructuring binders never reach the
+    /// `use` lowering, see tuple-representation-plan Step 4).
+    let rec private isSimpleUsePat (p: Pat<SyntaxToken>) : bool =
+        match p with
+        | Pat.NamedSimple _
+        | Pat.Wildcard _ -> true
+        | Pat.Typed(pat = inner)
+        | Pat.EnclosedBlock(pat = inner) -> isSimpleUsePat inner
+        | _ -> false
+
+    let private checkUseBindings (ctx: PassContext) (bindings: XParsec.FSharp.ImArr<Binding<SyntaxToken>>) : unit =
+        for b in bindings do
+            if not (isSimpleUsePat b.headPat) then
+                ctx.Diagnostics.Add
+                    {
+                        Key = CstKeys.ofPat b.headPat
+                        Message = "Only simple variable patterns can be bound in 'use' expressions"
+                        Code = ""
+                        Severity = Severity.Error
+                    }
+
     let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
         {
             Visit =
                 fun () e ->
                     match e with
                     | Expr.Assignment(leftExpr = l) -> checkAssignment ctx l
+                    | Expr.LetOrUse(keyword = (LetOrUseKeyword.Use _ | LetOrUseKeyword.UseBang _); bindings = bindings) ->
+                        checkUseBindings ctx bindings
                     | _ -> ()
             EnterFun = fun () _ -> ()
             EnterBindingRhs = fun () _ _ _ -> ()

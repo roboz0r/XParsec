@@ -151,7 +151,64 @@ module EmitExpr =
                             extractField fieldRef subPat
                         | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
-        | other -> failwithf "Emit: match pattern is out of scope: %A" other
+        | TPatG.Tuple(items, ty) ->
+            // A tuple pattern never fails on shape (a `ValueTuple`n` has no tag):
+            // `ldfld` each `Item` field of the scrutinee into a fresh local and
+            // recurse — only the sub-patterns can branch to `nextLabel`. A wildcard
+            // sub-pattern needs no extraction (it would always match), like the
+            // union / record arms above (tuple-representation-plan Step 4).
+            let elemTys =
+                match ty with
+                | FTTuple xs -> EqArray.toList xs
+                | other -> failwithf "Emit: tuple pattern's type is not a tuple: %A" other
+
+            let refs = env.Provider.ValueTupleRefs elemTys
+
+            items
+            |> EqArray.iteri (fun i subPat ->
+                match subPat with
+                | TPatG.Wildcard _ -> ()
+                | _ ->
+                    let fldSlot = b.Local(typeOfPat subPat)
+                    b.Add(ILInstr.Ldloc scrutSlot)
+                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                    b.Add(ILInstr.Stloc fldSlot)
+                    buildMatchTest env b fldSlot nextLabel subPat
+            )
+
+    /// Bind an *irrefutable* pattern against a value already in local `srcSlot` — the
+    /// shared destructuring binder for `let` / `for-in` (and, in Step 5, a tuple
+    /// lambda parameter). Unlike the match compiler's `buildMatchTest`, this never
+    /// branches: a `let` / `for` pattern is assumed to match on shape. A
+    /// `NamedSimple` aliases its binding directly to `srcSlot` (no copy, exactly as
+    /// the match arm does); a `Tuple` `ldfld`s each `ValueTuple`n` `Item` field into
+    /// a fresh local and recurses; `Wildcard` / `Const` bind nothing
+    /// (tuple-representation-plan Step 4).
+    let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: Frozen.TPat) : unit =
+        match pat with
+        | TPatG.Wildcard _ -> ()
+        | TPatG.Const _ -> () // irrefutable in a binding position — no compare, no bind
+        | TPatG.NamedSimple(binding, _) -> env.Slots.[binding] <- srcSlot
+        | TPatG.Tuple(items, ty) ->
+            let elemTys =
+                match ty with
+                | FTTuple xs -> EqArray.toList xs
+                | other -> failwithf "Emit: tuple pattern's type is not a tuple: %A" other
+
+            let refs = env.Provider.ValueTupleRefs elemTys
+
+            items
+            |> EqArray.iteri (fun i subPat ->
+                match subPat with
+                | TPatG.Wildcard _ -> () // nothing to bind — skip the field load
+                | _ ->
+                    let fldSlot = b.Local(typeOfPat subPat)
+                    b.Add(ILInstr.Ldloc srcSlot)
+                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                    b.Add(ILInstr.Stloc fldSlot)
+                    bindPattern env b fldSlot subPat
+            )
+        | other -> failwithf "Emit: destructuring pattern is out of scope: %A" other
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
     /// System.Exception("…")`. An exhaustive match never reaches it at runtime,
@@ -272,7 +329,16 @@ module EmitExpr =
             buildExpr env b value
             b.Add(ILInstr.Stloc slot)
             buildExpr env b body
-        | TExprG.Let(pat, _, _, _) -> failwithf "Emit: destructuring let-binding is out of scope: %A" pat
+        | TExprG.Let(pat, value, body, _) ->
+            // A destructuring `let pat = value in body` (e.g. `let a, b = (1, 2)`).
+            // Evaluate the scrutinee once into a temp, then `bindPattern` (irrefutable)
+            // pulls each leaf binding out of it before the body runs
+            // (tuple-representation-plan Step 4).
+            let slot = b.Local(typeOfExpr value)
+            buildExpr env b value
+            b.Add(ILInstr.Stloc slot)
+            bindPattern env b slot pat
+            buildExpr env b body
 
         | TExprG.Use(TPatG.NamedSimple(binding, varTy), value, body, dispose, _) ->
             // `use x = value in body` → `let x = value in try body finally if x <> null
@@ -381,13 +447,22 @@ module EmitExpr =
             b.SetDepth 0
             b.Add(ILInstr.Mark endLabel)
             b.Add(ILInstr.Ldloc resultSlot)
-        | TExprG.Use(pat, _, _, _, _) -> failwithf "Emit: destructuring use-binding is out of scope: %A" pat
+        | TExprG.Use(pat, _, _, _, _) ->
+            // Unreachable for validated input: a destructuring `use` is rejected up
+            // front (`Validation.checkUseBindings` — "Only simple variable patterns
+            // can be bound in 'use' expressions"), since the bound value is what gets
+            // disposed. Kept as a defensive invariant guard.
+            failwithf "Emit: destructuring use-binding should have been rejected by Validation: %A" pat
 
-        | TExprG.ForIn(TPatG.NamedSimple(binding, elemTy),
+        | TExprG.ForIn(pat,
                        source,
                        body,
                        ForInEnumeratorG.DuckTyped(enumeratorTy, geKey, mnKey, curKey, isValueType, disposeOpt),
                        _) ->
+            // The loop variable's type is the iterated element type; a tuple binder
+            // (`for (k, v) in pairs`) stores the element to `xSlot` and `bindPattern`s
+            // it (tuple-representation-plan Step 4), a simple binder just aliases.
+            let elemTy = typeOfPat pat
             // §4.4 duck-typed / pattern-based `GetEnumerator()` — C#'s non-boxing
             // `foreach`. The source exposes a public `GetEnumerator()` returning an
             // enumerator type `E` (`List`1+Enumerator<int>`) with `MoveNext(): bool`
@@ -437,7 +512,6 @@ module EmitExpr =
             b.Add(ILInstr.Stloc enumSlot)
 
             let xSlot = b.Local elemTy
-            env.Slots.[binding] <- xSlot
 
             // Load the enumerator as the receiver for a member call: a struct by
             // address (+ `constrained.`), a reference by value.
@@ -467,6 +541,7 @@ module EmitExpr =
             loadEnumReceiver ()
             b.Add(ILInstr.Callvirt(curHandle, 1, 1))
             b.Add(ILInstr.Stloc xSlot)
+            bindPattern env b xSlot pat
             buildExpr env b body
             b.Add ILInstr.Pop
             b.Add(ILInstr.Br loopStart)
@@ -517,7 +592,11 @@ module EmitExpr =
 
             // `for` is a unit expression — leave the single reified `unit` value.
             EmitTypes.buildUnitValue env b
-        | TExprG.ForIn(TPatG.NamedSimple(binding, elemTy), source, body, _, _) ->
+        | TExprG.ForIn(pat, source, body, _, _) ->
+            // The loop variable's type is the iterated element type; a tuple binder
+            // (`for (k, v) in pairs`) stores the element to `xSlot` and `bindPattern`s
+            // it (tuple-representation-plan Step 4), a simple binder just aliases.
+            let elemTy = typeOfPat pat
             // `for x in src do body` over an `IEnumerable<'T>` (B-6,
             // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator
             // loop through the *interface* slots, so the same shape drives any BCL
@@ -605,7 +684,6 @@ module EmitExpr =
             b.Add(ILInstr.Stloc enumSlot)
 
             let xSlot = b.Local elemTy
-            env.Slots.[binding] <- xSlot
 
             let loopStart = b.Label()
             let loopEnd = b.Label()
@@ -621,6 +699,7 @@ module EmitExpr =
             b.Add(ILInstr.Ldloc enumSlot)
             b.Add(ILInstr.Callvirt(curHandle, 1, 1))
             b.Add(ILInstr.Stloc xSlot)
+            bindPattern env b xSlot pat
             buildExpr env b body
             b.Add ILInstr.Pop
             b.Add(ILInstr.Br loopStart)
@@ -644,7 +723,6 @@ module EmitExpr =
             b.Add(ILInstr.Mark endLabel)
             // `for` is a unit expression — leave the single reified `unit` value.
             EmitTypes.buildUnitValue env b
-        | TExprG.ForIn(pat, _, _, _, _) -> failwithf "Emit: destructuring for-in binding is out of scope: %A" pat
 
         | TExprG.ForTo(var, startExpr, endExpr, body, _) ->
             // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
