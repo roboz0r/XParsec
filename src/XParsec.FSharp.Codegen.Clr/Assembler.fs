@@ -173,7 +173,10 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 try
                     provider.FieldSignature fs.Ty
                 with ex ->
-                    failwithf "%s (while encoding field '%s' : %A)" ex.Message fs.Name fs.Ty
+                    // Wrap (not `failwithf "%s" ex.Message`) so the original
+                    // encoder exception rides as `InnerException` — the stack
+                    // pointing at the actual encode failure is preserved.
+                    raise (System.Exception(sprintf "While encoding field '%s' : %A" fs.Name fs.Ty, ex))
 
             let h = ctx.AddField(fs.Attrs, fs.Name, fieldSig)
 

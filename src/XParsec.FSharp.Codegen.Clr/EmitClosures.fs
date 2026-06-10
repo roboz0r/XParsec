@@ -27,6 +27,76 @@ module EmitClosures =
         go p
         List.ofSeq acc
 
+    /// Walk `body`, invoking `onFree key ty` once per `Var` reference not shadowed
+    /// by `bound` — the single source of truth for closure free-variable scoping.
+    /// `freeVars` and `freeVarKeys` differ only in how they seed `bound` and what
+    /// they record; the scoping skeleton (every binder that introduces names —
+    /// lambdas, lets, `for`/`match`/`try` arms) lives here so a new binder form is
+    /// handled in one place. Mutates `bound` in place across the walk (push on
+    /// entering a binder's scope, pop on exit); pass a private set.
+    ///
+    /// A `let rec f = <lambda>` binds `f` in its own value: the recursive
+    /// self-reference resolves to the closure's `this` (`discoverClosures`'
+    /// `selfKey`), never a free variable — so the name is scoped across both the
+    /// value and the body. Otherwise an enclosing closure gains a phantom capture
+    /// and an enclosing module function is wrongly dropped from the
+    /// static-method-eligible set.
+    let private walkFreeRefs
+        (bound: HashSet<NodeKey>)
+        (onFree: NodeKey -> FrozenType -> unit)
+        (body: Frozen.TExpr)
+        : unit =
+        let scoped (keys: NodeKey list) (k: unit -> unit) =
+            let added = keys |> List.filter bound.Add
+            k ()
+
+            for key in added do
+                bound.Remove key |> ignore
+
+        let rec go (e: Frozen.TExpr) =
+            match e with
+            | TExprG.Var(key, ty) ->
+                if not (bound.Contains key) then
+                    onFree key ty
+            | TExprG.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
+            | TExprG.Let((TPatG.NamedSimple _ as p), (TExprG.Lambda _ as v), b, _) ->
+                scoped (patKeys p) (fun () -> go v)
+                scoped (patKeys p) (fun () -> go b)
+            | TExprG.Let(p, v, b, _)
+            | TExprG.Use(p, v, b, _, _) ->
+                go v
+                scoped (patKeys p) (fun () -> go b)
+            | TExprG.ForTo(var, s, e2, b, _) ->
+                go s
+                go e2
+                scoped [ var ] (fun () -> go b)
+            | TExprG.ForIn(p, src, b, _, _) ->
+                go src
+                scoped (patKeys p) (fun () -> go b)
+            | TExprG.Match(sc, arms, _) ->
+                go sc
+
+                for arm in arms do
+                    scoped
+                        (patKeys arm.Pat)
+                        (fun () ->
+                            arm.Guard |> Option.iter go
+                            go arm.Body
+                        )
+            | TExprG.TryWith(b, arms, _) ->
+                go b
+
+                for arm in arms do
+                    scoped
+                        (patKeys arm.Pat)
+                        (fun () ->
+                            arm.Guard |> Option.iter go
+                            go arm.Body
+                        )
+            | _ -> iterChildren go e
+
+        go body
+
     /// The free variables of a closure body, in first-occurrence order — drives
     /// capture field order. `staticFnKeys` are excluded: a reference to a
     /// static-method function is a direct `call`, not a captured value.
@@ -51,53 +121,14 @@ module EmitClosures =
         let acc = ResizeArray<NodeKey * FrozenType>()
         let seen = HashSet<NodeKey>()
 
-        let scoped (keys: NodeKey list) (k: unit -> unit) =
-            let added = keys |> List.filter bound.Add
-            k ()
-
-            for key in added do
-                bound.Remove key |> ignore
-
-        let rec go (e: Frozen.TExpr) =
-            match e with
-            | TExprG.Var(key, ty) ->
-                if not (bound.Contains key) && seen.Add key then
+        walkFreeRefs
+            bound
+            (fun key ty ->
+                if seen.Add key then
                     acc.Add(key, ty)
-            | TExprG.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExprG.Let(p, v, b, _)
-            | TExprG.Use(p, v, b, _, _) ->
-                go v
-                scoped (patKeys p) (fun () -> go b)
-            | TExprG.ForTo(var, s, e2, b, _) ->
-                go s
-                go e2
-                scoped [ var ] (fun () -> go b)
-            | TExprG.ForIn(p, src, b, _, _) ->
-                go src
-                scoped (patKeys p) (fun () -> go b)
-            | TExprG.Match(sc, arms, _) ->
-                go sc
+            )
+            body
 
-                for arm in arms do
-                    scoped
-                        (patKeys arm.Pat)
-                        (fun () ->
-                            arm.Guard |> Option.iter go
-                            go arm.Body
-                        )
-            | TExprG.TryWith(b, arms, _) ->
-                go b
-
-                for arm in arms do
-                    scoped
-                        (patKeys arm.Pat)
-                        (fun () ->
-                            arm.Guard |> Option.iter go
-                            go arm.Body
-                        )
-            | _ -> iterChildren go e
-
-        go body
         List.ofSeq acc
 
     /// Like `freeVars` but keeps only keys (no types, no static-method exclusion):
@@ -105,55 +136,37 @@ module EmitClosures =
     let private freeVarKeys (boundKeys: NodeKey seq) (body: Frozen.TExpr) : HashSet<NodeKey> =
         let bound = HashSet<NodeKey>(boundKeys)
         let acc = HashSet<NodeKey>()
-
-        let scoped (keys: NodeKey list) (k: unit -> unit) =
-            let added = keys |> List.filter bound.Add
-            k ()
-
-            for key in added do
-                bound.Remove key |> ignore
-
-        let rec go (e: Frozen.TExpr) =
-            match e with
-            | TExprG.Var(key, _) ->
-                if not (bound.Contains key) then
-                    acc.Add key |> ignore
-            | TExprG.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExprG.Let(p, v, b, _)
-            | TExprG.Use(p, v, b, _, _) ->
-                go v
-                scoped (patKeys p) (fun () -> go b)
-            | TExprG.ForTo(var, s, e2, b, _) ->
-                go s
-                go e2
-                scoped [ var ] (fun () -> go b)
-            | TExprG.ForIn(p, src, b, _, _) ->
-                go src
-                scoped (patKeys p) (fun () -> go b)
-            | TExprG.Match(sc, arms, _) ->
-                go sc
-
-                for arm in arms do
-                    scoped
-                        (patKeys arm.Pat)
-                        (fun () ->
-                            arm.Guard |> Option.iter go
-                            go arm.Body
-                        )
-            | TExprG.TryWith(b, arms, _) ->
-                go b
-
-                for arm in arms do
-                    scoped
-                        (patKeys arm.Pat)
-                        (fun () ->
-                            arm.Guard |> Option.iter go
-                            go arm.Body
-                        )
-            | _ -> iterChildren go e
-
-        go body
+        walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
         acc
+
+    /// The shared classification shell behind `collectModuleValues` /
+    /// `collectGenericModuleValues`: a non-`inline`, non-`Lambda` `let name = value`
+    /// on a *named* module holder. `tyOk` selects which type shapes qualify (fully
+    /// ground vs. open-but-encodable); `project` builds the caller's row from the
+    /// resolved binding key, type, init value, and holder info.
+    let private classifyModuleValues
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (tyOk: FrozenType -> bool)
+        (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleMemberInfo -> 'a)
+        (decls: Frozen.TDecl list)
+        : 'a list =
+        decls
+        |> List.choose (fun d ->
+            match d with
+            | TDeclG.Let(TPatG.NamedSimple(k, ty), value, isInline, _) when
+                not isInline
+                && (
+                    match value with
+                    | TExprG.Lambda _ -> false
+                    | _ -> true
+                )
+                && tyOk ty
+                ->
+                match Map.tryFind k.Raw moduleMembers with
+                | Some info -> Some(project k ty value info)
+                | None -> None
+            | _ -> None
+        )
 
     /// Classify which top-level bindings are **module values**
     /// (module-representation-plan): a non-inline `let name = <plain value>` (no
@@ -171,30 +184,18 @@ module EmitClosures =
         (decls: Frozen.TDecl list)
         : ModuleValue list =
         decls
-        |> List.choose (fun d ->
-            match d with
-            | TDeclG.Let(TPatG.NamedSimple(k, ty), value, isInline, _) when
-                not isInline
-                && (
-                    match value with
-                    | TExprG.Lambda _ -> false
-                    | _ -> true
-                )
-                && ftIsGround ty
-                ->
-                match Map.tryFind k.Raw moduleMembers with
-                | Some info ->
-                    Some
-                        {
-                            Key = k
-                            Name = info.Name
-                            Ty = ty
-                            Init = value
-                            Holder = info.Namespace, info.Holder
-                        }
-                | None -> None
-            | _ -> None
-        )
+        |> classifyModuleValues
+            moduleMembers
+            ftIsGround
+            (fun k ty value info ->
+                {
+                    Key = k
+                    Name = info.Name
+                    Ty = ty
+                    Init = value
+                    Holder = info.Namespace, info.Holder
+                }
+            )
 
     /// True when `t` is free of leaked inference metavars (`FTUnknown`) — the
     /// front end never grounded such a type, so it cannot be encoded into a
@@ -228,38 +229,32 @@ module EmitClosures =
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
         (decls: Frozen.TDecl list)
         : StaticFn list =
+        // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
+        // function type — a function-typed generic value (a stored closure, which
+        // a non-lambda `let f : 'T -> 'T = id` can still produce) is still deferred.
+        let tyOk ty =
+            not (ftIsGround ty)
+            && ftNoUnknown ty
+            && (
+                match ty with
+                | FTFun _ -> false
+                | _ -> true
+            )
+
         decls
-        |> List.choose (fun d ->
-            match d with
-            | TDeclG.Let(TPatG.NamedSimple(k, ty), value, isInline, _) when
-                not isInline
-                && (
-                    match value with
-                    | TExprG.Lambda _ -> false
-                    | _ -> true
-                )
-                && not (ftIsGround ty)
-                && ftNoUnknown ty
-                && (
-                    match ty with
-                    | FTFun _ -> false
-                    | _ -> true
-                )
-                ->
-                match Map.tryFind k.Raw moduleMembers with
-                | Some info ->
-                    Some
-                        {
-                            Key = k
-                            Name = info.Name
-                            Holder = Some(info.Namespace, info.Holder)
-                            Params = []
-                            Body = value
-                            ResultTy = ty
-                        }
-                | None -> None
-            | _ -> None
-        )
+        |> classifyModuleValues
+            moduleMembers
+            tyOk
+            (fun k ty value info ->
+                {
+                    Key = k
+                    Name = info.Name
+                    Holder = Some(info.Namespace, info.Holder)
+                    Params = []
+                    Body = value
+                    ResultTy = ty
+                }
+            )
 
     /// A module value's initialiser runs in its holder's `.cctor`, where only
     /// other module values (`ldsfld`) and static-method functions (direct `call`)

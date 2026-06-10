@@ -306,30 +306,16 @@ module Unification =
             // `generalise` uses for nested lets can't separate them. Instead exclude
             // the class typars by identity and generalise every other still-free
             // root in the member's signature (this *is* generalisation — F# makes
-            // each a method generic parameter).
-            let rec walk (t: SemType) =
-                match t with
-                | TyVar v ->
-                    let root = UnionFind.find v
-
-                    if root.Link.IsNone && not (accounted.Contains root) && seen.Add root then
-                        // A synthetic metadata typar name; method generic params are
-                        // method-scoped, so this can't collide with the class typars.
-                        extra.Add(sprintf "M%d" extra.Count, root)
-                | TyConst(_, a)
-                | TyTuple a
-                | TyRecord(_, a)
-                | TyUnion(_, a)
-                | TyClass(_, a) ->
-                    for x in a do
-                        walk x
-                | TyFun(a, r) ->
-                    walk a
-                    walk r
-                | TyUnknown _
-                | TyTypar _ -> ()
-
-            walk (zonk memberTy)
+            // each a method generic parameter). Shares `generalise`'s structural
+            // walk; only the per-root predicate differs (identity-exclusion here vs.
+            // the level gate there).
+            zonk memberTy
+            |> UnificationInferGeneralize.iterTypeVarRoots (fun root ->
+                if root.Link.IsNone && not (accounted.Contains root) && seen.Add root then
+                    // A synthetic metadata typar name; method generic params are
+                    // method-scoped, so this can't collide with the class typars.
+                    extra.Add(sprintf "M%d" extra.Count, root)
+            )
 
             if extra.Count > 0 then
                 mInfo.MethodTypeParams <-

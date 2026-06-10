@@ -156,6 +156,12 @@ type ClrProvider
     member _.EnterClosureTyparScope(declaringTypars: int) : unit =
         env.ClosureTyparScope <- ValueSome declaringTypars
 
+    /// INVARIANT: Enter/Exit is only used from an *unscoped* context — the
+    /// `Assembler` field and closure passes are flat loops, never nested — so Exit
+    /// resets to `ValueNone` rather than restoring a saved value. Code that flips
+    /// the scope *mid-encoding of another signature* (`ClrGenerics`) must instead
+    /// save `env.ClosureTyparScope` and restore it, not call Exit, or it would
+    /// clobber the outer scope.
     member _.ExitClosureTyparScope() : unit = env.ClosureTyparScope <- ValueNone
 
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)

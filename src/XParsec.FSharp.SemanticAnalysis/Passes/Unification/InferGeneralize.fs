@@ -246,23 +246,16 @@ module UnificationInferGeneralize =
 
             walk ty
 
-    let generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
-        // Apply defaults before quantifying: a default that resolves links
-        // its source TyVar, which the quantifier walk then skips. Without
-        // this, `let x = 1 + 2` would generalise as `∀'a. 'a` instead of
-        // `int` (the unbound `^T3` from external-symbol Instantiate).
-        applyDefaults zonkedTy outerLevel
-
-        let quantified = ResizeArray<TypeVar>()
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
-
+    /// Visit every `TyVar` leaf of `t`, resolving it to its union-find `root` and
+    /// invoking `onRoot` — the structural skeleton shared by `generalise` and
+    /// `generaliseMemberTypars`, each of which supplies its own root predicate and
+    /// dedup. A plain structural walk: it assumes `t` is already zonked and does
+    /// *not* follow `Link`s, unlike `applyDefaults` / `prepareListLiterals`, which
+    /// chase the link/default graph and so keep their own bespoke walks.
+    let iterTypeVarRoots (onRoot: TypeVar -> unit) (t: SemType) : unit =
         let rec walk (t: SemType) : unit =
             match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
-                    quantified.Add(root)
+            | TyVar tv -> onRoot (UnionFind.find tv)
             | TyConst(_, args) ->
                 for a in args do
                     walk a
@@ -284,7 +277,23 @@ module UnificationInferGeneralize =
             | TyUnknown _ -> ()
             | TyTypar _ -> ()
 
-        walk zonkedTy
+        walk t
+
+    let generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
+        // Apply defaults before quantifying: a default that resolves links
+        // its source TyVar, which the quantifier walk then skips. Without
+        // this, `let x = 1 + 2` would generalise as `∀'a. 'a` instead of
+        // `int` (the unbound `^T3` from external-symbol Instantiate).
+        applyDefaults zonkedTy outerLevel
+
+        let quantified = ResizeArray<TypeVar>()
+        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+
+        zonkedTy
+        |> iterTypeVarRoots (fun root ->
+            if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
+                quantified.Add(root)
+        )
 
         // `instantiate` swaps these onto fresh substitutions per use site
         // so satisfaction is re-evaluated independently.

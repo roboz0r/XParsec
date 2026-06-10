@@ -157,6 +157,34 @@ let tests =
                             ])
                 }
 
+            // A module function with a *recursive nested helper* (`let rec go`)
+            // that captures the outer function's params (the `SetTree.partitionWith`
+            // shape, vesper-set Phase 9). The closure free-variable analysis must
+            // treat `go`'s recursive self-reference as bound (it lowers to the
+            // closure's `this`), not free — otherwise the enclosing module function
+            // looks like it captures a non-static binding and is dropped from the
+            // static-method-eligible set, so a call to it from a *class member body*
+            // (no `Main` local in scope) crashes emission with "no binding for
+            // variable". The member-body call is the faithful failure mode: a
+            // top-level call would silently fall back to a closure local.
+            yield
+                test "a module fn with a recursive nested helper capturing outer params stays a static method" {
+                    runs
+                        "9"
+                        (String.concat
+                            "\n"
+                            [
+                                "module M ="
+                                "    let outer a b ="
+                                "        let rec go n acc = if n = 0 then acc else go (n - 1) (acc + a + b)"
+                                "        go 3 0"
+                                "type C() ="
+                                "    member this.M () = M.outer 1 2"
+                                "let c = C()"
+                                "printfn \"%d\" (c.M ())"
+                            ])
+                }
+
             // `(+)` resolves as a *value* — an `External op_Addition` the call site
             // references — before eta-reification gives it nested `Vesper.Fun`
             // closures (the runtime shape lives in `SelfHostTests`). Former Slice5 M3.

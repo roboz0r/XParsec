@@ -570,8 +570,10 @@ module internal NominalEmit =
                     // A leaked metavar / unresolved head in a member signature surfaces
                     // here as a generic encoder failure; name the member + declaring
                     // type so the front-end grounding gap is pinpointable rather than
-                    // anonymous (vesper-set Phase 9 contract-extraction wall).
-                    failwithf "%s (while encoding signature of member '%A.%s')" ex.Message td.Key mem.Name
+                    // anonymous (vesper-set Phase 9 contract-extraction wall). Wrap so
+                    // the original encoder exception rides as `InnerException` — its
+                    // stack pinpoints the actual encode failure.
+                    raise (System.Exception(sprintf "While encoding signature of member '%A.%s'" td.Key mem.Name, ex))
 
             asm.AddPrepared(
                 MethodKey.Member(td.Key, index),
