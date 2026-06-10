@@ -326,6 +326,31 @@ module EmitExpr =
             // reified — F3 (Phase 2 §1 mkCounter pattern).
             EmitTypes.buildUnitValue env b
 
+        | TExprG.Null _ -> b.Add ILInstr.Ldnull
+
+        | TExprG.Var(binding, varTy) when env.StaticMethods.ContainsKey binding ->
+            // A *generic* module value (`let empty : SetTree<'T> = …` at module
+            // scope) lowers to a zero-arg generic static method on its holder (a
+            // non-generic module holder cannot host a `SetTree<'T>` *field*;
+            // module-representation-plan). A module value is never applied, so —
+            // unlike a static *function*, which `collectStaticFns` proves is always
+            // saturated and therefore only ever reaches codegen as an `App` head —
+            // it appears here as a bare `Var`. (Hence: a bare `Var` whose key is a
+            // static method is always one of these 0-arg value methods.) Emit a
+            // 0-arg `call` to its `MethodSpec`, the instantiation recovered by
+            // matching the method's declared result template against this
+            // reference's own type.
+            let sm = env.StaticMethods.[binding]
+
+            let callHandle =
+                if sm.Typars = 0 then
+                    sm.Handle
+                else
+                    let inst = matchInstantiation sm.Typars [ sm.ResultTy ] [ varTy ]
+                    env.Provider.StaticFnMethodSpec(sm.Handle, inst)
+
+            b.Add(ILInstr.Call(callHandle, 0, 1))
+
         | TExprG.Var(binding, _) -> buildVarLoad env b binding
 
         | TExprG.Let(TPatG.NamedSimple(binding, ty), value, body, _) ->

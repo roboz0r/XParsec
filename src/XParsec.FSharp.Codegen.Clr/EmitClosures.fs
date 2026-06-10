@@ -196,6 +196,71 @@ module EmitClosures =
             | _ -> None
         )
 
+    /// True when `t` is free of leaked inference metavars (`FTUnknown`) — the
+    /// front end never grounded such a type, so it cannot be encoded into a
+    /// signature. A generic module value with an `FTUnknown` keeps its current
+    /// (skipped) treatment rather than crashing the encoder, exactly as
+    /// `collectModuleValues` already excludes them from the ground-field path.
+    let rec private ftNoUnknown (t: FrozenType) : bool =
+        match t with
+        | FTUnknown _ -> false
+        | FTTypar _ -> true
+        | FTConst(_, xs)
+        | FTRecord(_, xs)
+        | FTUnion(_, xs)
+        | FTClass(_, xs) -> xs |> EqArray.forall ftNoUnknown
+        | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
+        | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
+
+    /// Classify the *generic* module-level values (`let empty : SetTree<'T> = …`)
+    /// — a non-`inline`, non-`Lambda` `let` on a *named* holder whose type carries
+    /// an open typar (`FTTypar`, freeze-quantified to the method axis) and no
+    /// leaked `FTUnknown`. A non-generic module holder has no type parameter to
+    /// type a `SetTree<'T>` *field*, so — like real F#'s representation of a
+    /// generic value — each lowers to a **zero-arg generic static method** on its
+    /// holder, returning the initialiser; every reference `call`s its `MethodSpec`
+    /// (the instantiation recovered from the reference's own type). They are
+    /// returned as ordinary `StaticFn`s (0 params) so the layout / registry /
+    /// holder-method machinery picks them up uniformly; the only bespoke handling
+    /// is the value-position `call` at the reference site (`EmitExpr.buildExpr`).
+    /// A *function*-typed generic value (a stored closure) is still deferred.
+    let collectGenericModuleValues
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (decls: Frozen.TDecl list)
+        : StaticFn list =
+        decls
+        |> List.choose (fun d ->
+            match d with
+            | TDeclG.Let(TPatG.NamedSimple(k, ty), value, isInline, _) when
+                not isInline
+                && (
+                    match value with
+                    | TExprG.Lambda _ -> false
+                    | _ -> true
+                )
+                && not (ftIsGround ty)
+                && ftNoUnknown ty
+                && (
+                    match ty with
+                    | FTFun _ -> false
+                    | _ -> true
+                )
+                ->
+                match Map.tryFind k.Raw moduleMembers with
+                | Some info ->
+                    Some
+                        {
+                            Key = k
+                            Name = info.Name
+                            Holder = Some(info.Namespace, info.Holder)
+                            Params = []
+                            Body = value
+                            ResultTy = ty
+                        }
+                | None -> None
+            | _ -> None
+        )
+
     /// A module value's initialiser runs in its holder's `.cctor`, where only
     /// other module values (`ldsfld`) and static-method functions (direct `call`)
     /// resolve — any other top-level reference (an anonymous "Program" value, a

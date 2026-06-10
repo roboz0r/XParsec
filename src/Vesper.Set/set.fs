@@ -34,7 +34,7 @@ type internal SetTreeNode<'T>(v: 'T, left: SetTree<'T>, right: SetTree<'T>, h: i
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module internal SetTree =
 
-    let empty = null
+    let empty: SetTree<'T> = null
 
     let inline isEmpty (t: SetTree<'T>) =
         isNull t

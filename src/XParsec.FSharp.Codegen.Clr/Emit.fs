@@ -31,6 +31,7 @@ module Emit =
     let expandBuiltinOps = EmitLower.expandBuiltinOps
     let lower = EmitLower.lower
     let collectModuleValues = EmitClosures.collectModuleValues
+    let collectGenericModuleValues = EmitClosures.collectGenericModuleValues
     let validateModuleValueInits = EmitClosures.validateModuleValueInits
     let collectStaticFns = EmitClosures.collectStaticFns
     let staticFnTypars = EmitClosures.staticFnTypars

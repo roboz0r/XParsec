@@ -143,6 +143,18 @@ module Elaborate =
         go declTy
         [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(TyparAxis.Method, i) ]
 
+    /// Did the generaliser quantify this binding into a (non-empty) scheme? A
+    /// *value* binding's free typars are only genuine method typars when the
+    /// generaliser actually quantified them — i.e. an annotated generic value
+    /// like `let empty: SetTree<'T> = null` (non-expansive, so generalised) — as
+    /// opposed to a bare value-restricted `let n = null` (no scheme: its free var
+    /// stays a metavar). Mirrors `inferBindingGroup`'s `shouldGeneralise` cut via
+    /// the scheme it left in `ctx.Bindings.Scheme`.
+    let private bindingWasGeneralised (ctx: PassContext) (b: Binding<SyntaxToken>) : bool =
+        match ctx.Bindings.Scheme.TryGetValue(CstKeys.ofBinding b) with
+        | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
+        | ValueNone -> false
+
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and
     /// the body's synthesised `this` self-type: each declared typar zonked to its
     /// root `TyVar`. `elaborate` keeps these in `TyVar` form (not `TyTypar`) so
@@ -1114,19 +1126,29 @@ module Elaborate =
                     // (Edge A order) as `quantEnv`, but the cut itself is deferred to
                     // `freezeTypars` — `elaborate` leaves the head pattern, value
                     // body, and declared type in `TyVar` form and just pairs the decl
-                    // with its `quantEnv`. Restricted to *function* bindings (a
-                    // `TyFun` declared type): a non-function value's free var is a
-                    // value-restriction case, not a method typar (`let n = null` stays
-                    // `TyVar`). Inline bindings are exempt — their bodies are expanded
-                    // + substituted to concrete types at each call site, never emitted
-                    // as a generic method, so `quantEnv` is empty and they keep the
-                    // `TyVar` representation.
+                    // with its `quantEnv`. A *function* binding (`TyFun` declared
+                    // type) always quantifies. A *value* binding quantifies only when
+                    // (a) the generaliser left it a non-empty scheme and (b) its free
+                    // typars sit *inside a type constructor* (`let empty: SetTree<'T> =
+                    // null` ⇒ `TyClass(SetTree, ['T])`, lowered to a generic method
+                    // returning `ldnull : SetTree<!!0>`, which verifies). A *bare* free
+                    // var — `let n = null` (`TyVar`) or `let x: 'T = …` — stays a
+                    // value-restriction metavar: generalising it would emit `ldnull :
+                    // !!0` over an unconstrained typar (no `class` constraint ⇒
+                    // unverifiable), so it keeps its `TyVar` representation. Inline
+                    // bindings are exempt — their bodies are expanded + substituted to
+                    // concrete types at each call site, never emitted as a generic
+                    // method, so `quantEnv` is empty.
                     let quantEnv =
                         if b.inlineToken.IsSome then
                             []
                         else
                             match Unification.zonk declTy with
                             | TyFun _ -> mkMethodQuantEnv declTy
+                            // A bare free var is value-restricted — never a method typar.
+                            | TyVar _
+                            | TyTypar _ -> []
+                            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv declTy
                             | _ -> []
 
                     TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv

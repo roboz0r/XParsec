@@ -450,6 +450,71 @@ let staticTests =
                     "the failure states the resolution rule"
             }
 
+            // (6) A *generic* module value (`let empty: Node<'T> = null`) cannot be a
+            //     static *field* — a non-generic module holder has no type parameter to
+            //     type it — so it lowers to a zero-arg *generic static method* on its
+            //     holder; every reference `call`s its `MethodSpec`, the instantiation
+            //     recovered from the reference's own type (module-representation-plan
+            //     §generic-values). This is the exact `set.fs` `SetTree.empty` shape:
+            //     a generic class's `static let` cctor reads a generic module value.
+            test "a generic module value lowers to a generic method read across contexts (null)" {
+                let _, artifact =
+                    compileSource
+                        "GenericModuleVal"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<AllowNullLiteral>]"
+                                "type Node<'T>(v: 'T) ="
+                                "    member _.V = v"
+                                ""
+                                "module Tree ="
+                                "    let empty : Node<'T> = null"
+                                "    let getEmpty () : Node<'T> = empty"
+                                ""
+                                "type Box<'T>() ="
+                                "    static let s : Node<'T> = Tree.empty"
+                                "    static member S () : Node<'T> = s"
+                                "    member _.Direct () : Node<'T> = Tree.empty"
+                                "let b = Box<int>()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+
+                // `empty` is a zero-arg generic method on the `Tree` holder, NOT a field.
+                let tree = asm.GetType "Tree"
+                Expect.isNotNull tree "the Tree holder is emitted"
+
+                Expect.isNull
+                    (tree.GetField("empty", BindingFlags.Public ||| BindingFlags.Static))
+                    "a generic module value is a method, not a static field"
+
+                let emptyM = tree.GetMethod("empty", declaredStatic)
+                Expect.isNotNull emptyM "empty emitted as a static method"
+                Expect.isTrue emptyM.IsGenericMethodDefinition "empty is a generic method (one method typar)"
+
+                // Each reference instantiates it at the use-site type.
+                let emptyInt = emptyM.MakeGenericMethod typeof<int>
+                Expect.isNull (emptyInt.Invoke(null, [||])) "Tree.empty<int>() = null"
+
+                // A sibling module fn reads it (a `call`, not a closure capture).
+                let getEmpty = tree.GetMethod("getEmpty", declaredStatic)
+
+                Expect.isNull
+                    (getEmpty.MakeGenericMethod(typeof<int>).Invoke(null, [| () |]))
+                    "Tree.getEmpty<int>() = null"
+
+                // The generic-class `static let` cctor reads it (the `set.fs` shape).
+                let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
+                let s = boxInt.GetMethod("S", declaredStatic, null, [||], null)
+                Expect.isNull (s.Invoke(null, [||])) "Box<int>.S() reads the static-let built from Tree.empty = null"
+
+                // A direct instance-member read.
+                let inst = boxInt.GetConstructors().[0].Invoke [||]
+                let direct = boxInt.GetMethod("Direct", declaredInstance, null, [||], null)
+                Expect.isNull (direct.Invoke(inst, [||])) "Box<int>().Direct() = Tree.empty<int> = null"
+            }
+
             // static field via `static let`:
             //   `type C() = static let x = 42; static member Get() = x` — C.Get() = 42
             test "a class `static let` becomes a static field initialised by the cctor (Get() = 42)" {

@@ -66,8 +66,37 @@ module HolderPlan =
         let moduleValues = Emit.collectModuleValues moduleMembers lowered
         let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 
-        let staticFns, staticFnKeys =
-            Emit.collectStaticFns moduleMembers moduleValueKeys lowered
+        // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a
+        // static *field* — a non-generic module holder has no type parameter to
+        // type it — so it lowers to a zero-arg *generic static method* on its
+        // holder (real F#'s representation of a generic value); a reference `call`s
+        // its `MethodSpec`. They join the static-method machinery as 0-param fns
+        // (module-representation-plan).
+        let genericModuleValues = Emit.collectGenericModuleValues moduleMembers lowered
+
+        let genericModuleValueKeys =
+            HashSet<NodeKey>(genericModuleValues |> List.map (fun fn -> fn.Key))
+
+        // Both ground (an `ldsfld` field) and generic (a `call`ed method) module
+        // values are real top-level storage, never closure captures — exclude both
+        // key sets from the capture/static-fn analysis so a function over them
+        // stays a static method rather than capturing a non-existent local
+        // (module-representation-plan §4).
+        let resolvedTopLevel = HashSet<NodeKey>(moduleValueKeys)
+        resolvedTopLevel.UnionWith genericModuleValueKeys
+
+        let collectedFns, eligibleFnKeys =
+            Emit.collectStaticFns moduleMembers resolvedTopLevel lowered
+
+        // Generic module values emit exactly like static fns (signature, body,
+        // handle, holder method slot); merge them in so every downstream pass —
+        // the `staticMethods` registry, the holder method plan, `discoverClosures`'
+        // non-captured set — treats them uniformly. Appended last, so each lands in
+        // its holder's method group after the holder's ordinary functions.
+        let staticFns = collectedFns @ genericModuleValues
+
+        let staticFnKeys = HashSet<NodeKey>(eligibleFnKeys)
+        staticFnKeys.UnionWith genericModuleValueKeys
 
         // Every module-value initialiser must resolve entirely to other module
         // values / static methods inside its holder `.cctor` — fail targeted
