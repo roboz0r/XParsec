@@ -536,9 +536,10 @@ module internal NominalEmit =
                             mem.BaseKey
                             mem.Params
                             returnsVoid
-                            // Inline splicing ran pre-freeze (Passes.InlineExpansion);
-                            // codegen only collapses the residual saturated built-in ops.
-                            (Emit.expandBuiltinOps mem.Body)
+                            // The body is already `expandBuiltinOps`-expanded in
+                            // `Layout.build` (once, so closure discovery and this
+                            // walk share node identity); no re-expansion here.
+                            mem.Body
                     ))
 
             let paramTys = [ for (_, t) in mem.Params -> t ]

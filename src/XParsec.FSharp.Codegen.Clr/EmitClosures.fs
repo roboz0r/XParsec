@@ -444,11 +444,29 @@ module EmitClosures =
     /// closures), since a reference to one is a direct call. A closure walked from
     /// a generic static fn's body inherits that fn's `staticFnTypars` on its
     /// `Closure.Typars`; an inner closure inherits the enclosing closure's set.
+    /// A closure-discovery root from a *type member body* (vesper-set Phase 9):
+    /// the member's already-`expandBuiltinOps`-expanded body paired with the
+    /// number of typars in scope at its construction site — the declaring type's
+    /// typar count (the closure re-projects those onto its own class typars, the
+    /// same `Typars` count a static-fn closure inherits). `0` for a monomorphic
+    /// type, so its member closures stay the plain monomorphic-closure path.
+    type MemberClosureRoot =
+        {
+            /// The declaring type's typar count — the closure's declaring-typar
+            /// offset (its first slots are the class typars).
+            DeclaringTypars: int
+            /// The member's own method-typar count — these follow the class
+            /// typars in the closure's typar list (offset `DeclaringTypars`).
+            MethodTypars: int
+            Body: Frozen.TExpr
+        }
+
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
         (decls: Frozen.TDecl list)
+        (memberRoots: MemberClosureRoot list)
         : Closure list * Dictionary<Frozen.TExpr, Closure> =
         let order = ResizeArray<Frozen.TExpr>()
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
@@ -462,14 +480,16 @@ module EmitClosures =
 
         // `selfKey` is the binding key when this node is the immediate value of a
         // `let f = …` lambda — a recursive self-reference resolves to `this`.
-        // `currentTypars` is the typar *count* inherited from the enclosing static
-        // method (or, for inner closures, the enclosing closure verbatim).
-        let rec go (currentTypars: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
+        // `currentTypars` is the *total* typar count inherited from the enclosing
+        // static method / member (or, for inner closures, the enclosing closure
+        // verbatim); `declaringOffset` is how many of those are the enclosing
+        // class's typars (the leading slots) — `0` for a static-fn closure.
+        let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
             (match e with
              | TExprG.Let(TPatG.NamedSimple(k, _), (TExprG.Lambda _ as v), body, _) ->
-                 go currentTypars (ValueSome k) v
-                 go currentTypars ValueNone body
-             | _ -> iterChildren (go currentTypars ValueNone) e) // children (and inner lambdas) first → leaves-first
+                 go currentTypars declaringOffset (ValueSome k) v
+                 go currentTypars declaringOffset ValueNone body
+             | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure
                 (p: NodeKey)
@@ -498,6 +518,7 @@ module EmitClosures =
                         Captures = freeVars nonCaptured (patKeys paramPat) selfKey body
                         SelfKey = selfKey
                         Typars = currentTypars
+                        DeclaringTypars = declaringOffset
                     }
 
                 counter <- counter + 1
@@ -534,10 +555,20 @@ module EmitClosures =
             // closures inherit the method's typars.
             | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
                 let _, body = peelLambda value
-                go (typarsForStaticFn k) ValueNone body
-            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) -> go 0 (ValueSome k) value
-            | TDeclG.Let(_, value, _, _) -> go 0 ValueNone value
-            | TDeclG.Expression(e, _) -> go 0 ValueNone e
+                go (typarsForStaticFn k) 0 ValueNone body
+            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) -> go 0 0 (ValueSome k) value
+            | TDeclG.Let(_, value, _, _) -> go 0 0 ValueNone value
+            | TDeclG.Expression(e, _) -> go 0 0 ValueNone e
             | TDeclG.Type _ -> ()
+
+        // Type member bodies (vesper-set Phase 9): a lambda inside a member body
+        // is a closure too — `buildMember` walks the same expanded body, so the
+        // node-identity keys in `lookup` match its `buildExpr`. A member body sees
+        // no static-fn `selfKey` (a recursive `let rec` inside it would, but the
+        // member itself dispatches as a call, not a captured value). The closure's
+        // typar list is the declaring class typars (offset 0) followed by the
+        // member's own method typars.
+        for root in memberRoots do
+            go (root.DeclaringTypars + root.MethodTypars) root.DeclaringTypars ValueNone root.Body
 
         [ for n in order -> lookup.[n] ], lookup

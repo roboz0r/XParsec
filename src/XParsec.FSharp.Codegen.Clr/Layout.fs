@@ -141,11 +141,12 @@ type internal FieldSlot =
         Name: string
         Attrs: FieldAttributes
         Ty: FrozenType
-        /// A *generic* closure's capture field encodes its signature inside
-        /// the ambient closure-typar scope (`FTTypar(Method, i)` re-projects
-        /// to the closure class's `!i`) — the writer brackets the `AddField`
-        /// call in `EnterClosureTyparScope`/`ExitClosureTyparScope`.
-        NeedsClosureScope: bool
+        /// A *generic* closure's capture field encodes its signature inside the
+        /// ambient closure-typar scope (the body's typars re-project onto the
+        /// closure class's slots) — the writer brackets the `AddField` call in
+        /// `EnterClosureTyparScope`/`ExitClosureTyparScope`. `ValueSome d` carries
+        /// the closure's declaring-typar offset; `ValueNone` ⇒ no closure scope.
+        ClosureScope: int voption
     }
 
 /// Identity of one `MethodDef` row in the layout (§3.1). Indexed cases
@@ -427,10 +428,72 @@ module internal Layout =
         let lowered = Emit.lower tast.Decls
         let plan = HolderPlan.create tast.ModuleMembers lowered
 
-        let closures, closureByNode =
-            Emit.discoverClosures plan.StaticFnKeys plan.ModuleValueKeys plan.StaticFnTypars lowered
+        // Member bodies never pass through `Emit.lower`; they only need the
+        // closing `expandBuiltinOps` pass (`NominalEmit` used to apply it per
+        // member). We run it **once here** so the expanded body is the single
+        // object both closure discovery and `buildMember` walk — closure node
+        // identity (`HashIdentity.Reference`) demands they be the same nodes.
+        // The expanded partition is stored as `Partitioned`; `NominalEmit` reads
+        // the already-expanded bodies.
+        let expandMember (m: Frozen.TTypeMember) : Frozen.TTypeMember =
+            { m with
+                Body = Emit.expandBuiltinOps m.Body
+            }
 
-        let partitioned = partitionTypeDecls tast.Decls
+        let rawPartitioned = partitionTypeDecls tast.Decls
+
+        let partitioned =
+            { rawPartitioned with
+                Unions =
+                    [
+                        for ud in rawPartitioned.Unions ->
+                            { ud with
+                                Members = List.map expandMember ud.Members
+                            }
+                    ]
+                Records =
+                    [
+                        for rd in rawPartitioned.Records ->
+                            { rd with
+                                Members = List.map expandMember rd.Members
+                            }
+                    ]
+                Classes =
+                    [
+                        for cd in rawPartitioned.Classes ->
+                            { cd with
+                                Members = List.map expandMember cd.Members
+                                Interfaces = [ for (ty, ms) in cd.Interfaces -> ty, List.map expandMember ms ]
+                            }
+                    ]
+            }
+
+        // Closure-discovery roots from every (expanded) member body, each tagged
+        // with its declaring type's typar count (0 ⇒ monomorphic).
+        let memberRoots =
+            [
+                let root (td: Frozen.TTypeDecl) (m: Frozen.TTypeMember) : EmitClosures.MemberClosureRoot =
+                    {
+                        DeclaringTypars = td.TypeParams.Length
+                        MethodTypars = m.MethodTypeParams.Length
+                        Body = m.Body
+                    }
+
+                for ud in partitioned.Unions do
+                    for m in ud.Members -> root ud.Decl m
+
+                for rd in partitioned.Records do
+                    for m in rd.Members -> root rd.Decl m
+
+                for cd in partitioned.Classes do
+                    for m in cd.Members -> root cd.Decl m
+
+                    for (_, ms) in cd.Interfaces do
+                        for m in ms -> root cd.Decl m
+            ]
+
+        let closures, closureByNode =
+            Emit.discoverClosures plan.StaticFnKeys plan.ModuleValueKeys plan.StaticFnTypars lowered memberRoots
 
         let emitEntryPoint =
             match project.OutputKind with
@@ -484,7 +547,7 @@ module internal Layout =
                                     Name = "_tag"
                                     Attrs = FieldAttributes.Public
                                     Ty = FTConst("int", EqArray.empty)
-                                    NeedsClosureScope = false
+                                    ClosureScope = ValueNone
                                 }
                             for c in ud.Cases do
                                 for fi in 0 .. c.Fields.Length - 1 ->
@@ -493,7 +556,7 @@ module internal Layout =
                                         Name = sprintf "%s_%d" c.Name fi
                                         Attrs = FieldAttributes.Public
                                         Ty = snd c.Fields.[fi]
-                                        NeedsClosureScope = false
+                                        ClosureScope = ValueNone
                                     }
                         ]
 
@@ -535,7 +598,7 @@ module internal Layout =
                                     Name = f.Name
                                     Attrs = FieldAttributes.Public
                                     Ty = f.Type
-                                    NeedsClosureScope = false
+                                    ClosureScope = ValueNone
                                 }
                         ]
 
@@ -574,7 +637,7 @@ module internal Layout =
                                     Name = p.Name
                                     Attrs = FieldAttributes.Public
                                     Ty = p.Type
-                                    NeedsClosureScope = false
+                                    ClosureScope = ValueNone
                                 }
                             for f in cd.Fields ->
                                 {
@@ -586,7 +649,7 @@ module internal Layout =
                                         else
                                             FieldAttributes.Public ||| FieldAttributes.InitOnly
                                     Ty = f.Type
-                                    NeedsClosureScope = false
+                                    ClosureScope = ValueNone
                                 }
                             for sl in cd.StaticLets ->
                                 {
@@ -594,7 +657,7 @@ module internal Layout =
                                     Name = sl.Name
                                     Attrs = FieldAttributes.Private ||| FieldAttributes.Static
                                     Ty = sl.Type
-                                    NeedsClosureScope = false
+                                    ClosureScope = ValueNone
                                 }
                         ]
 
@@ -660,7 +723,7 @@ module internal Layout =
                                     Name = sprintf "capture%d" i
                                     Attrs = FieldAttributes.Public
                                     Ty = snd c.Captures.[i]
-                                    NeedsClosureScope = isGeneric
+                                    ClosureScope = (if isGeneric then ValueSome c.DeclaringTypars else ValueNone)
                                 }
                         ]
 
@@ -710,7 +773,7 @@ module internal Layout =
                                     Attrs =
                                         FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
                                     Ty = mv.Ty
-                                    NeedsClosureScope = false
+                                    ClosureScope = ValueNone
                                 }
                         ]
 

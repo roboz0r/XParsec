@@ -29,14 +29,22 @@ module EmitTypes =
             /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
             /// it is not captured. `ValueNone` for an anonymous lambda.
             SelfKey: NodeKey voption
-            /// `> 0` ⇒ a *generic* closure (C3): the number of typars the enclosing
-            /// static method (or enclosing closure) declares, inherited verbatim at
-            /// this closure's discovery point. Its
-            /// `TypeDefinition` carries that many `GenericParam` rows; its signatures
-            /// encode the body's `TyTypar(Method, i)` as the closure *class*'s `!i`
-            /// (via `ClrEnv.ClosureTyparMode`); and the construction site `Newobj`s a
-            /// `MemberRef` on the instantiated `TypeSpec`.
+            /// `> 0` ⇒ a *generic* closure (C3): the *total* number of typars this
+            /// closure's `TypeDefinition` carries (`GenericParam` rows `T0…`). For a
+            /// static-fn closure this is the enclosing method's typar count, all
+            /// method-axis. For a *member-body* closure (vesper-set Phase 9) it is
+            /// `DeclaringTypars` (the enclosing class typars) + the member's own
+            /// method typars. Its signatures encode the body's typars onto the
+            /// closure class's `!i` (via `ClrEnv.ClosureTyparScope`); the
+            /// construction site `Newobj`s a `MemberRef` on the instantiated
+            /// `TypeSpec`.
             Typars: int
+            /// The closure's declaring-typar offset: its first `DeclaringTypars`
+            /// slots are the enclosing class's typars (a member-body closure on a
+            /// generic class). `0` for a static-fn closure (all typars method-axis).
+            /// Drives the `ClosureTyparScope` offset and the construction-site
+            /// instantiation split (declaring-axis args, then method-axis).
+            DeclaringTypars: int
         }
 
     /// One case of an emitted union: runtime `Tag`, the static factory

@@ -126,6 +126,7 @@ type ClrProvider
         (
             name: string,
             typarCount: int,
+            declaringTypars: int,
             captureSigs: FrozenType list,
             paramTy: FrozenType,
             resultTy: FrozenType,
@@ -134,6 +135,7 @@ type ClrProvider
         env.GenericClosures.[name] <-
             {
                 TyparCount = typarCount
+                DeclaringTypars = declaringTypars
                 CaptureSigs = captureSigs
                 ParamTy = paramTy
                 ResultTy = resultTy
@@ -151,9 +153,10 @@ type ClrProvider
     /// `TyTypar(Method, i)` (which the closure body embeds) re-project onto the
     /// closure *class*'s `GenericTypeParameter i` rather than `!!i`. This is the
     /// only ambient typar mode that survives.
-    member _.EnterClosureTyparScope() : unit = env.ClosureTyparMode <- true
+    member _.EnterClosureTyparScope(declaringTypars: int) : unit =
+        env.ClosureTyparScope <- ValueSome declaringTypars
 
-    member _.ExitClosureTyparScope() : unit = env.ClosureTyparMode <- false
+    member _.ExitClosureTyparScope() : unit = env.ClosureTyparScope <- ValueNone
 
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)
 

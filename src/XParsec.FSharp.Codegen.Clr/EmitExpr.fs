@@ -34,7 +34,18 @@ module EmitExpr =
                         // module value is never an arg/self/capture/local.
                         match env.ModuleValues.TryGetValue key with
                         | true, field -> b.Add(ILInstr.Ldsfld field)
-                        | false, _ -> failwithf "Emit: no binding for variable %O" key
+                        // Name the surrounding binder counts so a missing capture /
+                        // local / arg is pinpointable rather than anonymous (a
+                        // member body has `selfKey`/args; a static fn has args only;
+                        // a closure `Invoke` has capture fields).
+                        | false, _ ->
+                            failwithf
+                                "Emit: no binding for variable %O (selfKey=%A captures=%d slots=%d args=%d)"
+                                key
+                                env.SelfKey
+                                env.CaptureFields.Count
+                                env.Slots.Count
+                                env.Args.Count
 
     /// The element types of a tuple `FrozenType`. A hard failure if the front end
     /// typed a tuple pattern / value as something other than `FTTuple` — an internal
@@ -932,15 +943,23 @@ module EmitExpr =
                         | false, _ ->
                             failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
                     else
-                        // The closure's self-instantiation over its own typars: the
-                        // enclosing method's `FTTypar(Method, i)`, encoded under the
-                        // ambient closure mode at this construction site (`!!i` in a
-                        // static-method body, `!i` inside an enclosing closure).
-                        env.Provider.UserClosureMemberRef(
-                            closure.Name,
-                            [ for i in 0 .. closure.Typars - 1 -> FTTypar(TyparAxis.Method, i) ],
-                            ClosureMember.Ctor
-                        )
+                        // The closure's instantiation at *this* construction site,
+                        // in the enclosing context's ambient. Its typar list is the
+                        // enclosing class typars (the leading `DeclaringTypars`
+                        // slots) followed by the enclosing member's method typars:
+                        // a class typar is `FTTypar(Declaring, i)` (encoded `!i` in
+                        // a member body) and a method typar `FTTypar(Method, j)`
+                        // (`!!j`). A static-fn closure has `DeclaringTypars = 0`, so
+                        // this is `[FTTypar(Method, j)]` — the prior encoding (`!!i`
+                        // in a static-method body, `!i` inside an enclosing closure).
+                        let instArgs =
+                            [ for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+                            @ [
+                                for j in 0 .. closure.Typars - closure.DeclaringTypars - 1 ->
+                                    FTTypar(TyparAxis.Method, j)
+                            ]
+
+                        env.Provider.UserClosureMemberRef(closure.Name, instArgs, ClosureMember.Ctor)
 
                 b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
             | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"

@@ -291,7 +291,7 @@ let tests =
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
 
                 let closures, _ =
-                    Emit.discoverClosures staticFnKeys moduleValueKeys typarsMap lowered
+                    Emit.discoverClosures staticFnKeys moduleValueKeys typarsMap lowered []
 
                 closures
 

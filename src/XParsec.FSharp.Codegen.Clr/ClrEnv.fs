@@ -14,6 +14,11 @@ open XParsec.FSharp.SemanticAnalysis
 type internal GenericClosureShape =
     {
         TyparCount: int
+        /// The closure's declaring-typar offset (its first `DeclaringTypars`
+        /// slots are the enclosing class's typars). `0` for a static-fn closure.
+        /// Sets the `ClosureTyparScope` offset while encoding this closure's own
+        /// member-ref signatures.
+        DeclaringTypars: int
         CaptureSigs: FrozenType list
         ParamTy: FrozenType
         ResultTy: FrozenType
@@ -430,7 +435,15 @@ type internal ClrEnv
     // capture fields / its TypeSpec from inside its body), the enclosing method's
     // `TyTypar(Method, i)` are the closure *class*'s generic parameters, so they
     // encode as `GenericTypeParameter i` rather than `GenericMethodTypeParameter i`.
-    let mutable closureTyparMode = false
+    // Closure-typar scope: `ValueNone` ⇒ off (a `FTTypar(Method, i)` encodes to
+    // the method's own `!!i`); `ValueSome d` ⇒ inside a closure's own emission,
+    // where the closure re-projects the enclosing context's typars onto its own
+    // class typars. `d` is the *declaring-typar offset*: the enclosing class
+    // typars occupy the closure's first `d` slots (a `FTTypar(Declaring, i)`
+    // already encodes `!i`), so a member's `FTTypar(Method, j)` lands at
+    // `!(d + j)`. A static-fn closure has `d = 0`, so `Method j → !j` (the old
+    // behaviour).
+    let mutable closureTyparScope: int voption = ValueNone
 
     let rec decurryTy (t: FrozenType) : FrozenType list * FrozenType =
         match t with
@@ -496,9 +509,9 @@ type internal ClrEnv
     member _.FSharpCoreDependencies() =
         fsharpCoreDeps |> List.ofSeq |> List.sort
 
-    member _.ClosureTyparMode
-        with get () = closureTyparMode
-        and set v = closureTyparMode <- v
+    member _.ClosureTyparScope
+        with get () = closureTyparScope
+        and set v = closureTyparScope <- v
 
     member _.ArityOfMetaName name = arityOfMetaName name
     member _.DecurryTy t = decurryTy t

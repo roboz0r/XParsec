@@ -237,10 +237,12 @@ type internal ClrEncoder(env: ClrEnv) =
         // `closureTyparMode` flipping Method-axis to `GenericTypeParameter`.
         | FTTypar(TyparAxis.Declaring, i) -> te.GenericTypeParameter i
         | FTTypar(TyparAxis.Method, i) ->
-            if env.ClosureTyparMode then
-                te.GenericTypeParameter i
-            else
-                te.GenericMethodTypeParameter i
+            match env.ClosureTyparScope with
+            // Inside a closure's own emission, the enclosing class typars occupy
+            // the closure's first `d` slots, so a method-axis typar lands at
+            // `!(d + i)` (a static-fn closure has `d = 0`, so `!i`).
+            | ValueSome d -> te.GenericTypeParameter(d + i)
+            | ValueNone -> te.GenericMethodTypeParameter i
         // A tuple value is the arity-N member of the `System.ValueTuple` struct
         // family: `ValueTuple`n<t0…t_{n-1}>`, a
         // `VALUETYPE` generic instantiation (the `true` flag mirrors the user-struct

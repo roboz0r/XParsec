@@ -248,6 +248,99 @@ module Unification =
             AllowAbstractSig: bool
         }
 
+    /// Generalise a member's *body-inferred* free typars into its
+    /// `MethodTypeParams`. A method with unannotated params (`member s.Fold f z =
+    /// SetTree.fold (fun x z -> f z x) z s.Tree`) whose body introduces a fresh
+    /// typar (`'State`) that no signature annotation names gets no registered
+    /// method typar for it (`implicitMemberTypars` scans annotations only). If the
+    /// member is never *called* in this assembly — a library API — that typar
+    /// never grounds via a use site and leaks as `?ungrounded-operator` at codegen
+    /// (a member-body closure capturing the `'State`-typed `f` froze with it). F#
+    /// generalises such typars as method generic parameters; mirror that here:
+    /// after the body is inferred, collect the still-free roots in the member's
+    /// signature (`Level > outerLevel && Link.IsNone`, the same gate `generalise`
+    /// uses) that aren't already a registered method typar, and append them.
+    /// `Elaborate`/`Freeze` then surface them as `TyTypar(Method, i)` +
+    /// `GenericParam` rows by their position in `MethodTypeParams`, and a member-
+    /// body closure inherits them as its own method typars (vesper-set Phase 9).
+    /// Methods only — a property can't carry method typars (mirrors registration).
+    let private generaliseMemberTypars
+        (ctx: PassContext)
+        (outerLevel: int)
+        (classTypars: EqArray<string * TypeVar>)
+        (mInfo: TypeMemberInfo)
+        : unit =
+        match mInfo.Type with
+        | TyVar tv ->
+            let memberTy = zonk (TyVar tv)
+            // Resolve defaults first (as `generalise` does) so a defaulted typar
+            // links its source and the walk below skips it — `member m.Add a b = a + b`
+            // grounds to `int` rather than quantifying the arithmetic typar.
+            UnificationInferGeneralize.applyDefaults memberTy outerLevel
+
+            // Typars already accounted for: the enclosing class typars (a `'T` is
+            // a declaring-axis param, not a method one) and the member's already-
+            // registered method typars (explicit `<'C>` / annotation-implicit). The
+            // class typar roots are zonked *here* (not snapshotted at type entry):
+            // a class typar's union-find root can move while a member body types
+            // (`Holder<'T>(v)` unifies the return through a fresh instantiation), so
+            // a stale snapshot would miss it and the `'T` in the member signature
+            // would be wrongly generalised into a (dangling) method typar.
+            let accounted = HashSet<TypeVar>(HashIdentity.Reference)
+
+            for (_, ptv) in classTypars do
+                match zonk (TyVar ptv) with
+                | TyVar r -> accounted.Add(UnionFind.find r) |> ignore
+                | _ -> ()
+
+            for (_, ptv) in mInfo.MethodTypeParams do
+                match zonk (TyVar ptv) with
+                | TyVar r -> accounted.Add(UnionFind.find r) |> ignore
+                | _ -> ()
+
+            let extra = ResizeArray<string * TypeVar>()
+            let seen = HashSet<TypeVar>(HashIdentity.Reference)
+
+            // A member is typed at the module level (level 0), so its body-inferred
+            // typars live at the *same* level as the class typars — the level gate
+            // `generalise` uses for nested lets can't separate them. Instead exclude
+            // the class typars by identity and generalise every other still-free
+            // root in the member's signature (this *is* generalisation — F# makes
+            // each a method generic parameter).
+            let rec walk (t: SemType) =
+                match t with
+                | TyVar v ->
+                    let root = UnionFind.find v
+
+                    if root.Link.IsNone && not (accounted.Contains root) && seen.Add root then
+                        // A synthetic metadata typar name; method generic params are
+                        // method-scoped, so this can't collide with the class typars.
+                        extra.Add(sprintf "M%d" extra.Count, root)
+                | TyConst(_, a)
+                | TyTuple a
+                | TyRecord(_, a)
+                | TyUnion(_, a)
+                | TyClass(_, a) ->
+                    for x in a do
+                        walk x
+                | TyFun(a, r) ->
+                    walk a
+                    walk r
+                | TyUnknown _
+                | TyTypar _ -> ()
+
+            walk (zonk memberTy)
+
+            if extra.Count > 0 then
+                mInfo.MethodTypeParams <-
+                    EqArray.ofSeq (
+                        seq {
+                            yield! EqArray.toList mInfo.MethodTypeParams
+                            yield! extra
+                        }
+                    )
+        | _ -> ()
+
     /// Walk every method / property / auto-property body under a typar
     /// scope seeded from `TypeParams` plus a `this` binding linked to
     /// `MkSelfType`. Placeholder member TyVars are pre-populated into
@@ -352,6 +445,7 @@ module Unification =
                                 ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
                             | _ -> ()
 
+                            let outerLevel = ctx.CurrentLevel
                             enterLevel ctx
 
                             try
@@ -360,6 +454,15 @@ module Unification =
                                 exitLevel ctx
                                 ctx.Resolution.BindingTyparSeed <- savedSeed
                                 ctx.Resolution.EnclosingTypars <- savedMemberEnclosing
+
+                            // Generalise any body-inferred free typar into the
+                            // member's own method typars (the `Set.Fold` leak): a
+                            // method whose unannotated param type carries a fresh
+                            // typar no annotation named, never grounded by a call.
+                            match mInfoOpt with
+                            | Some mInfo when mInfo.Kind = ClassMemberKind.Method ->
+                                generaliseMemberTypars ctx outerLevel fc.TypeParams mInfo
+                            | _ -> ()
                         | ValueNone -> ()
                     | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
                         enterLevel ctx

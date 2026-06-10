@@ -54,6 +54,109 @@ let tests =
                             ])
                 }
 
+            // A closure *inside a class member body* (vesper-set-phase-9 wall): a
+            // mono class, a member whose body builds and applies a non-capturing
+            // lambda. `discoverClosures` must now walk member bodies, not just
+            // top-level decls.
+            yield
+                test "a non-capturing closure inside a mono class member body" {
+                    runs
+                        "42"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    member this.M x ="
+                                "        let f = fun y -> y + 1"
+                                "        f x"
+                                "let c = C()"
+                                "printfn \"%d\" (c.M 41)"
+                            ])
+                }
+
+            // The same, but the inner lambda captures a ctor-param backing field
+            // (`n`) — a ground (non-typar) capture, so a monomorphic closure.
+            yield
+                test "a closure inside a mono class member body capturing a ctor param" {
+                    runs
+                        "15"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C(n: int) ="
+                                "    member this.Apply x ="
+                                "        let f = fun y -> y + n"
+                                "        f x"
+                                "let c = C(10)"
+                                "printfn \"%d\" (c.Apply 5)"
+                            ])
+                }
+
+            // A closure inside a *generic* class member body, capturing a value
+            // typed by the class typar `'T` (declaring axis) and a function over
+            // it. The closure re-projects `'T` (`FTTypar(Declaring,0)`) onto its
+            // own class typar `!0` (vesper-set Phase 9, the `Set.Fold` shape).
+            yield
+                test "a closure inside a generic class member body capturing a class-typar value" {
+                    runs
+                        "8"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Box<'T>(v: 'T) ="
+                                "    member this.Mapped (f: 'T -> int) ="
+                                "        let g = fun () -> f v"
+                                "        g ()"
+                                "let b = Box(7)"
+                                "printfn \"%d\" (b.Mapped (fun x -> x + 1))"
+                            ])
+                }
+
+            // A closure inside a generic class member body that captures *both* a
+            // class-typar value (`'T`, declaring axis) and an implicit member-typar
+            // value (`'U`, method axis) — the mixed-axis projection (`'U` lands at
+            // the closure's `!(d + j)`). This is the `Set.map` shape.
+            yield
+                test "a closure inside a generic class member body capturing class + member typar values" {
+                    runs
+                        "12"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Holder<'T>(v: 'T) ="
+                                "    member this.Combine (u: 'U) (f: 'T -> 'U -> int) ="
+                                "        let g = fun () -> f v u"
+                                "        g ()"
+                                "let h = Holder(3)"
+                                "printfn \"%d\" (h.Combine 4 (fun a b -> a * b))"
+                            ])
+                }
+
+            // The `Set.Fold` shape: a generic class member with *unannotated*
+            // params whose types are inferred (via a generic module fn call) to a
+            // fresh state typar. Because the member is never *called* in this
+            // assembly (a library API), those typars must be generalised into the
+            // member's own method typars — if generalisation fails they leak as
+            // `?ungrounded-operator` into the closure's capture field. The member
+            // is emitted regardless of being called, so the leak surfaces at
+            // emission.
+            yield
+                test "a generic class member with body-inferred (uncalled) method typars (Set.Fold shape)" {
+                    runs
+                        "ok"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Tree<'T> = { Value: 'T }"
+                                "module TreeOps ="
+                                "    let fold f x (t: Tree<'T>) = f x t.Value"
+                                "type Coll<'T>(t: Tree<'T>) ="
+                                "    member s.Fold f z = TreeOps.fold (fun x z -> f z x) z t"
+                                "let c = Coll({ Value = 3 })"
+                                "printfn \"%s\" \"ok\""
+                            ])
+                }
+
             // `(+)` resolves as a *value* — an `External op_Addition` the call site
             // references — before eta-reification gives it nested `Vesper.Fun`
             // closures (the runtime shape lives in `SelfHostTests`). Former Slice5 M3.

@@ -231,12 +231,13 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let parent = genericClosureTypeSpec name args
 
         // The `parent` TypeSpec above was minted under the caller's ambient closure
-        // mode (off at a construction site inside a static method → `!!i`; on inside
-        // an enclosing closure's body → `!i`); the member-ref signature below speaks
-        // the closure's own typars, so force closure mode on:
-        // the embedded `FTTypar(Method, i)` encode to the closure class's `!i`.
-        let savedMode = env.ClosureTyparMode
-        env.ClosureTyparMode <- true
+        // scope (off at a construction site inside a static method → `!!i`; on inside
+        // an enclosing closure's body → the enclosing closure's slots); the
+        // member-ref signature below speaks *this* closure's own typars, so force
+        // its closure scope on: a `FTTypar(Declaring, i)` encodes `!i` and a
+        // `FTTypar(Method, j)` the closure class's `!(d + j)`.
+        let savedMode = env.ClosureTyparScope
+        env.ClosureTyparScope <- ValueSome shape.DeclaringTypars
 
         let handle =
             match which with
@@ -280,7 +281,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
                 toEntity (ctx.MemberRef(parent, "Invoke", s))
 
-        env.ClosureTyparMode <- savedMode
+        env.ClosureTyparScope <- savedMode
         handle
 
     member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which

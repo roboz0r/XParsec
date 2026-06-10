@@ -139,7 +139,16 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         |> List.iter (fun c ->
             if c.Typars > 0 then
                 let handle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))
-                provider.RegisterClosure(c.Name, c.Typars, c.Captures |> List.map snd, c.ParamTy, c.ResultTy, handle)
+
+                provider.RegisterClosure(
+                    c.Name,
+                    c.Typars,
+                    c.DeclaringTypars,
+                    c.Captures |> List.map snd,
+                    c.ParamTy,
+                    c.ResultTy,
+                    handle
+                )
         )
 
     // ---- Field table: the writer's field pass ----
@@ -152,8 +161,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     do
         for fs in layout.Fields do
-            if fs.NeedsClosureScope then
-                provider.EnterClosureTyparScope()
+            match fs.ClosureScope with
+            | ValueSome d -> provider.EnterClosureTyparScope d
+            | ValueNone -> ()
 
             // A leaked metavar / unresolved head in a field type (e.g. a closure
             // capture whose element typar never grounded) surfaces here as an opaque
@@ -167,7 +177,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
             let h = ctx.AddField(fs.Attrs, fs.Name, fieldSig)
 
-            if fs.NeedsClosureScope then
+            if fs.ClosureScope.IsSome then
                 provider.ExitClosureTyparScope()
 
             fieldDefHandles.Add(fs.Key, h)
@@ -354,13 +364,16 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         for c in closures do
             let captureFields = Dictionary<NodeKey, EntityHandle>()
             let isGenericClosure = c.Typars > 0
-            // This closure's self-instantiation over its own typars: the enclosing
-            // method's `FTTypar(Method, i)`, which (in closure mode) encode to the
-            // closure class's `!i`.
-            let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(TyparAxis.Method, i) ]
+            // This closure's self-instantiation over its *own* typars (`!0 … !{n-1}`),
+            // used for the capture-field `MemberRef`s on its self-`TypeSpec`. A
+            // closure typar `i` is its own declaring typar, so `FTTypar(Declaring, i)`
+            // encodes `!i` regardless of the closure-scope offset (only method-axis
+            // typars are re-projected). This is offset-independent — the same bytes
+            // a static-fn closure emitted before.
+            let selfArgs = [ for i in 0 .. c.Typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
             if isGenericClosure then
-                provider.EnterClosureTyparScope()
+                provider.EnterClosureTyparScope c.DeclaringTypars
 
             let fieldHandles =
                 c.Captures
