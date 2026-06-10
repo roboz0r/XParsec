@@ -205,4 +205,92 @@ let tests =
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected (+)-as-value TAST: %A" other
                 }
+
+            // An *own-class static-operator member* used as a first-class value
+            // (the `Set.Union` shape, vesper-set Phase 9 wall): `(+)` resolves to
+            // the class's `static member (+)`, not a built-in operator, so its
+            // eta-reified closure body must `call` the static member — NOT collapse
+            // to inline IL the way a primitive `(+)` does. A mono class at module
+            // level isolates the value form.
+            yield
+                test "a mono own-class static-operator member passed as a value" {
+                    runs
+                        "6"
+                        (String.concat
+                            "\n"
+                            [
+                                "type V(n: int) ="
+                                "    member x.N = n"
+                                "    static member (+) (a: V, b: V) = V(a.N + b.N)"
+                                "let xs = [ V 1; V 2; V 3 ]"
+                                "let total = List.fold (+) (V 0) xs"
+                                "printfn \"%d\" total.N"
+                            ])
+                }
+
+            // The faithful `Set.Union` shape: a *generic* class whose `static member
+            // (+)` is passed by value to `List.fold` from inside another member body.
+            // The eta-reified closure is a member-body closure on a generic class
+            // (declaring-axis typar `'T`) whose body `call`s the class's own
+            // `op_Addition` static member (verified clean by ilverify). The fold runs
+            // inside an *instance* member so the driver dispatches it off the receiver
+            // value — sidestepping the orthogonal, pre-existing gap that a static
+            // method call on a generic class from a concrete (non-declaring) context
+            // emits an open `!0` receiver instead of the instantiation.
+            // The faithful `Set.Union` shape at the front end: a *generic* own-class
+            // `static member (+)` taken by value resolves to that member, so Freeze
+            // eta-expands it to `fun a b -> V<_>.op_Addition(a, b)` — a `Lambda` whose
+            // body is a `StaticMethodCall` keyed on the class's own `op_Addition` — not
+            // a bare `External`. (End-to-end the *runtime* row above covers the
+            // monomorphic case; a generic end-to-end run is blocked by two unrelated
+            // pre-existing codegen gaps — a static-method call on a generic class from
+            // a concrete context emits an open `!0` receiver, and a higher-order call
+            // with a closure argument from inside a member body returns its seed — so
+            // the generic case is pinned here at the TAST level, where this change
+            // lives. The emitted generic member-body closures verify clean under
+            // `ilverify`.)
+            yield
+                test "a generic own-class static-operator value froze to a Lambda calling op_Addition" {
+                    // The default contract stack (not `MockBuiltins`) carries the
+                    // SRTP `(+)`, so the operator unifies with `V<int>` rather than
+                    // forcing `int`.
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "type V<'T>(n: int) ="
+                                "    member x.N = n"
+                                "    static member (+) (a: V<'T>, b: V<'T>) = V<'T>(a.N + b.N)"
+                                "let add : V<int> -> V<int> -> V<int> = (+)"
+                            ]
+
+                    let provider =
+                        XParsec.FSharp.Codegen.Clr.SymbolProviders.buildContract defaultManifests
+
+                    let lexed, file = parseFile src
+                    let tast = Pipeline.analyseSem provider src lexed file
+
+                    if not (List.isEmpty tast.Diagnostics) then
+                        failtestf "diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message))
+
+                    let addBinding =
+                        tast.Decls
+                        |> EqArray.toList
+                        |> List.tryPick (fun d ->
+                            match d with
+                            | TDecl.Let(TPat.NamedSimple _, value, _, _) -> Some value
+                            | _ -> None
+                        )
+
+                    match addBinding with
+                    | Some(TExpr.Lambda(_, TExpr.Lambda(_, body, _), _)) ->
+                        match body with
+                        | TExpr.StaticMethodCall(SymbolKey.MemberKey(_, "op_Addition", _, _), args, _) ->
+                            Expect.equal
+                                (EqArray.toList args |> List.length)
+                                2
+                                "op_Addition is applied to both eta params"
+                        | other -> failtestf "expected StaticMethodCall(op_Addition, …), got %A" other
+                    | other -> failtestf "expected a curried Lambda eta-expansion, got %A" other
+                }
         ]

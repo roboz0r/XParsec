@@ -415,6 +415,77 @@ module FreezeExpr =
             | true, info -> pick info.Key info.Members
             | false, _ -> ValueNone
 
+    /// `(+)`-as-a-value whose operands are a *project-local* nominal that declares
+    /// the operator as a `static member` (the `Set.(+)` shape — `set.fs:821`, used
+    /// by value in `Set.Union`'s `Seq.fold (+) …`). F# resolves such an operator
+    /// value to the type's **own** static member, not the built-in arithmetic
+    /// operator; so eta-expand it here into a closure whose body `call`s that static
+    /// member — `fun a b -> T.op_Addition(a, b)` as a `StaticMethodCall` — rather
+    /// than leaving a bare `External("op_Addition", …)` value. The latter is wrong
+    /// two ways: codegen's eta path is only reached for module-level decls (not
+    /// member bodies, so the value would survive to `buildExpr`'s catch-all as
+    /// `Emit: unsupported expression: External`), and even when it *is* reached,
+    /// `expandBuiltinOps` collapses the saturated `op_Addition` to an inline `add`
+    /// opcode — emitting integer arithmetic over object references. Returns
+    /// `ValueNone` for a built-in operator over primitives (`int (+)` etc.) or any
+    /// operand whose type isn't a project-local nominal with that static member, so
+    /// the existing `External` value path is untouched.
+    let private tryOwnOperatorValue (ctx: PassContext) (key: NodeKey) (name: string) (ty: SemType) : TExpr voption =
+        // A user-defined operator member always compiles to an `op_*` name; bail
+        // early on anything else (a plain ident never reaches this).
+        if not (name.StartsWith "op_") then
+            ValueNone
+        else
+            // Peel the curried arrows to (paramTys, retTy). A non-function value
+            // is not an operator passed by value.
+            let rec arrows (t: SemType) =
+                match Unification.zonk t with
+                | TyFun(a, b) ->
+                    let ps, r = arrows b
+                    a :: ps, r
+                | other -> [], other
+
+            match arrows ty with
+            | [], _ -> ValueNone
+            | (operand :: _) as paramTys, retTy ->
+                match Unification.zonk operand with
+                | TyClass(operandKey, _)
+                | TyUnion(operandKey, _) ->
+                    match tryClassMember ctx (SymbolKeyOps.simpleName operandKey) name with
+                    | ValueSome(declKey, m) when m.IsStatic ->
+                        // One synthetic lambda parameter per arrow, keyed under the
+                        // value-site offset (distinct per index, mirroring the
+                        // `Expr.Function` synthetic-param mint). The body never
+                        // re-enters the side tables, so the inline `SemType` carried
+                        // on each `Var` is authoritative (no TyVar lookup).
+                        let psKeyed =
+                            paramTys
+                            |> List.mapi (fun i pty ->
+                                NodeKey.ofSynthetic (key.Offset + i) NodeKind.SynthLambdaBody, pty
+                            )
+
+                        let memberKey = LocalSymbolKey.ofMember declKey name MemberKind.Method
+
+                        let body =
+                            TExpr.StaticMethodCall(
+                                memberKey,
+                                EqArray.ofList [ for (k, pty) in psKeyed -> TExpr.Var(k, pty) ],
+                                retTy
+                            )
+
+                        let lam, _ =
+                            List.foldBack
+                                (fun (k, pty) (inner, innerTy) ->
+                                    let lamTy = TyFun(pty, innerTy)
+                                    TExpr.Lambda(TPat.NamedSimple(k, pty), inner, lamTy), lamTy
+                                )
+                                psKeyed
+                                (body, retTy)
+
+                        ValueSome lam
+                    | _ -> ValueNone
+                | _ -> ValueNone
+
     /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`
     /// with a known member `M`. The parser folds the dot into the long ident
     /// rather than emitting `DotLookup` when the head is a regular identifier.
@@ -1402,12 +1473,18 @@ module FreezeExpr =
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-            // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
-            // one (provider hit). Lets codegen distinguish a canonical
-            // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
-            // identity rather than name suffix (vesper-set-sprint-plan §0.1 / M1).
-            let symKey = ctx.Resolution.ExternalValue.TryGetValue key
-            TExpr.External(name, symKey, ty)
+            // An own-class static-operator member used by value (`Set.(+)`) resolves
+            // to that member, not the built-in operator: eta-expand to a closure
+            // calling it, ahead of the generic `External` value path.
+            match tryOwnOperatorValue ctx key name ty with
+            | ValueSome lam -> lam
+            | ValueNone ->
+                // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
+                // one (provider hit). Lets codegen distinguish a canonical
+                // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
+                // identity rather than name suffix (vesper-set-sprint-plan §0.1 / M1).
+                let symKey = ctx.Resolution.ExternalValue.TryGetValue key
+                TExpr.External(name, symKey, ty)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
     /// head segment's TAST node is a `Var` pointing back at the local binding.
