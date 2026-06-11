@@ -148,11 +148,16 @@ module Emit =
         buildExpr env b body
 
         // A `void`-returning interface-impl member (e.g. `IDisposable.Dispose`):
-        // the body still leaves the `unit`-as-value `System.ValueTuple` on the
+        // the body normally leaves the `unit`-as-value `System.ValueTuple` on the
         // stack (every Vesper expression yields a value), but a `void` method must
-        // `ret` empty-stacked — pop the residual unit first.
+        // `ret` empty-stacked — pop the residual unit first. A body that *terminates*
+        // (ends in `raise`/`Throw`, e.g. `ICollection<'T>.Add` on a read-only set)
+        // leaves nothing and the fall-through is unreachable, so guard the pop on a
+        // live operand: emitting it unconditionally yields an unreachable `Pop` that
+        // `IlIr.analyze` rejects as an unbalanced body.
         if voidReturn then
-            b.Add ILInstr.Pop
+            while b.Depth > 0 do
+                b.Add ILInstr.Pop
 
         b.Add ILInstr.Ret
         b.Body

@@ -526,21 +526,29 @@ module internal NominalEmit =
                 )
 
             let bodyOffset =
-                Cil.buildBody
-                    encodeLocals
-                    bodyStream
-                    (IlIr.lower (
-                        Emit.buildMember
-                            emitCtx
-                            mem.ThisKey
-                            mem.BaseKey
-                            mem.Params
-                            returnsVoid
-                            // The body is already `expandBuiltinOps`-expanded in
-                            // `Layout.build` (once, so closure discovery and this
-                            // walk share node identity); no re-expansion here.
-                            mem.Body
-                    ))
+                try
+                    Cil.buildBody
+                        encodeLocals
+                        bodyStream
+                        (IlIr.lower (
+                            Emit.buildMember
+                                emitCtx
+                                mem.ThisKey
+                                mem.BaseKey
+                                mem.Params
+                                returnsVoid
+                                // The body is already `expandBuiltinOps`-expanded in
+                                // `Layout.build` (once, so closure discovery and this
+                                // walk share node identity); no re-expansion here.
+                                mem.Body
+                        ))
+                with ex ->
+                    raise (
+                        System.Exception(
+                            sprintf "While lowering body of member '%A.%s'\n%s" td.Key mem.Name ex.Message,
+                            ex
+                        )
+                    )
 
             let paramTys = [ for (_, t) in mem.Params -> t ]
 

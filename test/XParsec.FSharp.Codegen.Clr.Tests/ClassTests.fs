@@ -1602,6 +1602,46 @@ let interfaceImplCodegenTests =
                 Expect.isTrue (nonGenericEnum.MoveNext()) "the non-generic enumerator advances to the first element"
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
+
+            // vesper-set-phase-9-handoff "unbalanced member-body IL": a `void`-
+            // returning interface-impl member whose body *terminates* (ends in
+            // `raise`) — the `ICollection<'T>.Add` / `IDisposable.Dispose` shape on a
+            // read-only `Set<'T>`. `buildMember` used to emit the residual-`unit` pop
+            // for the void slot unconditionally; after a `Throw` the fall-through is
+            // unreachable, so the pop lowered to an unreachable `Pop` that
+            // `IlIr.analyze` rejected as an unbalanced body. Guarding the pop on a live
+            // operand closes it. Fails pre-fix with `IlIr.lower: unbalanced body:
+            // unreachable instruction Pop`.
+            test "a void interface member whose body ends in `raise` emits and throws at runtime" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    interface System.IDisposable with"
+                            "        member this.Dispose() = raise (System.NotSupportedException(\"nope\"))"
+                        ]
+
+                let _, artifact = compileSource "ClsVoidRaise" src
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "C"
+                Expect.isNotNull ty "the assembly contains the class type C"
+
+                let disposable = Activator.CreateInstance ty :?> System.IDisposable
+
+                let raised =
+                    try
+                        disposable.Dispose()
+                        None
+                    with :? System.NotSupportedException as ex ->
+                        Some ex.Message
+
+                Expect.equal
+                    raised
+                    (Some "nope")
+                    "Dispose raises NotSupportedException (carrying the source message) through the void interface slot"
+            }
         ]
 
 [<Tests>]
