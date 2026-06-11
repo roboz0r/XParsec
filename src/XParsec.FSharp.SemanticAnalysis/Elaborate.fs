@@ -21,6 +21,103 @@ module Elaborate =
     // A declaring-type typar becomes a `TyConst "'A"` marker the backend's
     // typar encoder maps to a generic-parameter index.
 
+    /// The `i`-th curried parameter of an elaborated `let`-body (a nest of
+    /// `Lambda`s): its binder `NodeKey` and the lambda's body (the parameter's
+    /// scope). `ValueNone` if the body has fewer than `i+1` lambdas, or the
+    /// target parameter is not a simple name (a tuple-destructured parameter
+    /// can't carry `[<CallAtMostOnce>]`).
+    let rec private nthLambdaParam (body: TExpr) (i: int) : (NodeKey * TExpr) voption =
+        match body with
+        | TExpr.Lambda(p, inner, _) ->
+            if i = 0 then
+                match p with
+                | TPat.NamedSimple(k, _) -> ValueSome(k, inner)
+                | _ -> ValueNone
+            else
+                nthLambdaParam inner (i - 1)
+        | _ -> ValueNone
+
+    /// The binder `NodeKey` `translatePat` mints for an argument pattern — the
+    /// innermost `NamedSimple` after peeling the inert wrappers (`[<…>] p`, `(p)`,
+    /// `p : t`, `p as x`). `ValueNone` for a non-simple parameter (a tuple &c.).
+    /// Used only to assert the positional alignment between an inline's
+    /// `argumentPats` and its elaborated curried-lambda nest (`recordInlineParamAttrs`).
+    let rec private argPatBinderKey (p: Pat<SyntaxToken>) : NodeKey voption =
+        match p with
+        | Pat.NamedSimple _ -> ValueSome(CstKeys.ofPat p)
+        | Pat.Attributed(pat = inner)
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Typed(pat = inner)
+        | Pat.As(pat = inner) -> argPatBinderKey inner
+        | _ -> ValueNone
+
+    /// The `[<CallAtMostOnce>]` linearity contract: `k` is referenced AT MOST
+    /// ONCE in `scope`, and (if once) that use is not under a lambda or loop — so
+    /// substituting the argument at the use evaluates it at most once. Conditional
+    /// branches / match arms are fine (they only *skip* the use, never repeat it),
+    /// so they are not special-cased; `While`/`ForTo`/`ForIn` bodies (and a
+    /// `While` condition) repeat, so a use there is rejected. `TastWalk.usesOf` is
+    /// the shared depth-tracking walk: `[]` (unused) or `[0]` (one straight-line
+    /// use) satisfies the contract.
+    let private paramUsedAtMostOnce (k: NodeKey) (scope: TExpr) : bool =
+        match TastWalk.usesOf k scope with
+        | [] -> true
+        | [ depth ] -> depth = 0
+        | _ -> false
+
+    /// Decode + validate the compiler attributes on an `inline` binding's
+    /// parameters, recording them in `ctx.InlineParamAttrs` (keyed by the
+    /// function-binder `NodeKey`) for `Passes.InlineExpansion`. Errors a
+    /// `[<CallAtMostOnce>]` on a non-`inline` binding, a non-simple parameter, or
+    /// one that violates the linearity contract. A no-op when no parameter carries
+    /// a recognised attribute.
+    let private recordInlineParamAttrs
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (binderKey: NodeKey)
+        (valT: TExpr)
+        : unit =
+        if not b.argumentPats.IsEmpty then
+            let attrs = [| for p in b.argumentPats -> Attributes.paramAttrsOfArgPat ctx p |]
+
+            if attrs |> Array.exists (fun a -> not a.IsDefault) then
+                if not b.inlineToken.IsSome then
+                    ctx.Error(
+                        CstKeys.ofBinding b,
+                        "A parameter attribute such as [<CallAtMostOnce>] is only valid on a parameter of an 'inline' function"
+                    )
+                else
+                    attrs
+                    |> Array.iteri (fun i a ->
+                        if a.CallAtMostOnce then
+                            // The flag at position `i` (decoded from `argumentPats.[i]`)
+                            // must validate against — and later be honoured at — the
+                            // `i`-th curried lambda. The inliner's `peel` re-derives the
+                            // same `i` from the lambda nest, so this attrs array and the
+                            // nest must stay positionally aligned; assert the binder keys
+                            // agree so a future reordering of either fails loudly here
+                            // rather than silently mis-marking a parameter as lazy.
+                            match nthLambdaParam valT i with
+                            | ValueSome(pk, _) when ValueSome pk <> argPatBinderKey b.argumentPats.[i] ->
+                                failwithf
+                                    "Elaborate.recordInlineParamAttrs: parameter %d binder key %A does not match its argument pattern (alignment invariant broken)"
+                                    i
+                                    pk
+                            | ValueSome(pk, scope) when paramUsedAtMostOnce pk scope -> ()
+                            | ValueSome _ ->
+                                ctx.Error(
+                                    CstKeys.ofPat b.argumentPats.[i],
+                                    "A [<CallAtMostOnce>] parameter must be used at most once in the body, and not under a lambda or loop"
+                                )
+                            | ValueNone ->
+                                ctx.Error(
+                                    CstKeys.ofPat b.argumentPats.[i],
+                                    "[<CallAtMostOnce>] is not supported on this parameter shape (it must be a single named parameter)"
+                                )
+                    )
+
+                    ctx.InlineParamAttrs.[binderKey] <- attrs
+
     let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
 
@@ -362,7 +459,8 @@ module Elaborate =
             // site's desugared `External(op_Equality)` head.
             | Pat.Op io -> Desugar.opPatCompiledName ctx.NameOf io
             | Pat.EnclosedBlock(pat = inner)
-            | Pat.Typed(pat = inner) -> walk inner
+            | Pat.Typed(pat = inner)
+            | Pat.Attributed(pat = inner) -> walk inner
             | _ -> ValueNone
 
         walk b.headPat
@@ -619,7 +717,8 @@ module Elaborate =
                 match p with
                 | Pat.NamedSimple _ -> ValueSome(CstKeys.ofPat p)
                 | Pat.EnclosedBlock(pat = inner)
-                | Pat.Typed(pat = inner) -> walk inner
+                | Pat.Typed(pat = inner)
+                | Pat.Attributed(pat = inner) -> walk inner
                 | _ -> ValueNone
 
             walk b.headPat
@@ -1120,6 +1219,13 @@ module Elaborate =
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
+                    // Decode + validate compiler parameter attributes
+                    // (`[<CallAtMostOnce>]`) for an inline binding, recording them
+                    // for `Passes.InlineExpansion`. Keyed by the function binder.
+                    match tpat with
+                    | TPat.NamedSimple(binderKey, _) -> recordInlineParamAttrs ctx b binderKey valT
+                    | _ -> ()
+
                     // A module-`let` compiled as a generic
                     // static method (or generic closure) carries its free typars as
                     // `TyTypar(Method, i)`. The index order is minted once here
@@ -1234,7 +1340,7 @@ module Elaborate =
         // contract-stack wrapper `SymbolProviders.buildContract` builds. No cast.
         let decls =
             elaborate ctx file
-            |> InlineExpansion.run ctx.Provider
+            |> InlineExpansion.run ctx
             |> List.map (fun (d, env) -> freezeTypars env d)
 
         {

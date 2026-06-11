@@ -178,6 +178,7 @@ module NameResolutionScope =
         | Pat.EnclosedBlock(pat = inner) -> bindingsOfPat ctx inner
         | Pat.Tuple(patterns = pats) -> [ for sub in pats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Typed(pat = inner) -> bindingsOfPat ctx inner
+        | Pat.Attributed(pat = inner) -> bindingsOfPat ctx inner
         | Pat.As(pat = inner; ident = ident) -> (ctx.NameOf ident, CstKeys.ofPat p) :: bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat

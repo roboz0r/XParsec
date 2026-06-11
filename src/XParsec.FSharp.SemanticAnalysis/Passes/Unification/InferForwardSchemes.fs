@@ -67,6 +67,7 @@ module UnificationInferForwardSchemes =
         | Pat.Typed(typ = t) -> ValueSome t
         | Pat.EnclosedBlock(pat = inner) -> tryArgAnnotation inner
         | Pat.As(pat = inner) -> tryArgAnnotation inner
+        | Pat.Attributed(pat = inner) -> tryArgAnnotation inner
         | _ -> ValueNone
 
     /// Forward-reference pre-pass (G19 residue). `walkElems` types class member

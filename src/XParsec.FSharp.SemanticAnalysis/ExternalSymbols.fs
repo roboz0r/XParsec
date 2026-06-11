@@ -365,6 +365,19 @@ type ExternalTypeShape =
     /// genuinely *unresolved* name, which never registers and bakes `TyUnknown`.
     | Opaque of arity: int
 
+/// A cross-package `val inline` body plus the compiler attributes on its
+/// parameters, positionally aligned to the inline's curried parameters. `Decl`
+/// is the retained `let inline` declaration the pre-freeze `Passes.InlineExpansion`
+/// splices at each use site; `ParamAttrs` is the cross-package twin of
+/// `PassContext.InlineParamAttrs` (`[<CallAtMostOnce>]` &c.) — empty for a body
+/// whose parameters carry no recognised attribute. Both are read by the inliner;
+/// the attrs gate call-by-name-at-single-use splicing.
+type InlineBody =
+    {
+        Decl: TDecl
+        ParamAttrs: ParamAttrs[]
+    }
+
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call
 /// concurrently from multiple threads. Implementations that cache lazily must
 /// guard their internal mutation. Per-file pipelines run independent
@@ -428,14 +441,14 @@ type IExternalSymbolProvider =
     /// (disambiguates a referenced package's `hash` from a user shadow).
     /// Providers that carry no inline bodies (the front-end-only paths) return
     /// `ValueNone`.
-    abstract TryLookupInlineBody: key: SymbolKey -> TDecl voption
+    abstract TryLookupInlineBody: key: SymbolKey -> InlineBody voption
 
     /// `TryLookupInlineBody` by source/compiled name — the residual fallback for
     /// use-site `External` heads that still carry `key = ValueNone` (operator /
     /// desugared heads, which `FreezeExpr` does not yet stamp). Shrinks toward
     /// nothing as more head shapes get their key stamped; `ValueNone` once they
     /// all do (and for providers with no inline bodies).
-    abstract TryLookupInlineBodyByName: name: string -> TDecl voption
+    abstract TryLookupInlineBodyByName: name: string -> InlineBody voption
 
 /// The open signature of an external module-level function as the codegen
 /// boundary sees it: the curried

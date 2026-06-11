@@ -39,6 +39,15 @@ let tests =
                     // the destructuring side: an 8-element tuple *pattern* is caught
                     // the same way (`checkTuplePat`), not just the construction site.
                     "elements are not yet supported", "let a, b, c, d, e, f, g, h = (1, 2, 3, 4, 5, 6, 7, 8)\n()"
+                    // a [<CallAtMostOnce>] parameter used more than once violates the
+                    // linearity contract (the compiler can only guarantee at-most-once
+                    // evaluation for a single, non-repeated use).
+                    "used at most once",
+                    "let inline twice (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else b\nprintfn \"%b\" (twice true true)"
+                    // the same attribute on a NON-inline function: it only has meaning
+                    // for the splice the inliner performs, so it is rejected up front.
+                    "only valid on a parameter of an 'inline' function",
+                    "let notInline (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else false\nprintfn \"%b\" (notInline true true)"
                 ] -> test src { failsWith fragment src }
 
             // a front-end-only positive: the duck-typed `for-in` over a source

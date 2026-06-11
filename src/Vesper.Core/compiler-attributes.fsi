@@ -12,6 +12,21 @@ open System
 // (operators-plan.md O5, O8, O10). Authored here (NOT ported); the targets mirror
 // FSharp.Core's so annotation placement stays familiar.
 
+/// <summary>Adding this attribute to a parameter of an inline function marks the
+/// argument as call-at-most-once: the compiler splices it unevaluated at its
+/// single linear use site (call-by-name for one use) rather than binding it
+/// eagerly, so it is evaluated at most once and on demand. This is the mechanism
+/// behind the short-circuiting of <c>&amp;&amp;</c> / <c>||</c> without those
+/// operators being special-cased in the compiler. The parameter must be used at
+/// most once in the body, not under a lambda or loop, or compilation fails.</summary>
+[<AttributeUsage(AttributeTargets.Parameter, AllowMultiple = false)>]
+[<Sealed>]
+type CallAtMostOnceAttribute =
+    inherit Attribute
+
+    /// <summary>Creates an instance of the attribute</summary>
+    new: unit -> CallAtMostOnceAttribute
+
 /// <summary>Adding this attribute to a record or union type confirms the automatic
 /// generation of overrides for 'Equals' and 'GetHashCode' for the type.</summary>
 [<AttributeUsage(AttributeTargets.Class ||| AttributeTargets.Struct, AllowMultiple = false)>]

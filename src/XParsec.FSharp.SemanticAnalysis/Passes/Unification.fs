@@ -29,6 +29,11 @@ module Unification =
     let substituteWith = UnificationEngine.substituteWith
     let mkNamedTypeSubst = UnificationEngine.mkNamedTypeSubst
     let instantiateMember = UnificationEngine.instantiateMember
+    /// Walk a class receiver's `inherit` chain for a non-static member, yielding
+    /// the declaring ancestor's instantiated type + the member's type. `FreezeExpr`
+    /// reuses this (the declaring type) so the inherited-member read isn't a second
+    /// chain walk that must stay in sync with inference's.
+    let tryClassChainMemberDecl = UnificationEngine.tryClassChainMemberDecl
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
@@ -210,7 +215,8 @@ module Unification =
                         | _ -> ()
 
                     ignore inner
-                | Pat.EnclosedBlock(pat = inner) -> walk inner
+                | Pat.EnclosedBlock(pat = inner)
+                | Pat.Attributed(pat = inner) -> walk inner
                 | Pat.Tuple(patterns = pats) ->
                     for sub in pats do
                         walk sub
@@ -379,7 +385,8 @@ module Unification =
                                 | Pat.NamedSimple _
                                 | Pat.Op _ -> ValueSome(CstKeys.ofPat p)
                                 | Pat.EnclosedBlock(pat = inner)
-                                | Pat.Typed(pat = inner) -> walkP inner
+                                | Pat.Typed(pat = inner)
+                                | Pat.Attributed(pat = inner) -> walkP inner
                                 | _ -> ValueNone
 
                             walkP b.headPat

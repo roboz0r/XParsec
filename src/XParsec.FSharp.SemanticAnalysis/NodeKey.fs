@@ -84,6 +84,10 @@ type NodeKind =
     /// token) so a cons node never collides with its head sub-pattern's key —
     /// same rationale as the `ExprInfixApp` operator-token choice.
     | PatCons = 113us
+    /// Attribute-decorated parameter (`([<CallAtMostOnce>] x)`). Keyed distinctly
+    /// from the wrapped pattern (which shares the same first token) so the
+    /// `Attributed` node and its inner `NamedSimple` never collide.
+    | PatAttributed = 114us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

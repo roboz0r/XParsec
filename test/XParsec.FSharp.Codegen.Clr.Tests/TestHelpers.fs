@@ -481,6 +481,28 @@ let runs (expected: string) (src: string) : unit =
 /// callers the `\n` plumbing in the table.
 let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
 
+/// Compile `src` as a bare program, run it in-process, and assert it threw a
+/// runtime exception whose type-name contains `expectedTypeFragment` (e.g.
+/// `"DivideByZero"`). `runEntryPoint` surfaces a target-invocation failure as a
+/// `failwithf` whose message embeds the inner exception's full type name, so the
+/// fragment match keys off that. Used to prove an argument WAS evaluated (a
+/// strict, non-short-circuiting parameter).
+let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
+    let _, artifact = compileSource "Layer1Corpus" src
+
+    let thrown =
+        try
+            runEntryPoint (Codegen.toBytes artifact) |> ignore
+            None
+        with ex ->
+            Some ex.Message
+
+    match thrown with
+    | Some msg when msg.Contains expectedTypeFragment -> ()
+    | Some msg ->
+        failwithf "expected a runtime %s but got a different failure:\n%s\nfor:\n%s" expectedTypeFragment msg src
+    | None -> failwithf "expected a runtime %s but the program completed for:\n%s" expectedTypeFragment src
+
 // ---- Vesper.Option runtime harness (vesper-lib-test-plan Phase 2) -----------
 // `Vesper.Option` is *not* in `defaultManifests` (adding `Some`/`None`/`Option`
 // to the global stack would shadow resolution in every other test), so it gets

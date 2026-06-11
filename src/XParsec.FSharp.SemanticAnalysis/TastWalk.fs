@@ -396,3 +396,55 @@ module TastWalk =
             iterPat it arm.Pat
             arm.Guard |> Option.iter (iterExpr it)
             iterExpr it arm.Body
+
+    /// Every `Var k` occurrence in `body`, each tagged with the count of enclosing
+    /// *evaluation-deferring-or-repeating* constructs (lambdas and loop bodies)
+    /// above it — `0` for a straight-line or conditional-branch occurrence. A
+    /// `While` *condition* re-evaluates each iteration so it counts as repeating;
+    /// the bounds of `ForTo` and the source of `ForIn` are evaluated once, so they
+    /// stay at the ambient depth; the loop *body* and a lambda body increment. The
+    /// canonical primitive for linearity / capture checks
+    /// (e.g. `[<CallAtMostOnce>]` validation): a parameter is safe to substitute at
+    /// its single use iff `usesOf k scope` is `[]` or `[0]`. Replaces the ad-hoc
+    /// depth-tracking iters passes would otherwise hand-roll.
+    let usesOf (k: NodeKey) (body: TExpr) : int list =
+        let acc = ResizeArray<int>()
+        let mutable depth = 0
+
+        let it =
+            { identityIter with
+                VisitExpr =
+                    fun iter e ->
+                        match e with
+                        | TExpr.Var(vk, _) when vk = k ->
+                            acc.Add depth
+                            false
+                        | TExpr.Lambda(_, b, _) ->
+                            depth <- depth + 1
+                            iterExpr iter b
+                            depth <- depth - 1
+                            false
+                        | TExpr.While(c, b, _) ->
+                            depth <- depth + 1
+                            iterExpr iter c
+                            iterExpr iter b
+                            depth <- depth - 1
+                            false
+                        | TExpr.ForTo(_, s, e2, b, _) ->
+                            iterExpr iter s
+                            iterExpr iter e2
+                            depth <- depth + 1
+                            iterExpr iter b
+                            depth <- depth - 1
+                            false
+                        | TExpr.ForIn(_, src, b, _, _) ->
+                            iterExpr iter src
+                            depth <- depth + 1
+                            iterExpr iter b
+                            depth <- depth - 1
+                            false
+                        | _ -> true
+            }
+
+        iterExpr it body
+        List.ofSeq acc

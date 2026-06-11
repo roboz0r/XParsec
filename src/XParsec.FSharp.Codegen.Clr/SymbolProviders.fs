@@ -138,8 +138,8 @@ module SymbolProviders =
     /// normal identifier, so it clears the operator-named-binding freeze gap that
     /// still blocks `=`/`+`/… (operators-plan.md). The arithmetic/equality
     /// operators have no `.fs` body yet and stay on the `Emit.BuiltinOps` stopgap.
-    let private collectInlineBodies (tast: TastFile) : (string * TDecl) list =
-        let acc = ResizeArray<string * TDecl>()
+    let private collectInlineBodies (ctx: PassContext) (tast: TastFile) : (string * InlineBody) list =
+        let acc = ResizeArray<string * InlineBody>()
 
         // Pre-pass: every module-level inline binding's binder NodeKey → its
         // source name. One inline body may reference *another* (failwith calls
@@ -189,7 +189,23 @@ module SymbolProviders =
             // unaddressable from a use site, so it is skipped.
             | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
                 match Map.tryFind k.Raw tast.ModuleMembers with
-                | Some info -> acc.Add(info.Name, rewriteDecl d)
+                | Some info ->
+                    // The parameter attributes (`[<CallAtMostOnce>]` &c.) were
+                    // validated + recorded against this binder key while the body's
+                    // own package was analysed; carry them across the boundary so
+                    // the consumer's inliner honours them without re-decoding.
+                    let paramAttrs =
+                        match ctx.InlineParamAttrs.TryGetValue k with
+                        | true, a -> a
+                        | _ -> [||]
+
+                    acc.Add(
+                        info.Name,
+                        {
+                            Decl = rewriteDecl d
+                            ParamAttrs = paramAttrs
+                        }
+                    )
                 | None -> ()
             | _ -> ()
 
@@ -207,7 +223,7 @@ module SymbolProviders =
     /// matching `composite`'s first-listed-source priority for symbol lookup. A
     /// parse / impl-file-shape failure contributes no body (it surfaces as the
     /// emit-time "no inline body / no recipe" failure at the use site, not here).
-    let inlineBodies (provider: IExternalSymbolProvider) (manifestPaths: string list) : Map<string, TDecl> =
+    let inlineBodies (provider: IExternalSymbolProvider) (manifestPaths: string list) : Map<string, InlineBody> =
         let mutable acc = Map.empty
 
         for manifestPath in manifestPaths do
@@ -244,10 +260,14 @@ module SymbolProviders =
                             // Cross-package inline bodies must re-enter the *SemType*
                             // inline pass at the consumer, so collect them off the
                             // pre-freeze (`analyseSemFor`) tree, not the frozen output.
-                            let tast = Pipeline.analyseSemFor manifest.Name provider parsed.Input parsed.Lexed f
+                            // With-context variant: `collectInlineBodies` reads the
+                            // run's `ctx.InlineParamAttrs` to bake each body's
+                            // parameter attributes into its `InlineBody`.
+                            let ctx, tast =
+                                Pipeline.analyseSemWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
 
-                            for (name, decl) in collectInlineBodies tast do
-                                acc <- Map.add name decl acc
+                            for (name, body) in collectInlineBodies ctx tast do
+                                acc <- Map.add name body acc
 
         acc
 
@@ -260,7 +280,10 @@ module SymbolProviders =
     /// against the stack on every call — this caches that, plus the per-set
     /// `composite`.
     let private contractCache =
-        System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<IExternalSymbolProvider * Map<string, TDecl>>>(
+        System.Collections.Concurrent.ConcurrentDictionary<
+            string,
+            Lazy<IExternalSymbolProvider * Map<string, InlineBody>>
+         >(
             System.StringComparer.Ordinal
         )
 
@@ -275,8 +298,8 @@ module SymbolProviders =
     /// `IExternalSymbolProvider`, so no cast is needed).
     let private withInlineBodies
         (inner: IExternalSymbolProvider)
-        (byKey: System.Collections.Generic.Dictionary<SymbolKey, TDecl>)
-        (byName: Map<string, TDecl>)
+        (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
+        (byName: Map<string, InlineBody>)
         : IExternalSymbolProvider =
         { new IExternalSymbolProvider with
             member _.TryLookup name = inner.TryLookup name
@@ -303,7 +326,7 @@ module SymbolProviders =
     /// reaches the bodies through the provider's inline-body channel
     /// (`buildContract`); the raw `Map` (`contractInlineBodies`) is an
     /// introspection seam for the inline-body collection tests.
-    let private buildContractCached (manifestPaths: string list) : IExternalSymbolProvider * Map<string, TDecl> =
+    let private buildContractCached (manifestPaths: string list) : IExternalSymbolProvider * Map<string, InlineBody> =
         let normalised = manifestPaths |> List.map Path.GetFullPath
         let key = String.concat ";" normalised
 
@@ -336,11 +359,11 @@ module SymbolProviders =
                          // `inlines` map is cached alongside it for `contractInlineBodies`
                          // (the inline-body collection tests).
                          let byKey =
-                             System.Collections.Generic.Dictionary<SymbolKey, TDecl>(HashIdentity.Structural)
+                             System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
-                         for KeyValue(name, decl) in inlines do
+                         for KeyValue(name, body) in inlines do
                              match provider.TryLookup name with
-                             | ValueSome sym -> byKey.[sym.Key] <- decl
+                             | ValueSome sym -> byKey.[sym.Key] <- body
                              | ValueNone -> ()
 
                          withInlineBodies provider byKey inlines, inlines)
@@ -359,5 +382,5 @@ module SymbolProviders =
     /// Production splices these through the provider's `IInlineBodyProvider`
     /// channel (see `buildContract`), never this map. Shares `buildContract`'s
     /// cache.
-    let contractInlineBodies (manifestPaths: string list) : Map<string, TDecl> =
+    let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
         buildContractCached manifestPaths |> snd

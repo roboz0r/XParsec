@@ -84,10 +84,10 @@ let tests =
                      | _ -> false
 
                  for name in [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
-                     Expect.isTrue (isBinaryStaticOpt inlines.[name]) (sprintf "%s is a static-opt inline" name)
+                     Expect.isTrue (isBinaryStaticOpt inlines.[name].Decl) (sprintf "%s is a static-opt inline" name)
 
                  // Unary negation has no narrow/sign variants — a single `neg` IL body.
-                 match inlines.["op_UnaryNegation"] with
+                 match inlines.["op_UnaryNegation"].Decl with
                  | TDecl.Let(_, TExpr.Lambda(_, TExpr.ILIntrinsic("neg", _, _, _), _), true, _) -> ()
                  | other -> failtestf "op_UnaryNegation should be a single `neg` inline, got %A" other
              }

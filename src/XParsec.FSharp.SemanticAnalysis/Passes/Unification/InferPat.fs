@@ -274,7 +274,8 @@ module UnificationInferPat =
                 nodeTv.Link <- ValueSome unionTy
                 unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
-        | Pat.EnclosedBlock(pat = inner) ->
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Attributed(pat = inner) ->
             let innerTy = inferPat ctx inner
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome innerTy

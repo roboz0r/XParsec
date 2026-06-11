@@ -119,6 +119,7 @@ module CstKeys =
         | Pat.EmptyBlock(lParen = pk) -> firstTokenOfParenKind pk
         | Pat.Tuple(patterns = pats) when pats.Length > 0 -> firstTokenOfPat pats.[0]
         | Pat.Typed(pat = inner) -> firstTokenOfPat inner
+        | Pat.Attributed(pat = inner) -> firstTokenOfPat inner
         | Pat.As(pat = inner) -> firstTokenOfPat inner
         | Pat.Or(left = inner) -> firstTokenOfPat inner
         | Pat.Record(lBrace = t) -> t
@@ -193,6 +194,7 @@ module CstKeys =
             | Pat.Tuple _ -> NodeKind.PatTuple
             | Pat.As _ -> NodeKind.PatAs
             | Pat.Typed _ -> NodeKind.PatTyped
+            | Pat.Attributed _ -> NodeKind.PatAttributed
             | Pat.Or _ -> NodeKind.PatOr
             | Pat.EmptyBlock _ -> NodeKind.PatEmptyBlock
             | Pat.Record _ -> NodeKind.PatRecord

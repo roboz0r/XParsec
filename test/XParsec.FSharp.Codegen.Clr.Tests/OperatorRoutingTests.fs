@@ -161,8 +161,8 @@ let tests =
                         true
                     | _ -> false
 
-                Expect.isTrue (isStaticOptInline inlines.["op_Equality"]) "op_Equality is a static-opt inline"
-                Expect.isTrue (isStaticOptInline inlines.["op_Inequality"]) "op_Inequality is a static-opt inline"
+                Expect.isTrue (isStaticOptInline inlines.["op_Equality"].Decl) "op_Equality is a static-opt inline"
+                Expect.isTrue (isStaticOptInline inlines.["op_Inequality"].Decl) "op_Inequality is a static-opt inline"
             }
 
             test

@@ -240,22 +240,39 @@ module UnificationEngine =
     /// `Box<int>` resolves `Box`'s `'a` to `int`). `seen` guards a cyclic
     /// `inherit` chain. `ValueNone` when no class in the chain declares the
     /// member, or a parent name isn't a project-local class.
-    let tryClassChainMember
+    /// The chain walk's full result: the *declaring* class's instantiated nominal
+    /// type (`TyClass(info.Key, args)` at the level the member was found) plus the
+    /// member's type instantiated against that level's args. `FreezeExpr` reads the
+    /// declaring type to upcast the receiver onto the class that emits `get_<seg>`;
+    /// `tryClassChainMember` keeps only the member type for inference's field-step.
+    [<Struct>]
+    type ChainMember =
+        {
+            DeclaringTy: SemType
+            MemberTy: SemType
+        }
+
+    let tryClassChainMemberDecl
         (ctx: PassContext)
         (clsName: string)
         (args: EqArray<SemType>)
         (memberName: string)
-        : SemType voption =
+        : ChainMember voption =
         let seen = HashSet<string>()
 
-        let rec walk (clsName: string) (args: EqArray<SemType>) : SemType voption =
+        let rec walk (clsName: string) (args: EqArray<SemType>) : ChainMember voption =
             if not (seen.Add clsName) then
                 ValueNone
             else
                 match ctx.Types.Class.TryGetValue clsName with
                 | true, info ->
                     match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                    | Some m -> ValueSome(instantiateMember (info.TypeParams, args) m.Type)
+                    | Some m ->
+                        ValueSome
+                            {
+                                DeclaringTy = TyClass(info.Key, args)
+                                MemberTy = instantiateMember (info.TypeParams, args) m.Type
+                            }
                     | None ->
                         match info.BaseType with
                         | ValueSome parentTy ->
@@ -266,6 +283,16 @@ module UnificationEngine =
                 | false, _ -> ValueNone
 
         walk clsName args
+
+    let tryClassChainMember
+        (ctx: PassContext)
+        (clsName: string)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : SemType voption =
+        match tryClassChainMemberDecl ctx clsName args memberName with
+        | ValueSome cm -> ValueSome cm.MemberTy
+        | ValueNone -> ValueNone
 
     /// The result of the subtyping query `subsumes`: `Equal` when the two
     /// types are the same nominal type (with invariant args in v1), `Subtype`

@@ -39,58 +39,14 @@ open XParsec.FSharp.SemanticAnalysis
 
 module InlineExpansion =
 
-    /// True when the inline parameter `k` occurs in `body` EXACTLY ONCE and that
-    /// sole occurrence sits inside a conditional branch (a `then`/`else` of an
-    /// `IfThenElse`) and NOT under a lambda. Such a use can be substituted at the
-    /// occurrence (call-by-name for one linear use) instead of eager `let`-binding,
-    /// so a guarded operand — notably the right side of the library `&&`/`||` whose
-    /// body is `if e1 then e2 else false` — is evaluated only on demand. Any other
-    /// shape (zero/many uses, a use in a straight-line or *condition* position, or a
-    /// use captured by a closure) must keep the eager `let`: substituting it could
-    /// drop / reorder / duplicate / relocate-into-a-closure the argument's
-    /// evaluation. The walk mirrors `nonInlinableLambdaParams`' explicit recursion;
-    /// `IfThenElse` recurses its condition at the ambient depth and its two branches
-    /// at depth+1, `Lambda` recurses its body at lambda-depth+1.
-    let private usedOnceInBranch (k: NodeKey) (body: TExpr) : bool =
-        let mutable count = 0
-        let mutable condAtUse = 0
-        let mutable lambdaAtUse = 0
-        let mutable condDepth = 0
-        let mutable lambdaDepth = 0
-
-        let it =
-            { TastWalk.identityIter with
-                VisitExpr =
-                    fun iter e ->
-                        match e with
-                        | TExpr.Var(vk, _) when vk = k ->
-                            count <- count + 1
-                            condAtUse <- condDepth
-                            lambdaAtUse <- lambdaDepth
-                            false
-                        | TExpr.IfThenElse(cond, thenE, elseE, _) ->
-                            TastWalk.iterExpr iter cond
-                            condDepth <- condDepth + 1
-                            TastWalk.iterExpr iter thenE
-                            TastWalk.iterExpr iter elseE
-                            condDepth <- condDepth - 1
-                            false
-                        | TExpr.Lambda(_, lamBody, _) ->
-                            lambdaDepth <- lambdaDepth + 1
-                            TastWalk.iterExpr iter lamBody
-                            lambdaDepth <- lambdaDepth - 1
-                            false
-                        | _ -> true
-            }
-
-        TastWalk.iterExpr it body
-        count = 1 && condAtUse > 0 && lambdaAtUse = 0
-
-    /// Replace every `Var k` in `body` with `replacement`. Paired with
-    /// `usedOnceInBranch` (which guaranteed a single, lambda-free occurrence), so
-    /// this substitutes exactly once and cannot capture (`replacement` is the
-    /// call-site argument, whose free vars are disjoint from the freshly-minted
-    /// inline-body binders).
+    /// Replace every `Var k` in `body` with `replacement`. Used for a parameter
+    /// the declaration marked `[<CallAtMostOnce>]` — `Elaborate` already validated
+    /// that `k` occurs at most once and not under a lambda or loop, so this
+    /// substitutes 0-or-1 times (the argument is then evaluated at most once, on
+    /// demand) and cannot capture (`replacement` is the call-site argument, whose
+    /// free vars are disjoint from the freshly-minted inline-body binders). This is
+    /// what makes the library `&&`/`||` (`if e1 then e2 else false`, `e2` marked)
+    /// short-circuit without the operator being known to the compiler.
     let private substituteVar (k: NodeKey) (replacement: TExpr) (body: TExpr) : TExpr =
         let m =
             { TastWalk.identityMapper with
@@ -334,9 +290,19 @@ module InlineExpansion =
     /// rebuild — which `Freeze.freezeTypars` does to every decl immediately after
     /// regardless, so there is no node-identity to preserve by skipping it.
     let run
-        (provider: IExternalSymbolProvider)
+        (ctx: PassContext)
         (decls: (TDecl * (TypeVar * SemType) list) list)
         : (TDecl * (TypeVar * SemType) list) list =
+
+        let provider = ctx.Provider
+
+        // Parameter attributes for a *local* module-level inline, by binder key
+        // (the cross-package twin rides `InlineBody.ParamAttrs`). Empty when the
+        // inline declared no recognised parameter attribute.
+        let localParamAttrs (k: NodeKey) : ParamAttrs[] =
+            match ctx.InlineParamAttrs.TryGetValue k with
+            | true, a -> a
+            | _ -> [||]
 
         // Local module-level `let inline` bindings, keyed by binder NodeKey — the
         // same map codegen's `lowerWith` used to build (now retired). A `Var(k)`
@@ -367,7 +333,7 @@ module InlineExpansion =
                 counter <- counter + 1
                 k
 
-            let lookupExternal (keyOpt: SymbolKey voption) (name: string) : TDecl voption =
+            let lookupExternal (keyOpt: SymbolKey voption) (name: string) : InlineBody voption =
                 // Prefer the identity-robust `SymbolKey` channel; fall back to the
                 // source-name residue for `External` heads still carrying
                 // `key = ValueNone` (operator / desugared heads). `byKey` is a
@@ -438,7 +404,12 @@ module InlineExpansion =
             //   3. every other parameter (a value arg, or a lambda that is stored /
             //      partially applied) is re-bound with an ordinary `Let`, exactly
             //      as before — a surviving closure.
-            let reduceApplication (walk: TExpr -> TExpr) (expanded: TExpr) (args: (TExpr * SemType) list) : TExpr =
+            let reduceApplication
+                (walk: TExpr -> TExpr)
+                (paramAttrs: ParamAttrs[])
+                (expanded: TExpr)
+                (args: (TExpr * SemType) list)
+                : TExpr =
                 let rec peel (fn: TExpr) (args: (TExpr * SemType) list) (acc: (NodeKey * SemType * TExpr) list) =
                     match fn, args with
                     | _, [] -> List.rev acc, fn
@@ -489,28 +460,36 @@ module InlineExpansion =
                 // escapes (`HeapShared` per Regions). Either makes a currently
                 // (would-be) rejected program compile or fail cleanly; both need
                 // the byref-like predicate that does not exist yet.
+                // Pair each binding with its declaration position so the
+                // `[<CallAtMostOnce>]` flag (positionally aligned to the inline's
+                // curried parameters; freshen / typar-substitution preserve order)
+                // can gate it. `peel` returns parameters outermost-first, so `i` is
+                // the curried position.
+                let indexed = bindings |> List.mapi (fun i (k, ty, a) -> (i, k, ty, a))
+
                 List.foldBack
-                    (fun (k, paramTy, arg) acc ->
+                    (fun (i, k, paramTy, arg) acc ->
                         if inlinable.Contains k then
                             acc
                         else
                             let warg = walk arg
 
-                            // A parameter used EXACTLY ONCE inside a conditional
-                            // branch (not under a lambda) is substituted at that use
-                            // — call-by-name for the single linear use — instead of
-                            // an eager `let`, so a guarded operand is evaluated only
-                            // on demand. This is what makes the library `&&`/`||`
-                            // bodies (`if e1 then e2 else false`) short-circuit
-                            // without the operator being known to the compiler. Every
-                            // other shape keeps the eager `let` (evaluation order,
+                            // A `[<CallAtMostOnce>]` parameter is substituted at its
+                            // single (declaration-validated linear) use instead of an
+                            // eager `let`, so the argument is evaluated at most once
+                            // and on demand — the mechanism behind `&&`/`||`
+                            // short-circuiting, now driven by the declared attribute
+                            // rather than a body-shape guess. Every other parameter
+                            // keeps the eager `let` (F#-strict evaluation order,
                             // single-evaluation, and closure capture undisturbed).
-                            if usedOnceInBranch k acc then
+                            let callAtMostOnce = i < paramAttrs.Length && paramAttrs.[i].CallAtMostOnce
+
+                            if callAtMostOnce then
                                 substituteVar k warg acc
                             else
                                 TExpr.Let(TPat.NamedSimple(k, paramTy), warg, acc, TastWalk.exprTy acc)
                     )
-                    bindings
+                    indexed
                     core'
 
             // The expansion walker. This is now the sole inline expander —
@@ -536,7 +515,9 @@ module InlineExpansion =
 
                                 match head with
                                 | TExpr.Var(k, _) when localInlines.ContainsKey k ->
-                                    ValueSome(reduceApplication walk (expandLocalAt k spineArgs) spineArgs)
+                                    ValueSome(
+                                        reduceApplication walk (localParamAttrs k) (expandLocalAt k spineArgs) spineArgs
+                                    )
                                 // A saturated use of an inline-first lambda
                                 // parameter: splice a fresh
                                 // copy of its bound lambda, beta-reduced against the
@@ -549,11 +530,17 @@ module InlineExpansion =
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
                                 | TExpr.External(name, keyOpt, _) ->
                                     match lookupExternal keyOpt name with
-                                    | ValueSome decl when
-                                        externalArgsGround decl spineArgs
+                                    | ValueSome ib when
+                                        externalArgsGround ib.Decl spineArgs
                                         || not (isSaturatedBuiltin name (List.length spineArgs))
                                         ->
-                                        ValueSome(reduceApplication walk (expandExternalAt decl spineArgs) spineArgs)
+                                        ValueSome(
+                                            reduceApplication
+                                                walk
+                                                ib.ParamAttrs
+                                                (expandExternalAt ib.Decl spineArgs)
+                                                spineArgs
+                                        )
                                     // An external head we don't expand (a saturated
                                     // builtin op with un-ground operands, or a
                                     // non-inline external call): keep the head,

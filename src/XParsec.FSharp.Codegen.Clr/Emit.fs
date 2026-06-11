@@ -152,12 +152,17 @@ module Emit =
         // stack (every Vesper expression yields a value), but a `void` method must
         // `ret` empty-stacked — pop the residual unit first. A body that *terminates*
         // (ends in `raise`/`Throw`, e.g. `ICollection<'T>.Add` on a read-only set)
-        // leaves nothing and the fall-through is unreachable, so guard the pop on a
-        // live operand: emitting it unconditionally yields an unreachable `Pop` that
-        // `IlIr.analyze` rejects as an unbalanced body.
+        // leaves nothing (the builder reset depth to 0 at the throw), and the
+        // fall-through is unreachable: emitting a `Pop` there yields an unreachable
+        // instruction `IlIr.analyze` rejects as unbalanced. So the only two valid
+        // post-body depths are 1 (pop the residual unit) and 0 (terminated, nothing
+        // to pop). Any deeper stack is a codegen bug — fail loudly here rather than
+        // draining it silently into valid-but-wrong IL.
         if voidReturn then
-            while b.Depth > 0 do
-                b.Add ILInstr.Pop
+            match b.Depth with
+            | 0 -> ()
+            | 1 -> b.Add ILInstr.Pop
+            | n -> failwithf "void-returning member body left %d values on the stack (expected 0 or 1)" n
 
         b.Add ILInstr.Ret
         b.Body

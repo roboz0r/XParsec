@@ -123,6 +123,50 @@ module Attributes =
 
             verdict
 
+    /// Canonical parameter-attribute short names. `[<CallAtMostOnce>]` marks an
+    /// inline parameter for call-by-name-at-its-single-use splicing (see
+    /// `ParamAttrs.CallAtMostOnce`). Extend this section as more special
+    /// parameter attributes are honoured (F# declares many — `InlineIfLambda`,
+    /// `CallerMemberName`, …): one name list + one decoder arm + one `ParamAttrs`
+    /// flag.
+    let private callAtMostOnceNames = [ "CallAtMostOnce"; "CallAtMostOnceAttribute" ]
+
+    /// Fold one parameter's `[<…>]` sets into `acc`, flipping each recognised
+    /// flag. Mirrors `decodeClassAttributes`; unrecognised attributes are
+    /// silently ignored.
+    let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
+        let mutable r = acc
+
+        for AttributeSet(attributes = entries) in sets do
+            for Attribute(construction = construction), _sep in entries do
+                let attrTy =
+                    match construction with
+                    | ObjectConstruction(typ = t) -> t
+                    | InterfaceConstruction(typ = t) -> t
+
+                match attributeShortName ctx attrTy with
+                | ValueSome n when List.contains n callAtMostOnceNames -> r <- { r with CallAtMostOnce = true }
+                | _ -> ()
+
+        r
+
+    /// Decode the compiler-recognised attributes on a single argument pattern.
+    /// Unwraps the inert pattern wrappers (`(p)`, `p : t`, `p as x`, `?p`)
+    /// accumulating every `[<…>]` set, so `([<CallAtMostOnce>] e2 : bool)` is
+    /// recognised regardless of paren / annotation nesting. `ParamAttrs.Default`
+    /// when the parameter carries no recognised attribute.
+    let paramAttrsOfArgPat (ctx: PassContext) (p: Pat<SyntaxToken>) : ParamAttrs =
+        let rec go (acc: ParamAttrs) (p: Pat<SyntaxToken>) : ParamAttrs =
+            match p with
+            | Pat.Attributed(attributes = sets; pat = inner) -> go (mergeParamAttrSets ctx acc sets) inner
+            | Pat.EnclosedBlock(pat = inner)
+            | Pat.Typed(pat = inner)
+            | Pat.As(pat = inner)
+            | Pat.Optional(pat = inner) -> go acc inner
+            | _ -> acc
+
+        go ParamAttrs.Default p
+
     /// Pull the attributes off a `TypeName` (`TypeDefn.Record` /
     /// `TypeDefn.Union` carry these on their `typeName: TypeName`).
     let attributesOfTypeName (tn: TypeName<SyntaxToken>) : Attributes<SyntaxToken> voption =

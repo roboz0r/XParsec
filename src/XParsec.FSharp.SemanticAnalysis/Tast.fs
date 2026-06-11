@@ -29,6 +29,34 @@ type TConstValue =
     | String of string
     | Unit
 
+/// Compiler-recognised attributes on a single function/`inline` parameter,
+/// decoded (by short name) from the parameter's CST `[<…>]` sets in
+/// `Passes.Attributes`. This is an extension point: adding a new special
+/// parameter attribute (F# declares many — `[<InlineIfLambda>]`,
+/// `[<CallerMemberName>]`, …) is a new flag here, a decoder arm in
+/// `Passes.Attributes`, and a consumer where it is honoured. All-`false` is the
+/// default for an un-attributed parameter. Today only `let inline` parameters
+/// carry these through to a consumer (`Passes.InlineExpansion`); the carrier is
+/// `ctx.InlineParamAttrs` (local inlines) and `ExternalSymbols.InlineBody`
+/// (cross-package), positionally aligned to the inline's curried parameters.
+[<Struct>]
+type ParamAttrs =
+    {
+        /// `[<CallAtMostOnce>]`: splice the argument unevaluated at its single
+        /// linear use (call-by-name for one use) instead of eager `let`-binding,
+        /// so it is evaluated at most once — the mechanism behind `&&`/`||`
+        /// short-circuiting without the operator being known to the compiler.
+        /// Linearity (≤1 use, not under a lambda or loop) is validated at the
+        /// declaration in `Elaborate`; the inliner trusts the flag.
+        CallAtMostOnce: bool
+    }
+
+    static member Default = { CallAtMostOnce = false }
+
+    /// True when any recognised attribute is set — the gate for storing a
+    /// parameter's attrs in the (otherwise sparse) carriers.
+    member this.IsDefault = not this.CallAtMostOnce
+
 /// Keeps the destructuring shape so a downstream consumer can introduce every
 /// bound name without re-walking the CST.
 [<RequireQualifiedAccess>]

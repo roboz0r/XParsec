@@ -965,6 +965,15 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// front end cannot otherwise see (it lives in codegen's `ProjectInfo`).
     member val DefaultListIsVesper = false with get, set
 
+    /// Compiler-recognised parameter attributes (`ParamAttrs`) for each
+    /// module-level `let inline` binding, keyed by the binding's function-binder
+    /// `NodeKey` and positionally aligned to its curried parameters. Populated by
+    /// `Elaborate` (which also validates each `[<CallAtMostOnce>]` parameter's
+    /// linearity) and read by `Passes.InlineExpansion` for *local* inline call
+    /// sites; the cross-package twin travels in `ExternalSymbols.InlineBody`.
+    /// Only bindings with at least one non-default parameter register here.
+    member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
+
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =
         match token.Index with
