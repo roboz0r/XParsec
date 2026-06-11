@@ -772,6 +772,42 @@ module FreezeExpr =
         | Some t -> ValueSome(Unification.zonk t)
         | None -> ValueNone
 
+    /// Walk a class receiver's `inherit` chain for a non-static member `segName`,
+    /// returning the *declaring* ancestor's instantiated nominal type. The caller
+    /// reaches here after failing the receiver's own-class lookup, so the first
+    /// strict ancestor that declares `segName` is returned. `ValueNone` when no
+    /// ancestor declares it as an instance member, or a parent isn't a project-local
+    /// class. Mirrors `Unification.tryClassChainMember` (the inference-side walk that
+    /// already types `node.Key` where `Key` is on a base class) but yields the
+    /// declaring type rather than the member's type — Freeze upcasts the receiver to
+    /// it so codegen's receiver-keyed `resolveInstanceMember` lands on the class that
+    /// actually emits `get_<seg>`. `seen` guards a cyclic `inherit` chain.
+    let private tryInheritedMemberDecl (ctx: PassContext) (recvTy: SemType) (segName: string) : SemType voption =
+        let rec walk (seen: string list) (ty: SemType) : SemType voption =
+            match Unification.zonk ty with
+            | TyClass(clsKey, args) ->
+                let clsName = SymbolKeyOps.simpleName clsKey
+
+                if List.contains clsName seen then
+                    ValueNone
+                else
+                    match TypeRegistry.tryClassByKey ctx.Types clsKey with
+                    | ValueSome info ->
+                        let declaresHere =
+                            info.Members |> Array.exists (fun m -> m.Name = segName && not m.IsStatic)
+
+                        if declaresHere then
+                            ValueSome(TyClass(clsKey, args))
+                        else
+                            match info.BaseType with
+                            | ValueSome parentTy ->
+                                walk (clsName :: seen) (Unification.instantiateMember (info.TypeParams, args) parentTy)
+                            | ValueNone -> ValueNone
+                    | ValueNone -> ValueNone
+            | _ -> ValueNone
+
+        walk [] recvTy
+
     /// One `receiver.seg` access node: `PropertyGet` for a class / union member,
     /// `FieldGet` otherwise. `recvTy` is the receiver's (un-zonked) type; `stepTy`
     /// is the segment's already-resolved result type.
@@ -791,7 +827,21 @@ module FreezeExpr =
             | ValueSome info when isMember info.Members ->
                 let key = LocalSymbolKey.ofMember clsKey segName MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
-            | _ -> TExpr.FieldGet(receiver, segName, stepTy)
+            | _ ->
+                // An *inherited* member (declared on a base class, e.g. `node.Key`
+                // where `Key` is on the parent `SetTree`): upcast the receiver to the
+                // declaring ancestor so codegen's receiver-keyed
+                // `resolveInstanceMember` resolves `get_<seg>` on the class that
+                // emits it (a reference-type upcast is a codegen no-op). Falls
+                // through to `FieldGet` only when no ancestor declares it — a genuine
+                // ctor-param / `val` field access.
+                match tryInheritedMemberDecl ctx (Unification.zonk recvTy) segName with
+                | ValueSome baseTy ->
+                    let key =
+                        LocalSymbolKey.ofMember (nominalDeclKey baseTy) segName MemberKind.Property
+
+                    TExpr.PropertyGet(TExpr.Upcast(receiver, baseTy), key, viaOfReceiver ctx receiver, stepTy)
+                | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy)
         | TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info when isMember info.Members ->

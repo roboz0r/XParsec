@@ -53,5 +53,11 @@ let tests =
 
             test "Vesper.Seq builds BCL-only" { buildsBclOnly "Vesper.Seq" }
 
+            // Blocker (2026-06-10): `Emit: no call recipe for external
+            // 'op_BooleanAnd'` (`EmitExpr.buildAppCall`, via `buildClosureInvoke`)
+            // — a short-circuit `&&` reaching codegen as an unexpanded external
+            // operator inside a `SetTree.*` closure body. The prior `.Key`
+            // inherited-field wall is CLOSED (ClassTests `ClassInheritance`
+            // "reading an inherited member …"). Flip `ptest`→`ftest` to reproduce.
             ptest "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
         ]

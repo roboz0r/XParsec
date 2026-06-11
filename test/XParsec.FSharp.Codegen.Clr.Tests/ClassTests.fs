@@ -1332,6 +1332,55 @@ let inheritanceTests =
                     "SetTreeNode<int>.Value returns its own field 42"
             }
 
+            // vesper-set-phase-9 wall: reading an *inherited* member from
+            // in-Vesper code (`node.Key` where `Key` is declared on the base
+            // `SetTree`, accessed on a `SetTreeNode` receiver). The access is a
+            // local-headed LongIdent chain, so Freeze's `fieldStep` fires; before
+            // the fix its own-class-only member check fell through to a `FieldGet`,
+            // which codegen's record-only `resolveRecordField` rejected with
+            // `class 'Derived`1' has no field 'Key'`. The fix walks the `inherit`
+            // chain and upcasts the receiver to the declaring ancestor (a ref-type
+            // upcast is a codegen no-op), so the receiver-keyed
+            // `resolveInstanceMember` resolves `get_Key` on the base. Generic to
+            // mirror the `SetTreeNode<'T>` shape.
+            test "reading an inherited member on a derived receiver resolves the base property (Key shape)" {
+                runs
+                    "42"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Base<'T>(k: 'T) ="
+                            "    member _.Key = k"
+                            "type Derived<'T>(k: 'T, h: int) ="
+                            "    inherit Base<'T>(k)"
+                            "    member _.Height = h"
+                            "let readKey (d: Derived<'T>) = d.Key"
+                            "printfn \"%d\" (readKey (Derived(42, 1)))"
+                        ])
+            }
+
+            // The same inherited read *inside a closure body* — the faithful
+            // `set.fs` context, where the crash surfaced in `buildClosureInvoke`
+            // (a `SetTree.*` closure capturing the node and reading `.Key`). A
+            // lambda capturing the derived receiver and reading its inherited
+            // member must lower the same way.
+            test "an inherited member read captured in a closure resolves the base property" {
+                runs
+                    "7"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Base<'T>(k: 'T) ="
+                            "    member _.Key = k"
+                            "type Derived<'T>(k: 'T, h: int) ="
+                            "    inherit Base<'T>(k)"
+                            "let firstKey (d: Derived<'T>) ="
+                            "    let f = fun () -> d.Key"
+                            "    f ()"
+                            "printfn \"%d\" (firstKey (Derived(7, 1)))"
+                        ])
+            }
+
             // Step 2.6: `base.M(...)` must dispatch non-virtually (`call B::M`),
             // not virtually (`callvirt`) — otherwise an `override` body calling
             // `base.M()` re-enters itself and stack-overflows. Parent returns 1;
