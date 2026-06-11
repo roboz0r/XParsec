@@ -61,8 +61,11 @@ impl = [
 # Per-target `.fs` bodies the codegen inline-body loader reads across the package
 # boundary. `ops-platform.fs` carries the
 # operator + `hash` inline bodies (the equality / arithmetic / bitwise / unary
-# families). These are signature-only (`let inline` spliced at the use site, no
-# emitted method), so they are NOT a DLL compile target — distinct from `impl`.
+# families); `ops-std.fs` carries the logical (`&&`/`||`, short-circuit via the
+# inliner's conditional-branch substitution) + composition / pipe operators. These
+# are signature-only (`let inline` spliced at the use site, no emitted method), so
+# they are NOT a DLL compile target — distinct from `impl`.
 inline-bodies = [
     "ops-platform.fs",
+    "ops-std.fs",
 ]

@@ -39,6 +39,70 @@ open XParsec.FSharp.SemanticAnalysis
 
 module InlineExpansion =
 
+    /// True when the inline parameter `k` occurs in `body` EXACTLY ONCE and that
+    /// sole occurrence sits inside a conditional branch (a `then`/`else` of an
+    /// `IfThenElse`) and NOT under a lambda. Such a use can be substituted at the
+    /// occurrence (call-by-name for one linear use) instead of eager `let`-binding,
+    /// so a guarded operand — notably the right side of the library `&&`/`||` whose
+    /// body is `if e1 then e2 else false` — is evaluated only on demand. Any other
+    /// shape (zero/many uses, a use in a straight-line or *condition* position, or a
+    /// use captured by a closure) must keep the eager `let`: substituting it could
+    /// drop / reorder / duplicate / relocate-into-a-closure the argument's
+    /// evaluation. The walk mirrors `nonInlinableLambdaParams`' explicit recursion;
+    /// `IfThenElse` recurses its condition at the ambient depth and its two branches
+    /// at depth+1, `Lambda` recurses its body at lambda-depth+1.
+    let private usedOnceInBranch (k: NodeKey) (body: TExpr) : bool =
+        let mutable count = 0
+        let mutable condAtUse = 0
+        let mutable lambdaAtUse = 0
+        let mutable condDepth = 0
+        let mutable lambdaDepth = 0
+
+        let it =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun iter e ->
+                        match e with
+                        | TExpr.Var(vk, _) when vk = k ->
+                            count <- count + 1
+                            condAtUse <- condDepth
+                            lambdaAtUse <- lambdaDepth
+                            false
+                        | TExpr.IfThenElse(cond, thenE, elseE, _) ->
+                            TastWalk.iterExpr iter cond
+                            condDepth <- condDepth + 1
+                            TastWalk.iterExpr iter thenE
+                            TastWalk.iterExpr iter elseE
+                            condDepth <- condDepth - 1
+                            false
+                        | TExpr.Lambda(_, lamBody, _) ->
+                            lambdaDepth <- lambdaDepth + 1
+                            TastWalk.iterExpr iter lamBody
+                            lambdaDepth <- lambdaDepth - 1
+                            false
+                        | _ -> true
+            }
+
+        TastWalk.iterExpr it body
+        count = 1 && condAtUse > 0 && lambdaAtUse = 0
+
+    /// Replace every `Var k` in `body` with `replacement`. Paired with
+    /// `usedOnceInBranch` (which guaranteed a single, lambda-free occurrence), so
+    /// this substitutes exactly once and cannot capture (`replacement` is the
+    /// call-site argument, whose free vars are disjoint from the freshly-minted
+    /// inline-body binders).
+    let private substituteVar (k: NodeKey) (replacement: TExpr) (body: TExpr) : TExpr =
+        let m =
+            { TastWalk.identityMapper with
+                OverrideExpr =
+                    fun _ e ->
+                        match e with
+                        | TExpr.Var(vk, _) when vk = k -> ValueSome replacement
+                        | _ -> ValueNone
+            }
+
+        TastWalk.mapExpr m body
+
     /// Beta-reduce a curried lambda against its spine args, lowering each
     /// application to a `TExpr.Let` — mirrors `EmitLower.betaReduce`. Lambda count
     /// must match the spine-arg count for a fully applied call. Used to splice an
@@ -430,7 +494,21 @@ module InlineExpansion =
                         if inlinable.Contains k then
                             acc
                         else
-                            TExpr.Let(TPat.NamedSimple(k, paramTy), walk arg, acc, TastWalk.exprTy acc)
+                            let warg = walk arg
+
+                            // A parameter used EXACTLY ONCE inside a conditional
+                            // branch (not under a lambda) is substituted at that use
+                            // — call-by-name for the single linear use — instead of
+                            // an eager `let`, so a guarded operand is evaluated only
+                            // on demand. This is what makes the library `&&`/`||`
+                            // bodies (`if e1 then e2 else false`) short-circuit
+                            // without the operator being known to the compiler. Every
+                            // other shape keeps the eager `let` (evaluation order,
+                            // single-evaluation, and closure capture undisturbed).
+                            if usedOnceInBranch k acc then
+                                substituteVar k warg acc
+                            else
+                                TExpr.Let(TPat.NamedSimple(k, paramTy), warg, acc, TastWalk.exprTy acc)
                     )
                     bindings
                     core'

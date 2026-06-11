@@ -27,6 +27,7 @@
     <Compile Include="ListTests.fs" />
     <Compile Include="DiagnosticTests.fs" />
     <Compile Include="BitwiseOperatorTests.fs" />
+    <Compile Include="LogicalOperatorTests.fs" />
     <Compile Include="StructuralEqualityTests.fs" />
     <Compile Include="StaticOptimizationTests.fs" />
     <Compile Include="HashTests.fs" />

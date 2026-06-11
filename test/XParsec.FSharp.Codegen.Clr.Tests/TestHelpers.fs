@@ -304,7 +304,9 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let lexed, file = parseFile src
-                 let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+                 // Self-host: a BCL-only package has no FSharp.Core, so a bare
+                 // `[]`/`::` defaults to the Vesper cons-list, not FSharp.Core's.
+                 let tast = Pipeline.analyseForSelfHost project.AssemblyName provider src lexed file
 
                  // A package that doesn't type-check hasn't built: `Pipeline.analyse`
                  // collects diagnostics rather than throwing, so surface any

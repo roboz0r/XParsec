@@ -227,8 +227,16 @@ module UnificationInferGeneralize =
                             | ValueSome elemTy when root.Level > outerLevel ->
                                 match zonk elemTy with
                                 | TyVar _ ->
-                                    root.Link <-
-                                        ValueSome(TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy))
+                                    // Self-host (no FSharp.Core) defaults the bare
+                                    // container to the Vesper cons-list, mirroring
+                                    // `resolveListLiterals`.
+                                    let listTy =
+                                        if ctx.DefaultListIsVesper then
+                                            TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy)
+                                        else
+                                            TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
+
+                                    root.Link <- ValueSome listTy
                                 | _ -> root.Level <- outerLevel
                             | _ -> ()
                 | TyFun(a, b) ->

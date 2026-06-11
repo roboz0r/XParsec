@@ -8,15 +8,15 @@ module LogicalOperators =
     /// <param name="e2">The second value.</param>
     ///
     /// <returns>The result of the operation.</returns>
-    val (&&): e1: bool -> e2: bool -> bool
-    
+    val inline (&&): e1: bool -> e2: bool -> bool
+
     /// <summary>Binary 'or'. When used as a binary operator the right hand value is evaluated only on demand</summary>
     ///
     /// <param name="e1">The first value.</param>
     /// <param name="e2">The second value.</param>
     ///
     /// <returns>The result of the operation.</returns>
-    val (||): e1: bool -> e2: bool -> bool
+    val inline (||): e1: bool -> e2: bool -> bool
 
 
 

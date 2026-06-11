@@ -1061,12 +1061,20 @@ module Unification =
     let private resolveListLiterals (ctx: PassContext) : unit =
         let key = NodeKey.ofSource 0 NodeKind.Unknown
 
+        // A still-free literal defaults to FSharp.Core's `list`, except a
+        // self-host package build (no FSharp.Core) defaults it to the Vesper
+        // cons-list union so the emission stays BCL-only.
+        let defaultListTy (elemTy: SemType) : SemType =
+            if ctx.DefaultListIsVesper then
+                TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy)
+            else
+                TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
+
         for (lv, elemTy) in ctx.ListLiterals do
             let root = UnionFind.find lv
 
             match root.Link with
-            | ValueNone ->
-                unify ctx key (TyVar root) (TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy))
+            | ValueNone -> unify ctx key (TyVar root) (defaultListTy elemTy)
             | ValueSome target ->
                 match zonk target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy

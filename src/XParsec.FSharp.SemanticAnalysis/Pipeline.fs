@@ -12,7 +12,8 @@ module Pipeline =
     /// side-table inspection). `assemblyName` is the home assembly stamped onto
     /// locally-minted nominal keys (`PassContext.AssemblyName`); `""` for the
     /// front-end-only paths that never emit.
-    let analyseSemWithContextFor
+    let analyseSemWithContextForCore
+        (selfHostList: bool)
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
         (input: string)
@@ -21,6 +22,9 @@ module Pipeline =
         : PassContext * TastFile =
         let ctx = PassContext(provider, input, lexed)
         ctx.AssemblyName <- assemblyName
+        // A self-host (BCL-only) package build has no FSharp.Core, so an unpinned
+        // `[]`/`::` must default to the Vesper cons-list (`resolveListLiterals`).
+        ctx.DefaultListIsVesper <- selfHostList
         Desugar.run ctx file
         NameResolution.run ctx file
         Unification.run ctx file
@@ -50,6 +54,17 @@ module Pipeline =
             }
 
         ctx, tast
+
+    /// The default front end: a bare-program list literal defaults to FSharp.Core's
+    /// `list`. Self-host package builds use `…ForSelfHost` below.
+    let analyseSemWithContextFor
+        (assemblyName: string)
+        (provider: IExternalSymbolProvider)
+        (input: string)
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : PassContext * TastFile =
+        analyseSemWithContextForCore false assemblyName provider input lexed file
 
     /// The production entry: every pass **plus the final `SemType → FrozenType`
     /// freeze**. The SemanticAnalysis assembly's output is
@@ -123,3 +138,20 @@ module Pipeline =
         (file: ImplementationFile<SyntaxToken>)
         : Frozen.TastFile =
         analyseFor "" provider input lexed file
+
+    /// The self-host production entry: like `analyseFor` but a bare-program list
+    /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`,
+    /// so a BCL-only package (no FSharp.Core reference) emits `Vesper.List`-only.
+    /// Used by the package build harness; the contract/codegen stack is otherwise
+    /// identical.
+    let analyseForSelfHost
+        (assemblyName: string)
+        (provider: IExternalSymbolProvider)
+        (input: string)
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : Frozen.TastFile =
+        let _, tast =
+            analyseSemWithContextForCore true assemblyName provider input lexed file
+
+        Freeze.run tast

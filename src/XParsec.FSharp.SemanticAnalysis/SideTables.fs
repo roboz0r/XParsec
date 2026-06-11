@@ -955,6 +955,16 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// declare their own `list` abbrev never register here (they resolve eagerly).
     member val ListLiterals = ResizeArray<TypeVar * SemType>() with get
 
+    /// Which cons-list a *bare-program* list literal/pattern (one no consumer
+    /// pinned) defaults to when drained by `Unification.resolveListLiterals`.
+    /// `false` (the default) keeps FSharp.Core's `list` — the form a normal
+    /// FSharp.Core-referencing program prints/interops with. `true` is set by the
+    /// self-host package build (`Pipeline.analyse*ForSelfHost`): a BCL-only package
+    /// has no FSharp.Core, so an unpinned `[]`/`::` must land on the Vesper
+    /// cons-list to emit `Vesper.List`-only — the `withCore`-vs-not distinction the
+    /// front end cannot otherwise see (it lives in codegen's `ProjectInfo`).
+    member val DefaultListIsVesper = false with get, set
+
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =
         match token.Index with

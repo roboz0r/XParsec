@@ -58,6 +58,7 @@ let private implFiles =
         "prim-types-attr.fs"
         "core-types.fs"
         "ops-platform.fs"
+        "ops-std.fs"
     ]
 
 [<Tests>]
