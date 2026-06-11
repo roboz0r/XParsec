@@ -453,6 +453,26 @@ type ResolvedExternalMember =
         IsProperty: bool
     }
 
+/// A use of an operator as a value (`(+)` in `Seq.fold (+) …`), enqueued by
+/// `Unification.inferIdent` for the post-walk `resolveOperatorValues` drain. The
+/// node's binding to a *project-local* static-operator member is type-directed
+/// (it depends on the operand types, ground only once the whole file is typed),
+/// so the decision can't be made at the node and is deferred here. `Ty` is the
+/// node's instantiated operator type at the use site; the drain zonks it and
+/// scans every operand for a declaring nominal.
+[<Struct>]
+type OperatorValueSite =
+    {
+        /// The operator-value node's `NodeKey` — the drain's output key into
+        /// `ResolvedOperatorValue`, and Freeze's lookup key.
+        Node: NodeKey
+        /// The operator's compiled name (`op_Addition`).
+        Name: string
+        /// The node's instantiated operator type (a curried function), zonked at
+        /// drain time to read the now-ground operand types.
+        Ty: SemType
+    }
+
 // `ForInEnumerator` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 
 [<Sealed>]
@@ -793,6 +813,18 @@ type PassContextResolution =
         /// suffix-matching the source-written name
         /// (vesper-set-sprint-plan §0.1 / M1).
         ExternalValue: SideTable<SymbolKey>
+        /// Keyed by an operator-as-value node's `NodeKey` (`(+)` in `Seq.fold (+) …`):
+        /// the `SymbolKey` of the *project-local* nominal whose static-operator
+        /// member the value binds to. F# resolves such an operator value to the
+        /// operand type's own `static member (+)`, not the built-in arithmetic
+        /// operator; this is decided type-directed by `Unification.resolveOperatorValues`
+        /// (which scans every operand once the file is typed) and read by
+        /// `Freeze.translateIdent`, which eta-expands the value into a closure
+        /// calling `<declaringType>.op_Addition`. Absent ⇒ the ordinary built-in /
+        /// `External` operator-value path. The declaring type, not the member key,
+        /// is stored: Freeze re-forms `LocalSymbolKey.ofMember` from it plus the
+        /// node's already-known operator name.
+        ResolvedOperatorValue: SideTable<SymbolKey>
         /// Keyed by a `:?` type-test expression's `NodeKey`: the resolved
         /// tested-against type (`Expr.DynamicTypeTest`'s target). The node's own
         /// inferred type is `bool` (the result), so the target type — which
@@ -859,6 +891,7 @@ module PassContextResolution =
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
             ExternalValue = SideTable<_>()
+            ResolvedOperatorValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
@@ -954,6 +987,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// to the default list, a flipped one has its element reconciled. Programs that
     /// declare their own `list` abbrev never register here (they resolve eagerly).
     member val ListLiterals = ResizeArray<TypeVar * SemType>() with get
+
+    /// Operator-as-value use sites (`(+)` in `Seq.fold (+) …`), enqueued by
+    /// `inferIdent` and drained after the walk by `Unification.resolveOperatorValues`
+    /// — which binds each to a project-local static-operator member by scanning its
+    /// (then-ground) operand types, recording the verdict in
+    /// `Resolution.ResolvedOperatorValue`. Deferred because the binding is
+    /// type-directed: at the node the operand types are still flexible.
+    member val OperatorValueSites = ResizeArray<OperatorValueSite>() with get
 
     /// Which cons-list a *bare-program* list literal/pattern (one no consumer
     /// pinned) defaults to when drained by `Unification.resolveListLiterals`.

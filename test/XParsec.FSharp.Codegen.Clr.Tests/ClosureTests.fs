@@ -293,4 +293,17 @@ let tests =
                         | other -> failtestf "expected StaticMethodCall(op_Addition, …), got %A" other
                     | other -> failtestf "expected a curried Lambda eta-expansion, got %A" other
                 }
+
+        // NOTE — "assess all operands": `Unification.resolveOperatorValues` scans
+        // *every* operand of an operator value for the declaring nominal (F#'s
+        // `(^T1 or ^T2)` rule), not just the first. A heterogeneous operator whose
+        // declaring type is the *second* operand (`static member (+) (a: int, b: V)`,
+        // used as `int -> V -> V`) would exercise the difference — but it is not yet
+        // reachable: the unifier collapses `(+)`'s `^T1 -> ^T2 -> ^T3` operand typars
+        // to one via the `default ^T1: ^T3` / `default ^T2: ^T3` chain, so `int -> V`
+        // operands fail to unify (`int vs V`) before resolution runs. Until SRTP
+        // operand-typar heterogeneity is supported, all-operand scanning is
+        // observationally equivalent to first-operand; the two tests above (both
+        // homogeneous) are the live coverage, and the scan is the correct general
+        // rule the moment heterogeneity lands.
         ]

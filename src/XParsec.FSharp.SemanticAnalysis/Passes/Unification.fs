@@ -1088,9 +1088,82 @@ module Unification =
                 | TyUnion(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
                 | _ -> ()
 
+    /// Bind each operator-as-value site (`(+)` in `Seq.fold (+) …`) to a
+    /// project-local static-operator member, after the whole file is typed so every
+    /// operand is ground. F# resolves an operator *value* to the operand type's own
+    /// `static member (+)`, not the built-in arithmetic operator; the node was typed
+    /// with the built-in scheme, so re-decide here by scanning the now-zonked operand
+    /// types. The *first* operand (left-to-right) whose type is a project-local
+    /// nominal declaring a static member with the operator's compiled name wins
+    /// (F#'s left bias) — checking every operand, not just the first, is what lets the
+    /// member be declared on the type of *any* operand (`static member (+) (i: int, s: Set)`
+    /// resolves on the right). The verdict (the declaring type's key) is recorded for
+    /// `Freeze.translateIdent`, which eta-expands the value into a closure calling the
+    /// member; no hit ⇒ the built-in / `External` value path is left untouched.
+    ///
+    /// TODO(operators-plan, heterogeneous SRTP): scanning every operand is the correct
+    /// F# rule (`(+): ^T1 -> ^T2 -> ^T3 when (^T1 or ^T2): static member (+)`), but it
+    /// is not yet *observable*, because the unifier collapses the three operator typars
+    /// to one — the `(+)` *inline body* (`ops-platform.fs`) is written `^T -> ^T -> ^T`
+    /// (homogeneous) even though its `.fsi` is `^T1 -> ^T2 -> ^T3`, and the
+    /// `default ^T1: ^T3` / `default ^T2: ^T3` chain (`InferGeneralize.applyDefaults`)
+    /// fuses what survives. So a mixed-operand operator can't type at all today
+    /// (`int * V` → `int vs V`). The exemplar to support is fully-generic mixed-type
+    /// SRTP inlining, e.g. `let inline lerp c p t = t * c + p * (GenericOne - c)`
+    /// instantiated at `lerp 0.1f Vector2.Zero Vector2.One` (so `*` is `float32 * Vector2`,
+    /// resolved via `Vector2`'s `op_Multiply`). When the typar collapse is lifted, this
+    /// scan needs no change — the member already resolves off whichever operand declares
+    /// it — so the remaining work is in the SRTP/defaulting layer, not here.
+    let private resolveOperatorValues (ctx: PassContext) : unit =
+        // The static-operator member declared on a project-local nominal named
+        // `typeName` — the declaring type's `Key`. Mirrors `FreezeExpr.tryClassMember`
+        // but returns only what the verdict needs (Freeze re-forms the member key).
+        let tryOwnStaticOp (typeName: string) (opName: string) : SymbolKey voption =
+            let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
+                if members |> Array.exists (fun m -> m.Name = opName && m.IsStatic) then
+                    ValueSome key
+                else
+                    ValueNone
+
+            match ctx.Types.Class.TryGetValue typeName with
+            | true, info -> pick info.Key info.Members
+            | false, _ ->
+                match ctx.Types.Union.TryGetValue typeName with
+                | true, info -> pick info.Key info.Members
+                | false, _ -> ValueNone
+
+        // Peel the curried arrows to the list of operand (parameter) types; the
+        // trailing return type is not an operand and is dropped.
+        let rec operands (t: SemType) : SemType list =
+            match zonk t with
+            | TyFun(a, b) -> a :: operands b
+            | _ -> []
+
+        // `site.Name` is always a compiled `op_*` name — the site is enqueued only
+        // from `inferIdent`'s `SymbolicOp` leg, so a plain ident never reaches here.
+        for site in ctx.OperatorValueSites do
+            let declKey =
+                operands site.Ty
+                |> List.fold
+                    (fun acc operand ->
+                        match acc with
+                        | ValueSome _ -> acc
+                        | ValueNone ->
+                            match zonk operand with
+                            | TyClass(k, _)
+                            | TyUnion(k, _) -> tryOwnStaticOp (SymbolKeyOps.simpleName k) site.Name
+                            | _ -> ValueNone
+                    )
+                    ValueNone
+
+            match declKey with
+            | ValueSome dk -> ctx.Resolution.ResolvedOperatorValue.Set(site.Node, dk)
+            | ValueNone -> ()
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
         // same stable ambient seed (`AmbientOpenScope`, not the per-element
         // `OpenScope` the walk mutates).
         walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx
+        resolveOperatorValues ctx

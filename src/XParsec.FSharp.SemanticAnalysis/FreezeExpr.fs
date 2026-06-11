@@ -419,12 +419,6 @@ module FreezeExpr =
             | true, info -> pick info.Key info.Members
             | false, _ -> ValueNone
 
-    // TODO(operators-plan): this is operator *resolution* (which member does an
-    // operator value bind to) living at the freeze boundary, where it only sees the
-    // first operand's type and re-derives the member via `tryClassMember`. Its
-    // natural owner is NameResolution/Unification, where operator overload
-    // resolution already happens; fold it in when the operators-plan rework touches
-    // operator-value resolution, so Freeze stops re-deciding it here.
     /// `(+)`-as-a-value whose operands are a *project-local* nominal that declares
     /// the operator as a `static member` (the `Set.(+)` shape — `set.fs:821`, used
     /// by value in `Set.Union`'s `Seq.fold (+) …`). F# resolves such an operator
@@ -436,18 +430,20 @@ module FreezeExpr =
     /// member bodies, so the value would survive to `buildExpr`'s catch-all as
     /// `Emit: unsupported expression: External`), and even when it *is* reached,
     /// `expandBuiltinOps` collapses the saturated `op_Addition` to an inline `add`
-    /// opcode — emitting integer arithmetic over object references. Returns
-    /// `ValueNone` for a built-in operator over primitives (`int (+)` etc.) or any
-    /// operand whose type isn't a project-local nominal with that static member, so
-    /// the existing `External` value path is untouched.
+    /// opcode — emitting integer arithmetic over object references.
+    ///
+    /// The *resolution* (which member, scanning every operand) is type-directed and
+    /// lives in `Unification.resolveOperatorValues`; it records the declaring type's
+    /// key in `Resolution.ResolvedOperatorValue` keyed by this node. Freeze only
+    /// *constructs* the closure from that verdict — `ValueNone` (no verdict) leaves
+    /// the existing `External` value path untouched.
     let private tryOwnOperatorValue (ctx: PassContext) (key: NodeKey) (name: string) (ty: SemType) : TExpr voption =
-        // A user-defined operator member always compiles to an `op_*` name; bail
-        // early on anything else (a plain ident never reaches this).
-        if not (name.StartsWith "op_") then
-            ValueNone
-        else
-            // Peel the curried arrows to (paramTys, retTy). A non-function value
-            // is not an operator passed by value.
+        match ctx.Resolution.ResolvedOperatorValue.TryGetValue key with
+        | ValueNone -> ValueNone
+        | ValueSome declKey ->
+            // Peel the curried arrows to (paramTys, retTy) for the closure's shape.
+            // Unification only records a verdict for a function-typed operator value,
+            // so a non-`TyFun` here is unreachable; degrade to `ValueNone`.
             let rec arrows (t: SemType) =
                 match Unification.zonk t with
                 | TyFun(a, b) ->
@@ -457,44 +453,34 @@ module FreezeExpr =
 
             match arrows ty with
             | [], _ -> ValueNone
-            | (operand :: _) as paramTys, retTy ->
-                match Unification.zonk operand with
-                | TyClass(operandKey, _)
-                | TyUnion(operandKey, _) ->
-                    match tryClassMember ctx (SymbolKeyOps.simpleName operandKey) name with
-                    | ValueSome(declKey, m) when m.IsStatic ->
-                        // One synthetic lambda parameter per arrow, keyed under the
-                        // value-site offset (distinct per index, mirroring the
-                        // `Expr.Function` synthetic-param mint). The body never
-                        // re-enters the side tables, so the inline `SemType` carried
-                        // on each `Var` is authoritative (no TyVar lookup).
-                        let psKeyed =
-                            paramTys
-                            |> List.mapi (fun i pty ->
-                                NodeKey.ofSynthetic (key.Offset + i) NodeKind.SynthLambdaBody, pty
-                            )
+            | paramTys, retTy ->
+                // One synthetic lambda parameter per arrow, keyed under the value-site
+                // offset (distinct per index, mirroring the `Expr.Function`
+                // synthetic-param mint). The body never re-enters the side tables, so
+                // the inline `SemType` carried on each `Var` is authoritative.
+                let psKeyed =
+                    paramTys
+                    |> List.mapi (fun i pty -> NodeKey.ofSynthetic (key.Offset + i) NodeKind.SynthLambdaBody, pty)
 
-                        let memberKey = LocalSymbolKey.ofMember declKey name MemberKind.Method
+                let memberKey = LocalSymbolKey.ofMember declKey name MemberKind.Method
 
-                        let body =
-                            TExpr.StaticMethodCall(
-                                memberKey,
-                                EqArray.ofList [ for (k, pty) in psKeyed -> TExpr.Var(k, pty) ],
-                                retTy
-                            )
+                let body =
+                    TExpr.StaticMethodCall(
+                        memberKey,
+                        EqArray.ofList [ for (k, pty) in psKeyed -> TExpr.Var(k, pty) ],
+                        retTy
+                    )
 
-                        let lam, _ =
-                            List.foldBack
-                                (fun (k, pty) (inner, innerTy) ->
-                                    let lamTy = TyFun(pty, innerTy)
-                                    TExpr.Lambda(TPat.NamedSimple(k, pty), inner, lamTy), lamTy
-                                )
-                                psKeyed
-                                (body, retTy)
+                let lam, _ =
+                    List.foldBack
+                        (fun (k, pty) (inner, innerTy) ->
+                            let lamTy = TyFun(pty, innerTy)
+                            TExpr.Lambda(TPat.NamedSimple(k, pty), inner, lamTy), lamTy
+                        )
+                        psKeyed
+                        (body, retTy)
 
-                        ValueSome lam
-                    | _ -> ValueNone
-                | _ -> ValueNone
+                ValueSome lam
 
     /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`
     /// with a known member `M`. The parser folds the dot into the long ident

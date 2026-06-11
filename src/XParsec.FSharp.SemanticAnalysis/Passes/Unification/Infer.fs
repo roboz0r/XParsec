@@ -117,7 +117,17 @@ module UnificationInfer =
                 // The ambient prelude leg resolves a contract's `[<AutoOpen>]`
                 // operator module.
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
-                | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
+                | ValueSome sym ->
+                    let ty = sym.Instantiate ctx.CurrentLevel
+                    // The provider hands back the *built-in* operator scheme. If the
+                    // operands turn out to be a project-local nominal with its own
+                    // `static member (+)`, F# binds the value to that member instead —
+                    // a type-directed decision we can't make until every operand is
+                    // ground, so enqueue the node for `resolveOperatorValues` to settle
+                    // post-walk (it scans all operands; `ty`'s TyVars zonk to the
+                    // operand types once the consuming context has unified them).
+                    ctx.OperatorValueSites.Add { Node = key; Name = name; Ty = ty }
+                    ty
                 | ValueNone -> errorTy ctx key (sprintf "Operator '%s' is not available from the symbol provider" name)
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
