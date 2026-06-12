@@ -200,6 +200,10 @@ module NameResolutionScope =
             // `h :: t`: the `::` head binds nothing; both sub-patterns introduce
             // binders.
             bindingsOfPat ctx h @ bindingsOfPat ctx t
+        | Pat.Elems(pats = pats) ->
+            // `[a; b; c]` list-literal pattern (the multi-element form, wrapped in
+            // `EnclosedBlock(List, …)`): each element introduces binders.
+            [ for sub in pats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Op io ->
             // Operator-named binding head (`let (=) x y = …`): bind the compiled
             // name (`op_Equality`). Use sites resolve through Desugar→External,

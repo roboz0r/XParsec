@@ -71,6 +71,25 @@ module internal FreezePatterns =
             TPat.Union(ctx.NameOf t, EqArray.empty, ty)
         | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
         | Pat.Wildcard _ -> TPat.Wildcard ty
+        | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
+            // `[a; b; c]` list-literal pattern → nested cons:
+            // `Cons(a, Cons(b, Cons(c, Empty)))`. Each cons/nil node carries the
+            // whole list type (`ty`) — a tail of a `'T list` is the same `'T list`
+            // — so `listCaseNames` resolves the same factory at every level. A
+            // single-element `[a]` arrives unwrapped; `[]` is `Pat.EmptyBlock`.
+            let consName, nilName = listCaseNames ctx ty
+
+            let elems =
+                match inner with
+                | Pat.Elems(pats = pats) -> List.ofSeq pats
+                | single -> [ single ]
+
+            let nil = TPat.Union(nilName, EqArray.empty, ty)
+
+            List.foldBack
+                (fun el acc -> TPat.Union(consName, EqArray.ofList [ translatePat ctx el; acc ], ty))
+                elems
+                nil
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
         | Pat.Tuple(patterns = pats) -> TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty)
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->

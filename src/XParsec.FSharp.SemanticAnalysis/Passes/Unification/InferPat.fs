@@ -274,6 +274,26 @@ module internal UnificationInferPat =
                 nodeTv.Link <- ValueSome unionTy
                 unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
+        | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
+            // `[a; b; c]` list-literal pattern ≡ `a :: b :: c :: []`: every
+            // element shares one element type and the whole pattern is that list
+            // type. A single-element `[a]` arrives as the bare element (no
+            // semicolons → no `Pat.Elems` wrapper); `[]` is `Pat.EmptyBlock`.
+            let elems =
+                match inner with
+                | Pat.Elems(pats = pats) -> List.ofSeq pats
+                | single -> [ single ]
+
+            let elemTy = TyVar(freshTyVar ctx)
+
+            for e in elems do
+                let eTy = inferPat ctx e
+                unify ctx (CstKeys.ofPat e) eTy elemTy
+
+            let listTy = consListTy ctx key elemTy
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome listTy
+            listTy
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Attributed(pat = inner) ->
             let innerTy = inferPat ctx inner

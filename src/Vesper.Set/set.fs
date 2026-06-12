@@ -976,20 +976,17 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         Set(comparer, SetTree.ofArray comparer arr)
 
     override x.ToString() =
-        // Cons-terminated patterns (`h :: []`) rather than the `[h1; h2]`
-        // list-literal pattern form, which Vesper's front end doesn't lower yet
-        // (vesper-set-gaps.md §B-4 / list-literal patterns); semantically identical.
         match List.ofSeq (Seq.truncate 4 x) with
         | [] -> "set []"
-        | h1 :: [] ->
+        | [ h1 ] ->
             let txt1 = sprintf "%O" h1
             StringBuilder().Append("set [").Append(txt1).Append("]").ToString()
-        | h1 :: h2 :: [] ->
+        | [ h1; h2 ] ->
             let txt1 = sprintf "%O" h1
             let txt2 = sprintf "%O" h2
 
             StringBuilder().Append("set [").Append(txt1).Append("; ").Append(txt2).Append("]").ToString()
-        | h1 :: h2 :: h3 :: [] ->
+        | [ h1; h2; h3 ] ->
             let txt1 = sprintf "%O" h1
             let txt2 = sprintf "%O" h2
             let txt3 = sprintf "%O" h3

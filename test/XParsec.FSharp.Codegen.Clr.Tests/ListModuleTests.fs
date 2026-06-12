@@ -242,6 +242,34 @@ let externalMatchRuntime =
                     ("let hd (xs: int list) : int = match xs with | [] -> 0 | h :: _ -> h\n"
                      + "printfn \"%d\" (hd [1; 2; 3])")
             }
+
+            // G2: fixed-length list-literal patterns `[a]` / `[a; b]` / `[a; b; c]`
+            // desugar to cons chains (`a :: []`, `a :: b :: []`, …) terminated by the
+            // empty case, so they run through the same external cons-list match path
+            // as `h :: t`. A literal arm hits only at its exact length; other lengths
+            // fall to the wildcard.
+            test "single-element list-literal pattern [a] hits length 1, misses otherwise" {
+                runsLines
+                    [ "5"; "0" ]
+                    ("let f (xs: int list) : int = match xs with | [a] -> a | _ -> 0\n"
+                     + "printfn \"%d\" (f [5])\n"
+                     + "printfn \"%d\" (f [5; 6])")
+            }
+
+            test "two-element list-literal pattern [a; b] binds both elements" {
+                runsLines
+                    [ "7"; "-1" ]
+                    ("let f (xs: int list) : int = match xs with | [a; b] -> a + b | _ -> -1\n"
+                     + "printfn \"%d\" (f [3; 4])\n"
+                     + "printfn \"%d\" (f [3])")
+            }
+
+            test "three-element list-literal pattern [a; b; c] binds all three" {
+                runs
+                    "6"
+                    ("let f (xs: int list) : int = match xs with | [a; b; c] -> a + b + c | _ -> 0\n"
+                     + "printfn \"%d\" (f [1; 2; 3])")
+            }
         ]
 
 // ---- front-end regression guard (analysis only) ------------------------------
@@ -280,5 +308,14 @@ let frontEndTests =
             test "cons construction type-checks" {
                 typeChecks "let cons (x: int) (xs: int list) : int list = x :: xs"
                 typeChecks "let two (xs: int list) : int list = 1 :: 2 :: xs"
+            }
+
+            // G2: fixed-length list-literal patterns (`[a]`, `[a; b]`, `[a; b; c]`)
+            // type-check against the Vesper list — each element shares the element
+            // type and the whole pattern is `int list`.
+            test "list-literal patterns type-check" {
+                typeChecks "let f (xs: int list) : int = match xs with | [a] -> a | _ -> 0"
+                typeChecks "let f (xs: int list) : int = match xs with | [a; b] -> a + b | _ -> 0"
+                typeChecks "let f (xs: int list) : int = match xs with | [a; b; c] -> a + b + c | _ -> 0"
             }
         ]
