@@ -49,15 +49,20 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //      (`box <T>` / `box !i`). `Set\`1` now emits `Add(!0):Set<!0>` etc. and the
 //      add/count/contains/fold round-trip runs end-to-end.
 //
-//   5. ❌ OPEN (separate, pre-existing — never reached before #4) — `Set.union` /
-//      `Set.intersect` go through the `Set.(+)` / `Set.Intersection` *static
-//      operator* members, which produce a CORRUPT `Set`: building succeeds but any
-//      read (`Set.count`/`Set.contains`) `AccessViolation`s walking the tree. The
-//      identical result built via the instance `Set.add` path reads back fine, so
-//      the corruption is specific to the static-operator member's
-//      `Set(set1.Comparer, SetTree.union …)` construction / its call from generic
-//      `SetModule.union<'T>` (handoff deferred gap #1 family). See the
-//      `ptest "… union/intersect (static-operator wall)"` row.
+//   5. ✅ FIXED — the static-operator wall. `Set.union` / `Set.intersect` go through
+//      `set1 + set2` / `Set<'T>.Intersection(...)`. The infix `set1 + set2` reached
+//      codegen as a saturated `External("op_Addition")` and the closing
+//      `expandBuiltinOps` collapsed it to the primitive IL `add` opcode — INTEGER
+//      addition of two `Set` object references, yielding a garbage pointer that
+//      `AccessViolation`s on the next read. The real `(+)` must dispatch to the type's
+//      OWN static operator member (F#'s SRTP rule). Fix (ops-platform.fs + compiler):
+//      the arithmetic operators gained FSharp.Core's final
+//      `when ^T : ^T = (^T: (static member (+): ^T*^T->^T) (x,y))` static-opt clause —
+//      an SRTP member-trait call — now supported end-to-end (`Expr.StaticMemberInvocation`
+//      → `TExpr.TraitCall` → resolved to a `StaticMethodCall` at inline expansion when
+//      `^T` substitutes to a nominal; primitives keep the inline-IL base). `SetModule.Union`
+//      now emits `call Set\`1::op_Addition` and the union/intersect round-trip reads back
+//      correctly. See the `test "… union/intersect (static-operator wall)"` row.
 //
 // `runsSet` routes a driver through `packageAlc` (where `Vesper.Set` + its eight
 // transitive deps resolve); HOF arguments are written *curried* per the Freeze
@@ -93,18 +98,13 @@ let tests =
                      + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)")
             }
 
-            // NEXT WALL (separate, pre-existing — never reached before gap #4 closed):
-            // `Set.union` / `Set.intersect` route through the `Set.(+)` /
-            // `Set.Intersection` *static operator* members, which produce a CORRUPT
-            // `Set` — building `u`/`i` succeeds, but any subsequent read
-            // (`Set.count`/`Set.contains`) `AccessViolation`s reading the tree.
-            // Isolation: the identical 4-element result built via `Set.add 5 s` (the
-            // instance-member path) reads back fine, so the corruption is specific to
-            // the static-operator member's `Set(set1.Comparer, SetTree.union …)`
-            // construction / its call from the generic `SetModule.union<'T>` (the
-            // handoff's deferred gap #1 family — a static call on a generic class from
-            // a concrete/non-declaring context). Flip → `test` when that lands.
-            ptest "Set round-trip union/intersect (static-operator wall)" {
+            // The static-operator wall (gap #5) is CLOSED. `Set.union` is `set1 + set2`,
+            // whose `(+)` now dispatches to `Set<'T>.op_Addition` via the
+            // `when ^T : ^T` SRTP member-trait clause in `ops-platform.fs` (`set1 + set2`
+            // previously collapsed to the primitive IL `add` opcode — integer addition of
+            // two object references — corrupting the `Set`). `SetModule.Union` emits a
+            // `call Set\`1::op_Addition`; the union/intersect round-trip reads back fine.
+            test "Set round-trip union/intersect (static-operator wall)" {
                 runsSetLines
                     [ "4"; "1" ]
                     (prelude
@@ -113,5 +113,57 @@ let tests =
                      + "printfn \"%d\" (Set.count u)\n"
                      + "let i = Set.intersect s (Set.add 2 Set.empty)\n"
                      + "printfn \"%d\" (Set.count i)")
+            }
+
+            // `Set<'T>`'s `IStructuralEquatable` members (`set.fs:905`) pass a `'T`-typed
+            // element into the *non-generic* `System.Collections.IEqualityComparer`'s
+            // `GetHashCode(obj)` / `Equals(obj, obj)`. That is the gap-#4 boxing shape:
+            // codegen must resolve the non-generic overload and `box` the typar/value-type
+            // argument (an early draft emitted a `GetHashCode('T)` ref → MissingMethod).
+            // The round-trip gates never *call* the structural path, so exercise it here
+            // by reflectively invoking the interface slots on a loaded `Set\`1<int>` with a
+            // real `StructuralEqualityComparer` — proving the boxed `IEqualityComparer`
+            // member-refs resolve and run.
+            test "Set IStructuralEquatable GetHashCode/Equals run (boxed IEqualityComparer member-refs)" {
+                let asm = (buildPackage "Vesper.Set").Value |> fst
+                let setModule = asm.GetType("Vesper.Collections.SetModule", true)
+
+                let ofArray = setModule.GetMethod("OfArray").MakeGenericMethod(typeof<int>)
+
+                let build (xs: int[]) = ofArray.Invoke(null, [| box xs |])
+
+                let s1 = build [| 1; 2; 3 |]
+                let s2 = build [| 3; 2; 1 |] // same set, reversed insertion order
+                let s3 = build [| 1; 2; 9 |] // different element
+
+                let comparer: System.Collections.IEqualityComparer =
+                    System.Collections.StructuralComparisons.StructuralEqualityComparer
+
+                let ise = typeof<System.Collections.IStructuralEquatable>
+
+                let getHash =
+                    ise.GetMethod("GetHashCode", [| typeof<System.Collections.IEqualityComparer> |])
+
+                let equals =
+                    ise.GetMethod("Equals", [| typeof<obj>; typeof<System.Collections.IEqualityComparer> |])
+
+                // Reflective invoke of an interface method virtual-dispatches to `Set`'s
+                // explicit impl — the path that emits the boxed `IEqualityComparer` calls.
+                // Unwrap reflection's `TargetInvocationException` so a runtime failure in
+                // the member body surfaces its real type/message.
+                let invoke (m: System.Reflection.MethodInfo) (target: obj) (args: obj[]) : obj =
+                    try
+                        m.Invoke(target, args)
+                    with :? System.Reflection.TargetInvocationException as e ->
+                        raise e.InnerException
+
+                let h1 = invoke getHash s1 [| comparer |] :?> int
+                let h2 = invoke getHash s2 [| comparer |] :?> int
+                let eq12 = invoke equals s1 [| s2; comparer |] :?> bool
+                let eq13 = invoke equals s1 [| s3; comparer |] :?> bool
+
+                Expect.equal h1 h2 "equal sets hash equally through the structural comparer (GetHashCode(obj) ran)"
+                Expect.isTrue eq12 "structurally equal sets compare equal (Equals(obj, obj) ran)"
+                Expect.isFalse eq13 "structurally different sets compare unequal"
             }
         ]

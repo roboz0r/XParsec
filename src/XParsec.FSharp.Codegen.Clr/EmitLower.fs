@@ -42,6 +42,7 @@ module EmitLower =
         | TExprG.StaticOptimization(_, _, ty) -> ty
         | TExprG.Upcast(_, ty) -> ty
         | TExprG.Downcast(_, ty) -> ty
+        | TExprG.TraitCall(_, _, _, ty) -> ty
         | TExprG.TypeTest(_, _, ty) -> ty
 
     let typeOfPat (p: Frozen.TPat) : FrozenType =
@@ -194,6 +195,7 @@ module EmitLower =
             TExprG.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
         | TExprG.Upcast(src, t) -> TExprG.Upcast(f src, t)
         | TExprG.Downcast(src, t) -> TExprG.Downcast(f src, t)
+        | TExprG.TraitCall(recv, n, args, t) -> TExprG.TraitCall(recv, n, EqArray.map f args, t)
         | TExprG.TypeTest(src, testTy, t) -> TExprG.TypeTest(f src, testTy, t)
 
     /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot

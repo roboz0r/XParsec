@@ -57,6 +57,7 @@ module ArithmeticOperators =
         when ^T: sbyte = (# "conv.i1" (# "add" x y : int32 #) : sbyte #)
         when ^T: int16 = (# "conv.i2" (# "add" x y : int32 #) : int16 #)
         when ^T: uint16 = (# "conv.u2" (# "add" x y : int32 #) : uint16 #)
+        when ^T: ^T = (^T: (static member (+): ^T * ^T -> ^T) (x, y))
 
     /// Overloaded subtraction. Same shape as `(+)` — `sub` is sign-agnostic
     /// (two's complement), only the narrow result width needs truncation.
@@ -66,6 +67,7 @@ module ArithmeticOperators =
         when ^T: sbyte = (# "conv.i1" (# "sub" x y : int32 #) : sbyte #)
         when ^T: int16 = (# "conv.i2" (# "sub" x y : int32 #) : int16 #)
         when ^T: uint16 = (# "conv.u2" (# "sub" x y : int32 #) : uint16 #)
+        when ^T: ^T = (^T: (static member (-): ^T * ^T -> ^T) (x, y))
 
     /// Overloaded multiplication. Same shape as `(+)`. Written `( * )` (spaces
     /// required — `(*` opens a block comment).
@@ -75,6 +77,7 @@ module ArithmeticOperators =
         when ^T: sbyte = (# "conv.i1" (# "mul" x y : int32 #) : sbyte #)
         when ^T: int16 = (# "conv.i2" (# "mul" x y : int32 #) : int16 #)
         when ^T: uint16 = (# "conv.u2" (# "mul" x y : int32 #) : uint16 #)
+        when ^T: ^T = (^T: (static member ( * ): ^T * ^T -> ^T) (x, y))
 
     /// Overloaded division. The base is the SIGNED `div` (int/int64/float/
     /// native); the unsigned widths need `div.un` (signed `div` reads their high
@@ -87,6 +90,7 @@ module ArithmeticOperators =
         when ^T: sbyte = (# "conv.i1" (# "div" x y : int32 #) : sbyte #)
         when ^T: int16 = (# "conv.i2" (# "div" x y : int32 #) : int16 #)
         when ^T: uint16 = (# "conv.u2" (# "div.un" x y : int32 #) : uint16 #)
+        when ^T: ^T = (^T: (static member (/): ^T * ^T -> ^T) (x, y))
 
     /// Overloaded remainder. Same shape as `(/)` — unsigned widths need `rem.un`.
     let inline (%) (x: ^T) (y: ^T) : ^T =
@@ -97,6 +101,7 @@ module ArithmeticOperators =
         when ^T: sbyte = (# "conv.i1" (# "rem" x y : int32 #) : sbyte #)
         when ^T: int16 = (# "conv.i2" (# "rem" x y : int32 #) : int16 #)
         when ^T: uint16 = (# "conv.u2" (# "rem.un" x y : int32 #) : uint16 #)
+        when ^T: ^T = (^T: (static member (%): ^T * ^T -> ^T) (x, y))
 
     /// Overloaded unary negation. `neg` is two's-complement on every integral
     /// width and IEEE sign-flip on floats; the base covers all of them.

@@ -91,6 +91,7 @@ module TastConvert =
             TExprG.StaticOptimization(EqArray.map (clause f) clauses, pe def, f ty)
         | TExprG.Upcast(src, ty) -> TExprG.Upcast(pe src, f ty)
         | TExprG.Downcast(src, ty) -> TExprG.Downcast(pe src, f ty)
+        | TExprG.TraitCall(recv, n, args, ty) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty)
         | TExprG.TypeTest(src, testTy, ty) -> TExprG.TypeTest(pe src, f testTy, f ty)
 
     and arm (f: 'a -> 'b) (a: TMatchArmG<'a>) : TMatchArmG<'b> =

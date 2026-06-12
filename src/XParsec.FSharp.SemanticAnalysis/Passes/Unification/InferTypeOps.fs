@@ -143,6 +143,20 @@ module internal UnificationInferTypeOps =
         ctx.StaticOpt.Set(key, resolved)
         baseTy
 
+    /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
+    /// call, only ever the body of a `when ^T : ^T` static-opt clause in a `let inline`
+    /// operator (`ops-platform.fs`). The member is resolved at inline expansion (the
+    /// typar is abstract here), so inference only types the argument tuple and yields
+    /// the member's return type. For the arithmetic operators that is the operand type
+    /// `^T`, recovered from the (tupled) argument; Freeze lowers the node to a
+    /// `TExpr.TraitCall` carrying the operand type + member name.
+    and inferStaticMemberInvocation (infer: Infer) (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : SemType =
+        let argTy = infer ctx argExpr
+
+        match zonk argTy with
+        | TyTuple items when items.Length > 0 -> items.[0]
+        | other -> other
+
     and inferTypeAnnotation
         (infer: Infer)
         (ctx: PassContext)

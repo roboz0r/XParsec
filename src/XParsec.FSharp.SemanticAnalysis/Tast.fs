@@ -274,6 +274,17 @@ type TExprG<'ty> =
     /// `isinst` operand); `ty` is always `TyConst "bool"` (the result). Codegen
     /// emits `isinst <testTy>; ldnull; cgt.un`.
     | TypeTest of source: TExprG<'ty> * testTy: 'ty * ty: 'ty
+    /// SRTP member-trait call, the lowering of a `let inline` operator body's
+    /// `when ^T : ^T = ((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` static-opt
+    /// clause (`ops-platform.fs`). `receiver` is the trait typar's type (`^T`);
+    /// `memberName` is the resolved compiled member name (`op_Addition`). The node is
+    /// transient: at `let inline` expansion `Inline.substMapper` substitutes `receiver`
+    /// to the concrete operand type and, when that is a project-local nominal carrying
+    /// the named static member, rewrites the whole node to a `StaticMethodCall` on it
+    /// (the F# "^T is a nominal type" static-optimization condition). It is therefore
+    /// resolved — or its clause discarded by static-opt selection — during
+    /// `InlineExpansion` and never reaches codegen. See docs/operators-plan.md.
+    | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty>> * ty: 'ty
 
 and TMatchArmG<'ty> =
     {

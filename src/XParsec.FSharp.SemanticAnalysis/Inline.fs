@@ -136,6 +136,30 @@ module Inline =
                   _) -> true
         | _ -> false
 
+    /// Follow union-find roots + `.Link` to the concrete head of a type (the local
+    /// equivalent of `Unification.zonk`, which compiles after this module so cannot be
+    /// referenced here). Only the head is needed by the callers below.
+    let rec private zonkHead (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            match root.Link with
+            | ValueSome target -> zonkHead target
+            | ValueNone -> TyVar root
+        | _ -> t
+
+    /// A project-local nominal (class / union / record) — the operand shape for
+    /// which F#'s reflexive `when ^T : ^T` static-optimization condition holds (the
+    /// type carries its own static operator member). Drives both the `holds`
+    /// gate below and the `TraitCall` resolution.
+    let private isNominalType (t: SemType) : bool =
+        match zonkHead t with
+        | TyClass _
+        | TyUnion _
+        | TyRecord _ -> true
+        | _ -> false
+
     /// Build the typar-substituting mapper for one inline expansion. The
     /// `StaticOptimization` override is the only customisation: at call-site
     /// expansion the typars have been pinned, so pick the first clause whose
@@ -150,19 +174,53 @@ module Inline =
             | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
+        // A clause whose body is an SRTP member-trait call (the operators' `when ^T : ^T`
+        // dispatch clause) additionally requires the substituted operand to be a nominal
+        // carrying that member — F#'s "^T is a nominal type" condition. A primitive
+        // operand therefore skips it and falls through to the operator's primitive
+        // clauses / inline-IL base, while a plain-bodied `^T : ^T` clause (a user catch-all)
+        // stays unconditional.
+        let clauseSelected (cl: TStaticOptClause) =
+            (cl.Constraints |> EqArray.forall holds)
+            && (
+                match cl.Body with
+                | TExpr.TraitCall(recvTy, _, _, _) -> isNominalType (sub recvTy)
+                | _ -> true
+            )
+
         let resolveStaticOpt (clauses: EqArray<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
             let m = substMapper subst
 
-            match clauses |> EqArray.tryFind (fun cl -> cl.Constraints |> EqArray.forall holds) with
+            match clauses |> EqArray.tryFind clauseSelected with
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
             | ValueNone -> TastWalk.mapExpr m defaultExpr
+
+        // Resolve a `TraitCall` once the trait typar has been substituted to a concrete
+        // nominal: rewrite it to a `StaticMethodCall` on that type's static operator
+        // member. This fires for the `when ^T : ^T` clause body selected by `holds`
+        // above (so the receiver is always a nominal here); a non-nominal receiver is
+        // left as a substituted `TraitCall` for a later phase to surface loudly.
+        let resolveTraitCall
+            (m: TastWalk.Mapper)
+            (recvTy: SemType)
+            (memberName: string)
+            (args: EqArray<TExpr>)
+            (ty: SemType)
+            : TExpr voption =
+            match zonkHead (sub recvTy) with
+            | TyClass(k, _)
+            | TyUnion(k, _) ->
+                let memberKey = LocalSymbolKey.ofMember k memberName MemberKind.Method
+                ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty))
+            | _ -> ValueNone
 
         { TastWalk.identityMapper with
             MapType = sub
             OverrideExpr =
-                fun _ e ->
+                fun m e ->
                     match e with
                     | TExpr.StaticOptimization(clauses, def, _) -> ValueSome(resolveStaticOpt clauses def)
+                    | TExpr.TraitCall(recvTy, memberName, args, ty) -> resolveTraitCall m recvTy memberName args ty
                     | _ -> ValueNone
         }
 

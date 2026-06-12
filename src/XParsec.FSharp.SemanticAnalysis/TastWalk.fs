@@ -67,6 +67,7 @@ module TastWalk =
         | TExpr.StaticOptimization(ty = ty)
         | TExpr.Upcast(ty = ty)
         | TExpr.Downcast(ty = ty)
+        | TExpr.TraitCall(ty = ty)
         | TExpr.TypeTest(ty = ty) -> ty
 
     /// Project the `ty` field embedded in any `TPat`.
@@ -229,6 +230,8 @@ module TastWalk =
                 TExpr.StaticOptimization(clauses, pe def, f ty)
             | TExpr.Upcast(src, ty) -> TExpr.Upcast(pe src, f ty)
             | TExpr.Downcast(src, ty) -> TExpr.Downcast(pe src, f ty)
+            | TExpr.TraitCall(recv, memberName, args, ty) ->
+                TExpr.TraitCall(f recv, memberName, EqArray.map pe args, f ty)
             | TExpr.TypeTest(src, testTy, ty) -> TExpr.TypeTest(pe src, f testTy, f ty)
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
@@ -358,6 +361,7 @@ module TastWalk =
             | TExpr.UnionCons(_, args, _)
             | TExpr.New(_, args, _)
             | TExpr.StaticMethodCall(_, args, _)
+            | TExpr.TraitCall(_, _, args, _)
             | TExpr.ILIntrinsic(_, _, args, _) ->
                 for x in args do
                     walk x

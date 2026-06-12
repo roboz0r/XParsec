@@ -455,6 +455,8 @@ module internal FreezeExpr =
                 TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty)
             else
                 TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty)
+        | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
+            translateStaticMemberInvocation ctx argExpr msig ty
         | Expr.LibraryOnlyStaticOptimization _ ->
             // The clause chain nests left-fold (outermost = the last `when` in
             // source order). Peel it into a flat source-ordered clause list plus
@@ -841,6 +843,36 @@ module internal FreezeExpr =
             | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
 
         TExpr.Format(formatSink, EqArray.ofSeq segments, ty)
+
+    /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
+    /// call (the body of a `let inline` operator's `when ^T : ^T` static-opt clause,
+    /// `ops-platform.fs`). Lower to a `TExpr.TraitCall` carrying the operand type
+    /// (the operator's `^T`, taken from the first argument), the resolved compiled
+    /// member name, and the peeled arguments. `Inline.substMapper` resolves it to a
+    /// `StaticMethodCall` once `^T` is substituted to a concrete nominal at expansion.
+    and private translateStaticMemberInvocation
+        (ctx: PassContext)
+        (argExpr: Expr<SyntaxToken>)
+        (msig: MemberSig<SyntaxToken>)
+        (ty: SemType)
+        : TExpr =
+        let ident =
+            match msig with
+            | MemberSig.MethodOrPropSig(ident = ident)
+            | MemberSig.PropSig(ident = ident) -> ident
+
+        let memberName =
+            match Desugar.opPatCompiledName ctx.NameOf ident with
+            | ValueSome n -> n
+            | ValueNone -> failwithf "Freeze: unsupported static-member-trait operator %A" ident
+
+        let args = peelOneArg (translateExpr ctx) argExpr
+        // The trait receiver is the operand type — the operator's `^T` typar, carried
+        // on the first argument. Substitution at expansion rewrites it to the concrete
+        // nominal and this node to a `StaticMethodCall`.
+        let receiverTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
+
+        TExpr.TraitCall(receiverTy, memberName, args, ty)
 
     and private translateInfix
         (ctx: PassContext)

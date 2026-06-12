@@ -61,6 +61,7 @@ type NodeKind =
     /// receiver's first token) so a lookup node never collides with its
     /// receiver sub-expression's key — same rationale as `ExprInfixApp`.
     | ExprIndexedLookup = 40us
+    | ExprStaticMemberInvocation = 41us
 
     | PatConst = 100us
     | PatIdent = 101us

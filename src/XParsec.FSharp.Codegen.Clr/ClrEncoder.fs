@@ -102,6 +102,17 @@ type internal ClrEncoder(env: ClrEnv) =
         // synthesised structural-equality triple already uses, and
         // [[reference_object_override_elementtype]]).
         | FTConst("obj", _) -> te.Object()
+        // `System.Object` arriving as an external CLASS — a BCL method's `object`
+        // parameter read from metadata as a class `TypeRef` rather than the primitive
+        // `obj` (e.g. `IEqualityComparer.GetHashCode(object)` /
+        // `IEqualityComparer.Equals(object, object)`, called by `set.fs`'s
+        // `IStructuralEquatable` members on a boxed `'T`). It must ALSO encode as the
+        // compact `ELEMENT_TYPE_OBJECT`, not `class System.Object`: the BCL signature
+        // uses the primitive token, so a member-ref whose parameter is `class
+        // System.Object` fails signature match at JIT time (`MissingMethodException`).
+        // Mirrors the `obj` arm + the `.Object()` override recipes
+        // ([[reference_object_override_elementtype]]).
+        | FTClass(key, _) when SymbolKeyOps.qualifiedName key = "System.Object" -> te.Object()
         | FTConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
         | FTConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
         | FTConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)

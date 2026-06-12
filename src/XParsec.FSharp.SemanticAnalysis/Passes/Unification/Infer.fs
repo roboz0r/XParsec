@@ -101,6 +101,7 @@ module UnificationInfer =
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic infer ctx args rt
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
                 inferLibraryOnlyStaticOptimization infer ctx key baseE cs optE
+            | Expr.StaticMemberInvocation(expr = argExpr) -> inferStaticMemberInvocation infer ctx argExpr
             | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx key inner typeArgs
             | _ ->
                 // Surface the unhandled case loudly rather than fabricating a

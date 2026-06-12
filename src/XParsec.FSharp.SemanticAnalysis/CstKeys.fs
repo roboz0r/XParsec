@@ -107,6 +107,9 @@ module CstKeys =
         // receiver sub-expression already owns) so the two never collide —
         // same rationale as the `InfixApp` operator-token choice.
         | Expr.IndexedLookup(lBracket = t) -> t
+        // Key off the opening `(` of the invocation — unique to this node, so it
+        // never collides with the inner argument expression's own key.
+        | Expr.StaticMemberInvocation(lParen = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
     let rec firstTokenOfPat (p: Pat<SyntaxToken>) : SyntaxToken =
@@ -182,6 +185,7 @@ module CstKeys =
                 | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
                 | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
                 | Expr.IndexedLookup _ -> NodeKind.ExprIndexedLookup
+                | Expr.StaticMemberInvocation _ -> NodeKind.ExprStaticMemberInvocation
                 | _ -> NodeKind.Unknown
 
             NodeKey.ofToken (firstTokenOfExpr e) kind

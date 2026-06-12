@@ -517,6 +517,21 @@ type private Renderer() =
             push " :? "
             push (tyName testTy)
             push ")"
+        | TExpr.TraitCall(recv, memberName, args, _) ->
+            push (tyName recv)
+            push "."
+            push memberName
+            push "("
+
+            args
+            |> EqArray.iteri (fun i a ->
+                if i > 0 then
+                    push ", "
+
+                this.Expr a
+            )
+
+            push ")"
 
     member this.Pat(p: TPat) : unit =
         match p with

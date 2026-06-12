@@ -151,6 +151,22 @@ module InlineExpansion =
         | TyUnknown _ -> false
         | TyTypar _ -> false
 
+    /// Whether a derived inline type argument is concrete enough to splice a saturated
+    /// builtin operator. A ground type qualifies; so does a *nominal-headed* type
+    /// (`Set<'T>`) even with abstract element typars — its head constructor pins the
+    /// `when ^T : ^T` static-opt clause to the type's own static operator member, which
+    /// codegen emits generic in the residual typars. A bare typar / TyVar (a truly
+    /// unpinned `let f a b = a + b`) does NOT qualify and falls to `expandBuiltinOps`.
+    let private isSpliceableOperatorArg (t: SemType) : bool =
+        isGroundType t
+        || (
+            match Unification.zonk t with
+            | TyClass _
+            | TyUnion _
+            | TyRecord _ -> true
+            | _ -> false
+        )
+
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
     /// against the actual spine-arg types. Tolerant: a typar the params don't pin
@@ -379,7 +395,8 @@ module InlineExpansion =
 
             let externalArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
                 match decl with
-                | TDecl.Let(_, _, _, declTy) -> deriveInlineTypeArgs declTy spineArgs |> Array.forall isGroundType
+                | TDecl.Let(_, _, _, declTy) ->
+                    deriveInlineTypeArgs declTy spineArgs |> Array.forall isSpliceableOperatorArg
                 | _ -> false
 
             // Inline-first lambda elimination. A lambda

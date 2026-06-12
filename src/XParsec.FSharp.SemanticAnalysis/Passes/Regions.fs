@@ -473,6 +473,9 @@ module Regions =
         | TExpr.MethodCall(recv, _, _, args, _) ->
             joinArms s e [ yield inferRegion s ctx recv; for a in args -> inferRegion s ctx a ] RegionId.Unknown
         | TExpr.StaticMethodCall(_, args, _) -> joinArms s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+        // Resolved to a `StaticMethodCall` by inline expansion; walk args defensively
+        // in case a residual one survives so captures inside it still register.
+        | TExpr.TraitCall(_, _, args, _) -> joinArms s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
 
     /// Process a `TExpr.Lambda` whose closure region is `r` (a fresh region for an
     /// anonymous lambda, or the pre-minted region of a function-form binding).
