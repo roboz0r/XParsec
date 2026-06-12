@@ -878,12 +878,15 @@ module UnificationEngine =
                 for d in pending do
                     match ctx.Provider.TryLookupMember(qualName, d.MemberName) with
                     | ValueSome m when not m.IsStatic ->
+                        let memberSig = normalizeObj (ExternalSymbols.openSignature m argArr)
+
                         ctx.Resolution.ExternalAccess.Set(
                             d.UseKey,
                             {
                                 Key = m.Key
                                 IsStatic = false
                                 IsProperty = m.IsProperty
+                                Signature = memberSig
                             }
                         )
 
@@ -893,12 +896,11 @@ module UnificationEngine =
                         // absorb a typar argument (`x : 'T`) by an implicit box,
                         // not ground the typar — the application already linked the
                         // arg into `d.ResultTv`'s domain while the receiver was
-                        // still deferred, so the coercion happens here.
-                        unifyAppliedSig
-                            ctx
-                            d.UseKey
-                            (TyVar d.ResultTv)
-                            (normalizeObj (ExternalSymbols.openSignature m argArr))
+                        // still deferred, so the coercion happens here. The recorded
+                        // `Signature` (the declared `obj`-bearing shape) is what
+                        // Freeze reads for the box, since this unify deliberately
+                        // leaves the node typed with the un-grounded arg typar.
+                        unifyAppliedSig ctx d.UseKey (TyVar d.ResultTv) memberSig
                     | _ -> ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" qualName d.MemberName)
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;

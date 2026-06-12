@@ -8,7 +8,6 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 open EmitPattern
-open EmitCoerce
 open EmitDispatch
 
 /// Field / property / method access — instance and static, project-local and
@@ -59,7 +58,6 @@ module EmitMember =
         (receiverTy: FrozenType)
         (handle: EntityHandle)
         (args: EqArray<Frozen.TExpr>)
-        (paramTys: FrozenType list)
         : unit =
         let isStructSelf =
             match via, receiverTy with
@@ -71,7 +69,10 @@ module EmitMember =
         else
             recur env b receiver
 
-        emitArgsBoxed recur env b args (objSlotsOf paramTys)
+        // The value→`obj` box for an `obj` parameter is now an explicit `Upcast`
+        // node synthesised at Freeze — codegen just pushes each argument.
+        for a in args do
+            recur env b a
 
         let operands = 1 + args.Length
 
@@ -130,8 +131,8 @@ module EmitMember =
             // Instance property read — a 0-argument instance member access; the
             // receiver/dispatch shape is shared with `buildMethodCall`.
             let receiverTy = typeOfExpr receiver
-            let handle, _ = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
-            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty []
+            let handle = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty
         | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
@@ -141,17 +142,14 @@ module EmitMember =
             // `buildPropertyGet`, with the call's arguments pushed between the
             // receiver and the `call`/`callvirt`.
             let receiverTy = typeOfExpr receiver
-
-            let handle, paramTys =
-                resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
-
-            emitInstanceMember recur env b via receiver receiverTy handle args paramTys
+            let handle = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            emitInstanceMember recur env b via receiver receiverTy handle args
         | _ -> failwith "EmitMember.buildMethodCall: unreachable"
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.StaticPropertyGet(key, ty) ->
-            let handle, _ = resolveStaticMember env key ty
+            let handle = resolveStaticMember env key ty
             b.Add(ILInstr.Call(handle, 0, 1))
         | _ -> failwith "EmitMember.buildStaticPropertyGet: unreachable"
 
@@ -165,8 +163,11 @@ module EmitMember =
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.StaticMethodCall(key, args, ty) ->
-            let handle, paramTys = resolveStaticMember env key ty
-            emitArgsBoxed recur env b args (objSlotsOf paramTys)
+            let handle = resolveStaticMember env key ty
+            // Obj-parameter boxes are explicit `Upcast` nodes from Freeze; push raw.
+            for a in args do
+                recur env b a
+
             b.Add(ILInstr.Call(handle, args.Length, 1))
         | _ -> failwith "EmitMember.buildStaticMethodCall: unreachable"
 

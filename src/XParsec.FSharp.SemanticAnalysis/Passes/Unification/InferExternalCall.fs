@@ -35,17 +35,18 @@ module internal UnificationInferExternalCall =
         : SemType =
         let fnKey = CstKeys.ofExpr fn
 
+        let memberSig =
+            ExternalSymbols.instantiateSignature chosen declArgs ctx.CurrentLevel
+
         ctx.Resolution.ExternalAccess.Set(
             fnKey,
             {
                 Key = chosen.Key
                 IsStatic = chosen.IsStatic
                 IsProperty = chosen.IsProperty
+                Signature = memberSig
             }
         )
-
-        let memberSig =
-            ExternalSymbols.instantiateSignature chosen declArgs ctx.CurrentLevel
 
         (freshTv ctx fnKey).Link <- ValueSome memberSig
         let resultTy = TyVar(freshTyVar ctx)

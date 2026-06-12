@@ -8,7 +8,6 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 open EmitPattern
-open EmitCoerce
 open EmitDispatch
 
 /// Application (`f a b …`) lowering and the curried-invoke fold. The head
@@ -139,10 +138,11 @@ module EmitCall =
             let sm = env.StaticMethods.[k]
             let leading, rest = List.splitAt sm.Arity spineArgs
 
-            // Box each argument flowing into an `obj` parameter (the implicit
-            // value→obj upcast) — a top-level `let f (x: obj)` emitted as a static
-            // method.
-            emitArgsBoxed recur env b (leading |> List.map fst |> EqArray.ofList) (objSlotsOf sm.ParamTys)
+            // The value→obj box for an `obj` parameter is now an explicit `Upcast`
+            // node from Freeze (a top-level `let f (x: obj)` emitted as a static
+            // method); push each argument raw.
+            for (a, _) in leading do
+                recur env b a
 
             let callHandle =
                 if sm.Typars = 0 then
@@ -207,15 +207,15 @@ module EmitCall =
                 | ValueNone -> 0 // no argument supplied (a 0-param method)
                 | ValueSome(argExpr, _) ->
                     if argCount >= 2 then
-                        // An external member carries its parameter model as the
-                        // key's *rendered* `argSig` (an `obj` parameter renders to
-                        // `System.Object` or the user-facing `obj`), so the obj-slot
-                        // test is a sig-string compare (`objSlotsOfSig`) rather than
-                        // the project-local paths' typed `objSlotsOf` — both feed the
-                        // one shared box-materialisation policy.
+                        // A multi-param .NET method is tupled; its arguments are
+                        // pushed element-wise. The value→`obj` box for an `obj`
+                        // parameter is an explicit `Upcast` node from Freeze (which
+                        // wraps the tuple element-wise), so push each element raw.
                         match argExpr with
                         | TExprG.Tuple(elems, _) when elems.Length = argCount ->
-                            emitArgsBoxed recur env b elems (objSlotsOfSig argSig)
+                            for el in elems do
+                                recur env b el
+
                             argCount
                         | _ ->
                             failwithf
@@ -225,7 +225,6 @@ module EmitCall =
                                 argCount
                     elif argCount = 1 then
                         recur env b argExpr
-                        boxArgIntoObjParam env b (isObjParamSig argSig.[0]) (typeOfExpr argExpr)
                         1
                     else
                         // argCount = 0: a `unit → ret` method; the lone arg is

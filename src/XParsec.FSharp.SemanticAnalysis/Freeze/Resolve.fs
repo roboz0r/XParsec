@@ -149,6 +149,167 @@ module internal FreezeResolve =
             | true, info -> pick info.Key info.Members
             | false, _ -> ValueNone
 
+    // --- Implicit value→`obj` upcast ----------------------------------------
+    //
+    // The front end accepts a value / open typar flowing into an `obj` parameter
+    // *without grounding* the typar (Engine's obj-absorption rule). The box that
+    // upcast implies is made explicit here, at Freeze, as a `TExpr.Upcast(arg,
+    // obj)` node — codegen's existing `buildUpcast` handler materialises the box
+    // (`box` for a value/typar source, a JIT no-op for a reference one). This is
+    // the single home for the box policy; codegen no longer re-derives it per
+    // emit site. The producers below supply each call/ctor/cons site's
+    // per-argument parameter SemTypes; `wrapObjArg`/`wrapObjArgsEq` apply the rule.
+
+    /// `obj` SemType for a synthesised `Upcast` target.
+    let objTy: SemType = TyConst(RuntimeNames.objAbbrevName, EqArray.empty)
+
+    let private isObjTy (t: SemType) : bool =
+        UnificationEngine.isObjType (Unification.zonk t)
+
+    /// Wrap an argument flowing into parameter `paramTy` in an explicit
+    /// obj-`Upcast` when the parameter is the universal `obj` slot and the
+    /// argument is not already obj (the latter only for tree cleanliness — an
+    /// `Upcast(obj, obj)` would emit nothing anyway). A *tupled* multi-parameter
+    /// slot — an external .NET method's flattened argument list arriving as a
+    /// single `TExpr.Tuple` — wraps element-wise.
+    let rec wrapObjArg (paramTy: SemType) (arg: TExpr) : TExpr =
+        match Unification.zonk paramTy with
+        | TyTuple ptys ->
+            match arg with
+            | TExpr.Tuple(elems, tupTy) when ptys.Length = elems.Length ->
+                TExpr.Tuple(
+                    EqArray.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg ptys.[i] elems.[i] }),
+                    tupTy
+                )
+            | _ -> arg
+        | zParam when UnificationEngine.isObjType zParam && not (isObjTy (TastWalk.exprTy arg)) ->
+            TExpr.Upcast(arg, objTy)
+        | _ -> arg
+
+    /// Apply `wrapObjArg` per position over an arity-flattened argument array.
+    /// Positions past the supplied `paramTys` (or an empty model — an external
+    /// ctor / unknown member) are left raw.
+    let wrapObjArgsEq (paramTys: SemType list) (args: EqArray<TExpr>) : EqArray<TExpr> =
+        if List.isEmpty paramTys then
+            args
+        else
+            let ptys = List.toArray paramTys
+
+            EqArray.ofSeq (
+                seq {
+                    for i in 0 .. args.Length - 1 ->
+                        if i < ptys.Length then
+                            wrapObjArg ptys.[i] args.[i]
+                        else
+                            args.[i]
+                }
+            )
+
+    /// The declared parameter SemType (the `obj`-slot model) for an external
+    /// method call, read from the `ResolvedExternalMember.Signature` Unification
+    /// recorded at `fnKey` — a method's `TyFun(param → … → ret)` domain, fed
+    /// straight to `wrapObjArg` (a multi-parameter method's domain is a `TyTuple`,
+    /// which `wrapObjArg` wraps element-wise). This — not the call node's own
+    /// SemType — is the box source for an external method: a deferred dot-access
+    /// (`comparer.GetHashCode(x)`, receiver grounded only after the body) is typed
+    /// by `unifyAppliedSig`, which leaves the node's argument position as the
+    /// *un-grounded* argument typar (the obj-absorption rule never grounds
+    /// `'T → obj`), so the `obj` slot is visible only on the recorded declared
+    /// signature. `ValueNone` for a property (no `TyFun` domain) or a missing
+    /// record (the call still emits — just unwrapped).
+    let externalMethodParamTy (ctx: PassContext) (fnKey: NodeKey) : SemType voption =
+        match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
+        | ValueSome info ->
+            match Unification.zonk info.Signature with
+            | TyFun(dom, _) -> ValueSome dom
+            | _ -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// The `obj`-slot model for a *residual* application head (the spine fold and
+    /// the single-`HighPrecedenceApp` arm share this probe): an external .NET
+    /// method head reads it off the recorded declared signature
+    /// (`externalMethodParamTy`), since its node SemType is the un-grounded applied
+    /// shape, not the function type. `ValueNone` for any non-external head, whose
+    /// `obj` slots read off its function-type domain at the call site instead.
+    let externalHeadDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
+        match fnT with
+        | TExpr.ExternalMember(_, _, _, false, _) -> externalMethodParamTy ctx fnKey
+        | _ -> ValueNone
+
+    /// Per-argument parameter SemTypes for a *member* call, flattened to the
+    /// arity-flattened argument list. A tupled member `M(a, b)` carries a single
+    /// `TyTuple` parameter; `peelCtorArgs` flattens its call args to two, so the
+    /// tuple is expanded element-wise here to keep the indices aligned.
+    let private flatMemberParams (memberTy: SemType) : SemType list =
+        let rec arrows t =
+            match Unification.zonk t with
+            | TyFun(a, b) ->
+                let ps, r = arrows b
+                a :: ps, r
+            | other -> [], other
+
+        match arrows memberTy with
+        | [ single ], _ ->
+            match Unification.zonk single with
+            | TyTuple elems -> EqArray.toList elems
+            | other -> [ other ]
+        | ps, _ -> ps
+
+    /// Parameter SemTypes for an instance/static member call resolved to
+    /// `declKey.memberName`; empty when the member is unresolved (the call still
+    /// emits — just unwrapped, exactly as before this plan).
+    let memberParamTys (ctx: PassContext) (declKey: SymbolKey) (memberName: string) : SemType list =
+        match tryClassMember ctx (SymbolKeyOps.simpleName declKey) memberName with
+        | ValueSome(_, m) -> flatMemberParams m.Type
+        | ValueNone -> []
+
+    /// Constructor parameter SemTypes for a project-local class construction of
+    /// the given arity: the primary ctor when the arity matches its field count,
+    /// else the arity-selected secondary ctor. Empty for an external ctor (no
+    /// local param model — the provider recipe boxes), matching codegen's old
+    /// `noObjSlots`.
+    let ctorParamTys (ctx: PassContext) (classTy: SemType) (argCount: int) : SemType list =
+        match Unification.zonk classTy with
+        | TyClass(key, _) ->
+            match TypeRegistry.tryClassByKey ctx.Types key with
+            | ValueSome info ->
+                if argCount = info.CtorParams.Length then
+                    [ for p in info.CtorParams -> p.Type ]
+                else
+                    match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argCount) with
+                    | Some sc -> [ for p in sc.Params -> p.Type ]
+                    | None -> []
+            | ValueNone -> []
+        | _ -> []
+
+    /// The declared SemType of a record field, for boxing a value flowing into an
+    /// `obj` field. `ValueNone` for an external record (no local field model).
+    let recordFieldTy (ctx: PassContext) (recordTy: SemType) (fieldName: string) : SemType voption =
+        match Unification.zonk recordTy with
+        | TyRecord(key, _) ->
+            match TypeRegistry.tryRecordByKey ctx.Types key with
+            | ValueSome info ->
+                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+                | Some f -> ValueSome f.Type
+                | None -> ValueNone
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
+    /// Field SemTypes of a union case, in declaration order — for boxing a
+    /// value-typed argument flowing into an `obj` case field (the union-cons obj
+    /// gap codegen could not close: `EmittedCase.Fields` carries only handles, not
+    /// the field types Freeze has here). Empty for an external union.
+    let unionCaseFieldTys (ctx: PassContext) (unionTy: SemType) (caseName: string) : SemType list =
+        match Unification.zonk unionTy with
+        | TyUnion(key, _) ->
+            match TypeRegistry.tryUnionByKey ctx.Types key with
+            | ValueSome info ->
+                match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
+                | Some c -> List.ofArray c.Fields
+                | None -> []
+            | ValueNone -> []
+        | _ -> []
+
     /// `(+)`-as-a-value whose operands are a *project-local* nominal that declares
     /// the operator as a `static member` (the `Set.(+)` shape — `set.fs:821`, used
     /// by value in `Set.Union`'s `Seq.fold (+) …`). F# resolves such an operator
@@ -393,6 +554,48 @@ module internal FreezeResolve =
 
             if isBase then CallVia.Base else CallVia.Self
         | _ -> CallVia.Self
+
+    // --- Call / construction smart constructors -----------------------------
+    //
+    // Every TAST node that flows arguments into possibly-`obj` parameter slots is
+    // built through one of these, so the implicit value→`obj` upcast
+    // (`wrapObjArgsEq`) can never be forgotten by a `translateExpr` arm — the
+    // single home of the box decision, in the TAST layer where the `Upcast` node
+    // lives. Each picks the parameter model appropriate to its node kind; the arms
+    // supply only the resolved callee and the peeled (un-wrapped) arguments.
+
+    /// `New` for a project-local class construction.
+    let mkNew (ctx: PassContext) (className: string) (ty: SemType) (args: EqArray<TExpr>) : TExpr =
+        TExpr.New(className, wrapObjArgsEq (ctorParamTys ctx ty args.Length) args, ty)
+
+    /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
+    /// derived from the receiver.
+    let mkMethodCall
+        (ctx: PassContext)
+        (receiver: TExpr)
+        (declKey: SymbolKey)
+        (memberName: string)
+        (args: EqArray<TExpr>)
+        (ty: SemType)
+        : TExpr =
+        let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+        let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
+        TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+
+    /// `StaticMethodCall` resolved to `declKey.memberName`.
+    let mkStaticMethodCall
+        (ctx: PassContext)
+        (declKey: SymbolKey)
+        (memberName: string)
+        (args: EqArray<TExpr>)
+        (ty: SemType)
+        : TExpr =
+        let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+        TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty)
+
+    /// `UnionCons` for case `caseName` of union `ty`.
+    let mkUnionCons (ctx: PassContext) (caseName: string) (ty: SemType) (args: EqArray<TExpr>) : TExpr =
+        TExpr.UnionCons(caseName, wrapObjArgsEq (unionCaseFieldTys ctx ty caseName) args, ty)
 
     /// Recover segment `segName`'s declared type from receiver type `recvTy` — a
     /// record field, or a union / class instance-member return type — instantiated

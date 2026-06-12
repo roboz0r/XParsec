@@ -200,16 +200,19 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.Provider.TryLookupMember(clsQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
+                    let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
                         {
                             Key = m.Key
                             IsStatic = false
                             IsProperty = m.IsProperty
+                            Signature = memberSig
                         }
                     )
 
-                    ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+                    memberSig
                 | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
             // Union instance member access (P3d.3) — mirrors the `TyClass` arm
@@ -234,16 +237,19 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.Provider.TryLookupMember(unionQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
+                    let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
                         {
                             Key = m.Key
                             IsStatic = false
                             IsProperty = m.IsProperty
+                            Signature = memberSig
                         }
                     )
 
-                    ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+                    memberSig
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.

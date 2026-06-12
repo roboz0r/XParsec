@@ -267,16 +267,19 @@ module internal UnificationInferResolve =
 
         match ctx.Provider.TryLookupMember(metaName, memberName) with
         | ValueSome m ->
+            let memberSig = ExternalSymbols.openSignature m (List.toArray typeArgs)
+
             ctx.Resolution.ExternalAccess.Set(
                 key,
                 {
                     Key = m.Key
                     IsStatic = m.IsStatic
                     IsProperty = m.IsProperty
+                    Signature = memberSig
                 }
             )
 
-            ExternalSymbols.openSignature m (List.toArray typeArgs)
+            memberSig
         | ValueNone -> errorTy ctx key (sprintf "Type '%s' has no accessible member '%s'" metaName memberName)
 
     /// If `recv` is an *external generic type name* used as a static-access

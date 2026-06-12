@@ -65,28 +65,20 @@ module internal FreezeExpr =
 
                     nameOf t
 
-            let args = peelOneArg (translateExpr ctx) argExpr
-            TExpr.New(className, args, ty)
+            mkNew ctx className ty (peelOneArg (translateExpr ctx) argExpr)
         // Class-name-as-function application: `Point(3, 4)` parses as
         // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
-        | Expr.App(ClassRef ctx className, args) ->
-            let argsList = peelCtorArgs (translateExpr ctx) args
-            TExpr.New(className, argsList, ty)
+        | Expr.App(ClassRef ctx className, args) -> mkNew ctx className ty (peelCtorArgs (translateExpr ctx) args)
         | Expr.HighPrecedenceApp(funcExpr = ClassRef ctx className; argExpr = arg) ->
-            let argsList = peelOneArg (translateExpr ctx) arg
-            TExpr.New(className, argsList, ty)
+            mkNew ctx className ty (peelOneArg (translateExpr ctx) arg)
         // Class instance method invocation: `r.M(args)` →
         // `App(DotLookup(r, ., M), args)`.
         | Expr.App(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExprs = args) ->
             let receiver = translateExpr ctx r
-            let argsList = peelCtorArgs (translateExpr ctx) args
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
-            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+            mkMethodCall ctx receiver declKey memberName (peelCtorArgs (translateExpr ctx) args) ty
         | Expr.HighPrecedenceApp(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExpr = arg) ->
             let receiver = translateExpr ctx r
-            let argsList = peelOneArg (translateExpr ctx) arg
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
-            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+            mkMethodCall ctx receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
         // the long ident rather than emitting `DotLookup` when the head is a
@@ -97,24 +89,14 @@ module internal FreezeExpr =
                                                                                        memberName)))
             argExprs = args) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
-            let argsList = peelCtorArgs (translateExpr ctx) args
-
-            let key =
-                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName MemberKind.Method
-
-            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelCtorArgs (translateExpr ctx) args) ty
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
                                                                                        receiverTy,
                                                                                        memberName)))
             argExpr = arg) ->
             let receiver = TExpr.Var(bindingSite, receiverTy)
-            let argsList = peelOneArg (translateExpr ctx) arg
-
-            let key =
-                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName MemberKind.Method
-
-            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.
@@ -127,30 +109,20 @@ module internal FreezeExpr =
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
-            argExprs = args) ->
-            let argsList = peelCtorArgs (translateExpr ctx) args
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
-            TExpr.StaticMethodCall(key, argsList, ty)
+            argExprs = args) -> mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
-            argExpr = arg) ->
-            let argsList = peelOneArg (translateExpr ctx) arg
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
-            TExpr.StaticMethodCall(key, argsList, ty)
+            argExpr = arg) -> mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty
         // `ClassName<'args>.Method args` — static-method call on an explicitly
         // instantiated generic class (e.g. `Set<'T>.Singleton value`). The
         // `<'args>`-bearing receiver makes the funcExpr a `DotLookup` over a
         // `TypeApp` rather than a folded `LongIdent`; same `StaticMethodCall`
         // lowering as the folded `StaticMethod` arms above.
         | Expr.App(funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExprs = args) ->
-            let argsList = peelCtorArgs (translateExpr ctx) args
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
-            TExpr.StaticMethodCall(key, argsList, ty)
+            mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty
         | Expr.HighPrecedenceApp(
             funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExpr = arg) ->
-            let argsList = peelOneArg (translateExpr ctx) arg
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
-            TExpr.StaticMethodCall(key, argsList, ty)
+            mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty
         // `ClassName.X` — static property read (or method-as-value).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
             let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Property
@@ -171,16 +143,40 @@ module internal FreezeExpr =
             // DU arguments as a single tuple; the TAST flattens it back to a
             // per-field list (the same peel the class-ctor arms use) so consumers
             // see the ctor's declared arity directly.
-            TExpr.UnionCons(caseName, peelCtorArgs (translateExpr ctx) args, ty)
+            mkUnionCons ctx caseName ty (peelCtorArgs (translateExpr ctx) args)
         | Expr.HighPrecedenceApp(funcExpr = CtorRef ctx caseName; argExpr = arg) ->
-            TExpr.UnionCons(caseName, peelOneArg (translateExpr ctx) arg, ty)
+            mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg)
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
         // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
         // projection below ever runs (vesper-printf-plan P1).
         | Expr.App(_, args) when ctx.PrintfApp.ContainsKey key -> translatePrintfFormat ctx key args ty
         | Expr.App(fn, args) -> translateApp ctx fn args
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
-            TExpr.App(translateExpr ctx fn, translateExpr ctx arg, ty)
+            // A residual single application (an external .NET method reached as a
+            // folded LongIdent, a local function value, a top-level `let f (x: obj)`
+            // emitted as a static method, …). Box a value arg flowing into an `obj`
+            // parameter — the implicit upcast, made explicit.
+            // An external method reads its `obj` slot off the declared signature
+            // Unification recorded (`externalMethodParamTy`, its node SemType is the
+            // un-grounded applied shape); everything else reads the parameter off
+            // the head's function type.
+            let fnT = translateExpr ctx fn
+            let argT = translateExpr ctx arg
+
+            let paramTy =
+                match externalHeadDom ctx (CstKeys.ofExpr fn) fnT with
+                | ValueSome _ as dom -> dom
+                | ValueNone ->
+                    match Unification.zonk (TastWalk.exprTy fnT) with
+                    | TyFun(p, _) -> ValueSome p
+                    | _ -> ValueNone
+
+            let argT =
+                match paramTy with
+                | ValueSome p -> wrapObjArg p argT
+                | ValueNone -> argT
+
+            TExpr.App(fnT, argT, ty)
         | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty
         | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
@@ -337,7 +333,15 @@ module internal FreezeExpr =
                     seq {
                         for FieldInitializer(longIdent = li; expr = e) in inits ->
                             let idents = li.Idents
-                            ctx.NameOf idents.[idents.Length - 1], translateExpr ctx e
+                            let name = ctx.NameOf idents.[idents.Length - 1]
+                            let argT = translateExpr ctx e
+
+                            let wrapped =
+                                match recordFieldTy ctx ty name with
+                                | ValueSome ft -> wrapObjArg ft argT
+                                | ValueNone -> argT
+
+                            name, wrapped
                     }
                 )
 
@@ -735,19 +739,35 @@ module internal FreezeExpr =
         let mutable result = translateExpr ctx fn
         let mutable currTy = typeOfKey ctx (CstKeys.ofExpr fn)
 
+        // An external .NET method head reads its obj slots off the declared
+        // signature Unification recorded (`externalHeadDom`); its node SemType is
+        // the un-grounded applied shape, not the function type. The method consumes
+        // the first spine arg (its tupled argument list); a project-local function
+        // reads each obj parameter off the head's function type (`currTy`) instead.
+        let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
+        let mutable isFirst = true
+
         for a in args do
             let argT = translateExpr ctx a
 
-            let resTy =
+            let paramTy, resTy =
                 match currTy with
-                | TyFun(_, r) -> r
+                | TyFun(p, r) -> p, r
                 | _ ->
                     failwithf
                         "Freeze.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
                         currTy
 
+            // Box a value / open-typar argument flowing into an `obj` parameter —
+            // the implicit upcast made explicit.
+            let argT =
+                match externalDom with
+                | ValueSome dom when isFirst -> wrapObjArg dom argT
+                | _ -> wrapObjArg paramTy argT
+
             result <- TExpr.App(result, argT, resTy)
             currTy <- resTy
+            isFirst <- false
 
         result
 

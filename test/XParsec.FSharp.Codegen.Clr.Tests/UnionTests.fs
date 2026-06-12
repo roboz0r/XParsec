@@ -133,6 +133,27 @@ let tests =
     testList
         "Unions"
         [
+            // A union case with an `obj` field constructed from a *value-type* argument.
+            // Codegen could not box this
+            // (the emitted case carries only field handles, not their types); the
+            // box is now an explicit `Upcast` synthesised at Freeze (which has the
+            // case field SemTypes), so the int reaches the `obj` field boxed and
+            // unboxes back via `:?> int`. Without the box the field would hold a raw
+            // value and the `unbox.any` would fault. Was the documented union-cons
+            // obj gap (EmitConstruct.buildUnionCons).
+            test "union case with an obj field boxes a value-type construction arg" {
+                runs
+                    "42"
+                    (lines
+                        [
+                            "type Boxed ="
+                            "    | Wrap of obj"
+                            "let v = Wrap 42"
+                            "let n = match v with | Wrap o -> (o :?> int)"
+                            "printfn \"%d\" n"
+                        ])
+            }
+
             test "monomorphic union + match analyses clean and surfaces TTypeKind.Union" {
                 let tast = analyse unionSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

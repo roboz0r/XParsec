@@ -26,7 +26,6 @@
     <Compile Include="EmitFormat.fs" />
     <Compile Include="EmitDispatch.fs" />
     <Compile Include="EmitPattern.fs" />
-    <Compile Include="EmitCoerce.fs" />
     <Compile Include="EmitBindings.fs" />
     <Compile Include="EmitLoops.fs" />
     <Compile Include="EmitMatch.fs" />

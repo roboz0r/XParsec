@@ -8,7 +8,6 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 open EmitPattern
-open EmitCoerce
 open EmitDispatch
 
 /// Object / value construction: `new`, record literals + `{ r with … }`, union
@@ -61,12 +60,13 @@ module EmitConstruct =
                 b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
                 b.Add(ILInstr.Ldloc slot)
             else
-                // Resolve the construction to its argument-boxing model
-                // (`isObjSlot`) and the instruction that consumes the pushed args,
-                // THEN push exactly once. Keeping the push at this single seam — not
-                // inside each ctor arm — means no arm can forget it (a missing push
-                // would underflow the IL stack).
-                let isObjSlot, emitNewobj =
+                // Resolve the construction to the instruction that consumes the
+                // pushed args, THEN push exactly once. Keeping the push at this
+                // single seam — not inside each ctor arm — means no arm can forget
+                // it (a missing push would underflow the IL stack). The value→`obj`
+                // box for an `obj` parameter is now an explicit `Upcast` node from
+                // Freeze, so codegen just pushes each argument raw.
+                let emitNewobj =
                     match localClass with
                     | ValueSome(classKey, c) ->
                         // A user class emitted into this assembly
@@ -78,8 +78,6 @@ module EmitConstruct =
                             // Primary. Monomorphic: the ctor's `Def` token directly.
                             // Generic: a `MemberRef` on the receiver's instantiated
                             // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
-                            let paramTys = [ for (_, _, t) in c.Fields -> t ]
-
                             let ctorRef =
                                 memberRef
                                     env
@@ -89,11 +87,10 @@ module EmitConstruct =
                                     (UserMemberKind.ClassMember ClassMember.Ctor)
                                     c.Ctor
 
-                            objSlotsOf paramTys, (fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount)))
+                            fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
                         else
                             match c.SecondaryCtors |> List.tryFind (fun (a, _, _) -> a = argCount) with
-                            | Some(_, paramTys, h) when List.isEmpty c.Typars ->
-                                objSlotsOf paramTys, (fun () -> b.Add(ILInstr.Newobj(h, argCount)))
+                            | Some(_, _, h) when List.isEmpty c.Typars -> fun () -> b.Add(ILInstr.Newobj(h, argCount))
                             | Some(_, paramTys, h) ->
                                 // Generic secondary-ctor call site: a `MemberRef` on
                                 // the instantiated `TypeSpec` (`OnceEnum<int>::.ctor`),
@@ -109,7 +106,7 @@ module EmitConstruct =
                                         (UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys))
                                         h
 
-                                objSlotsOf paramTys, (fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount)))
+                                fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
                             | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
                     | ValueNone ->
                         // The external ctor is identified by the construction's
@@ -117,10 +114,8 @@ module EmitConstruct =
                         // `PrintfFormat` printf-literal case); `className` survives
                         // only for the error message. A `New` whose `ty` isn't a
                         // `TyClass` is a defensive CST error path the project-local
-                        // arm already missed — it has no resolvable ctor. External-ctor
-                        // `obj` params box in the provider's recipe (no local param
-                        // model here — `noObjSlots`), so push raw.
-                        let emit () =
+                        // arm already missed — it has no resolvable ctor.
+                        fun () ->
                             match ty with
                             | FTClass(ctorKey, _) ->
                                 match env.Provider.TryEmitCtor(ctorKey, tyArgs, argTypes) with
@@ -128,9 +123,9 @@ module EmitConstruct =
                                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
                             | _ -> failwithf "Emit: no constructor recipe for '%s'" className
 
-                        noObjSlots, emit
+                for a in args do
+                    recur env b a
 
-                emitArgsBoxed recur env b args isObjSlot
                 emitNewobj ()
         | _ -> failwith "EmitConstruct.buildNew: unreachable"
 
@@ -150,13 +145,12 @@ module EmitConstruct =
             | true, r ->
                 let srcMap = Map.ofSeq srcFields.Underlying
 
-                // Fields push in declaration order (the ctor's parameter layout);
-                // box any whose declared type is `obj` (`boxArgIntoObjParam`).
-                for (fieldName, _, fieldTy) in r.Fields do
+                // Fields push in declaration order (the ctor's parameter layout).
+                // A value flowing into an `obj` field is boxed by an explicit
+                // `Upcast` node from Freeze, so push each initialiser raw.
+                for (fieldName, _, _) in r.Fields do
                     match Map.tryFind fieldName srcMap with
-                    | Some e ->
-                        recur env b e
-                        boxArgIntoObjParam env b (isObjParamTy fieldTy) (typeOfExpr e)
+                    | Some e -> recur env b e
                     | None ->
                         failwithf "Emit: record literal for '%A' is missing initialiser for field '%s'" key fieldName
 
@@ -233,11 +227,10 @@ module EmitConstruct =
             let key, tyArgs = nominalShape "UnionCons" ty
             let qualName = SymbolKeyOps.qualifiedName key
 
-            // NB: a case field typed `obj` taking a value-type arg would need a
-            // `boxArgIntoObjParam` here, but `EmittedCase.Fields` carries only the
-            // field *handles*, not their `FrozenType`s, so the obj-slot test can't
-            // run at this site — boxing an `obj` union-case field is a later slice
-            // (the call / ctor / record paths are covered).
+            // A value-type arg flowing into a case field typed `obj` is boxed by an
+            // explicit `Upcast` node synthesised at Freeze (which has the case field
+            // SemTypes this site lacks — `EmittedCase.Fields` carries only handles),
+            // so codegen just pushes each argument raw.
             for a in args do
                 recur env b a
 

@@ -445,12 +445,21 @@ type ClassMemberIndexEntry =
 /// `TExpr.ExternalMember` carrying the interned `SymbolKey`. `IsStatic`
 /// distinguishes `Type.Member` from `value.Member` (drives whether Freeze keeps
 /// the receiver), `IsProperty` a property get from a method value.
+///
+/// `Signature` is the member's **declared** type in the receiver's instantiation
+/// (`ExternalSymbols.openSignature` / `instantiateSignature`): for a method,
+/// `TyFun(params → ret)`; for a property, the property type. Freeze reads it for
+/// the implicit value→`obj` box decision — the call *node*'s SemType is the
+/// *applied* shape with an `obj`-bound argument typar left un-grounded (the
+/// obj-absorption rule), so the `obj` parameter slot is visible only on this
+/// recorded declared signature, not the node.
 [<Struct>]
 type ResolvedExternalMember =
     {
         Key: SymbolKey
         IsStatic: bool
         IsProperty: bool
+        Signature: SemType
     }
 
 /// A use of an operator as a value (`(+)` in `Seq.fold (+) …`), enqueued by
