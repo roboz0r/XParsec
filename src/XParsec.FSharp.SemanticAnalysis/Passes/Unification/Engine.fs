@@ -654,6 +654,15 @@ module UnificationEngine =
         | _ -> ()
 #endif
 
+    /// `obj` (either the user-facing `TyConst "obj"` `translateType` produces, or
+    /// the provider's `TyClass "System.Object"` before `normalizeObj` bridges it).
+    /// The universal supertype — every value implicitly upcasts (boxing) into it.
+    let isObjType (t: SemType) : bool =
+        match t with
+        | TyConst("obj", a) when a.IsEmpty -> true
+        | TyClass(k, a) when a.IsEmpty && RuntimeNames.isSystemObjectKey k -> true
+        | _ -> false
+
     /// Bridge an external signature's `System.Object` (minted by the provider as
     /// `TyClass("System.Object", [])`, since it isn't in `IntrinsicRepr.defaults`)
     /// to the user-facing `TyConst "obj"` that `translateType` produces — without
@@ -762,6 +771,41 @@ module UnificationEngine =
         for i in 0 .. xs.Length - 1 do
             unify ctx key xs.[i] ys.[i]
 
+    /// Coerce a single argument position against its expected parameter type: an
+    /// `obj` parameter absorbs *any* argument (the implicit upcast / box F# inserts
+    /// at the call), so it must NOT unify — pinning a typar argument (`x : 'T`) to
+    /// `obj` would ground the enclosing type's parameter. Tuples walk element-wise
+    /// (a tupled BCL call `Equals(obj, obj)`). The in-`unify`-group analogue of
+    /// `unifyArg`'s `obj` rule, usable from the deferred-drain path below (`unifyArg`
+    /// itself is defined after this group). Only `obj` is special-cased here; richer
+    /// class→interface witness coercion stays in `unifyArg`/`tryCoerceUpcast` for the
+    /// eager application path.
+    and private unifyArgCoerce (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+        match resolveStep actual, resolveStep expected with
+        | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
+            for i in 0 .. aa.Length - 1 do
+                unifyArgCoerce ctx key aa.[i] bb.[i]
+        | a, b ->
+            if not (isObjType b) then
+                unify ctx key a b
+
+    /// Unify an *applied callable* shape against a resolved member signature,
+    /// coercing each argument position rather than unifying it. `actual` is the
+    /// call's applied shape — a curried `TyFun` chain whose domains are the argument
+    /// types the application built (`comparer.GetHashCode(x)` → `TyFun('T, result)`);
+    /// `expected` is the member's instantiated signature (`TyFun(obj, int)`). Each
+    /// parameter position goes through `unifyArgCoerce` (so an `obj` parameter
+    /// absorbs a typar / value-type argument instead of grounding it); result
+    /// positions unify exactly. Used where a *whole* signature is unified against a
+    /// pre-built `TyFun` (the deferred dot-access drain, the overload-commit), unlike
+    /// `inferApp`'s spine walk which already coerces each argument as it applies it.
+    and unifyAppliedSig (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+        match resolveStep actual, resolveStep expected with
+        | TyFun(ad, ar), TyFun(ed, er) ->
+            unifyArgCoerce ctx key ad ed
+            unifyAppliedSig ctx key ar er
+        | a, b -> unify ctx key a b
+
     /// When a TyVar's Link resolves to a `TyRecord`/`TyClass`/`TyUnion`,
     /// resolve any dot-access constraints parked on it. When `T` is generic,
     /// the receiver's arg list substitutes for the type's declared typars so
@@ -827,7 +871,18 @@ module UnificationEngine =
                             }
                         )
 
-                        unify ctx d.UseKey (TyVar d.ResultTv) (normalizeObj (ExternalSymbols.openSignature m argArr))
+                        // Coerce each argument position (`unifyAppliedSig`) rather
+                        // than unify the whole signature: an `obj` parameter of a
+                        // BCL member (`IEqualityComparer.GetHashCode(obj)`) must
+                        // absorb a typar argument (`x : 'T`) by an implicit box,
+                        // not ground the typar — the application already linked the
+                        // arg into `d.ResultTv`'s domain while the receiver was
+                        // still deferred, so the coercion happens here.
+                        unifyAppliedSig
+                            ctx
+                            d.UseKey
+                            (TyVar d.ResultTv)
+                            (normalizeObj (ExternalSymbols.openSignature m argArr))
                     | _ -> ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" qualName d.MemberName)
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
@@ -1218,16 +1273,28 @@ module UnificationEngine =
     /// coercion sites — argument / ctor unification and `:>` — never the
     /// read-only constraint checker.
     let tryCoerceUpcast (ctx: PassContext) (key: NodeKey) (src: SemType) (tgt: SemType) : bool =
-        match subtypeNominalOf ctx tgt with
-        | ValueNone -> false
-        | ValueSome(struct (tname, targs)) ->
-            match tryUpcastWitness ctx src tname with
-            | ValueSome sargs when sargs.Length = targs.Length ->
-                for i in 0 .. targs.Length - 1 do
-                    unify ctx key sargs.[i] targs.[i]
+        // `obj` is the universal supertype: F# implicitly upcasts (boxing a value
+        // type / a generic typar) any value into an `obj` slot, so accept *any*
+        // `src` without unifying. Crucially this must NOT pin `src` — a generic
+        // typar argument (`comparer.GetHashCode(x)` with `x : 'T`) flowing into an
+        // `obj` parameter would otherwise unify `'T := obj`, grounding the
+        // enclosing type's parameter (the Vesper.Set `Set<'T>` whole-class-typar
+        // grounding). The box is inserted at codegen (the call site sees the param
+        // is `obj` and the arg's static type is a typar / value type).
+        if isObjType (resolveStep tgt) then
+            true
+        else
 
-                true
-            | _ -> false
+            match subtypeNominalOf ctx tgt with
+            | ValueNone -> false
+            | ValueSome(struct (tname, targs)) ->
+                match tryUpcastWitness ctx src tname with
+                | ValueSome sargs when sargs.Length = targs.Length ->
+                    for i in 0 .. targs.Length - 1 do
+                        unify ctx key sargs.[i] targs.[i]
+
+                    true
+                | _ -> false
 
     /// Unify an *argument* against its expected parameter type, admitting the
     /// implicit class→interface / class→base upcast F# inserts at a coercion

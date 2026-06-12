@@ -1725,6 +1725,56 @@ let interfaceImplCodegenTests =
                 Expect.isTrue (ifaces.Contains "IStructuralEquatable") "C`1 implements IStructuralEquatable"
             }
 
+            // vesper-set-phase-9-handoff gap #4 (the producer-grounding wall): a
+            // generic class whose member passes a `'T`-typed value into a BCL `obj`
+            // parameter (`comparer.GetHashCode(x)`, the `Set<'T>`/`IStructuralEquatable`
+            // shape). Pre-fix the unifier *ground* `'T := obj` at that call, so EVERY
+            // member of the class emitted `obj` for `'T` (`get_Value() : obj`, the
+            // whole-class typar grounding that made `Set\`1::Add(obj):Set<obj>`). The
+            // fix makes `obj` the universal supertype at argument-coercion sites (no
+            // grounding — `Engine.unifyAppliedSig` / the `obj` rule in
+            // `tryCoerceUpcast`) and boxes the typar argument at the call (`EmitCall`).
+            // This gate asserts `'T` survives (`get_Value` returns the generic
+            // parameter, not `obj`) AND the boxed call runs (the box is materialised).
+            test "a generic member passing 'T into an obj parameter keeps 'T generic and boxes the arg" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Collections"
+                            "type Holder<'T>(x: 'T) ="
+                            "    member _.Value = x"
+                            "    member _.HashVia(c: IEqualityComparer) = c.GetHashCode(x)"
+                        ]
+
+                let _, artifact = compileSource "HolderObjArg" src
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("Holder`1", throwOnError = true)
+
+                // `'T` is NOT grounded: `get_Value` returns the declaring generic
+                // parameter, not `obj`. (Pre-fix this returned `System.Object` — the
+                // whole-class typar grounding.)
+                let getValue =
+                    ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.find (fun m -> m.Name = "get_Value")
+
+                Expect.isTrue
+                    getValue.ReturnType.IsGenericParameter
+                    "get_Value returns the class typar (not obj) — the class typar was not ground to obj"
+
+                // The implied box is materialised: `HashVia`'s body boxes the `'T`
+                // argument (`box !0`, opcode 0x8C) before the `obj`-parameter call.
+                // (Asserted at the IL level rather than by *calling* the BCL method —
+                // the runtime member-ref for `IEqualityComparer.GetHashCode(obj)` is a
+                // separate pre-existing gap, not exercised by the shipping round-trip.)
+                let il = peMethodIl bytes "Holder`1" "HashVia"
+
+                Expect.isTrue
+                    (il |> Array.contains 0x8Cuy)
+                    "HashVia emits a box (0x8C) for the 'T argument flowing into the obj parameter"
+            }
+
             // vesper-set-phase-9-handoff "unbalanced member-body IL": a `void`-
             // returning interface-impl member whose body *terminates* (ends in
             // `raise`) — the `ICollection<'T>.Add` / `IDisposable.Dispose` shape on a

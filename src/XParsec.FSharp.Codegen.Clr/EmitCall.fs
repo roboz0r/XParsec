@@ -181,10 +181,35 @@ module EmitCall =
             // (no tuple object is constructed).
             let isStatic = ValueOption.isNone receiver
 
-            let argCount =
+            let argSig =
                 match key with
-                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig
                 | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
+
+            let argCount = argSig.Length
+
+            // Push one argument, boxing it when it flows into an `obj` parameter and
+            // its static type is a value type or a generic typar. The front end now
+            // models `x : 'T` → `obj` as an implicit upcast (it no longer grounds the
+            // typar — see `Engine.unifyAppliedSig`), so the box that upcast implies
+            // must be materialised here: `box <T>` (a value type) / `box !i` (a typar,
+            // a JIT no-op for a reference instantiation). A reference-typed argument
+            // needs no box (it is already usable as `obj`). The parameter shape is
+            // read off the key's `argSig` (its lossy render — an `obj` parameter is
+            // `System.Object`, the open-typar render `openTyparSig` produces).
+            let pushArg (argExpr: Frozen.TExpr) (paramSig: string) =
+                recur env b argExpr
+
+                if paramSig = "System.Object" || paramSig = "obj" then
+                    let argTy = typeOfExpr argExpr
+
+                    let needsBox =
+                        match argTy with
+                        | FTTypar _ -> true
+                        | _ -> isValueType env argTy
+
+                    if needsBox then
+                        b.Add(ILInstr.Box(env.Provider.TypeToken argTy))
 
             // The method consumes one spine element (its argument list); any
             // remainder is further application of the result (rare).
@@ -204,8 +229,8 @@ module EmitCall =
                     if argCount >= 2 then
                         match argExpr with
                         | TExprG.Tuple(elems, _) when elems.Length = argCount ->
-                            for el in elems do
-                                recur env b el
+                            for i in 0 .. elems.Length - 1 do
+                                pushArg elems.[i] argSig.[i]
 
                             argCount
                         | _ ->
@@ -215,7 +240,7 @@ module EmitCall =
                                 argCount
                                 argCount
                     elif argCount = 1 then
-                        recur env b argExpr
+                        pushArg argExpr argSig.[0]
                         1
                     else
                         // argCount = 0: a `unit → ret` method; the lone arg is

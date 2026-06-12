@@ -34,23 +34,34 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //      Verified: `Set\`1`'s `Equals`/`GetHashCode`/`CompareTo` emit non-generic +
 //      virtual with the right `obj`/`IEqualityComparer` params.
 //
-//   4. ❌ OPEN — the round-trip now runs deep: `Set.empty`/`.add` resolve + call
-//      and `Set\`1` initialises, blocked on a *pre-existing producer* inference bug
-//      — `member s.Add value : Set<'T>`'s unannotated `value` grounds to `obj`
-//      (encoded `Set<obj>::Add(obj)`), not the declaring typar `!0`, so a consumer
-//      `Set.add 2 e` can't bind the `Add(!0):Set<!0>` member ref → an
-//      `InvalidProgramException` JIT-ing `Set.Add`. NOT reproducible in a minimal
-//      generic-class + module-fn shape (those all run correctly); specific to
-//      `set.fs`'s exact `SetTree.add`-flow. Chain of consumption-path gaps closed
-//      to get here: contract-only-package harness wiring (Printf), `[<CompiledName>]`
-//      on module functions (producer), static-member instantiation from the result
-//      type (handoff deferred gap 1), generic-class ctor param count (exclude
-//      `val`/`static let` backing fields), and class-vs-interface member name
-//      collision (class member wins name resolution).
+//   4. ✅ FIXED — the producer-grounding wall. The real cause was NOT `Set.Add`'s
+//      `value` alone but the *whole* class typar `'T` grounding to `obj`: the
+//      `IStructuralEquatable.Equals`/`GetHashCode` members pass a `'T`-typed set
+//      element into a BCL `obj` parameter (`comparer.GetHashCode(x)` /
+//      `comparer.Equals(e1.Current, e2.Current)`), and the deferred dot-access drain
+//      *unified* `'T := obj` rather than treating it as F#'s implicit upcast — so
+//      every `Set\`1` member emitted `obj` for `'T`. Fix (general, not Set-specific):
+//      `obj` is now the universal supertype at argument-coercion sites
+//      (`Engine.isObjType` + the `obj` rule in `tryCoerceUpcast`; `unifyAppliedSig`
+//      coerces each parameter position of a whole-signature unify, used by the
+//      deferred drain + the overload-commit), so a typar/value-type argument flows
+//      into an `obj` slot WITHOUT grounding; `EmitCall` materialises the implied box
+//      (`box <T>` / `box !i`). `Set\`1` now emits `Add(!0):Set<!0>` etc. and the
+//      add/count/contains/fold round-trip runs end-to-end.
 //
-// When #4 lands, flip `ptest`→`test` to re-run the round-trip. `runsSet` routes
-// a driver through `packageAlc` (where `Vesper.Set` + its eight transitive deps
-// resolve); HOF arguments are written *curried* per the Freeze posture.
+//   5. ❌ OPEN (separate, pre-existing — never reached before #4) — `Set.union` /
+//      `Set.intersect` go through the `Set.(+)` / `Set.Intersection` *static
+//      operator* members, which produce a CORRUPT `Set`: building succeeds but any
+//      read (`Set.count`/`Set.contains`) `AccessViolation`s walking the tree. The
+//      identical result built via the instance `Set.add` path reads back fine, so
+//      the corruption is specific to the static-operator member's
+//      `Set(set1.Comparer, SetTree.union …)` construction / its call from generic
+//      `SetModule.union<'T>` (handoff deferred gap #1 family). See the
+//      `ptest "… union/intersect (static-operator wall)"` row.
+//
+// `runsSet` routes a driver through `packageAlc` (where `Vesper.Set` + its eight
+// transitive deps resolve); HOF arguments are written *curried* per the Freeze
+// posture.
 
 [<Tests>]
 let tests =
@@ -59,25 +70,48 @@ let tests =
     testList
         "SetModule"
         [
-            // §9.7 round-trip: empty → add → contains → union → intersect → fold.
-            // Body is the gate that re-runs once the round-trip clears (see header
-            // gap #4). `Set\`1` now type-loads (gap #3 closed) and `Set.empty`/`.add`
-            // resolve + call; the residual block is `Set.Add`'s unannotated `value`
-            // param grounding to `obj` (not the declaring typar) in the *producer*
-            // build — a pre-existing front-end inference bug surfaced by the
-            // round-trip, see header.
-            ptest "Set round-trip smoke (add/contains/union/intersect/fold)" {
+            // §9.7 round-trip — the producer-grounding wall (gap #4) is CLOSED.
+            // `Set\`1` now emits its members generic in the declaring typar `'T`
+            // (`Add(!0) : Set<!0>`, `get_Comparer() : IComparer<!0>`, …) — the
+            // previous whole-class grounding to `obj` (`Add(obj) : Set<obj>`) came
+            // from the `IStructuralEquatable` members passing a `'T`-typed element
+            // into a BCL `obj` parameter (`comparer.GetHashCode(x)` /
+            // `comparer.Equals(e1.Current, e2.Current)`), which the unifier *ground*
+            // `'T := obj` instead of treating as the implicit upcast it is. Fix:
+            // `Engine.unifyAppliedSig` / the `obj` rule in `tryCoerceUpcast` make
+            // `obj` the universal supertype at argument-coercion sites (no grounding),
+            // and `EmitCall` boxes the typar/value-type argument into the `obj` slot.
+            // This round-trip (add → count → contains → fold) now runs end-to-end.
+            test "Set round-trip (add/count/contains/fold)" {
                 runsSetLines
-                    [ "3"; "true"; "false"; "4"; "1"; "6" ]
+                    [ "3"; "true"; "false"; "6" ]
                     (prelude
                      + "let s = Set.add 3 (Set.add 1 (Set.add 2 Set.empty))\n"
                      + "printfn \"%d\" (Set.count s)\n"
                      + "printfn \"%b\" (Set.contains 2 s)\n"
                      + "printfn \"%b\" (Set.contains 9 s)\n"
+                     + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)")
+            }
+
+            // NEXT WALL (separate, pre-existing — never reached before gap #4 closed):
+            // `Set.union` / `Set.intersect` route through the `Set.(+)` /
+            // `Set.Intersection` *static operator* members, which produce a CORRUPT
+            // `Set` — building `u`/`i` succeeds, but any subsequent read
+            // (`Set.count`/`Set.contains`) `AccessViolation`s reading the tree.
+            // Isolation: the identical 4-element result built via `Set.add 5 s` (the
+            // instance-member path) reads back fine, so the corruption is specific to
+            // the static-operator member's `Set(set1.Comparer, SetTree.union …)`
+            // construction / its call from the generic `SetModule.union<'T>` (the
+            // handoff's deferred gap #1 family — a static call on a generic class from
+            // a concrete/non-declaring context). Flip → `test` when that lands.
+            ptest "Set round-trip union/intersect (static-operator wall)" {
+                runsSetLines
+                    [ "4"; "1" ]
+                    (prelude
+                     + "let s = Set.add 3 (Set.add 1 (Set.add 2 Set.empty))\n"
                      + "let u = Set.union s (Set.add 5 Set.empty)\n"
                      + "printfn \"%d\" (Set.count u)\n"
                      + "let i = Set.intersect s (Set.add 2 Set.empty)\n"
-                     + "printfn \"%d\" (Set.count i)\n"
-                     + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)")
+                     + "printfn \"%d\" (Set.count i)")
             }
         ]

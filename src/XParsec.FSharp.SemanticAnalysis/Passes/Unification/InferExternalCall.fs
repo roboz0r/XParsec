@@ -49,7 +49,11 @@ module internal UnificationInferExternalCall =
 
         (freshTv ctx fnKey).Link <- ValueSome memberSig
         let resultTy = TyVar(freshTyVar ctx)
-        unify ctx key memberSig (TyFun(argTy, resultTy))
+        // Coerce each argument position rather than unify the whole signature: an
+        // `obj` parameter must absorb a typar / value-type argument via the implicit
+        // box, not ground the typar. `unifyAppliedSig` walks the `actual` applied
+        // shape (`arg -> result`) against the member signature.
+        unifyAppliedSig ctx key (TyFun(argTy, resultTy)) memberSig
         resultTy
 
     /// Application-site overload resolution for a static external method call
