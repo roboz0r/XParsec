@@ -54,6 +54,10 @@
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />
+    <Compile Include="Freeze\Literals.fs" />
+    <Compile Include="Freeze\Resolve.fs" />
+    <Compile Include="Freeze\Patterns.fs" />
+    <Compile Include="Freeze\Args.fs" />
     <Compile Include="FreezeExpr.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />
     <Compile Include="Elaborate.fs" />

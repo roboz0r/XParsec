@@ -5,6 +5,9 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
+open XParsec.FSharp.SemanticAnalysis.FreezeResolve
+open XParsec.FSharp.SemanticAnalysis.FreezePatterns
+open XParsec.FSharp.SemanticAnalysis.FreezeExprArgs
 open XParsec.FSharp.SemanticAnalysis.FreezeExpr
 
 // Type-declaration surfacing + the top-level `Elaborate.run` entry point: CST →
