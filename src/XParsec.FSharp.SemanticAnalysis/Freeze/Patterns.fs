@@ -137,6 +137,17 @@ module internal FreezePatterns =
                     EqArray.ofSeq (seq { for sub in args -> translatePat ctx sub })
 
             TPat.Union(caseName, subPats, ty)
+        | Pat.TypeTestAs(pat = inner) ->
+            // `:? T as x` — Unification stashed the tested type in
+            // `TypeTestTargets` (keyed on this node, like the `:?` expression
+            // form). The inner pattern (the `as`-name) is translated against it;
+            // codegen lowers the whole thing to an `isinst` + null check + bind.
+            let testTy =
+                match ctx.Resolution.TypeTestTargets.TryGetValue key with
+                | ValueSome t -> t
+                | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
+
+            TPat.TypeTestAs(testTy, translatePat ctx inner, ty)
         | Pat.Op _ ->
             // Operator-named binding head (`let (=) x y = …`): a single binder,
             // shaped like a `Pat.NamedSimple`. Its source name is the operator's

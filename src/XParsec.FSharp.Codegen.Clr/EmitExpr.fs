@@ -83,6 +83,46 @@ module EmitExpr =
                 recur fldSlot subPat
         )
 
+    /// Whether a (zonked) `FrozenType` is a CLR value type — drives the box vs
+    /// no-op choice on `:>` and the `unbox.any` vs `castclass` choice on `:?>`
+    /// (and the type-test pattern's `isinst` bind). User records / unions /
+    /// classes are reference types (rung 2); the BCL primitives bound as
+    /// `TyConst` are value types. `string` / `obj` are reference types despite
+    /// being `TyConst`.
+    let private isValueType (env: EmitEnv) (ty: FrozenType) : bool =
+        match ty with
+        | FTConst(n, _) ->
+            match n with
+            | "int"
+            | "int64"
+            | "int16"
+            | "byte"
+            | "sbyte"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "nativeint"
+            | "unativeint"
+            | "float"
+            | "float32"
+            | "single"
+            | "double"
+            | "bool"
+            | "char"
+            | "decimal" -> true
+            | _ -> false
+        // A user-declared `[<Struct>]` type emitted into this assembly
+        // (vesper-set-sprint-phase-6): the `EmittedClass.IsValueType` flag drives
+        // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
+        // struct that lives in a *referenced* package (not in `env.Classes`) is
+        // recognised the same way via the provider's external value-type flag —
+        // the contract/metadata layer's `IsValueType`.
+        | FTClass(key, _) ->
+            match env.Classes.TryGetValue key with
+            | true, c -> c.IsValueType
+            | false, _ -> env.Provider.IsExternalValueType key
+        | _ -> false
+
     /// Test a pattern against the value already stored in local `scrutSlot`:
     /// branch to `nextLabel` on mismatch, and bind any pattern variables. A
     /// `Const` compares (`bne.un` skips the arm); `Wildcard` / `NamedSimple`
@@ -210,6 +250,33 @@ module EmitExpr =
             // decompose each element and recurse — only the sub-patterns can branch
             // to `nextLabel`, exactly like the union / record arms above.
             destructureTuple env b scrutSlot ty items (fun s p -> buildMatchTest env b s nextLabel p)
+        | TPatG.TypeTestAs(testTy, inner, _) ->
+            // `:? T as x` → `isinst T` then a null check: a non-`T` value yields
+            // null (`brfalse` skips the arm). On a match the cast-down value is
+            // stored to a `T`-typed local; for a value-type target the `isinst`
+            // result is a boxed `T`, so `unbox.any` it back to the unboxed slot.
+            // The inner pattern (the `as`-name) then binds against that local
+            // (a `NamedSimple` just aliases it — same as the other arms).
+            let token = env.Provider.TypeToken testTy
+            b.Add(ILInstr.Ldloc scrutSlot)
+            b.Add(ILInstr.Isinst token)
+
+            if isValueType env testTy then
+                let boxedSlot = b.Local(FTConst("obj", EqArray.empty))
+                b.Add(ILInstr.Stloc boxedSlot)
+                b.Add(ILInstr.Ldloc boxedSlot)
+                b.Add(ILInstr.Brfalse nextLabel)
+                let valSlot = b.Local testTy
+                b.Add(ILInstr.Ldloc boxedSlot)
+                b.Add(ILInstr.UnboxAny token)
+                b.Add(ILInstr.Stloc valSlot)
+                buildMatchTest env b valSlot nextLabel inner
+            else
+                let castSlot = b.Local testTy
+                b.Add(ILInstr.Stloc castSlot)
+                b.Add(ILInstr.Ldloc castSlot)
+                b.Add(ILInstr.Brfalse nextLabel)
+                buildMatchTest env b castSlot nextLabel inner
 
     /// Bind an *irrefutable* pattern against a value already in local `srcSlot` — the
     /// shared destructuring binder for `let` / `for-in` (and, in Step 5, a tuple
@@ -246,45 +313,6 @@ module EmitExpr =
         match key with
         | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
         | _ -> name = "printfn"
-
-    /// Whether a (zonked) `FrozenType` is a CLR value type — drives the box vs
-    /// no-op choice on `:>` and the `unbox.any` vs `castclass` choice on `:?>`.
-    /// User records / unions / classes are reference types (rung 2); the BCL
-    /// primitives bound as `TyConst` are value types. `string` / `obj` are
-    /// reference types despite being `TyConst`.
-    let private isValueType (env: EmitEnv) (ty: FrozenType) : bool =
-        match ty with
-        | FTConst(n, _) ->
-            match n with
-            | "int"
-            | "int64"
-            | "int16"
-            | "byte"
-            | "sbyte"
-            | "uint16"
-            | "uint32"
-            | "uint64"
-            | "nativeint"
-            | "unativeint"
-            | "float"
-            | "float32"
-            | "single"
-            | "double"
-            | "bool"
-            | "char"
-            | "decimal" -> true
-            | _ -> false
-        // A user-declared `[<Struct>]` type emitted into this assembly
-        // (vesper-set-sprint-phase-6): the `EmittedClass.IsValueType` flag drives
-        // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
-        // struct that lives in a *referenced* package (not in `env.Classes`) is
-        // recognised the same way via the provider's external value-type flag —
-        // the contract/metadata layer's `IsValueType`.
-        | FTClass(key, _) ->
-            match env.Classes.TryGetValue key with
-            | true, c -> c.IsValueType
-            | false, _ -> env.Provider.IsExternalValueType key
-        | _ -> false
 
     /// Load a value-type receiver as a managed pointer (`this` byref) for an
     /// address-based member call. A method

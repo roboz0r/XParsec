@@ -127,6 +127,9 @@ module CstKeys =
         // Key off the `::` token — same rationale as the
         // `InfixApp` operator-token choice.
         | Pat.Cons(consToken = t) -> t
+        // Key off the `:?` token (not the inner binder) so the test node never
+        // collides with its inner `NamedSimple` sub-pattern's key.
+        | Pat.TypeTestAs(colonQuestion = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
@@ -200,6 +203,7 @@ module CstKeys =
             | Pat.Record _ -> NodeKind.PatRecord
             | Pat.Op _ -> NodeKind.PatOp
             | Pat.Cons _ -> NodeKind.PatCons
+            | Pat.TypeTestAs _ -> NodeKind.PatTypeTestAs
             | _ -> NodeKind.Unknown
 
         NodeKey.ofToken (firstTokenOfPat p) kind

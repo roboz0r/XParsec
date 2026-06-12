@@ -77,7 +77,8 @@ module TastWalk =
         | TPat.Tuple(ty = ty)
         | TPat.Const(ty = ty)
         | TPat.Record(ty = ty)
-        | TPat.Union(ty = ty) -> ty
+        | TPat.Union(ty = ty)
+        | TPat.TypeTestAs(ty = ty) -> ty
 
     /// Peel a curried `App` chain into its head and the arguments paired with
     /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
@@ -134,6 +135,7 @@ module TastWalk =
             | TPat.Tuple(items, ty) -> TPat.Tuple(EqArray.map (mapPat m) items, f ty)
             | TPat.Record(fields, ty) -> TPat.Record(EqArray.map (fun (n, sub) -> n, mapPat m sub) fields, f ty)
             | TPat.Union(c, fields, ty) -> TPat.Union(c, EqArray.map (mapPat m) fields, f ty)
+            | TPat.TypeTestAs(testTy, inner, ty) -> TPat.TypeTestAs(f testTy, mapPat m inner, f ty)
 
     let rec mapExpr (m: Mapper) (e: TExpr) : TExpr =
         match m.OverrideExpr m e with
@@ -276,6 +278,7 @@ module TastWalk =
             | TPat.Union(_, fields, _) ->
                 for sub in fields do
                     iterPat it sub
+            | TPat.TypeTestAs(_, inner, _) -> iterPat it inner
 
     let rec iterExpr (it: Iter) (e: TExpr) : unit =
         if it.VisitExpr it e then

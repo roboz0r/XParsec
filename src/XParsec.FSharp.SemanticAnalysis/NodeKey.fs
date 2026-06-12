@@ -88,6 +88,10 @@ type NodeKind =
     /// from the wrapped pattern (which shares the same first token) so the
     /// `Attributed` node and its inner `NamedSimple` never collide.
     | PatAttributed = 114us
+    /// Type-test pattern (`:? T as x`). Keyed off the `:?` token (not the inner
+    /// binder's first token) so the test node never collides with its inner
+    /// `NamedSimple` sub-pattern's key — same rationale as `PatCons`.
+    | PatTypeTestAs = 115us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

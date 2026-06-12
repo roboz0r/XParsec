@@ -596,6 +596,12 @@ type private Renderer() =
 
                 push ")"
 
+        | TPat.TypeTestAs(testTy, inner, _) ->
+            push ":? "
+            push (tyName testTy)
+            push " as "
+            this.Pat inner
+
     member this.Decl(d: TDecl) : unit =
         match d with
         | TDecl.Let(p, v, isInline, _) ->

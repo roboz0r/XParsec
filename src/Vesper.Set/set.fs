@@ -885,11 +885,8 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
         this.ComputeHashCode()
 
     override this.Equals that =
-        // Vesper has the `:?` test / `:?>` downcast expression forms but not the
-        // `:? T as x` *match-pattern* form yet (vesper-set-gaps.md §B-4), so the
-        // structural-equality check is spelled as an explicit test + downcast.
-        if that :? Set<'T> then
-            let that = that :?> Set<'T>
+        match that with
+        | :? Set<'T> as that ->
             use e1 = (this :> seq<_>).GetEnumerator()
             use e2 = (that :> seq<_>).GetEnumerator()
 
@@ -899,8 +896,7 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
                 (m1 = m2) && (not m1 || ((e1.Current = e2.Current) && loop ()))
 
             loop ()
-        else
-            false
+        | _ -> false
 
     interface IComparable with
         member this.CompareTo(that: objnull) =
@@ -908,8 +904,8 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
 
     interface IStructuralEquatable with
         member this.Equals(that, comparer) =
-            if that :? Set<'T> then
-                let that = that :?> Set<'T>
+            match that with
+            | :? Set<'T> as that ->
                 use e1 = (this :> seq<_>).GetEnumerator()
                 use e2 = (that :> seq<_>).GetEnumerator()
 
@@ -919,8 +915,7 @@ type Set<[<EqualityConditionalOn>] 'T when 'T: comparison>(comparer: IComparer<'
                     (m1 = m2) && (not m1 || (comparer.Equals(e1.Current, e2.Current) && loop ()))
 
                 loop ()
-            else
-                false
+            | _ -> false
 
         member this.GetHashCode(comparer) =
             let combineHash x y =

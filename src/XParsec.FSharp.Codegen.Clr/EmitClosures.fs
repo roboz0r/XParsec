@@ -23,6 +23,7 @@ module EmitClosures =
             | TPatG.Union(_, fields, _) ->
                 for sub in fields do
                     go sub
+            | TPatG.TypeTestAs(_, inner, _) -> go inner
 
         go p
         List.ofSeq acc

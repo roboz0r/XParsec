@@ -180,6 +180,10 @@ module NameResolutionScope =
         | Pat.Typed(pat = inner) -> bindingsOfPat ctx inner
         | Pat.Attributed(pat = inner) -> bindingsOfPat ctx inner
         | Pat.As(pat = inner; ident = ident) -> (ctx.NameOf ident, CstKeys.ofPat p) :: bindingsOfPat ctx inner
+        | Pat.TypeTestAs(pat = inner) ->
+            // `:? T as x` — the inner pattern (an ident) is the binder. The test
+            // type isn't a binding site; recurse into the inner pattern only.
+            bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Named(longIdent = li; argumentPats = args) when

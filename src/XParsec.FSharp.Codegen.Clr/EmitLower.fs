@@ -51,7 +51,8 @@ module EmitLower =
         | TPatG.Tuple(_, ty)
         | TPatG.Const(_, ty)
         | TPatG.Record(_, ty)
-        | TPatG.Union(_, _, ty) -> ty
+        | TPatG.Union(_, _, ty)
+        | TPatG.TypeTestAs(_, _, ty) -> ty
 
     /// Resolve a nominal receiver type to its `(SymbolKey, type-args)` pair
     /// (was a projected string name). The

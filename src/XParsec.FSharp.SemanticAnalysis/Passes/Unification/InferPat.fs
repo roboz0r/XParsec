@@ -303,6 +303,18 @@ module internal UnificationInferPat =
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome annTy
             annTy
+        | Pat.TypeTestAs(typ = t; pat = inner) ->
+            // `:? T as x` — the inner binder `x` sees the tested type `T`; the
+            // pattern itself matches values of the scrutinee's type (left free so
+            // the scrutinee, typically `obj`, pins it via `inferRules`' unify).
+            // Stash the test type keyed on this node so Freeze can carry it into
+            // `TPat.TypeTestAs.testTy` for the `isinst` operand (mirrors the
+            // `:?` *expression* form's `inferDynamicTypeTest`).
+            let tgtTy = translateType ctx t
+            ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
+            let innerTy = inferPat ctx inner
+            unify ctx (CstKeys.ofPat inner) innerTy tgtTy
+            TyVar(freshTv ctx key)
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->
             // `[]` pattern: a list whose element type is left free for the
             // scrutinee to pin (`match xs with [] -> …`).

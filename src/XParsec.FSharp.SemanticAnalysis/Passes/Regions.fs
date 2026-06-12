@@ -256,6 +256,7 @@ module Regions =
                 for sub in fields do
                     yield! bindersOfTPat sub
             ]
+        | TPat.TypeTestAs(_, inner, _) -> bindersOfTPat inner
 
     /// Free variables of a lambda body: every `TExpr.Var` whose binding site is
     /// neither a parameter nor introduced by an inner scope. `bound` is seeded
@@ -609,6 +610,7 @@ module Regions =
         | TPat.Union(_, fields, _) ->
             for sub in fields do
                 recordBindingRegion s ctx sub r
+        | TPat.TypeTestAs(_, inner, _) -> recordBindingRegion s ctx inner r
         | TPat.Wildcard _
         | TPat.Const _ -> ()
 

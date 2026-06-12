@@ -76,6 +76,12 @@ type TPatG<'ty> =
     /// is always a `TyUnion`. The declaring union is recoverable via
     /// `ctx.Types.CtorIndex[caseName]` at consumption time.
     | Union of caseName: string * fields: EqArray<TPatG<'ty>> * ty: 'ty
+    /// `:? testTy as x` type-test pattern. Refutable: codegen lowers it to an
+    /// `isinst testTy` + null check (branch to the next arm on mismatch), then
+    /// binds `inner` (the `as`-name, an irrefutable sub-pattern) against the
+    /// cast-down value. `ty` is the scrutinee's type (the matched value — `obj`
+    /// in practice); `testTy` is the tested-against type the binder sees.
+    | TypeTestAs of testTy: 'ty * inner: TPatG<'ty> * ty: 'ty
 
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
 /// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
