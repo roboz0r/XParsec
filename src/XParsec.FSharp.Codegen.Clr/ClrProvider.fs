@@ -61,8 +61,10 @@ type ClrProvider
     member _.RegisterGenericRecord(key: SymbolKey, typars: string list, fields: (string * FrozenType) list) : unit =
         env.GenericRecords.[key] <- (typars, fields)
 
-    member _.RegisterGenericClass(key: SymbolKey, typars: string list, fields: (string * FrozenType) list) : unit =
-        env.GenericClasses.[key] <- (typars, fields)
+    member _.RegisterGenericClass
+        (key: SymbolKey, typars: string list, ctorParamCount: int, fields: (string * FrozenType) list)
+        : unit =
+        env.GenericClasses.[key] <- (typars, ctorParamCount, fields)
 
     member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
 

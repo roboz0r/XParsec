@@ -325,9 +325,25 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  Codegen.materialise artifact
 
                  use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
-                 let asm = packageAlc.LoadFromStream ms
-                 packageAlc.Register(manifest.Name, asm)
-                 asm, artifact)
+
+                 // A contract-only package (`impl = []`: Vesper.Printf, whose runtime
+                 // `Vesper.Formatter` is the C#-built `Vesper.Printf.dll`; Vesper.Comparison,
+                 // whose operators are inlined) compiles to an *empty* DLL here — it
+                 // carries no runtime types. Registering it in `packageAlc` would
+                 // shadow the real, host-loaded assembly: a driver `printfn` would bind
+                 // `Vesper.Printf` to this empty stub and fail to load `Vesper.Formatter`.
+                 // So load such a package into a throwaway context and leave `packageAlc`
+                 // without it — the driver's `Vesper.Printf` reference then falls through
+                 // to the Default ALC (where the test project's C# `Vesper.Printf.dll` is
+                 // loaded). The on-disk path stays in `References` for emit-time identity.
+                 if List.isEmpty manifest.Impl then
+                     let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
+
+                     throwaway.LoadFromStream ms, artifact
+                 else
+                     let asm = packageAlc.LoadFromStream ms
+                     packageAlc.Register(manifest.Name, asm)
+                     asm, artifact)
     )
 
 /// Build the symbol-resolution stack + its cross-package inline bodies once
@@ -413,8 +429,12 @@ let loadAssembly (bytes: byte[]) : Assembly =
 /// an already-disposed `StringWriter`).
 let private consoleLock = obj ()
 
-let runEntryPoint (bytes: byte[]) : int * string =
-    let asm = loadAssembly bytes
+/// Invoke an already-loaded assembly's entry point under the shared console lock,
+/// returning its exit code + captured stdout. Split out of `runEntryPoint` so a
+/// driver loaded into a *specific* `AssemblyLoadContext` (e.g. the package-build
+/// `packageAlc`, where a multi-dependency graph already resolves) can run through
+/// the same capture path as the fresh-ALC `runEntryPoint`.
+let runLoadedEntryPoint (asm: Assembly) : int * string =
     let entry = asm.EntryPoint
 
     if isNull entry then
@@ -432,27 +452,42 @@ let runEntryPoint (bytes: byte[]) : int * string =
                     let result = entry.Invoke(null, [| box (Array.empty<string>) |])
                     Console.Out.Flush()
                     (result :?> int), captured.ToString()
-                with
-                // `MethodBase.Invoke` wraps any user-code exception in a
-                // `TargetInvocationException`. Surface the inner exception's
-                // type, message, and stack trace so a runtime IL bug
-                // (`InvalidProgramException` from a malformed method body, a
-                // `NullReferenceException`, a typed `ArithmeticException`) is
-                // *legible* in the test failure instead of a single line of
-                // "Exception has been thrown by the target of an invocation".
-                | :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
+                with :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
+                    // Unwrap to the deepest cause: a runtime failure inside a static
+                    // initializer surfaces as `TypeInitializationException` wrapping
+                    // the real exception, which itself may wrap further. Report the
+                    // whole chain so the root is legible.
+                    let rec deepest (ex: exn) =
+                        if isNull ex.InnerException then
+                            ex
+                        else
+                            deepest ex.InnerException
+
                     let inner = e.InnerException
+                    let root = deepest inner
                     let captured = captured.ToString()
 
                     failwithf
-                        "Entry-point threw %s: %s\n--- inner stack ---\n%s\n--- captured stdout ---\n%s"
+                        "Entry-point threw %s: %s\n--- root cause %s: %s ---\n%s\n--- captured stdout ---\n%s"
                         (inner.GetType().FullName)
                         inner.Message
-                        inner.StackTrace
+                        (root.GetType().FullName)
+                        root.Message
+                        root.StackTrace
                         captured
             finally
                 Console.SetOut original
         )
+
+let runEntryPoint (bytes: byte[]) : int * string =
+    // `MethodBase.Invoke` wraps any user-code exception in a
+    // `TargetInvocationException`; `runLoadedEntryPoint` surfaces the inner
+    // exception's type, message, and stack trace so a runtime IL bug
+    // (`InvalidProgramException` from a malformed method body, a
+    // `NullReferenceException`, a typed `ArithmeticException`) is *legible* in
+    // the test failure instead of a single line of "Exception has been thrown
+    // by the target of an invocation".
+    runLoadedEntryPoint (loadAssembly bytes)
 
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
 // The one-liners the suite was missing (docs/codegen-test-strategy-plan.md):
@@ -1032,6 +1067,103 @@ let typeChecksSeq (src: string) : unit =
     match analyseSeqErrors src with
     | [] -> ()
     | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
+
+// ---- Vesper.Set runtime harness (vesper-set-sprint-phase-9 §9.7 / G8) -------
+// `Vesper.Set` (the immutable AVL-tree set + the `Set` module) is the capstone
+// self-host package. Its DLL builds + links + loads BCL-only — proven by
+// `PackageBuildTriage` "Vesper.Set builds BCL-only". This harness adds the
+// *runtime round-trip* the §9.7 gate calls for (`Set.add`/`contains`/`toList`/
+// `union`/`intersect`/`fold` and the wider Phase-9-exit operation set).
+//
+// `Set` is NOT in `defaultManifests` (its `Set` module would shadow resolution
+// everywhere), so a driver opts in. Unlike the Option/Choice/Seq harnesses —
+// which load each dependency DLL into the *Default* ALC — a Set driver has eight
+// transitive `Vesper.*` deps, all already built + registered in `packageAlc` by
+// `buildPackage "Vesper.Set"`. So the driver is loaded into `packageAlc` itself
+// (where every `Vesper.*` dep resolves off the registry, and FSharp.Core / the
+// BCL fall through to Default) rather than re-loading the whole graph into
+// Default. The driver's assembly name is uniquified per call so successive loads
+// into the persistent `packageAlc` get distinct identities.
+//
+// NOTE on driver shape: HOF arguments (`Set.fold`/`partition`'s folder) are
+// written *curried* (`fun s -> fun x -> …`) per the same Freeze multi-arg-lambda
+// posture the Seq harness documents.
+
+/// Transitive package names for `root` (dependencies before dependents,
+/// deduplicated, `root` last) — drives both the contract stack and the
+/// `References` DLL list. Reads each package's `depends-on` off its manifest.
+let private transitivePackages (root: string) : string list =
+    let acc = System.Collections.Generic.List<string>()
+
+    let rec go (pkg: string) =
+        if not (acc.Contains pkg) then
+            match ReferencedProject.loadManifest (srcManifest pkg) with
+            | Result.Ok m ->
+                m.DependsOn |> List.iter go
+
+                if not (acc.Contains pkg) then
+                    acc.Add pkg
+            | Result.Error e -> failwithf "transitivePackages %s: %s" pkg e
+
+    go root
+    List.ofSeq acc
+
+/// Uniquifies the per-call driver assembly name (Expecto runs tests in parallel;
+/// `packageAlc` is process-persistent, so two `SetSmoke` loads would collide on
+/// identity).
+let private setDriverCounter = ref 0
+
+/// Compile a driver program that `open`s `Vesper.Collections` and exercises the
+/// `Set` type/module, run it inside `packageAlc` (so `Set` + its eight transitive
+/// `Vesper.*` deps resolve off the package-build registry), and assert exit 0
+/// with trimmed stdout equal to `expected`. The `Set` counterpart of `runsSeq`,
+/// but routed through `packageAlc` rather than the Default ALC.
+let runsSet (expected: string) (src: string) : unit =
+    // Force the whole graph (Set + every transitive dep) — registers them all in
+    // `packageAlc` and yields each one's on-disk DLL for the driver's References.
+    let packages = transitivePackages "Vesper.Set"
+
+    let depDlls =
+        packages |> List.choose (fun p -> ((buildPackage p).Value |> snd).OutputPath)
+
+    let provider = SymbolProviders.buildContract (packages |> List.map srcManifest)
+
+    let n = System.Threading.Interlocked.Increment setDriverCounter
+
+    let project =
+        { ProjectInfo.defaults (sprintf "SetSmoke%d" n) with
+            References = depDlls
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+
+    let analysisErrors =
+        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    if not (List.isEmpty analysisErrors) then
+        failwithf
+            "runsSet: %d analysis error(s) for:\n%s\n--- errors ---\n%s"
+            (List.length analysisErrors)
+            src
+            (analysisErrors |> List.map (fun d -> d.Message) |> String.concat "\n")
+
+    let artifact = Codegen.compile provider project tast
+
+    use ms = new IO.MemoryStream(Codegen.toBytes artifact)
+    let asm = packageAlc.LoadFromStream ms
+    let exitCode, output = runLoadedEntryPoint asm
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsSet` for a multi-line expected block.
+let runsSetLines (expected: string list) (src: string) : unit =
+    runsSet (String.concat "\n" expected) src
 
 // ---- PE inspection helpers (deep introspection for codegen tests) -----------
 // Reach beyond `loadAssembly`'s reflection view: open the emitted PE through

@@ -136,7 +136,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             | None -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
 
     let genericClassTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
-        let typars, _ = genericClasses.[key]
+        let typars, _, _ = genericClasses.[key]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         // A `[<Struct>]` value type's generic self-`TypeSpec` (the MemberRef parent
@@ -152,12 +152,15 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     let genericClassMemberRef (key: SymbolKey) (args: FrozenType list) (which: ClassMember) : EntityHandle =
-        let _, fields = genericClasses.[key]
+        let _, ctorParamCount, fields = genericClasses.[key]
         let parent = genericClassTypeSpec key args
 
         match which with
         | ClassMember.Ctor ->
-            let paramTys = fields |> List.map snd
+            // Only the primary ctor's own parameters (the leading `ctorParamCount`
+            // entries) — not the trailing `val`/`static let` backing fields that also
+            // live in `fields` for name-based `ClassMember.Field` resolution.
+            let paramTys = fields |> List.truncate ctorParamCount |> List.map snd
             let s = BlobBuilder()
 
             BlobEncoder(s)

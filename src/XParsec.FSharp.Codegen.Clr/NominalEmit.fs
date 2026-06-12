@@ -50,17 +50,30 @@ module internal NominalEmit =
         // interface-impl members trail (same indexing as the layout).
         let emittedMembers = Dictionary<string, Emit.EmittedMember>()
 
+        // The class's own members lead, interface-impl members trail (same
+        // indexing as the layout's `MethodKey.Member` rows). Every member still
+        // gets its own indexed method row; this name→member map drives only
+        // *name-based* resolution (`resolveInstanceMember`/`resolveStaticMember`
+        // for a `this.Member` / `Set<'T>.Member` access on the class receiver).
+        // A class member and an interface-impl member can share a name (`Set` has
+        // both its own `Add : Set<'T>` and `ICollection<'T>.Add : unit`); the
+        // class's own member must win the name lookup — `set.Add value` resolves to
+        // it in the front end, and the interface slot is only ever reached through
+        // an interface-typed receiver (the external dispatch path), never this
+        // table. So keep the *first* writer (the class member) and never let a
+        // later interface-impl member overwrite it.
         (members @ ifaceMembersOf input)
         |> List.iteri (fun i (mem: Frozen.TTypeMember) ->
-            emittedMembers.[mem.Name] <-
-                {
-                    Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
-                    IsStatic = mem.IsStatic
-                    Arity = mem.Params.Length
-                    MetaName = memberMetaName mem
-                    ParamTys = [ for (_, t) in mem.Params -> t ]
-                    RetTy = mem.ReturnTy
-                }
+            if not (emittedMembers.ContainsKey mem.Name) then
+                emittedMembers.[mem.Name] <-
+                    {
+                        Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
+                        IsStatic = mem.IsStatic
+                        Arity = mem.Params.Length
+                        MetaName = memberMetaName mem
+                        ParamTys = [ for (_, t) in mem.Params -> t ]
+                        RetTy = mem.ReturnTy
+                    }
         )
 
         match input with

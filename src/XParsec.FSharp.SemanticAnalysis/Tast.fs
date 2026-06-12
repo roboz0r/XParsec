@@ -445,6 +445,15 @@ and TTypeMemberG<'ty> =
         Name: string
         IsStatic: bool
         Kind: TMemberKind
+        /// `true` when declared with the `override`/`default` keyword — i.e. it
+        /// overrides a base virtual slot. For a class with no `inherit` clause
+        /// that base is `System.Object`, so an `override` `Equals`/`GetHashCode`/
+        /// `ToString` reuses the Object virtual slot and must emit *virtual*
+        /// (reusing the slot, no `NewSlot`); a plain `member` is non-virtual.
+        /// Without this the override emits `Public HideBySig` (non-virtual), so it
+        /// never replaces `Object.Equals` and — for a structural-equality interface
+        /// like `IStructuralEquatable` — the type fails to satisfy its slots.
+        IsOverride: bool
         /// Instance members only; `ValueNone` for a static member.
         ThisKey: NodeKey voption
         /// The synthetic `base` binder of the declaring class (inheritance-plan

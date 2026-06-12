@@ -358,6 +358,11 @@ module internal Layout =
             Attrs =
                 if isIfaceImpl then ifaceEqualsAttrs
                 elif mem.IsStatic then staticMethodAttrs
+                // An `override` of a base virtual (Object's `Equals`/`GetHashCode`/
+                // `ToString` for an `inherit`-less class) reuses the base slot —
+                // `Public Virtual HideBySig`, no `NewSlot` — so the runtime binds it
+                // over the inherited method. A plain `member` stays non-virtual.
+                elif mem.IsOverride then overrideMethodAttrs
                 else instanceMethodAttrs
         }
 

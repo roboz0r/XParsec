@@ -53,6 +53,7 @@
     <Compile Include="ListModuleTests.fs" />
     <Compile Include="ArrayModuleTests.fs" />
     <Compile Include="SeqModuleTests.fs" />
+    <Compile Include="SetModuleTests.fs" />
     <Compile Include="LocalModuleTests.fs" />
     <Compile Include="InferResolutionTests.fs" />
     <Compile Include="TupleTests.fs" />

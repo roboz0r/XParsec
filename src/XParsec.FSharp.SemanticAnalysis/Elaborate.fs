@@ -506,8 +506,15 @@ module Elaborate =
         (el: TypeDefnElement<SyntaxToken>)
         : TTypeMember voption =
         match el with
-        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
             let isStatic = s.IsSome
+
+            let isOverride =
+                match kw with
+                | MemberKeyword.Override _
+                | MemberKeyword.Default _ -> true
+                | MemberKeyword.Member _
+                | MemberKeyword.Abstract _ -> false
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
@@ -517,6 +524,7 @@ module Elaborate =
                             Name = n
                             IsStatic = isStatic
                             Kind = kind
+                            IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                             // Unions are not inheritable — `base` never in scope.
                             BaseKey = ValueNone
@@ -539,6 +547,7 @@ module Elaborate =
                         Name = ctx.NameOf id
                         IsStatic = isStatic
                         Kind = TMemberKind.Property
+                        IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         BaseKey = ValueNone
                         ThisTy = TyUnion(info.Key, EqArray.empty)
@@ -627,8 +636,19 @@ module Elaborate =
                     body
 
         match el with
-        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; defn = d)) ->
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
             let isStatic = s.IsSome
+
+            // `override`/`default` ⇒ overrides a base virtual slot (Object's
+            // `Equals`/`GetHashCode`/`ToString` for an `inherit`-less class), so
+            // codegen must emit it virtual reusing the slot (mirrors registration's
+            // `isOverride`).
+            let isOverride =
+                match kw with
+                | MemberKeyword.Override _
+                | MemberKeyword.Default _ -> true
+                | MemberKeyword.Member _
+                | MemberKeyword.Abstract _ -> false
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
                 let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Key
@@ -670,6 +690,7 @@ module Elaborate =
                             Name = n
                             IsStatic = isStatic
                             Kind = kind
+                            IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                             BaseKey = (if isStatic then ValueNone else baseKey)
                             ThisTy = TyClass(info.Key, EqArray.empty)
@@ -689,6 +710,7 @@ module Elaborate =
                         Name = ctx.NameOf id
                         IsStatic = isStatic
                         Kind = TMemberKind.Property
+                        IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         BaseKey = (if isStatic then ValueNone else baseKey)
                         ThisTy = TyClass(info.Key, EqArray.empty)
@@ -1205,16 +1227,27 @@ module Elaborate =
                     let tpat = translatePat ctx b.headPat
 
                     // Inside a named module: record where this binding's static
-                    // method belongs (its source name on the holder type).
+                    // method belongs. The emitted method takes its `[<CompiledName>]`
+                    // (the IL boundary name, e.g. `Set.empty` ⇒ `SetModule.Empty`),
+                    // falling back to the source name — matching the contract
+                    // extractor's `compiledNameForVal`, so a separately-compiled
+                    // consumer resolving `Set.empty` to `SetModule.Empty` finds the
+                    // method this emits. Both the producer-internal call resolver
+                    // (`SymbolProviders`) and codegen key off this same `Name`.
                     match holder with
                     | Some h ->
                         match memberNameOfBinding ctx b with
                         | ValueSome nm ->
+                            let compiledNm =
+                                match VesperLibTypeTranslate.tryCompiledName ctx.Lexed ctx.Input b.attributes with
+                                | ValueSome cn -> cn
+                                | ValueNone -> nm
+
                             ctx.Bindings.ModuleMembers.[(CstKeys.ofBinding b).Raw] <-
                                 {
                                     Namespace = ns
                                     Holder = h
-                                    Name = nm
+                                    Name = compiledNm
                                 }
                         | ValueNone -> ()
                     | None -> ()

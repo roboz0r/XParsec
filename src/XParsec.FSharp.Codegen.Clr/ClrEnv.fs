@@ -290,8 +290,15 @@ type internal ClrEnv
     let genericRecords =
         Dictionary<SymbolKey, string list * (string * FrozenType) list>()
 
+    // `(typars, ctorParamCount, fields)`. `fields` is the *full* field shape —
+    // ctor-param backing fields first, then `val` instance fields, then `static let`
+    // backing fields — so a `ClassMember.Field` `MemberRef` resolves any of them by
+    // name. `ctorParamCount` records how many leading entries are the *primary
+    // ctor's* parameters, so the `ClassMember.Ctor` `MemberRef` signature uses only
+    // those (not the `val`/`static let` fields, which a `Set<'T>(comparer, tree)`
+    // self-construction in the `.cctor` would otherwise see as phantom ctor args).
     let genericClasses =
-        Dictionary<SymbolKey, string list * (string * FrozenType) list>()
+        Dictionary<SymbolKey, string list * int * (string * FrozenType) list>()
     // Closures have no `SymbolKey` (synthetic names), so they stay string-keyed —
     // the "closures wrinkle" (Phase 6D); the nominal seam is key-based, closures
     // ride their own provider methods.

@@ -1652,6 +1652,79 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
+            // vesper-set-phase-9-handoff G8 #3: a generic class implementing
+            // `IStructuralEquatable` (`Equals(obj, IEqualityComparer)` /
+            // `GetHashCode(IEqualityComparer)`) alongside `override`s of Object's
+            // `Equals(obj)` / `GetHashCode()`. Pre-fix `Set\`1` failed CLR type-load
+            // ("Method 'Equals' … does not have an implementation"): the unannotated
+            // override/interface params leaked a method typar, so each emitted as a
+            // spurious *generic* `Equals\`1`/`GetHashCode\`1` whose generic arity (1)
+            // no longer matched the (arity-0) interface slot, and the `override`s
+            // emitted *non-virtual*. The fix (a) flows `IsOverride` Tast→codegen so an
+            // Object override emits virtual reusing the base slot, (b) pins each
+            // override's params to the Object slot, and (c) skips generalisation for
+            // override + interface-impl members. This gate forces the type to load
+            // (the failure mode) and asserts every method is non-generic + virtual
+            // with the expected arity.
+            test
+                "a class implementing IStructuralEquatable + Object overrides type-loads with non-generic virtual members" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Collections"
+                            "type C<'T>(x: 'T) ="
+                            "    member this.X = x"
+                            "    override this.GetHashCode() = 0"
+                            "    override this.Equals(that) = true"
+                            "    interface IStructuralEquatable with"
+                            "        member this.Equals(that, comparer) = comparer.Equals(that, that)"
+                            "        member this.GetHashCode(comparer) = 0"
+                        ]
+
+                let _, artifact = compileSource "ClsStructEq" src
+                let bytes = Codegen.toBytes artifact
+
+                // Forcing the load is the pre-fix failure mode (TypeLoadException).
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("C`1", throwOnError = true)
+
+                let methodOf name arity =
+                    ty.GetMethods(
+                        BindingFlags.Public
+                        ||| BindingFlags.NonPublic
+                        ||| BindingFlags.Instance
+                        ||| BindingFlags.DeclaredOnly
+                    )
+                    |> Array.tryFind (fun m -> m.Name = name && m.GetParameters().Length = arity)
+
+                // The Object overrides: virtual, non-generic, reusing the base slots.
+                let equalsObj = methodOf "Equals" 1
+                Expect.isSome equalsObj "Equals(obj) override emitted"
+                Expect.isTrue equalsObj.Value.IsVirtual "Equals(obj) is virtual (reuses Object.Equals)"
+                Expect.equal (equalsObj.Value.GetGenericArguments().Length) 0 "Equals(obj) is non-generic"
+
+                let getHash0 = methodOf "GetHashCode" 0
+                Expect.isSome getHash0 "GetHashCode() override emitted"
+                Expect.isTrue getHash0.Value.IsVirtual "GetHashCode() is virtual"
+                Expect.equal (getHash0.Value.GetGenericArguments().Length) 0 "GetHashCode() is non-generic"
+
+                // The IStructuralEquatable slots: 2-arg Equals + 1-arg GetHashCode,
+                // both non-generic so the implicit name+signature match satisfies the
+                // interface (no MethodImpl emission).
+                let equals2 = methodOf "Equals" 2
+                Expect.isSome equals2 "IStructuralEquatable.Equals(obj, comparer) emitted with two params"
+                Expect.equal (equals2.Value.GetGenericArguments().Length) 0 "the 2-arg Equals is non-generic"
+
+                let getHash1 = methodOf "GetHashCode" 1
+                Expect.isSome getHash1 "IStructuralEquatable.GetHashCode(comparer) emitted"
+                Expect.equal (getHash1.Value.GetGenericArguments().Length) 0 "the 1-arg GetHashCode is non-generic"
+
+                // The whole type satisfies the interface — reflect it as implemented.
+                let ifaces = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaces.Contains "IStructuralEquatable") "C`1 implements IStructuralEquatable"
+            }
+
             // vesper-set-phase-9-handoff "unbalanced member-body IL": a `void`-
             // returning interface-impl member whose body *terminates* (ends in
             // `raise`) — the `ICollection<'T>.Add` / `IDisposable.Dispose` shape on a

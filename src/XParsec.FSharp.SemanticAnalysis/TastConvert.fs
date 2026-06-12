@@ -137,6 +137,7 @@ module TastConvert =
             Name = m.Name
             IsStatic = m.IsStatic
             Kind = m.Kind
+            IsOverride = m.IsOverride
             ThisKey = m.ThisKey
             BaseKey = m.BaseKey
             ThisTy = f m.ThisTy

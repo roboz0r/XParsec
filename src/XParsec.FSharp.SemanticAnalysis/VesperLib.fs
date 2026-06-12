@@ -449,6 +449,29 @@ module VesperLib =
             else
                 ValueSome(qualifier + "." + n)
 
+    /// Build the *source*-qualified name for a val — the name the front end
+    /// actually writes (`Set.empty`). Unlike `compiledNameForVal` it IGNORES
+    /// `[<CompiledName(_)>]` (which renames the member at the IL boundary, e.g.
+    /// `empty` ⇒ `Empty`): a consumer writes `Set.empty`, never `Set.Empty`, so
+    /// the source-alias key must carry the written ident, only the module path
+    /// being source-rewritten (`SetModule` ⇒ `Set`). The compiled-name entry
+    /// (which respects `[<CompiledName>]`) stays the symbol's identity key.
+    let private sourceNameForVal
+        (lexed: Lexed)
+        (input: string)
+        (path: string list)
+        (ident: IdentOrOp<SyntaxToken>)
+        : string voption =
+        match identOrOpName lexed input ident with
+        | ValueNone -> ValueNone
+        | ValueSome n ->
+            let qualifier = String.concat "." (List.rev path)
+
+            if qualifier.Length = 0 then
+                ValueSome n
+            else
+                ValueSome(qualifier + "." + n)
+
     let private extractValSig
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -494,7 +517,7 @@ module VesperLib =
                                 Typars = collector
                             }
                         Compiled = compiled
-                        Source = compiledNameForVal lexed input sourcePath attrs ident
+                        Source = sourceNameForVal lexed input sourcePath ident
                         File = file
                         Signature = signature
                     }

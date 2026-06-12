@@ -129,7 +129,7 @@ module EmitResolve =
     /// fails here loudly rather than minting a malformed `Def` call. Classes
     /// route through the same `Member` arm as instances; a generic class's
     /// static member uses the class `MemberRef` instead of the union one.
-    let resolveStaticMember (env: EmitEnv) (memberKey: SymbolKey) : EntityHandle =
+    let resolveStaticMember (env: EmitEnv) (memberKey: SymbolKey) (resultTy: FrozenType) : EntityHandle =
         // The call site carries the resolved local `SymbolKey.MemberKey`: the
         // declaring type is `decl`, the
         // member name is `memberName` — the emitted tables are keyed by `SymbolKey`
@@ -138,6 +138,27 @@ module EmitResolve =
             match memberKey with
             | SymbolKey.MemberKey(decl, n, _, _) -> decl, n
             | _ -> failwithf "Emit: expected a MemberKey for a static member call, got %A" memberKey
+
+        // The declaring type's instantiation at *this* call site. A static member
+        // on a generic class compiles to a `MemberRef` on the class `TypeSpec`, so
+        // the args must be the call-site instantiation — not the bare declaring
+        // typars. Calling `Set<'T>.Empty` from inside the *non-generic* `SetModule`
+        // holder (where `Set.empty<'T>` lowers to a method-typar `!!0`) with the
+        // hardcoded declaring `!0` minted `Set\`1<!0>::Empty`, an open typar with no
+        // owning generic context — a `BadImageFormatException` at JIT (handoff
+        // "deferred gap 1"). The instantiation is recovered from the node's *result*
+        // type when its head is the declaring type (every self-returning static
+        // member — `Empty`/`Singleton`/`Intersection`/`Union` in `set.fs`); the
+        // declaring-typar list is the fallback for a member whose return type does
+        // not surface the instantiation (e.g. `Foo<'T>.Bar : int`, only reachable
+        // from a declaring context today, where `!0` is correct).
+        let instantiationFor (typars: 'a list) : FrozenType list =
+            let declaringTypars =
+                [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+
+            match receiverShape resultTy with
+            | ValueSome(rk, rargs) when rk = key && List.length rargs = List.length typars -> rargs
+            | _ -> declaringTypars
 
         match env.Unions.TryGetValue key with
         | true, u ->
@@ -157,7 +178,7 @@ module EmitResolve =
                         env
                         c.Typars
                         key
-                        [ for i in 0 .. List.length c.Typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+                        (instantiationFor c.Typars)
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy)))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name

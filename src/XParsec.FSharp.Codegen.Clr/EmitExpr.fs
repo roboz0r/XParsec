@@ -92,6 +92,14 @@ module EmitExpr =
 
         | TExprG.App _ -> EmitCall.buildAppCall buildExpr env b e
 
+        // A bare external value with no application — a zero-arg module value such
+        // as `Set.empty` (the `[<GeneralizableValue>]` generic value compiled to a
+        // generic static method `SetModule.Empty<'T>()`). Route it through the same
+        // head dispatch as an application with an empty spine: `buildAppCall`
+        // collects a zero-length spine, `TryEmitCall` emits the 0-arg recipe, and
+        // the generic instantiation is read from the value's (result) type.
+        | TExprG.External _ -> EmitCall.buildAppCall buildExpr env b e
+
         | TExprG.FieldGet _ -> EmitMember.buildFieldGet buildExpr env b e
         | TExprG.Assignment _ -> EmitMember.buildAssignment buildExpr env b e
         | TExprG.FieldSet _ -> EmitMember.buildFieldSet buildExpr env b e

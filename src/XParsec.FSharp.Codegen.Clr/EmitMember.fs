@@ -146,8 +146,8 @@ module EmitMember =
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.StaticPropertyGet(key, _) ->
-            let handle = resolveStaticMember env key
+        | TExprG.StaticPropertyGet(key, ty) ->
+            let handle = resolveStaticMember env key ty
             b.Add(ILInstr.Call(handle, 0, 1))
         | _ -> failwith "EmitMember.buildStaticPropertyGet: unreachable"
 
@@ -160,8 +160,8 @@ module EmitMember =
 
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.StaticMethodCall(key, args, _) ->
-            let handle = resolveStaticMember env key
+        | TExprG.StaticMethodCall(key, args, ty) ->
+            let handle = resolveStaticMember env key ty
 
             for a in args do
                 recur env b a

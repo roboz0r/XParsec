@@ -252,6 +252,16 @@ module Unification =
             PrelinkExtras: unit -> unit
             Elements: TypeDefnElements<SyntaxToken>
             AllowAbstractSig: bool
+            // An interface-impl member's signature is *fixed* by the interface
+            // slot (`checkInterfaceConformance` unifies it after the body), so it
+            // must never acquire method generic parameters — the slot is
+            // non-generic, and a generalised member would emit as
+            // `Equals\`1(…)`, whose generic arity (1) no longer matches the
+            // `IStructuralEquatable.Equals` slot (arity 0), tripping a CLR
+            // "Method 'Equals' … does not have an implementation" type-load
+            // failure. `false` for these; `true` for a class's own members,
+            // which generalise body-inferred typars per `generaliseMemberTypars`.
+            Generalise: bool
         }
 
     /// Generalise a member's *body-inferred* free typars into its
@@ -453,7 +463,17 @@ module Unification =
                             // method whose unannotated param type carries a fresh
                             // typar no annotation named, never grounded by a call.
                             match mInfoOpt with
-                            | Some mInfo when mInfo.Kind = ClassMemberKind.Method ->
+                            | Some mInfo when
+                                fc.Generalise
+                                && mInfo.Kind = ClassMemberKind.Method
+                                // An `override` conforms to a base virtual slot
+                                // (`checkObjectOverrideConformance` pins its
+                                // signature), so it is never generic — generalising
+                                // an unannotated param (`override _.Equals that`)
+                                // into a method typar would make it `Equals\`1`,
+                                // which no longer matches the `Object.Equals` slot.
+                                && not mInfo.IsOverride
+                                ->
                                 generaliseMemberTypars ctx outerLevel fc.TypeParams mInfo
                             | _ -> ()
                         | ValueNone -> ()
@@ -761,6 +781,41 @@ module Unification =
             | _ -> ()
         | _ -> ()
 
+    /// Conform each `override` member of a class to the `System.Object` virtual
+    /// slot it overrides, pinning the (often unannotated) parameter / return
+    /// types so they don't leak as free typars. A class with no `inherit` clause
+    /// can only override Object's three virtuals — `Equals(obj):bool`,
+    /// `GetHashCode():int`, `ToString():string` — so the expected signatures are
+    /// fixed. Without this, `override _.Equals that` leaves `that` a free TyVar
+    /// that `generaliseMemberTypars` would have quantified (now skipped for
+    /// overrides), and Freeze would emit it as `bool Equals<M0>(!!0)` — a generic,
+    /// non-Object-matching method. Runs after the member bodies are typed (so the
+    /// placeholder `mInfo.Type` carries the inferred `param -> ret` shape), the
+    /// `Object`-slot analogue of `checkInterfaceConformance`. v1 supports only
+    /// `inherit`-less classes here; a class deriving a project-local base that
+    /// declares its own virtuals is a later slice.
+    let private checkObjectOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
+        let objTy = TyConst("obj", EqArray.empty)
+        let boolTy = TyConst("bool", EqArray.empty)
+        let intTy = TyConst("int", EqArray.empty)
+        let unitTy = TyConst("unit", EqArray.empty)
+        let stringTy = TyConst("string", EqArray.empty)
+
+        for mInfo in info.Members do
+            if mInfo.IsOverride && mInfo.Kind = ClassMemberKind.Method then
+                // The expected Object-slot type, keyed by name. A nullary method's
+                // inferred type is `unit -> ret`, a 1-arg method's `arg -> ret`.
+                let expected =
+                    match mInfo.Name with
+                    | "Equals" -> ValueSome(TyFun(objTy, boolTy))
+                    | "GetHashCode" -> ValueSome(TyFun(unitTy, intTy))
+                    | "ToString" -> ValueSome(TyFun(unitTy, stringTy))
+                    | _ -> ValueNone
+
+                match expected with
+                | ValueSome expectedTy -> unify ctx mInfo.DeclKey mInfo.Type expectedTy
+                | ValueNone -> ()
+
     /// §5.2 resolution pre-pass (B-2, vesper-set-sprint-phase-5 §5.1): resolve
     /// each `interface IFace with member …` block's interface type and stamp
     /// `impl.Resolved` *before* any member body — the class's own members or a
@@ -825,6 +880,9 @@ module Unification =
                     PrelinkExtras = ignore
                     Elements = impl.Elements
                     AllowAbstractSig = false
+                    // The interface slot fixes each member's signature
+                    // (`checkInterfaceConformance` below); never generalise.
+                    Generalise = false
                 }
 
             // §5.2: now the bodies are typed, conform each member's signature to
@@ -922,8 +980,16 @@ module Unification =
                                 PrelinkExtras = prelinkExtras
                                 Elements = body.elements
                                 AllowAbstractSig = true
+                                Generalise = true
                             }
 
+                        // Pin each `override` member to its `System.Object` slot
+                        // *after* the bodies are typed (so `mInfo.Type` carries the
+                        // inferred shape) but *before* `fillInterfaceImpls` — an
+                        // interface-impl member sharing a name with an override
+                        // (`Equals`) reads the override's `MethodTypeParams` by name
+                        // in Elaborate, so the override must be non-generic first.
+                        checkObjectOverrideConformance ctx info
                         fillSecondaryCtors ctx info
                         fillInterfaceImpls ctx info
                     | false, _ -> ()
@@ -955,6 +1021,7 @@ module Unification =
                                 PrelinkExtras = ignore
                                 Elements = elems
                                 AllowAbstractSig = false
+                                Generalise = true
                             }
                     | _ -> ()
                 | _ -> ()

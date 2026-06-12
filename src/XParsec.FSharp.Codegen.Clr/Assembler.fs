@@ -122,12 +122,14 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 // `static let` read/store (`ldsfld`/`stsfld`) goes through the same
                 // `ClassMember.Field` `MemberRef` (G13) — an unregistered field fails
                 // resolution ("generic class … has no field").
+                let ctorParamFields = [ for p in cd.CtorParams -> p.Name, p.Type ]
+
                 let shape =
-                    [ for p in cd.CtorParams -> p.Name, p.Type ]
+                    ctorParamFields
                     @ [ for f in cd.Fields -> f.Name, f.Type ]
                     @ [ for sl in cd.StaticLets -> sl.Name, sl.Type ]
 
-                provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, List.length ctorParamFields, shape)
         )
 
     // A *generic* closure is a real generic `TypeDefinition` after the nominal
