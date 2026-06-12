@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngine
 open UnificationTranslate
 
-module UnificationInferLiterals =
+module internal UnificationInferLiterals =
 
     /// Pulled out of `inferConst` so the measured-literal arm can stamp this
     /// onto a TyVar's `Link` while the measure rides on `Units`.

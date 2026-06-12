@@ -41,6 +41,15 @@
     <Compile Include="Passes\Unification\InferPat.fs" />
     <Compile Include="Passes\Unification\InferOverload.fs" />
     <Compile Include="Passes\Unification\InferForwardSchemes.fs" />
+    <Compile Include="Passes\Unification\InferDispatch.fs" />
+    <Compile Include="Passes\Unification\InferLiteralExpr.fs" />
+    <Compile Include="Passes\Unification\InferRecordAccess.fs" />
+    <Compile Include="Passes\Unification\InferExternalCall.fs" />
+    <Compile Include="Passes\Unification\InferCtor.fs" />
+    <Compile Include="Passes\Unification\InferTypeOps.fs" />
+    <Compile Include="Passes\Unification\InferControlFlow.fs" />
+    <Compile Include="Passes\Unification\InferIdentExpr.fs" />
+    <Compile Include="Passes\Unification\InferApp.fs" />
     <Compile Include="Passes\Unification\Infer.fs" />
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />

@@ -10,7 +10,7 @@ open UnificationTranslate
 open UnificationInferLiterals
 open UnificationInferResolve
 
-module UnificationInferPat =
+module internal UnificationInferPat =
 
     /// The `'T list` type carrying `elemTy`, resolved exactly like a `[…]`
     /// literal (`Unification.listLiteralTy`): a program that declares its own

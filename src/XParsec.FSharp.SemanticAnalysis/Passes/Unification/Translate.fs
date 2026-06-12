@@ -7,7 +7,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngine
 
-module UnificationTranslate =
+module internal UnificationTranslate =
 
     let enterLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel + 1

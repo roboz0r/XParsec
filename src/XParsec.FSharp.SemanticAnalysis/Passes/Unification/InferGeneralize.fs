@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngine
 open UnificationTranslate
 
-module UnificationInferGeneralize =
+module internal UnificationInferGeneralize =
 
     /// Non-quantified TyVars are left alone — they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is

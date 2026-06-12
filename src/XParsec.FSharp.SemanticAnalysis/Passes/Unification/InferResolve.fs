@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngine
 open UnificationTranslate
 
-module UnificationInferResolve =
+module internal UnificationInferResolve =
 
     /// v1 only supports single-segment (`X`) and two-segment qualified
     /// (`R.X`) forms. Multi-segment qualifiers (`A.B.X`) fall through as

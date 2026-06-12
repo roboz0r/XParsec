@@ -19,7 +19,7 @@ open UnificationInferOverload
 /// function's monomorphic binding-site TyVar) for the argument-coercion upcast
 /// to fire. These helpers synthesise that scheme from the binding's annotations
 /// alone — they never call `infer`, so they live ahead of it in the pass order.
-module UnificationInferForwardSchemes =
+module internal UnificationInferForwardSchemes =
 
     /// Seed a binding's explicit `<'a>` typar defns into the current `TyparScope`
     /// as `CurrentLevel` `TypeVar`s, so later implicit `'a` mentions in the
