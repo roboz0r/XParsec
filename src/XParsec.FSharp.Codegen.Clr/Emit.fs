@@ -5,6 +5,7 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
+open EmitPattern
 open EmitExpr
 
 /// The codegen TAST walker, split across modules: `EmitLower` (External-as-value

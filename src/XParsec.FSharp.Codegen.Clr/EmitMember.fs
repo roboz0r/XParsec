@@ -1,0 +1,194 @@
+namespace XParsec.FSharp.Codegen.Clr
+
+open System.Collections.Generic
+open System.Reflection.Metadata
+open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.SemanticAnalysis
+open EmitTypes
+open EmitLower
+open EmitResolve
+open EmitPattern
+open EmitDispatch
+
+/// Field / property / method access — instance and static, project-local and
+/// external. The struct-receiver address helper lives here because only the
+/// instance property/method arms need it.
+module EmitMember =
+
+    /// Load a value-type receiver as a managed pointer (`this` byref) for an
+    /// address-based member call. A method
+    /// / property call on an *unboxed* struct needs the receiver **address**, not
+    /// its value: a `let`/slot-bound local is addressed in place (`ldloca slot`)
+    /// so a mutating member persists; any other receiver expression (an arg, a
+    /// capture, a nested call) is spilled to a fresh temp and addressed there.
+    /// Leaves the address on the stack; the caller pushes args then `constrained.
+    /// <recvTy>` immediately before the `callvirt`.
+    let private loadStructReceiverAddr
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (receiver: Frozen.TExpr)
+        (receiverTy: FrozenType)
+        : unit =
+        match receiver with
+        | TExprG.Var(binding, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
+        | _ ->
+            recur env b receiver
+            let tmp = b.Local receiverTy
+            b.Add(ILInstr.Stloc tmp)
+            b.Add(ILInstr.Ldloca tmp)
+
+    /// Emit an instance member access: load the receiver, push any arguments, then
+    /// invoke `handle`. The receiver/dispatch shape is shared by `buildPropertyGet`
+    /// (no arguments) and `buildMethodCall`:
+    /// - `CallVia.Self` on an *unboxed struct* (`FTClass` + `isValueType`) — address
+    ///   the receiver (`ldloca`, so a mutating member persists) and `call` it.
+    /// - `CallVia.Self` on a *class* — `callvirt` (the safe default per
+    ///   vesper-set-sprint-plan §1.7; a non-`override` would accept `call` too).
+    /// - anything else — a non-virtual `call`: `base.M`/`base.X` (`CallVia.Base`,
+    ///   `receiverTy` already the parent type) so an `override` body doesn't recurse,
+    ///   and sealed union/record receivers (not `FTClass`) where no virtual dispatch
+    ///   is needed.
+    let private emitInstanceMember
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (via: CallVia)
+        (receiver: Frozen.TExpr)
+        (receiverTy: FrozenType)
+        (handle: EntityHandle)
+        (args: EqArray<Frozen.TExpr>)
+        : unit =
+        let isStructSelf =
+            match via, receiverTy with
+            | CallVia.Self, FTClass _ -> isValueType env receiverTy
+            | _ -> false
+
+        if isStructSelf then
+            loadStructReceiverAddr recur env b receiver receiverTy
+        else
+            recur env b receiver
+
+        for a in args do
+            recur env b a
+
+        let operands = 1 + args.Length
+
+        match via, receiverTy with
+        | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, 1))
+        | _ -> b.Add(ILInstr.Call(handle, operands, 1))
+
+    let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.FieldGet(receiver, name, _) ->
+            // `r.X` — load the receiver and `ldfld` the field. The field handle is
+            // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
+            // `TypeSpec` for a generic one (`resolveRecordField`). A
+            // referenced-assembly record (F2) routes through the provider.
+            let handle = resolveRecordField env (typeOfExpr receiver) name
+            recur env b receiver
+            b.Add(ILInstr.Ldfld handle)
+        | _ -> failwith "EmitMember.buildFieldGet: unreachable"
+
+    let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.Assignment(TExprG.Var(binding, _), value, _) ->
+            // `x <- v` on a non-promoted `mutable` local — store into its slot.
+            // (A `HeapShared` mutable local was already rewritten by
+            // `RefCellPromotion` into a `contents` FieldSet, so any `Assignment`
+            // surviving to codegen targets a plain stack local.) Unit-typed, so
+            // reify `unit` for the consumer — same convention as `FieldSet`.
+            match env.Slots.TryGetValue binding with
+            | true, slot ->
+                recur env b value
+                b.Add(ILInstr.Stloc slot)
+                EmitTypes.buildUnitValue env b
+            | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
+        | _ -> failwith "EmitMember.buildAssignment: unreachable"
+
+    let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.FieldSet(receiver, name, value, _) ->
+            // `r.X <- v` on a `mutable` field. Validation has rejected the
+            // immutable case before we reach here. `stfld` consumes both pushes
+            // and leaves nothing on the stack, but a `FieldSet` is *unit-typed*
+            // — every consumer (`Sequential` middle items, the body of a
+            // unit-returning closure / static method) expects a unit value to be
+            // present. Reify the `unit` value to keep the IL verifier happy when
+            // the body is just a FieldSet (`fun () -> n <- n + 1`, F3 §1).
+            let handle = resolveRecordField env (typeOfExpr receiver) name
+            recur env b receiver
+            recur env b value
+            b.Add(ILInstr.Stfld handle)
+            EmitTypes.buildUnitValue env b
+        | _ -> failwith "EmitMember.buildFieldSet: unreachable"
+
+    let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.PropertyGet(receiver, key, via, _) ->
+            // Instance property read — a 0-argument instance member access; the
+            // receiver/dispatch shape is shared with `buildMethodCall`.
+            let receiverTy = typeOfExpr receiver
+            let handle = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty
+        | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
+
+    let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.MethodCall(receiver, key, via, args, _) ->
+            // Instance method call — the same receiver/dispatch shape as
+            // `buildPropertyGet`, with the call's arguments pushed between the
+            // receiver and the `call`/`callvirt`.
+            let receiverTy = typeOfExpr receiver
+            let handle = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            emitInstanceMember recur env b via receiver receiverTy handle args
+        | _ -> failwith "EmitMember.buildMethodCall: unreachable"
+
+    let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.StaticPropertyGet(key, _) ->
+            let handle = resolveStaticMember env key
+            b.Add(ILInstr.Call(handle, 0, 1))
+        | _ -> failwith "EmitMember.buildStaticPropertyGet: unreachable"
+
+    let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.StaticFieldGet(declKey, name, _) ->
+            let handle = resolveStaticField env declKey name
+            b.Add(ILInstr.Ldsfld handle)
+        | _ -> failwith "EmitMember.buildStaticFieldGet: unreachable"
+
+    let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.StaticMethodCall(key, args, _) ->
+            let handle = resolveStaticMember env key
+
+            for a in args do
+                recur env b a
+
+            b.Add(ILInstr.Call(handle, args.Length, 1))
+        | _ -> failwith "EmitMember.buildStaticMethodCall: unreachable"
+
+    let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.ExternalMember(receiver, key, _, true, ty) ->
+            // A standalone external *property* get (P4): a static one (`call
+            // get_<name>()`) or an instance one reached as the receiver of an outer
+            // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
+            // minted from the node's `SymbolKey`; an instance access on an external
+            // union/record receiver goes through `ExternalMemberRefOn` (the parent +
+            // arity come off the receiver type, not the bare contract name).
+            match receiver with
+            | ValueNone ->
+                let handle = env.Provider.ExternalMemberRef(key, true, true, ty)
+                b.Add(ILInstr.Call(handle, 0, 1))
+            | ValueSome r ->
+                let handle = externalInstanceMemberRef env key (typeOfExpr r) true (ty)
+                recur env b r
+                b.Add(ILInstr.Callvirt(handle, 1, 1))
+        | TExprG.ExternalMember(_, _, _, false, _) ->
+            // An external method used as a first-class value (a method group, not
+            // applied) needs closure synthesis — out of scope. Applied methods are
+            // handled as an `App` head above.
+            failwith "Emit: external method used as a first-class value is out of scope"
+        | _ -> failwith "EmitMember.buildExternalMember: unreachable"

@@ -24,6 +24,15 @@
     <Compile Include="EmitClosures.fs" />
     <Compile Include="EmitResolve.fs" />
     <Compile Include="EmitFormat.fs" />
+    <Compile Include="EmitDispatch.fs" />
+    <Compile Include="EmitPattern.fs" />
+    <Compile Include="EmitBindings.fs" />
+    <Compile Include="EmitLoops.fs" />
+    <Compile Include="EmitMatch.fs" />
+    <Compile Include="EmitConstruct.fs" />
+    <Compile Include="EmitMember.fs" />
+    <Compile Include="EmitCall.fs" />
+    <Compile Include="EmitIntrinsic.fs" />
     <Compile Include="EmitExpr.fs" />
     <Compile Include="Emit.fs" />
     <Compile Include="HolderPlan.fs" />
