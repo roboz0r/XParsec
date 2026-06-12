@@ -8,6 +8,7 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 open EmitPattern
+open EmitCoerce
 open EmitDispatch
 
 /// Object / value construction: `new`, record literals + `{ r with … }`, union
@@ -19,9 +20,6 @@ module EmitConstruct =
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.New(className, args, ty) ->
-            for a in args do
-                recur env b a
-
             let tyArgs =
                 match ty with
                 | FTClass(_, xs) -> EqArray.toList xs
@@ -43,64 +41,97 @@ module EmitConstruct =
                     | _ -> ValueNone
                 | _ -> ValueNone
 
-            match localClass with
-            | ValueSome(classKey, c) ->
-                // A user class emitted into this assembly (vesper-set-sprint-plan
-                // Phase 1 / B-1). The primary ctor's arity equals its field count;
-                // a different arg count selects a secondary ctor (B-11) by arity —
-                // F# forbids two ctors of the same signature, so arity is a key.
-                let argCount = args.Length
+            let argCount = args.Length
 
-                if argCount = 0 && c.IsValueType then
-                    // Parameterless value-type construction (`Counter()`) — the
-                    // idiomatic CLR lowering is `initobj` on a zeroed scratch local,
-                    // not `newobj` against the synthesised parameterless `.ctor`.
-                    // A struct's parameterless ctor only
-                    // zero-inits anyway, so this is equivalent and avoids relying on
-                    // the JIT tolerating an explicit value-type `.ctor()` call.
-                    let slot = b.Local ty
-                    b.Add(ILInstr.Ldloca slot)
-                    b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
-                    b.Add(ILInstr.Ldloc slot)
-                elif argCount = List.length c.Fields then
-                    // Primary. Monomorphic: the ctor's `Def` token directly.
-                    // Generic: a `MemberRef` on the receiver's instantiated
-                    // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
-                    let ctorRef =
-                        memberRef env c.Typars classKey tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
+            // Parameterless value-type construction (`Counter()`) is the one shape
+            // that pushes no arguments and emits no `newobj`: the idiomatic CLR
+            // lowering is `initobj` on a zeroed scratch local, not a `newobj`
+            // against the synthesised parameterless `.ctor` (a struct's
+            // parameterless ctor only zero-inits anyway, and this avoids relying on
+            // the JIT tolerating an explicit value-type `.ctor()` call). Handled
+            // first so every other path shares the single push-then-construct seam.
+            let isInitObj =
+                match localClass with
+                | ValueSome(_, c) -> argCount = 0 && c.IsValueType
+                | ValueNone -> false
 
-                    b.Add(ILInstr.Newobj(ctorRef, argCount))
-                else
-                    match c.SecondaryCtors |> List.tryFind (fun (a, _, _) -> a = argCount) with
-                    | Some(_, _, h) when List.isEmpty c.Typars -> b.Add(ILInstr.Newobj(h, argCount))
-                    | Some(_, paramTys, h) ->
-                        // Generic secondary-ctor call site: a `MemberRef` on the
-                        // instantiated `TypeSpec` (`OnceEnum<int>::.ctor`), keyed by
-                        // the ctor's declared param signature — the bodies already
-                        // emit; this is the missing construction-side ref.
-                        let ctorRef =
-                            memberRef
-                                env
-                                c.Typars
-                                classKey
-                                tyArgs
-                                (UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys))
-                                h
+            if isInitObj then
+                let slot = b.Local ty
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
+                b.Add(ILInstr.Ldloc slot)
+            else
+                // Resolve the construction to its argument-boxing model
+                // (`isObjSlot`) and the instruction that consumes the pushed args,
+                // THEN push exactly once. Keeping the push at this single seam — not
+                // inside each ctor arm — means no arm can forget it (a missing push
+                // would underflow the IL stack).
+                let isObjSlot, emitNewobj =
+                    match localClass with
+                    | ValueSome(classKey, c) ->
+                        // A user class emitted into this assembly
+                        // (vesper-set-sprint-plan Phase 1 / B-1). The primary ctor's
+                        // arity equals its field count; a different arg count selects
+                        // a secondary ctor (B-11) by arity — F# forbids two ctors of
+                        // the same signature, so arity is a key.
+                        if argCount = List.length c.Fields then
+                            // Primary. Monomorphic: the ctor's `Def` token directly.
+                            // Generic: a `MemberRef` on the receiver's instantiated
+                            // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
+                            let paramTys = [ for (_, _, t) in c.Fields -> t ]
 
-                        b.Add(ILInstr.Newobj(ctorRef, argCount))
-                    | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
-            | ValueNone ->
-                // The external ctor is identified by the construction's result-type
-                // key (`ty = FTClass(key, _)` — also the `PrintfFormat` printf-literal
-                // case); `className` survives only for the error message. A `New`
-                // whose `ty` isn't a `TyClass` is a defensive CST error path the
-                // project-local arm already missed — it has no resolvable ctor.
-                match ty with
-                | FTClass(ctorKey, _) ->
-                    match env.Provider.TryEmitCtor(ctorKey, tyArgs, argTypes) with
-                    | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
-                    | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
-                | _ -> failwithf "Emit: no constructor recipe for '%s'" className
+                            let ctorRef =
+                                memberRef
+                                    env
+                                    c.Typars
+                                    classKey
+                                    tyArgs
+                                    (UserMemberKind.ClassMember ClassMember.Ctor)
+                                    c.Ctor
+
+                            objSlotsOf paramTys, (fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount)))
+                        else
+                            match c.SecondaryCtors |> List.tryFind (fun (a, _, _) -> a = argCount) with
+                            | Some(_, paramTys, h) when List.isEmpty c.Typars ->
+                                objSlotsOf paramTys, (fun () -> b.Add(ILInstr.Newobj(h, argCount)))
+                            | Some(_, paramTys, h) ->
+                                // Generic secondary-ctor call site: a `MemberRef` on
+                                // the instantiated `TypeSpec` (`OnceEnum<int>::.ctor`),
+                                // keyed by the ctor's declared param signature — the
+                                // bodies already emit; this is the missing
+                                // construction-side ref.
+                                let ctorRef =
+                                    memberRef
+                                        env
+                                        c.Typars
+                                        classKey
+                                        tyArgs
+                                        (UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys))
+                                        h
+
+                                objSlotsOf paramTys, (fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount)))
+                            | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
+                    | ValueNone ->
+                        // The external ctor is identified by the construction's
+                        // result-type key (`ty = FTClass(key, _)` — also the
+                        // `PrintfFormat` printf-literal case); `className` survives
+                        // only for the error message. A `New` whose `ty` isn't a
+                        // `TyClass` is a defensive CST error path the project-local
+                        // arm already missed — it has no resolvable ctor. External-ctor
+                        // `obj` params box in the provider's recipe (no local param
+                        // model here — `noObjSlots`), so push raw.
+                        let emit () =
+                            match ty with
+                            | FTClass(ctorKey, _) ->
+                                match env.Provider.TryEmitCtor(ctorKey, tyArgs, argTypes) with
+                                | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
+                                | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+                            | _ -> failwithf "Emit: no constructor recipe for '%s'" className
+
+                        noObjSlots, emit
+
+                emitArgsBoxed recur env b args isObjSlot
+                emitNewobj ()
         | _ -> failwith "EmitConstruct.buildNew: unreachable"
 
     let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
@@ -119,9 +150,13 @@ module EmitConstruct =
             | true, r ->
                 let srcMap = Map.ofSeq srcFields.Underlying
 
-                for (fieldName, _, _) in r.Fields do
+                // Fields push in declaration order (the ctor's parameter layout);
+                // box any whose declared type is `obj` (`boxArgIntoObjParam`).
+                for (fieldName, _, fieldTy) in r.Fields do
                     match Map.tryFind fieldName srcMap with
-                    | Some e -> recur env b e
+                    | Some e ->
+                        recur env b e
+                        boxArgIntoObjParam env b (isObjParamTy fieldTy) (typeOfExpr e)
                     | None ->
                         failwithf "Emit: record literal for '%A' is missing initialiser for field '%s'" key fieldName
 
@@ -198,6 +233,11 @@ module EmitConstruct =
             let key, tyArgs = nominalShape "UnionCons" ty
             let qualName = SymbolKeyOps.qualifiedName key
 
+            // NB: a case field typed `obj` taking a value-type arg would need a
+            // `boxArgIntoObjParam` here, but `EmittedCase.Fields` carries only the
+            // field *handles*, not their `FrozenType`s, so the obj-slot test can't
+            // run at this site — boxing an `obj` union-case field is a later slice
+            // (the call / ctor / record paths are covered).
             for a in args do
                 recur env b a
 

@@ -1775,6 +1775,41 @@ let interfaceImplCodegenTests =
                     "HashVia emits a box (0x8C) for the 'T argument flowing into the obj parameter"
             }
 
+            // thermo-nuclear review finding #1: the implicit value→`obj` upcast
+            // (the front end accepts `value`/`'T` → `obj` without grounding — Engine's
+            // `obj` rule) must be materialised as a `box` at EVERY call site, not only
+            // the external-member path. A *project-local* instance call into an `obj`
+            // parameter (`this.M(5)`) pre-fix pushed the raw `int` where `object` was
+            // expected — unverifiable IL (`InvalidProgramException` on invoke). The fix
+            // routes every call / ctor / record-cons emit site through the one shared
+            // `boxArgIntoObjParam` policy. This gate asserts both the box opcode and a
+            // successful invoke (the IL actually verifies + runs).
+            test "a project-local instance call into an obj parameter boxes a value-type arg and runs" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    member _.M(x: obj) = x"
+                            "    member this.Probe() = this.M(5)"
+                        ]
+
+                let _, artifact = compileSource "ObjParamInstanceCall" src
+                let bytes = Codegen.toBytes artifact
+                let il = peMethodIl bytes "C" "Probe"
+
+                Expect.isTrue
+                    (il |> Array.contains 0x8Cuy)
+                    "Probe boxes (0x8C) the int arg flowing into the obj parameter"
+
+                // The IL verifies and runs: `Probe()` returns the boxed `5`.
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("C", throwOnError = true)
+                let instance = System.Activator.CreateInstance ty
+                let result = ty.GetMethod("Probe").Invoke(instance, [||])
+                Expect.equal (result :?> int) 5 "Probe() returns the boxed 5"
+            }
+
             // vesper-set-phase-9-handoff "unbalanced member-body IL": a `void`-
             // returning interface-impl member whose body *terminates* (ends in
             // `raise`) — the `ICollection<'T>.Add` / `IDisposable.Dispose` shape on a

@@ -158,14 +158,10 @@ module InlineExpansion =
     /// codegen emits generic in the residual typars. A bare typar / TyVar (a truly
     /// unpinned `let f a b = a + b`) does NOT qualify and falls to `expandBuiltinOps`.
     let private isSpliceableOperatorArg (t: SemType) : bool =
-        isGroundType t
-        || (
-            match Unification.zonk t with
-            | TyClass _
-            | TyUnion _
-            | TyRecord _ -> true
-            | _ -> false
-        )
+        // `Inline.isNominalType` is the one nominal-head predicate (class / union /
+        // record) — shared with the static-opt clause gate / `TraitCall` resolution
+        // so they never disagree on what counts as a nominal operand.
+        isGroundType t || Inline.isNominalType t
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —

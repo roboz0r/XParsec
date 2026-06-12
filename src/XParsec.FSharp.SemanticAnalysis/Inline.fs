@@ -136,29 +136,24 @@ module Inline =
                   _) -> true
         | _ -> false
 
-    /// Follow union-find roots + `.Link` to the concrete head of a type (the local
-    /// equivalent of `Unification.zonk`, which compiles after this module so cannot be
-    /// referenced here). Only the head is needed by the callers below.
-    let rec private zonkHead (t: SemType) : SemType =
-        match t with
-        | TyVar tv ->
-            let root = UnionFind.find tv
+    /// The declaring `SymbolKey` of a project-local nominal (class / union /
+    /// record) — the operand shape for which F#'s reflexive `when ^T : ^T`
+    /// static-optimization condition holds (the type carries its own static
+    /// operator member). The single definition of "is a nominal operand", so the
+    /// clause-selection gate (`clauseSelected`) and the `TraitCall` resolution
+    /// (`resolveTraitCall`) can never disagree on what counts — a record selects
+    /// the clause *and* resolves, rather than selecting then failing.
+    let private nominalHeadKey (t: SemType) : SymbolKey voption =
+        match UnionFind.headZonk t with
+        | TyClass(k, _)
+        | TyUnion(k, _)
+        | TyRecord(k, _) -> ValueSome k
+        | _ -> ValueNone
 
-            match root.Link with
-            | ValueSome target -> zonkHead target
-            | ValueNone -> TyVar root
-        | _ -> t
-
-    /// A project-local nominal (class / union / record) — the operand shape for
-    /// which F#'s reflexive `when ^T : ^T` static-optimization condition holds (the
-    /// type carries its own static operator member). Drives both the `holds`
-    /// gate below and the `TraitCall` resolution.
-    let private isNominalType (t: SemType) : bool =
-        match zonkHead t with
-        | TyClass _
-        | TyUnion _
-        | TyRecord _ -> true
-        | _ -> false
+    /// `true` when `t`'s head is a project-local nominal (class / union / record).
+    /// Public so `InlineExpansion.isSpliceableOperatorArg` shares the one nominal
+    /// predicate rather than re-matching the three cases against its own zonk.
+    let isNominalType (t: SemType) : bool = (nominalHeadKey t).IsSome
 
     /// Build the typar-substituting mapper for one inline expansion. The
     /// `StaticOptimization` override is the only customisation: at call-site
@@ -197,9 +192,10 @@ module Inline =
 
         // Resolve a `TraitCall` once the trait typar has been substituted to a concrete
         // nominal: rewrite it to a `StaticMethodCall` on that type's static operator
-        // member. This fires for the `when ^T : ^T` clause body selected by `holds`
-        // above (so the receiver is always a nominal here); a non-nominal receiver is
-        // left as a substituted `TraitCall` for a later phase to surface loudly.
+        // member. This fires for the `when ^T : ^T` clause body selected by `clauseSelected`
+        // above (so the receiver is always a nominal here, via the SAME `nominalHeadKey`
+        // — class, union, OR record); a non-nominal receiver is left as a substituted
+        // `TraitCall` for a later phase to surface loudly.
         let resolveTraitCall
             (m: TastWalk.Mapper)
             (recvTy: SemType)
@@ -207,12 +203,11 @@ module Inline =
             (args: EqArray<TExpr>)
             (ty: SemType)
             : TExpr voption =
-            match zonkHead (sub recvTy) with
-            | TyClass(k, _)
-            | TyUnion(k, _) ->
+            match nominalHeadKey (sub recvTy) with
+            | ValueSome k ->
                 let memberKey = LocalSymbolKey.ofMember k memberName MemberKind.Method
                 ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty))
-            | _ -> ValueNone
+            | ValueNone -> ValueNone
 
         { TastWalk.identityMapper with
             MapType = sub

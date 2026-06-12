@@ -46,8 +46,7 @@ module internal NominalEmit =
 
         // Every member's handle is its layout row, resolvable before any body
         // is built, so a member body can reference a sibling (`this.Length`) or
-        // a case factory (`Empty = Nil`). The class's own members lead,
-        // interface-impl members trail (same indexing as the layout).
+        // a case factory (`Empty = Nil`).
         let emittedMembers = Dictionary<string, Emit.EmittedMember>()
 
         // The class's own members lead, interface-impl members trail (same

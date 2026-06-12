@@ -113,12 +113,16 @@ module EmitIntrinsic =
         | TExprG.Upcast(source, _) ->
             // `e :> T`: a reference-type source is already usable as its base —
             // the JIT erases the cast, so emit nothing. A value-type source must
-            // be boxed to reach `obj` / an interface.
+            // be boxed to reach `obj` / an interface; a *generic typar* source
+            // (`(x: 'T) :> obj`) must also `box` — a JIT no-op for a reference
+            // instantiation but mandatory IL (matching `boxArgIntoObjParam`).
             recur env b source
             let srcTy = typeOfExpr source
 
-            if isValueType env srcTy then
-                b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
+            match srcTy with
+            | FTTypar _ -> b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
+            | _ when isValueType env srcTy -> b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
+            | _ -> ()
         | _ -> failwith "EmitIntrinsic.buildUpcast: unreachable"
 
     let buildDowncast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =

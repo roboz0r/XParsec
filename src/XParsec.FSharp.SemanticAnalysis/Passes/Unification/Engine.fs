@@ -29,12 +29,14 @@ module UnificationEngine =
     /// off the returned `TyVar` (already a root).
     let rec zonk (t: SemType) : SemType =
         match t with
-        | TyVar tv ->
-            let root = UnionFind.find tv
-
-            match root.Link with
-            | ValueSome t' when root.Units.IsNone -> zonk t'
-            | _ -> TyVar root
+        // `headZonk` (UnionFind) owns the root + `.Link` chase, with the same
+        // `Units`-measure stop; `zonk` adds only the recursive argument rebuild.
+        // When the head resolves to a non-var, re-enter `zonk` so its arguments
+        // zonk too (`headZonk` leaves them untouched).
+        | TyVar _ ->
+            match UnionFind.headZonk t with
+            | TyVar _ as v -> v
+            | resolved -> zonk resolved
         | TyConst(n, args) -> TyConst(n, EqArray.map zonk args)
         | TyFun(a, r) -> TyFun(zonk a, zonk r)
         | TyTuple items -> TyTuple(EqArray.map zonk items)
@@ -659,9 +661,20 @@ module UnificationEngine =
     /// The universal supertype — every value implicitly upcasts (boxing) into it.
     let isObjType (t: SemType) : bool =
         match t with
-        | TyConst("obj", a) when a.IsEmpty -> true
+        | TyConst(n, a) when a.IsEmpty && n = RuntimeNames.objAbbrevName -> true
         | TyClass(k, a) when a.IsEmpty && RuntimeNames.isSystemObjectKey k -> true
         | _ -> false
+
+    /// THE obj-absorption policy: `true` when `expected` is the universal `obj`
+    /// supertype (after one resolve step), so an argument coercion must ACCEPT the
+    /// actual *without* unifying — the implicit boxing upcast F# inserts, which must
+    /// never ground the actual's typar (codegen materialises the box —
+    /// `EmitPattern.boxArgIntoObjParam`). The single home of the rule, applied by
+    /// `tryCoerceUpcast` (the eager argument / `:>` path) and `unifyArgCoerce` /
+    /// `unifyAppliedSig` (the in-`unify`-group deferred dot-access drain); the two
+    /// coercion walkers exist only because they sit either side of `tryCoerceUpcast`
+    /// in declaration order, not because the policy differs.
+    let absorbsAsObj (expected: SemType) : bool = isObjType (resolveStep expected)
 
     /// Bridge an external signature's `System.Object` (minted by the provider as
     /// `TyClass("System.Object", [])`, since it isn't in `IntrinsicRepr.defaults`)
@@ -673,7 +686,8 @@ module UnificationEngine =
     /// normalise the external signatures they open.
     let rec normalizeObj (t: SemType) : SemType =
         match t with
-        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> TyConst("obj", EqArray.empty)
+        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n ->
+            TyConst(RuntimeNames.objAbbrevName, EqArray.empty)
         | TyClass(n, args) -> TyClass(n, EqArray.map normalizeObj args)
         | TyFun(a, r) -> TyFun(normalizeObj a, normalizeObj r)
         | TyTuple xs -> TyTuple(EqArray.map normalizeObj xs)
@@ -786,7 +800,9 @@ module UnificationEngine =
             for i in 0 .. aa.Length - 1 do
                 unifyArgCoerce ctx key aa.[i] bb.[i]
         | a, b ->
-            if not (isObjType b) then
+            // `b` is already `resolveStep`-ed by the match; `absorbsAsObj` (the one
+            // obj-policy home) re-steps idempotently.
+            if not (absorbsAsObj b) then
                 unify ctx key a b
 
     /// Unify an *applied callable* shape against a resolved member signature,
@@ -1281,7 +1297,7 @@ module UnificationEngine =
         // enclosing type's parameter (the Vesper.Set `Set<'T>` whole-class-typar
         // grounding). The box is inserted at codegen (the call site sees the param
         // is `obj` and the arg's static type is a typar / value type).
-        if isObjType (resolveStep tgt) then
+        if absorbsAsObj tgt then
             true
         else
 

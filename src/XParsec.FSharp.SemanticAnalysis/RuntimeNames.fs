@@ -95,6 +95,23 @@ module RuntimeNames =
     let private systemObjectKey: SymbolKey =
         SymbolKey.TypeKey(Some "System.Runtime", "System", "Object")
 
+    /// The user-facing abbreviation for the object root — `obj` — declared in
+    /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
+    /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
+    /// `FTConst("obj", _)` or the rendered `"obj"` sig. The single source for the
+    /// abbreviation name, so `obj ≡ System.Object` is decided in one place rather
+    /// than re-spelled at each predicate (the `arrayName`/`prim-types-min.fs`
+    /// precedent above). Pairs with `systemObjectQualifiedName` (the intrinsic it
+    /// binds to) and `isSystemObjectKey` (the same identity by `SymbolKey`).
+    let objAbbrevName: string = "obj"
+
+    /// The intrinsic the `obj` abbreviation binds to — `System.Object`, the
+    /// `(# "System.Object" #)` of `prim-types-object.fs`. Derived from the canonical
+    /// `systemObjectKey` so the qualified string and the key identity can never
+    /// drift. Used where the param model is a *rendered* signature string rather than
+    /// a `SymbolKey` (an external member's `argSig`).
+    let systemObjectQualifiedName: string = SymbolKeyOps.qualifiedName systemObjectKey
+
     /// The canonical identity name for a rank-`rank` array, sourced from the
     /// `prim-types-min.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;
     /// rank N → `"[" + (N-1) commas + "]"`, e.g. `"[,]"` for 2-D). Arrays are a

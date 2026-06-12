@@ -57,3 +57,20 @@ module UnionFind =
 
     let inSameClass (a: TypeVar) (b: TypeVar) : bool =
         System.Object.ReferenceEquals(find a, find b)
+
+    /// Follow union-find roots + `.Link` to the concrete *head* of a type: the
+    /// shared core of the union-find walk. Resolves only the head constructor —
+    /// nested type arguments are left untouched (`Unification.zonk` layers the
+    /// recursive argument rebuild on top of this; `Inline` needs only the head).
+    /// A root carrying a `Units` measure stops the follow so the measure rides on
+    /// the returned `TyVar`, matching `zonk`. The single home of the root-following
+    /// walk, so every caller shares it rather than re-deriving the chase.
+    let rec headZonk (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let root = find tv
+
+            match root.Link with
+            | ValueSome target when root.Units.IsNone -> headZonk target
+            | _ -> TyVar root
+        | _ -> t

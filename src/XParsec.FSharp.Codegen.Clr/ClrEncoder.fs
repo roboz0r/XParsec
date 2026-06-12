@@ -101,7 +101,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // implementing it must match that encoding (see the `.Object()` recipes the
         // synthesised structural-equality triple already uses, and
         // [[reference_object_override_elementtype]]).
-        | FTConst("obj", _) -> te.Object()
+        | FTConst(n, _) when n = RuntimeNames.objAbbrevName -> te.Object()
         // `System.Object` arriving as an external CLASS — a BCL method's `object`
         // parameter read from metadata as a class `TypeRef` rather than the primitive
         // `obj` (e.g. `IEqualityComparer.GetHashCode(object)` /
@@ -112,7 +112,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // System.Object` fails signature match at JIT time (`MissingMethodException`).
         // Mirrors the `obj` arm + the `.Object()` override recipes
         // ([[reference_object_override_elementtype]]).
-        | FTClass(key, _) when SymbolKeyOps.qualifiedName key = "System.Object" -> te.Object()
+        | FTClass(key, _) when RuntimeNames.isSystemObjectKey key -> te.Object()
         | FTConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
         | FTConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
         | FTConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)

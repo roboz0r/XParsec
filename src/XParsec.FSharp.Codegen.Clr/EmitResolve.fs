@@ -45,7 +45,10 @@ module EmitResolve =
     /// B-1). A monomorphic union/class uses the member's `Def` token directly;
     /// a *generic* one goes through a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
-    let resolveInstanceMember (env: EmitEnv) (receiverTy: FrozenType) (name: string) : EntityHandle =
+    /// Returns the call handle paired with the member's declared parameter types
+    /// (in declaring-typar terms — the box-into-`obj` decision is instantiation-
+    /// independent, so the raw declared types suffice for `boxArgIntoObjParam`).
+    let resolveInstanceMember (env: EmitEnv) (receiverTy: FrozenType) (name: string) : EntityHandle * FrozenType list =
         // This resolver only serves project-local receivers (external instance
         // members route through `externalInstanceMemberRef`), so the table key is
         // the receiver's nominal `SymbolKey` directly (Phase 6D).
@@ -61,7 +64,8 @@ module EmitResolve =
                     key
                     tyArgs
                     (UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)))
-                    m.Handle
+                    m.Handle,
+                m.ParamTys
             | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
         | false, _ ->
             match env.Classes.TryGetValue key with
@@ -74,7 +78,8 @@ module EmitResolve =
                         key
                         tyArgs
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)))
-                        m.Handle
+                        m.Handle,
+                    m.ParamTys
                 | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
 
@@ -129,7 +134,14 @@ module EmitResolve =
     /// fails here loudly rather than minting a malformed `Def` call. Classes
     /// route through the same `Member` arm as instances; a generic class's
     /// static member uses the class `MemberRef` instead of the union one.
-    let resolveStaticMember (env: EmitEnv) (memberKey: SymbolKey) (resultTy: FrozenType) : EntityHandle =
+    /// Returns the call handle paired with the member's declared parameter types
+    /// (for the `boxArgIntoObjParam` decision at the call site — see
+    /// `resolveInstanceMember`).
+    let resolveStaticMember
+        (env: EmitEnv)
+        (memberKey: SymbolKey)
+        (resultTy: FrozenType)
+        : EntityHandle * FrozenType list =
         // The call site carries the resolved local `SymbolKey.MemberKey`: the
         // declaring type is `decl`, the
         // member name is `memberName` — the emitted tables are keyed by `SymbolKey`
@@ -165,7 +177,7 @@ module EmitResolve =
             match u.Members.TryGetValue name with
             | true, m ->
                 if List.isEmpty u.Typars then
-                    m.Handle
+                    m.Handle, m.ParamTys
                 else
                     failwithf "Emit: generic-union static augmentation member '%A.%s' is out of scope (R2)" key name
             | false, _ -> failwithf "Emit: union '%A' has no emitted static member '%s'" key name
@@ -180,7 +192,8 @@ module EmitResolve =
                         key
                         (instantiationFor c.Typars)
                         (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy)))
-                        m.Handle
+                        m.Handle,
+                    m.ParamTys
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key
 

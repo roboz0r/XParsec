@@ -498,6 +498,17 @@ module Elaborate =
             }
         )
 
+    /// `override`/`default` ⇒ the member overrides a base virtual slot (Object's
+    /// `Equals`/`GetHashCode`/`ToString` for an `inherit`-less class); `member`/
+    /// `abstract` do not. Drives virtual emission + the skip-generalise / Object-slot
+    /// conformance passes via `TTypeMember.IsOverride`.
+    let private isOverrideKeyword (kw: MemberKeyword<SyntaxToken>) : bool =
+        match kw with
+        | MemberKeyword.Override _
+        | MemberKeyword.Default _ -> true
+        | MemberKeyword.Member _
+        | MemberKeyword.Abstract _ -> false
+
     /// Translate one union augmentation member element into a `TTypeMember`.
     /// Instance members reference `this` via `info.ThisKey`.
     let private translateUnionMember
@@ -508,13 +519,7 @@ module Elaborate =
         match el with
         | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
             let isStatic = s.IsSome
-
-            let isOverride =
-                match kw with
-                | MemberKeyword.Override _
-                | MemberKeyword.Default _ -> true
-                | MemberKeyword.Member _
-                | MemberKeyword.Abstract _ -> false
+            let isOverride = isOverrideKeyword kw
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
@@ -638,17 +643,7 @@ module Elaborate =
         match el with
         | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
             let isStatic = s.IsSome
-
-            // `override`/`default` ⇒ overrides a base virtual slot (Object's
-            // `Equals`/`GetHashCode`/`ToString` for an `inherit`-less class), so
-            // codegen must emit it virtual reusing the slot (mirrors registration's
-            // `isOverride`).
-            let isOverride =
-                match kw with
-                | MemberKeyword.Override _
-                | MemberKeyword.Default _ -> true
-                | MemberKeyword.Member _
-                | MemberKeyword.Abstract _ -> false
+            let isOverride = isOverrideKeyword kw
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
                 let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Key

@@ -8,6 +8,7 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 open EmitPattern
+open EmitCoerce
 open EmitDispatch
 
 /// Application (`f a b …`) lowering and the curried-invoke fold. The head
@@ -138,8 +139,10 @@ module EmitCall =
             let sm = env.StaticMethods.[k]
             let leading, rest = List.splitAt sm.Arity spineArgs
 
-            for (a, _) in leading do
-                recur env b a
+            // Box each argument flowing into an `obj` parameter (the implicit
+            // value→obj upcast) — a top-level `let f (x: obj)` emitted as a static
+            // method.
+            emitArgsBoxed recur env b (leading |> List.map fst |> EqArray.ofList) (objSlotsOf sm.ParamTys)
 
             let callHandle =
                 if sm.Typars = 0 then
@@ -188,29 +191,6 @@ module EmitCall =
 
             let argCount = argSig.Length
 
-            // Push one argument, boxing it when it flows into an `obj` parameter and
-            // its static type is a value type or a generic typar. The front end now
-            // models `x : 'T` → `obj` as an implicit upcast (it no longer grounds the
-            // typar — see `Engine.unifyAppliedSig`), so the box that upcast implies
-            // must be materialised here: `box <T>` (a value type) / `box !i` (a typar,
-            // a JIT no-op for a reference instantiation). A reference-typed argument
-            // needs no box (it is already usable as `obj`). The parameter shape is
-            // read off the key's `argSig` (its lossy render — an `obj` parameter is
-            // `System.Object`, the open-typar render `openTyparSig` produces).
-            let pushArg (argExpr: Frozen.TExpr) (paramSig: string) =
-                recur env b argExpr
-
-                if paramSig = "System.Object" || paramSig = "obj" then
-                    let argTy = typeOfExpr argExpr
-
-                    let needsBox =
-                        match argTy with
-                        | FTTypar _ -> true
-                        | _ -> isValueType env argTy
-
-                    if needsBox then
-                        b.Add(ILInstr.Box(env.Provider.TypeToken argTy))
-
             // The method consumes one spine element (its argument list); any
             // remainder is further application of the result (rare).
             let argList, rest =
@@ -227,11 +207,15 @@ module EmitCall =
                 | ValueNone -> 0 // no argument supplied (a 0-param method)
                 | ValueSome(argExpr, _) ->
                     if argCount >= 2 then
+                        // An external member carries its parameter model as the
+                        // key's *rendered* `argSig` (an `obj` parameter renders to
+                        // `System.Object` or the user-facing `obj`), so the obj-slot
+                        // test is a sig-string compare (`objSlotsOfSig`) rather than
+                        // the project-local paths' typed `objSlotsOf` — both feed the
+                        // one shared box-materialisation policy.
                         match argExpr with
                         | TExprG.Tuple(elems, _) when elems.Length = argCount ->
-                            for i in 0 .. elems.Length - 1 do
-                                pushArg elems.[i] argSig.[i]
-
+                            emitArgsBoxed recur env b elems (objSlotsOfSig argSig)
                             argCount
                         | _ ->
                             failwithf
@@ -240,7 +224,8 @@ module EmitCall =
                                 argCount
                                 argCount
                     elif argCount = 1 then
-                        pushArg argExpr argSig.[0]
+                        recur env b argExpr
+                        boxArgIntoObjParam env b (isObjParamSig argSig.[0]) (typeOfExpr argExpr)
                         1
                     else
                         // argCount = 0: a `unit → ret` method; the lone arg is
