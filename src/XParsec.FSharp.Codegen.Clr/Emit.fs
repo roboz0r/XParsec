@@ -60,7 +60,17 @@ module Emit =
                 env.Slots.[binding] <- slot
                 buildExpr env b value
                 b.Add(ILInstr.Stloc slot)
-            | TDeclG.Let _ -> ()
+            // A destructuring top-level `let (a, b) = tupleExpr`: evaluate the value
+            // once into a Main local, then `bindPattern` (irrefutable) pulls each leaf
+            // into its own slot — the same destructuring `EmitBindings.buildLet` does
+            // for an in-expression `let`. Without this arm the binding was silently
+            // dropped by the catch-all below, so a later use of `a` / `b` hit
+            // "Emit: no binding for variable".
+            | TDeclG.Let(pat, value, _, _) ->
+                let slot = b.Local(EmitLower.typeOfExpr value)
+                buildExpr env b value
+                b.Add(ILInstr.Stloc slot)
+                bindPattern env b slot pat
             | TDeclG.Type _ -> ()
 
         b.Add(ILInstr.LdcI4 0)

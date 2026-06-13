@@ -591,9 +591,16 @@ module VesperLibTypeTranslate =
             match translateType ctx lexed input opens typars constraints baseTy with
             | Error e -> Error e
             | Ok fb ->
-                match resolveTypeName ctx opens name 1 with
-                | Error _ -> Ok(FTUnknown name)
-                | Ok compiled -> Ok(mkNominal ctx compiled (EqArray.singleton fb))
+                // `'T array` is the rank-1 array intrinsic — the postfix-keyword
+                // spelling of `'T[]` (`Type.ArrayType`). It resolves to no
+                // registered type shape, so route it to the same `arrayName`
+                // intrinsic the bracket form bakes rather than `FTUnknown "array"`.
+                if name = "array" then
+                    Ok(FTConst(RuntimeNames.arrayName 1, EqArray.singleton fb))
+                else
+                    match resolveTypeName ctx opens name 1 with
+                    | Error _ -> Ok(FTUnknown name)
+                    | Ok compiled -> Ok(mkNominal ctx compiled (EqArray.singleton fb))
 
         | Type.ArrayType(baseTy, _, commas, _) ->
             // rank = commas + 1; key by `array<rank>` so unification stays simple.

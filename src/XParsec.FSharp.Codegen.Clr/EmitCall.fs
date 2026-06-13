@@ -72,6 +72,59 @@ module EmitCall =
         : unit =
         foldInvokeWith recur env.Provider.TryEmitFSharpFuncInvoke "FSharpFunc" env b funcTy0 args
 
+    /// An `[| … |]` array literal reaches codegen as `ArrayModule.OfList <chain>`
+    /// where `<chain>` is the literal `Cons(e0, … Cons(e_{n-1}, Nil))` FreezeExpr
+    /// built (`RuntimeNames.arrayOfListName`). On the BCL-only path FSharp.Core's
+    /// `ArrayModule.OfList` is absent, so emit the array inline: `newarr`, then
+    /// `dup; ldc i; <elem>; stelem` per element, leaving the array on the stack.
+    /// Returns `false` (emitting nothing) unless the head is this exact literal
+    /// shape — a rank-1 array result over a literal cons-chain — so any other
+    /// `Array.ofList` use falls through to the recipe path (its FSharp.Core
+    /// binding) untouched.
+    let private tryEmitArrayLiteral
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (arrTy: FrozenType)
+        (spineArgs: (Frozen.TExpr * FrozenType) list)
+        : bool =
+        let elemOf =
+            match arrTy with
+            | FTConst(n, args) when n = RuntimeNames.arrayName 1 ->
+                match EqArray.toList args with
+                | [ elem ] -> ValueSome elem
+                | _ -> ValueNone
+            | _ -> ValueNone
+
+        let rec collect (acc: Frozen.TExpr list) (e: Frozen.TExpr) : Frozen.TExpr list option =
+            match e with
+            | TExprG.UnionCons(_, args, _) ->
+                match EqArray.toList args with
+                | [ x; rest ] -> collect (x :: acc) rest
+                | [] -> Some(List.rev acc)
+                | _ -> None
+            | _ -> None
+
+        match elemOf, spineArgs with
+        | ValueSome elem, [ (chain, _) ] ->
+            match collect [] chain with
+            | Some elems ->
+                let elemTok = env.Provider.TypeToken elem
+                b.Add(ILInstr.LdcI4 elems.Length)
+                b.Add(ILInstr.Newarr elemTok)
+
+                elems
+                |> List.iteri (fun i el ->
+                    b.Add ILInstr.Dup
+                    b.Add(ILInstr.LdcI4 i)
+                    recur env b el
+                    b.Add(ILInstr.Stelem elemTok)
+                )
+
+                true
+            | None -> false
+        | _ -> false
+
     /// Lower a `TExprG.App` chain. Split out of `buildExpr` so the upcoming
     /// class-spine work (B-1 `New(className, args)`, B-9 `Raise`, B-4
     /// `:>`/`:?`/`:?>`) can grow App-head shapes near here instead of inside a
@@ -95,6 +148,16 @@ module EmitCall =
         let head, spineArgs = TastWalk.collectSpine [] e
 
         match head with
+        | TExprG.External(name, _, _) when
+            name = RuntimeNames.arrayOfListName
+            && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
+            ->
+            // Handled in the guard: an `[| … |]` literal lowered to
+            // `ArrayModule.OfList <cons-chain>` (FreezeExpr) emitted directly as
+            // newarr + stelem, so the BCL-only path needs no FSharp.Core. The guard
+            // only commits when the spine arg is the literal cons-chain FreezeExpr
+            // builds; any other shape falls through to the recipe path below.
+            ()
         | TExprG.External(name, key, _) ->
             // The recipe reads its generic instantiation from the head's
             // full curried type (`fnTy`). `key` is the resolved

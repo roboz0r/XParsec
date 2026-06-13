@@ -124,6 +124,14 @@ module RuntimeNames =
         else
             "[" + System.String(',', rank - 1) + "]"
 
+    /// The external head an `[| … |]` array literal lowers to (`FreezeExpr`):
+    /// `ArrayModule.OfList` applied to the literal cons-chain. The FSharp.Core
+    /// path resolves it as a real module call; the BCL-only path recognises this
+    /// exact head in codegen and emits the array directly (newarr + stelem) so an
+    /// array literal needs no FSharp.Core. Single source so the producer
+    /// (`FreezeExpr`) and the recogniser (`EmitCall`) can't drift.
+    let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
+
     // --- Well-known-singleton recognition by key (Phase 5.4) ---
     //
     // Recognition is asm-blind structural field comparison against the canonical

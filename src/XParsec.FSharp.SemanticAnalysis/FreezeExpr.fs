@@ -1005,8 +1005,9 @@ module internal FreezeExpr =
         if isArray then
             let arrayTy = TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy)
             // Codegen resolves `Array.ofList` against its target; alternate
-            // targets are free to swap the wrapper.
-            let opName = "Microsoft.FSharp.Collections.ArrayModule.OfList"
+            // targets are free to swap the wrapper. The BCL-only path recognises
+            // this exact head and emits the array directly (no FSharp.Core).
+            let opName = RuntimeNames.arrayOfListName
             let opTy = TyFun(listTy, arrayTy)
             TExpr.App(TExpr.External(opName, ValueNone, opTy), listExpr, arrayTy)
         else

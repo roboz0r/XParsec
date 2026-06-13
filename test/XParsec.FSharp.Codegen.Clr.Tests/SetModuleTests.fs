@@ -64,6 +64,18 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //      now emits `call Set\`1::op_Addition` and the union/intersect round-trip reads back
 //      correctly. See the `test "… union/intersect (static-operator wall)"` row.
 //
+//   6. ✅ FIXED — the `'T array` contract gap (`Set.ofArray` / `Set.toArray`). The
+//      `.fsi` `'T array` parsed as a `Type.SuffixedType` (`array` as a postfix type
+//      name) that `resolveTypeName` failed → `FTUnknown "array"` →
+//      "Type 'array' could not be resolved during contract extraction".
+//      `VesperLibTypeTranslate.translateType` now routes the `array` suffix to the
+//      rank-1 array intrinsic (`RuntimeNames.arrayName`), matching the `'T[]`
+//      (`ArrayType`) form. The `[| … |]` literal then needed a BCL-only emission:
+//      it lowers (`FreezeExpr`) to `ArrayModule.OfList <cons-chain>` — FSharp.Core's,
+//      absent here — so `EmitCall.tryEmitArrayLiteral` recognises that exact head
+//      (`RuntimeNames.arrayOfListName`) and emits `newarr` + `dup`/`stelem` directly.
+//      See the `ofArray deduplicates` / `toArray round-trips` rows.
+//
 // `runsSet` routes a driver through `packageAlc` (where `Vesper.Set` + its eight
 // transitive deps resolve); HOF arguments are written *curried* per the Freeze
 // posture.
@@ -166,4 +178,267 @@ let tests =
                 Expect.isTrue eq12 "structurally equal sets compare equal (Equals(obj, obj) ran)"
                 Expect.isFalse eq13 "structurally different sets compare unequal"
             }
+
+            // ---- Phase-9-exit operation table -------------------------------
+            // The golden round-trip table over the `Set` module's `.fsi` surface
+            // (vesper-set-phase-9-handoff §"Remaining to ship (G8)"). Each row
+            // drives one or more `Set.*` operations through `runsSet` and pins the
+            // observed stdout. Sets are built via `Set.add` chains / `Set.ofArray`
+            // (the proven construction paths) and rendered to deterministic
+            // `int`/`bool` output through `count`/`contains`/`minElement`/etc. —
+            // never `%A`/`string`, so a row asserts the *operation*, not the
+            // printer. A `ptest` row is one whose operation is not yet supported,
+            // with the blocking diagnostic quoted in its comment (the
+            // `PackageBuildTriage` convention); flip → `test` when it lands.
+            //
+            // `s` = {1; 2; 3}, `t` = {2; 3; 4} throughout (built fresh per driver).
+            let s123 = "let s = Set.add 1 (Set.add 2 (Set.add 3 Set.empty))\n"
+            let t234 = "let t = Set.add 2 (Set.add 3 (Set.add 4 Set.empty))\n"
+
+            testList
+                "construction & cardinality"
+                [
+                    test "singleton" {
+                        runsSetLines
+                            [ "1"; "true" ]
+                            (prelude
+                             + "let s = Set.singleton 7\n"
+                             + "printfn \"%d\" (Set.count s)\n"
+                             + "printfn \"%b\" (Set.contains 7 s)")
+                    }
+
+                    test "add is idempotent (duplicate is absorbed)" {
+                        runsSet
+                            "2"
+                            (prelude
+                             + "let s = Set.add 1 (Set.add 1 (Set.add 2 Set.empty))\n"
+                             + "printfn \"%d\" (Set.count s)")
+                    }
+
+                    test "remove" {
+                        runsSetLines
+                            [ "2"; "false" ]
+                            (prelude
+                             + s123
+                             + "let r = Set.remove 2 s\n"
+                             + "printfn \"%d\" (Set.count r)\n"
+                             + "printfn \"%b\" (Set.contains 2 r)")
+                    }
+
+                    test "isEmpty" {
+                        // `e` is built empty from a pinned element (`add 1` then
+                        // `remove 1`) rather than a bare `Set.empty` — an unannotated
+                        // `Set.isEmpty Set.empty` leaves the element typar unresolved
+                        // (the value-restriction shape F# itself rejects), which is a
+                        // test-authoring concern, not a Set gap.
+                        runsSetLines
+                            [ "true"; "false" ]
+                            (prelude
+                             + s123
+                             + "let e = Set.remove 1 (Set.add 1 Set.empty)\n"
+                             + "printfn \"%b\" (Set.isEmpty e)\n"
+                             + "printfn \"%b\" (Set.isEmpty s)")
+                    }
+
+                    // The `'T array` contract gap (gap #6) is CLOSED. `Set.ofArray`'s
+                    // `'T array` parameter parsed as a `Type.SuffixedType` (`array` as a
+                    // postfix type name) that resolved to no shape → `FTUnknown "array"`;
+                    // `VesperLibTypeTranslate.translateType` now routes the `array` suffix to
+                    // the rank-1 array intrinsic (`RuntimeNames.arrayName`), the same repr the
+                    // `'T[]` (`ArrayType`) form bakes. The `[| … |]` literal then needed a
+                    // BCL-only emission: it lowers to `ArrayModule.OfList <cons-chain>`, which
+                    // FSharp.Core owns — `EmitCall.tryEmitArrayLiteral` now recognises that
+                    // exact head and emits `newarr` + `dup`/`stelem` directly.
+                    test "ofArray deduplicates" {
+                        runsSet
+                            "3"
+                            (prelude
+                             + "let s = Set.ofArray [| 3; 1; 2; 2; 1 |]\n"
+                             + "printfn \"%d\" (Set.count s)")
+                    }
+                ]
+
+            testList
+                "ordering & set algebra"
+                [
+                    test "minElement / maxElement" {
+                        runsSetLines
+                            [ "1"; "3" ]
+                            (prelude
+                             + s123
+                             + "printfn \"%d\" (Set.minElement s)\n"
+                             + "printfn \"%d\" (Set.maxElement s)")
+                    }
+
+                    test "difference" {
+                        runsSetLines
+                            [ "1"; "1" ]
+                            (prelude
+                             + s123
+                             + t234
+                             + "let d = Set.difference s t\n"
+                             + "printfn \"%d\" (Set.count d)\n"
+                             + "printfn \"%d\" (Set.minElement d)")
+                    }
+
+                    test "union (function form)" {
+                        runsSet "4" (prelude + s123 + t234 + "printfn \"%d\" (Set.count (Set.union s t))")
+                    }
+
+                    test "intersect (function form)" {
+                        runsSetLines
+                            [ "2"; "2"; "3" ]
+                            (prelude
+                             + s123
+                             + t234
+                             + "let i = Set.intersect s t\n"
+                             + "printfn \"%d\" (Set.count i)\n"
+                             + "printfn \"%d\" (Set.minElement i)\n"
+                             + "printfn \"%d\" (Set.maxElement i)")
+                    }
+
+                    // PENDING — a *driver-level* `s + t` / `s - t` leaves the SRTP
+                    // operator unresolved: "ResolvedTypes: TAST contains 2 unresolved
+                    // TyVar(s) — inference bug". NB the *internal* use of the same
+                    // operator (inside `Set.union`/`Set.intersect`, gap #5) is CLOSED
+                    // and gated by the `union (function form)` / `intersect` rows above
+                    // — this row pins the remaining consumer-side resolution gap. Flip
+                    // → `test` when driver-level set-operator dispatch resolves.
+                    ptest "(+) / (-) operators dispatch to the static members" {
+                        runsSetLines
+                            [ "4"; "1" ]
+                            (prelude
+                             + s123
+                             + t234
+                             + "printfn \"%d\" (Set.count (s + t))\n"
+                             + "printfn \"%d\" (Set.count (s - t))")
+                    }
+                ]
+
+            testList
+                "predicates"
+                [
+                    test "isSubset / isSuperset" {
+                        runsSetLines
+                            [ "true"; "false"; "true"; "false" ]
+                            (prelude
+                             + s123
+                             + t234
+                             + "let sub = Set.add 1 (Set.add 2 Set.empty)\n"
+                             + "printfn \"%b\" (Set.isSubset sub s)\n"
+                             + "printfn \"%b\" (Set.isSubset t s)\n"
+                             + "printfn \"%b\" (Set.isSuperset s sub)\n"
+                             + "printfn \"%b\" (Set.isSuperset sub s)")
+                    }
+
+                    test "isProperSubset / isProperSuperset" {
+                        runsSetLines
+                            [ "true"; "false"; "true"; "false" ]
+                            (prelude
+                             + s123
+                             + "let sub = Set.add 1 (Set.add 2 Set.empty)\n"
+                             + "printfn \"%b\" (Set.isProperSubset sub s)\n"
+                             + "printfn \"%b\" (Set.isProperSubset s s)\n"
+                             + "printfn \"%b\" (Set.isProperSuperset s sub)\n"
+                             + "printfn \"%b\" (Set.isProperSuperset s s)")
+                    }
+
+                    test "exists / forall" {
+                        runsSetLines
+                            [ "true"; "false"; "true"; "false" ]
+                            (prelude
+                             + s123
+                             + "printfn \"%b\" (Set.exists (fun x -> x = 2) s)\n"
+                             + "printfn \"%b\" (Set.exists (fun x -> x = 9) s)\n"
+                             + "printfn \"%b\" (Set.forall (fun x -> x > 0) s)\n"
+                             + "printfn \"%b\" (Set.forall (fun x -> x > 1) s)")
+                    }
+                ]
+
+            testList
+                "transforms"
+                [
+                    // PENDING — `Set.map`'s emitted `Set`1::Map` member-ref carries an
+                    // open `!0` in the mapping-function parameter: "MissingMethodException:
+                    // Method not found: 'Set`1<Int32> Set`1.Map(Vesper.Fun`2<!0,Int32>)'".
+                    // The mapping `'T -> 'U`'s source typar leaks unground at the member-ref
+                    // site (Outstanding 2 gap A — a generic member-ref minted from a
+                    // non-declaring context emits an open typar). Flip → `test` when the
+                    // map member-ref instantiates its `'T` from the receiver.
+                    ptest "map" {
+                        runsSetLines
+                            [ "3"; "12" ]
+                            (prelude
+                             + s123
+                             + "let m = Set.map (fun x -> x * 2) s\n"
+                             + "printfn \"%d\" (Set.count m)\n"
+                             + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 m)")
+                    }
+
+                    test "filter" {
+                        runsSetLines
+                            [ "1"; "2" ]
+                            (prelude
+                             + s123
+                             + "let f = Set.filter (fun x -> x % 2 = 0) s\n"
+                             + "printfn \"%d\" (Set.count f)\n"
+                             + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 f)")
+                    }
+
+                    test "fold (sum) / foldBack (sum)" {
+                        runsSetLines
+                            [ "6"; "6" ]
+                            (prelude
+                             + s123
+                             + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)\n"
+                             + "printfn \"%d\" (Set.foldBack (fun x -> fun acc -> x + acc) s 0)")
+                    }
+
+                    test "iter walks elements in order" {
+                        runsSetLines [ "1"; "2"; "3" ] (prelude + s123 + "Set.iter (fun x -> printfn \"%d\" x) s")
+                    }
+
+                    // PENDING — the driver-side `let (evens, odds) = …` tuple-destructuring
+                    // is now emitted (Main-level destructuring let, `Emit.buildMain`), so
+                    // the prior "Emit: no binding for variable src@…:PatIdent" is gone. The
+                    // remaining wall is *inside* the Set DLL: `SetTreeModule.partition` emits
+                    // invalid IL ("BadImageFormatException: incorrect format") because
+                    // `SetTree.partition1 comparer f k (acc1, acc2)` has a *tuple-destructured
+                    // static-method parameter*. `EmitLower.peelLambda` stops at the tuple
+                    // param, leaving the static method an arity-3 method whose body is a
+                    // residual `Lambda((acc1, acc2), …)` closure; the tuple-param/closure/
+                    // tuple-return interaction is malformed. Needs `StaticFn` to carry the
+                    // param *patterns* so `Emit.buildStaticMethod` can `bindPattern` a tuple
+                    // parameter the way `buildClosureInvoke` already does. Flip → `test` then.
+                    ptest "partition" {
+                        runsSetLines
+                            [ "1"; "2" ]
+                            (prelude
+                             + "let s = Set.add 1 (Set.add 2 (Set.add 3 (Set.add 4 Set.empty)))\n"
+                             + "let (evens, odds) = Set.partition (fun x -> x % 2 = 0) s\n"
+                             + "printfn \"%d\" (Set.count evens)\n"
+                             + "printfn \"%d\" (Set.count odds)")
+                    }
+                ]
+
+            testList
+                "conversions"
+                [
+                    // Same `'T array` contract fix as `ofArray deduplicates` (gap #6, CLOSED):
+                    // `Set.toArray`'s `'T array` return now resolves to the array intrinsic.
+                    // (This row uses no `[| … |]` literal — `Set.toArray s` is a real array —
+                    // so it exercises the contract fix alone, not the literal-emission half.)
+                    test "toArray round-trips through ofArray" {
+                        runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofArray (Set.toArray s)))")
+                    }
+
+                    // PENDING — `Set.ofList` calls `ListModule.toSeq` internally, which
+                    // Vesper.List does not emit: "MissingMethodException: Method not found:
+                    // 'IEnumerable`1<Int32> Vesper.Collections.ListModule.toSeq(List`1<Int32>)'".
+                    // A Vesper.List dependency gap, not a Set one. Flip → `test` when
+                    // `ListModule.toSeq` ships.
+                    ptest "toList round-trips through ofList" {
+                        runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofList (Set.toList s)))")
+                    }
+                ]
         ]
