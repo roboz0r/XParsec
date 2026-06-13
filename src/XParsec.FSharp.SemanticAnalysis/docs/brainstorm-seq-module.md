@@ -176,3 +176,61 @@ The compiler detects the type mismatch (struct vs interface) and emits a `box` i
 1. **True Deforestation:** Combinators act as zero-cost abstractions.
 2. **Predictable Performance:** Users know that `List.map` allocates immediately, while `Seq.map` builds a zero-allocation struct tree evaluated only upon termination.
 3. **No AST Magic:** The compiler requires no special heuristics to rewrite `map >> filter`. It simply relies on the standard .NET JIT inlining mechanisms.
+
+---
+
+## 9. Status & sequencing (where this sits in the roadmap)
+
+> **Status:** Forward-looking design — the *destination*, not the next step. The
+> currently-shipping sequence type is the interface-based `src/Vesper.Seq/seq.fs`
+> (`seq<'T>` = `IEnumerable<'T>`, walked through the `for … in` `Interface` path).
+> This zero-allocation struct redesign sits **on top of** several larger unbuilt
+> capabilities; completing it is not a near-term next commit.
+
+### 9.1 What this design depends on (bottom-up)
+
+This spec is the *consumer* that would naturally force the remaining `for … in`
+gaps (`get-enumerator-gaps.md`) — but it sits above them, so driving those gaps "by
+completing the Seq module" inverts the dependency order. The real prerequisites, in
+build order:
+
+1. **Unboxed struct method dispatch** — the keystone, and bigger than all the
+   `for … in` gaps combined. The entire struct-chaining mechanism is calls on struct
+   *fields* by address (`_source.GetEnumerator()`, `_f.Invoke(_sourceEnum.Current)`).
+   `[<Struct>]` codegen today is the **boxed** path; unboxed dispatch is deferred. Nothing in §4–6 works without it.
+2. **Struct / ref-struct closures** — §2.4 / §4's `in TFunc where TFunc : Fun<…>`
+   needs the *struct*-closure shape. Current closures are **reference-type**
+   `Vesper.Fun<_,_>` subclasses (`function-representation-plan.md`); the struct and
+   `allows ref struct` shapes are explicitly "further out" (`brainstorm-closures.md`).
+3. **Generic struct interface impls** — every sequence struct implements
+   `IEnumerable<'T>` explicitly as the §7.2 escape hatch. This is the same
+   "Free type parameter 'T not declared" impl gap tracked as `for … in` Gap 3.
+4. **Byref-like type modelling** — `allows ref struct` (§3, ref-struct closures, the
+   ref-struct enumerator `Dispose` of `for … in` Gap 2) all need a byref-like
+   predicate that `SemType` does not have today.
+
+### 9.2 Mapping to the `for … in` remaining-work gaps
+
+Two of the three open `for … in` gaps are exactly what this design exercises, which
+is why Seq is the right *eventual* forcing function — but each is gated as above:
+
+| `get-enumerator-gaps.md` item | exercised by | gated behind |
+|---|---|---|
+| **value-type source** (a struct `MapSeq` passed to `Seq.fold` / `foreach`) | §5 `Fold`, §6 | unboxed struct dispatch (#1) — it's the same "address a struct receiver" capability one level up, so it falls out of, or right after, that work |
+| **generic struct interface impls** | §7.2 escape hatch | the impl/upcast gap (#3) |
+| **ref-struct `Dispose()`** (non-`IDisposable`) | ref-struct enumerators | byref-like modelling (#4), co-blocked with `allows ref struct` |
+
+### 9.3 Recommended path
+
+- **Now:** don't pre-build the `for … in` gaps in isolation (they're consumer-gated;
+  value-type source is explicitly deferred for lack of a site). Let the interface-based
+  `Vesper.Seq` and `Vesper.Set` pull `for … in` features as they hit real walls — the
+  landed `Interface` + `Pattern` paths already cover them.
+- **When chasing the zero-alloc design:** go bottom-up. **Unboxed struct method
+  dispatch first** (#1). Then drive value-type source + generic struct interface impls
+  with a **thin vertical slice** — `ArraySeq`/`ListSeq` → `map` → `fold`, struct
+  enumerators, *reference-type closures for now* (don't wait on struct closures) —
+  which gives a real running test forcing those gaps. Defer ref-struct `Dispose` and
+  `allows ref struct` together until byref-like types are modelled.
+- The full §4–6 generic struct tree with struct closures and JIT devirtualization is
+  the north star, layered on once #1–#4 are in place.

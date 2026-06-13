@@ -3,8 +3,7 @@
 How a Vesper-compiled assembly interops with assemblies compiled by `fsc`
 (which speak `Microsoft.FSharp.Core.FSharpFunc\`2`, `FSharpList\`1`, etc.) without
 giving up the lightweight, FSharp.Core-free default the self-host ladder is built
-around. This is D3's deferred `--fsharp-compat` flag
-([minimal-core-lib-plan](minimal-core-lib-plan.md)), sharpened after R1 landed the
+around. This is the deferred `--fsharp-compat` flag, sharpened after R1 landed the
 `Vesper.Fun` representation.
 
 ## Why
@@ -118,8 +117,6 @@ has both populations to distinguish. Until then this is the documented seam.
 
 ## Cross-references
 
-- [minimal-core-lib-plan](minimal-core-lib-plan.md) — D3 names this flag and defers
-  it; this plan is that deferral made concrete.
 - [function-representation-plan](function-representation-plan.md) — §First-pass shape
   (FSharpFunc-implements-Fun / wrapper-struct bridge) and §Out of scope
   (cross-assembly Fun shapes); the adapter direction here is that bridge.

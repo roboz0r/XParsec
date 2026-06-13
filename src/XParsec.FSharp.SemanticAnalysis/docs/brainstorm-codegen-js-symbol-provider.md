@@ -1,6 +1,13 @@
 # Brainstorm: Codegen.JS external symbol provider via the TS toolchain
 
-**Status:** brainstorm, not a plan. No Codegen.JS exists yet; the current
+**Status:** SUPERSEDED (2026-06-13) by
+[codegen-js-symbol-provider-plan](codegen-js-symbol-provider-plan.md), which
+re-grounds this against the current seam (stale file:line anchors fixed; the
+overload "seam change" is obsolete — `TryLookupMembers` already returns sets; the
+union fork is decided native, see [anon-unions-plan](anon-unions-plan.md)). Kept
+for the original design discussion only.
+
+Original brainstorm note: not a plan. No Codegen.JS exists yet; the current
 backend is CLR. This captures a design discussion so it survives until the JS
 backend comes up.
 

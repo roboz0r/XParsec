@@ -174,5 +174,5 @@ consume it, don't ship it.
 - [brainstorm-option-representation](brainstorm-option-representation.md) — OR7's `Fun::Invoke` copy/SROA tension is resolved by EF1/EF6 (optimise across the out-of-line combinator).
 - [package-split-plan](package-split-plan.md) — PS2 one-DLL-per-package is why EF6 (cross-assembly effect summary) is load-bearing rather than a nicety.
 - [function-representation-plan](function-representation-plan.md) — `Fun` and closure devirtualisation; the other half of erasing the combinator-call cost.
-- [minimal-core-lib-plan](minimal-core-lib-plan.md) — `ops-platform` inline-IL operators (`(+)`), the EF7 boundary where a trusted annotation survives.
+- [Vesper.Core](../../Vesper.Core/README.md) — `ops-platform` inline-IL operators (`(+)`), the EF7 boundary where a trusted annotation survives.
 - `Conformance.fs` (self-host conformance) — the model EF7.1/EF-Q4 extend to check trusted intrinsic purity.

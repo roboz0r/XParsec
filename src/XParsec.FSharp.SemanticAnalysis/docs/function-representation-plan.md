@@ -55,7 +55,7 @@ chosen impl directly.
 
 Closures emit as **reference-type subclasses of `Vesper.Fun<'A, 'B>`**, a
 Vesper-native interface declared in
-[Vesper.Core](minimal-core-lib-plan.md). No
+[Vesper.Core](../../Vesper.Core/README.md). No
 `Microsoft.FSharp.Core.FSharpFunc` dependency — Vesper.Core ships its
 own arrow representation, and the broader trajectory is to remove
 `FSharp.Core` references entirely.

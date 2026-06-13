@@ -153,8 +153,8 @@ twin. Differences and the parallel:
 - `EqArray`'s hash fold (`h*397 ^^^ cmp.GetHashCode x`) and `SequenceEqual`
   body are the template for `Block`'s.
 
-**Where it lives / language.** Vesper.Core, Tier 1 (per
-`minimal-core-lib-plan.md`). Authored as a **C# interim** first (it needs
+**Where it lives / language.** Vesper.Core, Tier 1. Authored as a **C# interim**
+first (it needs
 `EqualityComparer<'T>.Default`, a loop, and `System.HashCode` — beyond the
 current self-host rung), rewritten in Vesper when the ladder reaches it. This
 is the only runtime artifact this whole feature adds, and it's one library

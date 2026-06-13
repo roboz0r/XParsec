@@ -239,7 +239,7 @@ reason as the F# pickle.
 
 - [package-split-plan](package-split-plan.md) — the per-package runtime split
   (PS2) and the deferred rollup/merge decision (PS6) this plan's PF7 feeds.
-- [minimal-core-lib-plan](minimal-core-lib-plan.md) — the contract/runtime
+- [Vesper.Core](../../Vesper.Core/README.md) — the contract/runtime
   two-artifact split (`.fsi` vs `.fs`) this plan distributes.
 - [function-representation-plan](function-representation-plan.md) — `Fun`, the
   representation behind the arrow-sugar abbreviation that IL can't carry.

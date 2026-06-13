@@ -1,131 +1,149 @@
-### 1. How Complex is the Algorithm?
+# SCC utility spec — iterative Tarjan + canonical numbering
 
-From a computational standpoint, Tarjan's algorithm is as efficient as theoretically possible.
+**Status:** spec, not implemented. Supersedes the earlier textbook sketch (which
+was a generic, recursive, allocation-heavy Tarjan — unsafe and only half the
+problem for the structural-hash client). Build the real implementation when the
+first client row is actually being benchmarked against real input; this spec
+captures the requirements so the knowledge isn't lost.
 
-* **Time Complexity:** $\mathcal{O}(V + E)$
-  * $V$ is the number of Vertices (nodes).
-  * $E$ is the number of Edges (connections).
-  * *Why?* The DFS visits every node exactly once. Once a node is visited, its outgoing edges are looped through exactly once. It scales linearly.
-* **Space / Memory Complexity:** $\mathcal{O}(V)$
-  * *Why?* In the worst-case scenario (a graph where every node points to the next in a single straight line), the algorithm will push all $V$ nodes onto the stack. The recursion depth of the DFS will also be $V$. You also need a few arrays of size $V$ to track the `index`, `lowlink`, and `onStack` states.
-* **Conceptual Complexity:** Moderate.
-  * The hardest part for developers to grasp is the distinction between a **back-edge** (pointing to a node currently on the stack) and a **cross-edge** (pointing to a node already processed and removed from the stack). Tarjan handles this elegantly using the `onStack` boolean check.
+## Clients (the algorithm is dual-/triple-useful)
 
----
+SCC detection was first identified as a potential optimisation for **region
+analysis** ([regions-plan](regions-plan.md)) and **closure optimisation**
+(mutually-recursive binding groups, [function-representation-plan](function-representation-plan.md)),
+and *then again* for **structural type hashing** in the TS-consumer provider
+([codegen-js-symbol-provider-plan](codegen-js-symbol-provider-plan.md)). It is
+worth building once as a shared, reusable utility rather than three times:
 
-### 2. Tarjan's Algorithm in F #
+| Client | Graph | What it needs from SCC |
+|---|---|---|
+| **Closure / recursive-group analysis** | binding reference graph (`let rec … and …`, module-let dependencies) | minimal recursive groups = the SCCs; **reverse-topo order** (free from Tarjan) gives a valid emission/initialisation order. Singletons without a self-edge are non-recursive — emit directly. |
+| **Region analysis** | escape/lifetime dependency graph | SCCs collapse mutually-dependent lifetimes into one region; the condensation DAG (SCCs as super-nodes) is then a clean partial order to solve over. |
+| **Structural type hashing** | structural type-reference graph (anonymous TS object types) | SCC-isolation of cyclic types, **then canonical numbering within each cyclic SCC** (the hard extra half — see §4). |
 
-F# is a functional-first language. However, purely functional graph traversals (using immutable Maps and Sets) often degrade performance to $\mathcal{O}(V \log V)$ due to dictionary lookups.
+The first two need only SCCs + topological order. The third layers canonical
+numbering on top. Design the core to serve all three; keep canonical numbering as
+a separate, client-specific pass.
 
-The idiomatic F# way to write this is to use **"observational purity."** This means we use highly optimized mutable arrays and variables *inside* the function, but package it in a pure, immutable function signature for the rest of the program to use.
+## 1. Design principles
 
-Here is a complete, working implementation:
+- **Observational purity.** Mutable flat arrays + a work stack *inside*; an
+  immutable function signature outside. The idiom the whole codebase uses for hot
+  passes.
+- **Dense `int` node ids.** The utility operates on nodes `0 … n-1`. Each client
+  interns its own nodes (bindings, lifetime vars, type shapes) into dense ids and
+  maps results back. This keeps the core allocation-free and cache-friendly and
+  decouples it from any client's node type.
+- **CSR adjacency, not `int list array`.** `xadj : int[]` (length `n+1`) +
+  `adj : int[]` (length `E`); node `u`'s out-edges are `adj.[xadj.[u] ..
+  xadj.[u+1]-1]`. Contiguous, one allocation, no pointer-chasing. (The old sketch
+  claimed "contiguous memory" while using cons lists for *both* adjacency and the
+  stack — it had neither.)
 
-```fsharp
-module Tarjan
+## 2. Iterative, not recursive — the load-bearing fix
 
-/// Finds Strongly Connected Components (SCCs) in a directed graph.
-/// 'n' is the number of nodes (labeled 0 to n-1).
-/// 'adj' is an array of lists, where adj.[i] contains the neighbors of node i.
-let findSCCs (n: int) (adj: int list array) : int list list =
-    
-    // -- Local Mutable State (for O(V + E) performance) --
-    let index   = Array.create n -1    // -1 means "unvisited"
-    let lowlink = Array.create n -1
-    let onStack = Array.create n false
-    let mutable stack = []             // We use an F# list as a stack
-    let mutable timer = 0              // Counter for index assignment
-    let mutable sccs  = []             // Accumulator for the final result
+`let rec dfs` overflows the call stack on deep graphs (adversarial or merely
+large `.d.ts` — `@types/node`, DOM). This repo has shipped recursion-driven stack
+overflows before ([[feedback_errortype_spike_failed]]); a graph utility that can
+see attacker-shaped input **must** use an explicit work stack.
 
-    // -- The DFS Function --
-    let rec dfs u =
-        // 1. Initialize the current node
-        index.[u]   <- timer
-        lowlink.[u] <- timer
-        timer       <- timer + 1
-        
-        stack       <- u :: stack      // Push to stack
-        onStack.[u] <- true
+Frame = `(node u, edgeCursor)` where `edgeCursor` is the current index into
+`adj`. Two parallel `ResizeArray<int>` (or a struct stack) hold the frames. The
+subtlety of iterative Tarjan is replaying the "after the child returns, update the
+parent's lowlink" step:
 
-        // 2. Explore neighbors
-        for v in adj.[u] do
-            if index.[v] = -1 then
-                // Case A: Neighbor is unvisited. Recurse, then update lowlink.
-                dfs v
-                lowlink.[u] <- min lowlink.[u] lowlink.[v]
-            
-            elif onStack.[v] then
-                // Case B: Neighbor is on the stack (Back-edge/Cycle found!).
-                lowlink.[u] <- min lowlink.[u] index.[v]
-                
-            // Case C: Visited but not on stack (Cross-edge). Do nothing.
+```
+for s in 0 .. n-1:
+  if index.[s] <> -1: continue
+  push frame (s, xadj.[s]); visit s   // visit = assign index/lowlink/timer, push to sccStack, onStack:=true
 
-        // 3. If u is a root node, pop the stack to form an SCC
-        if lowlink.[u] = index.[u] then
-            
-            // A helper to pop nodes until we reach 'u'
-            let rec popSCC currentScc =
-                match stack with
-                | top :: rest ->
-                    stack <- rest               // Pop the stack
-                    onStack.[top] <- false      // Mark as off-stack
-                    
-                    let nextScc = top :: currentScc
-                    if top = u then nextScc     // Stop if we found the root
-                    else popSCC nextScc         // Otherwise keep popping
-                | [] -> currentScc
-
-            let newScc = popSCC []
-            sccs <- newScc :: sccs // Add the newly found SCC to our results
-
-    // -- Start the algorithm --
-    // We loop through all nodes in case the graph has disconnected parts
-    for i = 0 to n - 1 do
-        if index.[i] = -1 then
-            dfs i
-
-    // Return the purely functional list of SCCs
-    sccs
+  while frames not empty:
+    let u = topNode; let mutable e = topCursor
+    let mutable descended = false
+    while e < xadj.[u+1] && not descended:
+      let v = adj.[e]
+      if index.[v] = -1:
+        topCursor <- e + 1            // resume here after the child completes
+        push frame (v, xadj.[v]); visit v
+        descended <- true             // process child next iteration
+      else:
+        if onStack.[v]: lowlink.[u] <- min lowlink.[u] index.[v]
+        e <- e + 1
+    if not descended:
+      topCursor <- e
+      // u is finished
+      if lowlink.[u] = index.[u]: popComponent u   // pop sccStack down to u → one SCC
+      pop frame
+      if frames not empty:                          // propagate to parent
+        let p = topNode
+        lowlink.[p] <- min lowlink.[p] lowlink.[u]
 ```
 
-### 3. Testing the F# Code
+Invariant to test: run the iterative version against a straightforward recursive
+reference on a few thousand random graphs (varying density, cycle structure) and
+assert identical component partitions. Iterative Tarjan is easy to get subtly
+wrong; pin it with a differential test.
 
-Let's test this with a practical example. We will build a graph with 5 nodes (0 through 4).
+## 3. Output contract
 
-* Nodes `0`, `1`, and `2` form a cycle (SCC 1).
-* Node `1` has an escape route pointing to `3`.
-* Nodes `3` and `4` form a cycle (SCC 2).
+- `comp : int[]` — `comp.[u]` = component id of node `u`.
+- `components : int[][]` (or a CSR-style flat `int[]` + offsets) — members per
+  component, **emitted in reverse topological order** (Tarjan's natural order:
+  if component A has an edge to component B, B is emitted before A). Document this
+  guarantee — the closure/region clients depend on it for ordering and should not
+  re-sort.
+- A node is **non-trivially recursive** iff its component has >1 member *or* it
+  has a self-edge. Expose a cheap `isRecursive : int -> bool` so the closure
+  client can take the direct-emit fast path for the common singleton case.
 
-```fsharp
-// Representation of the graph:
-// 0 -> 1
-// 1 -> 2, 3
-// 2 -> 0
-// 3 -> 4
-// 4 -> 3
+## 4. Canonical numbering (structural-hash client only — the genuinely hard half)
 
-let graphSize = 5
-let adjacencyList = [|
-    [ 1 ]       // Node 0 points to 1
-    [ 2; 3 ]    // Node 1 points to 2 and 3
-    [ 0 ]       // Node 2 points to 0
-    [ 4 ]       // Node 3 points to 4
-    [ 3 ]       // Node 4 points to 3
-|]
+Tarjan *isolates* a cyclic SCC; it does **not** give a labelling invariant to
+traversal order. To content-hash a cyclic structural type so two isomorphic
+shapes hash equal regardless of how they were discovered, each node in a cyclic
+SCC needs a **canonical number** independent of input order. This is graph
+canonization, and it is the part the original brainstorm omitted entirely.
 
-let result = Tarjan.findSCCs graphSize adjacencyList
+Pragmatic, sufficient-in-practice approach (type graphs are tiny and almost
+always asymmetric):
 
-printfn "%A" result
-```
+1. **DAG fast path.** Hash acyclic types by ordinary structural recursion on a
+   topological order — **no Tarjan, no canonization**. The overwhelming majority
+   of types are DAGs; only self-/mutually-recursive interfaces form non-trivial
+   SCCs. Run the SCC pass only to *find* those; pay canonization only inside them.
+2. **Colour refinement (1-WL) within an SCC.** Seed each node's colour from its
+   *local* shape modulo references (record → sorted field-name list; union →
+   member arity; primitive → name). Iterate: `colour' = hash(colour, multiset of
+   neighbours' colours)` to a fixpoint (≤ |SCC| rounds). If the final colours are
+   all distinct, sort by colour → canonical order. This resolves the vast
+   majority of real cyclic types.
+3. **Tie-break for genuine symmetry.** When refinement leaves nodes with equal
+   colours (a real automorphism, e.g. perfectly symmetric `A{b:B}` / `B{a:A}`),
+   pick a canonical root deterministically (lowest stable colour, ties by interned
+   id) and number by a canonical DFS taking edges in colour-then-id order. Full
+   canonization is GI-hard in general, but bounded SCC size makes this a
+   non-issue; the tie-break only has to be *deterministic*, and for true
+   automorphisms any consistent choice yields the same hash.
+4. **Hash** over `(canonical-number, local-shape, edges-as-canonical-numbers)` of
+   each SCC node. Keep the declared/pretty name in a side table for diagnostics —
+   the hash is the identity key, not human-readable (cf.
+   [[reference_eqarray_percentA_cache_key]] — don't key on opaque `%A`).
 
-**Output:**
+## 5. Performance notes
 
-```text
-[[0; 1; 2]; [3; 4]]
-```
+- Time `O(V + E)` for SCC; colour refinement is `O(|SCC|·|edges-in-SCC|·rounds)`
+  but only over cyclic components, which are small and rare.
+- Zero per-node heap allocation on the SCC core (flat arrays + `ResizeArray`
+  stacks); the only allocations are the result arrays.
+- The `int`-id interning is the client's cost; for the type-hash client it is
+  also where the DAG-vs-cyclic split is cheapest to detect.
 
-### Why this F# implementation shines
+## 6. Scope
 
-1. **Speed:** By using `.create` to make contiguous memory blocks (`Array`), index lookups are instant.
-2. **Safety:** `stack`, `timer`, and `sccs` are mutated, but because they are scoped strictly inside `findSCCs`, they cannot be modified by outside code.
-3. **Pattern Matching:** The `popSCC` inner function uses F#'s powerful `match` construct to cleanly pop items off the list-based stack without needing messy `while` loops or `null` checks.
+**Build now (when first needed):** the §2 iterative SCC core + §3 output
+contract, as a standalone reusable module, differentially tested per the §2
+invariant. This unblocks the closure/region clients immediately.
+
+**Build with the structural-hash row:** §4 canonical numbering, layered on the
+core — gated behind the ts-consumer provider's structural-hash work, benchmarked
+against real `.d.ts` graphs.

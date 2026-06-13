@@ -2,10 +2,10 @@
 
 ## Why
 
-[minimal-core-lib-plan](minimal-core-lib-plan.md) factored "language fundamentals"
-into a single `Vesper.Core` tree: one flat `manifest.toml`, one `.fsi` contract
-fed to the front-end symbol provider, one `Vesper.Core.dll` emitted by our own
-backend. This plan **splits the core types into standalone packages** —
+The core's "language fundamentals" started as a single `Vesper.Core` tree: one
+flat `manifest.toml`, one `.fsi` contract fed to the front-end symbol provider,
+one `Vesper.Core.dll` emitted by our own backend. This plan **splits the core
+types into standalone packages** —
 `option`, `result`, `list`, `map`, `set` — so a consumer either references the
 **`Vesper` rollup** for the batteries-included experience or picks the
 individual packages it needs.
@@ -236,8 +236,6 @@ this tree has no `[upstream]` pin.)
 
 ## Cross-references
 
-- [minimal-core-lib-plan](minimal-core-lib-plan.md) — the single-tree core this
-  plan splits; decisions D1–D9 (namespace, `Fun`, `unit`, `List`) carry over
   per-package.
 - [function-representation-plan](function-representation-plan.md) — `Vesper.Fun`,
   the representation R1 cuts over to (PS3 gate).
