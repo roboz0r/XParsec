@@ -17,6 +17,10 @@ let private provider: IExternalSymbolProvider =
         member _.TryLookup n =
             if n = "A.B.thing" then
                 ValueSome(ExternalSymbols.mono "thing" (TyConst("int", EqArray.empty)))
+            // The qualified operator `A.B.(+)` resolves to its compiled name
+            // `A.B.op_Addition` (opens-overhaul-plan Gap 4).
+            elif n = "A.B.op_Addition" then
+                ValueSome(ExternalSymbols.mono "op_Addition" (TyConst("int", EqArray.empty)))
             else
                 ValueNone
 
@@ -28,7 +32,26 @@ let private provider: IExternalSymbolProvider =
 
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
-        member _.TryLookupUnionCase _ = ValueNone
+
+        // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
+        // `Hue` is an ordinary union (`Blue` does not). Drives the Gap 1 suppression
+        // tests below.
+        member _.TryLookupUnionCase caseName =
+            let mk union rqa name =
+                ValueSome
+                    {
+                        UnionName = union
+                        Arity = 0
+                        Origin = SymbolOrigin.Empty
+                        Case = ExternalCaseShape.create (name, [||])
+                        IsRequireQualifiedAccess = rqa
+                    }
+
+            match caseName with
+            | "Red" -> mk "Tests.Color" true "Red"
+            | "Blue" -> mk "Tests.Hue" false "Blue"
+            | _ -> ValueNone
+
         member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
@@ -83,5 +106,36 @@ let tests =
             test "a nested module inherits an enclosing open" {
                 let ctx = analyse "open A.B\nmodule M =\n    let x = thing"
                 Expect.isFalse (hasUnresolved ctx) "thing resolves inside nested M via the enclosing open A.B"
+            }
+
+            // Gap 1 — `[<RequireQualifiedAccess>]` suppression.
+            test "a bare RQA case name is unresolved" {
+                // `Color` is RQA, so the short `Red` must not resolve — F# requires
+                // `Color.Red`. This is the false-accept the gap closed.
+                let ctx = analyse "let x = Red"
+                Expect.isTrue (hasUnresolved ctx) "bare Red is rejected for an RQA union"
+            }
+
+            test "a qualified RQA case name still resolves" {
+                let ctx = analyse "let x = Color.Red"
+                Expect.isFalse (hasUnresolved ctx) "Color.Red resolves (qualified form is allowed)"
+            }
+
+            test "a bare non-RQA case name resolves" {
+                // Control: `Hue` is an ordinary union, so its bare case `Blue` is in
+                // scope — the suppression is RQA-specific, not a blanket reject.
+                let ctx = analyse "let x = Blue"
+                Expect.isFalse (hasUnresolved ctx) "bare Blue resolves for a non-RQA union"
+            }
+
+            // Gap 4 — operator-form qualified long idents.
+            test "a qualified operator long-ident resolves to its compiled name" {
+                let ctx = analyse "let f = A.B.(+)"
+                Expect.isFalse (hasUnresolved ctx) "A.B.(+) resolves via A.B.op_Addition"
+            }
+
+            test "an unknown qualified operator long-ident is unresolved" {
+                let ctx = analyse "let f = A.B.(*)"
+                Expect.isTrue (hasUnresolved ctx) "A.B.(*) is unresolved — provider knows no op_Multiply"
             }
         ]

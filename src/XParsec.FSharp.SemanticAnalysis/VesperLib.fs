@@ -821,6 +821,14 @@ module VesperLib =
         match err with
         | Some e -> skipBodyOpaque ctx file compiled arity e
         | None ->
+            // A `[<RequireQualifiedAccess>]` union's cases are NOT brought into scope
+            // bare; record it so the reverse case-name index marks its cases, and the
+            // consumer's bare-name resolution rejects them (opens-overhaul-plan Gap 1).
+            let (TypeName(attrs, _, _, _, _, _)) = typeName
+
+            if isRequireQualifiedAccess lexed input attrs then
+                ctx.RqaTypes.Add compiled |> ignore
+
             // `Origin` is filled later by `ReferencedProject.wrap` (which knows the
             // package's assembly + namespace from the manifest); the extractor
             // records `Empty`.

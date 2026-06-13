@@ -102,11 +102,11 @@ module internal UnificationInferResolve =
         (caseName: string)
         : (SemType * SemType[]) voption =
         match ctx.Provider.TryLookupUnionCase caseName with
-        | ValueSome uc when
-            (match qualifier with
-             | ValueNone -> true
-             | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q)
-            ->
+        // A bare (unqualified) reference to an `[<RequireQualifiedAccess>]` union's
+        // case never resolves — F# requires `Color.Red`, not `Red`
+        // (opens-overhaul-plan Gap 1); `ResolvesWith` also enforces the qualifier
+        // match for the qualified leg.
+        | ValueSome uc when uc.ResolvesWith qualifier ->
             let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
 
             let unionTy =

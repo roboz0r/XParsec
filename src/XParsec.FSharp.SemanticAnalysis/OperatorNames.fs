@@ -67,3 +67,30 @@ module OperatorNames =
             match OperatorInfo.TryCreate tok.PositionedToken with
             | ValueSome op -> ValueSome(op.GetName text)
             | ValueNone -> ValueNone
+
+    /// Compiled member name for the operator segment of a parenthesised operator
+    /// reference (`(+)` in `A.B.(+)`). Only the symbolic-op form has an `op_`
+    /// member; the active-pattern / nil / range op-name forms have none, so a
+    /// `ValueNone` here is the signal to leave the reference unresolved.
+    let ofIdentOp (nameOf: SyntaxToken -> string) (idOp: IdentOrOp<SyntaxToken>) : string voption =
+        match idOp with
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ofParenSymbolic (nameOf op) op
+        | _ -> ValueNone
+
+    /// The fully-qualified compiled name an operator-form long ident resolves to
+    /// (`A.B.(+)` ⇒ `"A.B.op_Addition"`), the single translation shared by the
+    /// resolver (`NameResolution`), the typer (`Unification.qualifiedNameOf`), and
+    /// the projector (`Freeze.translateIdent`) so the qualified-operator form is
+    /// keyed identically everywhere. `ValueNone` for a non-symbolic op segment
+    /// (no `op_` member to qualify). The bare-operator form (`(+)` with no
+    /// qualifier) resolves through the prelude and never reaches here.
+    let qualifiedOpName
+        (nameOf: SyntaxToken -> string)
+        (li: LongIdent<SyntaxToken>)
+        (idOp: IdentOrOp<SyntaxToken>)
+        : string voption =
+        match ofIdentOp nameOf idOp with
+        | ValueSome opName ->
+            let prefix = li.Idents |> Seq.map nameOf |> String.concat "."
+            ValueSome(if prefix.Length = 0 then opName else prefix + "." + opName)
+        | ValueNone -> ValueNone

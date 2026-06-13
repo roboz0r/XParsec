@@ -90,6 +90,9 @@ module internal UnificationInferPat =
             && System.Char.IsUpper n.[0]
             && (ctx.Provider.TryLookupUnionCase n).IsSome
             ->
+            // (A bare RQA case falls through to a binder here: `tryExternalCasePattern`
+            // returns `ValueNone` for it, so the body lands on `TyVar` — matching F#,
+            // which treats a bare uppercase RQA name in a pattern as a fresh variable.)
             // Nullary case of an *external* (referenced-package) union (`None`),
             // resolved through the provider's reverse case index — the cross-
             // package analogue of the local nullary-ctor arm above (Gap 2 Layer C).

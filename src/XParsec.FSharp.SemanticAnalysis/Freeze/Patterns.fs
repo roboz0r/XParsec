@@ -21,12 +21,11 @@ module internal FreezePatterns =
     /// exactly as the local-union arm does (vesper-lib-test-plan Gap 2 Layer C).
     /// The lowering is identical to the local case — only the recognition differs.
     let private isExternalUnionCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : bool =
-        match ctx.Provider.TryLookupUnionCase caseName with
-        | ValueSome uc ->
-            match qualifier with
-            | ValueNone -> true
-            | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q
-        | ValueNone -> false
+        // Mirror `tryExternalCasePattern`: a bare reference to an RQA union's case
+        // is not recognised, so it lowers as a binder, not `TPat.Union`
+        // (opens-overhaul-plan Gap 1). The qualified form still resolves.
+        ctx.Provider.TryLookupUnionCase caseName
+        |> ValueOption.exists (fun uc -> uc.ResolvesWith qualifier)
 
     /// The `(consName, nilName)` case names of the list union a `[…]` literal,
     /// `[]`/`h :: t` pattern, or `::` construction targets. Mirrors the

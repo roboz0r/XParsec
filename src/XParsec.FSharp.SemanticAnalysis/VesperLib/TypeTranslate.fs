@@ -179,6 +179,15 @@ module VesperLibTypeTranslate =
     let isAutoOpen (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed input attrs [ "AutoOpen" ] |> ValueOption.isSome
 
+    /// True iff the type-level attributes carry `[<RequireQualifiedAccess>]` — the
+    /// union's cases (and a module's members) are NOT in scope unqualified, so a
+    /// bare `Red` for `[<RequireQualifiedAccess>] type Color = Red | …` must NOT
+    /// resolve (F# forbids the short form). Drives the resolution-side suppression
+    /// of bare RQA case names (opens-overhaul-plan Gap 1).
+    let isRequireQualifiedAccess (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        findAttribute lexed input attrs [ "RequireQualifiedAccess" ]
+        |> ValueOption.isSome
+
     /// Resolve a long-identifier type name against `ctx.Types`, using the
     /// per-file open prefixes (newest first) as candidate qualifiers when
     /// the short-name lookup misses. Returns the canonical compiled name

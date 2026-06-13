@@ -650,6 +650,62 @@ let tests =
                 | ValueNone -> failtestf "GADT union registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
+            test "extraction records [<RequireQualifiedAccess>] unions and stamps their cases" {
+                // opens-overhaul-plan Gap 1: the `[<RequireQualifiedAccess>]` attribute
+                // on an extracted union is read into `ctx.RqaTypes` and rides through
+                // the reverse case-name index as `ExternalUnionCase.IsRequireQualifiedAccess`,
+                // so a consumer's bare reference to an RQA case can be rejected.
+                let input =
+                    "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+
+                Expect.isTrue
+                    (ctx.RqaTypes |> Seq.exists (fun n -> n.EndsWith "Color"))
+                    "the RQA Color union is recorded in RqaTypes"
+
+                Expect.isFalse
+                    (ctx.RqaTypes |> Seq.exists (fun n -> n.EndsWith "Hue"))
+                    "the ordinary Hue union is not recorded as RQA"
+
+                // The flag rides through the reverse case-name index built by toProvider.
+                let provider = VesperLib.ExtractCtx.toProvider ctx
+
+                match provider.TryLookupUnionCase "Red" with
+                | ValueSome uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
+                | ValueNone -> failtest "Red case not found in the reverse index"
+
+                match provider.TryLookupUnionCase "Blue" with
+                | ValueSome uc -> Expect.isFalse uc.IsRequireQualifiedAccess "Blue's union (Hue) is not RQA"
+                | ValueNone -> failtest "Blue case not found in the reverse index"
+            }
+
             test "A reference to an Opaque-shaped type is refused at bake time" {
                 // The consumer half of the residue: a signature naming a type whose
                 // in-scope shape is `Opaque` (an enum / delegate / unmodelled body)

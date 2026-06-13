@@ -433,9 +433,13 @@ module internal FreezeResolve =
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
-            // A local *or* external union declares `n` as a case.
+            // A local *or* external union declares `n` as a case. A bare reference
+            // to an RQA external case is excluded — only its qualified form (the
+            // length-2 arms below) is a ctor ref (opens-overhaul-plan Gap 1).
             let isCase (n: string) =
-                ctx.Types.CtorIndex.ContainsKey n || (ctx.Provider.TryLookupUnionCase n).IsSome
+                ctx.Types.CtorIndex.ContainsKey n
+                || (ctx.Provider.TryLookupUnionCase n
+                    |> ValueOption.exists (fun uc -> uc.ResolvesWith ValueNone))
 
             match e with
             | Expr.Ident t ->
@@ -461,7 +465,7 @@ module internal FreezeResolve =
                 let caseName = ctx.NameOf li.Idents.[1]
 
                 match ctx.Provider.TryLookupUnionCase caseName with
-                | ValueSome uc when SymbolKeyOps.shortName uc.UnionName = typeName -> ValueSome caseName
+                | ValueSome uc when uc.ResolvesWith(ValueSome typeName) -> ValueSome caseName
                 | _ -> ValueNone
             | _ -> ValueNone
 

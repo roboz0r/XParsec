@@ -158,7 +158,25 @@ type ExternalUnionCase =
         Origin: SymbolOrigin
         /// The matched case's shape (field names + per-field type builders).
         Case: ExternalCaseShape
+        /// True when the declaring union is `[<RequireQualifiedAccess>]`: F# forbids
+        /// the bare case form (`Red`), accepting only the qualified `Color.Red`. The
+        /// resolution-side suppression keys off this — a *bare* hit on an RQA case is
+        /// rejected (treated as unresolved), while a qualified reference still
+        /// resolves (opens-overhaul-plan Gap 1). Providers that don't model unions
+        /// never return an `ExternalUnionCase`, so the default is moot for them.
+        IsRequireQualifiedAccess: bool
     }
+
+    /// Does a reference written with `qualifier` resolve to this case? A *bare*
+    /// (`ValueNone`) reference to an `[<RequireQualifiedAccess>]` union's case does
+    /// not — F# requires `Color.Red`, not `Red` (opens-overhaul-plan Gap 1). A
+    /// *qualified* (`ValueSome q`) reference resolves only when `q` is the union's
+    /// short name. The single home for the RQA + qualifier-match rule; the resolver,
+    /// typer, and projector all defer here rather than re-deriving it inline.
+    member uc.ResolvesWith(qualifier: string voption) : bool =
+        match qualifier with
+        | ValueNone -> not uc.IsRequireQualifiedAccess
+        | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q
 
 /// The immutable, two-axis member descriptor: a
 /// member's tupled `(Parameters, Return)` as `FrozenType` templates. `Parameters`

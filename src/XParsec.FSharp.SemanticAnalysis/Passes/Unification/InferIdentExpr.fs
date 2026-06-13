@@ -166,6 +166,13 @@ module internal UnificationInferIdentExpr =
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+        // `A.B.(+)` — the qualified operator form NameResolution resolved through
+        // the provider (opens-overhaul-plan Gap 4); rebuild the same compiled name
+        // (`A.B.op_Addition`) so the provider round-trip here matches its key.
+        | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
+            match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
+            | ValueSome n -> n
+            | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
         | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
     /// `ClassName<'args>.Member` where the receiver is an *explicitly* instantiated

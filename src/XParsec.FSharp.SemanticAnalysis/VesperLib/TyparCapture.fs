@@ -214,6 +214,12 @@ module VesperLibTyparCapture =
         /// The hardcoded FSharp.Core prelude list
         /// stays separate (compiler-magic opens not expressible as `[<AutoOpen>]`).
         member val AutoOpenPrefixes = ResizeArray<string>() with get
+        /// Qualified compiled names of `[<RequireQualifiedAccess>]` unions
+        /// encountered during extraction. The reverse case-name index reads this to
+        /// stamp `ExternalUnionCase.IsRequireQualifiedAccess`, so a consumer's bare
+        /// (unqualified) reference to an RQA case is rejected the way F# rejects it
+        /// (opens-overhaul-plan Gap 1).
+        member val RqaTypes = HashSet<string>(StringComparer.Ordinal) with get
         /// Type shapes contributed by already-extracted dependency packages (dependency-ordered).
         /// Read-only here: extraction never writes a dependency's shape, only
         /// consults it (through `shapeOf`) to kind a cross-package nominal head.
@@ -292,6 +298,8 @@ module VesperLibTyparCapture =
                 for kv in ctx.TypeShapes do
                     match kv.Value with
                     | ExternalTypeShape.Union(arity, cases, origin) ->
+                        let rqa = ctx.RqaTypes.Contains kv.Key
+
                         for case in cases do
                             if not (d.ContainsKey case.Name) then
                                 d.[case.Name] <-
@@ -300,6 +308,7 @@ module VesperLibTyparCapture =
                                         Arity = arity
                                         Origin = origin
                                         Case = case
+                                        IsRequireQualifiedAccess = rqa
                                     }
                     | _ -> ()
 

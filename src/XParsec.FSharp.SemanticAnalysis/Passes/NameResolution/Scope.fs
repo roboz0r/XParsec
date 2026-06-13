@@ -81,6 +81,16 @@ module NameResolutionScope =
     let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
         (tryResolveExternalTypeKey ctx name 0).IsSome
 
+    /// True if the *bare* (unqualified) `name` resolves to an external union case
+    /// whose declaring union is NOT `[<RequireQualifiedAccess>]`. An RQA union's
+    /// cases are reachable only through the qualified form (`Color.Red`), so a bare
+    /// hit on one is rejected here, matching F# (opens-overhaul-plan Gap 1). The
+    /// qualified paths (`isExternalQualifiedCase`, `tryExternalCtorType` with a
+    /// qualifier) resolve RQA cases unchanged — this guard is bare-name only.
+    let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
+        ctx.Provider.TryLookupUnionCase name
+        |> ValueOption.exists (fun uc -> uc.ResolvesWith ValueNone)
+
     /// The dotted receiver name of an `Expr.TypeApp`, when it is an identifier /
     /// long-identifier the provider could know as a type. `ValueNone` for receiver
     /// shapes that are never an external type name (e.g. an applied expression).
@@ -136,17 +146,14 @@ module NameResolutionScope =
                     // to the arity-0 `resolvesAsExternalType`.
                     || ctx.Resolution.ResolvedType.ContainsKey useKey
                     || resolvesAsExternalType ctx name
-                    || (ctx.Provider.TryLookupUnionCase name).IsSome
+                    // A bare external union case resolves only when its union is NOT
+                    // `[<RequireQualifiedAccess>]` — F# rejects the short `Red` form
+                    // for an RQA `Color` (opens-overhaul-plan Gap 1).
+                    || resolvesAsBareExternalCase ctx name
                 then
                     ()
                 else
-                    ctx.Diagnostics.Add
-                        {
-                            Key = useKey
-                            Message = sprintf "Unresolved identifier: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(useKey, sprintf "Unresolved identifier: %s" name)
 
     /// True if `name` is a ctor reference in pattern position. F# spec treats
     /// uppercase-leading pattern idents as ctor references; we additionally
@@ -161,7 +168,9 @@ module NameResolutionScope =
         name.Length > 0
         && System.Char.IsUpper name.[0]
         && (ctx.Types.CtorIndex.ContainsKey name
-            || (ctx.Provider.TryLookupUnionCase name).IsSome)
+            // A bare RQA external case is not a ctor head in pattern position either
+            // (opens-overhaul-plan Gap 1) — only its qualified form is.
+            || resolvesAsBareExternalCase ctx name)
 
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
     /// bind nothing (Wildcard, Const, nullary ctors).
@@ -393,13 +402,7 @@ module NameResolutionScope =
                         then
                             ()
                         else
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = CstKeys.ofExpr e
-                                    Message = sprintf "Unresolved qualified name: %s" qualName
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
+                            ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
 
                 if not (tryLocalModuleMember ()) then
                     resolveQualifiedExternal ()
@@ -409,19 +412,40 @@ module NameResolutionScope =
             // `(+)` and friends used as a value resolve through the provider in
             // Unification (no local binding), so not an unresolved-name error.
             ()
+        | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
+            // `A.B.(+)` — a qualified operator reference. Translate the operator
+            // segment to its compiled name (`(+)` → `op_Addition`) and route the
+            // resulting `A.B.op_Addition` through the same `tryResolve` machinery a
+            // value long-ident uses; the resolved key is stamped for Freeze, exactly
+            // as the multi-segment `LongIdent` arm does (opens-overhaul-plan Gap 4).
+            // The bare-operator form already resolves via the prelude; only the
+            // qualified form needs this translation.
+            match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
+            | ValueSome qualName ->
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
+                | ValueSome sym -> ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
+                | ValueNone -> ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
+            | ValueNone ->
+                // A non-symbolic op segment (active-pattern / nil / range) has no
+                // `op_` member to qualify — keep surfacing the gap.
+                ctx.Error(
+                    CstKeys.ofExpr e,
+                    sprintf
+                        "Operator-form qualified names not yet resolved (starting at '%s')"
+                        (ctx.NameOf li.Idents.[0])
+                )
         | Expr.LongIdentOrOp lio ->
-            // TODO: operator-form long idents (`A.(+)`, `(*)`) need their own
-            // resolution story. Surface the gap rather than silently skipping.
+            // TODO: remaining operator-form long idents (a bare non-symbolic
+            // `LongIdentOrOp.Op`, e.g. an active-pattern or nil op-name used as a
+            // value) need their own resolution story. Surface the gap rather than
+            // silently skipping.
             let firstTok = CstKeys.firstTokenOfLongIdentOrOp lio
             let displayName = ctx.NameOf firstTok
 
-            ctx.Diagnostics.Add
-                {
-                    Key = CstKeys.ofExpr e
-                    Message = sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            ctx.Error(
+                CstKeys.ofExpr e,
+                sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
+            )
         | Expr.TypeApp(expr = receiver; types = types) ->
             // The receiver's arity (its type-arg count) lives on this node, not on
             // the receiver's own visit. Resolve receiver+arity together so a generic

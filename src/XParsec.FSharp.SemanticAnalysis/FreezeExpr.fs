@@ -659,6 +659,13 @@ module internal FreezeExpr =
                     match Desugar.symbolicOpCompiledName op.Token with
                     | ValueSome n -> n
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
+                // `A.B.(+)` — qualified operator form (opens-overhaul-plan Gap 4):
+                // carry the same `A.B.op_Addition` key NameResolution resolved and
+                // the provider keys on.
+                | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
+                    match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
+                    | ValueSome n -> n
+                    | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
             // An own-class static-operator member used by value (`Set.(+)`) resolves
