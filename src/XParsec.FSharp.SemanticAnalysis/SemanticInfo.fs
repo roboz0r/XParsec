@@ -434,7 +434,11 @@ type SemType =
     /// (bottom). Unions enter the graph only at annotation sites — inference never
     /// synthesises one (the principality rule); membership/assignability lives in
     /// the directional `subsumes` layer, never in symmetric `unify`.
-    | TyOr of members: EqArray<SemType>
+    ///
+    /// The payload is a private-ctor `UnionMembers`, so the canonical-set form is
+    /// type-enforced: the raw case cannot be built with an arbitrary `EqArray`.
+    /// `SemType.MkUnion` (aliased as `mkUnion`) is the sole producer.
+    | TyOr of members: UnionMembers
     /// A nominal reference that resolved to no in-scope type shape during extraction.
     /// It never unifies with anything; Unification reports it at the use site and
     /// recovers, so one broken contract head doesn't cascade. Distinct from
@@ -458,6 +462,149 @@ type SemType =
     /// (the single index-minting point, Edge A) and only Codegen + post-freeze
     /// walks read it.
     | TyTypar of axis: TyparAxis * index: int
+
+    /// A total structural order over `SemType`, used **only** to canonicalise
+    /// anonymous-union (`TyOr`) members so `string | int` and `int | string`
+    /// freeze and unify to the same value. Deterministic by structure — nominal
+    /// types ordered by home assembly + qualified name — and pointedly NOT by
+    /// `TyVar` identity: v1 unions are annotation-driven over ground members, so a
+    /// `TyVar` never reaches here; were one to (v2 union inference) it orders equal
+    /// to every other var, keeping the sort total without inventing a
+    /// non-deterministic identity order. Distinctness is the dedup's job
+    /// (structural `=`), not the comparator's, so two members that order equal are
+    /// still both kept. Lives here (not `SemTypeOps`) so `UnionMembers`' sorting
+    /// constructor can reach it; the `SymbolKey` ordering is inlined to stay
+    /// ahead of `SymbolKeyOps`.
+    static member Compare (a: SemType) (b: SemType) : int =
+        let tag t =
+            match t with
+            | TyVar _ -> 0
+            | TyConst _ -> 1
+            | TyFun _ -> 2
+            | TyTuple _ -> 3
+            | TyRecord _ -> 4
+            | TyUnion _ -> 5
+            | TyClass _ -> 6
+            | TyOr _ -> 7
+            | TyUnknown _ -> 8
+            | TyTypar _ -> 9
+
+        let axisTag =
+            function
+            | TyparAxis.Declaring -> 0
+            | TyparAxis.Method -> 1
+
+        let cmpMany (xs: EqArray<SemType>) (ys: EqArray<SemType>) =
+            let mutable r = 0
+            let mutable i = 0
+            let n = min xs.Length ys.Length
+
+            while r = 0 && i < n do
+                r <- SemType.Compare xs.[i] ys.[i]
+                i <- i + 1
+
+            if r <> 0 then r else compare xs.Length ys.Length
+
+        // Self-contained `SymbolKey` ordering — the `SymbolKeyOps.keyAsm` /
+        // `qualifiedName` projections inlined so `Compare` needs nothing compiled
+        // after this type (it runs inside `UnionMembers`' constructor).
+        let keyAsm k =
+            let rec go k =
+                match k with
+                | SymbolKey.TypeKey(asm, _, _)
+                | SymbolKey.ValueKey(asm, _, _) -> asm
+                | SymbolKey.MemberKey(decl, _, _, _) -> go decl
+
+            go k
+
+        let qualifiedName k =
+            match k with
+            | SymbolKey.TypeKey(_, ns, n)
+            | SymbolKey.ValueKey(_, ns, n) -> if ns = "" then n else ns + "." + n
+            | SymbolKey.MemberKey(_, n, _, _) -> n
+
+        let nominalKey k = struct (keyAsm k, qualifiedName k)
+
+        match a, b with
+        | TyVar _, TyVar _ -> 0
+        | TyConst(n1, a1), TyConst(n2, a2) ->
+            let r = compare n1 n2
+            if r <> 0 then r else cmpMany a1 a2
+        | TyFun(a1, r1), TyFun(a2, r2) ->
+            let r = SemType.Compare a1 a2
+            if r <> 0 then r else SemType.Compare r1 r2
+        | TyTuple xs, TyTuple ys -> cmpMany xs ys
+        | TyRecord(k1, a1), TyRecord(k2, a2)
+        | TyUnion(k1, a1), TyUnion(k2, a2)
+        | TyClass(k1, a1), TyClass(k2, a2) ->
+            let r = compare (nominalKey k1) (nominalKey k2)
+            if r <> 0 then r else cmpMany a1 a2
+        | TyOr m1, TyOr m2 -> cmpMany m1.Members m2.Members
+        | TyUnknown n1, TyUnknown n2 -> compare n1 n2
+        | TyTypar(ax1, i1), TyTypar(ax2, i2) ->
+            let r = compare (axisTag ax1) (axisTag ax2)
+            if r <> 0 then r else compare i1 i2
+        // Different cases — order by case tag.
+        | _ -> compare (tag a) (tag b)
+
+    /// The smart constructor for anonymous (structural) unions — the ONLY
+    /// sanctioned producer of `TyOr` (aliased as `mkUnion` in `SemTypeOps`).
+    /// `UnionMembers.OfSeq` owns flatten / dedup / sort; `MkUnion` adds the
+    /// SemType-level **collapse**: a one-member set is the bare member, never a
+    /// degenerate `TyOr`. `MkUnion []` is `TyOr (empty)` = `never` (bottom).
+    static member MkUnion(members: SemType seq) : SemType =
+        let canonical = UnionMembers.OfSeq members
+
+        if canonical.Members.Length = 1 then
+            canonical.Members.[0]
+        else
+            TyOr canonical
+
+/// The canonical member set of an anonymous union (`SemType.TyOr`): an
+/// order-insensitive, deduped, flattened collection held sorted by
+/// `SemType.Compare`. Private constructor — the only way in is `OfSeq`, so an
+/// un-canonical `UnionMembers` cannot exist; this is what makes the canonical
+/// form a *type-enforced* invariant rather than a `mkUnion`-only convention.
+/// Collapse to a single member lives one level up in `SemType.MkUnion` (a
+/// one-member set is a `SemType`, not a `UnionMembers`).
+and [<Sealed>] UnionMembers private (members: EqArray<SemType>) =
+    /// The canonical (flattened / deduped / sorted) member vector. A genuine
+    /// union has ≥ 2 here; `OfSeq` may yield 0 (never) or 1 (which `MkUnion`
+    /// collapses before it ever becomes a `TyOr`).
+    member _.Members: EqArray<SemType> = members
+
+    /// Canonicalise an arbitrary member sequence: splice nested unions, drop
+    /// structural duplicates, sort by `SemType.Compare`. The sole normaliser.
+    static member OfSeq(xs: SemType seq) : UnionMembers =
+        let acc = ResizeArray<SemType>()
+
+        let rec add (t: SemType) =
+            match t with
+            | TyOr ms -> EqArray.iter add ms.Members
+            | _ ->
+                if not (acc.Contains t) then
+                    acc.Add t
+
+        for x in xs do
+            add x
+
+        acc.Sort(System.Comparison<SemType>(SemType.Compare))
+        UnionMembers(EqArray.ofResizeArray acc)
+
+    /// Map each member, then re-canonicalise — the single home for the
+    /// rebuild-and-recanonicalise pattern. Resolving / substituting / remapping a
+    /// member can collapse the set (`'T | string` with `'T := string` → `string`)
+    /// or reorder it, so the result routes back through `MkUnion` and is a
+    /// `SemType` (a post-map collapse is a bare member, not a `UnionMembers`).
+    member _.Map(f: SemType -> SemType) : SemType =
+        SemType.MkUnion(seq { for m in members -> f m })
+
+    override _.Equals(other) =
+        match other with
+        | :? UnionMembers as o -> members = o.Members
+        | _ -> false
+
+    override _.GetHashCode() = hash members
 
 /// Abelian-group expression over named unit atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero
@@ -670,7 +817,7 @@ module FrozenTypeBridge =
         | TyRecord(key, args) -> FTRecord(key, EqArray.map toFrozen args)
         | TyUnion(key, args) -> FTUnion(key, EqArray.map toFrozen args)
         | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
-        | TyOr members -> FTOr(EqArray.map toFrozen members)
+        | TyOr members -> FTOr(EqArray.map toFrozen members.Members)
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
@@ -693,7 +840,9 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
         | FTClass(key, args) -> TyClass(key, EqArray.map go args)
-        | FTOr members -> TyOr(EqArray.map go members)
+        // Build through `MkUnion`, not a raw `TyOr`: realising members can collapse
+        // the set (or it must re-sort), and `MkUnion` is the sole producer.
+        | FTOr members -> SemType.MkUnion(seq { for m in members -> go m })
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTUnknown name -> TyUnknown name

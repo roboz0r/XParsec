@@ -47,7 +47,7 @@ module UnificationEngine =
         // can collapse the set (`'T | string` with `'T := string` → `string | string`
         // → `string`) or reorder it, and only `mkUnion` re-establishes the canonical
         // (sorted/deduped/collapsed) form the equality layer's `n1 = n2` relies on.
-        | TyOr members -> mkUnion (seq { for m in members -> zonk m })
+        | TyOr members -> members.Map zonk
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
@@ -147,7 +147,7 @@ module UnificationEngine =
         | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
-        | TyOr members -> EqArray.exists (occursAndAdjust target) members
+        | TyOr members -> EqArray.exists (occursAndAdjust target) members.Members
         | TyUnknown _ -> false
         // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
         | TyTypar _ -> false
@@ -203,7 +203,7 @@ module UnificationEngine =
         | TyClass(n, args) -> TyClass(n, EqArray.map (substituteWith subst) args)
         // Through `mkUnion`: substituting a typar member can collapse / reorder the
         // set, so re-canonicalise rather than `EqArray.map` (see `zonk`).
-        | TyOr members -> mkUnion (seq { for m in members -> substituteWith subst m })
+        | TyOr members -> members.Map(substituteWith subst)
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
@@ -703,6 +703,11 @@ module UnificationEngine =
         | TyRecord(n, args) -> TyRecord(n, EqArray.map normalizeObj args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map normalizeObj args)
         | TyConst(n, args) -> TyConst(n, EqArray.map normalizeObj args)
+        // Rebuild through `mkUnion`: normalising a member to `obj` can collapse
+        // the set (`System.Object | obj` → `obj`), so re-canonicalise rather than
+        // a bare member map (see `zonk`). Reachable once external/provider
+        // signatures carry a `TyOr` (the TS symbol-provider plan).
+        | TyOr members -> members.Map normalizeObj
         | other -> other
 
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
@@ -735,7 +740,7 @@ module UnificationEngine =
         // (`int ≤ int | string`) is NOT handled here: it belongs to the directional
         // `subsumes` layer, never the symmetric core (the principality rule — this
         // arm never widens `int` into `int | string`).
-        | TyOr m1, TyOr m2 when m1.Length = m2.Length -> unifyArgs ctx key m1 m2
+        | TyOr m1, TyOr m2 when m1.Members.Length = m2.Members.Length -> unifyArgs ctx key m1.Members m2.Members
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -1056,7 +1061,7 @@ module UnificationEngine =
             // defer reduction used for tuple/record/union fields. (Stage 6's gate
             // exercises this; reachable only once the Stage 3 front door builds a
             // `TyOr`.)
-            reduceOutcome (checkConstraint ctx c) members
+            reduceOutcome (checkConstraint ctx c) members.Members
         | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
             // v1: tuples, functions, and reference records / unions /
             // classes are all reference types. An anonymous union erases to the
@@ -1135,7 +1140,7 @@ module UnificationEngine =
                 // An anonymous union supports a structural constraint iff every
                 // member does (`checkConstraint`'s all-members rule), so a still-free
                 // member carries the constraint forward.
-                for m in members do
+                for m in members.Members do
                     walk m
             | TyUnknown _ -> ()
             // A post-freeze typar leaf carries no free args.

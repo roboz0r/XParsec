@@ -62,7 +62,7 @@ module Inline =
                 for a in args do
                     go a
             | TyOr members ->
-                for m in members do
+                for m in members.Members do
                     go m
             | TyUnknown _ -> ()
             // TODO(frozen-type Phase 2): once `freeze` emits `TyTypar` for an
@@ -92,7 +92,7 @@ module Inline =
         | TyClass(n, args) -> TyClass(n, EqArray.map (substType subst) args)
         // Through `mkUnion`: substituting a typar member can collapse / reorder the
         // set, so re-canonicalise rather than `EqArray.map` (see `Engine.zonk`).
-        | TyOr members -> mkUnion (seq { for m in members -> substType subst m })
+        | TyOr members -> members.Map(substType subst)
         | TyUnknown _ -> t
         // TODO(frozen-type Phase 2): substitute by `(axis,index)` once inline
         // bindings carry `TyTypar`. Passthrough until then.
@@ -362,9 +362,11 @@ module Inline =
             | TyTuple xs
             | TyRecord(_, xs)
             | TyUnion(_, xs)
-            | TyClass(_, xs)
-            | TyOr xs ->
+            | TyClass(_, xs) ->
                 for x in xs do
+                    collect x
+            | TyOr members ->
+                for x in members.Members do
                     collect x
             | TyUnknown _
             | TyTypar _ -> ()
@@ -388,7 +390,7 @@ module Inline =
             | TyRecord(n, xs) -> TyRecord(n, EqArray.map toOpen xs)
             | TyUnion(n, xs) -> TyUnion(n, EqArray.map toOpen xs)
             | TyClass(n, xs) -> TyClass(n, EqArray.map toOpen xs)
-            | TyOr members -> TyOr(EqArray.map toOpen members)
+            | TyOr members -> members.Map toOpen
             | (TyUnknown _ | TyTypar _) as other -> other
 
         {

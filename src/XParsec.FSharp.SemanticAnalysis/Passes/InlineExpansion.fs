@@ -147,8 +147,8 @@ module InlineExpansion =
         | TyTuple xs -> EqArray.forall isGroundType xs
         | TyRecord(_, xs)
         | TyUnion(_, xs)
-        | TyClass(_, xs)
-        | TyOr xs -> EqArray.forall isGroundType xs
+        | TyClass(_, xs) -> EqArray.forall isGroundType xs
+        | TyOr members -> EqArray.forall isGroundType members.Members
         | TyUnknown _ -> false
         | TyTypar _ -> false
 

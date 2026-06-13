@@ -40,9 +40,11 @@ module ResolvedTypes =
                     go x
             | TyRecord(_, args)
             | TyUnion(_, args)
-            | TyClass(_, args)
-            | TyOr args ->
+            | TyClass(_, args) ->
                 for a in args do
+                    go a
+            | TyOr members ->
+                for a in members.Members do
                     go a
             | TyUnknown _ -> ()
             // Post-freeze leaf; this check runs pre-freeze and never sees it.

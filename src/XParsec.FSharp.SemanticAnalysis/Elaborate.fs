@@ -164,7 +164,7 @@ module Elaborate =
             | TyRecord(n, args) -> TyRecord(n, EqArray.map go args)
             | TyUnion(n, args) -> TyUnion(n, EqArray.map go args)
             | TyClass(n, args) -> TyClass(n, EqArray.map go args)
-            | TyOr members -> TyOr(EqArray.map go members)
+            | TyOr members -> members.Map go
             | TyUnknown _ -> t
             // Already-frozen leaf (task #2 will make this remap produce it).
             | TyTypar _ -> t
@@ -232,9 +232,11 @@ module Elaborate =
             | TyTuple args
             | TyRecord(_, args)
             | TyUnion(_, args)
-            | TyClass(_, args)
-            | TyOr args ->
+            | TyClass(_, args) ->
                 for a in args do
+                    go a
+            | TyOr members ->
+                for a in members.Members do
                     go a
             | TyFun(a, b) ->
                 go a

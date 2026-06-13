@@ -17,6 +17,13 @@ let private tInt = tc "int"
 let private tString = tc "string"
 let private tBool = tc "bool"
 
+// A raw, pre-resolution union: `UnionMembers.OfSeq` sorts/dedups but (unlike
+// `mkUnion`) does NOT collapse, so a 2-member set holding an unresolved `TyVar`
+// stays a `TyOr` — the only way to hand `zonk` a union to resolve, since `mkUnion`
+// is fed ground members in canonical use. The raw DU ctor is private, so this is
+// the sole construction path; that privacy is the Stage-3a invariant.
+let private rawOr (xs: SemType list) : SemType = TyOr(UnionMembers.OfSeq xs)
+
 [<Tests>]
 let tests =
     testList
@@ -26,7 +33,11 @@ let tests =
                 Expect.equal (mkUnion [ tInt ]) tInt "TyOr [A] ≡ A"
             }
 
-            test "empty is never (TyOr [])" { Expect.equal (mkUnion []) (TyOr EqArray.empty) "mkUnion [] ≡ never" }
+            test "empty is never (TyOr [])" {
+                match mkUnion [] with
+                | TyOr ms -> Expect.equal ms.Members.Length 0 "mkUnion [] ≡ never (an empty TyOr)"
+                | other -> failtestf "expected an empty TyOr, got %A" other
+            }
 
             test "dedup: repeated members collapse" {
                 Expect.equal (mkUnion [ tInt; tInt ]) tInt "A | A ≡ A"
@@ -64,7 +75,7 @@ let tests =
 
             test "a genuine two-member union stays a TyOr" {
                 match mkUnion [ tInt; tString ] with
-                | TyOr ms -> Expect.equal ms.Length 2 "two distinct members ⇒ arity-2 TyOr"
+                | TyOr ms -> Expect.equal ms.Members.Length 2 "two distinct members ⇒ arity-2 TyOr"
                 | other -> failtestf "expected TyOr, got %A" other
             }
 
@@ -75,7 +86,7 @@ let tests =
                 let b = mkUnion [ tBool; tInt; tString ]
 
                 match a, b with
-                | TyOr ma, TyOr mb -> Expect.equal ma mb "identical canonical member vectors"
+                | TyOr ma, TyOr mb -> Expect.equal ma.Members mb.Members "identical canonical member vectors"
                 | _ -> failtest "both should be unions"
             }
 
@@ -88,14 +99,31 @@ let tests =
                 let tv = TypeVar()
                 tv.Link <- ValueSome tString
                 // `'a | string` with `'a ↦ string` — a raw pre-resolution union.
-                let u = TyOr(EqArray.ofList [ TyVar tv; tString ])
+                let u = rawOr [ TyVar tv; tString ]
                 Expect.equal (Unification.zonk u) tString "('a | string)[a:=string] ≡ string"
             }
 
             test "zonk keeps distinct resolved members and re-canonicalises" {
                 let tv = TypeVar()
                 tv.Link <- ValueSome tInt
-                let u = TyOr(EqArray.ofList [ TyVar tv; tString ])
+                let u = rawOr [ TyVar tv; tString ]
                 Expect.equal (Unification.zonk u) (mkUnion [ tInt; tString ]) "('a | string)[a:=int] ≡ int | string"
+            }
+
+            // Stage 3a: the canonical-set form is type-enforced, not convention.
+            // `UnionMembers`' constructor is private, so `OfSeq` is the only way to
+            // build one and it always normalises — a non-canonical `UnionMembers`
+            // cannot exist (the privacy is a compile-time guarantee; here we pin that
+            // the one public path canonicalises).
+            test "UnionMembers.OfSeq normalises regardless of input order" {
+                let a = UnionMembers.OfSeq [ tString; tInt ]
+                let b = UnionMembers.OfSeq [ tInt; tString ]
+                Expect.equal a b "OfSeq sorts to one canonical member set"
+                Expect.equal a.Members.Length 2 "two distinct members kept"
+
+                Expect.equal
+                    (UnionMembers.OfSeq [ tInt; tInt ]).Members.Length
+                    1
+                    "OfSeq dedups (collapse is mkUnion's job)"
             }
         ]

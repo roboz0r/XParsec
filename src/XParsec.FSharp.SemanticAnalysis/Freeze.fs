@@ -59,7 +59,7 @@ module Freeze =
             | TyRecord(k, args) -> FTRecord(k, EqArray.map go args)
             | TyUnion(k, args) -> FTUnion(k, EqArray.map go args)
             | TyClass(k, args) -> FTClass(k, EqArray.map go args)
-            | TyOr members -> FTOr(EqArray.map go members)
+            | TyOr members -> FTOr(EqArray.map go members.Members)
             | TyTypar(axis, i) -> FTTypar(axis, i)
             | TyUnknown n -> FTUnknown n
             // The un-ground-operator residue (see the doc comment); placeholder name
