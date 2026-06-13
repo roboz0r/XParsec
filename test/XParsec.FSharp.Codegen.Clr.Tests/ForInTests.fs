@@ -401,6 +401,39 @@ let forInTests =
                     "walks the enumerator then disposes it once before 'done'"
             }
 
+            // Gap 3 hybrid (codegen, end-to-end). A project-local source `Wrap`
+            // exposes a pattern `GetEnumerator()` that hands back an *external* (BCL)
+            // enumerator — `List<int>.Enumerator`, a `[<Struct>]` that is also
+            // `IDisposable`. The loop resolves the *local* `GetEnumerator` through
+            // `resolveInstanceMember` but mints the external enumerator's `MoveNext` /
+            // `Current` / `Dispose` via `ExternalMemberRefOn`. Because the enumerator
+            // is a struct it walks by address; because it's `IDisposable` it disposes
+            // through `constrained. <Enumerator>` in the `finally`. Running to `done`
+            // proves the hybrid resolution and the by-address walk advance correctly.
+            test "for-in over a user source whose GetEnumerator returns a BCL struct enumerator walks it" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Wrap(xs: System.Collections.Generic.List<int>) ="
+                            "    member _.GetEnumerator() = xs.GetEnumerator()"
+                            "let xs = new System.Collections.Generic.List<int>(System.Linq.Enumerable.Range(1, 3))"
+                            "for x in Wrap(xs) do"
+                            "    printfn \"%d\" x"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "UserSourceExternalEnum" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "1\n2\n3\ndone"
+                    "walks the external struct enumerator in order"
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

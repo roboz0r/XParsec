@@ -17,6 +17,117 @@ open UnificationInferDispatch
 
 module internal UnificationInferControlFlow =
 
+    /// The resolved members of an *external* duck-typed enumerator `E` — the shared
+    /// result of probing `E`'s `ExternalClassShape` for `MoveNext(): bool` and a
+    /// `Current` property. Both `Pattern` forms with an external `E` (external source
+    /// and project-local source) wrap this identically as
+    /// `ForInEnumMembers.External`; only the `ForInGetEnum` axis differs. `Disposable`
+    /// is `true` iff `E : IDisposable`.
+    type private ExternalEnumProbe =
+        {
+            ElemTy: SemType
+            MoveNext: SymbolKey
+            Current: SymbolKey
+            IsValueType: bool
+            Disposable: bool
+        }
+
+    /// Probe an external enumerator shape `E` for the duck-typed `for … in` members:
+    /// a parameterless `MoveNext(): bool` and a `Current` property, with `enumArgs`
+    /// being `E`'s own instantiation. `ValueNone` unless both are present and
+    /// `MoveNext` returns `bool`.
+    let private probeExternalEnumerator
+        (enumShape: ExternalClassShape)
+        (enumArgs: SemType[])
+        : ExternalEnumProbe voption =
+        let moveNext =
+            enumShape.Members
+            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsProperty)
+
+        let current =
+            enumShape.Members
+            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsProperty)
+
+        match moveNext, current with
+        | Some mn, Some cur ->
+            match ExternalSymbols.openSignature mn enumArgs with
+            | TyFun(_, TyConst("bool", _)) ->
+                // F# parity: the `finally` exists only when `E : IDisposable`. Disposal
+                // is always the `System.IDisposable::Dispose` interface slot (codegen
+                // mints it), so only the bool matters here, not a member key. (For the
+                // future non-`IDisposable` ref-struct pattern-`Dispose()` case, see the
+                // TODO on the local-enumerator branch of `tryLocalDuckTypedEnumerator`.)
+                let disposable =
+                    ExternalSymbols.instantiateInterfaces enumShape enumArgs
+                    |> Array.exists (fun (n, _) -> n = "System.IDisposable")
+
+                ValueSome
+                    {
+                        ElemTy = ExternalSymbols.openSignature cur enumArgs
+                        MoveNext = mn.Key
+                        Current = cur.Key
+                        IsValueType = enumShape.Flags.IsValueType
+                        Disposable = disposable
+                    }
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The project-local analogue of `probeExternalEnumerator`: probe a *user* class
+    /// `E` for the duck-typed `for … in` members — a parameterless `MoveNext(): bool`
+    /// and a `Current` property — with `enumArgs` being `E`'s own instantiation.
+    /// Returns `(elemTy, isValueType, disposable)`; unlike the external probe it
+    /// carries no member keys (the local axis is `ForInEnumMembers.Local`, so codegen
+    /// resolves the members itself via `resolveInstanceMember`). `ValueNone` unless
+    /// both members are present and `MoveNext` returns `bool`.
+    let private probeLocalEnumerator
+        (enumInfo: ClassTypeInfo)
+        (enumArgs: EqArray<SemType>)
+        : (SemType * bool * bool) voption =
+        let inst (t: SemType) =
+            zonk (instantiateMember (enumInfo.TypeParams, enumArgs) t)
+
+        let moveNext =
+            enumInfo.Members
+            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && m.Kind = ClassMemberKind.Method)
+
+        let current =
+            enumInfo.Members
+            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.Kind = ClassMemberKind.Property)
+
+        match moveNext, current with
+        | Some mn, Some cur ->
+            match inst mn.Type with
+            | TyFun(_, TyConst("bool", _)) ->
+                // F# parity: a `finally` exists only when `E : IDisposable`. Scan the
+                // user enumerator's interface impls for `System.IDisposable`; codegen
+                // disposes through the interface slot regardless of where the member is
+                // stored.
+                //
+                // TODO (ref-struct pattern-Dispose): once a byref-like predicate exists
+                // (`SemType` has no ref-struct case today — see `InlineExpansion.fs` /
+                // `Regions.fs`), also dispose a *non-`IDisposable`* `[<IsByRefLike>]` `E`
+                // that exposes a public `Dispose()`, calling its own method (a ref struct
+                // can't be boxed to `IDisposable`). That mirrors the `use`-binder
+                // precedent `Infer.tryExternalDispose` (prefer the type's own `Dispose`,
+                // fall back to the interface slot) and would need the `Pattern`
+                // descriptor's `dispose` to carry *which* `Dispose` to call, not just a
+                // bool.
+                let disposable =
+                    enumInfo.InterfaceImpls
+                    |> Array.exists (fun impl ->
+                        match impl.Resolved with
+                        | ValueSome resolved ->
+                            match inst resolved with
+                            | TyClass(ifaceKey, _) -> SymbolKeyOps.qualifiedName ifaceKey = "System.IDisposable"
+                            | _ -> false
+                        | ValueNone -> false
+                    )
+
+                // `Current`'s instantiated type is the loop element type.
+                ValueSome(instantiateMember (enumInfo.TypeParams, enumArgs) cur.Type, enumInfo.IsValueType, disposable)
+            | _ -> ValueNone
+        | _ -> ValueNone
+
     let rec inferIfThenElse
         (infer: Infer)
         (ctx: PassContext)
@@ -121,9 +232,9 @@ module internal UnificationInferControlFlow =
     /// type `E` exposes `MoveNext(): bool` and a `Current` property — no
     /// `IEnumerable<'T>` required (`List<'T>` hands back its non-boxing
     /// `struct Enumerator` this way). Returns the element type (`Current`'s type)
-    /// and the resolved `DuckTyped` descriptor so codegen can pick value-receiver
-    /// emission. `srcArgs` are the source class's type arguments — the substitution
-    /// for `GetEnumerator`'s (and thereby `E`'s) typars.
+    /// and the resolved `Pattern` descriptor (both axes `External`) so codegen can
+    /// pick value-receiver emission. `srcArgs` are the source class's type arguments
+    /// — the substitution for `GetEnumerator`'s (and thereby `E`'s) typars.
     and tryDuckTypedEnumerator
         (ctx: PassContext)
         (shape: ExternalClassShape)
@@ -141,53 +252,20 @@ module internal UnificationInferControlFlow =
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
                 match ExternalSymbols.tryLookupType ctx.Provider enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
-                    let enumArgs = enumArgsEq.AsSpan().ToArray()
-
-                    let moveNext =
-                        enumShape.Members
-                        |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsProperty)
-
-                    let current =
-                        enumShape.Members
-                        |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsProperty)
-
-                    match moveNext, current with
-                    | Some mn, Some cur ->
-                        match ExternalSymbols.openSignature mn enumArgs with
-                        | TyFun(_, TyConst("bool", _)) ->
-                            let elemTy = ExternalSymbols.openSignature cur enumArgs
-
-                            // The enumerator only needs disposing — and the `finally`
-                            // region only exists — when it is `IDisposable` (C# parity).
-                            let dispose =
-                                if
-                                    ExternalSymbols.instantiateInterfaces enumShape enumArgs
-                                    |> Array.exists (fun (n, _) -> n = "System.IDisposable")
-                                then
-                                    ValueSome(
-                                        SymbolKey.MemberKey(
-                                            SymbolKey.TypeKey(None, "System", "IDisposable"),
-                                            "Dispose",
-                                            EqArray.empty,
-                                            MemberKind.Method
-                                        )
-                                    )
-                                else
-                                    ValueNone
-
-                            ValueSome(
-                                elemTy,
-                                ForInEnumeratorG.DuckTyped(
-                                    enumTy,
-                                    ge.Key,
-                                    mn.Key,
-                                    cur.Key,
-                                    enumShape.Flags.IsValueType,
-                                    dispose
-                                )
+                    match probeExternalEnumerator enumShape (enumArgsEq.AsSpan().ToArray()) with
+                    | ValueSome probe ->
+                        // External source, external `E`: both axes external.
+                        ValueSome(
+                            probe.ElemTy,
+                            ForInEnumeratorG.Pattern(
+                                enumTy,
+                                ForInGetEnum.External ge.Key,
+                                ForInEnumMembers.External(probe.MoveNext, probe.Current),
+                                probe.IsValueType,
+                                probe.Disposable
                             )
-                        | _ -> ValueNone
-                    | _ -> ValueNone
+                        )
+                    | ValueNone -> ValueNone
                 | _ -> ValueNone
             | _ -> ValueNone
 
@@ -197,10 +275,13 @@ module internal UnificationInferControlFlow =
     /// `MoveNext(): bool` and a `Current` property is a valid `for … in` source
     /// even without implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`,
     /// project-local). Handles a reference or value-type (`[<Struct>]`) user
-    /// enumerator — the latter walks by address (`constrained.`), no boxing. An
-    /// *external* enumerator type (codegen routes user members through the local
-    /// machinery only) still falls back to `ValueNone`, letting the interface probe
-    /// or the "not a supported enumerable" diagnostic take over.
+    /// enumerator — the latter walks by address (`ldloca` + a by-address `call`),
+    /// no boxing. When
+    /// the enumerator type `E` is instead *external* (a BCL `List<'T>.Enumerator`),
+    /// the Gap 3 hybrid kicks in: the local `GetEnumerator` is kept, but `E`'s
+    /// `MoveNext` / `Current` / `Dispose` are probed off its `ExternalClassShape`
+    /// and emitted via `ExternalMemberRefOn` — i.e. `Pattern` with a `Local`
+    /// `ForInGetEnum` and an `External` `ForInEnumMembers`.
     and tryLocalDuckTypedEnumerator
         (ctx: PassContext)
         (nameKey: SymbolKey)
@@ -221,51 +302,43 @@ module internal UnificationInferControlFlow =
                 | TyFun(_, (TyClass(enumKey, enumArgs) as enumTy)) ->
                     match TypeRegistry.tryClassByKey ctx.Types enumKey with
                     // A user enumerator, reference or value-type: a `[<Struct>]`
-                    // enumerator walks by address (`ldloca` + `constrained. <E>`),
-                    // the non-boxing path the value-receiver member-call IL already
-                    // emits for local struct members.
+                    // enumerator walks by address (`ldloca` + a by-address `call`), the
+                    // non-boxing path the value-receiver member-call IL already emits for
+                    // local struct members. Local source, local `E`: both axes
+                    // project-local.
                     | ValueSome enumInfo ->
-                        let moveNext =
-                            enumInfo.Members
-                            |> Array.tryFind (fun m ->
-                                m.Name = "MoveNext" && not m.IsStatic && m.Kind = ClassMemberKind.Method
+                        probeLocalEnumerator enumInfo enumArgs
+                        |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
+                            elemTy,
+                            ForInEnumeratorG.Pattern(
+                                enumTy,
+                                ForInGetEnum.Local,
+                                ForInEnumMembers.Local,
+                                isValueType,
+                                dispose
                             )
-
-                        let current =
-                            enumInfo.Members
-                            |> Array.tryFind (fun m ->
-                                m.Name = "Current" && not m.IsStatic && m.Kind = ClassMemberKind.Property
+                        )
+                    // Gap 3: `E` is not project-local — try the *external* enumerator
+                    // shape. `GetEnumerator` stays a local member; `MoveNext` /
+                    // `Current` / `Dispose` are read off `E`'s `ExternalClassShape`
+                    // (the §4.4 external-enumerator probe), and codegen mints them via
+                    // `ExternalMemberRefOn`. Local source, external `E`: a local
+                    // `GetEnumerator`, external enumerator members.
+                    | ValueNone ->
+                        match ExternalSymbols.tryLookupType ctx.Provider enumKey with
+                        | ValueSome(ExternalTypeShape.Class enumShape) ->
+                            probeExternalEnumerator enumShape (enumArgs.AsSpan().ToArray())
+                            |> ValueOption.map (fun probe ->
+                                probe.ElemTy,
+                                ForInEnumeratorG.Pattern(
+                                    enumTy,
+                                    ForInGetEnum.Local,
+                                    ForInEnumMembers.External(probe.MoveNext, probe.Current),
+                                    probe.IsValueType,
+                                    probe.Disposable
+                                )
                             )
-
-                        match moveNext, current with
-                        | Some mn, Some cur ->
-                            match zonk (instantiateMember (enumInfo.TypeParams, enumArgs) mn.Type) with
-                            | TyFun(_, TyConst("bool", _)) ->
-                                let elemTy = instantiateMember (enumInfo.TypeParams, enumArgs) cur.Type
-
-                                // C# parity: only a disposable enumerator gets a
-                                // `finally`. Scan the user enumerator's interface
-                                // impls for `System.IDisposable`; codegen disposes
-                                // through the interface slot regardless of where the
-                                // member is stored.
-                                let dispose =
-                                    enumInfo.InterfaceImpls
-                                    |> Array.exists (fun impl ->
-                                        match impl.Resolved with
-                                        | ValueSome resolved ->
-                                            match
-                                                zonk (instantiateMember (enumInfo.TypeParams, enumArgs) resolved)
-                                            with
-                                            | TyClass(ifaceKey, _) ->
-                                                SymbolKeyOps.qualifiedName ifaceKey = "System.IDisposable"
-                                            | _ -> false
-                                        | ValueNone -> false
-                                    )
-
-                                ValueSome(elemTy, ForInEnumeratorG.UserDuckTyped(enumTy, enumInfo.IsValueType, dispose))
-                            | _ -> ValueNone
                         | _ -> ValueNone
-                    | _ -> ValueNone
                 | _ -> ValueNone
             | None -> ValueNone
         | ValueNone -> ValueNone

@@ -53,50 +53,64 @@ type ModuleMemberInfo =
 /// alone. Defined here (ahead of `Tast.fs`
 /// in compile order) so both the `SideTables` side table and the `TExpr.ForIn`
 /// field can name it.
+/// How codegen resolves the `GetEnumerator` handle of a `Pattern` for-in source —
+/// one of the two independent axes of a duck-typed walk (the other is
+/// `ForInEnumMembers`).
+[<RequireQualifiedAccess>]
+type ForInGetEnum =
+    /// The source is *external* (a BCL type): codegen mints `GetEnumerator` via
+    /// `ExternalMemberRef` from this provider-interned key (its `unit → E` return
+    /// recovers the source instantiation).
+    | External of getEnumerator: SymbolKey
+    /// The source is a *project-local* class: codegen resolves `GetEnumerator`
+    /// through `EmitResolve.resolveInstanceMember` against the source expression's
+    /// type — no key needed.
+    | Local
+
+/// How codegen resolves the `MoveNext` / `Current` handles of a `Pattern`
+/// enumerator `E` — the second independent axis of a duck-typed walk. The element
+/// type comes from the loop pattern, so only the external dispatch keys (when `E`
+/// is external) are carried.
+[<RequireQualifiedAccess>]
+type ForInEnumMembers =
+    /// `E` is *external* (a BCL `List<'T>.Enumerator`): codegen mints both members
+    /// via `ExternalMemberRefOn` against `EnumeratorTy`'s instantiation (a T-free
+    /// `MoveNext(): bool` can't recover the declaring type, so it must be supplied).
+    | External of moveNext: SymbolKey * current: SymbolKey
+    /// `E` is a *project-local* `TypeDef`: codegen resolves both members through
+    /// `EmitResolve.resolveInstanceMember` against `EnumeratorTy`.
+    | Local
+
 [<RequireQualifiedAccess>]
 type ForInEnumeratorG<'ty> =
     /// The §4.2 interface path: lower through the `IEnumerable<'T>` /
     /// `IEnumerator<'T>` interface slots with `callvirt`. The default for the
     /// range form and for every source whose enumerable surface is (or includes)
-    /// the interface — the only path codegen emits today.
+    /// the interface.
     | Interface
-    /// The §4.4 duck-typed path: the source exposes a public parameterless
-    /// `GetEnumerator()` returning `EnumeratorTy`, which itself exposes
-    /// `MoveNext(): bool` and a `Current` property *without* the source
-    /// implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`). The member
-    /// `SymbolKey`s are the provider-interned identities (`GetEnumerator` on the
-    /// source; `MoveNext` / `Current` on `EnumeratorTy`). `IsValueType` is the
-    /// *enumerator*'s value-type-ness: it selects value-receiver emission for the
-    /// `EnumeratorTy` member calls (`ldloca` + `constrained.`/`call`); `Dispose` is
-    /// `ValueSome key` iff `EnumeratorTy : IDisposable`, else the `finally` is
-    /// elided. Codegen for this arm has landed (`EmitExpr.fs`, §4.4). Still scoped
-    /// to *external* sources with a *reference* source receiver — a value-type
-    /// source and project-local sources remain gaps (`docs/get-enumerator-gaps.md`).
-    | DuckTyped of
+    /// The §4.4 / Gap 2-3 *pattern* (duck-typed) path: the source exposes a public
+    /// parameterless `GetEnumerator()` returning a concrete enumerator `E`
+    /// (`EnumeratorTy`) that exposes `MoveNext(): bool` and a `Current` property
+    /// *without* the source implementing `IEnumerable<'T>` (C#'s non-boxing
+    /// `foreach`). `getEnumerator` and `members` carry, *independently*, how codegen
+    /// resolves the source's `GetEnumerator` and `E`'s members — external
+    /// (provider-interned keys) or project-local (`resolveInstanceMember`). The three
+    /// historically-distinct forms are now the valid combinations of those two axes:
+    /// external/external (a BCL source like `List<'T>`), local/external (a user
+    /// source whose `E` is a BCL enumerator), and local/local (a user source with a
+    /// user `E`); external/local is unrepresentable in practice (an external source
+    /// never hands back a project-local enumerator). `isValueType` is `E`'s
+    /// value-type-ness: it selects value-receiver emission (`ldloca` + a by-address
+    /// `call`, or `constrained.` for disposal) and the non-boxing struct walk.
+    /// `dispose` is `true` iff `E : IDisposable`; disposal is always the
+    /// `System.IDisposable::Dispose` interface slot codegen mints itself (so no key
+    /// is carried), else the `finally` is elided (C# parity).
+    | Pattern of
         enumeratorTy: 'ty *
-        getEnumerator: SymbolKey *
-        moveNext: SymbolKey *
-        current: SymbolKey *
+        getEnumerator: ForInGetEnum *
+        members: ForInEnumMembers *
         isValueType: bool *
-        dispose: SymbolKey voption
-    /// The project-local analogue of `DuckTyped` (Gap 2, pure-pattern user
-    /// variant): the source is a *user-defined* class exposing a public
-    /// parameterless `GetEnumerator()` whose return type `EnumeratorTy` is itself a
-    /// project-local class exposing `MoveNext(): bool` and a `Current` property,
-    /// *without* implementing `IEnumerable<'T>`. Unlike `DuckTyped`, every member
-    /// (`GetEnumerator` on the source, `MoveNext` / `Current` on `EnumeratorTy`)
-    /// lives on a user `TypeDef`, so codegen resolves them through the
-    /// project-local member machinery (`EmitResolve.resolveInstanceMember`) rather
-    /// than `ExternalMemberRef`. The element type is the loop pattern's type, so no
-    /// member keys are carried. `dispose` is `true` iff `EnumeratorTy :
-    /// IDisposable` — codegen then null-checks + `callvirt`s `System.IDisposable::
-    /// Dispose` in a `finally` (the interface slot dispatches to the user impl);
-    /// `false` elides the `finally` (C# parity for a non-disposable enumerator).
-    /// `isValueType` is the *enumerator*'s value-type-ness: it selects
-    /// value-receiver emission (`ldloca` + `constrained. <E>`) for the `EnumeratorTy`
-    /// member calls and a non-boxing struct walk (Gap 2 value-type variant), exactly
-    /// as `DuckTyped.isValueType` does for an external enumerator.
-    | UserDuckTyped of enumeratorTy: 'ty * isValueType: bool * dispose: bool
+        dispose: bool
 
 /// The `SemType`-domain `ForInEnumerator` (inference + `SideTables.ForInShape` +
 /// the pre-freeze `TExpr.ForIn`). The frozen alias lives in `Tast.fs`'s `Frozen`

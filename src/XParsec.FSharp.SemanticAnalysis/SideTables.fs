@@ -855,7 +855,7 @@ type PassContextResolution =
         /// its enumerator. Recorded by `Unification.inferForIn` and read by `Freeze`
         /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`
         /// (range sources and the §4.2 interface path); present with
-        /// `ForInEnumerator.DuckTyped` for a source exposing only a pattern-based
+        /// `ForInEnumerator.Pattern` for a source exposing only a pattern-based
         /// `GetEnumerator()`.
         ForInShape: SideTable<ForInEnumerator>
         /// Keyed by a *type-reference* `NodeKey`: the project-local `SymbolKey`

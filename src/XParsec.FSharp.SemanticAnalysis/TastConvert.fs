@@ -44,9 +44,10 @@ module TastConvert =
     let forInEnumerator (f: 'a -> 'b) (en: ForInEnumeratorG<'a>) : ForInEnumeratorG<'b> =
         match en with
         | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
-        | ForInEnumeratorG.DuckTyped(enumTy, ge, mn, cur, isVal, disp) ->
-            ForInEnumeratorG.DuckTyped(f enumTy, ge, mn, cur, isVal, disp)
-        | ForInEnumeratorG.UserDuckTyped(enumTy, isVal, disp) -> ForInEnumeratorG.UserDuckTyped(f enumTy, isVal, disp)
+        // `getEnumerator` / `members` carry only `SymbolKey`s (no `'ty`), so only the
+        // enumerator type is remapped through `f`.
+        | ForInEnumeratorG.Pattern(enumTy, ge, members, isVal, disp) ->
+            ForInEnumeratorG.Pattern(f enumTy, ge, members, isVal, disp)
 
     let rec expr (f: 'a -> 'b) (e: TExprG<'a>) : TExprG<'b> =
         let pe = expr f
