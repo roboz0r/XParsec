@@ -230,6 +230,79 @@ let forInTests =
                     "for-in folds the three elements with the shift body"
             }
 
+            // Gap 2 pure-pattern user variant (front end). A project-local source
+            // class exposing only a pattern `GetEnumerator()` — no
+            // `IEnumerable<'T>` — whose enumerator `E` is itself a user class with
+            // `MoveNext(): bool` and a `Current` property. The duck-typed probe
+            // (`tryLocalDuckTypedEnumerator`) resolves the loop through the *user*
+            // member tables; before this gap closed it diagnosed "source is not a
+            // supported enumerable".
+            test "for-in over a user duck-typed source (pattern GetEnumerator, no interface) type-checks" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Enum ="
+                            "    val mutable Cur : int"
+                            "    val Stop : int"
+                            "    new(stop: int) = { Cur = 0; Stop = stop }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Cur <- this.Cur + 1"
+                            "        this.Cur <= this.Stop"
+                            "    member this.Current : int = this.Cur"
+                            "type Counter(stop: int) ="
+                            "    member _.GetEnumerator() : Enum = Enum(stop)"
+                            "let f (c: Counter) ="
+                            "    for x in c do"
+                            "        printfn \"%d\" x"
+                        ]
+
+                let provider = SymbolProviders.buildContract defaultManifests
+                let lexed, file = parseFile src
+                let tast = Pipeline.analyseSem provider src lexed file
+
+                let errors =
+                    tast.Diagnostics
+                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                    |> Seq.toList
+
+                Expect.isEmpty errors (sprintf "user duck-typed for-in should type-check; got %A" errors)
+            }
+
+            // Gap 2 pure-pattern user variant (codegen). The same shape, run
+            // end-to-end: the three handles (`GetEnumerator` on the source,
+            // `MoveNext` / `Current` on the user enumerator `E`) resolve through
+            // `EmitResolve.resolveInstanceMember` and `callvirt` the user
+            // `TypeDef`'s slots. Asserting on stdout proves the loop walks `E` and
+            // terminates.
+            test "for-in over a user duck-typed source walks its user enumerator and prints the elements" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Enum ="
+                            "    val mutable Cur : int"
+                            "    val Stop : int"
+                            "    new(stop: int) = { Cur = 0; Stop = stop }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Cur <- this.Cur + 1"
+                            "        this.Cur <= this.Stop"
+                            "    member this.Current : int = this.Cur"
+                            "type Counter(stop: int) ="
+                            "    member _.GetEnumerator() : Enum = Enum(stop)"
+                            "let c = Counter(3)"
+                            "for x in c do"
+                            "    printfn \"%d\" x"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "UserDuckTyped" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the user enumerator in order"
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

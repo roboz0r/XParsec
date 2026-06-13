@@ -191,6 +191,63 @@ module internal UnificationInferControlFlow =
                 | _ -> ValueNone
             | _ -> ValueNone
 
+    /// Gap 2 pure-pattern variant: the project-local analogue of
+    /// `tryDuckTypedEnumerator`. A user class exposing a parameterless
+    /// `GetEnumerator()` whose return type `E` is *itself* a user class with
+    /// `MoveNext(): bool` and a `Current` property is a valid `for … in` source
+    /// even without implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`,
+    /// project-local). Scoped to a **reference** enumerator with no `IDisposable`:
+    /// a value-type user enumerator (no value-receiver member-call IL for user
+    /// types yet) or an external enumerator type (codegen routes user members
+    /// through the local machinery only) falls back to `ValueNone`, letting the
+    /// interface probe or the "not a supported enumerable" diagnostic take over.
+    and tryLocalDuckTypedEnumerator
+        (ctx: PassContext)
+        (nameKey: SymbolKey)
+        (args: EqArray<SemType>)
+        : (SemType * ForInEnumerator) voption =
+        match TypeRegistry.tryClassByKey ctx.Types nameKey with
+        | ValueSome info ->
+            match
+                info.Members
+                |> Array.tryFind (fun m ->
+                    m.Name = "GetEnumerator" && not m.IsStatic && m.Kind = ClassMemberKind.Method
+                )
+            with
+            | Some ge ->
+                // `GetEnumerator : unit → E`; instantiate the source's typars so `E`
+                // carries the use-site element type.
+                match zonk (instantiateMember (info.TypeParams, args) ge.Type) with
+                | TyFun(_, (TyClass(enumKey, enumArgs) as enumTy)) ->
+                    match TypeRegistry.tryClassByKey ctx.Types enumKey with
+                    // A reference user enumerator only — value-type member-call IL
+                    // for project-local types is a separate gap.
+                    | ValueSome enumInfo when not enumInfo.IsValueType ->
+                        let moveNext =
+                            enumInfo.Members
+                            |> Array.tryFind (fun m ->
+                                m.Name = "MoveNext" && not m.IsStatic && m.Kind = ClassMemberKind.Method
+                            )
+
+                        let current =
+                            enumInfo.Members
+                            |> Array.tryFind (fun m ->
+                                m.Name = "Current" && not m.IsStatic && m.Kind = ClassMemberKind.Property
+                            )
+
+                        match moveNext, current with
+                        | Some mn, Some cur ->
+                            match zonk (instantiateMember (enumInfo.TypeParams, enumArgs) mn.Type) with
+                            | TyFun(_, TyConst("bool", _)) ->
+                                let elemTy = instantiateMember (enumInfo.TypeParams, enumArgs) cur.Type
+                                ValueSome(elemTy, ForInEnumeratorG.UserDuckTyped enumTy)
+                            | _ -> ValueNone
+                        | _ -> ValueNone
+                    | _ -> ValueNone
+                | _ -> ValueNone
+            | None -> ValueNone
+        | ValueNone -> ValueNone
+
     and tryLocalInterfaceEnumerator
         (ctx: PassContext)
         (nameKey: SymbolKey)
@@ -253,8 +310,13 @@ module internal UnificationInferControlFlow =
                     | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone
             // A project-local source is invisible to the external provider; fall
-            // back to the user-interface probe (Gap 2 interface variant).
-            | _ -> tryLocalInterfaceEnumerator ctx nameKey args
+            // back to the user probes. C# precedence: a pattern `GetEnumerator()`
+            // (Gap 2 pure-pattern variant) wins over the `IEnumerable<'T>`
+            // interface (Gap 2 interface variant).
+            | _ ->
+                match tryLocalDuckTypedEnumerator ctx nameKey args with
+                | ValueSome r -> ValueSome r
+                | ValueNone -> tryLocalInterfaceEnumerator ctx nameKey args
         | _ -> ValueNone
 
     and inferForIn

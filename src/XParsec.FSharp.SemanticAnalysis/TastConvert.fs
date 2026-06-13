@@ -46,6 +46,7 @@ module TastConvert =
         | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
         | ForInEnumeratorG.DuckTyped(enumTy, ge, mn, cur, isVal, disp) ->
             ForInEnumeratorG.DuckTyped(f enumTy, ge, mn, cur, isVal, disp)
+        | ForInEnumeratorG.UserDuckTyped enumTy -> ForInEnumeratorG.UserDuckTyped(f enumTy)
 
     let rec expr (f: 'a -> 'b) (e: TExprG<'a>) : TExprG<'b> =
         let pe = expr f

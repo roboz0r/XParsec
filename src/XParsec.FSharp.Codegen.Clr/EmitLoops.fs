@@ -207,6 +207,38 @@ module EmitLoops =
                 pat
                 source
                 body
+        | TExprG.ForIn(pat, source, body, ForInEnumeratorG.UserDuckTyped enumeratorTy, _) ->
+            let elemTy = typeOfPat pat
+            // Gap 2 pure-pattern user variant: a project-local source class with a
+            // pattern `GetEnumerator()` whose enumerator `E` is itself a user class
+            // exposing `MoveNext(): bool` / `Current` (no `IEnumerable<'T>`). Every
+            // member lives on a user `TypeDef`, so — unlike the external §4.4 arm —
+            // the three handles come from the project-local member machinery
+            // (`resolveInstanceMember`, which routes a generic receiver through a
+            // `UserGenericMemberRef`/`TypeSpec`). The probe scoped this to a
+            // *reference* enumerator with no `IDisposable`, so the loop walks by
+            // value with no `try`/`finally` (matching the shared emitter's
+            // reference-no-dispose shape).
+            let geHandle, _ = resolveInstanceMember env (typeOfExpr source) "GetEnumerator"
+            let mnHandle, _ = resolveInstanceMember env enumeratorTy "MoveNext"
+            let curHandle, _ = resolveInstanceMember env enumeratorTy "Current"
+
+            emitEnumeratorLoop
+                recur
+                env
+                b
+                {
+                    ElemTy = elemTy
+                    EnumeratorTy = enumeratorTy
+                    GetEnumerator = geHandle
+                    MoveNext = mnHandle
+                    Current = curHandle
+                    IsValueType = false
+                    Dispose = ValueNone
+                }
+                pat
+                source
+                body
         | TExprG.ForIn(pat, source, body, _, _) ->
             let elemTy = typeOfPat pat
             // `for x in src do body` over an `IEnumerable<'T>` (B-6). Lowered to the standard enumerator

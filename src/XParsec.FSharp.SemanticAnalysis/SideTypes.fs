@@ -79,6 +79,19 @@ type ForInEnumeratorG<'ty> =
         current: SymbolKey *
         isValueType: bool *
         dispose: SymbolKey voption
+    /// The project-local analogue of `DuckTyped` (Gap 2, pure-pattern user
+    /// variant): the source is a *user-defined* class exposing a public
+    /// parameterless `GetEnumerator()` whose return type `EnumeratorTy` is itself a
+    /// project-local class exposing `MoveNext(): bool` and a `Current` property,
+    /// *without* implementing `IEnumerable<'T>`. Unlike `DuckTyped`, every member
+    /// (`GetEnumerator` on the source, `MoveNext` / `Current` on `EnumeratorTy`)
+    /// lives on a user `TypeDef`, so codegen resolves them through the
+    /// project-local member machinery (`EmitResolve.resolveInstanceMember`) rather
+    /// than `ExternalMemberRef`. The element type is the loop pattern's type, so no
+    /// member keys are carried. Scoped to a *reference* enumerator with no
+    /// `IDisposable` (no `finally`); a value-type user enumerator or a disposable
+    /// one falls back to `ValueNone` at the probe (`docs/get-enumerator-gaps.md`).
+    | UserDuckTyped of enumeratorTy: 'ty
 
 /// The `SemType`-domain `ForInEnumerator` (inference + `SideTables.ForInShape` +
 /// the pre-freeze `TExpr.ForIn`). The frozen alias lives in `Tast.fs`'s `Frozen`
