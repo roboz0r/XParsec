@@ -76,8 +76,10 @@ type SymbolKey =
     /// TODO (method overloading): `argSig` is currently a *lossy* string rendering
     /// — it only disambiguates overloads and is **never re-parsed** (see
     /// `MetadataSymbols.openTyparSig`), and project-local `MemberKey`s are minted
-    /// with it **empty** (`LocalSymbolKey.ofMember`) because locals have no
-    /// overload set yet. Resolving real overloads — externals *by argument-type
+    /// with placeholder contents (`LocalSymbolKey.ofMember` fills it with empty
+    /// strings) because locals have no overload set yet — only its *length* (the
+    /// member's value-parameter arity) carries meaning, read by codegen's external
+    /// member-ref param-flatten. Resolving real overloads — externals *by argument-type
     /// betterness*, and local overloaded members at all — needs argument-type
     /// *identity*, not a display string. A per-arg `EqArray<SymbolKey>` is the
     /// natural candidate (it would carry the full nominal identity of each

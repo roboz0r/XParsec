@@ -58,7 +58,12 @@ type UnionMember =
     /// case table). `methodTyparCount` > 0 ⇒ the member is itself a *generic
     /// method* (its own `'U` typars ride `!!i`); the member-ref must carry the
     /// `GENERIC` header and the call site a `MethodSpec` (mirrors `ClassMember.Member`).
-    | Member of metaName: string * isStatic: bool * methodTyparCount: int * paramTys: FrozenType list * retTy: FrozenType
+    | Member of
+        metaName: string *
+        isStatic: bool *
+        methodTyparCount: int *
+        paramTys: FrozenType list *
+        retTy: FrozenType
 
 /// Which member of an emitted *generic* closure a `GenericClosureMemberRef`
 /// resolves to. A generic closure is a real generic `TypeDefinition` (one
@@ -124,7 +129,12 @@ type ClassMember =
     /// member-ref carries the `GENERIC` calling-convention header, and the call
     /// site wraps the ref in a `MethodSpec` (the instance-method analogue of the
     /// generic-static-fn `MethodSpec`).
-    | Member of metaName: string * isStatic: bool * methodTyparCount: int * paramTys: FrozenType list * retTy: FrozenType
+    | Member of
+        metaName: string *
+        isStatic: bool *
+        methodTyparCount: int *
+        paramTys: FrozenType list *
+        retTy: FrozenType
 
 /// Discriminator across the user-emitted generic-type-member families
 /// (`UserGenericMemberRef`). Each variant wraps the family's specific
@@ -276,8 +286,7 @@ type ICodegenProvider =
     /// argument/result types (the same primitive the external member-ref path uses
     /// to recover a declaring instantiation).
     abstract RecoverOpenTypars:
-        declArity: int * methodArity: int * openT: FrozenType * instT: FrozenType ->
-            FrozenType list * FrozenType list
+        declArity: int * methodArity: int * openT: FrozenType * instT: FrozenType -> FrozenType list * FrozenType list
 
     /// Apply a function *value* of type `funcTy` to one argument —
     /// `Vesper.Fun\`2::Invoke` (R1). Receiver and argument are both already on the

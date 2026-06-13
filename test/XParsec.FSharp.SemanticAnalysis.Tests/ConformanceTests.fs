@@ -214,13 +214,22 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
         // (`System.Collections.Generic.List<'T>` / `IEnumerable<'T>`, list.fsi:126/135);
         // they alias the runtime BCL type directly, so there is no companion type
         // in `list.fs` (which defines only the cons-list `List<'T>`).
+        //
+        // `ListSeq` / `ListEnumerator` are the private enumerable-adapter helpers
+        // `list.fs`'s `List.toSeq` ships — a wrapper class over the cons-list plus a
+        // `[<Struct>]` cursor (mirroring `Set` / `SetIterator`) — deliberately not in
+        // the public `list.fsi` contract. They exist because interface impls on union
+        // types are not yet supported, so the enumerable surface rides the adapter
+        // rather than `List<'T>` itself (vesper-set-phase-9-handoff, `Set.ofList`).
         "Vesper.List",
         "list.fsi",
         "list.fs",
-        "ResizeArray/seq are BCL abbreviations",
+        "ResizeArray/seq are BCL abbreviations; ListSeq/ListEnumerator are private toSeq adapters",
         [
             Conformance.ConformanceError.MissingInImpl "ResizeArray"
             Conformance.ConformanceError.MissingInImpl "seq"
+            Conformance.ConformanceError.MissingInSig "ListEnumerator"
+            Conformance.ConformanceError.MissingInSig "ListSeq"
         ]
 
         // `SetTree` / `SetTreeNode` / `SetIterator` are the private AVL-tree

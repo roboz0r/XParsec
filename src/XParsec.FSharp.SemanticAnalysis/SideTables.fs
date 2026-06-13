@@ -27,14 +27,19 @@ module internal LocalSymbolKey =
         SymbolKey.TypeKey(asm, ns, SymbolKeyOps.arityName name arity)
 
     /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
-    /// type identified by `declKey`. `argSig` is
-    /// always empty: project-local members carry no overload set (overload
-    /// resolution is a separate future feature), so `(declKey, name)` is unique. The
-    /// local analogue of the external `MemberKey` minted by `MetadataSymbols` /
-    /// `VesperLib`; carried on the local member-call TAST nodes so codegen reads the
-    /// declaring type off `decl` instead of re-deriving it from a class-name string.
-    let ofMember (declKey: SymbolKey) (name: string) (kind: MemberKind) : SymbolKey =
-        SymbolKey.MemberKey(declKey, name, EqArray.empty, kind)
+    /// type identified by `declKey`, with `arity` value parameters. Project-local
+    /// members carry no overload set (overload resolution is a separate future
+    /// feature), so `(declKey, name)` is unique and the local resolution path ignores
+    /// `argSig`. But codegen's *external* member-ref param-flatten reads `argSig.Length`
+    /// to decide whether a `.NET`-tupled static member (`op_Addition(Set, Set)`) mints
+    /// N parameters or one `ValueTuple` — so a key that may target an external
+    /// declaring type (an SRTP `+`/`-` dispatch) must carry the real `arity`. The
+    /// `argSig` contents are placeholders; only the length is ever read. The local
+    /// analogue of the external `MemberKey` minted by `MetadataSymbols` / `VesperLib`;
+    /// carried on the local member-call TAST nodes so codegen reads the declaring type
+    /// off `decl` instead of re-deriving it from a class-name string.
+    let ofMember (declKey: SymbolKey) (name: string) (arity: int) (kind: MemberKind) : SymbolKey =
+        SymbolKey.MemberKey(declKey, name, EqArray.ofList (List.replicate arity ""), kind)
 
 // `ModuleMemberInfo` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 

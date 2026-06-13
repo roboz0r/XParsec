@@ -241,14 +241,10 @@ let tests =
             // `static member (+)` taken by value resolves to that member, so Freeze
             // eta-expands it to `fun a b -> V<_>.op_Addition(a, b)` — a `Lambda` whose
             // body is a `StaticMethodCall` keyed on the class's own `op_Addition` — not
-            // a bare `External`. (End-to-end the *runtime* row above covers the
-            // monomorphic case; a generic end-to-end run is blocked by two unrelated
-            // pre-existing codegen gaps — a static-method call on a generic class from
-            // a concrete context emits an open `!0` receiver, and a higher-order call
-            // with a closure argument from inside a member body returns its seed — so
-            // the generic case is pinned here at the TAST level, where this change
-            // lives. The emitted generic member-body closures verify clean under
-            // `ilverify`.)
+            // a bare `External`. This row pins the *front-end* shape; the generic
+            // end-to-end *runtime* run (once blocked by Outstanding-2 gaps A and B —
+            // both now closed) is gated by ClassTests
+            // "gapA+B: generic own-op List.fold inside a generic member body".
             yield
                 test "a generic own-class static-operator value froze to a Lambda calling op_Addition" {
                     // The default contract stack (not `MockBuiltins`) carries the

@@ -104,7 +104,7 @@ module internal FreezeExpr =
             let receiver = TExpr.Var(bindingSite, receiverTy)
 
             let key =
-                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName MemberKind.Property
+                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName 0 MemberKind.Property
 
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
         | Expr.App(
@@ -125,7 +125,7 @@ module internal FreezeExpr =
             mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty
         // `ClassName.X` — static property read (or method-as-value).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Property
+            let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
             TExpr.StaticPropertyGet(key, ty)
         | CtorRef ctx caseName ->
             // Bare or qualified ctor reference outside an App. v1 distinguishes
@@ -380,7 +380,7 @@ module internal FreezeExpr =
         // (`Set<'T>.Singleton value`) is `App`-wrapped and handled with the other
         // static-method arms.
         | TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Property) ->
-            let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Property
+            let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
             TExpr.StaticPropertyGet(key, ty)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
@@ -394,7 +394,7 @@ module internal FreezeExpr =
             | TyClass _
             | TyUnion _ ->
                 let key =
-                    LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName MemberKind.Property
+                    LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName 0 MemberKind.Property
 
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
             // `(expr).Length` on an intrinsic rank-1 array desugars to the core

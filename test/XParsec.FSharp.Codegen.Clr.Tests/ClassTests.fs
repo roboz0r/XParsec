@@ -729,6 +729,76 @@ let staticTests =
                 Expect.isTrue (staticCalls > 0) "`Box<'T>.Make x` (in Remake) lowered to a TExpr.StaticMethodCall"
                 Expect.isTrue (staticGets > 0) "`Box<'T>.Tag` (in MakeTagged) lowered to a TExpr.StaticPropertyGet"
             }
+
+            // Outstanding-2 gap A (vesper-set-phase-9-handoff): a static method on a
+            // *generic* class whose RESULT type does not surface the declaring
+            // instantiation, called from a concrete (non-declaring) context. The
+            // result-type fast path in `resolveStaticMember.instantiationFor` can't
+            // recover `'T=int` (the return is `int`), so it now structurally matches
+            // the member's open signature against the call's argument types
+            // (`RecoverOpenTypars`, declaring axis) to mint `Box\`1<int32>::Describe`.
+            // Previously emitted an open `Box\`1<!0>` ref → `BadImageFormatException`.
+            test "gapA: a generic class's static method recovers its instantiation from an arg" {
+                runs
+                    "9"
+                    (String.concat
+                        "\n"
+                        [
+                            "type Box<'T>(v: 'T) ="
+                            "    member this.V = v"
+                            "    static member Describe (x: 'T) : int = 9"
+                            "let r = Box<int>.Describe 5"
+                            "printfn \"%d\" r"
+                        ])
+            }
+
+            // Outstanding-2 gap B (vesper-set-phase-9-handoff): a higher-order call
+            // (`List.fold`) with a closure argument from inside a member body — the
+            // faithful `Set.Union` shape (ClosureTests "a mono own-class
+            // static-operator passed as a value" runs the *module-level* form). The
+            // own-class `static member (+)` taken by value eta-reifies to
+            // `fun a b -> V.op_Addition(a, b)`, a member-body closure; the gap report
+            // was that the fold returned its seed `V 0`. Now closed (the member-body
+            // closure discovery/capture work landed for Set.map/partition fixed it).
+            test "gapB: List.fold over an own-op closure inside a member body" {
+                runs
+                    "6"
+                    (String.concat
+                        "\n"
+                        [
+                            "type V(n: int) ="
+                            "    member x.N = n"
+                            "    static member (+) (a: V, b: V) = V(a.N + b.N)"
+                            "    member this.SumAll (xs: V list) : V = List.fold (+) (V 0) xs"
+                            "let xs = [ V 1; V 2; V 3 ]"
+                            "let v = V 0"
+                            "printfn \"%d\" ((v.SumAll xs).N)"
+                        ])
+            }
+
+            // The *generic* `Set.Union` shape end-to-end — the run ClosureTests
+            // (`a generic own-class static-operator value froze to a Lambda calling
+            // op_Addition`) could only pin at the TAST level, because it was blocked
+            // by BOTH gap A (static-method call on a generic class from a concrete
+            // context) and gap B (closure HOF in a member body). Both now closed, so
+            // the generic fold runs green: a generic member-body closure `call`s the
+            // class's own `op_Addition`, and the concrete `V<int>` ctor / fold seed
+            // resolve their instantiation.
+            test "gapA+B: generic own-op List.fold inside a generic member body runs end-to-end" {
+                runs
+                    "6"
+                    (String.concat
+                        "\n"
+                        [
+                            "type V<'T>(n: int) ="
+                            "    member x.N = n"
+                            "    static member (+) (a: V<'T>, b: V<'T>) = V<'T>(a.N + b.N)"
+                            "    member this.SumAll (xs: V<'T> list) : V<'T> = List.fold (+) (V<'T>(0)) xs"
+                            "let xs = [ V<int>(1); V<int>(2); V<int>(3) ]"
+                            "let v = V<int>(0)"
+                            "printfn \"%d\" ((v.SumAll xs).N)"
+                        ])
+            }
         ]
 
 [<Tests>]

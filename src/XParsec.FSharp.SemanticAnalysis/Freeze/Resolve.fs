@@ -353,7 +353,8 @@ module internal FreezeResolve =
                     paramTys
                     |> List.mapi (fun i pty -> NodeKey.ofSynthetic (key.Offset + i) NodeKind.SynthLambdaBody, pty)
 
-                let memberKey = LocalSymbolKey.ofMember declKey name MemberKind.Method
+                let memberKey =
+                    LocalSymbolKey.ofMember declKey name (List.length psKeyed) MemberKind.Method
 
                 let body =
                     TExpr.StaticMethodCall(
@@ -578,7 +579,7 @@ module internal FreezeResolve =
         (args: EqArray<TExpr>)
         (ty: SemType)
         : TExpr =
-        let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+        let key = LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
         let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
         TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
 
@@ -590,7 +591,7 @@ module internal FreezeResolve =
         (args: EqArray<TExpr>)
         (ty: SemType)
         : TExpr =
-        let key = LocalSymbolKey.ofMember declKey memberName MemberKind.Method
+        let key = LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
         TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty)
 
     /// `UnionCons` for case `caseName` of union `ty`.
@@ -669,7 +670,7 @@ module internal FreezeResolve =
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofMember clsKey segName MemberKind.Property
+                let key = LocalSymbolKey.ofMember clsKey segName 0 MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
             | _ ->
                 // An *inherited* member (declared on a base class, e.g. `node.Key`
@@ -685,14 +686,14 @@ module internal FreezeResolve =
                 match Unification.tryClassChainMemberDecl ctx (SymbolKeyOps.simpleName clsKey) args segName with
                 | ValueSome cm ->
                     let key =
-                        LocalSymbolKey.ofMember (nominalDeclKey cm.DeclaringTy) segName MemberKind.Property
+                        LocalSymbolKey.ofMember (nominalDeclKey cm.DeclaringTy) segName 0 MemberKind.Property
 
                     TExpr.PropertyGet(TExpr.Upcast(receiver, cm.DeclaringTy), key, viaOfReceiver ctx receiver, stepTy)
                 | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy)
         | TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofMember unionKey segName MemberKind.Property
+                let key = LocalSymbolKey.ofMember unionKey segName 0 MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy)
         // `arr.Length` on an intrinsic rank-1 array desugars to the core

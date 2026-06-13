@@ -162,9 +162,9 @@ module EmitMember =
                         | ValueSome(_, rargs) -> List.length rargs
                         | ValueNone -> 0
 
-                    let openT = List.foldBack (fun p acc -> FTFun(p, acc)) m.ParamTys m.RetTy
-                    let instT = List.foldBack (fun a acc -> FTFun(typeOfExpr a, acc)) [ for a in args -> a ] ty
-                    let _, methodArgs = env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
+                    let _, methodArgs =
+                        recoverMemberInst env m declArity [ for a in args -> typeOfExpr a ] ty
+
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
             emitInstanceMember recur env b via receiver receiverTy handle args
@@ -173,7 +173,7 @@ module EmitMember =
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.StaticPropertyGet(key, ty) ->
-            let handle = resolveStaticMember env key ty
+            let handle = resolveStaticMember env key [] ty
             b.Add(ILInstr.Call(handle, 0, 1))
         | _ -> failwith "EmitMember.buildStaticPropertyGet: unreachable"
 
@@ -202,7 +202,7 @@ module EmitMember =
 
             let handle =
                 if isLocal then
-                    resolveStaticMember env key ty
+                    resolveStaticMember env key [ for a in args -> typeOfExpr a ] ty
                 else
                     // Reconstruct the member's .NET-tupled signature from the pushed
                     // args + result so `ExternalMemberRef` can recover the declaring

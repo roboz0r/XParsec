@@ -40,6 +40,25 @@ module EmitResolve =
         | ValueSome(k, xs) -> k, xs
         | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
 
+    /// Recover a generic member's instantiation by structurally matching its
+    /// declared *open* curried signature (`ParamTys -> RetTy`, in declaring-/method-axis
+    /// markers) against the call's *instantiated* argument + result types. Returns
+    /// `(declaringArgs, methodArgs)` — the parent-`TypeSpec` instantiation and the
+    /// `MethodSpec` method args. The single home for the `openT`/`instT` reconstruction
+    /// the `RecoverOpenTypars` contract expects, shared by the generic-static-from-concrete
+    /// resolve (`instantiationFor`) and the generic-instance-method call site
+    /// (`EmitMember.buildMethodCall`) so the two can't drift.
+    let recoverMemberInst
+        (env: EmitEnv)
+        (m: EmittedMember)
+        (declArity: int)
+        (argTys: FrozenType list)
+        (resultTy: FrozenType)
+        : FrozenType list * FrozenType list =
+        let openT = List.foldBack (fun p acc -> FTFun(p, acc)) m.ParamTys m.RetTy
+        let instT = List.foldBack (fun a acc -> FTFun(a, acc)) argTys resultTy
+        env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
+
     /// Resolve the member-call handle for an instance access on `receiverTy`
     /// (P3d.3, generalised to generic unions in R2 and to classes in Phase 1 /
     /// B-1). A monomorphic union/class uses the member's `Def` token directly;
@@ -66,7 +85,9 @@ module EmitResolve =
                     u.Typars
                     key
                     tyArgs
-                    (UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+                    (UserMemberKind.UnionMember(
+                        UnionMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                    ))
                     m.Handle,
                 m
             | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
@@ -80,7 +101,9 @@ module EmitResolve =
                         c.Typars
                         key
                         tyArgs
-                        (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+                        (UserMemberKind.ClassMember(
+                            ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                        ))
                         m.Handle,
                     m
                 | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
@@ -139,7 +162,14 @@ module EmitResolve =
     /// static member uses the class `MemberRef` instead of the union one.
     /// `resultTy` is still needed for `instantiationFor` (the generic deferred-gap
     /// fix); the obj-box decision moved to Freeze, so no param types are returned.
-    let resolveStaticMember (env: EmitEnv) (memberKey: SymbolKey) (resultTy: FrozenType) : EntityHandle =
+    /// `argTys` are the call's actual argument types (empty for a property get) —
+    /// the second instantiation-recovery source after the result type.
+    let resolveStaticMember
+        (env: EmitEnv)
+        (memberKey: SymbolKey)
+        (argTys: FrozenType list)
+        (resultTy: FrozenType)
+        : EntityHandle =
         // The call site carries the resolved local `SymbolKey.MemberKey`: the
         // declaring type is `decl`, the
         // member name is `memberName` — the emitted tables are keyed by `SymbolKey`
@@ -158,17 +188,33 @@ module EmitResolve =
         // owning generic context — a `BadImageFormatException` at JIT (handoff
         // "deferred gap 1"). The instantiation is recovered from the node's *result*
         // type when its head is the declaring type (every self-returning static
-        // member — `Empty`/`Singleton`/`Intersection`/`Union` in `set.fs`); the
-        // declaring-typar list is the fallback for a member whose return type does
-        // not surface the instantiation (e.g. `Foo<'T>.Bar : int`, only reachable
-        // from a declaring context today, where `!0` is correct).
-        let instantiationFor (typars: 'a list) : FrozenType list =
+        // member — `Empty`/`Singleton`/`Intersection`/`Union` in `set.fs`).
+        //
+        // When the result type does not surface the instantiation (`Box<'T>.Describe
+        // (x: 'T) : int` from a concrete context — Outstanding-2 gap A), recover it
+        // by structurally matching the member's declared open signature against the
+        // call's actual argument + result types (`RecoverOpenTypars`, declaring
+        // axis) — the static analogue of the generic-instance-method recovery in
+        // `buildMethodCall`. The bare declaring-typar list (`!0`, …) stays the final
+        // fallback for a member whose signature mentions the typar nowhere (only
+        // reachable from a declaring context today, where `!0` is correct).
+        let instantiationFor (typars: 'a list) (m: EmittedMember) : FrozenType list =
             let declaringTypars =
                 [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
             match receiverShape resultTy with
             | ValueSome(rk, rargs) when rk = key && List.length rargs = List.length typars -> rargs
-            | _ -> declaringTypars
+            | _ when List.isEmpty typars -> declaringTypars
+            | _ ->
+                // Match `m`'s open curried signature (declaring-/method-axis markers)
+                // against the call's instantiated arg/result types. `recoverMemberInst`
+                // throws when a slot is unrecoverable (the typar surfaces nowhere) —
+                // fall back to the bare declaring typars in that case.
+                try
+                    let declaringArgs, _ = recoverMemberInst env m (List.length typars) argTys resultTy
+                    declaringArgs
+                with _ ->
+                    declaringTypars
 
         match env.Unions.TryGetValue key with
         | true, u ->
@@ -188,8 +234,10 @@ module EmitResolve =
                         env
                         c.Typars
                         key
-                        (instantiationFor c.Typars)
-                        (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+                        (instantiationFor c.Typars m)
+                        (UserMemberKind.ClassMember(
+                            ClassMember.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                        ))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key
