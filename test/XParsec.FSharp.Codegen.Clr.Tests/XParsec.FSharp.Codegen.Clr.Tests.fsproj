@@ -58,6 +58,7 @@
     <Compile Include="LocalModuleTests.fs" />
     <Compile Include="InferResolutionTests.fs" />
     <Compile Include="TupleTests.fs" />
+    <Compile Include="StructuralFormatTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

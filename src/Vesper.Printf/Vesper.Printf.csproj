@@ -23,5 +23,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Formatter.cs" />
+    <Compile Include="StructuralFormat.cs" />
   </ItemGroup>
 </Project>
