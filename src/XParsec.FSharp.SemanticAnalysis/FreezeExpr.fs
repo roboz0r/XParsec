@@ -149,7 +149,13 @@ module internal FreezeExpr =
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
         // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
         // projection below ever runs (vesper-printf-plan P1).
-        | Expr.App(_, args) when ctx.PrintfApp.ContainsKey key -> translatePrintfFormat ctx key args ty
+        | Expr.App(fn, args) when ctx.PrintfApp.ContainsKey key ->
+            // The marker may still decline (a `%A` of a record / DU — gated until
+            // step-3 synthesis); fall back to the standard external-call path,
+            // which lowers to the FSharp.Core cold printf.
+            match translatePrintfFormat ctx key args ty with
+            | ValueSome node -> node
+            | ValueNone -> translateApp ctx fn args
         | Expr.App(fn, args) -> translateApp ctx fn args
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
             // A residual single application (an external .NET method reached as a
@@ -778,16 +784,70 @@ module internal FreezeExpr =
 
         result
 
+    /// Whether `%A` of an argument of this (zonked) type renders faithfully on the
+    /// step-2 structural engine. The runtime dispatcher is faithful *today* only
+    /// for the shapes it handles without `IStructuralFormattable`: primitives,
+    /// `string` / `char` / `bool` (special-cased), arrays and the cons-list (the
+    /// `IEnumerable` arm), and tuples — recursively over element/payload types.
+    /// Records and DUs hit the `ToString` fallback (wrong by our spec) until
+    /// step-3 synthesis attaches `Format`, so a `%A` of one must keep the
+    /// FSharp.Core cold path. A single non-faithful `%A` hole forces the *whole*
+    /// format cold (`translatePrintfFormat` returns `ValueNone`) — additive, no
+    /// regression, and it re-greens `%A` of lists/primitives/tuples immediately.
+    and private structuredArgFaithful (t: SemType) : bool =
+        match t with
+        | TyConst(name, args) ->
+            match name with
+            // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
+            // the `IEnumerable` arm — faithful iff its element type is.
+            | "[]" -> EqArray.forall structuredArgFaithful args
+            | "int"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "byte"
+            | "sbyte"
+            | "nativeint"
+            | "unativeint"
+            | "float"
+            | "float32"
+            | "double"
+            | "single"
+            | "decimal"
+            | "string"
+            | "char"
+            | "bool" -> args.Length = 0
+            | _ -> false
+        | TyTuple items -> EqArray.forall structuredArgFaithful items
+        // The cons-list renders via the `IEnumerable` arm until it carries
+        // `IStructuralFormattable` (step 3). It surfaces as a `TyUnion` in the
+        // self-host (the Vesper cons-list DU) but as a `TyRecord` against the
+        // FSharp.Core contract (`list`1`), so accept both shapes of the list keys.
+        | TyUnion(key, args)
+        | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
+            EqArray.forall structuredArgFaithful args
+        | _ -> false
+
     /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
     /// `PrintfApp` sink for it) into a `TExpr.Format`, pairing each specifier
     /// with the next argument in spec order (the format is arg 0). The happy
     /// path therefore never produces a `New PrintfFormat` / `App printfn`.
+    ///
+    /// Returns `ValueNone` to *decline* the lowering — when a `%A` (`Structured`)
+    /// hole's argument type isn't faithful on the step-2 engine
+    /// (`structuredArgFaithful`); the caller then falls back to the standard
+    /// external-call (FSharp.Core cold) path for the whole format.
     and private translatePrintfFormat
         (ctx: PassContext)
         (key: NodeKey)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (ty: SemType)
-        : TExpr =
+        : TExpr voption =
         let sink =
             match ctx.PrintfApp.TryGetValue key with
             | ValueSome s -> s
@@ -808,6 +868,9 @@ module internal FreezeExpr =
 
         // Holes consume the trailing args (the format is arg 0) in spec order.
         let mutable holeIdx = 1
+        // Set when a `%A` hole's argument type isn't faithful on the step-2 engine
+        // (a record / DU / unknown). Forces the whole format onto the cold path.
+        let mutable cold = false
 
         for part in parts do
             match part with
@@ -845,6 +908,11 @@ module internal FreezeExpr =
                 let argT = translateExpr ctx argExpr
                 let holeTy = typeOfKey ctx (CstKeys.ofExpr argExpr)
 
+                // `%A` of a non-engine-faithful arg (record / DU / unknown) keeps
+                // the FSharp.Core cold path until step-3 synthesis (the type gate).
+                if kind = PrintfSpec.HoleKind.Structured && not (structuredArgFaithful holeTy) then
+                    cold <- true
+
                 segments.Add(
                     FormatSeg.Hole(
                         {
@@ -863,13 +931,16 @@ module internal FreezeExpr =
 
         flushLit ()
 
-        let formatSink =
-            match sink with
-            | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
-            | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
-            | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
+        if cold then
+            ValueNone
+        else
+            let formatSink =
+                match sink with
+                | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
+                | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
+                | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
 
-        TExpr.Format(formatSink, EqArray.ofSeq segments, ty)
+            ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty))
 
     /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
     /// call (the body of a `let inline` operator's `when ^T : ^T` static-opt clause,

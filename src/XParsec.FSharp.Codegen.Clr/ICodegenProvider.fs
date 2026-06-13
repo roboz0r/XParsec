@@ -174,6 +174,10 @@ type FormatHandles =
         AppendUnsigned: EntityHandle
         /// `%0w.pf`: zero-pad after the sign — .NET has no float format that does this.
         AppendZeroPaddedFloat: EntityHandle
+        /// `%A`: instantiates the generic `AppendStructured<T = ty>` (like
+        /// `AppendFormatted`) for the structural-format engine. Signature
+        /// `(value: T, width: int)`.
+        AppendStructured: FrozenType -> EntityHandle
     }
 
 /// Resolves compiled names to emission recipes for one target (the .NET

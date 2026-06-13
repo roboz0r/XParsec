@@ -105,6 +105,13 @@ module PrintfSpec =
         /// float format zero-pads to a total width. The width rides in
         /// `HoleSpec.Alignment` and the `"F<prec>"` body in `HoleSpec.Format`.
         | ZeroPaddedFloat
+        /// `AppendStructured<v>(v, widthBudget)` — F# `%A`. No .NET format string;
+        /// the runtime engine (`Vesper.Printf.StructuralPrinter`) renders the value
+        /// as copy-pasteable source. The print-width *budget* (not a field
+        /// alignment) rides in `HoleSpec.Alignment`, repurposed for this kind:
+        /// `None` ⇒ default 80 (set at emit), `Some 0` ⇒ never break / flat
+        /// (`%0A`), `Some N` ⇒ width N (`%NA`).
+        | Structured
 
     /// Map a parsed format placeholder to the `(HoleKind, .NET format string,
     /// alignment)` triple the happy-path handler call uses, or `ValueNone` for
@@ -156,7 +163,21 @@ module PrintfSpec =
             | ValueSome w -> Some(int w)
             | ValueNone -> None
 
-        if plusSign || spaceSign then
+        if p.Type = FormatType.Structured then
+            // `%A` (P3): the structural-format engine renders; there is no .NET
+            // format string. The print-width *budget* rides in the `Alignment`
+            // slot (repurposed for `Structured`): `%0A` ⇒ 0 (never break / flat),
+            // `%NA` ⇒ N, plain `%A` ⇒ `None` (⇒ default 80 at emit). The
+            // precision (`%.NA` — a `PrintSize`/length knob) and the non-public
+            // (`%+A`) and left-align (`%-A`) forms stay on the FSharp.Core cold
+            // path for now; only the plain / flat / width forms lower.
+            if plusSign || spaceSign || leftAlign || p.Precision.IsSome then
+                ValueNone
+            elif zeroPad then
+                ValueSome(HoleKind.Structured, None, Some 0)
+            else
+                ValueSome(HoleKind.Structured, None, width)
+        elif plusSign || spaceSign then
             // B1: forced-sign flags via a custom .NET *section* format string
             // (`"+0;-0"` / `" 0;-0"`). The positive section carries the forced
             // `+`/space; the negative section keeps `-`; zero takes the positive
@@ -289,6 +310,8 @@ module PrintfSpec =
                 else
                     formatted None
             | FormatType.FloatCompact
+            // `FormatType.Structured` (`%A`) is handled by the leading arm above —
+            // unreachable here, retained only to keep this match exhaustive.
             | FormatType.Structured
             | FormatType.FormatFunction
             | FormatType.Text -> ValueNone

@@ -633,6 +633,30 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             encodeType (specEnc.AddArgument()) ty
             toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
+        // `instance void AppendStructured<T>(!!0, int32)` — `%A`. Generic like
+        // `appendFormatted`: a member ref to the open generic method + a
+        // `MethodSpec` binding `<T = ty>` per hole. The `int32` is the print-width
+        // budget the walker pushes.
+        let appendStructured (ty: FrozenType) : EntityHandle =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(genericParameterCount = 1, isInstanceMethod = true)
+                .Parameters(
+                    2,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        pars.AddParameter().Type().GenericMethodTypeParameter(0)
+                        pars.AddParameter().Type().Int32()
+                    )
+                )
+
+            let memberRef = ctx.MemberRef(eFormatter.Value, "AppendStructured", s)
+            let inst = BlobBuilder()
+            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
+            encodeType (specEnc.AddArgument()) ty
+            toEntity (ctx.MethodSpec(toEntity memberRef, inst))
+
         {
             HandlerLocal = FTConst(formatterTypeName, EqArray.empty)
             CtorWriter = ctorWriter
@@ -647,6 +671,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendOctal = appendOctal
             AppendUnsigned = appendUnsigned
             AppendZeroPaddedFloat = appendZeroPaddedFloat
+            AppendStructured = appendStructured
         }
 
     // ---- Structural equality / hashing (C-Eq1) ----

@@ -461,7 +461,9 @@ let tests =
                         References = [ fsCorePath ]
                     }
 
-                let src = "printfn \"%A\" 42"
+                // A deferred `%A` form (precision) keeps the FSharp.Core cold path —
+                // a plain `%A` of an int now lowers to the structural engine (P3 step 2).
+                let src = "printfn \"%.2A\" 42"
                 let lexed, file = parseFile src
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`
@@ -471,7 +473,7 @@ let tests =
 
                 let artifact = Codegen.compile MockBuiltins.provider project tast
 
-                Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the %A cold path references FSharp.Core"
+                Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the %.2A cold path references FSharp.Core"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 

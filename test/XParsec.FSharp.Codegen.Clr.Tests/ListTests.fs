@@ -18,6 +18,10 @@ let tests =
         "Lists"
         [
             test "`printfn \"%A\" [1; 2; 3]` analyses clean as a Cons/Nil chain over list<int>" {
+                // `%A` of a list lowers to a `Format` node (P3 step 2) — the cons
+                // chain rides as the `Structured` hole's argument. This test pins the
+                // *list literal*'s construction (Cons/Nil chain typed `list<int>`),
+                // now reached through the hole rather than the cold-path App arg.
                 let tast = analyse "printfn \"%A\" [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -25,24 +29,26 @@ let tests =
                     SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton (TyConst("int", EqArray.empty)))
 
                 match tast.Decls with
-                | EqList [ TDecl.Expression(TExpr.App(TExpr.App(TExpr.External("printfn", _, _), TExpr.New _, _),
-                                                      TExpr.UnionCons("Cons",
-                                                                      EqList [ TExpr.Const(TConstValue.Int 1, _)
-                                                                               TExpr.UnionCons("Cons",
-                                                                                               EqList [ TExpr.Const(TConstValue.Int 2,
-                                                                                                                    _)
-                                                                                                        TExpr.UnionCons("Cons",
-                                                                                                                        EqList [ TExpr.Const(TConstValue.Int 3,
-                                                                                                                                             _)
-                                                                                                                                 TExpr.UnionCons("Nil",
-                                                                                                                                                 EqList [],
-                                                                                                                                                 _) ],
-                                                                                                                        _) ],
-                                                                                               _) ],
-                                                                      outerTy),
-                                                      _),
-                                            _) ] ->
-                    Expect.equal outerTy listTy "the trailing arg is the cons chain typed list<int>"
+                | EqList [ TDecl.Expression(TExpr.Format(_, segs, _), _) ] ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole,
+                                       TExpr.UnionCons("Cons",
+                                                       EqList [ TExpr.Const(TConstValue.Int 1, _)
+                                                                TExpr.UnionCons("Cons",
+                                                                                EqList [ TExpr.Const(TConstValue.Int 2,
+                                                                                                     _)
+                                                                                         TExpr.UnionCons("Cons",
+                                                                                                         EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                                                              _)
+                                                                                                                  TExpr.UnionCons("Nil",
+                                                                                                                                  EqList [],
+                                                                                                                                  _) ],
+                                                                                                         _) ],
+                                                                                _) ],
+                                                       outerTy)) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%A is a Structured hole"
+                        Expect.equal outerTy listTy "the hole's arg is the cons chain typed list<int>"
+                    | other -> failtestf "unexpected Format segments: %A" other
                 | _ -> failtestf "unexpected list TAST: %A" tast.Decls
             }
 

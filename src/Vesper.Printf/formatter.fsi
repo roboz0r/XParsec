@@ -56,6 +56,12 @@ type Formatter =
     /// zero-pads to a total width.
     member AppendZeroPaddedFloat: value: float * format: string * width: int -> unit
 
+    /// Append an F# <c>%A</c> hole as copy-pasteable Vesper source, laid out
+    /// within a column budget of <c>width</c> chars (0 ⇒ never break — the
+    /// <c>%0A</c> flat mode). Dedicated because <c>%A</c> drives the reflection-free
+    /// structural engine rather than an <c>IFormattable</c> call.
+    member AppendStructured: value: 'T * width: int -> unit
+
     /// Flush buffered text to the write-through sink and release the buffer.
     member Flush: unit -> unit
 

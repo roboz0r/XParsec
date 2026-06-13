@@ -124,6 +124,17 @@ module EmitFormat =
                     b.Add(ILInstr.LdcI4 width)
                     b.Add(ILInstr.Call(fh.AppendZeroPaddedFloat, 4, 0))
 
+                | PrintfSpec.HoleKind.Structured ->
+                    // `AppendStructured<T>(value, widthBudget)` — `%A`. The print
+                    // width rides in `Alignment` (repurposed for `Structured`):
+                    // `None` ⇒ default 80, `Some 0` ⇒ flat (`%0A`), `Some N` ⇒ N.
+                    // The generic member boxes the value C#-side, so no explicit
+                    // box in the IL.
+                    b.Add(ILInstr.Ldloca slot)
+                    buildExpr env b arg
+                    b.Add(ILInstr.LdcI4(defaultArg hole.Alignment 80))
+                    b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 3, 0))
+
         match sink with
         | FormatSinkG.ToString ->
             // Leaves the built string on the stack (the `sprintf` result).

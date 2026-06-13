@@ -265,11 +265,86 @@ let tests =
                 | other -> failtestf "unexpected TAST for %%08e: %A" other
             }
 
-            test "`%A` (structural) is NOT lowered (P3)" {
+            // ---- `%A` structural format (P3 step 2) ----
+            // The engine handles primitives / string / char / bool / tuple / list /
+            // array faithfully today; those lower to a `Structured` hole. Records /
+            // DUs hit the runtime `ToString` fallback (wrong by our spec) until
+            // step-3 synthesis, so they keep the FSharp.Core cold path (the type
+            // gate). The print-width budget rides in the `Alignment` slot.
+
+            test "`%A` of an int lowers to a Structured hole (default width budget)" {
                 match soleDecl "printfn \"%A\" 42" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%A must stay on the cold path"
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _)) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%A is a Structured hole"
+                        Expect.equal hole.Format None "no .NET format string for %A"
+                        Expect.equal hole.Alignment None "plain %A → no budget (emit defaults to 80)"
+                        Expect.equal hole.Ty (TyConst("int", EqArray.empty)) "the %A hole types as its argument"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%0A` carries a zero width budget (the flat mode)" {
+                match soleDecl "printfn \"%0A\" 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%0A is Structured"
+                        Expect.equal hole.Alignment (Some 0) "`0` flag → width budget 0 (never break)"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%20A` carries the width as the print budget" {
+                match soleDecl "printfn \"%20A\" 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%20A is Structured"
+                        Expect.equal hole.Alignment (Some 20) "width 20 → print budget 20"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%A` of a list lowers to a Structured hole (engine-faithful)" {
+                match soleDecl "printfn \"%A\" [ 1; 2; 3 ]" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%A of a list is Structured"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%.2A` (precision) stays on the cold path" {
+                match soleDecl "printfn \"%.2A\" 42" with
+                | TDecl.Expression(TExpr.Format _, _) -> failtest "%.2A must stay on the cold path"
                 | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%A: %A" other
+                | other -> failtestf "unexpected TAST for %%.2A: %A" other
+            }
+
+            test "`%A` of a record stays on the cold path (gated until step 3)" {
+                // The format string is lowerable (`%A`), so the marker is set; the
+                // Freeze type-gate then declines because a record renders wrong on
+                // the step-2 engine — the whole format falls back to FSharp.Core.
+                let tast = analyse "type R = { X: int }\nprintfn \"%A\" { X = 1 }"
+                Expect.isEmpty tast.Diagnostics "no diagnostics for record %A"
+
+                let exprs =
+                    match tast.Decls with
+                    | EqList ds ->
+                        ds
+                        |> List.choose (
+                            function
+                            | TDecl.Expression(e, _) -> Some e
+                            | _ -> None
+                        )
+
+                match exprs with
+                | [ TExpr.Format _ ] -> failtest "%A of a record must stay cold (no Format node)"
+                | [ TExpr.App _ ] -> ()
+                | other -> failtestf "unexpected printf decl for record %%A: %A" other
             }
 
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
@@ -295,6 +370,22 @@ let tests =
 
             test "`sprintf` result feeds another printf" {
                 runPrints "PHpSprintf" "printfn \"%s\" (sprintf \"%d!\" 42)" "42!"
+            }
+
+            // `%A` runtime — oracle is the structural spec (copy-pasteable source),
+            // not `sprintf "%A"`; small values coincide with F# (re-greening slice 4).
+            test "`%A` of a list prints the copy-pasteable literal (slice 4)" {
+                runPrints "PHpStructList" "printfn \"%A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            }
+
+            test "`%A` of an int prints the bare value" { runPrints "PHpStructInt" "printfn \"%A\" 42" "42" }
+
+            test "`%A` of a string prints the quoted, escapable literal" {
+                runPrints "PHpStructStr" "printfn \"%A\" \"hi\"" "\"hi\""
+            }
+
+            test "`%0A` of a list prints flat (fits the budget either way)" {
+                runPrints "PHpStructFlat" "printfn \"%0A\" [ 1; 2; 3 ]" "[1; 2; 3]"
             }
 
             test "`%x` prints lowercase hex" { runParity "PHpHex" "printfn \"%x\" 255" (sprintf "%x" 255) }
