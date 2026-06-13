@@ -138,6 +138,19 @@ module EmitTypes =
     /// `TastFile.ModuleMembers`. One static holder class per `module Foo = …`.
     type HolderKey = string option * string
 
+    /// One flattened parameter of a `StaticFn`. A simple binder's `Slot` key is
+    /// referenced directly by the body (it resolves to the parameter's `ldarg`
+    /// index); a destructuring tuple parameter (`fun (a, b) -> …`) carries
+    /// `Pat = Some …` and a synthetic `Slot`, whose `ldarg` value
+    /// `buildStaticMethod` spills to a local and `bindPattern`s into the leaf
+    /// bindings — exactly as `buildClosureInvoke` does for a tuple closure param.
+    type StaticParam =
+        {
+            Slot: NodeKey
+            Ty: FrozenType
+            Pat: Frozen.TPat option
+        }
+
     /// A top-level function lowered to a **static method**: `let [rec] f p0 p1 …`
     /// becomes `static f(p0, p1, …)`, curried parameters flattened. Eligible only
     /// when the function never escapes as a value and captures no module-level
@@ -150,7 +163,7 @@ module EmitTypes =
             /// public static method on the `Foo` holder type. `None` ⇒ the
             /// anonymous "Program" holder.
             Holder: HolderKey option
-            Params: (NodeKey * FrozenType) list
+            Params: StaticParam list
             Body: Frozen.TExpr
             ResultTy: FrozenType
         }

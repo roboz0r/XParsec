@@ -210,7 +210,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Arity = List.length fn.Params
                     ResultTy = fn.ResultTy
                     Typars = plan.StaticFnTypars.[fn.Key]
-                    ParamTys = fn.Params |> List.map snd
+                    ParamTys = fn.Params |> List.map (fun p -> p.Ty)
                 }
         )
 
@@ -460,9 +460,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
             let signature =
                 if typarCount = 0 then
-                    provider.StaticMethodSignature(fn.Params |> List.map snd, fn.ResultTy)
+                    provider.StaticMethodSignature(fn.Params |> List.map (fun p -> p.Ty), fn.ResultTy)
                 else
-                    provider.GenericStaticFnSignature(typarCount, fn.Params |> List.map snd, fn.ResultTy)
+                    provider.GenericStaticFnSignature(typarCount, fn.Params |> List.map (fun p -> p.Ty), fn.ResultTy)
 
             this.AddPrepared(
                 MethodKey.StaticFn fn.Key,

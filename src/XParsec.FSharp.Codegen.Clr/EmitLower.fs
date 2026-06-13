@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
+open EmitTypes
 
 module EmitLower =
     let typeOfExpr (e: Frozen.TExpr) : FrozenType =
@@ -234,19 +235,39 @@ module EmitLower =
     /// no name to reference it, so the slot is keyed off a fresh placeholder.
     let mintUseBinderKey () : NodeKey = mintSyntheticParamKey ()
 
-    /// Peel a curried `Lambda` chain of simple (`NamedSimple`) or unit-pattern
-    /// (`TPatG.Const(Unit, _)`, from `fun () -> …`) parameters. A unit binder
-    /// gets a synthetic placeholder `NodeKey` (the body never references it)
-    /// so the static-method emission still allocates an `ldarg` slot for the
-    /// unit value the caller pushes. Any other pattern stops the peel.
-    let rec peelLambda (e: Frozen.TExpr) : (NodeKey * FrozenType) list * Frozen.TExpr =
+    /// Peel a curried `Lambda` chain of simple (`NamedSimple`), unit-pattern
+    /// (`TPatG.Const(Unit, _)`, from `fun () -> …`), or destructuring tuple
+    /// (`fun (a, b) -> …`) parameters. A unit binder gets a synthetic placeholder
+    /// `NodeKey` (the body never references it) so the static-method emission
+    /// still allocates an `ldarg` slot for the unit value the caller pushes. A
+    /// tuple binder likewise gets a synthetic `Slot` and carries its `Pat` so the
+    /// emission `bindPattern`s the leaf bindings out of the `ldarg` value. Any
+    /// other pattern stops the peel.
+    let rec peelLambda (e: Frozen.TExpr) : StaticParam list * Frozen.TExpr =
         match e with
         | TExprG.Lambda(TPatG.NamedSimple(k, pty), body, _) ->
             let ps, b = peelLambda body
-            (k, pty) :: ps, b
+            { Slot = k; Ty = pty; Pat = None } :: ps, b
         | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty), body, _) ->
             let ps, b = peelLambda body
-            (mintUnitParamKey (), pty) :: ps, b
+
+            {
+                Slot = mintUnitParamKey ()
+                Ty = pty
+                Pat = None
+            }
+            :: ps,
+            b
+        | TExprG.Lambda((TPatG.Tuple(_, pty) as pat), body, _) ->
+            let ps, b = peelLambda body
+
+            {
+                Slot = mintTupleParamKey ()
+                Ty = pty
+                Pat = Some pat
+            }
+            :: ps,
+            b
         | _ -> [], e
 
     /// Fallback inline-IL bodies for built-in operators, expressed as the

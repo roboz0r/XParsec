@@ -398,21 +398,15 @@ let tests =
                         runsSetLines [ "1"; "2"; "3" ] (prelude + s123 + "Set.iter (fun x -> printfn \"%d\" x) s")
                     }
 
-                    // PENDING — the driver-side `let (evens, odds) = …` tuple-destructuring
-                    // is now emitted (Main-level destructuring let, `Emit.buildMain`), so
-                    // the prior "Emit: no binding for variable src@…:PatIdent" is gone. The
-                    // remaining wall is *inside* the Set DLL: `SetTreeModule.partition` emits
-                    // invalid IL ("BadImageFormatException: incorrect format") because
-                    // `SetTree.partition1 comparer f k (acc1, acc2)` has a *tuple-destructured
-                    // static-method parameter*. `EmitLower.peelLambda` stops at the tuple
-                    // param, leaving the static method an arity-3 method whose body is a
-                    // residual `Lambda((acc1, acc2), …)` closure; the tuple-param/closure/
-                    // tuple-return interaction is malformed. Needs `StaticFn` to carry the
-                    // param *patterns* so `Emit.buildStaticMethod` can `bindPattern` a tuple
-                    // parameter the way `buildClosureInvoke` already does. Flip → `test` then.
-                    ptest "partition" {
+                    // `SetTree.partition1 comparer f k (acc1, acc2)` has a tuple-destructured
+                    // static-method parameter. `EmitLower.peelLambda` now peels the tuple
+                    // param (synthetic `Slot` + carried `Pat`); `StaticFn.Params` carries the
+                    // pattern so `Emit.buildStaticMethod` spills the `ldarg` `ValueTuple` to a
+                    // local and `bindPattern`s its leaves — mirroring `buildClosureInvoke`.
+                    test "partition" {
+                        // {1,2,3,4} → evens {2,4} (count 2), odds {1,3} (count 2).
                         runsSetLines
-                            [ "1"; "2" ]
+                            [ "2"; "2" ]
                             (prelude
                              + "let s = Set.add 1 (Set.add 2 (Set.add 3 (Set.add 4 Set.empty)))\n"
                              + "let (evens, odds) = Set.partition (fun x -> x % 2 = 0) s\n"

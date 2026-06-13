@@ -115,8 +115,23 @@ module Emit =
     let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
-        fn.Params |> List.iteri (fun i (k, _) -> args.[k] <- i)
+        fn.Params |> List.iteri (fun i p -> args.[p.Slot] <- i)
         let env = EmitEnv.ofContext ctx args
+
+        // A destructuring tuple parameter (`fun (a, b) -> …`): its `ldarg.i` holds
+        // the `ValueTuple`n` value; spill it to a local and `bindPattern` the leaf
+        // bindings out before the body runs — exactly as `buildClosureInvoke` does
+        // for a tuple closure parameter. Simple/unit params resolve through `args`.
+        fn.Params
+        |> List.iteri (fun i p ->
+            match p.Pat with
+            | Some pat ->
+                let slot = b.Local p.Ty
+                b.Add(ILInstr.Ldarg i)
+                b.Add(ILInstr.Stloc slot)
+                bindPattern env b slot pat
+            | None -> ()
+        )
 
         buildExpr env b fn.Body
         b.Add ILInstr.Ret

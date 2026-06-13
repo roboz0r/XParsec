@@ -291,7 +291,7 @@ module EmitClosures =
         (moduleValueKeys: HashSet<NodeKey>)
         (decls: Frozen.TDecl list)
         : StaticFn list * HashSet<NodeKey> =
-        let candidates = Dictionary<NodeKey, (NodeKey * FrozenType) list * Frozen.TExpr>()
+        let candidates = Dictionary<NodeKey, StaticParam list * Frozen.TExpr>()
         let order = ResizeArray<NodeKey>()
 
         for d in decls do
@@ -347,7 +347,19 @@ module EmitClosures =
                         // module-level local — treat those keys as bound so a function
                         // over them stays static-method eligible (rule 2,
                         // module-representation-plan §4).
-                        KeyValuePair(k, freeVarKeys (Seq.append moduleValueKeys (ps |> List.map fst)) body)
+                        // The keys a parameter binds: a simple/unit param binds its
+                        // own `Slot`; a tuple param binds each leaf the pattern names
+                        // (not the placeholder slot), so the body's references to those
+                        // leaves count as bound, not as captures.
+                        let paramBound =
+                            ps
+                            |> List.collect (fun p ->
+                                match p.Pat with
+                                | Some pat -> patKeys pat
+                                | None -> [ p.Slot ]
+                            )
+
+                        KeyValuePair(k, freeVarKeys (Seq.append moduleValueKeys paramBound) body)
                 }
             )
 
@@ -427,8 +439,8 @@ module EmitClosures =
             | FTUnknown _
             | FTTypar(TyparAxis.Declaring, _) -> ()
 
-        for (_, pty) in fn.Params do
-            go pty
+        for p in fn.Params do
+            go p.Ty
 
         go fn.ResultTy
         maxIx + 1
