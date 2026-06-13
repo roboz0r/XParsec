@@ -235,11 +235,80 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%g` (compact float) is NOT lowered (exponent case)" {
+            test "`%g` carries a compact format string at default precision 6" {
                 match soleDecl "printfn \"%g\" 1.5" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%g must stay on the cold path"
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Formatted "%g is Formatted"
+                        Expect.equal hole.Format (Some "g6") "%g → \"g6\""
+                        Expect.equal hole.Ty (TyConst("float", EqArray.empty)) "%g types as float"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%G` carries an upper-case compact format string (exponent case on the type char)" {
+                match soleDecl "printfn \"%G\" 1.5" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] -> Expect.equal hole.Format (Some "G6") "%G → \"G6\""
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%.3g` (precision) carries a 3-significant-digit compact format" {
+                match soleDecl "printfn \"%.3g\" 1234.5" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] -> Expect.equal hole.Format (Some "g3") "%.3g → \"g3\""
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%10g` (width, no flag) rides width as a positive alignment" {
+                match soleDecl "printfn \"%10g\" 1.5" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Format (Some "g6") "%10g → \"g6\""
+                        Expect.equal hole.Alignment (Some 10) "width → positive alignment"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%-10g` (left-align) rides width as a negative alignment" {
+                match soleDecl "printfn \"%-10g\" 1.5" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Format (Some "g6") "%-10g → \"g6\""
+                        Expect.equal hole.Alignment (Some -10) "`-` flag → negative alignment"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%010g` (zero-pad) stays on the cold path" {
+                // G-format zero-pad parity is subtle (integer-valued %g isn't
+                // '0'-padded; exponent forms interact with the width) — deferred
+                // like 0-on-%e.
+                match soleDecl "printfn \"%010g\" 1.5" with
+                | TDecl.Expression(TExpr.Format _, _) -> failtest "%010g must stay on the cold path"
                 | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%g: %A" other
+                | other -> failtestf "unexpected TAST for %%010g: %A" other
+            }
+
+            test "`%+g` (forced sign on compact) stays on the cold path" {
+                match soleDecl "printfn \"%+g\" 1.5" with
+                | TDecl.Expression(TExpr.Format _, _) -> failtest "%+g must stay on the cold path"
+                | TDecl.Expression(TExpr.App _, _) -> ()
+                | other -> failtestf "unexpected TAST for %%+g: %A" other
+            }
+
+            test "`% g` (space-sign on compact) stays on the cold path" {
+                match soleDecl "printfn \"% g\" 1.5" with
+                | TDecl.Expression(TExpr.Format _, _) -> failtest "% g must stay on the cold path"
+                | TDecl.Expression(TExpr.App _, _) -> ()
+                | other -> failtestf "unexpected TAST for %% g: %A" other
             }
 
             test "`%+05d` (forced sign + zero-pad) is NOT lowered" {
@@ -456,6 +525,74 @@ let tests =
 
             test "`%e` prints exponential at default precision" {
                 runParity "PHpExp" "printfn \"%e\" 1234.5" (sprintf "%e" 1234.5)
+            }
+
+            // `%g`/`%G` parity — the oracle IS F#'s `sprintf "%g"` (byte-for-byte,
+            // unlike `%A`). Matrix from the plan: integer-valued, exponent
+            // boundaries, trailing-zero stripping, negatives, -0, non-finite,
+            // precision/width forms, and float32.
+            test "`%g` prints an integer-valued float without a point" {
+                runParity "PHpG1" "printfn \"%g\" 1.0" (sprintf "%g" 1.0)
+            }
+
+            test "`%g` strips trailing zeros" { runParity "PHpGStrip" "printfn \"%g\" 0.5" (sprintf "%g" 0.5) }
+
+            test "`%g` switches to exponent form for large magnitudes" {
+                runParity "PHpGBig" "printfn \"%g\" 123456789.0" (sprintf "%g" 123456789.0)
+            }
+
+            test "`%g` switches to exponent form for small magnitudes" {
+                runParity "PHpGSmall" "printfn \"%g\" 0.00001234" (sprintf "%g" 0.00001234)
+            }
+
+            test "`%g` at the 6-sig-digit fixed↔scientific boundary (100000)" {
+                runParity "PHpGBound1" "printfn \"%g\" 100000.0" (sprintf "%g" 100000.0)
+            }
+
+            test "`%g` at the 6-sig-digit fixed↔scientific boundary (1e+06)" {
+                runParity "PHpGBound2" "printfn \"%g\" 1000000.0" (sprintf "%g" 1000000.0)
+            }
+
+            test "`%g` prints a negative" {
+                runParity "PHpGNeg" "printfn \"%g\" (0.0 - 3.14159)" (sprintf "%g" -3.14159)
+            }
+
+            test "`%g` prints negative zero" {
+                // IEEE `0.0 - 0.0` is `+0.0`; multiplying `+0.0` by a negative
+                // yields a genuine `-0.0` (whose sign `%g` must preserve).
+                runParity "PHpGNegZero" "printfn \"%g\" (0.0 * (0.0 - 1.0))" (sprintf "%g" -0.0)
+            }
+
+            test "`%g` prints NaN" { runParity "PHpGNaN" "printfn \"%g\" (0.0 / 0.0)" (sprintf "%g" (0.0 / 0.0)) }
+
+            test "`%g` prints Infinity" { runParity "PHpGInf" "printfn \"%g\" (1.0 / 0.0)" (sprintf "%g" (1.0 / 0.0)) }
+
+            test "`%g` prints -Infinity" {
+                runParity "PHpGNegInf" "printfn \"%g\" (-1.0 / 0.0)" (sprintf "%g" (-1.0 / 0.0))
+            }
+
+            test "`%G` prints an upper-case exponent" {
+                runParity "PHpGUpper" "printfn \"%G\" 123456789.0" (sprintf "%G" 123456789.0)
+            }
+
+            test "`%.3g` honours the precision" {
+                runParity "PHpGPrec" "printfn \"%.3g\" 1234.5" (sprintf "%.3g" 1234.5)
+            }
+
+            test "`%10g` right-justifies in a width-10 field" {
+                runParity "PHpGWidth" "printfn \"%10g\" 1.5" (sprintf "%10g" 1.5)
+            }
+
+            test "`%-10g` left-justifies in a width-10 field" {
+                runParity "PHpGLeft" "printfn \"%-10g\" 1.5" (sprintf "%-10g" 1.5)
+            }
+
+            test "`%12.3g` combines width and precision" {
+                runParity "PHpGWP" "printfn \"%12.3g\" 1234.5" (sprintf "%12.3g" 1234.5)
+            }
+
+            test "`%g` on a float32 calls ToString(\"g6\")" {
+                runParity "PHpGF32" "printfn \"%g\" 1.5f" (sprintf "%g" 1.5f)
             }
 
             test "`%-5d` left-justifies in a width-5 field" {

@@ -142,14 +142,20 @@ module PrintfSpec =
     /// formats the `"F<prec>"` body then inserts `0`s after any sign to reach the
     /// field width.
     ///
-    /// Cold path: `%g`/`%G` (.NET `"G"` uppercases the exponent, F# wants
-    /// lowercase `e`); `%A` (structural — P3); `%a`/`%t` (callbacks); `0`-on-`%e`
-    /// (exponent zero-pad parity is subtle — only `%f` is lowered); `+`/space on
-    /// anything but `%d`/`%f` (exponent / scale-preserving forms don't
-    /// section-format faithfully) and `+`/space combined with `0` (zero-pad);
-    /// zero-pad on the handler-member specifiers (`%05u`/`%05o`/`%05b`) and on
-    /// `%s`/`%O` (meaningless); `%M` with a precision (`%.2M` — unusual F#
-    /// semantics).
+    /// Lowered (`%g`): `%g`/`%G` (compact float) ⇒ `Formatted` with a
+    /// `"g<prec>"`/`"G<prec>"` format (default precision 6), exactly the
+    /// `%e`/`%E` rail — `%g v` ≡ `v.ToString("g6", Invariant)`. The exponent case
+    /// rides on the type char (lowercase `g` ⇒ lowercase `e`; `G` ⇒ `E`), the
+    /// same mechanism as `%e`/`%E`; the earlier deferral mis-read this as forced
+    /// uppercasing. Width with no flag ⇒ alignment; `-` ⇒ left-justify.
+    ///
+    /// Cold path: `%A` (structural — P3); `%a`/`%t` (callbacks); `0`-on-`%e` and
+    /// `0`-on-`%g` (exponent / G-format zero-pad parity is subtle — only `%f` is
+    /// lowered); `+`/space on anything but `%d`/`%f` (exponent / compact /
+    /// scale-preserving forms don't section-format faithfully) and `+`/space
+    /// combined with `0` (zero-pad); zero-pad on the handler-member specifiers
+    /// (`%05u`/`%05o`/`%05b`) and on `%s`/`%O` (meaningless); `%M` with a
+    /// precision (`%.2M` — unusual F# semantics).
     let tryHoleFormat (p: FormatPlaceholder) : (HoleKind * string option * int option) voption =
         let flags = p.Flags
         let has (c: char) = flags.IndexOf c >= 0
@@ -280,6 +286,23 @@ module PrintfSpec =
 
                     let letter = if p.TypeChar = 'E' then "E" else "e"
                     formatted (Some(letter + string precision))
+            | FormatType.FloatCompact ->
+                if zeroPad then
+                    // G-format zero-pad parity is subtle (integer-valued `%g`
+                    // isn't `'0'`-padded — `5.0`→`5`; exponent forms interact
+                    // with the field width) — defer like `0`-on-`%e`.
+                    ValueNone
+                else
+                    let precision =
+                        match p.Precision with
+                        | ValueSome pr -> int pr
+                        | ValueNone -> 6
+
+                    // Case rides on the type char (preserved by the lexer), the
+                    // same exponent-case mechanism as `%e`/`%E`: `%g v` ≡
+                    // `v.ToString("g6", Invariant)`, `%G v` ≡ `ToString("G6")`.
+                    let letter = if p.TypeChar = 'G' then "G" else "g"
+                    formatted (Some(letter + string precision))
             // Handler members: no .NET format string (alignment only) ⇒ zero-pad defers.
             | FormatType.UnsignedDecimalInt ->
                 if zeroPad then
@@ -309,7 +332,6 @@ module PrintfSpec =
                     ValueNone
                 else
                     formatted None
-            | FormatType.FloatCompact
             // `FormatType.Structured` (`%A`) is handled by the leading arm above —
             // unreachable here, retained only to keep this match exhaustive.
             | FormatType.Structured
