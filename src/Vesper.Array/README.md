@@ -56,6 +56,5 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`vesper-set-sprint-phase-8.md`](../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-sprint-phase-8.md) — §8.2, the step this package lands.
 - [`../Vesper.List/README.md`](../Vesper.List/README.md) — the sibling module package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on (the `'T[]` intrinsic + `Fun`).

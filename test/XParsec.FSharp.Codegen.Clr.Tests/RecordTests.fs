@@ -321,11 +321,11 @@ let genericTests =
                     "Box<int> 3 <> Box<string> \"3\" (isinst Box<int> fails)"
             }
 
-            // vesper-set-sprint-plan §1.11 / B-1 ctor-store fix, record mirror: a
-            // *multi-field* generic record must round-trip *every* field, not just
-            // the first. The existing single-field `Box<'T> = { Value: 'T }` tests
-            // never exercised a field at index >= 1, so the raw-`FieldDef` `stfld`
-            // miscompilation on non-first generic fields stayed latent here too.
+            // B-1 ctor-store fix, record mirror: a *multi-field* generic record must
+            // round-trip *every* field, not just the first. The existing single-field
+            // `Box<'T> = { Value: 'T }` tests never exercised a field at index >= 1,
+            // so the raw-`FieldDef` `stfld` miscompilation on non-first generic fields
+            // stayed latent here too.
             test "a multi-field generic record round-trips its non-first field (Pair<int>.Second = 3)" {
                 let _, artifact =
                     compileSource

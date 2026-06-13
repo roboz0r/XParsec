@@ -256,9 +256,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     // A user class opts in to `Sealed` via `[<Sealed>]` (B-8); without it the
     // class is open (Phase 2 / B-4 wires inheritance). Unions / records reuse
-    // this with `isSealed = true`. A `[<Struct>]` value type
-    // (vesper-set-sprint-phase-6) is always sealed and uses sequential layout
-    // (the F# default for value types) instead of auto layout.
+    // this with `isSealed = true`. A `[<Struct>]` value type is always sealed
+    // and uses sequential layout (the F# default for value types) instead of
+    // auto layout.
     let classAttrsOf (isSealed: bool) (isValueType: bool) =
         let layoutAttr =
             if isValueType then

@@ -189,7 +189,7 @@ module internal NominalEmit =
 
         // A reference to one of *this* type's own members (field / tag / ctor).
         // A generic type reaches it through a `MemberRef` on the open
-        // self-`TypeSpec` (`Box\`1<!0>::n`, G13 / vesper-set-sprint-plan §1.11);
+        // self-`TypeSpec` (`Box\`1<!0>::n`, G13);
         // a monomorphic type uses the resolved `Def` token. The mono handle is a
         // cheap registry/layout lookup, so eager evaluation in the generic branch
         // is free.
@@ -341,8 +341,7 @@ module internal NominalEmit =
             // generic-union/record field paths already do this. The single-
             // field case happened to work with the raw `Def` token because
             // field 0 aliases the type's first slot, but a field at index >= 1
-            // resolves to the wrong slot at runtime (vesper-set-sprint-plan
-            // §1.11 / B-1). Member-body `FieldGet`/`FieldSet` already route
+            // resolves to the wrong slot at runtime (B-1). Member-body `FieldGet`/`FieldSet` already route
             // through `EmitResolve.resolveRecordField`'s `MemberRef`; `selfMemberRef`
             // closes the matching gap on the ctor stores.
             let ctorFieldRefs =
@@ -591,7 +590,7 @@ module internal NominalEmit =
                     // A leaked metavar / unresolved head in a member signature surfaces
                     // here as a generic encoder failure; name the member + declaring
                     // type so the front-end grounding gap is pinpointable rather than
-                    // anonymous (vesper-set Phase 9 contract-extraction wall). Wrap so
+                    // anonymous. Wrap so
                     // the original encoder exception rides as `InnerException` — its
                     // stack pinpoints the actual encode failure.
                     raise (System.Exception(sprintf "While encoding signature of member '%A.%s'" td.Key mem.Name, ex))

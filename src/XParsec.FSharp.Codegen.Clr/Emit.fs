@@ -193,8 +193,8 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a secondary constructor body (vesper-set-sprint-plan §1.9 / B-11):
-    /// run the `let`-preamble into locals, then chain to the primary `.ctor`
+    /// Build a secondary constructor body (B-11): run the `let`-preamble into locals,
+    /// then chain to the primary `.ctor`
     /// (`ldarg.0; <primaryArgs>; call instance void Self::.ctor`). There is no
     /// base-ctor call — the primary ctor performs it. `this` is `ldarg.0`; the
     /// overload's parameters are `ldarg.1…`. The body never synthesises closures,
@@ -262,7 +262,7 @@ module Emit =
         b.Body
 
     /// Build a class primary `.ctor` body that chains to a *base* constructor
-    /// (vesper-set-sprint-plan §2.5 / B-4 `inherit Base(args)`): `ldarg.0;
+    /// (B-4 `inherit Base(args)`): `ldarg.0;
     /// <baseArgs>; call instance void Base::.ctor(…)`, then store each ctor param
     /// into its backing field. The base args reference the derived class's
     /// primary-ctor params (`ctorParams` → `ldarg.1…`); `this` is unusable until
@@ -298,8 +298,8 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a class `.cctor` body for its `static let`s (vesper-set-sprint-plan
-    /// §1.8 / B-10): evaluate each initialiser in declaration order and `stsfld`
+    /// Build a class `.cctor` body for its `static let`s (B-10): evaluate each
+    /// initialiser in declaration order and `stsfld`
     /// it into its backing field, then `ret`. The body sees no `this` / params
     /// (a `.cctor` is parameterless), so the env mirrors `buildMember`'s static
     /// path with empty arg/slot maps.

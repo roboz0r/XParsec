@@ -174,7 +174,7 @@ open System.Collections.Generic
         val rev: list: 'T list -> 'T list
 
         /// `ofSeq source` builds a new list from the given enumerable object.
-        /// Depends on `for x in IEnumerable` (vesper-set-sprint Phase 4).
+        /// Depends on `for x in IEnumerable`.
         val ofSeq: source: seq<'T> -> 'T list
 
         /// `toSeq list` views the given list as a sequence.

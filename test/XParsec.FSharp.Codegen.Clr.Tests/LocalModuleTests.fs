@@ -3,7 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.LocalModuleTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-set-g-wall.md G15 / G16 — local (in-file) module resolution.
+// G15 / G16 — local (in-file) module resolution.
 //
 // G15: a `let`-bound value/function of a sibling *local* module resolves
 //      *qualified* (`A.f`), from another module's body and from a class member.

@@ -103,8 +103,8 @@ let vesperResultContractTests =
 
 /// Vesper.Choice — standalone package (package-split-plan PS1) mirroring
 /// Vesper.Result: the `Choice<'T1, 'T2>` struct DU consumed by `set.fs`'s
-/// `partitionWith` (vesper-set-sprint-phase-8.md §8.1). Same golden-file bar: the
-/// `.fsi` and `.fs` must parse with zero recovery diagnostics.
+/// `partitionWith`. Same golden-file bar: the `.fsi` and `.fs` must parse with
+/// zero recovery diagnostics.
 [<Tests>]
 let vesperChoiceContractTests =
     let choicePath fileName = vesperPath "Vesper.Choice" fileName
@@ -118,8 +118,8 @@ let vesperChoiceContractTests =
 
 /// Vesper.Array — standalone package (package-split-plan PS1) adding the `Array`
 /// module (`fold` / `zeroCreate`) over the intrinsic `'T[]` type, consumed by
-/// `set.fs`'s `toArray` / `ofArray` (vesper-set-sprint-phase-8.md §8.2). Same
-/// golden-file bar: the `.fsi` and `.fs` must parse with zero recovery diagnostics.
+/// `set.fs`'s `toArray` / `ofArray`. Same golden-file bar: the `.fsi` and `.fs`
+/// must parse with zero recovery diagnostics.
 [<Tests>]
 let vesperArrayContractTests =
     let arrayPath fileName = vesperPath "Vesper.Array" fileName
@@ -133,9 +133,8 @@ let vesperArrayContractTests =
 
 /// Vesper.Seq — standalone package (package-split-plan PS1) adding the `Seq`
 /// module (`fold` / `reduce` / `truncate` / `toArray`) over `seq<'T>`, consumed by
-/// `set.fs`'s `Set.Union` / `Set.Intersection` / line 961 `Seq.truncate`
-/// (vesper-set-sprint-phase-8.md §8.4). Same golden-file bar: the `.fsi` and `.fs`
-/// must parse with zero recovery diagnostics.
+/// `set.fs`'s `Set.Union` / `Set.Intersection` / line 961 `Seq.truncate`. Same
+/// golden-file bar: the `.fsi` and `.fs` must parse with zero recovery diagnostics.
 [<Tests>]
 let vesperSeqContractTests =
     let seqPath fileName = vesperPath "Vesper.Seq" fileName

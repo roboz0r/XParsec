@@ -670,7 +670,7 @@ module internal FreezeExpr =
                 // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
                 // one (provider hit). Lets codegen distinguish a canonical
                 // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
-                // identity rather than name suffix (vesper-set-sprint-plan §0.1 / M1).
+                // identity rather than name suffix.
                 let symKey = ctx.Resolution.ExternalValue.TryGetValue key
                 TExpr.External(name, symKey, ty)
 

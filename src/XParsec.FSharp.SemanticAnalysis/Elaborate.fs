@@ -566,7 +566,7 @@ module Elaborate =
 
     /// Rewrite each `static let`-bound name reference (`TExpr.Var(staticLetKey)`)
     /// in a member body or a `.cctor` initialiser to `TExpr.StaticFieldGet(class,
-    /// name)` (vesper-set-sprint-plan §1.8 / B-10) — the static analogue of the
+    /// name)` (B-10) — the static analogue of the
     /// primary-ctor-param → `FieldGet` rewrite. Applies to instance and static
     /// member bodies alike (a `static let` is in scope for both).
     let private rewriteStaticLetRefs (staticLetByKey: Map<NodeKey, string>) (declKey: SymbolKey) (body: TExpr) : TExpr =
@@ -998,7 +998,7 @@ module Elaborate =
                     }
                 )
 
-            // Explicit `val [mutable] x: T` instance fields (vesper-set-sprint-phase-6).
+            // Explicit `val [mutable] x: T` instance fields.
             // Their linked placeholder TyVars are zonked + cut to declaring typars by
             // the later `freezeTypars`/`field` mapper, exactly as `ctorParams`.
             let instanceFields =
@@ -1082,7 +1082,7 @@ module Elaborate =
             // and the translated arg expressions.
             let baseType = info.BaseType
 
-            // Interface implementations (B-2, vesper-set-sprint-phase-5 §5.3).
+            // Interface implementations (B-2).
             // Each registered `interface IFace with member …` block becomes an
             // `(ifaceTy, members)` entry: the resolved interface `TyClass` (carrying
             // this class's declaring typars as roots so a generic arg like

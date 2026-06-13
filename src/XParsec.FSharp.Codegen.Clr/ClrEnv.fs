@@ -389,7 +389,7 @@ type internal ClrEnv
     /// for every reference type and for any name the provider can't resolve as a
     /// class. Drives the `VALUETYPE` vs `CLASS` element tag in `encodeType` and the
     /// value-receiver dispatch for the duck-typed struct enumerator
-    /// (`List`1+Enumerator`, vesper-set-sprint-phase-4 §4.4).
+    /// (`List`1+Enumerator`).
     let externalIsValueType (key: SymbolKey) : bool =
         match lookupClassShape key with
         | ValueSome info -> info.Flags.IsValueType

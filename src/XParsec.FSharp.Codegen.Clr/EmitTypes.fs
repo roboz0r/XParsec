@@ -32,9 +32,9 @@ module EmitTypes =
             /// `> 0` ⇒ a *generic* closure (C3): the *total* number of typars this
             /// closure's `TypeDefinition` carries (`GenericParam` rows `T0…`). For a
             /// static-fn closure this is the enclosing method's typar count, all
-            /// method-axis. For a *member-body* closure (vesper-set Phase 9) it is
-            /// `DeclaringTypars` (the enclosing class typars) + the member's own
-            /// method typars. Its signatures encode the body's typars onto the
+            /// method-axis. For a *member-body* closure it is `DeclaringTypars` (the
+            /// enclosing class typars) + the member's own method typars. Its
+            /// signatures encode the body's typars onto the
             /// closure class's `!i` (via `ClrEnv.ClosureTyparScope`); the
             /// construction site `Newobj`s a `MemberRef` on the instantiated
             /// `TypeSpec`.
@@ -115,7 +115,7 @@ module EmitTypes =
             /// `TExpr.New` matches against it), so explicit `val` fields are kept
             /// out of it — they live in `InstanceFields`.
             Fields: (string * EntityHandle * FrozenType) list
-            /// Explicit `val [mutable] x: T` instance fields (vesper-set-sprint-phase-6),
+            /// Explicit `val [mutable] x: T` instance fields,
             /// `(name, handle, type)`. Default-initialised (not set by the primary
             /// ctor); a `this.x` `FieldGet`/`FieldSet` resolves its handle here.
             InstanceFields: (string * EntityHandle * FrozenType) list

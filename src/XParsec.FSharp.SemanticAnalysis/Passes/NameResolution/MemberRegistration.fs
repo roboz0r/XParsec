@@ -363,8 +363,7 @@ module NameResolutionMemberRegistration =
 
         memberInfos.ToArray()
 
-    /// Collect the `interface IFace with member …` blocks (B-2,
-    /// vesper-set-sprint-phase-5 §5.1) declared in a class body. Each interface
+    /// Collect the `interface IFace with member …` blocks (B-2) declared in a class body. Each interface
     /// member is re-wrapped as a `TypeDefnElement.Member` so the existing member
     /// machinery (`extractMembers`, plus the NameResolution / Unification
     /// member-body walks) consumes it unchanged. The interface *type* is kept as
@@ -395,8 +394,7 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// Collect `val [mutable] x: T` explicit instance fields (B-7-adjacent,
-    /// vesper-set-sprint-phase-6) declared in a class / struct body. Each becomes
+    /// Collect `val [mutable] x: T` explicit instance fields (B-7-adjacent) declared in a class / struct body. Each becomes
     /// a `ClassFieldInfo` with a placeholder TyVar (linked by Unification from the
     /// annotation `TypeCst`) and the source `mutable` flag. `static val` is not a
     /// thing F# accepts here, so a `staticToken` is ignored.

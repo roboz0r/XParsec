@@ -45,7 +45,7 @@ allocations per element vs one allocation + GC pressure as a class).
   constructors and pattern matching. Combinators are additive later, the same
   "grow the module additively" stance as `Vesper.Result`.
 
-## Follow-ups (deferred — see vesper-set-sprint-phase-8.md §8.1)
+## Follow-ups (deferred)
 
 - **Higher-arity `Choice`.** Once the 2-arity case is fully proven (ships,
   round-trips through equality/comparison, consumed in `set.fs`), add
@@ -66,7 +66,6 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`vesper-set-sprint-phase-8.md`](../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-sprint-phase-8.md) — §8.1, the step this package lands.
 - [`operators-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md) — O10, the opt-in `[<StructuralComparison>]`.
 - [`../Vesper.Result/README.md`](../Vesper.Result/README.md) — the sibling package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on.

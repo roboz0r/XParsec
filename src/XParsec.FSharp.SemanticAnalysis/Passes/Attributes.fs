@@ -175,14 +175,14 @@ module Attributes =
 
     /// Canonical class-relevant short names. `[<Sealed>]` opts a class INTO
     /// sealed emission (`TypeAttributes.Sealed`); `[<AllowNullLiteral>]` lets
-    /// `null` unify with the class type. See vesper-set-sprint-plan §1.6 / B-8.
+    /// `null` unify with the class type (B-8).
     let private sealedNames = [ "Sealed"; "SealedAttribute" ]
 
     let private allowNullLiteralNames =
         [ "AllowNullLiteral"; "AllowNullLiteralAttribute" ]
 
     /// `[<Struct>]` opts a class-shaped type into value-type (`System.ValueType`)
-    /// emission (vesper-set-sprint-phase-6). The bare
+    /// emission. The bare
     /// `type X = struct … end` shape (no attribute) lands as `TypeDefn.Struct`
     /// and is normalised to the same flag by `registerClassTypeDefn`.
     let private structNames = [ "Struct"; "StructAttribute" ]

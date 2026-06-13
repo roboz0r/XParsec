@@ -14,7 +14,7 @@ namespace Vesper.Collections
 // same namespace `set.fs` lives in, so its `Seq.fold` / `Seq.reduce` /
 // `Seq.truncate` calls resolve without an extra `open`.
 //
-// This is the *minimal* reference surface (vesper-set-sprint-phase-8.md §8.4):
+// This is the *minimal* reference surface:
 // just the four operations `set.fs` consumes — `fold` (line 820), `reduce`
 // (line 823), `truncate` (line 961), plus `toArray` for symmetry. The full
 // zero-allocation, struct-chaining, deforesting `Seq` design lives in

@@ -6,8 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-set-sprint-phase-4 Step 4.2 / B-6 backend tests. `for x in src do body`
-// over an `IEnumerable<'T>` lowers to the standard enumerator loop:
+// B-6 backend tests. `for x in src do body` over an `IEnumerable<'T>` lowers to
+// the standard enumerator loop:
 //   let e = src.GetEnumerator() in
 //   try while e.MoveNext() do (let x = e.Current in body)
 //   finally if e <> null then e.Dispose()
@@ -63,8 +63,8 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the sequence in order"
             }
 
-            // vesper-set-sprint-phase-4 Step 4.4 — duck-typed struct enumerator
-            // codegen. A concrete `List<int>` source walks its non-boxing value-type
+            // Duck-typed struct enumerator codegen. A concrete `List<int>` source
+            // walks its non-boxing value-type
             // `List<int>.Enumerator` (C# precedence prefers the pattern
             // `GetEnumerator()` over the `IEnumerable<int>` interface). The
             // enumerator lives in a value local, dispatched by `ldloca` +
@@ -101,10 +101,10 @@ let forInTests =
                 Expect.isTrue hasConstrained "Main IL contains a `constrained.` prefix (non-boxing struct enumerator)"
             }
 
-            // vesper-set-sprint-phase-4 Step 4.4 — front end only. The duck-typed
-            // (pattern-based `GetEnumerator()`) codegen is deferred (the project's
-            // first value-type member-call IL), so this asserts the *analysis*
-            // resolves the loop rather than running the program.
+            // Front end only. The duck-typed (pattern-based `GetEnumerator()`)
+            // codegen is deferred (the project's first value-type member-call IL),
+            // so this asserts the *analysis* resolves the loop rather than running
+            // the program.
             test "for-in over a duck-typed source (no IEnumerable<'T>) type-checks via the pattern GetEnumerator()" {
                 // `System.Collections.BitArray` implements only the *non-generic*
                 // `IEnumerable`, so the §4.2 `IEnumerable<'T>` interface probe

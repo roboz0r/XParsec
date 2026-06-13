@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The behavioral runtime suite for `Vesper.Set` — the §9.7 round-trip gate +
-// the Phase-9-exit operation table (vesper-set-sprint-phase-9.md). The DLL
+// the Phase-9-exit operation table. The DLL
 // builds + links + loads BCL-only (`PackageBuildTriage`); this suite is the
 // *runtime* round-trip the §9.7 gate calls for, driven through `runsSet`.
 //
@@ -180,8 +180,8 @@ let tests =
             }
 
             // ---- Phase-9-exit operation table -------------------------------
-            // The golden round-trip table over the `Set` module's `.fsi` surface
-            // (vesper-set-phase-9-handoff §"Remaining to ship (G8)"). Each row
+            // The golden round-trip table over the `Set` module's `.fsi` surface.
+            // Each row
             // drives one or more `Set.*` operations through `runsSet` and pins the
             // observed stdout. Sets are built via `Set.add` chains / `Set.ofArray`
             // (the proven construction paths) and rendered to deterministic

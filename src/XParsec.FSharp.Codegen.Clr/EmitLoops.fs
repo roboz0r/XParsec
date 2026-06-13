@@ -209,8 +209,7 @@ module EmitLoops =
                 body
         | TExprG.ForIn(pat, source, body, _, _) ->
             let elemTy = typeOfPat pat
-            // `for x in src do body` over an `IEnumerable<'T>` (B-6,
-            // vesper-set-sprint-phase-4 §4.2). Lowered to the standard enumerator
+            // `for x in src do body` over an `IEnumerable<'T>` (B-6). Lowered to the standard enumerator
             // loop through the *interface* slots, so the same shape drives any BCL
             // collection (and, later, a user `seq`):
             //

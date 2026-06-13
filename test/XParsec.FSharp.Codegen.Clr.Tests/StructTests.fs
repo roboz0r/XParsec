@@ -7,9 +7,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-set-sprint-phase-6 — `[<Struct>]` value-type emission. These tests
-// reflect over the emitted PE so a runtime fault (bad IL, wrong base type,
-// lost mutation) surfaces through `loadAssembly` / `Activator.CreateInstance`.
+// `[<Struct>]` value-type emission. These tests reflect over the emitted PE so
+// a runtime fault (bad IL, wrong base type, lost mutation) surfaces through
+// `loadAssembly` / `Activator.CreateInstance`.
 //
 // The boxed-interface path is the one `Vesper.Set`'s struct enumerator needs:
 // construct a struct, coerce it to an interface (box), dispatch through the
@@ -485,8 +485,8 @@ let structTests =
                 Expect.equal (get.Invoke(boxed, [||]) :?> int) 7 "Get() reads the val field back"
             }
 
-            // vesper-set-sprint-phase-6 (B-3-alt) — the struct *enumerator* shape.
-            // A generic struct that IS the enumerator: it implements
+            // B-3-alt — the struct *enumerator* shape. A generic struct that IS the
+            // enumerator: it implements
             // `IEnumerator<'T>` (generic `Current`) + the non-generic `IEnumerator`
             // (`Current : obj`, `MoveNext`, `Reset`) + `IDisposable`, mutating its
             // own `val mutable` state through the byref `this` across `MoveNext`
@@ -714,15 +714,15 @@ let structTests =
                 Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE"
             }
 
-            // vesper-set-sprint-phase-9 (G4) — `set.fs`'s `SetIterator.MoveNext`
-            // shape: an infix operator (`t.Height = 1`) *inside a struct interface
-            // member body*, where `t` is a class instance popped from a list-typed
-            // `val` field (`match this.Stack with | t :: rest -> …`). Desugar only
-            // walked the type's *own* members, never `interface … with member …`
-            // bodies, so the `=` node got no `DesugaredForm.OpName` entry and Freeze
-            // threw `InfixApp … missing DesugaredForm entry`. None of the enumerator
-            // tests above caught it: their interface members contain no infix
-            // operator. This drives the boxed enumerator over the true `=` branch.
+            // G4 — `set.fs`'s `SetIterator.MoveNext` shape: an infix operator
+            // (`t.Height = 1`) *inside a struct interface member body*, where `t` is
+            // a class instance popped from a list-typed `val` field (`match
+            // this.Stack with | t :: rest -> …`). Desugar only walked the type's
+            // *own* members, never `interface … with member …` bodies, so the `=`
+            // node got no `DesugaredForm.OpName` entry and Freeze threw
+            // `InfixApp … missing DesugaredForm entry`. None of the enumerator tests
+            // above caught it: their interface members contain no infix operator.
+            // This drives the boxed enumerator over the true `=` branch.
             test "an infix operator inside a struct interface member resolves (SetIterator.MoveNext shape)" {
                 let _, artifact =
                     compileSource

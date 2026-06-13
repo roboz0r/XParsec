@@ -254,8 +254,8 @@ let private packageAlc = PackageLoadContext()
 let private packageBuildCache =
     Collections.Concurrent.ConcurrentDictionary<string, Lazy<Assembly * ClrArtifact>>(StringComparer.Ordinal)
 
-/// Pre-1 (vesper-lib-test-plan.md): compile `src/<package>/`'s `impl` `.fs` files
-/// (in manifest order) to a DLL through our own backend, resolving `depends-on`
+/// Pre-1: compile `src/<package>/`'s `impl` `.fs` files (in manifest order) to a
+/// DLL through our own backend, resolving `depends-on`
 /// recursively — each dependency is built + loaded first, its DLL added to
 /// `References` and its `manifest.toml` to the contract stack. Caches per package
 /// (`Lazy`), generalizing the hand-written `vesperCoreDll`/`vesperListDll` fixtures
@@ -538,7 +538,7 @@ let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
         failwithf "expected a runtime %s but got a different failure:\n%s\nfor:\n%s" expectedTypeFragment msg src
     | None -> failwithf "expected a runtime %s but the program completed for:\n%s" expectedTypeFragment src
 
-// ---- Vesper.Option runtime harness (vesper-lib-test-plan Phase 2) -----------
+// ---- Vesper.Option runtime harness -----------
 // `Vesper.Option` is *not* in `defaultManifests` (adding `Some`/`None`/`Option`
 // to the global stack would shadow resolution in every other test), so it gets
 // its own opt-in harness: build `Vesper.Option.dll` from `option.fs` once, load
@@ -643,9 +643,9 @@ let typeChecks (src: string) : unit =
     | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
 
 /// `analyseErrors` against the default contract stack PLUS the `Vesper.Option`
-/// contract — the front-end-only probe for cross-package Option use
-/// (vesper-lib-test-plan Gap 2 Layer A). No codegen, so it exercises type
-/// resolution + member access without the backend B/C/D paths.
+/// contract — the front-end-only probe for cross-package Option use.
+/// No codegen, so it exercises type resolution + member access without the
+/// backend B/C/D paths.
 let private analyseOptionErrors (src: string) : Diagnostic list =
     let provider =
         SymbolProviders.buildContract (defaultManifests @ [ vesperOptionManifest ])
@@ -674,7 +674,7 @@ let failsWithOption (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
-// ---- Vesper.Result runtime harness (vesper-lib-test-plan Phase 2) -----------
+// ---- Vesper.Result runtime harness -----------
 // Mirrors the Vesper.Option harness above. `Vesper.Result` is *not* in
 // `defaultManifests` (its `Ok`/`Error`/`Result` would shadow resolution in every
 // other test), so driver programs opt in by stacking the Result contract and
@@ -774,7 +774,7 @@ let failsWithResult (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
-// ---- Vesper.Choice runtime harness (vesper-lib-test-plan Phase 2) -----------
+// ---- Vesper.Choice runtime harness -----------
 // Mirrors the Vesper.Option / Vesper.Result harnesses above. `Vesper.Choice` is
 // *not* in `defaultManifests` (its `Choice`/`Choice1Of2`/`Choice2Of2` would shadow
 // resolution in every other test), so driver programs opt in by stacking the
@@ -874,7 +874,7 @@ let failsWithChoice (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
-// ---- Vesper.Array runtime harness (vesper-lib-test-plan Phase 3) ------------
+// ---- Vesper.Array runtime harness ------------
 // Mirrors the Option/Result/Choice harnesses. `Vesper.Array` is *not* in
 // `defaultManifests` (its `Array` module would shadow resolution elsewhere), so
 // driver programs opt in by stacking the Array contract and referencing a
@@ -965,7 +965,7 @@ let typeChecksArray (src: string) : unit =
     | [] -> ()
     | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
 
-// ---- Vesper.Seq runtime harness (vesper-lib-test-plan Phase 3) --------------
+// ---- Vesper.Seq runtime harness --------------
 // Mirrors the Array harness. `Vesper.Seq` is *not* in `defaultManifests` (its
 // `Seq` module would shadow resolution elsewhere), so driver programs opt in by
 // stacking the Seq contract and referencing a once-built `Vesper.Seq.dll`. The
@@ -1068,7 +1068,7 @@ let typeChecksSeq (src: string) : unit =
     | [] -> ()
     | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
 
-// ---- Vesper.Set runtime harness (vesper-set-sprint-phase-9 §9.7 / G8) -------
+// ---- Vesper.Set runtime harness -------
 // `Vesper.Set` (the immutable AVL-tree set + the `Set` module) is the capstone
 // self-host package. Its DLL builds + links + loads BCL-only — proven by
 // `PackageBuildTriage` "Vesper.Set builds BCL-only". This harness adds the
@@ -1243,10 +1243,10 @@ let peAssemblyRefs (bytes: byte[]) : string list =
 
 /// Total number of `InterfaceImpl` rows across every type-def in the PE — the
 /// count of `: IFace` entries the metadata carries (one per implemented
-/// interface, vesper-set-sprint-phase-5 §5.3). Reflection's `GetInterfaces`
-/// folds in transitively-inherited interfaces, so this raw count is what
-/// distinguishes "emitted both `IEnumerable<int>` and `IEnumerable`" from
-/// "emitted only the generic one and inherited the non-generic".
+/// interface). Reflection's `GetInterfaces` folds in transitively-inherited
+/// interfaces, so this raw count is what distinguishes "emitted both
+/// `IEnumerable<int>` and `IEnumerable`" from "emitted only the generic one
+/// and inherited the non-generic".
 let peInterfaceImplCount (bytes: byte[]) : int =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()

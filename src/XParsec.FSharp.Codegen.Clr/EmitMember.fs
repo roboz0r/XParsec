@@ -43,8 +43,7 @@ module EmitMember =
     /// (no arguments) and `buildMethodCall`:
     /// - `CallVia.Self` on an *unboxed struct* (`FTClass` + `isValueType`) — address
     ///   the receiver (`ldloca`, so a mutating member persists) and `call` it.
-    /// - `CallVia.Self` on a *class* — `callvirt` (the safe default per
-    ///   vesper-set-sprint-plan §1.7; a non-`override` would accept `call` too).
+    /// - `CallVia.Self` on a *class* — `callvirt` (the safe default; a non-`override` would accept `call` too).
     /// - anything else — a non-virtual `call`: `base.M`/`base.X` (`CallVia.Base`,
     ///   `receiverTy` already the parent type) so an `override` body doesn't recurse,
     ///   and sealed union/record receivers (not `FTClass`) where no virtual dispatch

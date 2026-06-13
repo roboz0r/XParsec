@@ -116,8 +116,8 @@ module EmitPattern =
             | "char"
             | "decimal" -> true
             | _ -> false
-        // A user-declared `[<Struct>]` type emitted into this assembly
-        // (vesper-set-sprint-phase-6): the `EmittedClass.IsValueType` flag drives
+        // A user-declared `[<Struct>]` type emitted into this assembly:
+        // the `EmittedClass.IsValueType` flag drives
         // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
         // struct that lives in a *referenced* package (not in `env.Classes`) is
         // recognised the same way via the provider's external value-type flag —

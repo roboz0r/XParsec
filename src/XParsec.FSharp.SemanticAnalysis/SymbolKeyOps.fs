@@ -72,7 +72,7 @@ module SymbolKeyOps =
     /// (module path), the last segment the simple `name`. For a bare `printfn`
     /// (no `.`) the `ns` is empty. Used by `mono`/`poly`/`polyWith` to default the
     /// symbol's `Key`; `stack`'s `stampSymbol` re-mints the key with the wrapping
-    /// package's assembly once it stamps the origin (vesper-set-sprint-plan §0.1 / M1).
+    /// package's assembly once it stamps the origin.
     let valueKeyOf (asm: string option) (compiled: string) : SymbolKey =
         let ns, name = splitQualified compiled
         SymbolKey.ValueKey(asm, ns, name)

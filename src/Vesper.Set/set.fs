@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 // Adapted from FSharp.Core/set.fs — runtime impl mirroring FSharp.Core's FSharpSet`1.
-// Phase 9 of the Vesper.Set sprint (vesper-set-sprint-phase-9.md) rewrote the FSharp.Core
-// idioms this self-host rung cannot carry: OptimizedClosures.FSharpFunc.Adapt + f.Invoke(a,b)
-// became direct `f a b` calls; LanguagePrimitives.FastGenericComparer<'T> became
-// Comparer<'T>.Default; LanguagePrimitives.anyToStringShowingNull became `sprintf "%O"`; and
-// the SR.* string-resource indirection was inlined to English literals. The struct enumerator
-// (SetIterator<'T>) already replaced the original IEnumerator object expression (Phase 6).
+// This file was rewritten from the FSharp.Core idioms this self-host rung cannot carry:
+// OptimizedClosures.FSharpFunc.Adapt + f.Invoke(a,b) became direct `f a b` calls;
+// LanguagePrimitives.FastGenericComparer<'T> became Comparer<'T>.Default;
+// LanguagePrimitives.anyToStringShowingNull became `sprintf "%O"`; and the SR.* string-resource
+// indirection was inlined to English literals. The struct enumerator (SetIterator<'T>) already
+// replaced the original IEnumerator object expression.
 
 namespace Vesper.Collections
 
@@ -228,8 +228,8 @@ module internal SetTree =
                 else mem comparer k tn.Right
 
     // Upstream returns `'T voption`; Vesper's `Option` is already a struct
-    // (`ValueOption` was dropped as redundant — vesper-set-gaps.md §C / core-types.fsi),
-    // so `Some` / `None` carry the same no-allocation guarantee `ValueSome` / `ValueNone` did.
+    // (`ValueOption` was dropped as redundant), so `Some` / `None` carry the same
+    // no-allocation guarantee `ValueSome` / `ValueNone` did.
     let rec tryGet (comparer: IComparer<'T>) k (t: SetTree<'T>) =
         if isEmpty t then
             None
@@ -542,14 +542,13 @@ module internal SetTree =
     let unexpectedstateInSetTreeCompareStacks () =
         failwith "unexpected state in SetTree.compareStacks"
 
-    // Imperative left-to-right iterator (vesper-set-sprint-phase-6 / B-3-alt). A
-    // `[<Struct>]` enumerator replaces the original `IEnumerator<'T>` object
-    // expression in `mkIEnumerator` — Vesper's front end has no object-expression
-    // support, but value-type emission + interface impls cover this shape. The
-    // advance / read logic is *inlined* in the interface members rather than
-    // factored into public `MoveNext`/`Current` the interface forwards to: a
-    // struct member calling another struct member on `this` is not yet supported
-    // (it copies `this`, losing the mutation), so the bodies that mutate
+    // Imperative left-to-right iterator (B-3-alt). A `[<Struct>]` enumerator replaces
+    // the original `IEnumerator<'T>` object expression in `mkIEnumerator` — Vesper's
+    // front end has no object-expression support, but value-type emission + interface
+    // impls cover this shape. The advance / read logic is *inlined* in the interface
+    // members rather than factored into public `MoveNext`/`Current` the interface
+    // forwards to: a struct member calling another struct member on `this` is not yet
+    // supported (it copies `this`, losing the mutation), so the bodies that mutate
     // `this.stack` / `this.started` must run directly in the interface methods.
     [<NoEquality; NoComparison>]
     [<Struct>]

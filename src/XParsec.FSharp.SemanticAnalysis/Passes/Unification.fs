@@ -278,7 +278,7 @@ module Unification =
     /// uses) that aren't already a registered method typar, and append them.
     /// `Elaborate`/`Freeze` then surface them as `TyTypar(Method, i)` +
     /// `GenericParam` rows by their position in `MethodTypeParams`, and a member-
-    /// body closure inherits them as its own method typars (vesper-set Phase 9).
+    /// body closure inherits them as its own method typars.
     /// Methods only — a property can't carry method typars (mirrors registration).
     let private generaliseMemberTypars
         (ctx: PassContext)
@@ -736,8 +736,7 @@ module Unification =
         | ValueNone -> ()
 
     /// Type-check the member bodies of one resolved `interface IFace with member …`
-    /// block against the interface's external signatures (B-2,
-    /// vesper-set-sprint-phase-5 §5.2). For each impl member, unify its
+    /// block against the interface's external signatures (B-2). For each impl member, unify its
     /// already-inferred signature with the matching `ExternalMember` looked up by
     /// name on `iface` (`TyClass(ifaceName, ifaceArgs)`), substituting the impl's
     /// interface type-args so a generic `IEnumerable<'T>::GetEnumerator() :
@@ -816,7 +815,7 @@ module Unification =
                 | ValueSome expectedTy -> unify ctx mInfo.DeclKey mInfo.Type expectedTy
                 | ValueNone -> ()
 
-    /// §5.2 resolution pre-pass (B-2, vesper-set-sprint-phase-5 §5.1): resolve
+    /// §5.2 resolution pre-pass (B-2): resolve
     /// each `interface IFace with member …` block's interface type and stamp
     /// `impl.Resolved` *before* any member body — the class's own members or a
     /// sibling interface block — is typed. The interface type resolves under the

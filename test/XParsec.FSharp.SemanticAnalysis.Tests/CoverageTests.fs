@@ -694,9 +694,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // Step 1.4 of vesper-set-sprint-plan: `TypeDefn.Class` surfaces as
-            // `TDecl.Type` with `TTypeKind.Class` carrying the ctor params and
-            // member list. `fields`/`baseType`/`interfaces` slots stay empty in B-1.
+            // `TypeDefn.Class` surfaces as `TDecl.Type` with `TTypeKind.Class`
+            // carrying the ctor params and member list.
+            // `fields`/`baseType`/`interfaces` slots stay empty in B-1.
             test "TAST: class surfaces as TTypeKind.Class" {
                 let tast =
                     analyse "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y"
@@ -780,9 +780,8 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // vesper-set-sprint-plan §1.8 / B-10: a `static let` surfaces in
-            // `TTypeKind.Class.staticLets` with its inferred type, and a member
-            // reference to it lowers to `TExpr.StaticFieldGet`.
+            // B-10: a `static let` surfaces in `TTypeKind.Class.staticLets` with its
+            // inferred type, and a member reference to it lowers to `TExpr.StaticFieldGet`.
             test "TAST: `static let` surfaces in TTypeKind.Class.staticLets" {
                 let tast = analyse "type C() =\n    static let x = 42\n    static member Get () = x"
 
@@ -815,7 +814,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // G13 (vesper-set-g-wall): `static let` on a *generic* class is now
+            // G13: `static let` on a *generic* class is now
             // supported — the field rides the open generic `TypeDefinition` (one per
             // closed instantiation, `.cctor`-initialised) and codegen mints the
             // read/store as a `MemberRef` on the self-`TypeSpec`. The front-end no
@@ -843,9 +842,9 @@ let tests =
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
             }
 
-            // vesper-set-sprint-plan §1.9 / B-11: a `new(...)` overload surfaces in
-            // `TTypeKind.Class.secondaryCtors` with its params and the primary-ctor
-            // chain arguments; the primary ctor list is unaffected.
+            // B-11: a `new(...)` overload surfaces in `TTypeKind.Class.secondaryCtors`
+            // with its params and the primary-ctor chain arguments; the primary ctor
+            // list is unaffected.
             test "TAST: secondary constructor surfaces in TTypeKind.Class.secondaryCtors" {
                 let tast = analyse "type C(x: int) =\n    new() = C(0)\n    member this.X = x"
 

@@ -512,43 +512,43 @@ namespace                  'namespace'       KWNamespace         tok=   0  pos= 
                            ''T'              TypeParameter       tok= 993  pos=8441
           Ident            'list'            Identifier          tok= 995  pos=8444
       Val:
-        val                'val'             KWVal               tok=1005  pos=8612
-        Ident              'ofSeq'           Identifier          tok=1007  pos=8616
-        :                  ':'               OpColon             tok=1008  pos=8621
-        arg                'source'          Identifier          tok=1010  pos=8623
-        :                  ':'               OpColon             tok=1011  pos=8629
+        val                'val'             KWVal               tok=1005  pos=8584
+        Ident              'ofSeq'           Identifier          tok=1007  pos=8588
+        :                  ':'               OpColon             tok=1008  pos=8593
+        arg                'source'          Identifier          tok=1010  pos=8595
+        :                  ':'               OpColon             tok=1011  pos=8601
         GenericType:
-          Ident            'seq'             Identifier          tok=1013  pos=8631
-          <                '<'               op_LessThan         tok=1014  pos=8634
+          Ident            'seq'             Identifier          tok=1013  pos=8603
+          <                '<'               op_LessThan         tok=1014  pos=8606
           TypeArg.Type:
             VarType:
               Typar.Named:
-                           ''T'              TypeParameter       tok=1015  pos=8635
-          >                '>'               op_GreaterThan      tok=1016  pos=8637
-        ->                 '->'              OpArrowRight        tok=1018  pos=8639
+                           ''T'              TypeParameter       tok=1015  pos=8607
+          >                '>'               op_GreaterThan      tok=1016  pos=8609
+        ->                 '->'              OpArrowRight        tok=1018  pos=8611
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok=1020  pos=8642
-          Ident            'list'            Identifier          tok=1022  pos=8645
+                           ''T'              TypeParameter       tok=1020  pos=8614
+          Ident            'list'            Identifier          tok=1022  pos=8617
       Val:
-        val                'val'             KWVal               tok=1029  pos=8720
-        Ident              'toSeq'           Identifier          tok=1031  pos=8724
-        :                  ':'               OpColon             tok=1032  pos=8729
-        arg                'list'            Identifier          tok=1034  pos=8731
-        :                  ':'               OpColon             tok=1035  pos=8735
+        val                'val'             KWVal               tok=1029  pos=8692
+        Ident              'toSeq'           Identifier          tok=1031  pos=8696
+        :                  ':'               OpColon             tok=1032  pos=8701
+        arg                'list'            Identifier          tok=1034  pos=8703
+        :                  ':'               OpColon             tok=1035  pos=8707
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok=1037  pos=8737
-          Ident            'list'            Identifier          tok=1039  pos=8740
-        ->                 '->'              OpArrowRight        tok=1041  pos=8745
+                           ''T'              TypeParameter       tok=1037  pos=8709
+          Ident            'list'            Identifier          tok=1039  pos=8712
+        ->                 '->'              OpArrowRight        tok=1041  pos=8717
         GenericType:
-          Ident            'seq'             Identifier          tok=1043  pos=8748
-          <                '<'               op_LessThan         tok=1044  pos=8751
+          Ident            'seq'             Identifier          tok=1043  pos=8720
+          <                '<'               op_LessThan         tok=1044  pos=8723
           TypeArg.Type:
             VarType:
               Typar.Named:
-                           ''T'              TypeParameter       tok=1045  pos=8752
-          >                '>'               op_GreaterThan      tok=1046  pos=8754
-    end                    <virt>            KWEnd               tok=virt  pos=8756
+                           ''T'              TypeParameter       tok=1045  pos=8724
+          >                '>'               op_GreaterThan      tok=1046  pos=8726
+    end                    <virt>            KWEnd               tok=virt  pos=8728

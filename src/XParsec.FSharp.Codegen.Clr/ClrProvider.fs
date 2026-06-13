@@ -36,8 +36,7 @@ type ClrProvider
 
     member _.ObjectType: EntityHandle = env.EObject.Value
 
-    /// `System.ValueType` — the IL base type of a `[<Struct>]` value type
-    /// (vesper-set-sprint-phase-6).
+    /// `System.ValueType` — the IL base type of a `[<Struct>]` value type.
     member _.ValueTypeBase: EntityHandle = env.EValueType.Value
 
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
@@ -48,7 +47,7 @@ type ClrProvider
     member _.RegisterUserType(key: SymbolKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
 
     /// Record a project-local `[<Struct>]` value type so `encodeType` emits it as
-    /// `ELEMENT_TYPE_VALUETYPE` (vesper-set-sprint-phase-6).
+    /// `ELEMENT_TYPE_VALUETYPE`.
     member _.RegisterUserValueType(key: SymbolKey) : unit = env.UserValueTypes.Add key |> ignore
 
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
@@ -96,13 +95,13 @@ type ClrProvider
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
-    /// `interface IEnumerable<'T>` (B-2, §5.3) carries its `'T` arg as a
+    /// `interface IEnumerable<'T>` (B-2) carries its `'T` arg as a
     /// `TyTypar(Declaring, i)` the encoder resolves to the declaring type's `!i`
     /// directly. Drives each class `InterfaceImpl` row's interface handle.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
     /// The `InterfaceImpl.Interface` handle for a user class's implemented
-    /// interface (B-2, §5.3). A *generic* interface (`IEnumerable<int>`) needs a
+    /// interface (B-2). A *generic* interface (`IEnumerable<int>`) needs a
     /// `TypeSpec` carrying its instantiation; a *non-generic* one (`IEnumerable`,
     /// `IComparable`) references its `TypeRef` directly — the runtime rejects a
     /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
@@ -236,7 +235,7 @@ type ClrProvider
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))
             else
-                // Dispatch by SymbolKey identity when Freeze stamped one (M1): only the canonical
+                // Dispatch by SymbolKey identity when Freeze stamped one: only the canonical
                 // `Vesper.Printf.printfn` trips the cold-printf recipe, so a user `MyMod.printfn` falls
                 // through to the normal external-call path. The name-based fallback only fires on bare
                 // `"printfn"` from unkeyed call sites (test mocks).
@@ -248,7 +247,7 @@ type ClrProvider
                 if isCanonicalPrintfn then
                     ValueSome(recipes.EmitPrintfn(fnTy))
                 else
-                    // General external module-function call (vesper-lib-test-plan Gap 2 Layer D): route
+                    // General external module-function call (Gap 2 Layer D): route
                     // by the Freeze-stamped key to the declaring module (`ns`) + method (`name`), and mint
                     // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
                     // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
@@ -276,8 +275,8 @@ type ClrProvider
                 | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
 
             // The cons recipe is selected by the receiver's nominal `SymbolKey`:
-            // FSharp.Core's `list` vs the Vesper cons-list, recognised by key
-            // identity rather than by string name.
+            // FSharp.Core's `list` vs the Vesper cons-list, recognised by
+            // key identity rather than by string name.
             if RuntimeNames.isFsharpCoreListKey key then
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitListCons(elem ()))
@@ -293,7 +292,7 @@ type ClrProvider
             else
                 // A referenced-package union case (`Some` / `None`): `call` the
                 // emitted static case factory `<caseName>(fields…) : Union<…>` on
-                // the instantiated `TypeSpec` (vesper-lib-test-plan Gap 2 Layer B).
+                // the instantiated `TypeSpec` (Gap 2 Layer B).
                 // The fields are already on the stack in declaration order, so the
                 // recipe is a static `call` pushing the one union value back.
                 match ext.ExternalUnionFactory(key, caseName, tyArgs) with

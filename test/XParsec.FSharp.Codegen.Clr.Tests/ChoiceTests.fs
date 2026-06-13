@@ -89,7 +89,7 @@ let tests =
             }
         ]
 
-// Higher-arity `Choice<'T1, …, 'T7>` (vesper-set-sprint-phase-8 §8.1 follow-up).
+// Higher-arity `Choice<'T1, …, 'T7>` (arity-overload follow-up).
 // These are *distinct* emitted types `Vesper.Choice`3`…`Vesper.Choice`7` — the
 // proof that the whole pipeline (front-end type registry, codegen `userTypes` /
 // `genericUnions`, the external contract provider) is keyed by `(name, arity)`,

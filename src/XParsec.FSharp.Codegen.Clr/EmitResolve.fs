@@ -116,9 +116,9 @@ module EmitResolve =
     /// only a `Class` — so the recover-by-signature `ExternalMemberRef` fails on
     /// it (`… did not resolve at emit`). Route a union/record receiver through
     /// `ExternalMemberRefOn`, which reads the parent `TypeSpec` and the marker
-    /// count straight off the receiver type (vesper-lib-test-plan Gap 2 — the
-    /// Layer A *backend* half, `(Some 5).IsSome` / `o.Value` at runtime). A class
-    /// receiver keeps the existing, tested recover path.
+    /// count straight off the receiver type (Gap 2 Layer A — `(Some 5).IsSome` /
+    /// `o.Value` at runtime). A class receiver keeps the existing, tested recover
+    /// path.
     let externalInstanceMemberRef
         (env: EmitEnv)
         (key: SymbolKey)
@@ -243,7 +243,7 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key
 
     /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle
-    /// (vesper-set-sprint-plan §1.8 / B-10). The handle was chosen at emit time
+    /// (B-10). The handle was chosen at emit time
     /// (`NominalEmit`): a mono class stores the field's `Def` token, a *generic*
     /// class stores a `MemberRef` on the open self-`TypeSpec` (`Set\`1<!0>::empty`,
     /// G13). Either way this is a direct dictionary read.
@@ -265,8 +265,7 @@ module EmitResolve =
     /// `resolveInstanceMember`. A referenced-assembly record
     /// goes through the provider's `TryResolveExternalRecordField`. Classes reach
     /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
-    /// name)` by `Freeze.translateClassMember` (vesper-set-sprint-plan Phase 1 /
-    /// B-1).
+    /// name)` by `Freeze.translateClassMember` (B-1).
     let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
         // Project-local tables key by the receiver's nominal `SymbolKey`; the
         // external record-field lookup derives the qualified compiled name from it
@@ -283,8 +282,8 @@ module EmitResolve =
             match env.Classes.TryGetValue key with
             | true, c ->
                 // Primary-ctor backing fields first, then explicit `val` instance
-                // fields (vesper-set-sprint-phase-6) — both resolve identically
-                // through the `ClassMember.Field` member ref.
+                // fields — both resolve identically through the `ClassMember.Field`
+                // member ref.
                 match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
                 | Some(_, h, _) ->
                     memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h

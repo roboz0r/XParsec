@@ -17,8 +17,7 @@
 # Per PS5 the package is named `Vesper.Seq` but contributes the `Seq` module into
 # namespace `Vesper.Collections`, not `Vesper.Seq`.
 #
-# See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-sprint-phase-8.md (§8.4).
+# See ./README.md.
 
 [core]
 name = "Vesper.Seq"

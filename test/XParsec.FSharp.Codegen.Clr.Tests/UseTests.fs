@@ -5,17 +5,16 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-set-sprint-phase-4 Step 4.1 / B-5 backend tests. `use x = e in body`
-// lowers to `let x = e in try body finally if x <> null then x.Dispose()`: the
-// IL-IR exception region (H5) wraps the body, and the binder is disposed on
-// every exit. A *project-local* binder disposes via a direct `Dispose()` call
-// (the duck-typed path — no `IDisposable` upcast, Phase 5 not required), so the
-// mock here is a plain user class with a `Dispose` member that records the call
-// by printing. Asserting on captured stdout proves both that `Dispose` ran and
-// that it ran *after* the body. Step 4.3 extends this to *external* (BCL)
-// binders: the front end resolves a keyed `Dispose` (the type's own, or
-// `System.IDisposable`'s when implemented) and codegen disposes it through an
-// `ExternalMemberRef` `callvirt` — the `MemoryStream` test below is the gate.
+// B-5 backend tests. `use x = e in body` lowers to `let x = e in try body
+// finally if x <> null then x.Dispose()`: the IL-IR exception region (H5) wraps
+// the body, and the binder is disposed on every exit. A *project-local* binder
+// disposes via a direct `Dispose()` call (the duck-typed path — no `IDisposable`
+// upcast), so the mock here is a plain user class with a `Dispose` member that
+// records the call by printing. Asserting on captured stdout proves both that
+// `Dispose` ran and that it ran *after* the body. The external (BCL) binder path
+// resolves a keyed `Dispose` (the type's own, or `System.IDisposable`'s when
+// implemented) and codegen disposes it through an `ExternalMemberRef` `callvirt`
+// — the `MemoryStream` test below is the gate.
 
 [<Tests>]
 let useTests =

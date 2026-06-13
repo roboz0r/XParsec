@@ -50,7 +50,7 @@ type ModuleMemberInfo =
 /// How a `for x in src do …` (`TExpr.ForIn`) sources its enumerator — resolved by
 /// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
 /// codegen can't re-derive the struct-vs-interface decision from the element type
-/// alone (vesper-set-sprint-phase-4 §4.2/§4.4). Defined here (ahead of `Tast.fs`
+/// alone. Defined here (ahead of `Tast.fs`
 /// in compile order) so both the `SideTables` side table and the `TExpr.ForIn`
 /// field can name it.
 [<RequireQualifiedAccess>]

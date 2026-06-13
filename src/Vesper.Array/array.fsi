@@ -18,7 +18,7 @@ namespace Vesper.Collections
 // loops, indexed get/set, `.Length`, and `Vesper.Fun` application). The rest of
 // the FSharp.Core `Array` surface (the equality/comparison-constrained members
 // `contains`/`sort`, the seq-bridge `ofSeq`/`toSeq`) is additive later, the same
-// stance as Vesper.List / Vesper.Result. See vesper-set-sprint-phase-8.md §8.2.
+// stance as Vesper.List / Vesper.Result.
 
 /// Operations over `'T[]`. The `ModuleSuffix` representation gives the module
 /// the compiled name `ArrayModule` (matching the FSharp.Core surface) and lets

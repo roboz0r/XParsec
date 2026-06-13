@@ -452,8 +452,8 @@ module EmitClosures =
     /// closures), since a reference to one is a direct call. A closure walked from
     /// a generic static fn's body inherits that fn's `staticFnTypars` on its
     /// `Closure.Typars`; an inner closure inherits the enclosing closure's set.
-    /// A closure-discovery root from a *type member body* (vesper-set Phase 9):
-    /// the member's already-`expandBuiltinOps`-expanded body paired with the
+    /// A closure-discovery root from a *type member body*: the member's
+    /// already-`expandBuiltinOps`-expanded body paired with the
     /// number of typars in scope at its construction site — the declaring type's
     /// typar count (the closure re-projects those onto its own class typars, the
     /// same `Typars` count a static-fn closure inherits). `0` for a monomorphic
@@ -569,8 +569,8 @@ module EmitClosures =
             | TDeclG.Expression(e, _) -> go 0 0 ValueNone e
             | TDeclG.Type _ -> ()
 
-        // Type member bodies (vesper-set Phase 9): a lambda inside a member body
-        // is a closure too — `buildMember` walks the same expanded body, so the
+        // Type member bodies: a lambda inside a member body is a closure too —
+        // `buildMember` walks the same expanded body, so the
         // node-identity keys in `lookup` match its `buildExpr`. A member body sees
         // no static-fn `selfKey` (a recursive `let rec` inside it would, but the
         // member itself dispatches as a call, not a captured value). The closure's

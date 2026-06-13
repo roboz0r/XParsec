@@ -39,7 +39,7 @@ type ILInstr =
     | Ldfld of EntityHandle
     | Stfld of EntityHandle
     /// `ldsfld` — load a static field (net +1). Used for class `static let`
-    /// backing fields (vesper-set-sprint-plan §1.8 / B-10).
+    /// backing fields (B-10).
     | Ldsfld of EntityHandle
     /// `stsfld` — store a static field (net −1). Emitted in a synthesised
     /// `.cctor` to seed each `static let` field.

@@ -63,7 +63,7 @@ type internal NominalEmissionInput =
     /// synthesised `.cctor`. `interfaces` (B-2, §5.3) pairs each implemented
     /// interface type with its already-typed member bodies: codegen emits one
     /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member
-    /// (implicit impl). `isStruct` ⇒ value-type emission (vesper-set-sprint-phase-6).
+    /// (implicit impl). `isStruct` ⇒ value-type emission.
     | Class of
         fields: Frozen.TRecordField list *
         ctorParams: Frozen.TRecordField list *

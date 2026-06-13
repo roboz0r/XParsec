@@ -146,7 +146,7 @@ let tests =
             }
         ]
 
-// ---- Phase 1 (vesper-lib-test-plan.md): conformance over every package -------
+// ---- Conformance over every package -------
 //
 // The conformance check is codegen-independent (CST-level, not rung-gated), so it
 // runs on all the Vesper.* packages — Set included — and is the cheapest way to
@@ -220,7 +220,7 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
         // `[<Struct>]` cursor (mirroring `Set` / `SetIterator`) — deliberately not in
         // the public `list.fsi` contract. They exist because interface impls on union
         // types are not yet supported, so the enumerable surface rides the adapter
-        // rather than `List<'T>` itself (vesper-set-phase-9-handoff, `Set.ofList`).
+        // rather than `List<'T>` itself (`Set.ofList`).
         "Vesper.List",
         "list.fsi",
         "list.fs",

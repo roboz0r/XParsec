@@ -54,10 +54,9 @@ let tests =
                             ])
                 }
 
-            // A closure *inside a class member body* (vesper-set-phase-9 wall): a
-            // mono class, a member whose body builds and applies a non-capturing
-            // lambda. `discoverClosures` must now walk member bodies, not just
-            // top-level decls.
+            // A closure inside a class member body: a mono class, a member whose body
+            // builds and applies a non-capturing lambda. `discoverClosures` must now
+            // walk member bodies, not just top-level decls.
             yield
                 test "a non-capturing closure inside a mono class member body" {
                     runs
@@ -95,7 +94,7 @@ let tests =
             // A closure inside a *generic* class member body, capturing a value
             // typed by the class typar `'T` (declaring axis) and a function over
             // it. The closure re-projects `'T` (`FTTypar(Declaring,0)`) onto its
-            // own class typar `!0` (vesper-set Phase 9, the `Set.Fold` shape).
+            // own class typar `!0` (the `Set.Fold` shape).
             yield
                 test "a closure inside a generic class member body capturing a class-typar value" {
                     runs
@@ -159,7 +158,7 @@ let tests =
 
             // A module function with a *recursive nested helper* (`let rec go`)
             // that captures the outer function's params (the `SetTree.partitionWith`
-            // shape, vesper-set Phase 9). The closure free-variable analysis must
+            // shape). The closure free-variable analysis must
             // treat `go`'s recursive self-reference as bound (it lowers to the
             // closure's `this`), not free — otherwise the enclosing module function
             // looks like it captures a non-static binding and is dropped from the
@@ -207,11 +206,11 @@ let tests =
                 }
 
             // An *own-class static-operator member* used as a first-class value
-            // (the `Set.Union` shape, vesper-set Phase 9 wall): `(+)` resolves to
-            // the class's `static member (+)`, not a built-in operator, so its
-            // eta-reified closure body must `call` the static member — NOT collapse
-            // to inline IL the way a primitive `(+)` does. A mono class at module
-            // level isolates the value form.
+            // (the `Set.Union` shape): `(+)` resolves to the class's
+            // `static member (+)`, not a built-in operator, so its eta-reified
+            // closure body must `call` the static member — NOT collapse to inline IL
+            // the way a primitive `(+)` does. A mono class at module level isolates
+            // the value form.
             yield
                 test "a mono own-class static-operator member passed as a value" {
                     runs

@@ -271,8 +271,8 @@ type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
     member val Type = ty
     member val DeclKey = declKey
 
-/// An explicit instance field declared with `val [mutable] x: T`
-/// (vesper-set-sprint-phase-6). `Type` starts as a placeholder
+/// An explicit instance field declared with `val [mutable] x: T`.
+/// `Type` starts as a placeholder
 /// TyVar stamped at registration and is linked by Unification's `fillClassMembers`
 /// from `TypeCst` (the field is always annotated). `IsMutable` reflects the
 /// `mutable` keyword — `Freeze` projects it onto `TTypeKind.Class.fields` so a
@@ -288,7 +288,7 @@ type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, typeCst: Type<Sy
     member val TypeCst = typeCst
     member val DeclKey = declKey
 
-/// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).
+/// A class-level `static let x = <init>` (B-10).
 /// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
 /// by Unification's `fillClassMembers` once the `Init` expression is inferred.
 /// `Init` is the CST initialiser, re-read by Unification (to infer) and Freeze (to
@@ -302,8 +302,8 @@ type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<
     member val DeclKey = declKey
     member val Init = init
 
-/// A secondary constructor (`new(args) = SelfType(primaryArgs)`,
-/// vesper-set-sprint-plan §1.9 / B-11). `Params` are the secondary ctor's own
+/// A secondary constructor (`new(args) = SelfType(primaryArgs)`, B-11).
+/// `Params` are the secondary ctor's own
 /// parameters (their types start as placeholder TyVars, linked by Unification's
 /// `fillClassMembers` from the annotations / chain-call unification, exactly like
 /// `ClassCtorParamInfo`). `DeclKey` is a synthetic key minted from the `new`
@@ -322,8 +322,8 @@ type ClassSecondaryCtorInfo
     member val ParamPat = paramPat
     member val Body = body
 
-/// A registered `interface IFace with member …` block on a class (B-2,
-/// vesper-set-sprint-phase-5 §5.1). `InterfaceCst` is the parsed interface
+/// A registered `interface IFace with member …` block on a class (B-2).
+/// `InterfaceCst` is the parsed interface
 /// `Type` — re-read by Unification's `fillClassMembers` (the external provider
 /// isn't available at NameResolution time) to resolve + verify the target is an
 /// interface, linking `Resolved`. `Members` are the impl's method / property
@@ -390,12 +390,12 @@ type ClassTypeInfo
     /// classes without an `inherit` clause and Phase 1 placeholders; Phase 2
     /// stamps it from `ClassInheritsDecl.expr`.
     member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
-    /// `[<Sealed>]` (vesper-set-sprint-plan §1.6 / B-8). Stamped by
+    /// `[<Sealed>]` (B-8). Stamped by
     /// `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// `Freeze` projects it onto `TTypeKind.Class.isSealed` so codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`.
     member val IsSealed: bool = false with get, set
-    /// Class-level `static let` bindings (vesper-set-sprint-plan §1.8 / B-10) in
+    /// Class-level `static let` bindings (B-10) in
     /// declaration order. Stamped by `NameResolution.registerClassTypeDefn` from
     /// the class's `classPreamble`; types are linked by Unification's
     /// `fillClassMembers`; `Freeze` projects each onto a `TStaticLet`. Empty unless
@@ -403,30 +403,30 @@ type ClassTypeInfo
     /// per-instantiation cache lowering is deferred), so this is only populated for
     /// monomorphic classes.
     member val StaticLets: ClassStaticLetInfo[] = [||] with get, set
-    /// Secondary constructors (vesper-set-sprint-plan §1.9 / B-11) in declaration
+    /// Secondary constructors (B-11) in declaration
     /// order. Stamped by `NameResolution.registerClassTypeDefn`; param types are
     /// linked by Unification's `fillClassMembers`; `Freeze` projects each onto a
     /// `TSecondaryCtor`. Empty unless the class declares `new(...)` overloads.
     member val SecondaryCtors: ClassSecondaryCtorInfo[] = [||] with get, set
-    /// `[<AllowNullLiteral>]` (vesper-set-sprint-plan §1.6 / B-8). Stamped
+    /// `[<AllowNullLiteral>]` (B-8). Stamped
     /// by `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// read only by Unification's `Expr.Null` arm so `null` unifies with the
     /// class. Never reaches codegen (no IL flag for it).
     member val AllowNullLiteral: bool = false with get, set
-    /// `interface IFace with member …` blocks (B-2, vesper-set-sprint-phase-5).
+    /// `interface IFace with member …` blocks (B-2).
     /// Stamped by `NameResolution.registerClassTypeDefn`; each impl's interface
     /// type is resolved + verified, and its member bodies typed, by Unification's
     /// `fillClassMembers`. Empty unless the class declares an `interface … with`
     /// block. `Freeze` projects them onto `TTypeKind.Class.interfaces` for codegen
     /// (Step 5.3, deferred).
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
-    /// `[<Struct>]` (or the `type X = struct … end` shape,
-    /// vesper-set-sprint-phase-6). Stamped by `registerClassTypeDefn`; `Freeze`
+    /// `[<Struct>]` (or the `type X = struct … end` shape).
+    /// Stamped by `registerClassTypeDefn`; `Freeze`
     /// projects it onto `TTypeKind.Class.isStruct` so codegen emits a
     /// `System.ValueType`-based value type. A struct is implicitly sealed.
     member val IsValueType: bool = false with get, set
-    /// Explicit `val [mutable] x: T` instance fields in declaration order
-    /// (vesper-set-sprint-phase-6). Stamped by `registerClassTypeDefn`; field
+    /// Explicit `val [mutable] x: T` instance fields in declaration order.
+    /// Stamped by `registerClassTypeDefn`; field
     /// types are linked by Unification's `fillClassMembers`; `Freeze` projects
     /// each onto a `TRecordField` in `TTypeKind.Class.fields`. Empty unless the
     /// class declares any `val` fields.
@@ -792,7 +792,7 @@ type PassContextResolution =
         /// (B-12) so the typars flowing into the inferred signature are the same
         /// roots `Freeze` surfaces and codegen installs as the ambient `!!i` set;
         /// `ValueNone` for every other binding (fresh typars, the existing
-        /// behaviour). See vesper-set-sprint-plan §1.10.
+        /// behaviour).
         mutable BindingTyparSeed: Dictionary<string, TypeVar> voption
         /// The enclosing type's type-parameter scope (class / union typars), kept
         /// in scope across a member-body walk. `inferBinding` mints a *fresh* scope
@@ -804,8 +804,7 @@ type PassContextResolution =
         /// typars first (the binding's own `<'a>` typars seed after, shadowing on a
         /// name clash). `fillTypeMembers` / `fillSecondaryCtors` set it; `ValueNone`
         /// for every non-member binding (the existing behaviour). Persists across
-        /// nested `let`s in a member body so they too see the class typars
-        /// (vesper-set-phase-9-handoff §G11).
+        /// nested `let`s in a member body so they too see the class typars.
         mutable EnclosingTypars: Dictionary<string, TypeVar> voption
         /// When true, `translateType` rejects any `'a` not already present in
         /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
@@ -824,8 +823,7 @@ type PassContextResolution =
         /// the resolved value's `SymbolKey.ValueKey`. Freeze stamps it onto
         /// `TExpr.External` so codegen can do robust identity checks
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
-        /// suffix-matching the source-written name
-        /// (vesper-set-sprint-plan §0.1 / M1).
+        /// suffix-matching the source-written name.
         ExternalValue: SideTable<SymbolKey>
         /// Keyed by an operator-as-value node's `NodeKey` (`(+)` in `Seq.fold (+) …`):
         /// the `SymbolKey` of the *project-local* nominal whose static-operator
@@ -851,14 +849,14 @@ type PassContextResolution =
         /// disposable). Recorded by `Unification`'s `use`-Dispose resolution and read
         /// by `Freeze` to stamp `TExpr.Use.dispose` (`ValueSome`); absent for a
         /// project-local binder, where Freeze leaves `ValueNone` and codegen takes the
-        /// duck-typed direct-call path (vesper-set-sprint-phase-4 §4.3).
+        /// duck-typed direct-call path.
         UseDispose: SideTable<SymbolKey>
         /// Keyed by a `for x in src do …` node's `NodeKey`: how the source yields
         /// its enumerator. Recorded by `Unification.inferForIn` and read by `Freeze`
         /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`
         /// (range sources and the §4.2 interface path); present with
         /// `ForInEnumerator.DuckTyped` for a source exposing only a pattern-based
-        /// `GetEnumerator()` (vesper-set-sprint-phase-4 §4.4).
+        /// `GetEnumerator()`.
         ForInShape: SideTable<ForInEnumerator>
         /// Keyed by a *type-reference* `NodeKey`: the project-local `SymbolKey`
         /// that reference resolves to. Two minting

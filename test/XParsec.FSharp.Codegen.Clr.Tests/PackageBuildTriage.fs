@@ -3,8 +3,8 @@ module XParsec.FSharp.Codegen.Clr.Tests.PackageBuildTriage
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Pre-2 / Phase 0 (vesper-lib-test-plan.md): the triage smoke pass. Run the
-// `buildPackage` harness against every Candidate / At-risk package and let the
+// Pre-2 / Phase 0: the triage smoke pass. Run the `buildPackage` harness against
+// every Candidate / At-risk package and let the
 // green/pending split *be* the readiness map — converting the readiness
 // hypothesis into a fact and producing the work-list for the B/R suites
 // (Phase 2/3). A green row = the package compiles to a BCL-only DLL today; a
@@ -26,8 +26,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   - Vesper.Comparison — `impl = []` (the ordering operators are signature-only
 //     inline bodies, no DLL); exercised at use sites in Phase 2, not built here.
 //   - Vesper.Printf — a C# DLL (PrintfHappyPathTests).
-//   - Vesper.Set — Blocked on class/interface/object-expr backend features
-//     (vesper-set-gaps.md §B); do not attempt B/R.
+//   - Vesper.Set — Blocked on class/interface/object-expr backend features;
+//     do not attempt B/R.
 
 /// Assert a package builds to a BCL-only DLL (empty `FSharpCoreDependencies`).
 let private buildsBclOnly (package: string) : unit =

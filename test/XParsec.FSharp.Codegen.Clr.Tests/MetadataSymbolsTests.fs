@@ -39,9 +39,8 @@ let tests =
                 | other -> failtestf "expected a Class shape, got %A" other
             }
 
-            // H2 (pre-sprint-recommendations): the metadata layer fills the rich
-            // class shape — members, interfaces, base type, flags — so the sprint's
-            // B-1/B-2 don't have to retry through `TryLookupMember` per name.
+            // The metadata layer fills the rich class shape — members, interfaces,
+            // base type, flags — so B-1/B-2 don't have to retry through `TryLookupMember` per name.
             test "the Class shape eagerly publishes the type's members" {
                 match provider.TryLookupType eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->

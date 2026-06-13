@@ -7,8 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Phase 3 of the Vesper.Set sprint (vesper-set-sprint-phase-3.md): exception
-// construction + `raise` (gap B-9), folding in M1 (`isFailwith` →
+// Exception construction + `raise` (gap B-9), folding in M1 (`isFailwith` →
 // `TExpr.Raise`). The chosen mechanism is *not* a dedicated `TExpr.Raise` TAST
 // node — `raise` / `failwith` / `invalidArg` are real cross-package inline
 // operators in `Vesper.Core/ops-platform.fs` whose bodies splice to a
@@ -67,8 +66,8 @@ let tests =
             test "raise of a derived exception (InvalidOperationException) throws the derived type" {
                 // `raise : System.Exception -> 'T`, but the argument is an
                 // `InvalidOperationException` (a subtype). This exercises argument
-                // subsumption at the call site — the set.fs `raise
-                // (InvalidOperationException …)` enumeration-guard sites.
+                // subsumption at the call site — the set.fs `raise (InvalidOperationException …)`
+                // enumeration-guard sites.
                 let ex =
                     thrownBy
                         "ExnRaiseDerived"
@@ -87,10 +86,10 @@ let tests =
 
             test "raise of a non-exception is rejected by the :> exn constraint" {
                 // `raise : 'e -> 'a when 'e :> exn` — passing an `int` must fail the
-                // coercion constraint at type-check (vesper-set-sprint-phase-3.md:
-                // the v1 compromise dropped this bound; the constraint chain restores
-                // it via `subsumes` + the prim-types-exn.fs `exn ≡ System.Exception`
-                // identity). Compile only (no run): we assert a diagnostic, not a throw.
+                // coercion constraint at type-check: the v1 compromise dropped this
+                // bound; the constraint chain restores it via `subsumes` + the
+                // prim-types-exn.fs `exn ≡ System.Exception` identity). Compile only
+                // (no run): we assert a diagnostic, not a throw.
                 let tast, _ =
                     compileSource "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
 

@@ -48,7 +48,7 @@ module EmitBindings =
                 | TPatG.Wildcard ty -> mintUseBinderKey (), ty
                 | _ -> failwith "Emit: unreachable — outer match admits only NamedSimple / Wildcard"
             // `use x = value in body` → `let x = value in try body finally if x <> null
-            // then x.Dispose()` (B-5, vesper-set-sprint-phase-4 §4.1). The IL-IR
+            // then x.Dispose()` (B-5). The IL-IR
             // exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`,
             // H5) carry the region; `IlIr.lower` replays them into a proper
             // `try`/`finally`.
@@ -58,9 +58,9 @@ module EmitBindings =
             // and reloaded after the finally as the expression's value (works for a
             // unit body too — `Unit` is `null`, parked and reloaded like any value).
             // The disposal is guarded by a null check so a null binder is a no-op
-            // like F#'s `use`. `dispose` selects the path (§4.3): `ValueNone` is the
+            // like F#'s `use`. `dispose` selects the path: `ValueNone` is the
             // duck-typed direct `x.Dispose()` call on a project-local binder (no
-            // `IDisposable` upcast, §4.1); `ValueSome key` disposes an external (BCL)
+            // `IDisposable` upcast); `ValueSome key` disposes an external (BCL)
             // binder through the keyed `Dispose` member the front end resolved.
             //
             // `use` is a statement-position binding, so the surrounding stack is
@@ -76,13 +76,11 @@ module EmitBindings =
             // yet, so this can't be reached today — but fail fast rather than emit
             // bad IL if a primitive-typed binder ever slips through. A BCL *struct*
             // disposable (e.g. a struct enumerator) reads as `TyClass` and is
-            // indistinguishable from a class here; supporting it is Step 4.4's job
-            // (it must record struct-ness on the node — the provider's
-            // `ExternalClassShape` doesn't surface it).
+            // indistinguishable from a class here; supporting it requires recording
+            // struct-ness on the node — the provider's `ExternalClassShape` doesn't
+            // surface it.
             if isValueType env varTy then
-                failwithf
-                    "Emit: `use` over a value-type binder is out of scope (vesper-set-sprint-phase-4 §4.4): %A"
-                    varTy
+                failwithf "Emit: `use` over a value-type binder is out of scope: %A" varTy
 
             let slot = b.Local varTy
             env.Slots.[binding] <- slot

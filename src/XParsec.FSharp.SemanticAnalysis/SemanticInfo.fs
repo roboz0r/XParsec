@@ -43,7 +43,7 @@ type SymbolOrigin =
     /// `Type.Namespace`, so this hides the null check at the seam. Used by
     /// codegen `TypeRef` minting (`externalClassRef` / `externalRecordRef`)
     /// and metadata `SymbolKey.TypeKey` decomposition (`declTypeKey`) —
-    /// vesper-set-sprint-plan §0.4 / M5. Phase 1's user-class emit needs
+    /// Phase 1's user-class emit needs
     /// the same split for its `TypeDefinition` row construction.
     static member StripNamespace (ns: string) (fullName: string) : string =
         if not (System.String.IsNullOrEmpty ns) && fullName.StartsWith(ns + ".") then
@@ -71,7 +71,7 @@ type SymbolKey =
     /// `kind` distinguishes a plain method from a property or an
     /// interface-method / explicit interface implementation (the latter two
     /// carry the interface's own `SymbolKey` so codegen can write the matching
-    /// `.override` row — pre-sprint-recommendations H3).
+    /// `.override` row).
     ///
     /// TODO (method overloading): `argSig` is currently a *lossy* string rendering
     /// — it only disambiguates overloads and is **never re-parsed** (see
@@ -92,8 +92,7 @@ type SymbolKey =
     /// `SemType`-keyed side table, or breaking the cycle), not a drop-in field swap.
     | MemberKey of decl: SymbolKey * memberName: string * argSig: EqArray<string> * kind: MemberKind
 
-/// What kind of member a `SymbolKey.MemberKey` denotes (pre-sprint-recommendations
-/// H3). `Method` and `Property` are the today-resolvable shapes; `InterfaceMethod`
+/// What kind of member a `SymbolKey.MemberKey` denotes. `Method` and `Property` are the today-resolvable shapes; `InterfaceMethod`
 /// and `ExplicitInterfaceImpl` land their consumers with B-2 (interface conformance
 /// + `(this :> iface).M()` syntax) — until then both are unused, but the field
 /// is wide enough to carry the interface's `SymbolKey` so B-2 doesn't have to

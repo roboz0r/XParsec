@@ -188,8 +188,8 @@ type internal ClrEncoder(env: ClrEnv) =
             // accidental same-named external one (asm-discrimination, Phase 6D).
             let handle = userTypes.[key]
             // A `[<Struct>]` value type must encode as `ELEMENT_TYPE_VALUETYPE`
-            // (vesper-set-sprint-phase-6) so a signature referencing it matches the
-            // value-type `TypeDefinition`; a plain class is `ELEMENT_TYPE_CLASS`.
+            // so a signature referencing it matches the value-type `TypeDefinition`;
+            // a plain class is `ELEMENT_TYPE_CLASS`.
             let isVt = userValueTypes.Contains key
 
             if args.IsEmpty then
@@ -219,9 +219,9 @@ type internal ClrEncoder(env: ClrEnv) =
                     encodeType (g.AddArgument()) a
         | ExternalUnion(tref, args) ->
             // A referenced-package union (`Vesper.Option<int>`) — the case
-            // factories' return type and any field typed in the union itself
-            // (vesper-lib-test-plan Gap 2 Layer B). Same shape as the external
-            // record arm; the union is a reference type, so never `VALUETYPE`.
+            // factories' return type and any field typed in the union itself.
+            // Same shape as the external record arm; the union is a reference
+            // type, so never `VALUETYPE`.
             if args.IsEmpty then
                 te.Type(tref, false)
             else

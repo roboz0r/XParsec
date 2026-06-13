@@ -709,10 +709,10 @@ let tests =
                 Expect.isTrue hasCloseDiag "mismatched-delimiter diagnostic emitted"
             }
 
-            // vesper-set-sprint-plan §1.6 / B-8: `[<AllowNullLiteral>]` lets
-            // `let x: C = null` unify without diagnostics. The current
-            // implementation relies on the existing fresh-TyVar behaviour for
-            // `null` — the surrounding annotation drives the link to `TyClass`.
+            // B-8: `[<AllowNullLiteral>]` lets `let x: C = null` unify without
+            // diagnostics. The current implementation relies on the existing
+            // fresh-TyVar behaviour for `null` — the surrounding annotation drives
+            // the link to `TyClass`.
             test "[<AllowNullLiteral>] permits `let x: C = null`" {
                 let ctx =
                     analyse "[<AllowNullLiteral>]\ntype C() = member this.M () = 1\nlet x : C = null"

@@ -67,7 +67,6 @@ by golden `.parsed` snapshots committed next to each source
 
 ## Cross-references
 
-- [`vesper-set-gaps.md`](../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-gaps.md) — itemised gap inventory of what `set.fs` needs (source rewrites + compiler enhancements + library additions) before `Vesper.Set.dll` compiles.
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS5).
 - [`../Vesper.List/README.md`](../Vesper.List/README.md) — the sibling package whose split this mirrors; also the source of `'T list`.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.

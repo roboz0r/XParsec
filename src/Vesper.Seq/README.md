@@ -36,8 +36,7 @@ pulls an `IEnumerator<'T>` from `source.GetEnumerator()` under a `use` (so the
 enumerator is disposed) and drives it with `MoveNext` / `Current`. They are *not*
 the zero-allocation, struct-chaining, JIT-deforesting `Seq` design described in
 [`brainstorm-seq-module.md`](../XParsec.FSharp.SemanticAnalysis/docs/brainstorm-seq-module.md)
-— that is a future sprint. The minimum surface unblocks `set.fs` now
-([`vesper-set-sprint-phase-8.md`](../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-sprint-phase-8.md) §8.4).
+— that is a future sprint. The minimum surface unblocks `set.fs`.
 
 - `fold` / `reduce` / `toArray` are strict (a `while e.MoveNext()` loop).
 - `truncate` is lazy — it returns a `seq { }` whose counted enumerator loop
@@ -70,7 +69,6 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`vesper-set-sprint-phase-8.md`](../XParsec.FSharp.SemanticAnalysis/docs/vesper-set-sprint-phase-8.md) — §8.4, the step this package lands.
 - [`brainstorm-seq-module.md`](../XParsec.FSharp.SemanticAnalysis/docs/brainstorm-seq-module.md) — the zero-allocation deforesting `Seq` design this reference surface defers.
 - [`../Vesper.Array/README.md`](../Vesper.Array/README.md) — the sibling module package this mirrors.
 - [`../Vesper.List/README.md`](../Vesper.List/README.md) — the base package supplying the `seq<'T>` / `ResizeArray<'T>` abbreviations.

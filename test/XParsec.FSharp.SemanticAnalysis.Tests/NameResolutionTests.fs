@@ -338,10 +338,10 @@ let tests =
             }
 
             test "Phase 1: stamped *TypeInfo.Key is the arity-qualified TypeKey(None, \"\", name)" {
-                // Every registered type carries a
-                // project-local `SymbolKey`. Non-generic types key on the bare name;
-                // generic types carry the `` `N `` arity suffix that matches the emitted
-                // metadata name and codegen's `userTypes` keying (`TypeRegistry.keyFor`).
+                // Every registered type carries a project-local `SymbolKey`.
+                // Non-generic types key on the bare name; generic types carry the
+                // `` `N `` arity suffix that matches the emitted metadata name and
+                // codegen's `userTypes` keying (`TypeRegistry.keyFor`).
                 let ctx =
                     analyse (
                         "type R = { X: int }\n"
@@ -446,9 +446,8 @@ let tests =
                 | false, _ -> failtest "class type C not registered"
             }
 
-            // vesper-set-sprint-plan §1.6 / B-8: `[<Sealed>]` and
-            // `[<AllowNullLiteral>]` decode through `Attributes.decodeClassAttributes`
-            // onto `ClassTypeInfo`.
+            // B-8: `[<Sealed>]` and `[<AllowNullLiteral>]` decode through
+            // `Attributes.decodeClassAttributes` onto `ClassTypeInfo`.
             test "[<Sealed>] stamps ClassTypeInfo.IsSealed" {
                 let ctx = analyse "[<Sealed>]\ntype C() = member this.M () = 1"
 

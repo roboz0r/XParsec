@@ -6,12 +6,11 @@ namespace Vesper.Collections
 // representation gives the module the `SeqModule` holder name, matching the
 // FSharp.Core surface). BCL-only — no `FSharp.Core`.
 //
-// These are the *minimal* reference impls (vesper-set-sprint-phase-8.md §8.4),
-// not the zero-allocation struct-chaining design of brainstorm-seq-module.md (a
-// future sprint). The split follows operation shape:
+// These are the *minimal* reference impls, not the zero-allocation struct-chaining
+// design of brainstorm-seq-module.md (a future sprint). The split follows operation shape:
 //   - The eager terminals (`fold` / `reduce` / `toArray`) are explicit-enumerator
 //     loops: each pulls an `IEnumerator<'T>` from `source.GetEnumerator()` under a
-//     `use` (so the enumerator is disposed — Phase 4's `IDisposable` support) and
+//     `use` (so the enumerator is disposed via `IDisposable` support) and
 //     drives it with `MoveNext` / `Current`. Their functional arguments are
 //     `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
 //   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take`, which yields

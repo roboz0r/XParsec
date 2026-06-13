@@ -7,8 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-set-sprint-plan Phase 1 / B-1 backend tests. The plan's Step 1.5
-// test gate calls for compile-and-load tests across three shapes:
+// B-1 backend tests. The test gate calls for compile-and-load tests across three shapes:
 //   * `type C() = member this.M() = 1` — instantiate, call M, assert returns 1
 //   * `type Box<'a>(v: 'a) = member this.V = v` — generic class with one typar
 //   * `type Point(x:int, y:int)` — multi-param ctor + ctor-param field access
@@ -197,10 +196,9 @@ let monoTests =
                     (sprintf "class emission only references the BCL (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // vesper-set-sprint-plan §1.6 / B-8: a class without `[<Sealed>]`
-            // emits an *open* `TypeDefinition` (no `TypeAttributes.Sealed`)
-            // so Phase 2's inheritance can derive from it; `[<Sealed>]` flips
-            // the flag.
+            // B-8: a class without `[<Sealed>]` emits an *open* `TypeDefinition`
+            // (no `TypeAttributes.Sealed`) so inheritance can derive from it;
+            // `[<Sealed>]` flips the flag.
             test "a class without [<Sealed>] is not sealed" {
                 let _, artifact =
                     compileSource
@@ -232,8 +230,8 @@ let monoTests =
                 Expect.equal result 1 "sealed C().M() still returns 1"
             }
 
-            // vesper-set-g-wall.md G14: F# lets each member name its own
-            // self-identifier, independently of the type-level `as` alias.
+            // G14: F# lets each member name its own self-identifier, independently
+            // of the type-level `as` alias.
             // `Set<'T>` (no `as` clause) spells its members `member s.Add`,
             // `member x.Choose`, … — before the fix only the default `this`
             // was bound, so every `s` / `x` receiver (and `s.Member` access)
@@ -278,8 +276,7 @@ let staticTests =
     testList
         "ClassStatic"
         [
-            // vesper-set-sprint-plan §1.8 / B-10 test gate:
-            //   `type C() = static member M () = 1` — C.M() = 1
+            // B-10 test gate: `type C() = static member M () = 1` — C.M() = 1
             test "a class static method emits with the Static flag and returns 1" {
                 let _, artifact =
                     compileSource
@@ -574,7 +571,7 @@ let staticTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
             }
 
-            // G13 (vesper-set-g-wall): `static let` on a *generic* class. The field
+            // G13: `static let` on a *generic* class. The field
             // lives on the open generic `TypeDefinition` (one instance per closed
             // instantiation, `.cctor`-initialised); its `.cctor` store and the
             // member-body read both mint a `MemberRef` on the self-`TypeSpec`
@@ -624,7 +621,7 @@ let staticTests =
                     "Box<string>().Tag() reads its own per-instantiation static-let field tag = 99"
             }
 
-            // G10 (vesper-set-phase-9-handoff): a static *operator* member's body
+            // G10: a static *operator* member's body
             // was never inferred. `MemberRegistration.memberNameOf` and
             // `Unification.fillTypeMembers` both only recognised `Pat.NamedSimple`
             // heads, so a `Pat.Op` member got no `TypeMemberInfo` and Unification
@@ -666,7 +663,7 @@ let staticTests =
                 Expect.equal n 7 "op_Addition(V 3, V 4).N = 7"
             }
 
-            // vesper-set-phase-9-handoff (follow-on to G10): a static member read on
+            // Follow-on to G10: a static member read on
             // an *explicitly* instantiated generic class (`Box<'T>.Make x`,
             // `Box<'T>.Tag`) parses as `DotLookup(TypeApp(Box, <'T>), .Member)`, not
             // the folded `LongIdent[Box; Member]` the bare `Box.Member` form takes.
@@ -730,7 +727,7 @@ let staticTests =
                 Expect.isTrue (staticGets > 0) "`Box<'T>.Tag` (in MakeTagged) lowered to a TExpr.StaticPropertyGet"
             }
 
-            // Outstanding-2 gap A (vesper-set-phase-9-handoff): a static method on a
+            // Outstanding-2 gap A: a static method on a
             // *generic* class whose RESULT type does not surface the declaring
             // instantiation, called from a concrete (non-declaring) context. The
             // result-type fast path in `resolveStaticMember.instantiationFor` can't
@@ -752,7 +749,7 @@ let staticTests =
                         ])
             }
 
-            // Outstanding-2 gap B (vesper-set-phase-9-handoff): a higher-order call
+            // Outstanding-2 gap B: a higher-order call
             // (`List.fold`) with a closure argument from inside a member body — the
             // faithful `Set.Union` shape (ClosureTests "a mono own-class
             // static-operator passed as a value" runs the *module-level* form). The
@@ -809,10 +806,10 @@ let secondaryCtorTests =
     testList
         "ClassSecondaryCtor"
         [
-            // vesper-set-sprint-plan §1.9 / B-11 test gate:
-            //   `type C(x: int) = new() = C(0)` — C() returns C(0), C(5) returns C(5).
-            // The secondary ctor emits as a `.ctor` overload that chains to the
-            // primary `.ctor`; reading `this.X` afterwards proves the chain ran.
+            // B-11 test gate: `type C(x: int) = new() = C(0)` — C() returns C(0),
+            // C(5) returns C(5). The secondary ctor emits as a `.ctor` overload that
+            // chains to the primary `.ctor`; reading `this.X` afterwards proves the
+            // chain ran.
             test "a secondary ctor `new() = C(0)` chains to the primary ctor (C().X = 0, C(5).X = 5)" {
                 let _, artifact =
                     compileSource
@@ -878,8 +875,8 @@ let secondaryCtorTests =
             // The secondary forwards its `'a` param to the primary's first field and a
             // constant `1` to the second, so `Box(7).V = 7` and `Box(7).N = 1` prove
             // both the generic chain ran and that the non-first field round-trips
-            // (vesper-set-sprint-plan §1.11 / B-1 fix — the ctor `stfld` now routes
-            // through the open self-`TypeSpec` `MemberRef`).
+            // (B-1 fix — the ctor `stfld` now routes through the open self-`TypeSpec`
+            // `MemberRef`).
             test "a generic class secondary ctor chains through the open self-TypeSpec (Box(7).V = 7, .N = 1)" {
                 let _, artifact =
                     compileSource
@@ -1038,14 +1035,13 @@ let genericTests =
                 Expect.equal result "hi" "Box(\"hi\").V = \"hi\""
             }
 
-            // vesper-set-sprint-plan §1.11 / B-1 bug fix: a *generic* class with
-            // more than one instance field must round-trip *every* field, not just
-            // the first. The single-field `Box<'a>(v: 'a)` tests above never
-            // exercised a field at index >= 1, so the generic non-first-field gap
-            // (ctor `stfld` / member-body `ldfld` resolving the wrong slot at
-            // runtime for a generic type) stayed latent. `SetTree<'T>(k, h)` reads
-            // its second ctor param `h` for AVL height, so this must work before
-            // any `Vesper.Set` runtime test is trusted.
+            // B-1 bug fix: a *generic* class with more than one instance field must
+            // round-trip *every* field, not just the first. The single-field
+            // `Box<'a>(v: 'a)` tests above never exercised a field at index >= 1, so
+            // the generic non-first-field gap (ctor `stfld` / member-body `ldfld`
+            // resolving the wrong slot at runtime for a generic type) stayed latent.
+            // `SetTree<'T>(k, h)` reads its second ctor param `h` for AVL height, so
+            // this must work before any `Vesper.Set` runtime test is trusted.
             test "Box<int>(7, 3).N returns 3 — a generic class round-trips its non-first field" {
                 let _, artifact =
                     compileSource
@@ -1076,13 +1072,13 @@ let genericMethodTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // vesper-set-sprint-plan §1.10 / B-12 test gate: a member that introduces
-    // its *own* generic parameter (`member this.Map<'b> …`). The method's typar
-    // emits as a `GenericParam` row owned by the `MethodDef` (encoded `!!i` in
-    // its signature), distinct from the declaring type's typars (`!i`). The
-    // round-trips reflect over the emitted PE, `MakeGenericMethod` the open
-    // method, and invoke it — a wrong typar index or missing `GenericParam` row
-    // surfaces as `BadImageFormatException` / `InvalidProgram` at load/invoke.
+    // B-12 test gate: a member that introduces its *own* generic parameter
+    // (`member this.Map<'b> …`). The method's typar emits as a `GenericParam`
+    // row owned by the `MethodDef` (encoded `!!i` in its signature), distinct
+    // from the declaring type's typars (`!i`). The round-trips reflect over the
+    // emitted PE, `MakeGenericMethod` the open method, and invoke it — a wrong
+    // typar index or missing `GenericParam` row surfaces as
+    // `BadImageFormatException` / `InvalidProgram` at load/invoke.
     testList
         "ClassGenericMethod"
         [
@@ -1175,11 +1171,11 @@ let castTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // vesper-set-sprint Phase 2 / B-4 Step 2.4 backend gate: `:?` and `:?>`
-    // emit `isinst` / `castclass` against a `TypeToken` for the target type.
-    // `obj`-subsumption isn't wired in v1, so these exercise the cast IL on a
-    // same-type cast on `this` (`this :? C` / `this :?> C`), which still emits
-    // the real `isinst` / `castclass` and runs them against a live instance.
+    // B-4 Step 2.4 backend gate: `:?` and `:?>` emit `isinst` / `castclass`
+    // against a `TypeToken` for the target type. `obj`-subsumption isn't wired
+    // in v1, so these exercise the cast IL on a same-type cast on `this`
+    // (`this :? C` / `this :?> C`), which still emits the real `isinst` /
+    // `castclass` and runs them against a live instance.
     // (Base→derived construction now round-trips — see `ClassInheritance`.)
     testList
         "ClassCast"
@@ -1229,12 +1225,12 @@ let inheritanceTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // vesper-set-sprint Phase 2 / B-4 Step 2.5 backend gate: `inherit Base(args)`
-    // wires the IL `TypeDefinition.BaseType` to the parent and the primary `.ctor`
-    // to chain `ldarg.0; <args>; call Base::.ctor` before storing the derived
-    // fields. Construction is itself the proof the chain is sound — a `.ctor` that
-    // never calls a base / sibling ctor fails PE verification — and an inherited
-    // member read confirms the base ctor stored its arg.
+    // B-4 Step 2.5 backend gate: `inherit Base(args)` wires the IL
+    // `TypeDefinition.BaseType` to the parent and the primary `.ctor` to chain
+    // `ldarg.0; <args>; call Base::.ctor` before storing the derived fields.
+    // Construction is itself the proof the chain is sound — a `.ctor` that never
+    // calls a base / sibling ctor fails PE verification — and an inherited member
+    // read confirms the base ctor stored its arg.
     testList
         "ClassInheritance"
         [
@@ -1402,17 +1398,16 @@ let inheritanceTests =
                     "SetTreeNode<int>.Value returns its own field 42"
             }
 
-            // vesper-set-phase-9 wall: reading an *inherited* member from
-            // in-Vesper code (`node.Key` where `Key` is declared on the base
-            // `SetTree`, accessed on a `SetTreeNode` receiver). The access is a
-            // local-headed LongIdent chain, so Freeze's `fieldStep` fires; before
-            // the fix its own-class-only member check fell through to a `FieldGet`,
-            // which codegen's record-only `resolveRecordField` rejected with
-            // `class 'Derived`1' has no field 'Key'`. The fix walks the `inherit`
-            // chain and upcasts the receiver to the declaring ancestor (a ref-type
-            // upcast is a codegen no-op), so the receiver-keyed
-            // `resolveInstanceMember` resolves `get_Key` on the base. Generic to
-            // mirror the `SetTreeNode<'T>` shape.
+            // Reading an *inherited* member from in-Vesper code (`node.Key` where
+            // `Key` is declared on the base `SetTree`, accessed on a `SetTreeNode`
+            // receiver). The access is a local-headed LongIdent chain, so Freeze's
+            // `fieldStep` fires; before the fix its own-class-only member check fell
+            // through to a `FieldGet`, which codegen's record-only
+            // `resolveRecordField` rejected with `class 'Derived`1' has no field
+            // 'Key'`. The fix walks the `inherit` chain and upcasts the receiver to
+            // the declaring ancestor (a ref-type upcast is a codegen no-op), so the
+            // receiver-keyed `resolveInstanceMember` resolves `get_Key` on the base.
+            // Generic to mirror the `SetTreeNode<'T>` shape.
             test "reading an inherited member on a derived receiver resolves the base property (Key shape)" {
                 runs
                     "42"
@@ -1485,13 +1480,12 @@ let inheritanceTests =
 
 [<Tests>]
 let interfaceImplTests =
-    // vesper-set-sprint-phase-5 §5.1 test gate: a user class implementing an
-    // external BCL interface front-end-resolves the interface and its member
-    // body without diagnostic. Front-end only — the interface type resolves
-    // against the metadata provider in the default contract stack, the impl is
-    // registered on the class's `ClassTypeInfo`, and the member body type-checks.
-    // The TAST shape + codegen emit (`.override` rows, `TypeDefinition.Interfaces`)
-    // are Step 5.3, deferred.
+    // A user class implementing an external BCL interface front-end-resolves the
+    // interface and its member body without diagnostic. Front-end only — the
+    // interface type resolves against the metadata provider in the default contract
+    // stack, the impl is registered on the class's `ClassTypeInfo`, and the member
+    // body type-checks. The TAST shape + codegen emit (`.override` rows,
+    // `TypeDefinition.Interfaces`) are deferred.
     testList
         "ClassInterfaceImpl"
         [
@@ -1553,9 +1547,9 @@ let interfaceImplTests =
                     "the diagnostic explains the target is not an interface"
             }
 
-            // vesper-set-sprint-phase-5 §5.2 test gate: a user class implementing
-            // the generic `IEnumerable<int>` and the non-generic `IEnumerable`
-            // type-checks both `GetEnumerator` methods independently. Each
+            // A user class implementing the generic `IEnumerable<int>` and the
+            // non-generic `IEnumerable` type-checks both `GetEnumerator` methods
+            // independently. Each
             // `interface … with` block resolves *its own* declared `GetEnumerator`
             // overload (the metadata walk is `DeclaredOnly`), so the generic one
             // conforms to `unit -> IEnumerator<int>` and the non-generic one to
@@ -1657,14 +1651,14 @@ let interfaceImplTests =
 
 [<Tests>]
 let interfaceImplCodegenTests =
-    // vesper-set-sprint-phase-5 §5.3 test gate: a class implementing the generic
-    // `IEnumerable<int>` and the non-generic `IEnumerable` loads with both
-    // `InterfaceImpl` rows; reflecting `GetInterfaces()` shows both; and calling
-    // through each interface succeeds at runtime, the generic one yielding an
-    // `IEnumerator<int>`. The class stores an `IEnumerator<int>` ctor param and
-    // each `GetEnumerator` returns it (the non-generic one `:>`-upcast to the
-    // base `IEnumerator`) — no external enumerator construction (that's Phase 6),
-    // so the test exercises interface-impl emission, not enumeration machinery.
+    // A class implementing the generic `IEnumerable<int>` and the non-generic
+    // `IEnumerable` loads with both `InterfaceImpl` rows; reflecting
+    // `GetInterfaces()` shows both; and calling through each interface succeeds at
+    // runtime, the generic one yielding an `IEnumerator<int>`. The class stores an
+    // `IEnumerator<int>` ctor param and each `GetEnumerator` returns it (the
+    // non-generic one `:>`-upcast to the base `IEnumerator`) — no external
+    // enumerator construction, so the test exercises interface-impl emission, not
+    // enumeration machinery.
     let src =
         String.concat
             "\n"
@@ -1722,8 +1716,8 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
-            // vesper-set-phase-9-handoff G8 #3: a generic class implementing
-            // `IStructuralEquatable` (`Equals(obj, IEqualityComparer)` /
+            // G8 #3: a generic class implementing `IStructuralEquatable`
+            // (`Equals(obj, IEqualityComparer)` /
             // `GetHashCode(IEqualityComparer)`) alongside `override`s of Object's
             // `Equals(obj)` / `GetHashCode()`. Pre-fix `Set\`1` failed CLR type-load
             // ("Method 'Equals' … does not have an implementation"): the unannotated
@@ -1795,9 +1789,9 @@ let interfaceImplCodegenTests =
                 Expect.isTrue (ifaces.Contains "IStructuralEquatable") "C`1 implements IStructuralEquatable"
             }
 
-            // vesper-set-phase-9-handoff gap #4 (the producer-grounding wall): a
-            // generic class whose member passes a `'T`-typed value into a BCL `obj`
-            // parameter (`comparer.GetHashCode(x)`, the `Set<'T>`/`IStructuralEquatable`
+            // Gap #4 (the producer-grounding wall): a generic class whose member
+            // passes a `'T`-typed value into a BCL `obj` parameter
+            // (`comparer.GetHashCode(x)`, the `Set<'T>`/`IStructuralEquatable`
             // shape). Pre-fix the unifier *ground* `'T := obj` at that call, so EVERY
             // member of the class emitted `obj` for `'T` (`get_Value() : obj`, the
             // whole-class typar grounding that made `Set\`1::Add(obj):Set<obj>`). The
@@ -1880,9 +1874,9 @@ let interfaceImplCodegenTests =
                 Expect.equal (result :?> int) 5 "Probe() returns the boxed 5"
             }
 
-            // vesper-set-phase-9-handoff "unbalanced member-body IL": a `void`-
-            // returning interface-impl member whose body *terminates* (ends in
-            // `raise`) — the `ICollection<'T>.Add` / `IDisposable.Dispose` shape on a
+            // Unbalanced member-body IL: a `void`-returning interface-impl member
+            // whose body *terminates* (ends in `raise`) — the
+            // `ICollection<'T>.Add` / `IDisposable.Dispose` shape on a
             // read-only `Set<'T>`. `buildMember` used to emit the residual-`unit` pop
             // for the void slot unconditionally; after a `Throw` the fall-through is
             // unreachable, so the pop lowered to an unreachable `Pop` that
@@ -1923,7 +1917,7 @@ let interfaceImplCodegenTests =
 
 [<Tests>]
 let coercionTests =
-    // vesper-set-g-wall §G19/G20: implicit class→interface / class→base upcasts.
+    // G19/G20: implicit class→interface / class→base upcasts.
     // G19 = a class value flowing into an interface-typed parameter (the
     // `Comparer<'T>.Default` → `IComparer<'T>` shape pervasive in set.fs);
     // G20 = an explicit `:>` to a base or a declared interface. The fix is in

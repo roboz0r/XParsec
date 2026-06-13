@@ -21,7 +21,7 @@
 # (the `Set` module surfaces `Set.toList` / `Set.ofList`, naming `'T list`).
 # Also on Vesper.Comparison (the ordering operators `< > <= >=` used throughout
 # `SetTree.mk`/`rebalance`/`balance`/`add`) and Vesper.Printf (`sprintf`, used in
-# the invariant-violation error messages) — see vesper-set-g-wall.md G17/G18.
+# the invariant-violation error messages).
 # `name` and `depends-on` are recorded here per the package-split-plan package
 # schema; the root-manifest / a la carte loader wiring (PS-Loader) is a
 # separate follow-up.

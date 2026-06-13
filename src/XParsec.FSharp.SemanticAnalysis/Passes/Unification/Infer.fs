@@ -113,8 +113,8 @@ module UnificationInfer =
         nodeTv.Link <- ValueSome inferredTy
         inferredTy
 
-    /// Resolve a keyed `Dispose` for a `use` binder of *external* (BCL) type
-    /// (vesper-set-sprint-phase-4 §4.3). Prefer the type's *own* declared `Dispose`
+    /// Resolve a keyed `Dispose` for a `use` binder of *external* (BCL) type.
+    /// Prefer the type's *own* declared `Dispose`
     /// — a duck-typed pattern dispose, including a non-`IDisposable` ref struct —
     /// then fall back to `System.IDisposable::Dispose` when the type implements the
     /// interface (the common BCL case: `Dispose` is declared on a base, so
@@ -139,7 +139,7 @@ module UnificationInfer =
                 )
             | _ -> ValueNone
 
-    /// Resolve the disposal target for one `use` binding (§4.3). A *project-local*
+    /// Resolve the disposal target for one `use` binding. A *project-local*
     /// binder keeps the duck-typed direct `Dispose()` call (codegen resolves it via
     /// the local member table), recorded as nothing so Freeze leaves
     /// `TExpr.Use.dispose = ValueNone`. An *external* binder's keyed `Dispose` is

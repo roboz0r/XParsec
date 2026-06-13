@@ -20,8 +20,7 @@ module PrintfSpec =
     let printfFormatName = "Microsoft.FSharp.Core.PrintfFormat"
 
     /// The assembly that hosts the canonical printf family
-    /// (`Vesper.Printf.printfn` and friends). Codegen identity check —
-    /// vesper-set-sprint-plan §0.1 / M1. A `TExpr.External` carrying a
+    /// (`Vesper.Printf.printfn` and friends). Codegen identity check. A `TExpr.External` carrying a
     /// `ValueKey` with this assembly is the canonical printf; anything else
     /// (project-local shadow `MyMod.printfn`, alternate-library printf, an
     /// unkeyed bare `printfn` from a test mock) routes through the standard
@@ -34,7 +33,7 @@ module PrintfSpec =
     /// Codegen uses it to decide whether the cold-printf recipe applies — a
     /// `MyMod.printfn 1` resolves to `ValueKey(None, "MyMod", "printfn")`,
     /// which doesn't match here and falls through to the normal external-call
-    /// path (vesper-set-sprint-plan §0.1 / M1).
+    /// path.
     let canonicalPrintfShortName (key: SymbolKey) : string voption =
         match key with
         | SymbolKey.ValueKey(Some asm, _, name) when asm = canonicalPrintfAssembly -> ValueSome name

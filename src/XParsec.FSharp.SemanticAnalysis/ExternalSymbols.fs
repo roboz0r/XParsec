@@ -74,7 +74,7 @@ type ExternalSymbol =
         /// until a resolving source fills it.
         Origin: SymbolOrigin
         /// Interned identity: a `SymbolKey.ValueKey` over the symbol's resolved
-        /// origin + simple name (vesper-set-sprint-plan §0.1 / M1). Front-end
+        /// origin + simple name. Front-end
         /// passes write it into `Resolution.ExternalValue`; Freeze stamps it
         /// onto `TExpr.External` so codegen can do robust identity checks
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
@@ -227,8 +227,8 @@ type ExternalMember =
         Key: SymbolKey
     }
 
-/// Capability flags on an external class or interface (pre-sprint-recommendations
-/// H2). The metadata layer reads them off the .NET `TypeAttributes` plus
+/// Capability flags on an external class or interface. The metadata layer reads
+/// them off the .NET `TypeAttributes` plus
 /// `[<AllowNullLiteral>]` attribute decoding; the contract layer leaves them at
 /// `Default` until a `.fsi` learns to publish them. B-1 (class emission) reads
 /// `IsSealed` on the declared base type; B-8 (`[<AllowNullLiteral>]`) reads
@@ -242,7 +242,7 @@ type ExternalClassFlags =
         /// by the metadata layer. Codegen needs it to pick value-receiver emission
         /// (`ldloca` + `constrained.`/`call`) over reference `callvirt`; the duck-
         /// typed `for … in` over a struct enumerator (`List<'T>.Enumerator`) is the
-        /// first consumer (vesper-set-sprint-phase-4 §4.4). Contract-layer providers
+        /// first consumer. Contract-layer providers
         /// leave it `false` (a `.fsi` doesn't yet publish struct-ness).
         IsValueType: bool
     }
@@ -257,8 +257,8 @@ type ExternalClassFlags =
             IsValueType = false
         }
 
-/// The shape of an external class or interface (pre-sprint-recommendations H2).
-/// Lifted out of `ExternalTypeShape.Class` so the DU header stays narrow and the
+/// The shape of an external class or interface. Lifted out of `ExternalTypeShape.Class`
+/// so the DU header stays narrow and the
 /// member set is reachable to consumers (B-2's `interface … with member …`
 /// conformance check, B-1's base-type lookup, etc.) without having to round-trip
 /// through `TryLookupMember` per name.
@@ -671,7 +671,7 @@ module ExternalSymbols =
                 // pair (e.g. `List.fold` + `ListModule.fold`) carries the SAME
                 // key (both registered with the compiled-name decomposition by
                 // VesperLib), so this asm-only re-stamp keeps the aliases
-                // pointing at one identity (vesper-set-sprint-plan §0.1 / M1).
+                // pointing at one identity.
                 let restampKey (k: SymbolKey) : SymbolKey =
                     match k with
                     | SymbolKey.ValueKey(_, ns, name) -> SymbolKey.ValueKey(o.Assembly, ns, name)

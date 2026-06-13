@@ -126,7 +126,7 @@ type TExprG<'ty> =
     /// `use x = value in body` (B-5). Same shape as `Let`; the distinction is that
     /// codegen wraps `body` in a `try … finally x.Dispose()` exception region so
     /// `x` is disposed on every exit. `ty` is the body's type — the expression's
-    /// result. `dispose` selects the disposal path (vesper-set-sprint-phase-4 §4.3):
+    /// result. `dispose` selects the disposal path:
     /// `ValueNone` lowers a direct `x.Dispose()` call on the binder (the duck-typed
     /// path for *user* types — no `IDisposable` upcast, §4.1); `ValueSome key`
     /// disposes an *external* (BCL) binder through the keyed `Dispose` member that
@@ -207,8 +207,7 @@ type TExprG<'ty> =
     /// `SymbolKey.MemberKey`.
     | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty>> * ty: 'ty
     | StaticPropertyGet of key: SymbolKey * ty: 'ty
-    /// Read of a class-level `static let` backing field (vesper-set-sprint-plan
-    /// §1.8 / B-10). Lowered from a `static let`-bound name reference in a member
+    /// Read of a class-level `static let` backing field (B-10). Lowered from a `static let`-bound name reference in a member
     /// body (Freeze rewrites the resolved `Var` exactly as a primary-ctor param
     /// becomes a `FieldGet`). Codegen emits `ldsfld` against the class's private
     /// static field — there is no method call (a static *property* would be a
@@ -369,7 +368,7 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
     /// (`with member …` / `static member …`) — empty for v1, where records carry
     /// only their field shape.
     | Record of fields: EqArray<TRecordFieldG<'ty>> * members: EqArray<TTypeMemberG<'ty>>
-    /// Class type emission (vesper-set-sprint-plan Phase 1 / B-1).
+    /// Class type emission (B-1).
     /// `fields` are mutable instance fields — empty in B-1 (the classes-plan v1
     /// cut); `ctorParams` borrows the `TRecordField` shape for the primary
     /// constructor's parameter list (name / type / mutability=false).
@@ -400,8 +399,8 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
     /// these args before storing fields. `ValueNone` for a parent-less class (the
     /// primary `.ctor` then chains to `System.Object::.ctor`). Always present
     /// together with a `ValueSome baseType`.
-    /// `isStruct` reflects `[<Struct>]` (or the `struct … end` shape,
-    /// vesper-set-sprint-phase-6): codegen emits a `System.ValueType`-based
+    /// `isStruct` reflects `[<Struct>]` (or the `struct … end` shape):
+    /// codegen emits a `System.ValueType`-based
     /// value type (sealed, sequential layout, ctor without a base-ctor chain)
     /// instead of a reference class. `fields` (the explicit `val [mutable] x: T`
     /// instance fields) are now populated for both structs and classes that
@@ -483,8 +482,7 @@ and TTypeMemberG<'ty> =
         Params: EqArray<NodeKey * 'ty>
         Body: TExprG<'ty>
         ReturnTy: 'ty
-        /// The member's *own* generic parameters (`member this.Map<'C> …`,
-        /// vesper-set-sprint-plan §1.10 / B-12) — distinct from the declaring
+        /// The member's *own* generic parameters (`member this.Map<'C> …`, B-12) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
         /// (`"'C"`, for the `GenericParam` row) with the post-unification
         /// union-find *root* `TypeVar`. `Freeze.remapMemberTypes` uses these roots to
@@ -497,7 +495,7 @@ and TTypeMemberG<'ty> =
         MethodTypeParams: EqArray<string * TypeVar>
     }
 
-/// A class-level `static let x = <init>` (vesper-set-sprint-plan §1.8 / B-10).
+/// A class-level `static let x = <init>` (B-10).
 /// Codegen emits one private static field per entry and concatenates the
 /// `Init` expressions into a synthesised `.cctor`; a `static let`-bound name
 /// referenced in a member body lowers to `TExpr.StaticFieldGet`. On a *generic*
@@ -531,7 +529,7 @@ and TCtorLetG<'ty> =
 /// explicit-init form instead of chaining to the primary ctor.
 and TCtorFieldInitG<'ty> = { Field: string; Init: TExprG<'ty> }
 
-/// A secondary constructor (vesper-set-sprint-plan §1.9 / B-11). Codegen emits a
+/// A secondary constructor (B-11). Codegen emits a
 /// `.ctor` overload: `Params` are the overload's parameters (`ldarg` after
 /// `this`); `Lets` run as locals in declaration order. The body then takes one
 /// of two shapes, never both:
@@ -553,8 +551,7 @@ and TSecondaryCtorG<'ty> =
         FieldInits: EqArray<TCtorFieldInitG<'ty>>
     }
 
-/// An `inherit Base(args)` base-constructor invocation (vesper-set-sprint-plan
-/// Phase 2 / B-4 Step 2.5). Codegen wires the primary `.ctor` to chain to the
+/// An `inherit Base(args)` base-constructor invocation (B-4 Step 2.5). Codegen wires the primary `.ctor` to chain to the
 /// parent's `.ctor`: `ldarg.0; <Args>; call instance void Base::.ctor(…)` before
 /// storing the derived class's own fields. `CtorParams` are the *derived* class's
 /// primary-ctor parameters (the `ldarg` mapping the base-ctor `Args` reference —

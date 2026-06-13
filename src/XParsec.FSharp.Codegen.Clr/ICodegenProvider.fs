@@ -100,7 +100,7 @@ type RecordMember =
     | Field of fieldName: string
 
 /// Which member of an emitted *generic* class a `UserGenericMemberRef`
-/// resolves to (vesper-set-sprint-plan Phase 1 / B-1). A class is shaped
+/// resolves to (B-1). A class is shaped
 /// like a record at the metadata level — one ctor taking the primary-ctor
 /// parameters in declaration order, one backing field per ctor parameter
 /// (keyed by source name) — plus the augmentation `members` (B-1 adds the
@@ -140,10 +140,9 @@ type ClassMember =
 /// (`UserGenericMemberRef`). Each variant wraps the family's specific
 /// member info, preserving the case data (a record's field name, a union
 /// case's payload index, …) that a pure ordinal couldn't carry. Phase 1
-/// adds `ClassMember` (vesper-set-sprint-plan §1.5) alongside the existing
-/// three families; `ClrProvider.userGenericMemberRef`'s dispatch grows one
-/// arm — no fourth `Abstract` sibling on `ICodegenProvider`
-/// (vesper-set-sprint-plan §0.3 / M3).
+/// adds `ClassMember` alongside the existing three families;
+/// `ClrProvider.userGenericMemberRef`'s dispatch grows one arm — no fourth
+/// `Abstract` sibling on `ICodegenProvider`.
 [<RequireQualifiedAccess>]
 type UserMemberKind =
     | UnionMember of UnionMember
@@ -189,7 +188,7 @@ type ICodegenProvider =
     /// (`Resolution.ExternalValue`); the provider dispatches by *identity*
     /// when available — e.g. only the canonical `Vesper.Printf.printfn`
     /// trips the cold-printf recipe, never a project-local
-    /// `MyMod.printfn` (vesper-set-sprint-plan §0.1 / M1). Unkeyed call
+    /// `MyMod.printfn`. Unkeyed call
     /// sites (test mocks / pre-key-pipeline paths) pass `ValueNone` and the
     /// provider falls back to name-based matching for backwards compat.
     abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption
@@ -324,7 +323,7 @@ type ICodegenProvider =
     /// `List`1+Enumerator<int>`) instead of recovered from the member's open
     /// signature. Required for a T-free member like `MoveNext(): bool` on a generic
     /// enumerator, whose signature mentions no typar so the instantiation is
-    /// unrecoverable (vesper-set-sprint-phase-4 §4.4). The parent is encoded straight
+    /// unrecoverable. The parent is encoded straight
     /// from `declTy`, so a struct declaring type lands as a `VALUETYPE` parent.
     abstract ExternalMemberRefOn:
         key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType -> EntityHandle

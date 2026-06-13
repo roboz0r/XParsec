@@ -69,8 +69,7 @@ module EmitConstruct =
                 let emitNewobj =
                     match localClass with
                     | ValueSome(classKey, c) ->
-                        // A user class emitted into this assembly
-                        // (vesper-set-sprint-plan Phase 1 / B-1). The primary ctor's
+                        // A user class emitted into this assembly (B-1). The primary ctor's
                         // arity equals its field count; a different arg count selects
                         // a secondary ctor (B-11) by arity — F# forbids two ctors of
                         // the same signature, so arity is a key.
@@ -288,7 +287,7 @@ module EmitConstruct =
             // the *current* resolver (a local in `Main`, the param or a capture
             // inside an enclosing closure), then `newobj` its ctor.
             //
-            // A *generic* closure (function-representation-plan §Generic closures, C3) routes the `Newobj`
+            // A *generic* closure (C3) routes the `Newobj`
             // through a `MemberRef` on `<closure>$n<args>`, where `args` is the
             // closure's typars zonked at the call site (`!!i` inside the
             // enclosing static method's body, `!i` inside an enclosing closure's

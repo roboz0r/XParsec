@@ -128,8 +128,7 @@ module EmitCall =
     /// Lower a `TExprG.App` chain. Split out of `buildExpr` so the upcoming
     /// class-spine work (B-1 `New(className, args)`, B-9 `Raise`, B-4
     /// `:>`/`:?`/`:?>`) can grow App-head shapes near here instead of inside a
-    /// 600-line `buildExpr` match (vesper-set-sprint-plan §0.2 / M2). The head
-    /// dispatch is shape-by-shape:
+    /// 600-line `buildExpr` match. The head dispatch is shape-by-shape:
     /// - `TExprG.External(name, key, _)` — a provider-resolved call. The
     ///   recipe's generic instantiation is read from the head's full curried
     ///   type. `key` (the Freeze-stamped `SymbolKey.ValueKey`) lets codegen
@@ -163,8 +162,7 @@ module EmitCall =
             // full curried type (`fnTy`). `key` is the resolved
             // `SymbolKey.ValueKey` stamped by Freeze when the front-end
             // resolved the name through the symbol provider — codegen
-            // routes by identity, not name suffix
-            // (vesper-set-sprint-plan §0.1 / M1).
+            // routes by identity, not name suffix.
             match env.Provider.TryEmitCall(name, key, typeOfExpr head) with
             | ValueSome recipe ->
                 let leading, rest = List.splitAt recipe.ArgCount spineArgs

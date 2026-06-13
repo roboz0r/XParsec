@@ -1,389 +1,389 @@
 namespace        'namespace'       KWNamespace         tok=   0  pos=   0
                  'Vesper'          Identifier          tok=   2  pos=  10
   Import:
-    open         'open'            KWOpen              tok=  38  pos=1092
-                 'System'          Identifier          tok=  40  pos=1097
+    open         'open'            KWOpen              tok=  38  pos=1112
+                 'System'          Identifier          tok=  40  pos=1117
   Type:
-    type         'type'            KWType              tok=  78  pos=1840
+    type         'type'            KWType              tok=  78  pos=1860
     TypeSig.Union:
-      [<         '[<'              KWLAttrBracket      tok=  67  pos=1784
+      [<         '[<'              KWLAttrBracket      tok=  67  pos=1804
       NamedType:
-        Ident    'Structural...'   Identifier          tok=  68  pos=1786
-      ;          ';'               OpSemicolon         tok=  69  pos=1804
+        Ident    'Structural...'   Identifier          tok=  68  pos=1806
+      ;          ';'               OpSemicolon         tok=  69  pos=1824
       NamedType:
-        Ident    'Structural...'   Identifier          tok=  71  pos=1806
-      >]         '>]'              KWRAttrBracket      tok=  72  pos=1826
-      [<         '[<'              KWLAttrBracket      tok=  74  pos=1829
+        Ident    'Structural...'   Identifier          tok=  71  pos=1826
+      >]         '>]'              KWRAttrBracket      tok=  72  pos=1846
+      [<         '[<'              KWLAttrBracket      tok=  74  pos=1849
       NamedType:
-        Ident    'Struct'          Identifier          tok=  75  pos=1831
-      >]         '>]'              KWRAttrBracket      tok=  76  pos=1837
-      TypeName   'Choice'          Identifier          tok=  80  pos=1845
+        Ident    'Struct'          Identifier          tok=  75  pos=1851
+      >]         '>]'              KWRAttrBracket      tok=  76  pos=1857
+      TypeName   'Choice'          Identifier          tok=  80  pos=1865
       TyparDefns:
-        <        '<'               op_LessThan         tok=  81  pos=1851
+        <        '<'               op_LessThan         tok=  81  pos=1871
         Typar.Named:
-                 ''T1'             TypeParameter       tok=  82  pos=1852
+                 ''T1'             TypeParameter       tok=  82  pos=1872
         Typar.Named:
-                 ''T2'             TypeParameter       tok=  85  pos=1857
-        >        '>'               op_GreaterThan      tok=  86  pos=1860
-      =          '='               OpEquality          tok=  88  pos=1862
+                 ''T2'             TypeParameter       tok=  85  pos=1877
+        >        '>'               op_GreaterThan      tok=  86  pos=1880
+      =          '='               OpEquality          tok=  88  pos=1882
         Case:
-          Ident  'Choice1Of2'      Identifier          tok=  97  pos=1902
-          of     'of'              KWOf                tok=  99  pos=1913
-          ident  'Choice1Of2'      Identifier          tok= 101  pos=1916
-          :      ':'               OpColon             tok= 102  pos=1926
+          Ident  'Choice1Of2'      Identifier          tok=  97  pos=1922
+          of     'of'              KWOf                tok=  99  pos=1933
+          ident  'Choice1Of2'      Identifier          tok= 101  pos=1936
+          :      ':'               OpColon             tok= 102  pos=1946
           VarType:
             Typar.Named:
-                 ''T1'             TypeParameter       tok= 104  pos=1928
+                 ''T1'             TypeParameter       tok= 104  pos=1948
         Case:
-          Ident  'Choice2Of2'      Identifier          tok= 113  pos=1970
-          of     'of'              KWOf                tok= 115  pos=1981
-          ident  'Choice2Of2'      Identifier          tok= 117  pos=1984
-          :      ':'               OpColon             tok= 118  pos=1994
+          Ident  'Choice2Of2'      Identifier          tok= 113  pos=1990
+          of     'of'              KWOf                tok= 115  pos=2001
+          ident  'Choice2Of2'      Identifier          tok= 117  pos=2004
+          :      ':'               OpColon             tok= 118  pos=2014
           VarType:
             Typar.Named:
-                 ''T2'             TypeParameter       tok= 120  pos=1996
+                 ''T2'             TypeParameter       tok= 120  pos=2016
   Type:
-    type         'type'            KWType              tok= 159  pos=2962
+    type         'type'            KWType              tok= 159  pos=2936
     TypeSig.Union:
-      [<         '[<'              KWLAttrBracket      tok= 148  pos=2906
+      [<         '[<'              KWLAttrBracket      tok= 148  pos=2880
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 149  pos=2908
-      ;          ';'               OpSemicolon         tok= 150  pos=2926
+        Ident    'Structural...'   Identifier          tok= 149  pos=2882
+      ;          ';'               OpSemicolon         tok= 150  pos=2900
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 152  pos=2928
-      >]         '>]'              KWRAttrBracket      tok= 153  pos=2948
-      [<         '[<'              KWLAttrBracket      tok= 155  pos=2951
+        Ident    'Structural...'   Identifier          tok= 152  pos=2902
+      >]         '>]'              KWRAttrBracket      tok= 153  pos=2922
+      [<         '[<'              KWLAttrBracket      tok= 155  pos=2925
       NamedType:
-        Ident    'Struct'          Identifier          tok= 156  pos=2953
-      >]         '>]'              KWRAttrBracket      tok= 157  pos=2959
-      TypeName   'Choice'          Identifier          tok= 161  pos=2967
+        Ident    'Struct'          Identifier          tok= 156  pos=2927
+      >]         '>]'              KWRAttrBracket      tok= 157  pos=2933
+      TypeName   'Choice'          Identifier          tok= 161  pos=2941
       TyparDefns:
-        <        '<'               op_LessThan         tok= 162  pos=2973
+        <        '<'               op_LessThan         tok= 162  pos=2947
         Typar.Named:
-                 ''T1'             TypeParameter       tok= 163  pos=2974
+                 ''T1'             TypeParameter       tok= 163  pos=2948
         Typar.Named:
-                 ''T2'             TypeParameter       tok= 166  pos=2979
+                 ''T2'             TypeParameter       tok= 166  pos=2953
         Typar.Named:
-                 ''T3'             TypeParameter       tok= 169  pos=2984
-        >        '>'               op_GreaterThan      tok= 170  pos=2987
-      =          '='               OpEquality          tok= 172  pos=2989
+                 ''T3'             TypeParameter       tok= 169  pos=2958
+        >        '>'               op_GreaterThan      tok= 170  pos=2961
+      =          '='               OpEquality          tok= 172  pos=2963
         Case:
-          Ident  'Choice1Of3'      Identifier          tok= 181  pos=3029
-          of     'of'              KWOf                tok= 183  pos=3040
-          ident  'Choice1Of3'      Identifier          tok= 185  pos=3043
-          :      ':'               OpColon             tok= 186  pos=3053
+          Ident  'Choice1Of3'      Identifier          tok= 181  pos=3003
+          of     'of'              KWOf                tok= 183  pos=3014
+          ident  'Choice1Of3'      Identifier          tok= 185  pos=3017
+          :      ':'               OpColon             tok= 186  pos=3027
           VarType:
             Typar.Named:
-                 ''T1'             TypeParameter       tok= 188  pos=3055
+                 ''T1'             TypeParameter       tok= 188  pos=3029
         Case:
-          Ident  'Choice2Of3'      Identifier          tok= 197  pos=3097
-          of     'of'              KWOf                tok= 199  pos=3108
-          ident  'Choice2Of3'      Identifier          tok= 201  pos=3111
-          :      ':'               OpColon             tok= 202  pos=3121
+          Ident  'Choice2Of3'      Identifier          tok= 197  pos=3071
+          of     'of'              KWOf                tok= 199  pos=3082
+          ident  'Choice2Of3'      Identifier          tok= 201  pos=3085
+          :      ':'               OpColon             tok= 202  pos=3095
           VarType:
             Typar.Named:
-                 ''T2'             TypeParameter       tok= 204  pos=3123
+                 ''T2'             TypeParameter       tok= 204  pos=3097
         Case:
-          Ident  'Choice3Of3'      Identifier          tok= 213  pos=3165
-          of     'of'              KWOf                tok= 215  pos=3176
-          ident  'Choice3Of3'      Identifier          tok= 217  pos=3179
-          :      ':'               OpColon             tok= 218  pos=3189
+          Ident  'Choice3Of3'      Identifier          tok= 213  pos=3139
+          of     'of'              KWOf                tok= 215  pos=3150
+          ident  'Choice3Of3'      Identifier          tok= 217  pos=3153
+          :      ':'               OpColon             tok= 218  pos=3163
           VarType:
             Typar.Named:
-                 ''T3'             TypeParameter       tok= 220  pos=3191
+                 ''T3'             TypeParameter       tok= 220  pos=3165
   Type:
-    type         'type'            KWType              tok= 238  pos=3368
+    type         'type'            KWType              tok= 238  pos=3342
     TypeSig.Union:
-      [<         '[<'              KWLAttrBracket      tok= 227  pos=3312
+      [<         '[<'              KWLAttrBracket      tok= 227  pos=3286
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 228  pos=3314
-      ;          ';'               OpSemicolon         tok= 229  pos=3332
+        Ident    'Structural...'   Identifier          tok= 228  pos=3288
+      ;          ';'               OpSemicolon         tok= 229  pos=3306
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 231  pos=3334
-      >]         '>]'              KWRAttrBracket      tok= 232  pos=3354
-      [<         '[<'              KWLAttrBracket      tok= 234  pos=3357
+        Ident    'Structural...'   Identifier          tok= 231  pos=3308
+      >]         '>]'              KWRAttrBracket      tok= 232  pos=3328
+      [<         '[<'              KWLAttrBracket      tok= 234  pos=3331
       NamedType:
-        Ident    'Struct'          Identifier          tok= 235  pos=3359
-      >]         '>]'              KWRAttrBracket      tok= 236  pos=3365
-      TypeName   'Choice'          Identifier          tok= 240  pos=3373
+        Ident    'Struct'          Identifier          tok= 235  pos=3333
+      >]         '>]'              KWRAttrBracket      tok= 236  pos=3339
+      TypeName   'Choice'          Identifier          tok= 240  pos=3347
       TyparDefns:
-        <        '<'               op_LessThan         tok= 241  pos=3379
+        <        '<'               op_LessThan         tok= 241  pos=3353
         Typar.Named:
-                 ''T1'             TypeParameter       tok= 242  pos=3380
+                 ''T1'             TypeParameter       tok= 242  pos=3354
         Typar.Named:
-                 ''T2'             TypeParameter       tok= 245  pos=3385
+                 ''T2'             TypeParameter       tok= 245  pos=3359
         Typar.Named:
-                 ''T3'             TypeParameter       tok= 248  pos=3390
+                 ''T3'             TypeParameter       tok= 248  pos=3364
         Typar.Named:
-                 ''T4'             TypeParameter       tok= 251  pos=3395
-        >        '>'               op_GreaterThan      tok= 252  pos=3398
-      =          '='               OpEquality          tok= 254  pos=3400
+                 ''T4'             TypeParameter       tok= 251  pos=3369
+        >        '>'               op_GreaterThan      tok= 252  pos=3372
+      =          '='               OpEquality          tok= 254  pos=3374
         Case:
-          Ident  'Choice1Of4'      Identifier          tok= 263  pos=3440
-          of     'of'              KWOf                tok= 265  pos=3451
-          ident  'Choice1Of4'      Identifier          tok= 267  pos=3454
-          :      ':'               OpColon             tok= 268  pos=3464
+          Ident  'Choice1Of4'      Identifier          tok= 263  pos=3414
+          of     'of'              KWOf                tok= 265  pos=3425
+          ident  'Choice1Of4'      Identifier          tok= 267  pos=3428
+          :      ':'               OpColon             tok= 268  pos=3438
           VarType:
             Typar.Named:
-                 ''T1'             TypeParameter       tok= 270  pos=3466
+                 ''T1'             TypeParameter       tok= 270  pos=3440
         Case:
-          Ident  'Choice2Of4'      Identifier          tok= 279  pos=3508
-          of     'of'              KWOf                tok= 281  pos=3519
-          ident  'Choice2Of4'      Identifier          tok= 283  pos=3522
-          :      ':'               OpColon             tok= 284  pos=3532
+          Ident  'Choice2Of4'      Identifier          tok= 279  pos=3482
+          of     'of'              KWOf                tok= 281  pos=3493
+          ident  'Choice2Of4'      Identifier          tok= 283  pos=3496
+          :      ':'               OpColon             tok= 284  pos=3506
           VarType:
             Typar.Named:
-                 ''T2'             TypeParameter       tok= 286  pos=3534
+                 ''T2'             TypeParameter       tok= 286  pos=3508
         Case:
-          Ident  'Choice3Of4'      Identifier          tok= 295  pos=3576
-          of     'of'              KWOf                tok= 297  pos=3587
-          ident  'Choice3Of4'      Identifier          tok= 299  pos=3590
-          :      ':'               OpColon             tok= 300  pos=3600
+          Ident  'Choice3Of4'      Identifier          tok= 295  pos=3550
+          of     'of'              KWOf                tok= 297  pos=3561
+          ident  'Choice3Of4'      Identifier          tok= 299  pos=3564
+          :      ':'               OpColon             tok= 300  pos=3574
           VarType:
             Typar.Named:
-                 ''T3'             TypeParameter       tok= 302  pos=3602
+                 ''T3'             TypeParameter       tok= 302  pos=3576
         Case:
-          Ident  'Choice4Of4'      Identifier          tok= 311  pos=3644
-          of     'of'              KWOf                tok= 313  pos=3655
-          ident  'Choice4Of4'      Identifier          tok= 315  pos=3658
-          :      ':'               OpColon             tok= 316  pos=3668
+          Ident  'Choice4Of4'      Identifier          tok= 311  pos=3618
+          of     'of'              KWOf                tok= 313  pos=3629
+          ident  'Choice4Of4'      Identifier          tok= 315  pos=3632
+          :      ':'               OpColon             tok= 316  pos=3642
           VarType:
             Typar.Named:
-                 ''T4'             TypeParameter       tok= 318  pos=3670
+                 ''T4'             TypeParameter       tok= 318  pos=3644
   Type:
-    type         'type'            KWType              tok= 336  pos=3847
+    type         'type'            KWType              tok= 336  pos=3821
     TypeSig.Union:
-      [<         '[<'              KWLAttrBracket      tok= 325  pos=3791
+      [<         '[<'              KWLAttrBracket      tok= 325  pos=3765
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 326  pos=3793
-      ;          ';'               OpSemicolon         tok= 327  pos=3811
+        Ident    'Structural...'   Identifier          tok= 326  pos=3767
+      ;          ';'               OpSemicolon         tok= 327  pos=3785
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 329  pos=3813
-      >]         '>]'              KWRAttrBracket      tok= 330  pos=3833
-      [<         '[<'              KWLAttrBracket      tok= 332  pos=3836
+        Ident    'Structural...'   Identifier          tok= 329  pos=3787
+      >]         '>]'              KWRAttrBracket      tok= 330  pos=3807
+      [<         '[<'              KWLAttrBracket      tok= 332  pos=3810
       NamedType:
-        Ident    'Struct'          Identifier          tok= 333  pos=3838
-      >]         '>]'              KWRAttrBracket      tok= 334  pos=3844
-      TypeName   'Choice'          Identifier          tok= 338  pos=3852
+        Ident    'Struct'          Identifier          tok= 333  pos=3812
+      >]         '>]'              KWRAttrBracket      tok= 334  pos=3818
+      TypeName   'Choice'          Identifier          tok= 338  pos=3826
       TyparDefns:
-        <        '<'               op_LessThan         tok= 339  pos=3858
+        <        '<'               op_LessThan         tok= 339  pos=3832
         Typar.Named:
-                 ''T1'             TypeParameter       tok= 340  pos=3859
+                 ''T1'             TypeParameter       tok= 340  pos=3833
         Typar.Named:
-                 ''T2'             TypeParameter       tok= 343  pos=3864
+                 ''T2'             TypeParameter       tok= 343  pos=3838
         Typar.Named:
-                 ''T3'             TypeParameter       tok= 346  pos=3869
+                 ''T3'             TypeParameter       tok= 346  pos=3843
         Typar.Named:
-                 ''T4'             TypeParameter       tok= 349  pos=3874
+                 ''T4'             TypeParameter       tok= 349  pos=3848
         Typar.Named:
-                 ''T5'             TypeParameter       tok= 352  pos=3879
-        >        '>'               op_GreaterThan      tok= 353  pos=3882
-      =          '='               OpEquality          tok= 355  pos=3884
+                 ''T5'             TypeParameter       tok= 352  pos=3853
+        >        '>'               op_GreaterThan      tok= 353  pos=3856
+      =          '='               OpEquality          tok= 355  pos=3858
         Case:
-          Ident  'Choice1Of5'      Identifier          tok= 364  pos=3924
-          of     'of'              KWOf                tok= 366  pos=3935
-          ident  'Choice1Of5'      Identifier          tok= 368  pos=3938
-          :      ':'               OpColon             tok= 369  pos=3948
+          Ident  'Choice1Of5'      Identifier          tok= 364  pos=3898
+          of     'of'              KWOf                tok= 366  pos=3909
+          ident  'Choice1Of5'      Identifier          tok= 368  pos=3912
+          :      ':'               OpColon             tok= 369  pos=3922
           VarType:
             Typar.Named:
-                 ''T1'             TypeParameter       tok= 371  pos=3950
+                 ''T1'             TypeParameter       tok= 371  pos=3924
         Case:
-          Ident  'Choice2Of5'      Identifier          tok= 380  pos=3992
-          of     'of'              KWOf                tok= 382  pos=4003
-          ident  'Choice2Of5'      Identifier          tok= 384  pos=4006
-          :      ':'               OpColon             tok= 385  pos=4016
+          Ident  'Choice2Of5'      Identifier          tok= 380  pos=3966
+          of     'of'              KWOf                tok= 382  pos=3977
+          ident  'Choice2Of5'      Identifier          tok= 384  pos=3980
+          :      ':'               OpColon             tok= 385  pos=3990
           VarType:
             Typar.Named:
-                 ''T2'             TypeParameter       tok= 387  pos=4018
+                 ''T2'             TypeParameter       tok= 387  pos=3992
         Case:
-          Ident  'Choice3Of5'      Identifier          tok= 396  pos=4060
-          of     'of'              KWOf                tok= 398  pos=4071
-          ident  'Choice3Of5'      Identifier          tok= 400  pos=4074
-          :      ':'               OpColon             tok= 401  pos=4084
+          Ident  'Choice3Of5'      Identifier          tok= 396  pos=4034
+          of     'of'              KWOf                tok= 398  pos=4045
+          ident  'Choice3Of5'      Identifier          tok= 400  pos=4048
+          :      ':'               OpColon             tok= 401  pos=4058
           VarType:
             Typar.Named:
-                 ''T3'             TypeParameter       tok= 403  pos=4086
+                 ''T3'             TypeParameter       tok= 403  pos=4060
         Case:
-          Ident  'Choice4Of5'      Identifier          tok= 412  pos=4128
-          of     'of'              KWOf                tok= 414  pos=4139
-          ident  'Choice4Of5'      Identifier          tok= 416  pos=4142
-          :      ':'               OpColon             tok= 417  pos=4152
+          Ident  'Choice4Of5'      Identifier          tok= 412  pos=4102
+          of     'of'              KWOf                tok= 414  pos=4113
+          ident  'Choice4Of5'      Identifier          tok= 416  pos=4116
+          :      ':'               OpColon             tok= 417  pos=4126
           VarType:
             Typar.Named:
-                 ''T4'             TypeParameter       tok= 419  pos=4154
+                 ''T4'             TypeParameter       tok= 419  pos=4128
         Case:
-          Ident  'Choice5Of5'      Identifier          tok= 428  pos=4196
-          of     'of'              KWOf                tok= 430  pos=4207
-          ident  'Choice5Of5'      Identifier          tok= 432  pos=4210
-          :      ':'               OpColon             tok= 433  pos=4220
+          Ident  'Choice5Of5'      Identifier          tok= 428  pos=4170
+          of     'of'              KWOf                tok= 430  pos=4181
+          ident  'Choice5Of5'      Identifier          tok= 432  pos=4184
+          :      ':'               OpColon             tok= 433  pos=4194
           VarType:
             Typar.Named:
-                 ''T5'             TypeParameter       tok= 435  pos=4222
+                 ''T5'             TypeParameter       tok= 435  pos=4196
   Type:
-    type         'type'            KWType              tok= 453  pos=4399
+    type         'type'            KWType              tok= 453  pos=4373
     TypeSig.Union:
-      [<         '[<'              KWLAttrBracket      tok= 442  pos=4343
+      [<         '[<'              KWLAttrBracket      tok= 442  pos=4317
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 443  pos=4345
-      ;          ';'               OpSemicolon         tok= 444  pos=4363
+        Ident    'Structural...'   Identifier          tok= 443  pos=4319
+      ;          ';'               OpSemicolon         tok= 444  pos=4337
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 446  pos=4365
-      >]         '>]'              KWRAttrBracket      tok= 447  pos=4385
-      [<         '[<'              KWLAttrBracket      tok= 449  pos=4388
+        Ident    'Structural...'   Identifier          tok= 446  pos=4339
+      >]         '>]'              KWRAttrBracket      tok= 447  pos=4359
+      [<         '[<'              KWLAttrBracket      tok= 449  pos=4362
       NamedType:
-        Ident    'Struct'          Identifier          tok= 450  pos=4390
-      >]         '>]'              KWRAttrBracket      tok= 451  pos=4396
-      TypeName   'Choice'          Identifier          tok= 455  pos=4404
+        Ident    'Struct'          Identifier          tok= 450  pos=4364
+      >]         '>]'              KWRAttrBracket      tok= 451  pos=4370
+      TypeName   'Choice'          Identifier          tok= 455  pos=4378
       TyparDefns:
-        <        '<'               op_LessThan         tok= 456  pos=4410
+        <        '<'               op_LessThan         tok= 456  pos=4384
         Typar.Named:
-                 ''T1'             TypeParameter       tok= 457  pos=4411
+                 ''T1'             TypeParameter       tok= 457  pos=4385
         Typar.Named:
-                 ''T2'             TypeParameter       tok= 460  pos=4416
+                 ''T2'             TypeParameter       tok= 460  pos=4390
         Typar.Named:
-                 ''T3'             TypeParameter       tok= 463  pos=4421
+                 ''T3'             TypeParameter       tok= 463  pos=4395
         Typar.Named:
-                 ''T4'             TypeParameter       tok= 466  pos=4426
+                 ''T4'             TypeParameter       tok= 466  pos=4400
         Typar.Named:
-                 ''T5'             TypeParameter       tok= 469  pos=4431
+                 ''T5'             TypeParameter       tok= 469  pos=4405
         Typar.Named:
-                 ''T6'             TypeParameter       tok= 472  pos=4436
-        >        '>'               op_GreaterThan      tok= 473  pos=4439
-      =          '='               OpEquality          tok= 475  pos=4441
+                 ''T6'             TypeParameter       tok= 472  pos=4410
+        >        '>'               op_GreaterThan      tok= 473  pos=4413
+      =          '='               OpEquality          tok= 475  pos=4415
         Case:
-          Ident  'Choice1Of6'      Identifier          tok= 484  pos=4481
-          of     'of'              KWOf                tok= 486  pos=4492
-          ident  'Choice1Of6'      Identifier          tok= 488  pos=4495
-          :      ':'               OpColon             tok= 489  pos=4505
+          Ident  'Choice1Of6'      Identifier          tok= 484  pos=4455
+          of     'of'              KWOf                tok= 486  pos=4466
+          ident  'Choice1Of6'      Identifier          tok= 488  pos=4469
+          :      ':'               OpColon             tok= 489  pos=4479
           VarType:
             Typar.Named:
-                 ''T1'             TypeParameter       tok= 491  pos=4507
+                 ''T1'             TypeParameter       tok= 491  pos=4481
         Case:
-          Ident  'Choice2Of6'      Identifier          tok= 500  pos=4549
-          of     'of'              KWOf                tok= 502  pos=4560
-          ident  'Choice2Of6'      Identifier          tok= 504  pos=4563
-          :      ':'               OpColon             tok= 505  pos=4573
+          Ident  'Choice2Of6'      Identifier          tok= 500  pos=4523
+          of     'of'              KWOf                tok= 502  pos=4534
+          ident  'Choice2Of6'      Identifier          tok= 504  pos=4537
+          :      ':'               OpColon             tok= 505  pos=4547
           VarType:
             Typar.Named:
-                 ''T2'             TypeParameter       tok= 507  pos=4575
+                 ''T2'             TypeParameter       tok= 507  pos=4549
         Case:
-          Ident  'Choice3Of6'      Identifier          tok= 516  pos=4617
-          of     'of'              KWOf                tok= 518  pos=4628
-          ident  'Choice3Of6'      Identifier          tok= 520  pos=4631
-          :      ':'               OpColon             tok= 521  pos=4641
+          Ident  'Choice3Of6'      Identifier          tok= 516  pos=4591
+          of     'of'              KWOf                tok= 518  pos=4602
+          ident  'Choice3Of6'      Identifier          tok= 520  pos=4605
+          :      ':'               OpColon             tok= 521  pos=4615
           VarType:
             Typar.Named:
-                 ''T3'             TypeParameter       tok= 523  pos=4643
+                 ''T3'             TypeParameter       tok= 523  pos=4617
         Case:
-          Ident  'Choice4Of6'      Identifier          tok= 532  pos=4685
-          of     'of'              KWOf                tok= 534  pos=4696
-          ident  'Choice4Of6'      Identifier          tok= 536  pos=4699
-          :      ':'               OpColon             tok= 537  pos=4709
+          Ident  'Choice4Of6'      Identifier          tok= 532  pos=4659
+          of     'of'              KWOf                tok= 534  pos=4670
+          ident  'Choice4Of6'      Identifier          tok= 536  pos=4673
+          :      ':'               OpColon             tok= 537  pos=4683
           VarType:
             Typar.Named:
-                 ''T4'             TypeParameter       tok= 539  pos=4711
+                 ''T4'             TypeParameter       tok= 539  pos=4685
         Case:
-          Ident  'Choice5Of6'      Identifier          tok= 548  pos=4753
-          of     'of'              KWOf                tok= 550  pos=4764
-          ident  'Choice5Of6'      Identifier          tok= 552  pos=4767
-          :      ':'               OpColon             tok= 553  pos=4777
+          Ident  'Choice5Of6'      Identifier          tok= 548  pos=4727
+          of     'of'              KWOf                tok= 550  pos=4738
+          ident  'Choice5Of6'      Identifier          tok= 552  pos=4741
+          :      ':'               OpColon             tok= 553  pos=4751
           VarType:
             Typar.Named:
-                 ''T5'             TypeParameter       tok= 555  pos=4779
+                 ''T5'             TypeParameter       tok= 555  pos=4753
         Case:
-          Ident  'Choice6Of6'      Identifier          tok= 564  pos=4821
-          of     'of'              KWOf                tok= 566  pos=4832
-          ident  'Choice6Of6'      Identifier          tok= 568  pos=4835
-          :      ':'               OpColon             tok= 569  pos=4845
+          Ident  'Choice6Of6'      Identifier          tok= 564  pos=4795
+          of     'of'              KWOf                tok= 566  pos=4806
+          ident  'Choice6Of6'      Identifier          tok= 568  pos=4809
+          :      ':'               OpColon             tok= 569  pos=4819
           VarType:
             Typar.Named:
-                 ''T6'             TypeParameter       tok= 571  pos=4847
+                 ''T6'             TypeParameter       tok= 571  pos=4821
   Type:
-    type         'type'            KWType              tok= 589  pos=5024
+    type         'type'            KWType              tok= 589  pos=4998
     TypeSig.Union:
-      [<         '[<'              KWLAttrBracket      tok= 578  pos=4968
+      [<         '[<'              KWLAttrBracket      tok= 578  pos=4942
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 579  pos=4970
-      ;          ';'               OpSemicolon         tok= 580  pos=4988
+        Ident    'Structural...'   Identifier          tok= 579  pos=4944
+      ;          ';'               OpSemicolon         tok= 580  pos=4962
       NamedType:
-        Ident    'Structural...'   Identifier          tok= 582  pos=4990
-      >]         '>]'              KWRAttrBracket      tok= 583  pos=5010
-      [<         '[<'              KWLAttrBracket      tok= 585  pos=5013
+        Ident    'Structural...'   Identifier          tok= 582  pos=4964
+      >]         '>]'              KWRAttrBracket      tok= 583  pos=4984
+      [<         '[<'              KWLAttrBracket      tok= 585  pos=4987
       NamedType:
-        Ident    'Struct'          Identifier          tok= 586  pos=5015
-      >]         '>]'              KWRAttrBracket      tok= 587  pos=5021
-      TypeName   'Choice'          Identifier          tok= 591  pos=5029
+        Ident    'Struct'          Identifier          tok= 586  pos=4989
+      >]         '>]'              KWRAttrBracket      tok= 587  pos=4995
+      TypeName   'Choice'          Identifier          tok= 591  pos=5003
       TyparDefns:
-        <        '<'               op_LessThan         tok= 592  pos=5035
+        <        '<'               op_LessThan         tok= 592  pos=5009
         Typar.Named:
-                 ''T1'             TypeParameter       tok= 593  pos=5036
+                 ''T1'             TypeParameter       tok= 593  pos=5010
         Typar.Named:
-                 ''T2'             TypeParameter       tok= 596  pos=5041
+                 ''T2'             TypeParameter       tok= 596  pos=5015
         Typar.Named:
-                 ''T3'             TypeParameter       tok= 599  pos=5046
+                 ''T3'             TypeParameter       tok= 599  pos=5020
         Typar.Named:
-                 ''T4'             TypeParameter       tok= 602  pos=5051
+                 ''T4'             TypeParameter       tok= 602  pos=5025
         Typar.Named:
-                 ''T5'             TypeParameter       tok= 605  pos=5056
+                 ''T5'             TypeParameter       tok= 605  pos=5030
         Typar.Named:
-                 ''T6'             TypeParameter       tok= 608  pos=5061
+                 ''T6'             TypeParameter       tok= 608  pos=5035
         Typar.Named:
-                 ''T7'             TypeParameter       tok= 611  pos=5066
-        >        '>'               op_GreaterThan      tok= 612  pos=5069
-      =          '='               OpEquality          tok= 614  pos=5071
+                 ''T7'             TypeParameter       tok= 611  pos=5040
+        >        '>'               op_GreaterThan      tok= 612  pos=5043
+      =          '='               OpEquality          tok= 614  pos=5045
         Case:
-          Ident  'Choice1Of7'      Identifier          tok= 623  pos=5111
-          of     'of'              KWOf                tok= 625  pos=5122
-          ident  'Choice1Of7'      Identifier          tok= 627  pos=5125
-          :      ':'               OpColon             tok= 628  pos=5135
+          Ident  'Choice1Of7'      Identifier          tok= 623  pos=5085
+          of     'of'              KWOf                tok= 625  pos=5096
+          ident  'Choice1Of7'      Identifier          tok= 627  pos=5099
+          :      ':'               OpColon             tok= 628  pos=5109
           VarType:
             Typar.Named:
-                 ''T1'             TypeParameter       tok= 630  pos=5137
+                 ''T1'             TypeParameter       tok= 630  pos=5111
         Case:
-          Ident  'Choice2Of7'      Identifier          tok= 639  pos=5179
-          of     'of'              KWOf                tok= 641  pos=5190
-          ident  'Choice2Of7'      Identifier          tok= 643  pos=5193
-          :      ':'               OpColon             tok= 644  pos=5203
+          Ident  'Choice2Of7'      Identifier          tok= 639  pos=5153
+          of     'of'              KWOf                tok= 641  pos=5164
+          ident  'Choice2Of7'      Identifier          tok= 643  pos=5167
+          :      ':'               OpColon             tok= 644  pos=5177
           VarType:
             Typar.Named:
-                 ''T2'             TypeParameter       tok= 646  pos=5205
+                 ''T2'             TypeParameter       tok= 646  pos=5179
         Case:
-          Ident  'Choice3Of7'      Identifier          tok= 655  pos=5247
-          of     'of'              KWOf                tok= 657  pos=5258
-          ident  'Choice3Of7'      Identifier          tok= 659  pos=5261
-          :      ':'               OpColon             tok= 660  pos=5271
+          Ident  'Choice3Of7'      Identifier          tok= 655  pos=5221
+          of     'of'              KWOf                tok= 657  pos=5232
+          ident  'Choice3Of7'      Identifier          tok= 659  pos=5235
+          :      ':'               OpColon             tok= 660  pos=5245
           VarType:
             Typar.Named:
-                 ''T3'             TypeParameter       tok= 662  pos=5273
+                 ''T3'             TypeParameter       tok= 662  pos=5247
         Case:
-          Ident  'Choice4Of7'      Identifier          tok= 671  pos=5315
-          of     'of'              KWOf                tok= 673  pos=5326
-          ident  'Choice4Of7'      Identifier          tok= 675  pos=5329
-          :      ':'               OpColon             tok= 676  pos=5339
+          Ident  'Choice4Of7'      Identifier          tok= 671  pos=5289
+          of     'of'              KWOf                tok= 673  pos=5300
+          ident  'Choice4Of7'      Identifier          tok= 675  pos=5303
+          :      ':'               OpColon             tok= 676  pos=5313
           VarType:
             Typar.Named:
-                 ''T4'             TypeParameter       tok= 678  pos=5341
+                 ''T4'             TypeParameter       tok= 678  pos=5315
         Case:
-          Ident  'Choice5Of7'      Identifier          tok= 687  pos=5383
-          of     'of'              KWOf                tok= 689  pos=5394
-          ident  'Choice5Of7'      Identifier          tok= 691  pos=5397
-          :      ':'               OpColon             tok= 692  pos=5407
+          Ident  'Choice5Of7'      Identifier          tok= 687  pos=5357
+          of     'of'              KWOf                tok= 689  pos=5368
+          ident  'Choice5Of7'      Identifier          tok= 691  pos=5371
+          :      ':'               OpColon             tok= 692  pos=5381
           VarType:
             Typar.Named:
-                 ''T5'             TypeParameter       tok= 694  pos=5409
+                 ''T5'             TypeParameter       tok= 694  pos=5383
         Case:
-          Ident  'Choice6Of7'      Identifier          tok= 703  pos=5451
-          of     'of'              KWOf                tok= 705  pos=5462
-          ident  'Choice6Of7'      Identifier          tok= 707  pos=5465
-          :      ':'               OpColon             tok= 708  pos=5475
+          Ident  'Choice6Of7'      Identifier          tok= 703  pos=5425
+          of     'of'              KWOf                tok= 705  pos=5436
+          ident  'Choice6Of7'      Identifier          tok= 707  pos=5439
+          :      ':'               OpColon             tok= 708  pos=5449
           VarType:
             Typar.Named:
-                 ''T6'             TypeParameter       tok= 710  pos=5477
+                 ''T6'             TypeParameter       tok= 710  pos=5451
         Case:
-          Ident  'Choice7Of7'      Identifier          tok= 719  pos=5519
-          of     'of'              KWOf                tok= 721  pos=5530
-          ident  'Choice7Of7'      Identifier          tok= 723  pos=5533
-          :      ':'               OpColon             tok= 724  pos=5543
+          Ident  'Choice7Of7'      Identifier          tok= 719  pos=5493
+          of     'of'              KWOf                tok= 721  pos=5504
+          ident  'Choice7Of7'      Identifier          tok= 723  pos=5507
+          :      ':'               OpColon             tok= 724  pos=5517
           VarType:
             Typar.Named:
-                 ''T7'             TypeParameter       tok= 726  pos=5545
+                 ''T7'             TypeParameter       tok= 726  pos=5519
