@@ -163,7 +163,35 @@ module EmitMember =
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.StaticMethodCall(key, args, ty) ->
-            let handle = resolveStaticMember env key ty
+            // The declaring type of the static member. When it is a project-local
+            // class/union the emitted tables carry it; when it lives in a referenced
+            // package it does not — a *consumer*'s SRTP `+` / `-` dispatching to an
+            // imported type's static operator (`Vesper.Set`'s `op_Addition`) reaches
+            // here. `Inline.resolveTraitCall` always mints a local-shaped
+            // `StaticMethodCall`; route the external case through the external
+            // member-ref path instead of failing in `resolveStaticMember`.
+            let isLocal =
+                match key with
+                | SymbolKey.MemberKey(declKey, _, _, _) ->
+                    env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
+                | _ -> true
+
+            let handle =
+                if isLocal then
+                    resolveStaticMember env key ty
+                else
+                    // Reconstruct the member's .NET-tupled signature from the pushed
+                    // args + result so `ExternalMemberRef` can recover the declaring
+                    // instantiation (`Set<int>` from `op_Addition`'s open `Set<!0>`).
+                    let argTys = [ for a in args -> typeOfExpr a ]
+
+                    let paramTy =
+                        match argTys with
+                        | [] -> FTConst("unit", EqArray.empty)
+                        | [ single ] -> single
+                        | many -> FTTuple(EqArray.ofList many)
+
+                    env.Provider.ExternalMemberRef(key, false, true, FTFun(paramTy, ty))
             // Obj-parameter boxes are explicit `Upcast` nodes from Freeze; push raw.
             for a in args do
                 recur env b a

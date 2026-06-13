@@ -856,11 +856,11 @@ module VesperLib =
         (compiled: string)
         (arity: int)
         (typeName: TypeName<SyntaxToken>)
-        (extensions: TypeExtensionElementsSignature<SyntaxToken> voption)
+        (elems: TypeElementsSignature<SyntaxToken>)
         : unit =
-        match extensions with
-        | ValueNone -> ()
-        | ValueSome(TypeExtensionElementsSignature(_, elems, _)) ->
+        if elems.Length = 0 then
+            ()
+        else
             // Split the qualified compiled name into the declaring `TypeKey`
             // (ns, simple name) so each member carries a best-effort identity;
             // the asm slot is stamped later by the wrapping source.
@@ -983,7 +983,11 @@ module VesperLib =
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 extractUnionBody ctx file lexed input opens compiled arity typeName cases
-                extractTypeMembers ctx lexed input opens compiled arity typeName extensions
+
+                match extensions with
+                | ValueSome(TypeExtensionElementsSignature(_, elems, _)) ->
+                    extractTypeMembers ctx lexed input opens compiled arity typeName elems
+                | ValueNone -> ()
 
         | TypeSignature.Interface(typeName = typeName) ->
             match registerTypeDecl ctx lexed input path typeName with
@@ -1040,12 +1044,28 @@ module VesperLib =
 
                 ctx.TypeShapes.[compiled] <- ExternalTypeShape.Class shape
 
-        | TypeSignature.Anon(typeName = typeName)
-        | TypeSignature.Class(typeName = typeName)
+        | TypeSignature.Anon(typeName = typeName; elements = elements)
+        | TypeSignature.Class(typeName = typeName; elements = elements) ->
+            // A nominal class with a member body (`Vesper.Set`'s `Set<'T>`). The
+            // shape stays the bodiless `basic` `Class` (members are served through
+            // `TryLookupMember`, not the shape), but the body's `member` /
+            // `static member` sigs ARE extracted so a *consumer* can resolve them —
+            // notably the static operators (`op_Addition` / `op_Subtraction`) an
+            // SRTP `+` / `-` on the type dispatches to (`drainSrtpBounds`). Without
+            // this the class's members were silently dropped (only `Union` bodies
+            // extracted members), so `s + t` on an imported `Set` left its result
+            // typar unresolved.
+            match registerTypeDecl ctx lexed input path typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) ->
+                ctx.TypeShapes.[compiled] <-
+                    ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
+
+                extractTypeMembers ctx lexed input opens compiled arity typeName elements
+
         | TypeSignature.AbstractType typeName ->
-            // Nominal types with no front-end-modelled body shape (a class, an
-            // opaque abstract type). Resolve as a non-interface `Class` so codegen
-            // can mint a ref off the origin.
+            // An opaque abstract type (`type T`) with no body shape. Resolve as a
+            // non-interface `Class` so codegen can mint a ref off the origin.
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->

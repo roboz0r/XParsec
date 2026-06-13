@@ -297,14 +297,26 @@ let tests =
                              + "printfn \"%d\" (Set.maxElement i)")
                     }
 
-                    // PENDING — a *driver-level* `s + t` / `s - t` leaves the SRTP
-                    // operator unresolved: "ResolvedTypes: TAST contains 2 unresolved
-                    // TyVar(s) — inference bug". NB the *internal* use of the same
-                    // operator (inside `Set.union`/`Set.intersect`, gap #5) is CLOSED
-                    // and gated by the `union (function form)` / `intersect` rows above
-                    // — this row pins the remaining consumer-side resolution gap. Flip
-                    // → `test` when driver-level set-operator dispatch resolves.
-                    ptest "(+) / (-) operators dispatch to the static members" {
+                    // Driver-level `s + t` / `s - t` dispatch to the imported `Set`'s
+                    // static operators — the *consumer*-side SRTP resolution (the
+                    // *internal* use inside `Set.union`/`Set.intersect`, gap #5, was
+                    // already CLOSED). Three fixes, all consumer-path:
+                    //   1. `Engine.drainSrtpBounds` only resolved a `when ^T : ^T`
+                    //      member-trait against a *project-local* class; an imported
+                    //      `Set` parked the bound forever, leaving the result element
+                    //      typar unresolved. It now falls back to the external provider
+                    //      (`openSignature` over `classArgs`).
+                    //   2. `VesperLib.extractTypeMembers` only ran for `Union` bodies,
+                    //      so a `Class` body's `static member (+)`/`(-)` were never
+                    //      published to consumers. The `Class`/`Anon` arms now extract
+                    //      members too.
+                    //   3. `Inline.resolveTraitCall` minted the call key with an empty
+                    //      `argSig`; codegen's external member-ref param-flatten reads
+                    //      its length, so a `.NET`-tupled `op_Addition(Set, Set)`
+                    //      collapsed to one `ValueTuple` param. The key now carries the
+                    //      operand arity, and `EmitMember.buildStaticMethodCall` routes
+                    //      a non-local declaring type through `ExternalMemberRef`.
+                    test "(+) / (-) operators dispatch to the static members" {
                         runsSetLines
                             [ "4"; "1" ]
                             (prelude

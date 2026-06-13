@@ -205,7 +205,16 @@ module Inline =
             : TExpr voption =
             match nominalHeadKey (sub recvTy) with
             | ValueSome k ->
-                let memberKey = LocalSymbolKey.ofMember k memberName MemberKind.Method
+                // Carry the operand arity in the member key's `argSig` (its contents
+                // are irrelevant — only the length is read, by codegen's external
+                // member-ref param-flatten: a `.NET`-tupled static operator
+                // `op_Addition(Set, Set)` must mint two parameters, not one
+                // `ValueTuple`. `LocalSymbolKey.ofMember`'s empty `argSig` collapsed
+                // it to a single tuple param when the *declaring type is external*
+                // (the local resolution path keys off the declaring type + name, so
+                // it is unaffected).
+                let argSig = EqArray.ofList [ for _ in 1 .. args.Length -> "" ]
+                let memberKey = SymbolKey.MemberKey(k, memberName, argSig, MemberKind.Method)
                 ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty))
             | ValueNone -> ValueNone
 

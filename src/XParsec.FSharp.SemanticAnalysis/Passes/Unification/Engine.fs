@@ -1271,9 +1271,30 @@ module UnificationEngine =
 
                                 b.Resolved <- true
                         | ValueNone ->
-                            // Unknown class — keep the bound so a later
-                            // pass might still be able to dispatch.
-                            remaining <- b :: remaining
+                            // Not a project-local class — try the external contract
+                            // provider. A *consumer* dispatching `+` / `-` to an
+                            // external type's static operator (a driver's `s + t` on
+                            // an `.fsi`-imported `Vesper.Set`) reaches here: the
+                            // `ValueSome` arm above only covers the producer side
+                            // (same-assembly `Set`, in `ctx.Types`). Without this the
+                            // bound parks forever and the operator result's element
+                            // typar (`Set<?>`) never grounds — surfacing as a stray
+                            // unresolved TyVar. `openSignature` substitutes the static
+                            // member's declaring typars from `classArgs`, yielding the
+                            // same `^T * ^T -> ^T` candidate shape the local arm builds.
+                            let metaName = SymbolKeyOps.qualifiedName classKey
+
+                            match ctx.Provider.TryLookupMember(metaName, b.MemberName) with
+                            | ValueSome m when m.IsStatic ->
+                                let candTy =
+                                    ExternalSymbols.openSignature m (EqArray.toList classArgs |> List.toArray)
+
+                                b.Resolved <- true
+                                unifySrtpAgainst ctx key candTy b
+                            | _ ->
+                                // Unknown class — keep the bound so a later
+                                // pass might still be able to dispatch.
+                                remaining <- b :: remaining
                     | _ ->
                         // Target not yet a concrete type-bearing shape — defer.
                         remaining <- b :: remaining
