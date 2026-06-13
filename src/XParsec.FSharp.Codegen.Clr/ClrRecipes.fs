@@ -674,6 +674,66 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendStructured = appendStructured
         }
 
+    // ---- Structural format (`%A`, P3): `IStructuralFormattable.Format` synthesis ----
+
+    let eFormatSink = env.EFormatSink
+    let eStructuralFormattable = env.EStructuralFormattable
+
+    /// The `IFormatSink` member refs the synthesised `Format` body calls. Built
+    /// once (the handles are type-independent); each is `instance void` on
+    /// `Vesper.IFormatSink`. The `Format` body `callvirt`s these around the type's
+    /// fields, mirroring the hand-written `Point`/`Opt` impls.
+    let formatSinkHandles =
+        lazy
+            (let sinkMember (name: string) (paramCount: int) (param0: SignatureTypeEncoder -> unit) : EntityHandle =
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(isInstanceMethod = true)
+                    .Parameters(
+                        paramCount,
+                        (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                        (fun (pars: ParametersEncoder) ->
+                            if paramCount > 0 then
+                                param0 (pars.AddParameter().Type())
+                        )
+                    )
+
+                toEntity (ctx.MemberRef(eFormatSink.Value, name, s))
+
+             let nullary (name: string) = sinkMember name 0 ignore
+
+             {
+                 Text = sinkMember "Text" 1 (fun te -> te.String())
+                 Line = nullary "Line"
+                 SoftBreak = nullary "SoftBreak"
+                 BeginGroup = nullary "BeginGroup"
+                 EndGroup = nullary "EndGroup"
+                 BeginNest = sinkMember "BeginNest" 1 (fun te -> te.Int32())
+                 EndNest = nullary "EndNest"
+                 BeginApplication = nullary "BeginApplication"
+                 EndApplication = nullary "EndApplication"
+                 FormatChild = sinkMember "FormatChild" 1 (fun te -> te.Object())
+                 FormatArg = sinkMember "FormatArg" 1 (fun te -> te.Object())
+             })
+
+    /// `instance void Format(IFormatSink)` — the signature of the synthesised
+    /// `IStructuralFormattable.Format` member. The param type is the bare
+    /// `Vesper.IFormatSink` `TypeRef`, encoded identically to the interface slot it
+    /// binds to (name + signature match, like the typed equality `Equals(Self)`).
+    let structuralFormatSignature () : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                1,
+                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Type(eFormatSink.Value, false))
+            )
+
+        s
+
     // ---- Structural equality / hashing (C-Eq1) ----
 
     let equalityComparerTypeSpec (elem: FrozenType) : EntityHandle =
@@ -833,6 +893,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy
     member _.BuildFormatHandles() = buildFormatHandles ()
+    member _.FormatSinkHandles = formatSinkHandles.Value
+    member _.StructuralFormatSignature() = structuralFormatSignature ()
+    member _.StructuralFormattableInterface = eStructuralFormattable.Value
 
     member _.EqualityComparerDefault elem = equalityComparerDefault elem
     member _.EqualityComparerEquals elem = equalityComparerEquals elem

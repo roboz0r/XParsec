@@ -77,6 +77,5 @@ backend once the self-host ladder lands. Parser coverage is verified by golden
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
 - [`operators-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md) — O10, the opt-in `[<StructuralComparison>]` on `Result`.
-- [`minimal-core-lib-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md) — the single-tree core this is split out of.
 - [`../Vesper.Option/README.md`](../Vesper.Option/README.md) — the sibling option package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.

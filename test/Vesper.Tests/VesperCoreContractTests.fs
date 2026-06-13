@@ -1,7 +1,7 @@
 module Vesper.Tests.VesperCoreContractTests
 
-// Migration step 1 of minimal-core-lib-plan.md: prove the Vesper.Core contract
-// (`.fsi`) and implementation (`.fs`) files are consumable by XParsec.FSharp.
+// Prove the Vesper.Core contract (`.fsi`) and implementation (`.fs`) files are
+// consumable by XParsec.FSharp.
 // Uses the golden-file machinery pointed at the real sources in
 // `src/Vesper.Core/`, so each `.parsed` snapshot lands next to its source. First
 // run creates the golden (test fails locally / skips on CI); review it (confirm

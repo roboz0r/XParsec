@@ -7,7 +7,7 @@ open System.Collections.Generic
 // Vesper's cons-list — the compiled runtime impl of the `Vesper.List` package,
 // in the verbatim FSharp.Core `[]` / `::` operator-case form. This is the
 // *cutover* target `list-min.fs`'s `Nil` / `Cons` deviation was a placeholder
-// for (minimal-core-lib-plan D6): it is now buildable by our own backend because
+// for the cons-pattern front-end gap: it is now buildable by our own backend because
 // the front end lowers cons patterns (`h :: t`), the empty-list pattern (`[]`),
 // and cons construction (`x :: xs`) through the same `TPat.Union` / `TExpr.UnionCons`
 // machinery the named cases used. The `[]` / `::` declarations compile to

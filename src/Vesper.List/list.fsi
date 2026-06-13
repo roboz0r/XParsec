@@ -135,7 +135,7 @@ open System.Collections.Generic
     type seq<'T> = IEnumerable<'T>
 
     /// Operations over `'T list`. `fold` first — it is what the canonical sample
-    /// (`minimal-core-lib-plan` acceptance criteria) exercises; the rest of the
+    /// exercises; the rest of the
     /// module (`map`/`filter`/`iter`/`length`/`rev`/`append`/…) is additive, each
     /// a contract + impl pair added as the language grows. The `ModuleSuffix`
     /// representation lets the module share the `List` name with the type and

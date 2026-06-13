@@ -42,7 +42,7 @@ module): they ride Phase 4's `for x in IEnumerable` + seq comprehensions, not ye
 compilable.
 
 `list-min.fs` was the placeholder this replaced — the cons-list with explicit
-**`Nil` / `Cons`** case names (a sanctioned deviation, minimal-core-lib-plan D6)
+**`Nil` / `Cons`** case names (a sanctioned deviation from the `[]`/`::` surface)
 that kept the source inside the proven front-end subset *before* cons patterns
 landed. It was removed once the cutover landed (see git history for the `Nil`/`Cons`
 reference); `list.fs` (matching `list.fsi`'s casing and FSharp.Core's own
@@ -96,6 +96,5 @@ to each source (`test/XParsec.FSharp.Tests/VesperCoreContractTests.fs`).
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`minimal-core-lib-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md) — the single-tree core this is split out of; D6 (`Nil`/`Cons` deviation), D8 (`List` mirrors `FSharpList`).
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.
 - [`../Vesper.Option/README.md`](../Vesper.Option/README.md) — the sibling package whose split this mirrors.

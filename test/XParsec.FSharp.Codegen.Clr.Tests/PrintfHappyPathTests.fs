@@ -324,28 +324,14 @@ let tests =
                 | other -> failtestf "unexpected TAST for %%.2A: %A" other
             }
 
-            test "`%A` of a record stays on the cold path (gated until step 3)" {
-                // The format string is lowerable (`%A`), so the marker is set; the
-                // Freeze type-gate then declines because a record renders wrong on
-                // the step-2 engine — the whole format falls back to FSharp.Core.
-                let tast = analyse "type R = { X: int }\nprintfn \"%A\" { X = 1 }"
-                Expect.isEmpty tast.Diagnostics "no diagnostics for record %A"
-
-                let exprs =
-                    match tast.Decls with
-                    | EqList ds ->
-                        ds
-                        |> List.choose (
-                            function
-                            | TDecl.Expression(e, _) -> Some e
-                            | _ -> None
-                        )
-
-                match exprs with
-                | [ TExpr.Format _ ] -> failtest "%A of a record must stay cold (no Format node)"
-                | [ TExpr.App _ ] -> ()
-                | other -> failtestf "unexpected printf decl for record %%A: %A" other
-            }
+            // NOTE on the record/DU type-gate: a project-local record / DU is
+            // engine-faithful only once step-3 synthesis attaches its `Format` — and
+            // "project-local" is keyed on the compilation's target assembly. The bare
+            // `analyse` harness compiles with no assembly name (home = `None`), so a
+            // record there is still treated external (cold); the *real* codegen path
+            // (`compileSource`, a named assembly) lowers it on the engine. The
+            // runtime tests below prove that end-to-end. `%.2A` (precision) stays cold
+            // regardless — see the cold-path test above.
 
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
 
@@ -386,6 +372,51 @@ let tests =
 
             test "`%0A` of a list prints flat (fits the budget either way)" {
                 runPrints "PHpStructFlat" "printfn \"%0A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            }
+
+            // ---- `%A` of a record / DU: step-3 synthesised `Format` (the engine) ----
+            // The backend now synthesises `IStructuralFormattable.Format` on every
+            // record / DU, so a project-local one renders on the engine (no cold
+            // path). Oracle is the copy-pasteable spec, not `sprintf "%A"`.
+
+            test "`%A` of a record prints the copy-pasteable record literal" {
+                runPrints
+                    "PHpStructRec"
+                    "type R = { X: int; Y: string }\nprintfn \"%A\" { X = 1; Y = \"a\" }"
+                    "{ X = 1; Y = \"a\" }"
+            }
+
+            test "`%A` of a record breaks under a tiny width budget (dedented closer)" {
+                runPrints
+                    "PHpStructRecBreak"
+                    "type R = { X: int; Y: string }\nprintfn \"%5A\" { X = 1; Y = \"a\" }"
+                    "{ X = 1;\n  Y = \"a\" }"
+            }
+
+            // NOTE: the DU value is bound to a lowercase local first. Writing the
+            // constructor *directly* as the printf argument (`printfn "%A" (S 3)`)
+            // trips a pre-existing front-end parse quirk — a constructor /
+            // parenthesised application adjacent to the format string is
+            // mis-associated as `printfn ("%A" (S 3))` — that is orthogonal to the
+            // `%A` synthesis under test. Binding to a local sidesteps it; the
+            // list-of-DUs test below also exercises the synthesised union `Format`.
+            test "`%A` of a nullary DU case prints the bare identifier" {
+                runPrints "PHpStructDuNullary" "type Opt = | N | S of int\nlet v = N\nprintfn \"%A\" v" "N"
+            }
+
+            test "`%A` of a payload DU case prints `Case payload` (no parens)" {
+                runPrints "PHpStructDuPayload" "type Opt = | N | S of int\nlet v = S 3\nprintfn \"%A\" v" "S 3"
+            }
+
+            test "`%A` of a nested DU application parenthesises the argument" {
+                runPrints "PHpStructDuNest" "type Opt = | N | S of Opt\nlet v = S (S N)\nprintfn \"%A\" v" "S (S N)"
+            }
+
+            test "`%A` of a record nested in a list renders both structurally" {
+                runPrints
+                    "PHpStructRecInList"
+                    "type R = { X: int }\nprintfn \"%A\" [ { X = 1 }; { X = 2 } ]"
+                    "[{ X = 1 }; { X = 2 }]"
             }
 
             test "`%x` prints lowercase hex" { runParity "PHpHex" "printfn \"%x\" 255" (sprintf "%x" 255) }

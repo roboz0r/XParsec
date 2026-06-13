@@ -180,6 +180,33 @@ type FormatHandles =
         AppendStructured: FrozenType -> EntityHandle
     }
 
+/// The `Vesper.IFormatSink` member refs the synthesised `IStructuralFormattable.Format`
+/// body `callvirt`s (P3 backend synthesis). One handle per declarative layout
+/// primitive; the `Format` body interleaves them around the type's fields exactly
+/// as the hand-written `Point`/`Opt` impls do (`StructuralFormatTests.fs`). All are
+/// `instance void` on the `IFormatSink` interface — the sink builds a `Doc` tree and
+/// lays it out, so the synthesised IL stays straight-line (D-D).
+type FormatSinkHandles =
+    {
+        /// `void Text(string)` — a literal run that never breaks.
+        Text: EntityHandle
+        /// `void Line()` — a soft break (" " flat / newline broken).
+        Line: EntityHandle
+        /// `void SoftBreak()` — a soft break with no flat alternative.
+        SoftBreak: EntityHandle
+        BeginGroup: EntityHandle
+        EndGroup: EntityHandle
+        /// `void BeginNest(int)` — open an indent scope for broken lines.
+        BeginNest: EntityHandle
+        EndNest: EntityHandle
+        BeginApplication: EntityHandle
+        EndApplication: EntityHandle
+        /// `void FormatChild(object)` — recurse into a normal-position child.
+        FormatChild: EntityHandle
+        /// `void FormatArg(object)` — recurse into a DU-argument-position child.
+        FormatArg: EntityHandle
+    }
+
 /// Resolves compiled names to emission recipes for one target (the .NET
 /// implementation is `ClrProvider`). Intentionally minimal: the contract
 /// crystallises from the working implementation rather than up-front design.

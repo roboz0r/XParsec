@@ -794,13 +794,13 @@ module internal FreezeExpr =
     /// FSharp.Core cold path. A single non-faithful `%A` hole forces the *whole*
     /// format cold (`translatePrintfFormat` returns `ValueNone`) — additive, no
     /// regression, and it re-greens `%A` of lists/primitives/tuples immediately.
-    and private structuredArgFaithful (t: SemType) : bool =
+    and private structuredArgFaithful (localAsm: string option) (t: SemType) : bool =
         match t with
         | TyConst(name, args) ->
             match name with
             // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
             // the `IEnumerable` arm — faithful iff its element type is.
-            | "[]" -> EqArray.forall structuredArgFaithful args
+            | "[]" -> EqArray.forall (structuredArgFaithful localAsm) args
             | "int"
             | "int8"
             | "int16"
@@ -823,14 +823,24 @@ module internal FreezeExpr =
             | "char"
             | "bool" -> args.Length = 0
             | _ -> false
-        | TyTuple items -> EqArray.forall structuredArgFaithful items
-        // The cons-list renders via the `IEnumerable` arm until it carries
-        // `IStructuralFormattable` (step 3). It surfaces as a `TyUnion` in the
-        // self-host (the Vesper cons-list DU) but as a `TyRecord` against the
-        // FSharp.Core contract (`list`1`), so accept both shapes of the list keys.
+        | TyTuple items -> EqArray.forall (structuredArgFaithful localAsm) items
+        // The cons-list still renders via the `IEnumerable` arm (it carries no
+        // synthesised `Format`), so it stays faithful-iff-its-element-is. It
+        // surfaces as a `TyUnion` in the self-host (the Vesper cons-list DU) but as a
+        // `TyRecord` against the FSharp.Core contract (`list`1`), so accept both
+        // shapes of the list keys.
         | TyUnion(key, args)
         | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
-            EqArray.forall structuredArgFaithful args
+            EqArray.forall (structuredArgFaithful localAsm) args
+        // Every *project-local* record / DU carries a synthesised
+        // `IStructuralFormattable.Format` (step-3 `NominalEmit` synthesis), so the
+        // engine renders it faithfully — recursion into fields is unnecessary (the
+        // dispatcher routes each field at runtime; a genuinely unsupported leaf
+        // `ToString`-falls-back, the documented acceptable case). An *external*
+        // structural type has no synthesis, so it keeps the FSharp.Core cold path.
+        // Local-ness is the key's home assembly matching this compilation's target.
+        | TyUnion(key, _)
+        | TyRecord(key, _) -> localAsm.IsSome && SymbolKeyOps.keyAsm key = localAsm
         | _ -> false
 
     /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
@@ -852,6 +862,12 @@ module internal FreezeExpr =
             match ctx.PrintfApp.TryGetValue key with
             | ValueSome s -> s
             | ValueNone -> failwithf "Freeze.translatePrintfFormat: no PrintfApp marker at %O" key
+
+        // This compilation's target assembly as a home-assembly `option` — a
+        // project-local nominal key's home (so a `%A` of a locally-declared record /
+        // DU lowers on the engine; an external one stays cold). `None` (front-end /
+        // contract-scrape, `AssemblyName = ""`) ⇒ no type is treated as local.
+        let localAsm = SymbolKeyOps.asmOf ctx.AssemblyName
 
         let parts =
             match args.[0] with
@@ -906,11 +922,19 @@ module internal FreezeExpr =
                 let argExpr = args.[holeIdx]
                 holeIdx <- holeIdx + 1
                 let argT = translateExpr ctx argExpr
-                let holeTy = typeOfKey ctx (CstKeys.ofExpr argExpr)
+                // Zonk before the faithfulness check: a union-case application
+                // (`S 3`) leaves a metavar that only resolves to `TyUnion` after
+                // zonking (a record literal is concrete immediately), and an
+                // unzonked `TyVar` would wrongly read as non-faithful (cold).
+                let holeTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr argExpr))
 
-                // `%A` of a non-engine-faithful arg (record / DU / unknown) keeps
-                // the FSharp.Core cold path until step-3 synthesis (the type gate).
-                if kind = PrintfSpec.HoleKind.Structured && not (structuredArgFaithful holeTy) then
+                // `%A` of a non-engine-faithful arg (an external structural type /
+                // unknown) keeps the FSharp.Core cold path; project-local records /
+                // DUs are faithful now that step-3 synthesises their `Format`.
+                if
+                    kind = PrintfSpec.HoleKind.Structured
+                    && not (structuredArgFaithful localAsm holeTy)
+                then
                     cold <- true
 
                 segments.Add(

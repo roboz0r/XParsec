@@ -165,6 +165,17 @@ type internal ClrEnv
     let eFormatter =
         lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
 
+    // The `%A` structural-format interfaces (P3). They live in `Vesper.Printf`
+    // today (alongside the engine); the plan migrates them to `Vesper.Core` once
+    // that self-hosts (the synthesised `Format` then implements a Core-owned
+    // interface — no `Printf` leak). `IStructuralFormattable` is the `InterfaceImpl`
+    // a synthesised record/DU declares; `IFormatSink` is its `Format` param type.
+    let eStructuralFormattable =
+        lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "IStructuralFormattable")))
+
+    let eFormatSink =
+        lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "IFormatSink")))
+
     let eDecimal = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Decimal")))
 
     let eException = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Exception")))
@@ -485,6 +496,8 @@ type internal ClrEnv
     member _.ETextWriter = eTextWriter
     member _.EConsole = eConsole
     member _.EFormatter = eFormatter
+    member _.EStructuralFormattable = eStructuralFormattable
+    member _.EFormatSink = eFormatSink
     member _.EDecimal = eDecimal
     member _.EException = eException
     member _.EEqualityComparer1 = eEqualityComparer1

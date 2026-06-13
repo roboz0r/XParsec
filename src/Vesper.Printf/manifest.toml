@@ -1,4 +1,4 @@
-# Vesper.Printf — printf as its own library (minimal-core-lib-plan D4).
+# Vesper.Printf — printf as its own library.
 #
 # Same shape as src/Vesper.Core: the `.fsi` files are the front-end symbol
 # contract (parsed by XParsec.FSharp, walked into an IExternalSymbolProvider);

@@ -21,7 +21,7 @@
 # fallback. See ../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md
 # "Implementation status".
 #
-# See ./README.md and ../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md.
+# See ./README.md.
 
 [core]
 namespace = "Vesper"

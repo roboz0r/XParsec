@@ -169,6 +169,8 @@ type internal MethodKey =
     | EqEqualsTyped of SymbolKey
     | CmpCompareToTyped of SymbolKey
     | CmpCompareToObj of SymbolKey
+    /// The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`, P3).
+    | FmtFormat of SymbolKey
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
     | HolderCctor of Emit.HolderKey
@@ -408,6 +410,20 @@ module internal Layout =
             ]
         | _ -> []
 
+    /// The synthesised `IStructuralFormattable.Format` row (`%A`, P3). Emitted for
+    /// *every* record / union — `%A` is orthogonal to the equality / comparison
+    /// verdicts (it renders a value's structure, never depending on whether the type
+    /// supports `=` / `<`). A new virtual slot bound to the `InterfaceImpl` by name +
+    /// signature, like the typed `Equals(Self)`.
+    let private formatRows (td: Frozen.TTypeDecl) : MethodRow list =
+        [
+            {
+                Key = MethodKey.FmtFormat td.Key
+                Name = "Format"
+                Attrs = ifaceEqualsAttrs
+            }
+        ]
+
     let private nominalSlot
         (kind: TypeSlotKind)
         (td: Frozen.TTypeDecl)
@@ -585,6 +601,7 @@ module internal Layout =
                             yield! ud.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
                             yield! equalityRows td
                             yield! comparisonRows td
+                            yield! formatRows td
                         ]
 
                     nominalSlot TypeSlotKind.Union td (List.length fields) (List.length methodRows), fields, methodRows
@@ -619,6 +636,7 @@ module internal Layout =
                             yield! rd.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
                             yield! equalityRows td
                             yield! comparisonRows td
+                            yield! formatRows td
                         ]
 
                     nominalSlot TypeSlotKind.Record td (List.length fields) (List.length methodRows), fields, methodRows

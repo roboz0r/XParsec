@@ -7,7 +7,7 @@ open System.Runtime.CompilerServices
 // struct that accumulates formatted output into a pooled / stack buffer and
 // flushes to its sink. The backend emits construction + `AppendLiteral` /
 // `AppendFormatted` calls inline for a fully-applied literal format (P2); it is
-// shared with the `$"..."` interpolation surface (minimal-core-lib-plan D9).
+// shared with the `$"..."` interpolation surface.
 // Signature-only here (the contract); the impl lands with the self-host rungs.
 
 /// <summary>Stack-only handler that accumulates formatted text and flushes it to

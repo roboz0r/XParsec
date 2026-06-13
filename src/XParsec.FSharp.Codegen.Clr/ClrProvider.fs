@@ -210,6 +210,16 @@ type ClrProvider
 
     member _.CompareToTypedSignature(selfTy: FrozenType) : BlobBuilder = enc.CompareToTypedSignature selfTy
 
+    /// `%A` structural-format synthesis (P3). The `IStructuralFormattable`
+    /// `InterfaceImpl` a synthesised record/DU declares; the `IFormatSink` member
+    /// refs its `Format` body calls; and the `Format(IFormatSink) : void` signature.
+    member _.StructuralFormattableInterface: EntityHandle =
+        recipes.StructuralFormattableInterface
+
+    member _.FormatSinkHandles: FormatSinkHandles = recipes.FormatSinkHandles
+
+    member _.StructuralFormatSignature() : BlobBuilder = recipes.StructuralFormatSignature()
+
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
         member _.TypeToken(ty) = recipes.TypeToken(ty)

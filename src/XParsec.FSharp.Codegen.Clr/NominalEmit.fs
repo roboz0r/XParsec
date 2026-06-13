@@ -811,6 +811,80 @@ module internal NominalEmit =
                     (Emit.buildRecordCompareToObj cmpSupport typedCompareTo)
             | NominalEmissionInput.Class _ -> ()
 
+        // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`, P3) —
+        // emitted for *every* record / union (orthogonal to the equality /
+        // comparison verdicts). The body is straight-line `callvirt`s on the `sink`
+        // arg, threading the type's fields through `Emit.buildRecordFormat` /
+        // `buildUnionFormat` (the same field-handle resolution `structuralFields`
+        // uses, so a generic type routes through its self-`TypeSpec` `MemberRef`s).
+        let emitsStructuralFormat =
+            match input with
+            | NominalEmissionInput.Union _
+            | NominalEmissionInput.Record _ -> true
+            | NominalEmissionInput.Class _ -> false
+
+        if emitsStructuralFormat then
+            let formatIr =
+                match input with
+                | NominalEmissionInput.Union cases ->
+                    let emitted = unions.[td.Key]
+
+                    let formatCases =
+                        [
+                            for c in cases ->
+                                let caseFields = emitted.Cases.[c.Name].Fields
+
+                                {
+                                    Emit.UnionFormatCase.Name = c.Name
+                                    Emit.UnionFormatCase.Fields =
+                                        [
+                                            for fi in 0 .. c.Fields.Length - 1 ->
+                                                selfMemberRef
+                                                    (UserMemberKind.UnionMember(UnionMember.Field(c.Name, fi)))
+                                                    caseFields.[fi],
+                                                snd c.Fields.[fi]
+                                        ]
+                                }
+                        ]
+
+                    let support: Emit.UnionFormatSupport =
+                        {
+                            Sink = provider.FormatSinkHandles
+                            MkString = ctx.UserString
+                            BoxToken = icodegen.TypeToken
+                            TagField = tagFieldRef ()
+                            Cases = formatCases
+                        }
+
+                    Emit.buildUnionFormat support
+                | NominalEmissionInput.Record _ ->
+                    let support: Emit.RecordFormatSupport =
+                        {
+                            Sink = provider.FormatSinkHandles
+                            MkString = ctx.UserString
+                            BoxToken = icodegen.TypeToken
+                            Fields =
+                                [
+                                    for (name, h, fty) in records.[td.Key].Fields ->
+                                        name,
+                                        selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field name)) h,
+                                        fty
+                                ]
+                        }
+
+                    Emit.buildRecordFormat support
+                | NominalEmissionInput.Class _ -> failwith "unreachable: class has no structural Format"
+
+            asm.AddPrepared(
+                MethodKey.FmtFormat td.Key,
+                {
+                    Signature = provider.StructuralFormatSignature()
+                    BodyOffset = bodyOf formatIr
+                    ParamNames = [ "sink" ]
+                    MethodTypars = []
+                }
+            )
+
         // One `InterfaceImpl` entity handle per implemented interface — the
         // synthesised structural-equality / comparison interfaces (unions /
         // records) and the user-declared `interface … with` impls (B-2, §5.3,
@@ -819,13 +893,20 @@ module internal NominalEmit =
         // the synthesised interfaces), encoded `!i` straight off the node — no
         // ambient window. `TypeSpecOf` mints the user interfaces' handles.
         let interfaces =
-            if emitsEqualityTriple || emitsComparisonPair || not (List.isEmpty classInterfaces) then
+            if
+                emitsEqualityTriple
+                || emitsComparisonPair
+                || emitsStructuralFormat
+                || not (List.isEmpty classInterfaces)
+            then
                 [
                     if emitsEqualityTriple then
                         provider.EquatableInterfaceSpec selfTyMarkers
                     if emitsComparisonPair then
                         provider.ComparableInterfaceSpec selfTyMarkers
                         provider.IComparableType
+                    if emitsStructuralFormat then
+                        provider.StructuralFormattableInterface
                     for (ifaceTy, _) in classInterfaces do
                         provider.InterfaceHandleOf ifaceTy
                 ]

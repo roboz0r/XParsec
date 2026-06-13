@@ -4,9 +4,10 @@ The minimal, self-hosted core library for **Vesper** (the language; `XParsec.*`
 is the *compiler*). It replaces the FSharp.Core dependency in emitted programs
 and the FSharp.Core `.fsi` port as the front-end symbol contract.
 
-This tree is the concrete slice of
-[`minimal-core-lib-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md).
-Read that for the full rationale; this README is the orientation.
+It is the minimal, self-hosted slice: a universal `.fsi` contract plus a
+per-target `.fs` implementation, compiled by this repo's own backend (no
+`dotnet`/`fsc`, no FSharp.Core). The design rationale — namespace, `Fun`,
+`unit = ValueTuple`, the contract/impl split — is captured inline below.
 
 ## Two artifacts that must agree
 
@@ -96,20 +97,21 @@ fine; it is the fsc *build* that needs `--compiling-fslib`, not the parser.
 
 ## Self-hosting status
 
-The `.fs` files are the *target* source for the self-hosting ladder
-(minimal-core-lib-plan §"Self-hosting capability ladder"). The backend can't
-compile them yet:
+The `.fs` files are the *target* source for the self-hosting ladder, climbed in
+dependency order:
 
 1. **Library output + nominal type / interface emission** — emits `Fun`
-   (`unit` is BCL `ValueTuple`, so it drops out of this rung).
-2. **Union + recursion + `match`** — emits `List<'T>` and `List.fold`.
-3. **Strings + chars + printf engine** — `Vesper.Printf` (separate library).
+   (`unit` is BCL `ValueTuple`, so it drops out of this rung). **Landed** — see
+   `test/XParsec.FSharp.Codegen.Clr.Tests/SelfHostTests.fs`.
+2. **Union + recursion + `match`** — emits `List<'T>` and `List.fold` (the
+   standalone `Vesper.List` package). **Landed.**
+3. **Strings + chars + printf engine** — `Vesper.Printf` (separate library);
+   still a C# interim pending a self-hosted rewrite.
 
 Until a rung lands, that slice can stay on a C# interim.
 
 ## Cross-references
 
-- [`minimal-core-lib-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/minimal-core-lib-plan.md) — the live contract/plan.
 - [`fsi-target-brainstorm.md`](../XParsec.FSharp.SemanticAnalysis/docs/fsi-target-brainstorm.md) — universal-contract / per-target-impl architecture; `type int = Platform.Int32`.
 - [`function-representation-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/function-representation-plan.md) — the function representation (`Fun`) and the closure devirtualisation endgame.
 - `XParsec.FSharp.Lib/compiler-clr-project.md` — the full FSharp.Core port this supersedes as the contract, and the manifest/loader mechanics reused here.
