@@ -718,6 +718,25 @@ let vesperResultDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath resultPath |> ignore
          resultPath)
 
+/// Compile a `Vesper.Result` consumer through the full backend and return the
+/// `ClrArtifact` (no run) — for assertions on `FSharpCoreDependencies`, e.g. that
+/// a `%A` of an external Vesper union lowers on the structural engine (the use-set
+/// stays clear of `PrintfModule.PrintFormatLine`) rather than the cold path.
+let compileResultArtifact (src: string) : ClrArtifact =
+    let provider =
+        SymbolProviders.buildContract (defaultManifests @ [ vesperResultManifest ])
+
+    let baseProject = withCore (ProjectInfo.defaults "ResultDeps")
+
+    let project =
+        { baseProject with
+            References = baseProject.References @ [ vesperResultDll.Value ]
+        }
+
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+    Codegen.compile provider project tast
+
 /// Compile a driver program that `open`s `Vesper` and exercises the `Result`
 /// type/module, run it in-process, and assert exit 0 with trimmed stdout equal to
 /// `expected`. The `Result`-module counterpart of `runsOption`.

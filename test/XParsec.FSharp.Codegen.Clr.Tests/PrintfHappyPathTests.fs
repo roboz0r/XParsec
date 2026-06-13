@@ -419,6 +419,16 @@ let tests =
                     "[{ X = 1 }; { X = 2 }]"
             }
 
+            // ---- `%A` of an EXTERNAL Vesper-package union (the gate widening) ----
+            // A referenced Vesper package's record / DU carries the same synthesised
+            // `IStructuralFormattable.Format`, so `%A` of one lowers on the engine
+            // (not the FSharp.Core cold path) — `structuredArgFaithful` admits it via
+            // its `.Union` / `.Record` resolved shape. The value is bound to a local
+            // first (the constructor-as-direct-printf-arg parse quirk is orthogonal).
+            test "`%A` of an external Vesper union (Result) renders `Ok 5` on the engine" {
+                runsResult "Ok 5" "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
+            }
+
             test "`%x` prints lowercase hex" { runParity "PHpHex" "printfn \"%x\" 255" (sprintf "%x" 255) }
 
             test "`%X` prints upper-case hex" { runParity "PHpHexU" "printfn \"%X\" 255" (sprintf "%X" 255) }

@@ -785,22 +785,23 @@ module internal FreezeExpr =
         result
 
     /// Whether `%A` of an argument of this (zonked) type renders faithfully on the
-    /// step-2 structural engine. The runtime dispatcher is faithful *today* only
-    /// for the shapes it handles without `IStructuralFormattable`: primitives,
-    /// `string` / `char` / `bool` (special-cased), arrays and the cons-list (the
-    /// `IEnumerable` arm), and tuples — recursively over element/payload types.
-    /// Records and DUs hit the `ToString` fallback (wrong by our spec) until
-    /// step-3 synthesis attaches `Format`, so a `%A` of one must keep the
-    /// FSharp.Core cold path. A single non-faithful `%A` hole forces the *whole*
-    /// format cold (`translatePrintfFormat` returns `ValueNone`) — additive, no
-    /// regression, and it re-greens `%A` of lists/primitives/tuples immediately.
-    and private structuredArgFaithful (localAsm: string option) (t: SemType) : bool =
+    /// structural engine. Faithful shapes are: primitives, `string` / `char` /
+    /// `bool` (special-cased), arrays and the cons-list (the `IEnumerable` arm),
+    /// tuples (recursively over element/payload types), and every *Vesper-compiled*
+    /// record / DU — local (home = the target assembly) or external (a `.Record` /
+    /// `.Union` shape from a referenced Vesper package, which carries the same
+    /// synthesised `Format`). A non-Vesper structural type (FSharpOption, a BCL
+    /// type) is NOT faithful — it has no Vesper `Format`, so it stays on the
+    /// reflective FSharp.Core cold path. A single non-faithful `%A` hole forces the
+    /// *whole* format cold (`translatePrintfFormat` returns `ValueNone`) — additive,
+    /// no regression.
+    and private structuredArgFaithful (ctx: PassContext) (localAsm: string option) (t: SemType) : bool =
         match t with
         | TyConst(name, args) ->
             // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
             // the `IEnumerable` arm — faithful iff its element type is.
             if name = "[]" then
-                EqArray.forall (structuredArgFaithful localAsm) args
+                EqArray.forall (structuredArgFaithful ctx localAsm) args
             // Numeric primitives carry the F# literal suffixes the engine reproduces
             // (`5L`, `1.5M`); `string` / `char` / `bool` are special-cased atoms. All
             // are leaf scalars, so any type argument means it isn't really one.
@@ -813,7 +814,7 @@ module internal FreezeExpr =
                 args.Length = 0
             else
                 false
-        | TyTuple items -> EqArray.forall (structuredArgFaithful localAsm) items
+        | TyTuple items -> EqArray.forall (structuredArgFaithful ctx localAsm) items
         // The cons-list still renders via the `IEnumerable` arm (it carries no
         // synthesised `Format`), so it stays faithful-iff-its-element-is. It
         // surfaces as a `TyUnion` in the self-host (the Vesper cons-list DU) but as a
@@ -821,9 +822,9 @@ module internal FreezeExpr =
         // shapes of the list keys.
         | TyUnion(key, args)
         | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
-            EqArray.forall (structuredArgFaithful localAsm) args
-        // Every *project-local* record / DU carries a synthesised
-        // `IStructuralFormattable.Format` (step-3 `NominalEmit` synthesis), so the
+            EqArray.forall (structuredArgFaithful ctx localAsm) args
+        // Every Vesper-compiled record / DU — *local or external* — carries a
+        // synthesised `IStructuralFormattable.Format` (step-3 `NominalEmit`), so the
         // engine renders it faithfully. We deliberately do NOT recurse into its
         // fields — the gate is only a cold-vs-engine switch, not a per-field
         // renderer, and the runtime dispatcher already routes each field correctly,
@@ -834,19 +835,35 @@ module internal FreezeExpr =
         //     exactly as F#'s reflective `%A` recurses into any F#-reflectable type;
         //   * a BCL scalar / collection field hits the `ISpanFormattable` / `ToString`
         //     / `IEnumerable` arm — and F# `%A` `ToString`s / enumerates the same.
-        // Recursing here would *regress* this: the BCL-leaf arms below return
-        // non-faithful, so a recurse would force a local record with one `System.Uri`
+        // Recursing here would *regress* this: the BCL-leaf arms above return
+        // non-faithful, so a recurse would force a record with one `System.Uri`
         // field onto the cold path even though F# and the engine render that field
-        // identically (`ToString`). An *external* structural type keeps the cold path
-        // (no synthesis is assumed for it — conservative; the home assembly of `key`
-        // must match this compilation's target to count as local). The one residual
-        // asymmetry — a top-level external record renders cold (reflective) while the
-        // same record nested in a local one renders on the engine — is not fixed by
-        // recursing (that would lose the faithful nested rendering); the clean future
-        // direction is to *widen* the gate to admit external types that carry
-        // `IStructuralFormattable`, not to recurse.
+        // identically (`ToString`).
         | TyUnion(key, _)
-        | TyRecord(key, _) -> localAsm.IsSome && SymbolKeyOps.keyAsm key = localAsm
+        | TyRecord(key, _) ->
+            // Local types match the compilation's target assembly outright.
+            if localAsm.IsSome && SymbolKeyOps.keyAsm key = localAsm then
+                true
+            else
+                // An *external* record / DU is faithful iff it too was Vesper-compiled
+                // — the engine needs no codegen change for it: the emitted
+                // `AppendStructured<T>` is type-agnostic, the reflection-free runtime
+                // dispatcher devirtualises on the `IStructuralFormattable` the type
+                // implements, and the value's package is already a bundle dependency.
+                // The discriminator is the resolved *shape*: the Vesper `.fsi`
+                // extractor is the ONLY producer of `.Record` / `.Union` shapes — the
+                // .NET metadata provider models every BCL nominal as `.Class` — so a
+                // `.Record` / `.Union` shape uniquely marks a Vesper structural type.
+                // FSharp.Core is excluded outright: even where a prim-types contract
+                // models `option` as a `.Union`, the runtime `FSharpOption` carries no
+                // Vesper `Format`, so it must stay on the reflective cold path.
+                SymbolKeyOps.keyAsm key <> Some "FSharp.Core"
+                && (
+                    match ExternalSymbols.tryLookupType ctx.Provider key with
+                    | ValueSome(ExternalTypeShape.Record _)
+                    | ValueSome(ExternalTypeShape.Union _) -> true
+                    | _ -> false
+                )
         | _ -> false
 
     /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
@@ -934,12 +951,13 @@ module internal FreezeExpr =
                 // unzonked `TyVar` would wrongly read as non-faithful (cold).
                 let holeTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr argExpr))
 
-                // `%A` of a non-engine-faithful arg (an external structural type /
-                // unknown) keeps the FSharp.Core cold path; project-local records /
-                // DUs are faithful now that step-3 synthesises their `Format`.
+                // `%A` of a non-engine-faithful arg (a non-Vesper structural type —
+                // FSharpOption / a BCL type — or an unknown) keeps the FSharp.Core
+                // cold path; every Vesper-compiled record / DU (local or external) is
+                // faithful now that step-3 synthesises their `Format`.
                 if
                     kind = PrintfSpec.HoleKind.Structured
-                    && not (structuredArgFaithful localAsm holeTy)
+                    && not (structuredArgFaithful ctx localAsm holeTy)
                 then
                     cold <- true
 

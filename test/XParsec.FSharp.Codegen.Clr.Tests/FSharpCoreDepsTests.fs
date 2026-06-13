@@ -58,6 +58,61 @@ let tests =
                 Expect.contains deps "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)" "and constructs a PrintfFormat"
             }
 
+            // P3 step 4 — the cut. A project-local record / DU now carries a
+            // synthesised `IStructuralFormattable.Format`, so `%A` of one lowers on
+            // the structural engine instead of the FSharp.Core cold path. The
+            // observable proof of the cut: `PrintfModule.PrintFormatLine` /
+            // `PrintfFormat` no longer appear in the use-set — and, the record / DU
+            // being pure Vesper, the whole program pins *no* FSharp.Core construct.
+            test "`%A` of a synthesised record pins no FSharp.Core (cold path cut)" {
+                let _, artifact =
+                    compileSource "DepsStructRec" "type R = { X: int; Y: string }\nprintfn \"%A\" { X = 1; Y = \"a\" }"
+
+                let deps = artifact.FSharpCoreDependencies
+
+                Expect.isFalse
+                    (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "%A of a record does NOT take the PrintFormatLine cold path"
+
+                Expect.isEmpty deps (sprintf "record %%A is pure Vesper — no FSharp.Core dependency (%A)" deps)
+            }
+
+            test "`%A` of a synthesised union pins no FSharp.Core (cold path cut)" {
+                let _, artifact =
+                    compileSource "DepsStructDu" "type Opt = | N | S of int\nlet v = S 3\nprintfn \"%A\" v"
+
+                let deps = artifact.FSharpCoreDependencies
+
+                Expect.isFalse
+                    (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "%A of a union does NOT take the PrintFormatLine cold path"
+
+                Expect.isEmpty deps (sprintf "union %%A is pure Vesper — no FSharp.Core dependency (%A)" deps)
+            }
+
+            // The gate widening: a `%A` of an EXTERNAL Vesper-package union lowers on
+            // the structural engine (its `.Union` resolved shape marks it Vesper-
+            // compiled, so it carries the synthesised `Format`), NOT the cold path.
+            // `Vesper.Result.dll` is BCL-only, so an engine lowering leaves the whole
+            // program free of FSharp.Core — in particular `PrintFormatLine` is absent
+            // (it would be pinned had `%A` fallen back to the reflective cold path).
+            // This is the discriminator the stdout-only `runsResult` test can't make:
+            // the cold path renders `Ok 5` identically.
+            test "`%A` of an external Vesper union lowers on the engine (no cold-path pin)" {
+                let artifact =
+                    compileResultArtifact "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
+
+                let deps = artifact.FSharpCoreDependencies
+
+                Expect.isFalse
+                    (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "external-union %A does NOT take the PrintFormatLine cold path"
+
+                Expect.isEmpty
+                    deps
+                    (sprintf "the external-union %%A program is BCL-only + Vesper — no FSharp.Core dependency (%A)" deps)
+            }
+
             test "a list literal pins FSharpList" {
                 let _, artifact =
                     compileSource "DepsList" "let nums = [1; 2; 3]\nprintfn \"%A\" nums"
