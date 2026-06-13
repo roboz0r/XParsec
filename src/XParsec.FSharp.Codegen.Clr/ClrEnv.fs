@@ -165,16 +165,18 @@ type internal ClrEnv
     let eFormatter =
         lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
 
-    // The `%A` structural-format interfaces (P3). They live in `Vesper.Printf`
-    // today (alongside the engine); the plan migrates them to `Vesper.Core` once
-    // that self-hosts (the synthesised `Format` then implements a Core-owned
-    // interface — no `Printf` leak). `IStructuralFormattable` is the `InterfaceImpl`
-    // a synthesised record/DU declares; `IFormatSink` is its `Format` param type.
+    // The `%A` structural-format interfaces (P3). Owned by `Vesper.Core`
+    // (printf-handoff.md step 3.2): the synthesised `Format` implements a Core-owned
+    // interface, so a record-bearing program links only `Vesper.Core` — never
+    // `Vesper.Printf` (where only the layout *engine*, `RuntimeFormatState`, lives,
+    // implementing this same Core `IFormatSink`). `IStructuralFormattable` is the
+    // `InterfaceImpl` a synthesised record/DU declares; `IFormatSink` is its
+    // `Format` param type. Both resolve against `vesperCoreRef`, like `Vesper.Fun`.
     let eStructuralFormattable =
-        lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "IStructuralFormattable")))
+        lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "IStructuralFormattable")))
 
     let eFormatSink =
-        lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "IFormatSink")))
+        lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "IFormatSink")))
 
     let eDecimal = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Decimal")))
 

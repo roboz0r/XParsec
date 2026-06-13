@@ -96,26 +96,10 @@ module EmitPattern =
     /// being `TyConst`.
     let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
         match ty with
-        | FTConst(n, _) ->
-            match n with
-            | "int"
-            | "int64"
-            | "int16"
-            | "byte"
-            | "sbyte"
-            | "uint16"
-            | "uint32"
-            | "uint64"
-            | "nativeint"
-            | "unativeint"
-            | "float"
-            | "float32"
-            | "single"
-            | "double"
-            | "bool"
-            | "char"
-            | "decimal" -> true
-            | _ -> false
+        // Numeric primitives (incl. `decimal`) share `RuntimeNames.numericTypeNames`;
+        // `bool` / `char` are the two non-numeric value-type scalars. `string` / `obj`
+        // are `TyConst` but reference types, so they're excluded (not in the set).
+        | FTConst(n, _) -> RuntimeNames.numericTypeNames.Contains n || n = "bool" || n = "char"
         // A user-declared `[<Struct>]` type emitted into this assembly:
         // the `EmittedClass.IsValueType` flag drives
         // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A

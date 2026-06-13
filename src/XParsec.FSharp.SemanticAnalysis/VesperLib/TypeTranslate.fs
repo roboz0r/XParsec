@@ -284,35 +284,19 @@ module VesperLibTypeTranslate =
                     | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
 
     let isPrimitiveName (s: string) =
-        match s with
-        | "int"
-        | "int8"
-        | "int16"
-        | "int32"
-        | "int64"
-        | "uint"
-        | "uint8"
-        | "uint16"
-        | "uint32"
-        | "uint64"
-        | "byte"
-        | "sbyte"
-        | "nativeint"
-        | "unativeint"
-        | "float"
-        | "float32"
-        | "double"
-        | "single"
-        | "decimal"
-        | "char"
-        | "string"
-        | "bool"
-        | "unit"
-        | "obj"
-        | "objnull"
-        | "voidptr"
-        | "exn" -> true
-        | _ -> false
+        // Numeric core shared via `RuntimeNames.numericTypeNames`; the non-numeric
+        // primitives (scalars + the built-in reference types) are unioned in here.
+        RuntimeNames.numericTypeNames.Contains s
+        || match s with
+           | "char"
+           | "string"
+           | "bool"
+           | "unit"
+           | "obj"
+           | "objnull"
+           | "voidptr"
+           | "exn" -> true
+           | _ -> false
 
     /// Source-text name of a typar (the part after `'` or `^`), or
     /// `ValueNone` for anonymous typars (whose constraint participation

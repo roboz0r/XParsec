@@ -132,6 +132,17 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, List.length ctorParamFields, shape)
         )
 
+    // Interfaces register their `TypeDef` too, so one Core interface naming another
+    // as a member-signature type (`IStructuralFormattable.Format(IFormatSink)`)
+    // resolves through `userTypes` like any project-local nominal. Generic
+    // interfaces (`Fun\`2`) are referenced via dedicated encoder arms, so only the
+    // bare-handle registration is needed here.
+    do
+        interfaceDecls
+        |> List.iter (fun (td, _) ->
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+        )
+
     // A *generic* closure is a real generic `TypeDefinition` after the nominal
     // types and before the holders; its layout-derived handle lets capture-field
     // `MemberRef`s and the construction-site `Newobj` both reach it. Monomorphic
@@ -312,6 +323,17 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     member _.RecordDecls = recordDecls
     member _.ClassDecls = classDecls
 
+    /// True when *this* compilation defines the `%A` structural-format interfaces
+    /// (`Vesper.IStructuralFormattable` / `IFormatSink`) — i.e. it is `Vesper.Core`.
+    /// Then the per-type `Format` synthesis (NominalEmit) is suppressed: a Core
+    /// record (the `[<ReferenceEquality>]` `Ref` cell) would otherwise reference
+    /// the interface through an `AssemblyRef` to Core *itself*, which `refRequired`
+    /// rejects. Core's internal cells need no `%A`; every downstream assembly
+    /// resolves the interface externally via `vesperCoreRef`, as before. Read off
+    /// the layout (computed once in `Layout.build`) so the `Format`-row reservation
+    /// and this body-emission gate share one source of truth.
+    member _.DefinesStructuralFormatInterfaces = layout.DefinesStructuralFormatInterfaces
+
     /// The layout's prefix-sum handle derivation — the only place a
     /// first-field / first-method / TypeDef / MethodDef handle comes from.
     member _.LayoutHandles = layoutHandles
@@ -346,7 +368,10 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         for (td, methods) in interfaceDecls do
             methods
             |> List.iteri (fun i m ->
-                let paramTys, _ = decurry m.Signature
+                // The post-elision arity (a nullary `unit ->` member drops its sole
+                // param) must match `abstractMethodSignature`'s, or the `Param` rows
+                // and the signature disagree and the method becomes un-reflectable.
+                let paramTys = abstractMethodParamTys m
 
                 this.AddPrepared(
                     MethodKey.InterfaceMethod(td.Key, i),

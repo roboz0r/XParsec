@@ -44,6 +44,7 @@ files = [
     "prim-types-attr.fsi",
     "compiler-attributes.fsi",
     "core-types.fsi",
+    "structural-format.fsi",
     "ops-platform.fsi",
     "ops-std.fsi",
 ]
@@ -56,6 +57,7 @@ files = [
 impl = [
     "prim-types-min.fs",
     "core-types.fs",
+    "structural-format.fs",
 ]
 
 # Per-target `.fs` bodies the codegen inline-body loader reads across the package

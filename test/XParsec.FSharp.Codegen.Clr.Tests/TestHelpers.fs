@@ -123,6 +123,10 @@ let vesperCoreDll: Lazy<string> =
              [
                  IO.File.ReadAllText(vesperCoreSource "prim-types-min.fs")
                  IO.File.ReadAllText(vesperCoreSource "core-types.fs")
+                 // The `%A` structural-format interfaces (`IFormatSink` /
+                 // `IStructuralFormattable`, P3 step 3.2) — Core-owned so a
+                 // synthesised record/DU `Format` implements a Core type.
+                 IO.File.ReadAllText(vesperCoreSource "structural-format.fs")
              ]
              |> String.concat "\n\n"
 

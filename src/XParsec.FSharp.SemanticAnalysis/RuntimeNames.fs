@@ -79,6 +79,15 @@ module RuntimeNames =
     let vesperRefKey: SymbolKey =
         SymbolKey.TypeKey(Some "Vesper.Core", "Vesper", "Ref`1")
 
+    /// Canonical identity for the `%A` structural-format interface
+    /// `Vesper.IStructuralFormattable` (P3, non-generic). Home `Vesper.Core` (which
+    /// owns it, printf-handoff.md step 3.2). Recogniser-only — `isStructuralFormattableKey`
+    /// gates whether *this* compilation is `Vesper.Core` itself (then the per-type
+    /// `Format` synthesis is suppressed; see codegen `Layout` / `Assembler`), so
+    /// `private`.
+    let private structuralFormattableKey: SymbolKey =
+        SymbolKey.TypeKey(Some "Vesper.Core", "Vesper", "IStructuralFormattable")
+
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>`
     /// (arity 4 ⇒ `` PrintfFormat`4 ``) — the type a format literal freezes to
     /// (`PrintfSpec.printfFormatName`). Home `FSharp.Core`. The printf *entry
@@ -164,6 +173,15 @@ module RuntimeNames =
 
     let isFsharpCoreListKey (k: SymbolKey) : bool = sameTypeAsmBlind fsharpCoreListKey k
 
+    /// True iff `k` denotes the `%A` structural-format interface
+    /// `Vesper.IStructuralFormattable`. The single source the codegen `Layout` and
+    /// `Assembler` both consult to detect *this* compilation defining the interface
+    /// (⇒ it is `Vesper.Core`, so suppress per-type `Format` synthesis); the two
+    /// must agree, so they share this recogniser rather than each re-spelling the
+    /// qualified name. Asm-blind, matching the list/object recognisers.
+    let isStructuralFormattableKey (k: SymbolKey) : bool =
+        sameTypeAsmBlind structuralFormattableKey k
+
     /// True iff `k` denotes the BCL `System.Object`. Asm-blind (the consumers — the
     /// unify equality/derives predicates — never compared the home assembly).
     let isSystemObjectKey (k: SymbolKey) : bool = sameTypeAsmBlind systemObjectKey k
@@ -173,3 +191,44 @@ module RuntimeNames =
     /// list/object recognisers; replaces the inline `bareName (qualifiedName key) =
     /// PrintfSpec.printfFormatName` rebuild at the codegen / FreezeExpr consumer sites.
     let isPrintfFormatKey (k: SymbolKey) : bool = sameTypeAsmBlind printfFormatKey k
+
+    // --- Built-in primitive type names -----------------------------------------------
+
+    /// The built-in *numeric* type names — every integral / floating / decimal form,
+    /// including both the alias and the canonical spelling (`int`/`int32`,
+    /// `sbyte`/`int8`, `float`/`double`, `float32`/`single`), since either can reach
+    /// a consumer depending on how a type was written or resolved.
+    ///
+    /// The single source the consumers that classify a primitive by name share, so a
+    /// new numeric type is added in one place instead of drifting across four
+    /// independently-maintained lists (the prior state — each had its own gaps):
+    ///   * the unifier's SRTP-arithmetic synthesis (`Engine.numericPrimitives`);
+    ///   * the `%A` faithfulness gate (`FreezeExpr.structuredArgFaithful`, ∪ string/char/bool);
+    ///   * the codegen value-type predicate (`EmitPattern.isValueType`, ∪ bool/char);
+    ///   * the front-end primitive recogniser (`TypeTranslate.isPrimitiveName`, ∪ the
+    ///     reference primitives unit/obj/objnull/voidptr/exn).
+    /// Each consumer unions in its own non-numeric extras at the use site (visible
+    /// there); the numeric core — the part that grows — lives here.
+    let numericTypeNames: Set<string> =
+        Set.ofList
+            [
+                "int"
+                "int8"
+                "int16"
+                "int32"
+                "int64"
+                "uint"
+                "uint8"
+                "uint16"
+                "uint32"
+                "uint64"
+                "byte"
+                "sbyte"
+                "nativeint"
+                "unativeint"
+                "float"
+                "float32"
+                "double"
+                "single"
+                "decimal"
+            ]

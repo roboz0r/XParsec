@@ -814,14 +814,19 @@ module internal NominalEmit =
         // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`, P3) —
         // emitted for *every* record / union (orthogonal to the equality /
         // comparison verdicts). The body is straight-line `callvirt`s on the `sink`
-        // arg, threading the type's fields through `Emit.buildRecordFormat` /
+        // arg, threading the type's fields through `EmitStructuralFormat.buildRecordFormat` /
         // `buildUnionFormat` (the same field-handle resolution `structuralFields`
         // uses, so a generic type routes through its self-`TypeSpec` `MemberRef`s).
         let emitsStructuralFormat =
-            match input with
-            | NominalEmissionInput.Union _
-            | NominalEmissionInput.Record _ -> true
-            | NominalEmissionInput.Class _ -> false
+            // Suppressed in the assembly that *defines* the interfaces (Vesper.Core):
+            // its own records would otherwise reference `IStructuralFormattable`
+            // through an external `AssemblyRef` to Core itself (see
+            // `Assembler.DefinesStructuralFormatInterfaces`).
+            not asm.DefinesStructuralFormatInterfaces
+            && match input with
+               | NominalEmissionInput.Union _
+               | NominalEmissionInput.Record _ -> true
+               | NominalEmissionInput.Class _ -> false
 
         if emitsStructuralFormat then
             let formatIr =
@@ -835,8 +840,8 @@ module internal NominalEmit =
                                 let caseFields = emitted.Cases.[c.Name].Fields
 
                                 {
-                                    Emit.UnionFormatCase.Name = c.Name
-                                    Emit.UnionFormatCase.Fields =
+                                    EmitStructuralFormat.UnionFormatCase.Name = c.Name
+                                    EmitStructuralFormat.UnionFormatCase.Fields =
                                         [
                                             for fi in 0 .. c.Fields.Length - 1 ->
                                                 selfMemberRef
@@ -847,7 +852,7 @@ module internal NominalEmit =
                                 }
                         ]
 
-                    let support: Emit.UnionFormatSupport =
+                    let support: EmitStructuralFormat.UnionFormatSupport =
                         {
                             Sink = provider.FormatSinkHandles
                             MkString = ctx.UserString
@@ -856,9 +861,9 @@ module internal NominalEmit =
                             Cases = formatCases
                         }
 
-                    Emit.buildUnionFormat support
+                    EmitStructuralFormat.buildUnionFormat support
                 | NominalEmissionInput.Record _ ->
-                    let support: Emit.RecordFormatSupport =
+                    let support: EmitStructuralFormat.RecordFormatSupport =
                         {
                             Sink = provider.FormatSinkHandles
                             MkString = ctx.UserString
@@ -872,7 +877,7 @@ module internal NominalEmit =
                                 ]
                         }
 
-                    Emit.buildRecordFormat support
+                    EmitStructuralFormat.buildRecordFormat support
                 | NominalEmissionInput.Class _ -> failwith "unreachable: class has no structural Format"
 
             asm.AddPrepared(

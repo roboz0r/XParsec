@@ -35,19 +35,48 @@ module internal AssemblerScaffold =
     let argNames (n: int) : string list =
         [ for i in 0 .. n - 1 -> sprintf "arg%d" i ]
 
+    let private isUnitTy t =
+        match t with
+        | FTConst("unit", _) -> true
+        | _ -> false
+
+    /// The metadata parameter types of an abstract member after F#'s
+    /// nullary-`unit` elision: `member : unit -> X` is a *no-arg* method, so a
+    /// sole leading `unit` argument is dropped (matching concrete-member emission
+    /// and the BCL slots these conform to — `IDisposable.Dispose()`,
+    /// `IFormatSink.Line()`). Shared by the signature encoder and the `Param`-row /
+    /// name emission so the two never disagree on arity (a mismatch makes the
+    /// emitted method un-reflectable: "parameters and signature don't match").
+    let abstractMethodParamTys (m: Frozen.TAbstractMethod) : FrozenType list =
+        let paramTys, _ = decurry m.Signature
+
+        match paramTys with
+        | [ single ] when isUnitTy single -> []
+        | _ -> paramTys
+
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method. The
     /// signature's open typars are self-describing `TyTypar` nodes (Freeze remaps the
     /// declaring axis to `!i` and the method axis to `!!j`), encoded by the provider's
     /// `EncodeAbstractType` (the same `encodeType` the executable path uses).
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =
-        let paramTys, retTy = decurry m.Signature
+        let _, retTy = decurry m.Signature
+        let paramTys = abstractMethodParamTys m
         let blob = BlobBuilder()
 
         BlobEncoder(blob)
             .MethodSignature(genericParameterCount = m.MethodTypeParams.Length, isInstanceMethod = true)
             .Parameters(
                 List.length paramTys,
-                (fun (ret: ReturnTypeEncoder) -> provider.EncodeAbstractType(ret.Type(), retTy)),
+                // `-> unit` encodes as genuine `void`, not the `unit`-as-`ValueTuple`
+                // value convention: an abstract slot is `callvirt`ed for effect, and a
+                // conforming impl must bind to a `void` slot (cf. NominalEmit's
+                // `returnsVoid` on the implementer side).
+                (fun (ret: ReturnTypeEncoder) ->
+                    if isUnitTy retTy then
+                        ret.Void()
+                    else
+                        provider.EncodeAbstractType(ret.Type(), retTy)
+                ),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
                         provider.EncodeAbstractType(pars.AddParameter().Type(), p)

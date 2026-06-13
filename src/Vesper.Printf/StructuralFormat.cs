@@ -20,67 +20,12 @@ namespace Vesper;
 // its flat form fits the width budget) or ALL-broken (every soft break in it
 // becomes a newline). No node is ever half-broken, so there is no stair-shape
 // (the failure mode of F#'s greedy `squashToAux`, sformat.fs:666).
-
-/// <summary>
-/// Implemented by every compiler-synthesized record / DU / anonymous record. The
-/// synthesized body declares the type's structure through <see cref="IFormatSink"/>.
-/// </summary>
-public interface IStructuralFormattable
-{
-    /// <summary>Declare this value's structure into <paramref name="sink"/>.</summary>
-    void Format(IFormatSink sink);
-}
-
-/// <summary>
-/// The declarative layout surface the synthesized <c>Format</c> calls. Tokens are
-/// recorded into a <c>Doc</c> tree, then laid out group-by-group. <see cref="FormatChild"/>
-/// takes <see cref="object"/> (value children box once — fine on the <c>%A</c>
-/// heavy path; F#'s reflection-based <c>%A</c> boxes everything anyway).
-/// </summary>
-public interface IFormatSink
-{
-    /// <summary>A literal run that never breaks (labels, punctuation, brackets).</summary>
-    void Text(string s);
-
-    /// <summary>A soft break: a single space when its group is flat, a newline +
-    /// current indent when broken. Use between items that read with a space.</summary>
-    void Line();
-
-    /// <summary>A soft break with no flat alternative: nothing when flat, a
-    /// newline + current indent when broken. Use just inside an opening bracket
-    /// and just before a closing one (so the closer dedents cleanly).</summary>
-    void SoftBreak();
-
-    /// <summary>Open a group: its soft breaks all flatten or all break together.</summary>
-    void BeginGroup();
-
-    /// <summary>Close the current group.</summary>
-    void EndGroup();
-
-    /// <summary>Open an indentation scope: soft breaks inside indent by
-    /// <paramref name="indent"/> extra columns.</summary>
-    void BeginNest(int indent);
-
-    /// <summary>Close the current indentation scope.</summary>
-    void EndNest();
-
-    /// <summary>Open a DU application (<c>Case payload</c>): parenthesized iff this
-    /// value sits in argument position (see <see cref="FormatArg"/>), so
-    /// <c>Some (Some 3)</c> round-trips. A negative literal is a single atom token,
-    /// not an application, so <c>Some -3</c> is correct without parens.</summary>
-    void BeginApplication();
-
-    /// <summary>Close the current DU application.</summary>
-    void EndApplication();
-
-    /// <summary>Recurse into a child in normal position (record field, list
-    /// element, tuple component).</summary>
-    void FormatChild(object? value);
-
-    /// <summary>Recurse into a child in DU-argument position: if the child renders
-    /// as an application it is parenthesized.</summary>
-    void FormatArg(object? value);
-}
+//
+// `IStructuralFormattable` / `IFormatSink` are now owned by `Vesper.Core`
+// (printf-handoff.md step 3.2) — they were prototyped here in step 1 and moved so
+// the synthesised record/DU `Format` implements a Core type. `RuntimeFormatState`
+// below implements the Core-owned `Vesper.IFormatSink`, bound at C# build time
+// through the committed `refs/Vesper.Core.dll` reference (see the .csproj).
 
 /// <summary>The recorded layout document. A group is rendered all-flat or
 /// all-broken; nesting governs the indent that broken lines hang at.</summary>
@@ -172,15 +117,18 @@ public sealed class RuntimeFormatState : IFormatSink
 
     private readonly int _width; // 0 ⇒ never break (always flat); else the column budget.
 
+    // The kind of an open layout scope. Root is the implicit outermost frame.
+    private enum FrameKind { Root, Group, Nest, Application }
+
     // Doc-building frames. Each frame collects children; closing a group/nest pops
     // and wraps. The root frame (index 0) holds the whole document.
     private sealed class Frame
     {
         internal readonly List<Doc> Kids = new();
-        internal readonly char Kind; // 'r' root, 'g' group, 'n' nest, 'a' application
+        internal readonly FrameKind Kind;
         internal readonly int NestIndent;
         internal readonly bool Parens;
-        internal Frame(char kind, int nestIndent, bool parens) { Kind = kind; NestIndent = nestIndent; Parens = parens; }
+        internal Frame(FrameKind kind, int nestIndent, bool parens) { Kind = kind; NestIndent = nestIndent; Parens = parens; }
     }
 
     private readonly List<Frame> _frames = new();
@@ -194,7 +142,7 @@ public sealed class RuntimeFormatState : IFormatSink
     public RuntimeFormatState(int width)
     {
         _width = width;
-        _frames.Add(new Frame('r', 0, false));
+        _frames.Add(new Frame(FrameKind.Root, 0, false));
     }
 
     private Frame Top => _frames[_frames.Count - 1];
@@ -211,44 +159,44 @@ public sealed class RuntimeFormatState : IFormatSink
     public void SoftBreak() => Add(new DocLine(""));
 
     /// <inheritdoc />
-    public void BeginGroup() => _frames.Add(new Frame('g', 0, false));
+    public void BeginGroup() => _frames.Add(new Frame(FrameKind.Group, 0, false));
 
     /// <inheritdoc />
-    public void EndGroup() => PopWrap('g');
+    public void EndGroup() => PopWrap(FrameKind.Group);
 
     /// <inheritdoc />
-    public void BeginNest(int indent) => _frames.Add(new Frame('n', indent, false));
+    public void BeginNest(int indent) => _frames.Add(new Frame(FrameKind.Nest, indent, false));
 
     /// <inheritdoc />
-    public void EndNest() => PopWrap('n');
+    public void EndNest() => PopWrap(FrameKind.Nest);
 
     /// <inheritdoc />
     public void BeginApplication()
     {
         bool parens = _argPending;
         _argPending = false;
-        _frames.Add(new Frame('a', 0, parens));
+        _frames.Add(new Frame(FrameKind.Application, 0, parens));
     }
 
     /// <inheritdoc />
-    public void EndApplication() => PopWrap('a');
+    public void EndApplication() => PopWrap(FrameKind.Application);
 
-    private void PopWrap(char expected)
+    private void PopWrap(FrameKind expected)
     {
         Frame f = Top;
         if (f.Kind != expected)
         {
             throw new InvalidOperationException(
-                $"Vesper.RuntimeFormatState: mismatched layout scope (expected '{expected}', got '{f.Kind}').");
+                $"Vesper.RuntimeFormatState: mismatched layout scope (expected {expected}, got {f.Kind}).");
         }
 
         _frames.RemoveAt(_frames.Count - 1);
         Doc inner = f.Kids.Count == 1 ? f.Kids[0] : new DocCat(f.Kids);
         Doc wrapped = f.Kind switch
         {
-            'g' => new DocGroup(inner, false),
-            'a' => new DocGroup(inner, f.Parens),
-            'n' => new DocNest(f.NestIndent, inner),
+            FrameKind.Group => new DocGroup(inner, false),
+            FrameKind.Application => new DocGroup(inner, f.Parens),
+            FrameKind.Nest => new DocNest(f.NestIndent, inner),
             _ => inner,
         };
         Add(wrapped);
@@ -412,7 +360,7 @@ public sealed class RuntimeFormatState : IFormatSink
     /// <summary>Lay the recorded document out to a string.</summary>
     public string Finish()
     {
-        if (_frames.Count != 1 || Top.Kind != 'r')
+        if (_frames.Count != 1 || Top.Kind != FrameKind.Root)
         {
             throw new InvalidOperationException("Vesper.RuntimeFormatState: unbalanced layout scopes at Finish.");
         }
@@ -488,31 +436,59 @@ public sealed class RuntimeFormatState : IFormatSink
 
     private static string FormatPrimitive(ISpanFormattable value)
     {
-        string s = value.ToString(null, CultureInfo.InvariantCulture);
-
         // Floats must read back as floats: a finite double/single whose shortest
         // round-trip has no '.', 'e'/'E' would paste back as an int — append ".0".
+        // float32 additionally takes the `f` suffix (`3.0f`, `nanf`); double none.
         if (value is double d)
         {
-            return FixFloat(s, double.IsFinite(d));
+            return FixFloat(d.ToString(null, CultureInfo.InvariantCulture), double.IsFinite(d), "");
         }
         if (value is float f)
         {
-            return FixFloat(s, float.IsFinite(f));
+            return FixFloat(f.ToString(null, CultureInfo.InvariantCulture), float.IsFinite(f), "f");
         }
-        return s;
+
+        // Every non-`int32` integral / decimal literal carries a type suffix so the
+        // rendered atom reads back at its *source* type (`5L`, `5uy`, `1.5M`), not as
+        // a bare `int`. The canonical spellings are the ones the XParsec.FSharp lexer
+        // accepts — each suffix below maps 1:1 to a lexer token in
+        // `Lexing.getIntTokenFromSpan` (`y`→SByte, `uy`→Byte, `s`→Int16, `us`→UInt16,
+        // `u`→UInt32, `L`→Int64, `UL`→UInt64, `n`→NativeInt, `un`→UNativeInt,
+        // `M`→Decimal), so the output re-lexes at the same type (round-trip).
+        // The invariant string is the same `ISpanFormattable` rendering for all; only
+        // the suffix differs. `int32` and any other `ISpanFormattable` (DateTime,
+        // Guid, …) take no suffix.
+        string s = value.ToString(null, CultureInfo.InvariantCulture);
+
+        string suffix = value switch
+        {
+            sbyte => "y",
+            byte => "uy",
+            short => "s",
+            ushort => "us",
+            uint => "u",
+            long => "L",
+            ulong => "UL",
+            IntPtr => "n",
+            UIntPtr => "un",
+            decimal => "M",
+            _ => "",
+        };
+
+        return s + suffix;
     }
 
-    private static string FixFloat(string s, bool finite)
+    private static string FixFloat(string s, bool finite, string suffix)
     {
         if (!finite)
         {
-            // Non-finite floats have no source form; use the F# spellings.
+            // Non-finite floats have no numeric source form; use the F# spellings
+            // (float32 keeps its suffix: `nanf` / `infinityf` / `-infinityf`).
             return s switch
             {
-                "NaN" => "nan",
-                "Infinity" => "infinity",
-                "-Infinity" => "-infinity",
+                "NaN" => "nan" + suffix,
+                "Infinity" => "infinity" + suffix,
+                "-Infinity" => "-infinity" + suffix,
                 _ => s,
             };
         }
@@ -521,10 +497,10 @@ public sealed class RuntimeFormatState : IFormatSink
         {
             if (c == '.' || c == 'e' || c == 'E')
             {
-                return s;
+                return s + suffix;
             }
         }
-        return s + ".0";
+        return s + ".0" + suffix;
     }
 
     private static string QuoteString(string s)

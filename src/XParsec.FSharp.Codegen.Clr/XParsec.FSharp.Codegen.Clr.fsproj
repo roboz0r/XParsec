@@ -34,6 +34,7 @@
     <Compile Include="EmitCall.fs" />
     <Compile Include="EmitIntrinsic.fs" />
     <Compile Include="EmitExpr.fs" />
+    <Compile Include="EmitStructuralFormat.fs" />
     <Compile Include="Emit.fs" />
     <Compile Include="HolderPlan.fs" />
     <Compile Include="CodegenTypes.fs" />

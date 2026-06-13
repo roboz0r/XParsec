@@ -260,6 +260,13 @@ type internal AssemblyLayout =
         /// The Program slot's presence is a layout decision: exe (`Main`) or
         /// holder-less fns.
         EmitEntryPoint: bool
+        /// True iff *this* compilation defines the `%A` structural-format interfaces
+        /// (it is `Vesper.Core`). Computed once here from `Partitioned.Interfaces`;
+        /// the single source `formatRows` (suppress the `Format` row) and
+        /// `Assembler.DefinesStructuralFormatInterfaces` / `NominalEmit` (suppress the
+        /// `Format` body) all read, so the row reservation and the body emission can
+        /// never disagree.
+        DefinesStructuralFormatInterfaces: bool
     }
 
 /// The resolved handle lookup derived from the layout once: `TypeKey` →
@@ -415,14 +422,17 @@ module internal Layout =
     /// verdicts (it renders a value's structure, never depending on whether the type
     /// supports `=` / `<`). A new virtual slot bound to the `InterfaceImpl` by name +
     /// signature, like the typed `Equals(Self)`.
-    let private formatRows (td: Frozen.TTypeDecl) : MethodRow list =
-        [
-            {
-                Key = MethodKey.FmtFormat td.Key
-                Name = "Format"
-                Attrs = ifaceEqualsAttrs
-            }
-        ]
+    let private formatRows (definesInterfaces: bool) (td: Frozen.TTypeDecl) : MethodRow list =
+        if definesInterfaces then
+            []
+        else
+            [
+                {
+                    Key = MethodKey.FmtFormat td.Key
+                    Name = "Format"
+                    Attrs = ifaceEqualsAttrs
+                }
+            ]
 
     let private nominalSlot
         (kind: TypeSlotKind)
@@ -488,6 +498,18 @@ module internal Layout =
                             }
                     ]
             }
+
+        // The assembly that *defines* the `%A` structural-format interfaces
+        // (`Vesper.Core`) does not get the per-type `Format` row / body — its own
+        // records would otherwise reference `IStructuralFormattable` through an
+        // external `AssemblyRef` to Core itself. Computed once here and published on
+        // `AssemblyLayout`: this is the *single* source the row reservation
+        // (`formatRows`, below) and the body emission (`NominalEmit`, via
+        // `Assembler.DefinesStructuralFormatInterfaces`) both read — so a reserved
+        // `Format` row can never go un-prepared (the failure mode if the two drifted).
+        let definesStructuralFormatInterfaces =
+            partitioned.Interfaces
+            |> List.exists (fun (td, _) -> RuntimeNames.isStructuralFormattableKey td.Key)
 
         // Closure-discovery roots from every (expanded) member body, each tagged
         // with its declaring type's typar count (0 ⇒ monomorphic).
@@ -601,7 +623,7 @@ module internal Layout =
                             yield! ud.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
                             yield! equalityRows td
                             yield! comparisonRows td
-                            yield! formatRows td
+                            yield! formatRows definesStructuralFormatInterfaces td
                         ]
 
                     nominalSlot TypeSlotKind.Union td (List.length fields) (List.length methodRows), fields, methodRows
@@ -636,7 +658,7 @@ module internal Layout =
                             yield! rd.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
                             yield! equalityRows td
                             yield! comparisonRows td
-                            yield! formatRows td
+                            yield! formatRows definesStructuralFormatInterfaces td
                         ]
 
                     nominalSlot TypeSlotKind.Record td (List.length fields) (List.length methodRows), fields, methodRows
@@ -923,6 +945,7 @@ module internal Layout =
             ClosureByNode = closureByNode
             Partitioned = partitioned
             EmitEntryPoint = emitEntryPoint
+            DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
         }
 
     /// Derive every handle from the layout once: TypeDef handle = list position

@@ -25,4 +25,23 @@
     <Compile Include="Formatter.cs" />
     <Compile Include="StructuralFormat.cs" />
   </ItemGroup>
+  <!--
+    The `%A` structural-format interfaces (`Vesper.IFormatSink` /
+    `Vesper.IStructuralFormattable`) are owned by `Vesper.Core` (printf-handoff.md
+    step 3.2), so the synthesised record/DU `Format` implements a Core type and a
+    record-bearing program never links `Vesper.Printf`. `Vesper.Core.dll` is built
+    by *this repo's own backend* (no MSBuild project), so the cycle is broken with a
+    committed, prebuilt reference copy: `RuntimeFormatState : IFormatSink` binds the
+    Core-owned interface at C# build/design time. Regenerate `refs/Vesper.Core.dll`
+    from the Vesper source via the `Vesper.Core reference copy is in sync` guard test
+    (test/XParsec.FSharp.Codegen.Clr.Tests/SelfHostTests.fs). CopyLocal stays on so
+    a downstream test bin (whose fsc-compiled `IFormatSink` impls need the type at
+    load) finds it; it is non-strong-named, so the loader unifies it by name with the
+    backend-compiled `Vesper.Core` the in-process fixtures load into the Default ALC.
+  -->
+  <ItemGroup>
+    <Reference Include="Vesper.Core">
+      <HintPath>refs\Vesper.Core.dll</HintPath>
+    </Reference>
+  </ItemGroup>
 </Project>

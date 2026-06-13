@@ -71,4 +71,17 @@
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Clr\XParsec.FSharp.Codegen.Clr.fsproj" />
   </ItemGroup>
+  <!--
+    `StructuralFormatTests.fs` hand-writes `IFormatSink` / `IStructuralFormattable`
+    impls; those interfaces are owned by `Vesper.Core` (printf-handoff.md step 3.2),
+    so fsc needs the committed reference copy on its `-r` line (assembly references
+    don't flow transitively through ProjectReferences). It is non-strong-named, so
+    the loader unifies it with the backend-compiled `Vesper.Core` the in-process
+    fixtures load into the Default ALC.
+  -->
+  <ItemGroup>
+    <Reference Include="Vesper.Core">
+      <HintPath>..\..\src\Vesper.Printf\refs\Vesper.Core.dll</HintPath>
+    </Reference>
+  </ItemGroup>
 </Project>

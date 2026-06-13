@@ -97,6 +97,14 @@ type HoleSpecG<'ty> =
         Alignment: int option
     }
 
+    /// The `%A` (`Structured`) print-width *budget*, which rides in the `Alignment`
+    /// slot (the idiom is inherited from FSharp.Core, where `%A`'s width reuses the
+    /// alignment field). Only meaningful when `Kind = Structured`: `None` ⇒ the
+    /// default (80, applied at emit), `Some 0` ⇒ never break / flat (`%0A`),
+    /// `Some n` ⇒ width `n`. A named alias so the structural-format read sites don't
+    /// look like they're reading a field alignment.
+    member this.PercentAWidthBudget: int option = this.Alignment
+
 /// How an instance member access dispatches (inheritance-plan §Subtle
 /// migrations). `Self` is the normal virtual dispatch (`callvirt`); `Base`
 /// is a `base.M(...)` / `base.X` access, which must target the *parent's*

@@ -797,32 +797,22 @@ module internal FreezeExpr =
     and private structuredArgFaithful (localAsm: string option) (t: SemType) : bool =
         match t with
         | TyConst(name, args) ->
-            match name with
             // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
             // the `IEnumerable` arm — faithful iff its element type is.
-            | "[]" -> EqArray.forall (structuredArgFaithful localAsm) args
-            | "int"
-            | "int8"
-            | "int16"
-            | "int32"
-            | "int64"
-            | "uint8"
-            | "uint16"
-            | "uint32"
-            | "uint64"
-            | "byte"
-            | "sbyte"
-            | "nativeint"
-            | "unativeint"
-            | "float"
-            | "float32"
-            | "double"
-            | "single"
-            | "decimal"
-            | "string"
-            | "char"
-            | "bool" -> args.Length = 0
-            | _ -> false
+            if name = "[]" then
+                EqArray.forall (structuredArgFaithful localAsm) args
+            // Numeric primitives carry the F# literal suffixes the engine reproduces
+            // (`5L`, `1.5M`); `string` / `char` / `bool` are special-cased atoms. All
+            // are leaf scalars, so any type argument means it isn't really one.
+            elif
+                RuntimeNames.numericTypeNames.Contains name
+                || name = "string"
+                || name = "char"
+                || name = "bool"
+            then
+                args.Length = 0
+            else
+                false
         | TyTuple items -> EqArray.forall (structuredArgFaithful localAsm) items
         // The cons-list still renders via the `IEnumerable` arm (it carries no
         // synthesised `Format`), so it stays faithful-iff-its-element-is. It
@@ -834,11 +824,27 @@ module internal FreezeExpr =
             EqArray.forall (structuredArgFaithful localAsm) args
         // Every *project-local* record / DU carries a synthesised
         // `IStructuralFormattable.Format` (step-3 `NominalEmit` synthesis), so the
-        // engine renders it faithfully — recursion into fields is unnecessary (the
-        // dispatcher routes each field at runtime; a genuinely unsupported leaf
-        // `ToString`-falls-back, the documented acceptable case). An *external*
-        // structural type has no synthesis, so it keeps the FSharp.Core cold path.
-        // Local-ness is the key's home assembly matching this compilation's target.
+        // engine renders it faithfully. We deliberately do NOT recurse into its
+        // fields — the gate is only a cold-vs-engine switch, not a per-field
+        // renderer, and the runtime dispatcher already routes each field correctly,
+        // matching real F# `%A` in every reachable case:
+        //   * a field that is another Vesper record / union (local *or* an external
+        //     package) carries `IStructuralFormattable` too — every Vesper-compiled
+        //     type does — so the dispatcher's interface arm renders it structurally,
+        //     exactly as F#'s reflective `%A` recurses into any F#-reflectable type;
+        //   * a BCL scalar / collection field hits the `ISpanFormattable` / `ToString`
+        //     / `IEnumerable` arm — and F# `%A` `ToString`s / enumerates the same.
+        // Recursing here would *regress* this: the BCL-leaf arms below return
+        // non-faithful, so a recurse would force a local record with one `System.Uri`
+        // field onto the cold path even though F# and the engine render that field
+        // identically (`ToString`). An *external* structural type keeps the cold path
+        // (no synthesis is assumed for it — conservative; the home assembly of `key`
+        // must match this compilation's target to count as local). The one residual
+        // asymmetry — a top-level external record renders cold (reflective) while the
+        // same record nested in a local one renders on the engine — is not fixed by
+        // recursing (that would lose the faithful nested rendering); the clean future
+        // direction is to *widen* the gate to admit external types that carry
+        // `IStructuralFormattable`, not to recurse.
         | TyUnion(key, _)
         | TyRecord(key, _) -> localAsm.IsSome && SymbolKeyOps.keyAsm key = localAsm
         | _ -> false

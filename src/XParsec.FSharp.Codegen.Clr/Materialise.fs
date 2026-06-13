@@ -2,11 +2,28 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open System.IO
 open System.Reflection
+open System.Reflection.Metadata
+open System.Reflection.PortableExecutable
 
 /// The PE-to-disk side of codegen: serialised bytes, the in-place write, and a
 /// runnable framework-dependent bundle (PE + `runtimeconfig.json` + the
 /// referenced assemblies the shared framework does not carry).
 module Materialise =
+
+    /// The simple names this PE's metadata declares an `AssemblyRef` to. Used to
+    /// close the bundle over *transitive* references: a `%A` program's PE names
+    /// `Vesper.Printf` (the formatter) but not `Vesper.Core`, yet `Vesper.Printf`
+    /// (whose `RuntimeFormatState` implements the Core-owned `IFormatSink`,
+    /// printf-handoff.md step 3.2) references it — so a bundle missing `Vesper.Core`
+    /// throws `FileNotFoundException` the moment `%A` runs. Same for `Vesper.List`.
+    let private referencedAssemblyNames (path: string) : string list =
+        use fs = File.OpenRead path
+        use pe = new PEReader(fs)
+        let md = pe.GetMetadataReader()
+
+        [
+            for h in md.AssemblyReferences -> md.GetString((md.GetAssemblyReference h).Name)
+        ]
 
     /// The serialised PE bytes.
     let toBytes (artifact: ClrArtifact) : byte[] = artifact.Pe.ToArray()
@@ -94,7 +111,30 @@ module Materialise =
                 |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
                 |> withFallback "Vesper.Printf" (fun () -> typeof<Vesper.PrintfRuntime>.Assembly.Location)
 
-            for refName in artifact.ReferencedAssemblies do
+            // Close the ship set over transitive references: starting from the PE's
+            // own `AssemblyRef`s, pull in every assembly a shipped (resolvable) one
+            // references. Only names with a known source are walked, so the BCL /
+            // shared-framework names terminate the recursion (no source ⇒ no copy,
+            // no further walk). This is what carries `Vesper.Core` into a `%A`
+            // bundle whose PE only names `Vesper.Printf`.
+            let shipNames =
+                let rec close (seen: Set<string>) (frontier: string list) : Set<string> =
+                    match frontier with
+                    | [] -> seen
+                    | name :: rest when Set.contains name seen -> close seen rest
+                    | name :: rest ->
+                        let seen = Set.add name seen
+
+                        let more =
+                            match Map.tryFind name referenceSources with
+                            | Some src when File.Exists src -> referencedAssemblyNames src
+                            | _ -> []
+
+                        close seen (more @ rest)
+
+                close Set.empty (List.ofSeq artifact.ReferencedAssemblies)
+
+            for refName in shipNames do
                 match Map.tryFind refName referenceSources with
                 | Some src ->
                     // The loader probes the app base by *simple name*, so the

@@ -1114,30 +1114,9 @@ module UnificationEngine =
     /// SRTP arithmetic dispatch on numeric primitives. For `op_Addition`
     /// etc. on `int` the candidate "static member" type is `int * int ->
     /// int`; we synthesise it here so the unifier doesn't need to know
-    /// which provider declared the primitive.
-    and private numericPrimitives =
-        Set.ofList
-            [
-                "int"
-                "int8"
-                "int16"
-                "int32"
-                "int64"
-                "uint"
-                "uint8"
-                "uint16"
-                "uint32"
-                "uint64"
-                "byte"
-                "sbyte"
-                "nativeint"
-                "unativeint"
-                "float"
-                "float32"
-                "double"
-                "single"
-                "decimal"
-            ]
+    /// which provider declared the primitive. The numeric name set is the
+    /// shared `RuntimeNames.numericTypeNames` (one place to grow).
+    and private numericPrimitives = RuntimeNames.numericTypeNames
 
     and private arithmeticBinaryOps =
         Set.ofList [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ]
