@@ -131,18 +131,42 @@ module EmitMember =
             // Instance property read — a 0-argument instance member access; the
             // receiver/dispatch shape is shared with `buildMethodCall`.
             let receiverTy = typeOfExpr receiver
-            let handle = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            // A property is never a generic method, so the resolved member metadata
+            // is unused here (`MethodTyparCount` is always 0 for a `get_<name>`).
+            let handle, _ = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
             emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty
         | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.MethodCall(receiver, key, via, args, _) ->
+        | TExprG.MethodCall(receiver, key, via, args, ty) ->
             // Instance method call — the same receiver/dispatch shape as
             // `buildPropertyGet`, with the call's arguments pushed between the
             // receiver and the `call`/`callvirt`.
             let receiverTy = typeOfExpr receiver
-            let handle = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            let handle0, m = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+
+            // A *generic instance method* (`member s.Map<'U> f`, B-12 call side): the
+            // member-ref already carries the `GENERIC` header (its `'U` rides `!!i`),
+            // so the call must wrap it in a `MethodSpec`. The node carries no method
+            // type args, so recover them by structurally matching the member's declared
+            // curried signature (declaring-/method-axis markers) against the call's
+            // actual argument + result types — the instance analogue of the
+            // generic-static-fn `MethodSpec` recovery (`EmitCall`).
+            let handle =
+                if m.MethodTyparCount = 0 then
+                    handle0
+                else
+                    let declArity =
+                        match receiverShape receiverTy with
+                        | ValueSome(_, rargs) -> List.length rargs
+                        | ValueNone -> 0
+
+                    let openT = List.foldBack (fun p acc -> FTFun(p, acc)) m.ParamTys m.RetTy
+                    let instT = List.foldBack (fun a acc -> FTFun(typeOfExpr a, acc)) [ for a in args -> a ] ty
+                    let _, methodArgs = env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
+                    env.Provider.StaticFnMethodSpec(handle0, methodArgs)
+
             emitInstanceMember recur env b via receiver receiverTy handle args
         | _ -> failwith "EmitMember.buildMethodCall: unreachable"
 

@@ -68,6 +68,10 @@ module EmitTypes =
             MetaName: string
             ParamTys: FrozenType list
             RetTy: FrozenType
+            /// The member's *own* generic-method typar count (`member s.Map<'U> …`).
+            /// 0 for the common non-generic member. > 0 ⇒ the member-ref must carry
+            /// the `GENERIC` header and the call site a `MethodSpec` (B-12 call side).
+            MethodTyparCount: int
         }
 
     /// A union emitted into this assembly. `Typars` empty ⇒ a monomorphic union

@@ -370,14 +370,16 @@ let tests =
             testList
                 "transforms"
                 [
-                    // PENDING — `Set.map`'s emitted `Set`1::Map` member-ref carries an
-                    // open `!0` in the mapping-function parameter: "MissingMethodException:
-                    // Method not found: 'Set`1<Int32> Set`1.Map(Vesper.Fun`2<!0,Int32>)'".
-                    // The mapping `'T -> 'U`'s source typar leaks unground at the member-ref
-                    // site (Outstanding 2 gap A — a generic member-ref minted from a
-                    // non-declaring context emits an open typar). Flip → `test` when the
-                    // map member-ref instantiates its `'T` from the receiver.
-                    ptest "map" {
+                    // `Set.map`'s `set.Map mapping` is a *generic instance method* call
+                    // (`member s.Map<'U> f : Set<'U>`). It previously emitted a non-generic
+                    // `Set`1::Map` member-ref whose `'U` mis-resolved to `Int32`
+                    // ("MissingMethod 'Set`1<Int32> Set`1.Map(Vesper.Fun`2<!0,Int32>)'").
+                    // Fix (B-12 call side): the member-ref now carries the GENERIC header
+                    // (`EmittedMember.MethodTyparCount` → `genericClassMemberRef`) and the
+                    // call wraps it in a `MethodSpec`, whose `'U` arg is recovered
+                    // (`RecoverOpenTypars`) by matching `Map`'s declared signature against the
+                    // call's actual arg/result types.
+                    test "map" {
                         runsSetLines
                             [ "3"; "12" ]
                             (prelude
@@ -438,12 +440,13 @@ let tests =
                         runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofArray (Set.toArray s)))")
                     }
 
-                    // PENDING — `Set.ofList` calls `ListModule.toSeq` internally, which
-                    // Vesper.List does not emit: "MissingMethodException: Method not found:
-                    // 'IEnumerable`1<Int32> Vesper.Collections.ListModule.toSeq(List`1<Int32>)'".
-                    // A Vesper.List dependency gap, not a Set one. Flip → `test` when
-                    // `ListModule.toSeq` ships.
-                    ptest "toList round-trips through ofList" {
+                    // `Set.ofList` calls `List.toSeq` internally, which Vesper.List did not
+                    // emit (the cons-list implemented no `IEnumerable`). `list.fs` now ships
+                    // `toSeq` via a `ListSeq` wrapper *class* + a `[<Struct>] ListEnumerator`
+                    // cursor (interface impls are proven for classes — mirroring `Set` /
+                    // `SetIterator` — but not yet for union types, so the enumerable surface
+                    // rides the wrapper rather than `List<'T>` directly).
+                    test "toList round-trips through ofList" {
                         runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofList (Set.toList s)))")
                     }
                 ]

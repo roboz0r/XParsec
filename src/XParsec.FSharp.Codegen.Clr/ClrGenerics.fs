@@ -79,11 +79,11 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 )
 
             toEntity (ctx.MemberRef(parent, caseName, s))
-        | UnionMember.Member(metaName, isStatic, paramTys, retTy) ->
+        | UnionMember.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
             let s = BlobBuilder()
 
             BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = not isStatic)
+                .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
                     (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
@@ -201,11 +201,11 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 encodeType (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
-        | ClassMember.Member(metaName, isStatic, paramTys, retTy) ->
+        | ClassMember.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
             let s = BlobBuilder()
 
             BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = not isStatic)
+                .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
                     (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),

@@ -47,7 +47,11 @@ module EmitResolve =
     /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
     /// The implicit value→`obj` box is now synthesised at Freeze as an explicit
     /// `Upcast`, so this resolver no longer returns the member's parameter types.
-    let resolveInstanceMember (env: EmitEnv) (receiverTy: FrozenType) (name: string) : EntityHandle =
+    /// Returns the member-call handle *and* the resolved `EmittedMember` — the
+    /// latter so a generic-instance-method call site (`set.Map mapping`) can read
+    /// `MethodTyparCount` + the declared signature to mint the `MethodSpec`. A
+    /// 0-typar member (the common case) ignores the second component.
+    let resolveInstanceMember (env: EmitEnv) (receiverTy: FrozenType) (name: string) : EntityHandle * EmittedMember =
         // This resolver only serves project-local receivers (external instance
         // members route through `externalInstanceMemberRef`), so the table key is
         // the receiver's nominal `SymbolKey` directly (Phase 6D).
@@ -62,8 +66,9 @@ module EmitResolve =
                     u.Typars
                     key
                     tyArgs
-                    (UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)))
-                    m.Handle
+                    (UserMemberKind.UnionMember(UnionMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+                    m.Handle,
+                m
             | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
         | false, _ ->
             match env.Classes.TryGetValue key with
@@ -75,8 +80,9 @@ module EmitResolve =
                         c.Typars
                         key
                         tyArgs
-                        (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.ParamTys, m.RetTy)))
-                        m.Handle
+                        (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+                        m.Handle,
+                    m
                 | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
 
@@ -183,7 +189,7 @@ module EmitResolve =
                         c.Typars
                         key
                         (instantiationFor c.Typars)
-                        (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.ParamTys, m.RetTy)))
+                        (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy)))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key

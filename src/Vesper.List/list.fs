@@ -1,5 +1,9 @@
 namespace Vesper.Collections
 
+open System
+open System.Collections
+open System.Collections.Generic
+
 // Vesper's cons-list — the compiled runtime impl of the `Vesper.List` package,
 // in the verbatim FSharp.Core `[]` / `::` operator-case form. This is the
 // *cutover* target `list-min.fs`'s `Nil` / `Cons` deviation was a placeholder
@@ -49,6 +53,65 @@ type List<'T> =
         | _ :: t -> t
 
 and 'T list = List<'T>
+
+// Enumeration support for the cons-list (`Set.ofList` calls `List.toSeq`, and the
+// Set ctor walks the resulting `IEnumerable<'T>`). Front-to-back interface-impl
+// support is proven for *classes* (mirroring `Vesper.Set`'s `Set` + `SetIterator`)
+// but not yet for *union* types, so the enumerable surface rides a wrapper class
+// `ListSeq` over the list rather than interfaces on `List<'T>` itself.
+//
+// The enumerator is a `[<Struct>]` cursor mirroring `SetIterator`: the advance /
+// read logic is *inlined* in the interface members (a struct member calling
+// another on `this` copies `this`, losing the mutation), and the struct is boxed
+// once at `GetEnumerator` (`:> IEnumerator<'T>`) so the interface dispatches mutate
+// the single boxed copy.
+[<NoEquality; NoComparison>]
+[<Struct>]
+type ListEnumerator<'T> =
+    // The remaining suffix of the list (the cursor): `Current` reads its head, and
+    // `MoveNext` drops to its tail. `source` is kept immutable so `Reset` can rebuild.
+    val mutable cursor: 'T list
+    val mutable started: bool
+    val source: 'T list
+
+    new(s: 'T list) =
+        {
+            cursor = s
+            started = false
+            source = s
+        }
+
+    interface IEnumerator<'T> with
+        member this.Current = this.cursor.Head
+
+    interface IEnumerator with
+        member this.Current = box this.cursor.Head
+
+        member this.MoveNext() =
+            if this.started then
+                match this.cursor with
+                | [] -> false
+                | _ :: t ->
+                    this.cursor <- t
+                    not this.cursor.IsEmpty
+            else
+                this.started <- true // The first call to MoveNext "starts" the enumeration.
+                not this.cursor.IsEmpty
+
+        member this.Reset() =
+            this.cursor <- this.source
+            this.started <- false
+
+    interface IDisposable with
+        member this.Dispose() = ()
+
+[<Sealed>]
+type ListSeq<'T>(source: 'T list) =
+    interface IEnumerable<'T> with
+        member _.GetEnumerator() = (new ListEnumerator<'T>(source) :> IEnumerator<'T>)
+
+    interface IEnumerable with
+        member _.GetEnumerator() = (new ListEnumerator<'T>(source) :> IEnumerator)
 
 // Compiles to the `Vesper.Collections.ListModule` static class (the
 // `ModuleSuffix` representation gives the module the holder name `ListModule`
@@ -115,3 +178,9 @@ module List =
         match list with
         | [] -> []
         | h :: t -> append (rev t) (h :: [])
+
+    // `toSeq` wraps the list in the `ListSeq` enumerable adapter (the cons-list
+    // union cannot carry interface impls directly yet). `ofSeq` stays contract-only
+    // (`for x in IEnumerable`).
+    let toSeq (list: 'T list) : IEnumerable<'T> =
+        (new ListSeq<'T>(list) :> IEnumerable<'T>)

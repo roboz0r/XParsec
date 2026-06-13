@@ -72,6 +72,7 @@ module internal NominalEmit =
                         MetaName = memberMetaName mem
                         ParamTys = [ for (_, t) in mem.Params -> t ]
                         RetTy = mem.ReturnTy
+                        MethodTyparCount = mem.MethodTypeParams.Length
                     }
         )
 
