@@ -65,6 +65,7 @@ let rec private tyName (t: SemType) : string =
     | TyRecord(n, _)
     | TyUnion(n, _)
     | TyClass(n, _) -> SymbolKeyOps.simpleName n
+    | TyOr members -> [ for m in members -> tyName m ] |> String.concat " | "
     | TyUnknown n -> "?" + n
     | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
     | TyTypar(TyparAxis.Method, i) -> "!!" + string i
@@ -637,6 +638,7 @@ type private Renderer() =
                 | TyRecord(n, _)
                 | TyUnion(n, _)
                 | TyClass(n, _) -> SymbolKeyOps.simpleName n
+                | TyOr members -> [ for m in members -> tyStr m ] |> String.concat " | "
                 | TyUnknown n -> "?" + n
                 | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
                 | TyTypar(TyparAxis.Method, i) -> "!!" + string i

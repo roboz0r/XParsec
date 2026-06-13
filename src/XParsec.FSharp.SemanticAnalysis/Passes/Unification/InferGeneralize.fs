@@ -72,6 +72,7 @@ module internal UnificationInferGeneralize =
         | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
+        | TyOr members -> EqArray.exists hasPendingDotAccess members
         | TyUnknown _ -> false
         // Post-freeze leaf; never seen during generalisation.
         | TyTypar _ -> false
@@ -128,6 +129,9 @@ module internal UnificationInferGeneralize =
                 | TyClass(_, args) ->
                     for a in args do
                         go a
+                | TyOr members ->
+                    for m in members do
+                        go m
                 | TyUnknown _ -> ()
                 | TyTypar _ -> ()
 
@@ -246,7 +250,8 @@ module internal UnificationInferGeneralize =
                 | TyTuple xs
                 | TyRecord(_, xs)
                 | TyUnion(_, xs)
-                | TyClass(_, xs) ->
+                | TyClass(_, xs)
+                | TyOr xs ->
                     for x in xs do
                         walk x
                 | TyUnknown _ -> ()
@@ -282,6 +287,9 @@ module internal UnificationInferGeneralize =
             | TyClass(_, args) ->
                 for a in args do
                     walk a
+            | TyOr members ->
+                for m in members do
+                    walk m
             | TyUnknown _ -> ()
             | TyTypar _ -> ()
 

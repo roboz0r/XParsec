@@ -184,6 +184,9 @@ module Regions =
         | TyRecord _ -> true
         | TyUnion _ -> true
         | TyClass _ -> true
+        // An anonymous union erases to a boxed reference (`obj`+`isinst`), so a
+        // value flowing into one allocates — track it like the other composites.
+        | TyOr _ -> true
         | TyVar _ -> false
         // Unresolved contract head: errors before it can reach a region
         // walk; treat as non-allocating so this pass stays conservative.

@@ -40,7 +40,8 @@ module ResolvedTypes =
                     go x
             | TyRecord(_, args)
             | TyUnion(_, args)
-            | TyClass(_, args) ->
+            | TyClass(_, args)
+            | TyOr args ->
                 for a in args do
                     go a
             | TyUnknown _ -> ()

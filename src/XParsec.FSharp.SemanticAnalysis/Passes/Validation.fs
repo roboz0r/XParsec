@@ -38,6 +38,7 @@ module Validation =
         | TyRecord(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyUnion(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyClass(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
+        | TyOr members -> members |> EqArray.exists (hasFreeTyVar quantified)
         | TyUnknown _ -> false
         // Post-freeze leaf; this check runs pre-freeze and never sees it.
         | TyTypar _ -> false

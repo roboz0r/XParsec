@@ -373,6 +373,12 @@ type FrozenType =
     | FTRecord of key: SymbolKey * args: EqArray<FrozenType>
     | FTUnion of key: SymbolKey * args: EqArray<FrozenType>
     | FTClass of key: SymbolKey * args: EqArray<FrozenType>
+    /// Frozen anonymous (structural) union — mirror of `SemType.TyOr`. Members
+    /// are in canonical form (sorted/deduped/flattened by `mkUnion`), so two
+    /// `FTOr`s are structurally equal iff their member sequences match. The
+    /// backend lowers it to its universal-supertype primitive (`obj`+`isinst` on
+    /// the CLR, erased on JS); no nominal identity. `FTOr []` is `never`.
+    | FTOr of members: EqArray<FrozenType>
     /// An open type parameter of the enclosing generic definition: `axis`
     /// selects the declaring-type vs method axis; `index` is its position in
     /// that axis's typar list — the order `freeze` quantifies in, which is the
@@ -416,6 +422,19 @@ type SemType =
     /// the class registry. Two `TyClass` unify iff their `key`s are equal AND
     /// their args unify pairwise.
     | TyClass of key: SymbolKey * args: EqArray<SemType>
+    /// An anonymous (structural) union — TypeScript-style `X | Y | null`. Distinct
+    /// from the nominal `TyUnion` (a declared `type Foo = A | B`): it has no key,
+    /// no nominal identity, and its members are an order-insensitive, deduped,
+    /// flattened **set** held in canonical (sorted) form. The smart constructor
+    /// `mkUnion` is the ONLY sanctioned producer — it enforces that canonical form,
+    /// so the raw case must never be built directly outside `mkUnion` and the
+    /// mechanical structural traversals (`resolveStep`/`zonk`/`occursAndAdjust`/
+    /// `freeze`). Canonicalisation is what makes `string | int` ≡ `int | string`
+    /// under the equality layer's `n1 = n2` discipline. `TyOr []` is `never`
+    /// (bottom). Unions enter the graph only at annotation sites — inference never
+    /// synthesises one (the principality rule); membership/assignability lives in
+    /// the directional `subsumes` layer, never in symmetric `unify`.
+    | TyOr of members: EqArray<SemType>
     /// A nominal reference that resolved to no in-scope type shape during extraction.
     /// It never unifies with anything; Unification reports it at the use site and
     /// recovers, so one broken contract head doesn't cascade. Distinct from
@@ -651,6 +670,7 @@ module FrozenTypeBridge =
         | TyRecord(key, args) -> FTRecord(key, EqArray.map toFrozen args)
         | TyUnion(key, args) -> FTUnion(key, EqArray.map toFrozen args)
         | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
+        | TyOr members -> FTOr(EqArray.map toFrozen members)
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
@@ -673,6 +693,7 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
         | FTClass(key, args) -> TyClass(key, EqArray.map go args)
+        | FTOr members -> TyOr(EqArray.map go members)
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTUnknown name -> TyUnknown name
@@ -766,6 +787,7 @@ module FrozenTypeBridge =
         | FTRecord(_, args)
         | FTUnion(_, args)
         | FTClass(_, args) -> maxOf args
+        | FTOr members -> maxOf members
         | FTFun(arg, result) -> max (maxDeclaringIndex arg) (maxDeclaringIndex result)
         | FTTuple items -> maxOf items
         | FTTypar(TyparAxis.Declaring, i) -> i
@@ -784,6 +806,7 @@ module FrozenTypeBridge =
         | FTRecord(_, args)
         | FTUnion(_, args)
         | FTClass(_, args) -> args |> EqArray.forall ftIsGround
+        | FTOr members -> members |> EqArray.forall ftIsGround
         | FTFun(a, b) -> ftIsGround a && ftIsGround b
         | FTTuple items -> items |> EqArray.forall ftIsGround
 
@@ -809,6 +832,7 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
         | FTClass(key, args) -> FTClass(key, EqArray.map go args)
+        | FTOr members -> FTOr(EqArray.map go members)
         | FTTypar(TyparAxis.Declaring, i) ->
             if i < declaringArgs.Length then
                 declaringArgs.[i]

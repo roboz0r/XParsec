@@ -11,6 +11,7 @@
     <Compile Include="Conformance.fs" />
     <Compile Include="SemanticInfo.fs" />
     <Compile Include="SymbolKeyOps.fs" />
+    <Compile Include="SemTypeOps.fs" />
     <Compile Include="RuntimeNames.fs" />
     <Compile Include="OperatorNames.fs" />
     <Compile Include="PrintfSpec.fs" />

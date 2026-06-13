@@ -210,7 +210,8 @@ module EmitClosures =
         | FTConst(_, xs)
         | FTRecord(_, xs)
         | FTUnion(_, xs)
-        | FTClass(_, xs) -> xs |> EqArray.forall ftNoUnknown
+        | FTClass(_, xs)
+        | FTOr xs -> xs |> EqArray.forall ftNoUnknown
         | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
         | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
 
@@ -430,7 +431,8 @@ module EmitClosures =
             | FTTuple xs
             | FTRecord(_, xs)
             | FTUnion(_, xs)
-            | FTClass(_, xs) ->
+            | FTClass(_, xs)
+            | FTOr xs ->
                 for x in xs do
                     go x
             // A `Declaring`-axis typar can't occur in a module-level static fn, and

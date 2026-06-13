@@ -46,6 +46,10 @@ let private sampleFrozenTypes: FrozenType list =
             FTRecord(kRec, EqArray.singleton (FTTypar(TyparAxis.Declaring, 0)))
             FTUnion(kUnion, EqArray.singleton (FTConst("string", EqArray.empty)))
             FTClass(kClass, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 1) ])
+            // Anonymous (structural) union — members in canonical (sorted) order, as
+            // `mkUnion` will produce. The round-trip is purely structural, so the map
+            // preserves the member vector either way.
+            FTOr(EqArray.ofList [ FTConst("int", EqArray.empty); FTConst("string", EqArray.empty) ])
         ]
 
     let branch2 =
@@ -91,7 +95,7 @@ let tests =
 
             test "every post-freeze SemType case is covered by the sample" {
                 // Guards against the sample silently dropping a constructor: assert
-                // the eight expected case tags all appear among `ofFrozen` images.
+                // the nine expected case tags all appear among `ofFrozen` images.
                 let tag (ty: SemType) =
                     match ty with
                     | TyConst _ -> "TyConst"
@@ -100,6 +104,7 @@ let tests =
                     | TyRecord _ -> "TyRecord"
                     | TyUnion _ -> "TyUnion"
                     | TyClass _ -> "TyClass"
+                    | TyOr _ -> "TyOr"
                     | TyTypar _ -> "TyTypar"
                     | TyUnknown _ -> "TyUnknown"
                     | TyVar _ -> "TyVar"
@@ -114,6 +119,7 @@ let tests =
                         "TyRecord"
                         "TyUnion"
                         "TyClass"
+                        "TyOr"
                         "TyTypar"
                         "TyUnknown"
                     ] do

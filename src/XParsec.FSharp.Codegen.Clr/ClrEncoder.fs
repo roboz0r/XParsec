@@ -365,6 +365,14 @@ type internal ClrEncoder(env: ClrEnv) =
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]
                 | _ -> ()
+            | FTOr xs ->
+                // Members are canonical in both open and instantiated unions, so the
+                // i-th member of one pairs with the i-th of the other.
+                match a with
+                | FTOr ys when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
             | FTUnknown _ -> ()
 
         go openT instT

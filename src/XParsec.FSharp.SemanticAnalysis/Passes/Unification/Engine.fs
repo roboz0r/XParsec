@@ -43,6 +43,11 @@ module UnificationEngine =
         | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
         | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
+        // Rebuild through `mkUnion`, not a bare `EqArray.map`: resolving a member
+        // can collapse the set (`'T | string` with `'T := string` → `string | string`
+        // → `string`) or reorder it, and only `mkUnion` re-establishes the canonical
+        // (sorted/deduped/collapsed) form the equality layer's `n1 = n2` relies on.
+        | TyOr members -> mkUnion (seq { for m in members -> zonk m })
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
@@ -142,6 +147,7 @@ module UnificationEngine =
         | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
+        | TyOr members -> EqArray.exists (occursAndAdjust target) members
         | TyUnknown _ -> false
         // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
         | TyTypar _ -> false
@@ -195,6 +201,9 @@ module UnificationEngine =
         | TyRecord(n, args) -> TyRecord(n, EqArray.map (substituteWith subst) args)
         | TyUnion(n, args) -> TyUnion(n, EqArray.map (substituteWith subst) args)
         | TyClass(n, args) -> TyClass(n, EqArray.map (substituteWith subst) args)
+        // Through `mkUnion`: substituting a typar member can collapse / reorder the
+        // set, so re-canonicalise rather than `EqArray.map` (see `zonk`).
+        | TyOr members -> mkUnion (seq { for m in members -> substituteWith subst m })
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
@@ -720,6 +729,13 @@ module UnificationEngine =
             unify ctx key a1 a2
             unify ctx key r1 r2
         | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> unifyArgs ctx key xs ys
+        // Anonymous unions unify by *structural equality only* — members are
+        // canonical (sorted/deduped by `mkUnion`), so equal unions have identical
+        // member vectors and unify positionally. Membership/assignability
+        // (`int ≤ int | string`) is NOT handled here: it belongs to the directional
+        // `subsumes` layer, never the symmetric core (the principality rule — this
+        // arm never widens `int` into `int | string`).
+        | TyOr m1, TyOr m2 when m1.Length = m2.Length -> unifyArgs ctx key m1 m2
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -1034,12 +1050,22 @@ module UnificationEngine =
             // reference-equal by default; structural equality / comparison
             // for classes requires the attribute walker. Defer in v1.
             Defer
-        | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _) ->
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyOr members ->
+            // Anonymous union (anon-unions-plan §Constraints): the union satisfies a
+            // structural constraint iff EVERY member does — the same all-members-or-
+            // defer reduction used for tuple/record/union fields. (Stage 6's gate
+            // exercises this; reachable only once the Stage 3 front door builds a
+            // `TyOr`.)
+            reduceOutcome (checkConstraint ctx c) members
+        | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
             // v1: tuples, functions, and reference records / unions /
-            // classes are all reference types. `[<Struct>]`-attributed
-            // records / unions / structs ship with the attribute walker.
+            // classes are all reference types. An anonymous union erases to the
+            // backend's universal-supertype reference primitive (`obj`+`isinst`), so
+            // it is a reference type too. `[<Struct>]`-attributed records / unions /
+            // structs ship with the attribute walker.
             Violated
-        | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _) -> Satisfied
+        | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
+            Satisfied
         | SemanticConstraintKind.Nullness, _ ->
             // Nullness analysis is a separate track — defer until it
             // lands. Treating as `Defer` (not `Violated`) keeps existing
@@ -1105,6 +1131,12 @@ module UnificationEngine =
             | TyClass(_, args) ->
                 for a in args do
                     walk a
+            | TyOr members ->
+                // An anonymous union supports a structural constraint iff every
+                // member does (`checkConstraint`'s all-members rule), so a still-free
+                // member carries the constraint forward.
+                for m in members do
+                    walk m
             | TyUnknown _ -> ()
             // A post-freeze typar leaf carries no free args.
             | TyTypar _ -> ()
