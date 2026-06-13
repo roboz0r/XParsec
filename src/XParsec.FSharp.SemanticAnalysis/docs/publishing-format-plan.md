@@ -143,6 +143,17 @@ reason as the F# pickle.
   and to something else on JS; there is no portable "compiled inline body." This
   is the `.cmx`/optimization-data channel and it is inherently source-first. Keep
   it a separate manifest list (`impl`) from the contract, per OCaml.
+  Mechanistically this is *why* source suffices, and it is the load-bearing
+  simplification: because the body ships as source and is re-typechecked at consume
+  (PF1), an imported inline re-enters the consumer's compilation as an ordinary
+  `SemType` body — handled by the **same local inline pass** as a same-package inline
+  (the pre-freeze inline-expansion pass), with no serialised template and no
+  `FrozenType` round-trip. The cross-package case **collapses into the local case**;
+  the serialised `FrozenType` template (PF6) is needed only when source is *not*
+  shipped. Caveat to watch: re-typechecking an inline body needs the library's
+  *original typing environment* (its `open`s, internals, and transitive dependency
+  signatures), not just the contract surface — clean for shallow-dependency libraries,
+  and the depth at which it degrades is exactly the pressure toward PF6.
 - **PF5 — Any resolved/serialised form is a local, content-addressed build
   cache — never published.** If consume-time parse+resolve shows up in a profile,
   cache the resolved `IExternalSymbolProvider` keyed on source content hash, in
@@ -155,7 +166,18 @@ reason as the F# pickle.
   stateless** consumer (below), not "non-compiler" and not aesthetics. Its
   advantage over source is random-access / demand-loading of one symbol *without
   running the parser and without holding state* — which only pays off for a
-  consumer that has neither.
+  consumer that has neither. The concrete in-memory form such a sidecar would
+  serialise is **`TExpr<FrozenType>`** — the ground, `FTTypar`-only typed term the
+  frozen-type split already produces.
+  That shrinks PF6's *marginal* cost (the compiler builds the payload regardless; PF6
+  adds a pickler over a closed DU, not a new IR) but does **not** lower the
+  version-brittleness bar — the schema-stamp burden below is unchanged.
+  **Trust gate before any PF6 ship — the equality oracle:** compiling a library to
+  `TExpr<FrozenType>` in memory and re-typechecking its *shipped source* (PF1) to
+  `SemType → freeze → TExpr<FrozenType>` must produce **equal** trees (modulo typar
+  indexing). That equality is what licenses consuming the serialised form *instead of*
+  source; it generalises the Edge-A typar-index round-trip test, and it can
+  be run from the day `TExpr<FrozenType>` exists — long before any sidecar is shipped.
 - **PF7 — Multi-target shapes the carrier.** Per-target runtime artifacts; **one
   neutral contract** shared across targets. This is *why* the contract cannot
   live in any target's artifact (reinforces PF2) and points toward a shared
@@ -221,6 +243,9 @@ reason as the F# pickle.
   two-artifact split (`.fsi` vs `.fs`) this plan distributes.
 - [function-representation-plan](function-representation-plan.md) — `Fun`, the
   representation behind the arrow-sugar abbreviation that IL can't carry.
+- The (completed) `SemType → FrozenType` split — its `TExpr<FrozenType>` is the
+  in-memory artifact a PF6 sidecar would serialise, and its source-reship path
+  (re-typecheck → `SemType` → local inline pass) realises PF1/PF4.
 - [`../../Vesper.Core/manifest.toml`](../../Vesper.Core/manifest.toml) — the
   current contract (`files`) + inline-body (`impl`) manifest this plan publishes.
 - [`../../Vesper.Core/README.md`](../../Vesper.Core/README.md) — the "two

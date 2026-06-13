@@ -7,7 +7,7 @@ hashing only.
 
 Status: **design settled, not yet implemented.** Decisions below are locked
 except where the "Open questions" section says otherwise. Promote to
-`structural-equality-plan.md` (pass-by-pass, like `records-plan.md`) when
+`structural-equality-plan.md` (pass-by-pass, like `records-architecture.md`) when
 implementation starts.
 
 ## 1. Objective and principles

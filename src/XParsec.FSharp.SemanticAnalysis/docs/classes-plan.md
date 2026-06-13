@@ -1,8 +1,8 @@
 # Classes plan
 
 The build plan for a **subset of F# classes** in the semantic-analysis
-pipeline. Same overall shape as [`records-plan.md`](records-plan.md)
-and [`du-plan.md`](du-plan.md): a new named-type registry entry, a
+pipeline. Same overall shape as [`records-architecture.md`](records-architecture.md)
+and [`du-architecture.md`](du-architecture.md): a new named-type registry entry, a
 constructor that mints values, members that are looked up on the
 receiver's resolved type. Records and DUs already paid for the
 named-type infrastructure (`ctx.RecordTypes`, `TyRecord`,

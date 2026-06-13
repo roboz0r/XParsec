@@ -338,7 +338,7 @@ generic locals land.
 #### Targeted Ref + generic-closure intersection test
 
 A captured `let mutable` of typar type goes through both the F2 cell
-promotion (records-plan §B7) and the C3 generic-closure synthesis.
+promotion ([`records-architecture.md`](records-architecture.md)) and the C3 generic-closure synthesis.
 The mechanism is exercised indirectly (a `Vesper.Ref<'T>` capture
 flows through the same `encodeType` path that the C3 tests pin), but
 no explicit `let mkCell x = let mutable n = x; fun () -> n <- n; n`
