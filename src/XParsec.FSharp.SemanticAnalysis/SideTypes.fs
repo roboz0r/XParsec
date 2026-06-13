@@ -88,10 +88,15 @@ type ForInEnumeratorG<'ty> =
     /// lives on a user `TypeDef`, so codegen resolves them through the
     /// project-local member machinery (`EmitResolve.resolveInstanceMember`) rather
     /// than `ExternalMemberRef`. The element type is the loop pattern's type, so no
-    /// member keys are carried. Scoped to a *reference* enumerator with no
-    /// `IDisposable` (no `finally`); a value-type user enumerator or a disposable
-    /// one falls back to `ValueNone` at the probe (`docs/get-enumerator-gaps.md`).
-    | UserDuckTyped of enumeratorTy: 'ty
+    /// member keys are carried. `dispose` is `true` iff `EnumeratorTy :
+    /// IDisposable` — codegen then null-checks + `callvirt`s `System.IDisposable::
+    /// Dispose` in a `finally` (the interface slot dispatches to the user impl);
+    /// `false` elides the `finally` (C# parity for a non-disposable enumerator).
+    /// `isValueType` is the *enumerator*'s value-type-ness: it selects
+    /// value-receiver emission (`ldloca` + `constrained. <E>`) for the `EnumeratorTy`
+    /// member calls and a non-boxing struct walk (Gap 2 value-type variant), exactly
+    /// as `DuckTyped.isValueType` does for an external enumerator.
+    | UserDuckTyped of enumeratorTy: 'ty * isValueType: bool * dispose: bool
 
 /// The `SemType`-domain `ForInEnumerator` (inference + `SideTables.ForInShape` +
 /// the pre-freeze `TExpr.ForIn`). The frozen alias lives in `Tast.fs`'s `Frozen`

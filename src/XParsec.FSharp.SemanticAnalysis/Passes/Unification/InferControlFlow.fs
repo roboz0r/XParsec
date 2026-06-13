@@ -196,11 +196,11 @@ module internal UnificationInferControlFlow =
     /// `GetEnumerator()` whose return type `E` is *itself* a user class with
     /// `MoveNext(): bool` and a `Current` property is a valid `for … in` source
     /// even without implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`,
-    /// project-local). Scoped to a **reference** enumerator with no `IDisposable`:
-    /// a value-type user enumerator (no value-receiver member-call IL for user
-    /// types yet) or an external enumerator type (codegen routes user members
-    /// through the local machinery only) falls back to `ValueNone`, letting the
-    /// interface probe or the "not a supported enumerable" diagnostic take over.
+    /// project-local). Handles a reference or value-type (`[<Struct>]`) user
+    /// enumerator — the latter walks by address (`constrained.`), no boxing. An
+    /// *external* enumerator type (codegen routes user members through the local
+    /// machinery only) still falls back to `ValueNone`, letting the interface probe
+    /// or the "not a supported enumerable" diagnostic take over.
     and tryLocalDuckTypedEnumerator
         (ctx: PassContext)
         (nameKey: SymbolKey)
@@ -220,9 +220,11 @@ module internal UnificationInferControlFlow =
                 match zonk (instantiateMember (info.TypeParams, args) ge.Type) with
                 | TyFun(_, (TyClass(enumKey, enumArgs) as enumTy)) ->
                     match TypeRegistry.tryClassByKey ctx.Types enumKey with
-                    // A reference user enumerator only — value-type member-call IL
-                    // for project-local types is a separate gap.
-                    | ValueSome enumInfo when not enumInfo.IsValueType ->
+                    // A user enumerator, reference or value-type: a `[<Struct>]`
+                    // enumerator walks by address (`ldloca` + `constrained. <E>`),
+                    // the non-boxing path the value-receiver member-call IL already
+                    // emits for local struct members.
+                    | ValueSome enumInfo ->
                         let moveNext =
                             enumInfo.Members
                             |> Array.tryFind (fun m ->
@@ -240,7 +242,27 @@ module internal UnificationInferControlFlow =
                             match zonk (instantiateMember (enumInfo.TypeParams, enumArgs) mn.Type) with
                             | TyFun(_, TyConst("bool", _)) ->
                                 let elemTy = instantiateMember (enumInfo.TypeParams, enumArgs) cur.Type
-                                ValueSome(elemTy, ForInEnumeratorG.UserDuckTyped enumTy)
+
+                                // C# parity: only a disposable enumerator gets a
+                                // `finally`. Scan the user enumerator's interface
+                                // impls for `System.IDisposable`; codegen disposes
+                                // through the interface slot regardless of where the
+                                // member is stored.
+                                let dispose =
+                                    enumInfo.InterfaceImpls
+                                    |> Array.exists (fun impl ->
+                                        match impl.Resolved with
+                                        | ValueSome resolved ->
+                                            match
+                                                zonk (instantiateMember (enumInfo.TypeParams, enumArgs) resolved)
+                                            with
+                                            | TyClass(ifaceKey, _) ->
+                                                SymbolKeyOps.qualifiedName ifaceKey = "System.IDisposable"
+                                            | _ -> false
+                                        | ValueNone -> false
+                                    )
+
+                                ValueSome(elemTy, ForInEnumeratorG.UserDuckTyped(enumTy, enumInfo.IsValueType, dispose))
                             | _ -> ValueNone
                         | _ -> ValueNone
                     | _ -> ValueNone

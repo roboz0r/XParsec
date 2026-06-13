@@ -303,6 +303,104 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the user enumerator in order"
             }
 
+            // Gap 2 value-type variant. The user enumerator `E` is a `[<Struct>]`, so
+            // the loop walks it by address (`ldloca` + a direct `call`), never boxing
+            // it — exactly how the F# compiler lowers `for x in struct-enumerator`.
+            // The members `MoveNext` / `Current` are ordinary (non-virtual) instance
+            // methods on `E`, so the call is a plain `call`, *not* `constrained.
+            // callvirt`: a `constrained. callvirt` to a non-virtual struct `MethodDef`
+            // mis-dispatches against an uninitialised receiver (the walk never
+            // advances, infinite-loops). `MoveNext`'s mutation to `this.Cur` must
+            // persist across iterations through the by-address receiver, so a wrong
+            // (by-value-copy) walk would loop forever — the run-to-`done` assertion is
+            // the guard.
+            test "for-in over a user duck-typed struct enumerator walks it by address without boxing" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type Enum ="
+                            "    val mutable Cur : int"
+                            "    val Stop : int"
+                            "    new(stop: int) = { Cur = 0; Stop = stop }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Cur <- this.Cur + 1"
+                            "        this.Cur <= this.Stop"
+                            "    member this.Current : int = this.Cur"
+                            "type Counter(stop: int) ="
+                            "    member _.GetEnumerator() : Enum = Enum(stop)"
+                            "let c = Counter(3)"
+                            "for x in c do"
+                            "    printfn \"%d\" x"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "UserDuckTypedStruct" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the struct enumerator in order"
+
+                // The struct walk addresses the enumerator (`ldloca`) and dispatches
+                // its own non-virtual members with a direct `call` — not `constrained.
+                // callvirt`. This enumerator isn't `IDisposable`, so the only place a
+                // `constrained.` (0xFE 0x16) could appear is the (now-eliminated)
+                // member-call path; its absence proves the direct-`call` lowering.
+                let il = peMethodIl bytes "Program" "Main"
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isFalse
+                    hasConstrained
+                    "struct enumerator members dispatch via direct `call`, not `constrained. callvirt`"
+            }
+
+            // Gap 1: a user duck-typed enumerator that *also* implements
+            // `System.IDisposable` is disposed in a `finally` after the walk (C#
+            // parity). The front-end probe sets `dispose` from the enumerator's
+            // interface impls; codegen mints `System.IDisposable::Dispose` and emits
+            // the null-checked `finally` callvirt, which dispatches to the user
+            // impl. The side effect (a `Dispose` that prints) must fire exactly once,
+            // after the elements and before `done`.
+            test "for-in over a user duck-typed disposable enumerator disposes it once after the walk" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Enum ="
+                            "    val mutable Cur : int"
+                            "    val Stop : int"
+                            "    new(stop: int) = { Cur = 0; Stop = stop }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Cur <- this.Cur + 1"
+                            "        this.Cur <= this.Stop"
+                            "    member this.Current : int = this.Cur"
+                            "    interface System.IDisposable with"
+                            "        member _.Dispose() = printfn \"disposed\""
+                            "type Counter(stop: int) ="
+                            "    member _.GetEnumerator() : Enum = Enum(stop)"
+                            "let c = Counter(3)"
+                            "for x in c do"
+                            "    printfn \"%d\" x"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "UserDuckTypedDisposable" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "1\n2\n3\ndisposed\ndone"
+                    "walks the enumerator then disposes it once before 'done'"
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

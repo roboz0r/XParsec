@@ -43,12 +43,19 @@ module EmitLoops =
     ///   finally e.Dispose()                   // null-checked for a reference E,
     ///                                         // `constrained.` for a struct E
     ///
-    /// A struct enumerator dispatches by address (`ldloca` + `constrained. <E>`)
-    /// with no null-check (a struct value is never null); a reference enumerator
-    /// loads by value and null-checks its disposal. The loop variable's type is the
-    /// iterated element type — a tuple binder (`for (k, v) in pairs`) `bindPattern`s
-    /// the element, a simple binder aliases it. `for` is a unit expression, so the
-    /// single reified `unit` value is left on the stack.
+    /// A struct enumerator dispatches by address (`ldloca` + a direct `call`) with
+    /// no null-check (a struct value is never null); a reference enumerator loads by
+    /// value and `callvirt`s. The `MoveNext` / `Current` calls on a struct are a
+    /// plain `call` — its concrete value type is statically known, exactly as the
+    /// F# compiler lowers `for x in struct-enumerator` — *not* `constrained.
+    /// callvirt`: those members are ordinary (non-virtual) instance methods on `E`,
+    /// and a `constrained. callvirt` to a non-virtual struct `MethodDef` mis-dispatches
+    /// (it walks an uninitialised receiver). `Dispose` is the lone exception — it is
+    /// reached through the `IDisposable` interface slot, so it keeps `constrained.
+    /// callvirt` (interface dispatch on the boxed-or-addressed receiver). The loop
+    /// variable's type is the iterated element type — a tuple binder (`for (k, v) in
+    /// pairs`) `bindPattern`s the element, a simple binder aliases it. `for` is a
+    /// unit expression, so the single reified `unit` value is left on the stack.
     let private emitEnumeratorLoop
         (recur: Recur)
         (env: EmitEnv)
@@ -58,8 +65,10 @@ module EmitLoops =
         (source: Frozen.TExpr)
         (body: Frozen.TExpr)
         : unit =
-        // The `constrained.` token for a struct enumerator — `TypeToken` routes
-        // through the value-type-aware encoder, so `E` lands as a value type.
+        // The `constrained.` token for a struct enumerator's interface `Dispose` —
+        // `TypeToken` routes through the value-type-aware encoder, so `E` lands as a
+        // value type. Only the `Dispose` interface call needs it; the concrete-type
+        // `MoveNext` / `Current` calls are a plain `call` (see the doc comment).
         let constrainedTok =
             if loop.IsValueType then
                 ValueSome(env.Provider.TypeToken loop.EnumeratorTy)
@@ -68,17 +77,22 @@ module EmitLoops =
 
         let enumSlot = b.Local loop.EnumeratorTy
 
-        // Load the enumerator as the receiver for a member call: a struct by
-        // address (+ `constrained.`), a reference by value.
+        // Load the enumerator as the receiver for a member call on its own type: a
+        // struct by address (`ldloca`, for the by-address `call`), a reference by
+        // value (`ldloc`, for the `callvirt`).
         let loadEnumReceiver () =
             if loop.IsValueType then
                 b.Add(ILInstr.Ldloca enumSlot)
-
-                match constrainedTok with
-                | ValueSome t -> b.Add(ILInstr.Constrained t)
-                | ValueNone -> ()
             else
                 b.Add(ILInstr.Ldloc enumSlot)
+
+        // Dispatch a member declared on `E` itself (`MoveNext` / `Current`): a direct
+        // `call` for a struct (concrete type known), a `callvirt` for a reference.
+        let callEnumMember (handle: EntityHandle) =
+            if loop.IsValueType then
+                b.Add(ILInstr.Call(handle, 1, 1))
+            else
+                b.Add(ILInstr.Callvirt(handle, 1, 1))
 
         recur env b source
         b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
@@ -95,11 +109,11 @@ module EmitLoops =
 
         b.Add(ILInstr.Mark loopStart)
         loadEnumReceiver ()
-        b.Add(ILInstr.Callvirt(loop.MoveNext, 1, 1))
+        callEnumMember loop.MoveNext
         b.Add(ILInstr.Brfalse loopEnd)
         // `x = e.Current`, then the unit-typed body whose value is discarded.
         loadEnumReceiver ()
-        b.Add(ILInstr.Callvirt(loop.Current, 1, 1))
+        callEnumMember loop.Current
         b.Add(ILInstr.Stloc xSlot)
         bindPattern env b xSlot pat
         recur env b body
@@ -207,7 +221,7 @@ module EmitLoops =
                 pat
                 source
                 body
-        | TExprG.ForIn(pat, source, body, ForInEnumeratorG.UserDuckTyped enumeratorTy, _) ->
+        | TExprG.ForIn(pat, source, body, ForInEnumeratorG.UserDuckTyped(enumeratorTy, isValueType, dispose), _) ->
             let elemTy = typeOfPat pat
             // Gap 2 pure-pattern user variant: a project-local source class with a
             // pattern `GetEnumerator()` whose enumerator `E` is itself a user class
@@ -215,13 +229,42 @@ module EmitLoops =
             // member lives on a user `TypeDef`, so — unlike the external §4.4 arm —
             // the three handles come from the project-local member machinery
             // (`resolveInstanceMember`, which routes a generic receiver through a
-            // `UserGenericMemberRef`/`TypeSpec`). The probe scoped this to a
-            // *reference* enumerator with no `IDisposable`, so the loop walks by
-            // value with no `try`/`finally` (matching the shared emitter's
-            // reference-no-dispose shape).
+            // `UserGenericMemberRef`/`TypeSpec`). When `E` is a `[<Struct>]` enumerator
+            // (`isValueType`) the shared emitter walks it by address
+            // (`ldloca` + `constrained. <E>`), no boxing; a reference `E` walks by
+            // value.
             let geHandle, _ = resolveInstanceMember env (typeOfExpr source) "GetEnumerator"
             let mnHandle, _ = resolveInstanceMember env enumeratorTy "MoveNext"
             let curHandle, _ = resolveInstanceMember env enumeratorTy "Current"
+
+            // When `E : IDisposable` the front end set `dispose`, so emit the
+            // null-checked `finally` disposal. Rather than resolve the user's own
+            // `Dispose` member (an interface-impl slot may not live in the member
+            // table), mint `System.IDisposable::Dispose` exactly as the §4.2
+            // interface arm does — a `callvirt` on the interface slot dispatches to
+            // the user impl. For a struct `E` the shared emitter disposes via
+            // `ldloca` + `constrained. <E>` (no null-check); a reference `E` takes the
+            // null-checked disposal path.
+            let disposeHandle =
+                if dispose then
+                    let dispKey =
+                        SymbolKey.MemberKey(
+                            SymbolKey.TypeKey(None, "System", "IDisposable"),
+                            "Dispose",
+                            EqArray.empty,
+                            MemberKind.Method
+                        )
+
+                    ValueSome(
+                        env.Provider.ExternalMemberRef(
+                            dispKey,
+                            false,
+                            false,
+                            FTFun(FTConst("unit", EqArray.empty), FTConst("unit", EqArray.empty))
+                        )
+                    )
+                else
+                    ValueNone
 
             emitEnumeratorLoop
                 recur
@@ -233,8 +276,8 @@ module EmitLoops =
                     GetEnumerator = geHandle
                     MoveNext = mnHandle
                     Current = curHandle
-                    IsValueType = false
-                    Dispose = ValueNone
+                    IsValueType = isValueType
+                    Dispose = disposeHandle
                 }
                 pat
                 source
