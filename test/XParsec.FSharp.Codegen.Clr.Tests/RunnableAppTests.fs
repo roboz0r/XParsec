@@ -61,7 +61,7 @@ let tests =
                 // `withCore`: a `%A` bundle needs `Vesper.Core` (the formatter's
                 // `RuntimeFormatState` implements the Core-owned `IFormatSink`), so
                 // its on-disk path must be a resolvable reference source for the
-                // bundle's transitive-closure copy (printf-handoff.md step 3.2).
+                // bundle's transitive-closure copy.
                 let project = withCore (ProjectInfo.app "XParsecListApp" outDir)
 
                 let artifact = compileSourceTo project "printfn \"%A\" [1; 2; 3]"

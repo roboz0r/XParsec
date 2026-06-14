@@ -1,7 +1,7 @@
 namespace Vesper
 
-// The `%A` structural-format contract (vesper-printf-percentA-plan, design-doc P3).
-// Two pure, BCL-only interfaces the backend's `%A` rail binds:
+// The `%A` structural-format contract. Two pure, BCL-only interfaces the
+// backend's `%A` rail binds:
 //
 //   * `IStructuralFormattable` — the `InterfaceImpl` the compiler synthesises on
 //     every record / union (mirroring the structural-equality / comparison rail).
@@ -12,9 +12,9 @@ namespace Vesper
 //     Core-owned interfaces so a record-bearing program links only `Vesper.Core`
 //     — never `Vesper.Printf`.
 //
-// These were prototyped in `Vesper.Printf`'s C# `StructuralFormat.cs`; step 3.2 of
-// printf-handoff.md moves the *interfaces* here so the synthesised `Format`
-// implements a Core type. Every member returns `unit` (a `callvirt`-for-effect
+// The *interfaces* live here (not in `Vesper.Printf`'s C# `StructuralFormat.cs`,
+// where the engine lives) so the synthesised `Format` implements a Core type.
+// Every member returns `unit` (a `callvirt`-for-effect
 // surface), so they emit as `void` slots, and the `unit ->` members are nullary —
 // matching the `instance void` member refs `ClrRecipes.formatSinkHandles` calls.
 

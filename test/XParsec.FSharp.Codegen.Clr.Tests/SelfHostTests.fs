@@ -96,8 +96,8 @@ let tests =
             }
 
             // The `%A` structural-format interfaces (`IFormatSink` /
-            // `IStructuralFormattable`) are Core-owned (printf-handoff.md step 3.2).
-            // `Vesper.Printf` (C#) can't MSBuild against a backend-only assembly, so
+            // `IStructuralFormattable`) are Core-owned. `Vesper.Printf` (C#) can't
+            // MSBuild against a backend-only assembly, so
             // it references a committed copy `src/Vesper.Printf/refs/Vesper.Core.dll`.
             // This guard keeps that copy in sync with the Vesper source: it verifies
             // surface parity with the freshly backend-compiled `Vesper.Core.dll` and
@@ -523,9 +523,10 @@ let tests =
                         References = [ fsCorePath ]
                     }
 
-                // A deferred `%A` form (precision) keeps the FSharp.Core cold path —
-                // a plain `%A` of an int now lowers to the structural engine (P3 step 2).
-                let src = "printfn \"%.2A\" 42"
+                // The space-flag `% A` is the one still-deferred `%A` form, so it keeps
+                // the FSharp.Core cold path — a plain `%A` (and the `%.NA` / `%+A` /
+                // `%-A` flag forms) now lower to the structural engine.
+                let src = "printfn \"% A\" 42"
                 let lexed, file = parseFile src
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`
@@ -535,7 +536,7 @@ let tests =
 
                 let artifact = Codegen.compile MockBuiltins.provider project tast
 
-                Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the %.2A cold path references FSharp.Core"
+                Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the % A cold path references FSharp.Core"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 

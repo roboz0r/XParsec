@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Vesper.Printf happy path: fully-applied literal printf lowered to the
 // `Vesper.Formatter` write-through handler. The lowering is additive — any
 // specifier the happy path doesn't handle keeps the existing FSharp.Core cold
-// path. See docs/vesper-printf-plan.md / docs/printf-handoff.md.
+// path. See docs/vesper-printf-plan.md.
 
 let private soleDecl (src: string) : TDecl =
     let tast = analyse src
@@ -386,11 +386,59 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%.2A` (precision) stays on the cold path" {
+            test "`%.2A` (precision) lowers to a Structured hole carrying a size budget" {
                 match soleDecl "printfn \"%.2A\" 42" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%.2A must stay on the cold path"
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%.2A is Structured"
+                        Expect.equal hole.Format (Some "2") "precision 2 → size budget '2' in the Format slot"
+                        Expect.equal hole.PercentASizeBudget (Some 2) "and reads back as a size budget"
+                        Expect.equal hole.Alignment None "no width budget"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%+A` (non-public) lowers as plain `%A` (no-op in the reflection-free engine)" {
+                match soleDecl "printfn \"%+A\" 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%+A is Structured"
+                        Expect.equal hole.Alignment None "the `+` flag is ignored (no budget)"
+                        Expect.equal hole.Format None "no size budget"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%-A` (left-justify) lowers as plain `%A` (no-op, matching F#)" {
+                match soleDecl "printfn \"%-A\" 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%-A is Structured"
+                        Expect.equal hole.Alignment None "the `-` flag is ignored (no budget)"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%10.2A` carries both a width and a size budget" {
+                match soleDecl "printfn \"%10.2A\" 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%10.2A is Structured"
+                        Expect.equal hole.PercentAWidthBudget (Some 10) "width 10 → print-width budget"
+                        Expect.equal hole.PercentASizeBudget (Some 2) "precision 2 → print-size budget"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`% A` (space flag) stays on the cold path" {
+                match soleDecl "printfn \"% A\" 42" with
+                | TDecl.Expression(TExpr.Format _, _) -> failtest "% A must stay on the cold path"
                 | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%.2A: %A" other
+                | other -> failtestf "unexpected TAST for %% A: %A" other
             }
 
             // NOTE on the record/DU type-gate: a project-local record / DU is
@@ -399,8 +447,8 @@ let tests =
             // `analyse` harness compiles with no assembly name (home = `None`), so a
             // record there is still treated external (cold); the *real* codegen path
             // (`compileSource`, a named assembly) lowers it on the engine. The
-            // runtime tests below prove that end-to-end. `%.2A` (precision) stays cold
-            // regardless — see the cold-path test above.
+            // runtime tests below prove that end-to-end. The `%.NA` / `%+A` / `%-A`
+            // flag forms all lower (shape tests above); only `% A` stays cold.
 
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
 
@@ -441,6 +489,38 @@ let tests =
 
             test "`%0A` of a list prints flat (fits the budget either way)" {
                 runPrints "PHpStructFlat" "printfn \"%0A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            }
+
+            // ---- `%A` flag forms: `%.NA` (PrintSize), `%+A`, `%-A` ----
+            // Oracle is the structural spec, not `sprintf "%A"`. `%.NA` is a global
+            // *node* budget: after N leaves the engine truncates with `...` — matching
+            // F# for collections (the dominant truncation case). `%+A` (non-public
+            // fields) and `%-A` (left-justify) are no-ops here, identical to plain `%A`.
+
+            test "`%.2A` truncates a list after 2 nodes (PrintSize)" {
+                runPrints "PHpStructSize2" "printfn \"%.2A\" [ 1; 2; 3; 4; 5 ]" "[1; 2; ...]"
+            }
+
+            test "`%.0A` truncates immediately (zero node budget)" {
+                runPrints "PHpStructSize0" "printfn \"%.0A\" [ 1; 2; 3 ]" "..."
+            }
+
+            test "`%.3A` truncates a nested list per the shared node budget" {
+                runPrints
+                    "PHpStructSizeNest"
+                    "printfn \"%.3A\" [ [ 1; 2 ]; [ 3; 4 ]; [ 5; 6 ] ]"
+                    "[[1; 2]; [3; ...]; ...]"
+            }
+
+            test "`%+A` of a record prints the same as plain `%A`" {
+                runPrints
+                    "PHpStructPlus"
+                    "type R = { X: int; Y: string }\nprintfn \"%+A\" { X = 1; Y = \"a\" }"
+                    "{ X = 1; Y = \"a\" }"
+            }
+
+            test "`%-A` of a list prints the same as plain `%A`" {
+                runPrints "PHpStructMinus" "printfn \"%-A\" [ 1; 2; 3 ]" "[1; 2; 3]"
             }
 
             // ---- `%A` of a record / DU: step-3 synthesised `Format` (the engine) ----

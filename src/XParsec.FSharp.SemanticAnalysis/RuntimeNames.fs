@@ -81,7 +81,7 @@ module RuntimeNames =
 
     /// Canonical identity for the `%A` structural-format interface
     /// `Vesper.IStructuralFormattable` (P3, non-generic). Home `Vesper.Core` (which
-    /// owns it, printf-handoff.md step 3.2). Recogniser-only — `isStructuralFormattableKey`
+    /// owns it). Recogniser-only — `isStructuralFormattableKey`
     /// gates whether *this* compilation is `Vesper.Core` itself (then the per-type
     /// `Format` synthesis is suppressed; see codegen `Layout` / `Assembler`), so
     /// `private`.

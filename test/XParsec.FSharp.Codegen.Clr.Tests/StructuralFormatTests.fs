@@ -3,11 +3,11 @@ module XParsec.FSharp.Codegen.Clr.Tests.StructuralFormatTests
 open Expecto
 open Vesper
 
-// Step 1 of vesper-printf-percentA-plan: the `%A` layout engine in isolation —
+// The `%A` layout engine in isolation —
 // no compiler. Hand-written `IStructuralFormattable` impls (compiled by fsc here)
-// drive `StructuralPrinter.Print`, the same declarative sink the backend will
-// synthesize against in step 3. The oracle is the spec (copy-pasteable Vesper
-// source), not F#'s `sprintf "%A"` — we deliberately diverge (D-A/D-B).
+// drive `StructuralPrinter.Print`, the same declarative sink the backend
+// synthesises against. The oracle is the spec (copy-pasteable Vesper source), not
+// F#'s `sprintf "%A"` — we deliberately diverge.
 
 /// `Print v 80` — the default 80-column budget (most values stay flat).
 let private flat (v: obj) = StructuralPrinter.Print(v, 80)
@@ -175,6 +175,38 @@ let tests =
                         let xs = System.Collections.Generic.List<obj>()
                         xs.Add(xs)
                         Expect.equal (flat (box xs)) "[...]" "self-reference renders as ..."
+                    }
+                ]
+
+            // `%.NA` — the PrintSize node budget (F# sformat.fs `countNodes`). Each
+            // leaf spends one unit; composites don't. Past the budget the engine
+            // truncates with `...`. The collection cases match F#'s `sprintf "%.NA"`.
+            testList
+                "size budget (%.NA)"
+                [
+                    test "size 2 truncates a list after 2 leaves" {
+                        Expect.equal
+                            (StructuralPrinter.Print(box [ 1; 2; 3; 4; 5 ], 80, 2))
+                            "[1; 2; ...]"
+                            "two elements then ..."
+                    }
+                    test "size 0 truncates immediately" {
+                        Expect.equal (StructuralPrinter.Print(box [ 1; 2; 3 ], 80, 0)) "..." "nothing fits"
+                    }
+                    test "size above the content prints in full" {
+                        Expect.equal (StructuralPrinter.Print(box [ 1; 2; 3 ], 80, 10)) "[1; 2; 3]" "budget not reached"
+                    }
+                    test "the budget is shared across a nested list" {
+                        Expect.equal
+                            (StructuralPrinter.Print(box [ [ 1; 2 ]; [ 3; 4 ]; [ 5; 6 ] ], 80, 3))
+                            "[[1; 2]; [3; ...]; ...]"
+                            "3 leaves spent, then nested + outer ..."
+                    }
+                    test "a tuple truncates per leaf (preserving arity)" {
+                        Expect.equal
+                            (StructuralPrinter.Print(box (1, 2, 3), 80, 1))
+                            "(1, ..., ...)"
+                            "one leaf, the rest ... (matches F#)"
                     }
                 ]
         ]

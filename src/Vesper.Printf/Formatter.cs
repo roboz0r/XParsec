@@ -286,14 +286,15 @@ public ref struct Formatter
 
     /// <summary>Writes <paramref name="value"/> as copy-pasteable Vesper source for
     /// an F# <c>%A</c> hole, laid out within a column budget of
-    /// <paramref name="width"/> chars (0 ⇒ never break — the <c>%0A</c> flat
-    /// mode).</summary>
+    /// <paramref name="width"/> chars (0 ⇒ never break — the <c>%0A</c> flat mode)
+    /// and a node budget of <paramref name="size"/> (F# PrintSize — nodes past it
+    /// render as <c>...</c>, the <c>%.NA</c> mode; 10000 for plain <c>%A</c>).</summary>
     /// <remarks>Deviation: a dedicated member because <c>%A</c> has no
     /// <see cref="AppendFormatted{T}(T)"/> shape — it drives the reflection-free
     /// structural engine (<see cref="StructuralPrinter"/>) rather than an
     /// <c>IFormattable</c> call. The value is boxed inside <c>Print</c>; acceptable
     /// on the structural heavy path (F#'s reflection <c>%A</c> boxes everything).</remarks>
-    public void AppendStructured<T>(T value, int width) => AppendLiteral(StructuralPrinter.Print(value, width));
+    public void AppendStructured<T>(T value, int width, int size) => AppendLiteral(StructuralPrinter.Print(value, width, size));
 
     /// <summary>Flushes buffered text to the write-through sink and releases the buffer.</summary>
     public void Flush()

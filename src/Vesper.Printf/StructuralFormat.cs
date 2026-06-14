@@ -7,25 +7,20 @@ using System.Text;
 
 namespace Vesper;
 
-// Step 1 of vesper-printf-percentA-plan: a C# prototype of the `%A` structural
-// formatter. The interfaces (`IStructuralFormattable` / `IFormatSink`) live here
-// for now; at integration they migrate to self-hosted `Vesper.Core` — the
-// synthetic-csproj test topology (self-host `Vesper.Core.dll`, then compile this
-// C# against its path) lets the engine implement a Core-owned interface, so a
-// synthesized record/DU implements `Vesper.IStructuralFormattable` without
-// leaking a `Vesper.Printf` dependency into every record-bearing program.
+// The `%A` structural formatter (reflection-free).
 //
-// Target (D-A): `%A v` produces copy-pasteable Vesper source. Layout (D-B):
-// a group-based pretty-printer — each composite is a group rendered ALL-flat (if
-// its flat form fits the width budget) or ALL-broken (every soft break in it
-// becomes a newline). No node is ever half-broken, so there is no stair-shape
-// (the failure mode of F#'s greedy `squashToAux`, sformat.fs:666).
+// Target: `%A v` produces copy-pasteable Vesper source. Layout: a group-based
+// pretty-printer — each composite is a group rendered ALL-flat (if its flat form
+// fits the width budget) or ALL-broken (every soft break in it becomes a
+// newline). No node is ever half-broken, so there is no stair-shape (the failure
+// mode of F#'s greedy `squashToAux`, sformat.fs:666).
 //
-// `IStructuralFormattable` / `IFormatSink` are now owned by `Vesper.Core`
-// (printf-handoff.md step 3.2) — they were prototyped here in step 1 and moved so
-// the synthesised record/DU `Format` implements a Core type. `RuntimeFormatState`
-// below implements the Core-owned `Vesper.IFormatSink`, bound at C# build time
-// through the committed `refs/Vesper.Core.dll` reference (see the .csproj).
+// The implemented interfaces (`IStructuralFormattable` / `IFormatSink`) are owned
+// by `Vesper.Core` so a synthesised record/DU `Format` implements a Core type
+// (every program links Core) without leaking a `Vesper.Printf` dependency into
+// every record-bearing program. `RuntimeFormatState` below implements the
+// Core-owned `Vesper.IFormatSink`, bound at C# build time through the committed
+// `refs/Vesper.Core.dll` reference (see the .csproj).
 
 /// <summary>The recorded layout document. A group is rendered all-flat or
 /// all-broken; nesting governs the indent that broken lines hang at.</summary>
@@ -117,6 +112,13 @@ public sealed class RuntimeFormatState : IFormatSink
 
     private readonly int _width; // 0 ⇒ never break (always flat); else the column budget.
 
+    // F#'s PrintSize: a global "node" budget (sformat.fs `countNodes`). Each leaf
+    // (primitive / string / char / bool / ToString fallback) spends one unit;
+    // composites (records, DUs, tuples, collections) don't spend directly — their
+    // children do. When it reaches 0, further values render as "..." (the `%.NA`
+    // truncation). Default 10000 ⇒ effectively unbounded for normal values.
+    private int _size;
+
     // The kind of an open layout scope. Root is the implicit outermost frame.
     private enum FrameKind { Root, Group, Nest, Application }
 
@@ -138,10 +140,12 @@ public sealed class RuntimeFormatState : IFormatSink
     // BeginApplication it produces (so only a top-level application parenthesizes).
     private bool _argPending;
 
-    /// <summary>Create a layout state with the given column budget (0 ⇒ never break).</summary>
-    public RuntimeFormatState(int width)
+    /// <summary>Create a layout state with the given column budget (0 ⇒ never
+    /// break) and node budget (F# PrintSize; nodes past it render as "...").</summary>
+    public RuntimeFormatState(int width, int printSize)
     {
         _width = width;
+        _size = printSize;
         _frames.Add(new Frame(FrameKind.Root, 0, false));
     }
 
@@ -226,9 +230,8 @@ public sealed class RuntimeFormatState : IFormatSink
         }
     }
 
-    /// <summary>Resolution order (reflection-free; vesper-printf-percentA-plan
-    /// "Dispatcher"). Cycle + depth guard first, then our own types, then BCL
-    /// shapes, then a ToString fallback.</summary>
+    /// <summary>Resolution order (reflection-free). Cycle + depth guard first,
+    /// then our own types, then BCL shapes, then a ToString fallback.</summary>
     private void Dispatch(object? value)
     {
         if (value is null)
@@ -238,6 +241,15 @@ public sealed class RuntimeFormatState : IFormatSink
         }
 
         if (_depth >= PrintDepth)
+        {
+            Text("...");
+            return;
+        }
+
+        // Global node budget exhausted (`%.NA`): truncate. Checked before the
+        // value is classified, mirroring F#'s `exceededPrintSize` guard at the
+        // head of `objL` (sformat.fs:1024).
+        if (_size <= 0)
         {
             Text("...");
             return;
@@ -266,15 +278,21 @@ public sealed class RuntimeFormatState : IFormatSink
                     structural.Format(this);
                     break;
 
+                // Leaf cases spend one unit of the node budget (`countNodes 1` in
+                // F#'s sformat.fs); composite cases (tuple / enumerable / our own
+                // structural types) don't — their leaf children do.
                 case string s:
+                    _size--;
                     Text(QuoteString(s));
                     break;
 
                 case char c:
+                    _size--;
                     Text(QuoteChar(c));
                     break;
 
                 case bool b:
+                    _size--;
                     Text(b ? "true" : "false");
                     break;
 
@@ -285,6 +303,7 @@ public sealed class RuntimeFormatState : IFormatSink
                 // Numbers / other ISpanFormattable primitives: invariant, with the
                 // float `.0` fixup so the result is unambiguously a float in source.
                 case ISpanFormattable spanFormattable:
+                    _size--;
                     Text(FormatPrimitive(spanFormattable));
                     break;
 
@@ -293,6 +312,7 @@ public sealed class RuntimeFormatState : IFormatSink
                     break;
 
                 default:
+                    _size--;
                     Text(value.ToString() ?? "null");
                     break;
             }
@@ -343,7 +363,12 @@ public sealed class RuntimeFormatState : IFormatSink
                 Text(";");
                 Line();
             }
-            if (i >= PrintLength)
+            // Truncate on either the per-collection length cap (PrintLength) or the
+            // exhausted global node budget (`%.NA`/PrintSize). Breaking here keeps
+            // the trailing `...` single, mirroring F#'s `boundedUnfoldL` stopShort
+            // (sformat.fs) — without it the per-element `_size <= 0` guard in
+            // Dispatch would emit one `...` per remaining element.
+            if (i >= PrintLength || _size <= 0)
             {
                 Text("...");
                 break;
@@ -555,9 +580,11 @@ public static class StructuralPrinter
     /// <param name="value">the value to format.</param>
     /// <param name="widthBudget">column budget before a group breaks; 0 ⇒ never
     /// break (the <c>%0A</c> mode).</param>
-    public static string Print(object? value, int widthBudget)
+    /// <param name="sizeBudget">F# PrintSize: max leaf nodes before truncating with
+    /// <c>...</c> (the <c>%.NA</c> mode). Defaults to F#'s 10000 (plain <c>%A</c>).</param>
+    public static string Print(object? value, int widthBudget, int sizeBudget = 10000)
     {
-        var state = new RuntimeFormatState(widthBudget);
+        var state = new RuntimeFormatState(widthBudget, sizeBudget);
         state.FormatChild(value);
         return state.Finish();
     }

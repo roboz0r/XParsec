@@ -125,15 +125,18 @@ module EmitFormat =
                     b.Add(ILInstr.Call(fh.AppendZeroPaddedFloat, 4, 0))
 
                 | PrintfSpec.HoleKind.Structured ->
-                    // `AppendStructured<T>(value, widthBudget)` — `%A`. The print
-                    // width budget rides in `PercentAWidthBudget` (the `Alignment`
-                    // slot): `None` ⇒ default 80, `Some 0` ⇒ flat (`%0A`), `Some N`
-                    // ⇒ N. The generic member boxes the value C#-side, so no explicit
-                    // box in the IL.
+                    // `AppendStructured<T>(value, widthBudget, sizeBudget)` — `%A`.
+                    // The print-WIDTH budget rides in `PercentAWidthBudget` (the
+                    // `Alignment` slot): `None` ⇒ default 80, `Some 0` ⇒ flat
+                    // (`%0A`), `Some N` ⇒ N. The print-SIZE budget (F#'s `PrintSize`)
+                    // rides in `PercentASizeBudget` (the `Format` slot): `None` ⇒
+                    // default 10000, `Some N` ⇒ N (`%.NA`). The generic member boxes
+                    // the value C#-side, so no explicit box in the IL.
                     b.Add(ILInstr.Ldloca slot)
                     buildExpr env b arg
                     b.Add(ILInstr.LdcI4(defaultArg hole.PercentAWidthBudget 80))
-                    b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 3, 0))
+                    b.Add(ILInstr.LdcI4(defaultArg hole.PercentASizeBudget 10000))
+                    b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 4, 0))
 
         match sink with
         | FormatSinkG.ToString ->

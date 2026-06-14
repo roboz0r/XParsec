@@ -165,9 +165,9 @@ type internal ClrEnv
     let eFormatter =
         lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
 
-    // The `%A` structural-format interfaces (P3). Owned by `Vesper.Core`
-    // (printf-handoff.md step 3.2): the synthesised `Format` implements a Core-owned
-    // interface, so a record-bearing program links only `Vesper.Core` — never
+    // The `%A` structural-format interfaces (P3). Owned by `Vesper.Core`: the
+    // synthesised `Format` implements a Core-owned interface, so a record-bearing
+    // program links only `Vesper.Core` — never
     // `Vesper.Printf` (where only the layout *engine*, `RuntimeFormatState`, lives,
     // implementing this same Core `IFormatSink`). `IStructuralFormattable` is the
     // `InterfaceImpl` a synthesised record/DU declares; `IFormatSink` is its

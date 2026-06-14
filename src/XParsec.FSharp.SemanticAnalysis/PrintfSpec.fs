@@ -105,12 +105,15 @@ module PrintfSpec =
         /// float format zero-pads to a total width. The width rides in
         /// `HoleSpec.Alignment` and the `"F<prec>"` body in `HoleSpec.Format`.
         | ZeroPaddedFloat
-        /// `AppendStructured<v>(v, widthBudget)` — F# `%A`. No .NET format string;
-        /// the runtime engine (`Vesper.Printf.StructuralPrinter`) renders the value
-        /// as copy-pasteable source. The print-width *budget* (not a field
-        /// alignment) rides in `HoleSpec.Alignment`, repurposed for this kind:
-        /// `None` ⇒ default 80 (set at emit), `Some 0` ⇒ never break / flat
-        /// (`%0A`), `Some N` ⇒ width N (`%NA`).
+        /// `AppendStructured<v>(v, widthBudget, sizeBudget)` — F# `%A`. No .NET
+        /// format string; the runtime engine (`Vesper.Printf.StructuralPrinter`)
+        /// renders the value as copy-pasteable source. The two free `HoleSpec`
+        /// slots are repurposed for this kind:
+        /// `Alignment` = the print-*width* budget (`None` ⇒ default 80 at emit,
+        /// `Some 0` ⇒ never break / flat (`%0A`), `Some N` ⇒ width N (`%NA`));
+        /// `Format` = the print-*size* budget as a decimal string (F#'s `PrintSize`
+        /// node count: `None` ⇒ default 10000 at emit, `Some "N"` ⇒ at most N nodes
+        /// before `...` (`%.NA`)).
         | Structured
 
     /// Map a parsed format placeholder to the `(HoleKind, .NET format string,
@@ -149,7 +152,12 @@ module PrintfSpec =
     /// same mechanism as `%e`/`%E`; the earlier deferral mis-read this as forced
     /// uppercasing. Width with no flag ⇒ alignment; `-` ⇒ left-justify.
     ///
-    /// Cold path: `%A` (structural — P3); `%a`/`%t` (callbacks); `0`-on-`%e` and
+    /// Lowered (`%A` flag forms): `%.NA` (precision ⇒ `PrintSize` node budget, in
+    /// the `Format` slot as a string), `%+A` (non-public ⇒ no-op in the
+    /// reflection-free engine: `≡ %A`), and `%-A` (left-justify ⇒ no-op for `%A`,
+    /// matching F#). Each lowers to a `Structured` hole; see the `Structured` arm.
+    ///
+    /// Cold path: `%a`/`%t` (callbacks); the `%A` space flag (`% A`); `0`-on-`%e` and
     /// `0`-on-`%g` (exponent / G-format zero-pad parity is subtle — only `%f` is
     /// lowered); `+`/space on anything but `%d`/`%f` (exponent / compact /
     /// scale-preserving forms don't section-format faithfully) and `+`/space
@@ -171,18 +179,34 @@ module PrintfSpec =
 
         if p.Type = FormatType.Structured then
             // `%A` (P3): the structural-format engine renders; there is no .NET
-            // format string. The print-width *budget* rides in the `Alignment`
-            // slot (repurposed for `Structured`): `%0A` ⇒ 0 (never break / flat),
-            // `%NA` ⇒ N, plain `%A` ⇒ `None` (⇒ default 80 at emit). The
-            // precision (`%.NA` — a `PrintSize`/length knob) and the non-public
-            // (`%+A`) and left-align (`%-A`) forms stay on the FSharp.Core cold
-            // path for now; only the plain / flat / width forms lower.
-            if plusSign || spaceSign || leftAlign || p.Precision.IsSome then
+            // format string, so the two free slots carry the engine knobs:
+            //   width (`Alignment`) — print-WIDTH budget: `%0A` ⇒ 0 (never break /
+            //     flat), `%NA` ⇒ N, plain `%A` ⇒ `None` (⇒ default 80 at emit). The
+            //     `0` flag takes precedence over an explicit width, matching F#
+            //     (`printf.fs:947`: `useZeroWidth` ⇒ `PrintWidth = 0`).
+            //   precision (`Format`) — print-SIZE budget (F#'s `PrintSize`, a global
+            //     node count ⇒ `...`): `%.NA` ⇒ `Some "N"`, plain ⇒ `None` (⇒ 10000
+            //     at emit). Encoded as a string because the lone int slot holds width.
+            // The flag forms (all lowered now, none deferred):
+            //   `%+A` — F# prints non-public fields (`BindingFlags.NonPublic`,
+            //     `printf.fs:940`). The reflection-free engine always walks the full
+            //     *declared* structure, so there is nothing extra to show: `%+A` ≡
+            //     `%A`. Admitted and the flag ignored.
+            //   `%-A` — F#'s `GenericToString` never reads the left-justify flag for
+            //     `%A` (the width is a layout budget, not a field pad), so `%-A` ≡
+            //     `%A` byte-for-byte (verified). Admitted and the flag ignored.
+            // Only the space flag (`% A`) stays deferred (unmodelled; not requested).
+            if spaceSign then
                 ValueNone
-            elif zeroPad then
-                ValueSome(HoleKind.Structured, None, Some 0)
             else
-                ValueSome(HoleKind.Structured, None, width)
+                let widthBudget = if zeroPad then Some 0 else width
+
+                let sizeBudget =
+                    match p.Precision with
+                    | ValueSome pr -> Some(string (int pr))
+                    | ValueNone -> None
+
+                ValueSome(HoleKind.Structured, sizeBudget, widthBudget)
         elif plusSign || spaceSign then
             // B1: forced-sign flags via a custom .NET *section* format string
             // (`"+0;-0"` / `" 0;-0"`). The positive section carries the forced

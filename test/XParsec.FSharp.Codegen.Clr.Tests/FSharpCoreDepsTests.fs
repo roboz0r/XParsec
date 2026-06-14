@@ -42,13 +42,14 @@ let tests =
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
 
-            test "`printfn \"%.2A\"` (cold path) pins PrintfModule + PrintfFormat" {
-                // A faithful `%A` (int / list / …) now lowers to the structural engine
-                // (P3 step 2). A *deferred* `%A` form — here the precision `%.2A` —
-                // still rides the FSharp.Core cold path, so it remains the pin.
-                let _, artifact = compileSource "DepsColdPrintf" "printfn \"%.2A\" 42"
+            test "`printfn \"% A\"` (cold path) pins PrintfModule + PrintfFormat" {
+                // A faithful `%A` (int / list / …) now lowers to the structural engine,
+                // as do the `%.NA` / `%+A` / `%-A` flag forms. The one still-deferred
+                // `%A` flag — the space flag `% A` — rides the FSharp.Core cold path,
+                // so it remains the pin that proves the cold recipes still work.
+                let _, artifact = compileSource "DepsColdPrintf" "printfn \"% A\" 42"
                 let deps = artifact.FSharpCoreDependencies
-                Expect.isNonEmpty deps "the %.2A cold path depends on FSharp.Core"
+                Expect.isNonEmpty deps "the % A cold path depends on FSharp.Core"
 
                 Expect.contains
                     deps

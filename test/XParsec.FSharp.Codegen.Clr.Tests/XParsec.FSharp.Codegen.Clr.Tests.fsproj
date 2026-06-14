@@ -73,8 +73,8 @@
   </ItemGroup>
   <!--
     `StructuralFormatTests.fs` hand-writes `IFormatSink` / `IStructuralFormattable`
-    impls; those interfaces are owned by `Vesper.Core` (printf-handoff.md step 3.2),
-    so fsc needs the committed reference copy on its `-r` line (assembly references
+    impls; those interfaces are owned by `Vesper.Core`, so fsc needs the committed
+    reference copy on its `-r` line (assembly references
     don't flow transitively through ProjectReferences). It is non-strong-named, so
     the loader unifies it with the backend-compiled `Vesper.Core` the in-process
     fixtures load into the Default ALC.

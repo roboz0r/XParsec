@@ -85,7 +85,8 @@ type TPatG<'ty> =
 
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
 /// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
-/// produced by `PrintfSpec.tryHoleFormat`.
+/// produced by `PrintfSpec.tryHoleFormat`. For a `Structured` (`%A`) hole the
+/// `Format` slot instead carries the print-size budget (see `PercentASizeBudget`).
 ///
 /// Lifted out of the `TExpr` `and`-cluster (P2.13) — references only
 /// `SemType`/`PrintfSpec.HoleKind`, so it doesn't need mutual recursion.
@@ -104,6 +105,16 @@ type HoleSpecG<'ty> =
     /// `Some n` ⇒ width `n`. A named alias so the structural-format read sites don't
     /// look like they're reading a field alignment.
     member this.PercentAWidthBudget: int option = this.Alignment
+
+    /// The `%A` (`Structured`) print-*size* budget — F#'s `PrintSize`, a global
+    /// node count after which the engine truncates with `...` (`%.NA`). Rides in
+    /// the `Format` slot as a decimal string (the lone `Alignment` int already
+    /// holds the width budget). Only meaningful when `Kind = Structured`: `None`
+    /// ⇒ the default (10000, applied at emit), `Some n` ⇒ at most `n` nodes.
+    member this.PercentASizeBudget: int option =
+        match this.Format with
+        | Some s -> Some(int s)
+        | None -> None
 
 /// How an instance member access dispatches (inheritance-plan §Subtle
 /// migrations). `Self` is the normal virtual dispatch (`callvirt`); `Base`

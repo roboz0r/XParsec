@@ -633,20 +633,21 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             encodeType (specEnc.AddArgument()) ty
             toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
-        // `instance void AppendStructured<T>(!!0, int32)` — `%A`. Generic like
-        // `appendFormatted`: a member ref to the open generic method + a
-        // `MethodSpec` binding `<T = ty>` per hole. The `int32` is the print-width
-        // budget the walker pushes.
+        // `instance void AppendStructured<T>(!!0, int32, int32)` — `%A`. Generic
+        // like `appendFormatted`: a member ref to the open generic method + a
+        // `MethodSpec` binding `<T = ty>` per hole. The two `int32`s are the
+        // print-width budget then the print-size budget the walker pushes.
         let appendStructured (ty: FrozenType) : EntityHandle =
             let s = BlobBuilder()
 
             BlobEncoder(s)
                 .MethodSignature(genericParameterCount = 1, isInstanceMethod = true)
                 .Parameters(
-                    2,
+                    3,
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         pars.AddParameter().Type().GenericMethodTypeParameter(0)
+                        pars.AddParameter().Type().Int32()
                         pars.AddParameter().Type().Int32()
                     )
                 )

@@ -13,8 +13,8 @@ module Materialise =
     /// The simple names this PE's metadata declares an `AssemblyRef` to. Used to
     /// close the bundle over *transitive* references: a `%A` program's PE names
     /// `Vesper.Printf` (the formatter) but not `Vesper.Core`, yet `Vesper.Printf`
-    /// (whose `RuntimeFormatState` implements the Core-owned `IFormatSink`,
-    /// printf-handoff.md step 3.2) references it — so a bundle missing `Vesper.Core`
+    /// (whose `RuntimeFormatState` implements the Core-owned `IFormatSink`)
+    /// references it — so a bundle missing `Vesper.Core`
     /// throws `FileNotFoundException` the moment `%A` runs. Same for `Vesper.List`.
     let private referencedAssemblyNames (path: string) : string list =
         use fs = File.OpenRead path

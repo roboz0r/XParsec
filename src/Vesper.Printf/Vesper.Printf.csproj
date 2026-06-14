@@ -27,8 +27,8 @@
   </ItemGroup>
   <!--
     The `%A` structural-format interfaces (`Vesper.IFormatSink` /
-    `Vesper.IStructuralFormattable`) are owned by `Vesper.Core` (printf-handoff.md
-    step 3.2), so the synthesised record/DU `Format` implements a Core type and a
+    `Vesper.IStructuralFormattable`) are owned by `Vesper.Core`, so the synthesised
+    record/DU `Format` implements a Core type and a
     record-bearing program never links `Vesper.Printf`. `Vesper.Core.dll` is built
     by *this repo's own backend* (no MSBuild project), so the cycle is broken with a
     committed, prebuilt reference copy: `RuntimeFormatState : IFormatSink` binds the

@@ -176,7 +176,8 @@ type FormatHandles =
         AppendZeroPaddedFloat: EntityHandle
         /// `%A`: instantiates the generic `AppendStructured<T = ty>` (like
         /// `AppendFormatted`) for the structural-format engine. Signature
-        /// `(value: T, width: int)`.
+        /// `(value: T, width: int, size: int)` — the print-width budget and the
+        /// print-size (`PrintSize`) budget.
         AppendStructured: FrozenType -> EntityHandle
     }
 
