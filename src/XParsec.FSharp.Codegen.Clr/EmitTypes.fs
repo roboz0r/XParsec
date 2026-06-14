@@ -45,6 +45,15 @@ module EmitTypes =
             /// Drives the `ClosureTyparScope` offset and the construction-site
             /// instantiation split (declaring-axis args, then method-axis).
             DeclaringTypars: int
+            /// Stack vs heap representation, decided from the Regions verdict
+            /// (Axis 1 `LocalStack` ∧ Axis 2 `StackOnlyEligible`) and snapshotted
+            /// onto `TastFile.ClosureReprs`. `Heap` = the v1 reference-type
+            /// `Vesper.Fun<_,_>` subclass (the only shape emitted today); `Stack` =
+            /// eligible for the deferred readonly-struct closure shape
+            /// (brainstorm-closures). Inert in v1 — emission ignores it, so a
+            /// `Stack` verdict changes no IL until the struct-closure gate flips
+            /// (ref-struct-emit-plan RS3/RS4).
+            Repr: ClosureRepr
         }
 
     /// One case of an emitted union: runtime `Tag`, the static factory

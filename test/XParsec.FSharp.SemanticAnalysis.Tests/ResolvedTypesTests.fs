@@ -79,6 +79,7 @@ let tests =
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty
+                        ClosureReprs = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count
@@ -127,6 +128,7 @@ let tests =
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty
+                        ClosureReprs = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count

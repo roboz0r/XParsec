@@ -37,6 +37,14 @@ module Pipeline =
         // region graph is built over the closures codegen actually emits. Populates
         // `ctx.Bindings.Escape` (keyed by binder `NodeKey`) for the next pass.
         Regions.run ctx tast0.Decls
+        // Snapshot the RS3 closure stack/heap verdict (Axis 1 ∧ Axis 2) onto the
+        // TastFile now that both escape side tables are populated — codegen has no
+        // PassContext, so this is how the verdict reaches `discoverClosures`
+        // (ref-struct-emit-plan RS3).
+        let tast0 =
+            { tast0 with
+                ClosureReprs = Regions.closureReprSnapshot ctx
+            }
         // TAST→TAST promotion of `let mutable` cells captured by escaping closures.
         // Reads `ctx.Bindings.Escape` / `ctx.Bindings.Binding`;
         // running before ResolvedTypes keeps the validation sweep observing

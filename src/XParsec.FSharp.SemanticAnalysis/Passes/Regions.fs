@@ -840,3 +840,34 @@ module Regions =
             if tv.Region.Raw >= 0 && tv.Region.Raw < state.Length then
                 ctx.Bindings.Escape.Set(kv.Key, state.[tv.Region.Raw])
                 ctx.Bindings.ClosureRepr.Set(kv.Key, repr.[tv.Region.Raw])
+
+    /// Project the RS3 codegen verdict per closure binder: `ClosureRepr.Stack`
+    /// iff the binder is both frame-confined by lifetime (`Axis 1`
+    /// `EscapeState.LocalStack`) and free of any heap-repr channel (`Axis 2`
+    /// `RegionRepr.StackOnlyEligible`); everything else is `Heap`. Keyed by the
+    /// same binder `NodeKey.Raw` codegen's `discoverClosures` reaches through
+    /// `Closure.SelfKey`. Must run after `run` has populated both side tables;
+    /// the Pipeline snapshots the result onto `TastFile.ClosureReprs`
+    /// (ref-struct-emit-plan RS3).
+    let closureReprSnapshot (ctx: PassContext) : Map<uint64, ClosureRepr> =
+        let mutable m = Map.empty
+
+        for kv in ctx.Bindings.Escape.AsDictionary() do
+            let stackEligible =
+                kv.Value = LocalStack
+                && (
+                    match ctx.Bindings.ClosureRepr.TryGetValue kv.Key with
+                    | ValueSome RegionRepr.StackOnlyEligible -> true
+                    | _ -> false
+                )
+
+            m <-
+                Map.add
+                    kv.Key.Raw
+                    (if stackEligible then
+                         ClosureRepr.Stack
+                     else
+                         ClosureRepr.Heap)
+                    m
+
+        m

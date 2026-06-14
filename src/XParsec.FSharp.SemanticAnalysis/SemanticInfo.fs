@@ -275,6 +275,23 @@ type RegionRepr =
     /// reference-type representation.
     | RequiresHeapRepr
 
+/// Codegen-facing stack-vs-heap verdict for one closure (ref-struct-emit-plan
+/// RS3 §Carrying the verdict), the conjunction of Axis 1
+/// (`EscapeState.LocalStack`) and Axis 2 (`RegionRepr.StackOnlyEligible`).
+/// Snapshotted per closure binder onto `TastFile.ClosureReprs` and surfaced on
+/// `Emit.Closure.Repr`. `Heap` is the only shape emitted today (the
+/// reference-type `Vesper.Fun<_,_>` subclass); `Stack` flags a closure the
+/// deferred readonly-struct work (brainstorm-closures) may lower onto a
+/// `valuetype`. The field is inert in v1 — emission still forces heap, so a
+/// `Stack` verdict changes no IL until that gate flips (RS4).
+[<RequireQualifiedAccess>]
+type ClosureRepr =
+    /// The reference-type closure shape emitted today; the only verdict acted on.
+    | Heap
+    /// Frame-confined (Axis 1) and free of any heap-repr channel (Axis 2) —
+    /// eligible for the deferred struct-closure shape. Carried but not yet emitted.
+    | Stack
+
 /// Per-type decision on whether the structural-equality triple
 /// (`GetHashCode()` / `Equals(object)` / `IEquatable<Self>::Equals(Self)`) ships
 /// on a record / union. Driven by C-Attr (`Passes/Attributes.fs`) off the

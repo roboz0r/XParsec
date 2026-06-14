@@ -473,6 +473,7 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
+        (closureReprs: Map<uint64, ClosureRepr>)
         (decls: Frozen.TDecl list)
         (memberRoots: MemberClosureRoot list)
         : Closure list * Dictionary<Frozen.TExpr, Closure> =
@@ -511,6 +512,17 @@ module EmitClosures =
                     | FTFun(_, r) -> r
                     | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
 
+                // RS3 verdict, keyed by the closure's binder (`let f = …`). An
+                // anonymous lambda (no `SelfKey`) or a binder the snapshot didn't
+                // reach defaults to `Heap` — the only shape emitted today.
+                let repr =
+                    match selfKey with
+                    | ValueSome k ->
+                        match Map.tryFind k.Raw closureReprs with
+                        | Some r -> r
+                        | None -> ClosureRepr.Heap
+                    | ValueNone -> ClosureRepr.Heap
+
                 let c =
                     {
                         Node = e
@@ -527,6 +539,7 @@ module EmitClosures =
                         SelfKey = selfKey
                         Typars = currentTypars
                         DeclaringTypars = declaringOffset
+                        Repr = repr
                     }
 
                 counter <- counter + 1

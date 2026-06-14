@@ -536,7 +536,13 @@ module internal Layout =
             ]
 
         let closures, closureByNode =
-            Emit.discoverClosures plan.StaticFnKeys plan.ModuleValueKeys plan.StaticFnTypars lowered memberRoots
+            Emit.discoverClosures
+                plan.StaticFnKeys
+                plan.ModuleValueKeys
+                plan.StaticFnTypars
+                tast.ClosureReprs
+                lowered
+                memberRoots
 
         let emitEntryPoint =
             match project.OutputKind with

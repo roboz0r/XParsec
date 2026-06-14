@@ -239,11 +239,13 @@ module TastConvert =
         | TDeclG.Type td -> TDeclG.Type(typeDecl f td)
 
     /// The whole-file rebuild: `Decls` mapped through `f`, the non-`'ty` snapshot
-    /// fields (`Diagnostics` / `IntrinsicReprTypes` / `ModuleMembers`) carried over.
+    /// fields (`Diagnostics` / `IntrinsicReprTypes` / `ModuleMembers` /
+    /// `ClosureReprs`) carried over.
     let file (f: 'a -> 'b) (tf: TastFileG<'a>) : TastFileG<'b> =
         {
             Decls = EqArray.map (decl f) tf.Decls
             Diagnostics = tf.Diagnostics
             IntrinsicReprTypes = tf.IntrinsicReprTypes
             ModuleMembers = tf.ModuleMembers
+            ClosureReprs = tf.ClosureReprs
         }

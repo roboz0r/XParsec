@@ -1386,4 +1386,7 @@ module Elaborate =
             // Snapshot the named-module placements (R3 deferred): the backend keys
             // off a binding's `NodeKey.Raw` to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            // The RS3 closure verdict is filled in by the Pipeline after
+            // `Regions.run` — escape analysis hasn't run at elaboration time.
+            ClosureReprs = Map.empty
         }

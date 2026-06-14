@@ -291,7 +291,7 @@ let tests =
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
 
                 let closures, _ =
-                    Emit.discoverClosures staticFnKeys moduleValueKeys typarsMap lowered []
+                    Emit.discoverClosures staticFnKeys moduleValueKeys typarsMap tast.ClosureReprs lowered []
 
                 closures
 
@@ -331,6 +331,67 @@ let tests =
                         c.Typars
                         0
                         (sprintf "closure %s should have zero Typars (enclosing fn is monomorphic)" c.Name)
+            }
+
+            // RS3: the Regions stack/heap verdict (Axis 1 `LocalStack` ∧ Axis 2
+            // `StackOnlyEligible`) reaches `Emit.Closure.Repr` via
+            // `TastFile.ClosureReprs`. The field is inert (emission ignores it),
+            // so these assert the classification only — IL is unchanged
+            // (ref-struct-emit-plan RS3). The shapes mirror the RS2 RegionsTests.
+            test "RS3: a frame-local applied closure carries Repr = Stack" {
+                // `f` is `LocalStack` (confined to `useLocal`) and its only use is
+                // the direct callee of `f 3`, so Axis 2 is `StackOnlyEligible`.
+                let src =
+                    String.concat "\n" [ "let useLocal () ="; "    let f x = x + 1"; "    f 3" ]
+
+                let closures = discover src
+
+                Expect.equal (List.length closures) 1 "exactly one closure: `f` inside `useLocal`"
+                Expect.equal (List.head closures).Repr ClosureRepr.Stack "frame-local + no heap channel ⇒ Stack"
+            }
+
+            test "RS3: a closure stored in a ValueTuple carries Repr = Heap" {
+                // Even though `g` is frame-local, the `(g, g)` tuple containment
+                // (a `ValueTuple`, which can't hold a ref-struct field) pins Axis 2
+                // to `RequiresHeapRepr`.
+                let src =
+                    String.concat "\n" [ "let f () ="; "    let g = fun x -> x"; "    (g, g)" ]
+
+                let closures = discover src
+
+                Expect.equal (List.length closures) 1 "exactly one closure: `g`"
+                Expect.equal (List.head closures).Repr ClosureRepr.Heap "tuple containment ⇒ Heap"
+            }
+
+            test "RS3: a generic closure also carries the Repr field" {
+                // The checkpoint requires both monomorphic and generic closures to
+                // carry the verdict. `mkConst`'s inner `fun () -> x` is generic over
+                // `'a` (Typars = 1); capturing a generic typar value rides the
+                // `Vesper.Fun<_,_>` channel, so Axis 2 is `RequiresHeapRepr` and the
+                // conjunction is `Heap` — the field is keyed for generic closures
+                // (contrast the monomorphic `f` above, which is `Stack`).
+                let src =
+                    String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]
+
+                let closures = discover src
+
+                Expect.equal (List.length closures) 1 "exactly one closure: `f` inside `mkConst`"
+                let c = List.head closures
+                Expect.equal c.Typars 1 "the closure is generic over `mkConst`'s `'a`"
+                Expect.equal c.Repr ClosureRepr.Heap "generic typar capture ⇒ RequiresHeapRepr ⇒ Heap"
+            }
+
+            test "RS3: an anonymous lambda with no binder defaults to Repr = Heap" {
+                // `(fun x -> x + 1) 5` — the lambda has no `SelfKey`, so the
+                // snapshot can't key it; it falls back to the emitted `Heap` shape.
+                let src = "printfn \"%d\" ((fun x -> x + 1) 5)"
+
+                let closures = discover src
+
+                Expect.isNonEmpty closures "the inline lambda is discovered"
+
+                for c in closures do
+                    Expect.equal c.Repr ClosureRepr.Heap (sprintf "anonymous closure %s defaults to Heap" c.Name)
             }
 
             test "C1: an inner closure inherits the enclosing closure's Typars" {

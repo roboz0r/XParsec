@@ -617,6 +617,14 @@ type TastFileG<'ty> =
         /// not the anonymous "Program" holder). Empty for a program with no named
         /// modules — every static method then lands on "Program" as before.
         ModuleMembers: Map<uint64, ModuleMemberInfo>
+        /// A closure binder's `NodeKey.Raw` → its RS3 stack-vs-heap verdict
+        /// (the `EscapeState.LocalStack ∧ RegionRepr.StackOnlyEligible`
+        /// conjunction), snapshotted from `ctx.Bindings.Escape` /
+        /// `ctx.Bindings.ClosureRepr` after `Regions.run`. Read by codegen's
+        /// `discoverClosures` to set `Emit.Closure.Repr`; a binder absent here
+        /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
+        /// still forces heap (ref-struct-emit-plan RS3).
+        ClosureReprs: Map<uint64, ClosureRepr>
     }
 
 // ---------------------------------------------------------------------------
