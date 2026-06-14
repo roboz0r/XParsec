@@ -602,13 +602,20 @@ module Type =
             return (bar, rhs)
         }
 
+    // Left-associative chain: a | b | c => ((a | b) | c), matching the
+    // left-nested CST tree translateType flattens through mkUnion.
     let private pUnionType =
         parser {
             let! lhs = pSubtypeType
+            let mutable acc = lhs
+            let mutable keepGoing = true
 
-            match! opt pBarType with
-            | ValueSome(bar, rhs) -> return Type.UnionType(lhs, bar, rhs)
-            | ValueNone -> return lhs
+            while keepGoing do
+                match! opt pBarType with
+                | ValueSome(bar, rhs) -> acc <- Type.UnionType(acc, bar, rhs)
+                | ValueNone -> keepGoing <- false
+
+            return acc
         }
 
     // Tuple: T * T * T
