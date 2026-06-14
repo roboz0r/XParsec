@@ -1051,6 +1051,60 @@ let tests =
                 Expect.equal tv.Link ValueNone "the actual's typar is left free (no pin)"
             }
 
+            // Stage 6 of the anonymous-union plan (docs/anon-unions-plan.md):
+            // constraint reduction. `equality` and `comparison` are deliberately
+            // asymmetric (§Constraints): a union satisfies EQUALITY iff *every*
+            // member does — generic `=` is total on the union's repr (cross-member
+            // is `false`, never throws) — but any real (≥2-member) union FAILS
+            // COMPARISON outright, because generic `compare` *throws* across distinct
+            // runtime types, so an individually-comparable member set is still
+            // non-comparable as a whole. `checkConstraint` is read-only here (no
+            // `Link` mutation), so the outcomes are asserted by direct calls.
+            let checkConstraint kind ty =
+                let c: SemanticConstraint =
+                    {
+                        Kind = kind
+                        DeclKey = NodeKey.ofSource 0 NodeKind.PatIdent
+                    }
+
+                UnificationEngine.checkConstraint subsumeCtx c ty
+
+            test "equality on (int | string) is Satisfied — every member is equatable" {
+                Expect.equal
+                    (checkConstraint SemanticConstraintKind.Equality (mkUnion [ int; str ]))
+                    UnificationEngine.ConstraintOutcome.Satisfied
+                    "int | string supports equality (both members do)"
+            }
+
+            test "equality on a union with a function member is Violated" {
+                // A `TyFun` arm supports no structural equality, so the all-members
+                // reduction fails for the whole union.
+                Expect.equal
+                    (checkConstraint SemanticConstraintKind.Equality (mkUnion [ int; TyFun(int, int) ]))
+                    UnificationEngine.ConstraintOutcome.Violated
+                    "int | (int -> int) — the function arm breaks equality"
+            }
+
+            test "equality on a union with an unresolved member Defers" {
+                // A free member is "unknown yet": the reduction defers so the
+                // constraint re-fires when that member's TyVar Links.
+                Expect.equal
+                    (checkConstraint SemanticConstraintKind.Equality (mkUnion [ int; TyVar(TypeVar()) ]))
+                    UnificationEngine.ConstraintOutcome.Defer
+                    "int | 'a — defers on the free member"
+            }
+
+            test "comparison on (int | string) is Violated though each member is comparable" {
+                // Unlike equality, comparison does NOT reduce member-wise: generic
+                // `compare` throws across distinct runtime types, so a heterogeneous
+                // union is non-comparable as a whole — admitting it would let
+                // `List.sort` on a `(int | string) list` type-check then throw.
+                Expect.equal
+                    (checkConstraint SemanticConstraintKind.Comparison (mkUnion [ int; str ]))
+                    UnificationEngine.ConstraintOutcome.Violated
+                    "int | string fails comparison even though int and string each support it"
+            }
+
             // Stage 7 of the anonymous-union plan (docs/anon-unions-plan.md):
             // binder narrowing + closed-union exhaustiveness. A `match` on a `TyOr`
             // scrutinee narrows each `:? M as x` arm to `M`, narrows a fall-through
