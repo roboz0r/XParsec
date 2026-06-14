@@ -462,19 +462,26 @@ let tests =
                     "{ X = 1;\n  Y = \"a\" }"
             }
 
-            // NOTE: the DU value is bound to a lowercase local first. Writing the
-            // constructor *directly* as the printf argument (`printfn "%A" (S 3)`)
-            // trips a pre-existing front-end parse quirk — a constructor /
-            // parenthesised application adjacent to the format string is
-            // mis-associated as `printfn ("%A" (S 3))` — that is orthogonal to the
-            // `%A` synthesis under test. Binding to a local sidesteps it; the
-            // list-of-DUs test below also exercises the synthesised union `Format`.
             test "`%A` of a nullary DU case prints the bare identifier" {
                 runPrints "PHpStructDuNullary" "type Opt = | N | S of int\nlet v = N\nprintfn \"%A\" v" "N"
             }
 
             test "`%A` of a payload DU case prints `Case payload` (no parens)" {
                 runPrints "PHpStructDuPayload" "type Opt = | N | S of int\nlet v = S 3\nprintfn \"%A\" v" "S 3"
+            }
+
+            // A constructor / parenthesised application written *directly* as the
+            // printf argument used to mis-parse: the last union-case field type
+            // (`S of int`) swallowed the next line's `printfn` as a postfix type
+            // application (`int printfn`), stranding `"%A" (S 3)` as a string applied
+            // to the value. Fixed by an offside guard on postfix type suffixes
+            // (`TypeParsing.pPostfixType` + the union body's `SeqBlock` context).
+            test "`%A` of a DU constructor written directly as the printf arg" {
+                runPrints "PHpStructDuDirect" "type Opt = | N | S of int\nprintfn \"%A\" (S 3)" "S 3"
+            }
+
+            test "`%A` of a nullary DU case written directly as the printf arg" {
+                runPrints "PHpStructDuNullaryDirect" "type Opt = | N | S of int\nprintfn \"%A\" N" "N"
             }
 
             test "`%A` of a nested DU application parenthesises the argument" {
