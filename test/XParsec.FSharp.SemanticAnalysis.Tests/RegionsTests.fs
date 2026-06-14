@@ -73,6 +73,65 @@ let private regionOf (input: string) (name: string) : RegionId option =
         if root.Region.Raw >= 0 then Some root.Region else None
     | ValueNone -> None
 
+/// Axis-2 representation verdict of a *module-level* binding (ref-struct-emit-plan
+/// RS2). Mirrors `escapeOf` over the `ClosureRepr` side table.
+let private reprOf (input: string) (name: string) : RegionRepr option =
+    let ctx, file = analyse input
+    let key = headKeyOf ctx file name
+
+    match ctx.Bindings.ClosureRepr.TryGetValue key with
+    | ValueSome r -> Some r
+    | ValueNone -> None
+
+/// Find the headPat NodeKey of the first `let`-binding named `name` reachable
+/// from `e` (searching binding RHSs, let bodies, and lambda bodies). Lets the
+/// repr tests key a *nested* closure (`let g = fun x -> x` inside a function).
+let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToken>) : NodeKey voption =
+    match e with
+    | Expr.LetOrUse(bindings = bs; body = body) ->
+        let mutable found = ValueNone
+        let mutable i = 0
+
+        while found.IsNone && i < bs.Length do
+            let b = bs.[i]
+
+            match b.headPat with
+            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.headPat)
+            | _ -> found <- findLetKey ctx name b.expr
+
+            i <- i + 1
+
+        match found with
+        | ValueSome _ -> found
+        | ValueNone ->
+            match body with
+            | ValueSome b -> findLetKey ctx name b
+            | ValueNone -> ValueNone
+    | Expr.Fun(expr = body) -> findLetKey ctx name body
+    | _ -> ValueNone
+
+/// Axis-2 verdict of a *nested* binding named `name` (under the first
+/// module-level binding's RHS).
+let private reprOfNested (input: string) (name: string) : RegionRepr option =
+    let ctx, file = analyse input
+
+    let rhs =
+        let elems =
+            match file with
+            | ImplementationFile.AnonymousModule e -> e
+            | _ -> failwith "expected anonymous module"
+
+        match elems.[0] with
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0].expr
+        | _ -> failwith "expected let"
+
+    match findLetKey ctx name rhs with
+    | ValueSome key ->
+        match ctx.Bindings.ClosureRepr.TryGetValue key with
+        | ValueSome r -> Some r
+        | ValueNone -> None
+    | ValueNone -> failwithf "binding %s not found" name
+
 [<Tests>]
 let tests =
     testList
@@ -520,5 +579,113 @@ let tests =
                     escapeOf "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }" "b"
 
                 Expect.equal escape (Some LocalStack) "abbreviation to record at module-top is LocalStack"
+            }
+
+            // --- Axis 1 lattice (ref-struct-emit-plan RS1) -------------------
+            // The `ReturnOnly` tier and the two coarsening maps. v1 lays the
+            // tier down but `solve` does not mint it yet (a returned closure
+            // stays `CallerStack` per the tests above — the `ReturnOnly`
+            // refinement is Consumer B). These tests guard the lattice's CLR /
+            // native projections so the documented tables can't silently drift.
+
+            test "toClrRefSafe maps each tier to its Roslyn safe-context" {
+                Expect.equal
+                    (EscapeState.toClrRefSafe LocalStack)
+                    SafeContext.CurrentMethod
+                    "LocalStack → CurrentMethod"
+
+                Expect.equal (EscapeState.toClrRefSafe ReturnOnly) SafeContext.ReturnOnly "ReturnOnly → ReturnOnly"
+
+                Expect.equal
+                    (EscapeState.toClrRefSafe CallerStack)
+                    SafeContext.CallingMethod
+                    "CallerStack → CallingMethod"
+
+                Expect.equal (EscapeState.toClrRefSafe HeapShared) SafeContext.Heap "HeapShared → Heap"
+            }
+
+            test "toNativeRegionTier coarsens to the Tofte–Talpin tiers" {
+                Expect.equal (EscapeState.toNativeRegionTier LocalStack) NativeRegionTier.Stack "LocalStack → Stack"
+
+                Expect.equal
+                    (EscapeState.toNativeRegionTier ReturnOnly)
+                    NativeRegionTier.ReturnSlot
+                    "ReturnOnly → ReturnSlot (sret)"
+
+                Expect.equal
+                    (EscapeState.toNativeRegionTier CallerStack)
+                    NativeRegionTier.ReturnSlot
+                    "CallerStack → ReturnSlot (out-param)"
+
+                Expect.equal (EscapeState.toNativeRegionTier HeapShared) NativeRegionTier.Heap "HeapShared → Heap"
+            }
+
+            test "ReturnOnly slots between CallerStack and LocalStack in the CLR projection" {
+                // The lattice order is `HeapShared > CallerStack > ReturnOnly >
+                // LocalStack`. `lub` is private, but the safe-context image
+                // preserves the ordering distinction (ReturnOnly is its own
+                // Roslyn tier, strictly more permissive than CallingMethod and
+                // strictly less than CurrentMethod), guarding against the tier
+                // being collapsed into a neighbour when Consumer B starts
+                // minting it.
+                Expect.notEqual
+                    (EscapeState.toClrRefSafe ReturnOnly)
+                    (EscapeState.toClrRefSafe CallerStack)
+                    "ReturnOnly is distinct from CallerStack"
+
+                Expect.notEqual
+                    (EscapeState.toClrRefSafe ReturnOnly)
+                    (EscapeState.toClrRefSafe LocalStack)
+                    "ReturnOnly is distinct from LocalStack"
+            }
+
+            // --- Axis 2 representation fixpoint (ref-struct-emit-plan RS2) -----
+            // Orthogonal to Axis 1: a closure can be frame-local by lifetime yet
+            // pinned to a heap representation by a containment / boxing channel.
+            // The ref-struct-eligibility predicate is the conjunction
+            // `LocalStack ∧ StackOnlyEligible`; these tests pin the second
+            // conjunct. Codegen is untouched.
+
+            test "frame-local applied closure is StackOnlyEligible" {
+                // `let useLocal () = let f x = x + 1 in f 3` — `f` is only ever
+                // the direct callee of an application: no aggregate, no box, no
+                // heap escape reaches it, so its representation is stack-eligible
+                // (it is also LocalStack by Axis 1 — the unconditional green-light).
+                let repr = reprOfNested "let useLocal () = let f x = x + 1 in f 3" "f"
+                Expect.equal repr (Some RegionRepr.StackOnlyEligible) "f has no heap-repr channel"
+            }
+
+            test "closure stored in a ValueTuple requires heap repr" {
+                // `g` is frame-local by lifetime, but `(g, g)` puts it in a
+                // `System.ValueTuple` — which cannot carry a ref-struct field —
+                // so the aggregate-containment channel pins it to the heap. This
+                // is exactly the lifetime/representation split: Axis 1 and Axis 2
+                // disagree on the same region.
+                let repr = reprOfNested "let f () = let g = fun x -> x in (g, g)" "g"
+                Expect.equal repr (Some RegionRepr.RequiresHeapRepr) "tuple containment pins g to the heap"
+            }
+
+            test "returned closure stays StackOnlyEligible — only Axis 1 disqualifies it" {
+                // `mkAdder` returns `fun x -> x + n` but is never itself applied
+                // and stored: no aggregate / box / heap channel reaches it, so
+                // Axis 2 is `StackOnlyEligible`; it is the Axis-1 `CallerStack`
+                // lifetime that fails the ref-struct conjunction. Guards the
+                // orthogonality — the repr fixpoint must NOT fold escape into
+                // itself (the `ReturnOnly` by-value-return refinement that would
+                // re-admit such a closure is Consumer B's job). Note the *applied
+                // and stored* form `let a = mkAdder 5` does reach the heap
+                // (`a` is a static field holding a closure that reaches two
+                // lambdas → `HeapShared` → `RequiresHeapRepr`); that is a
+                // genuine heap-escape channel, not an Axis-1 leak.
+                let input = "let mkAdder n = fun x -> x + n"
+                Expect.equal (reprOf input "mkAdder") (Some RegionRepr.StackOnlyEligible) "no heap-repr channel"
+                Expect.equal (escapeOf input "mkAdder") (Some CallerStack) "but it escapes by lifetime"
+            }
+
+            test "non-aggregated module-level closure is StackOnlyEligible" {
+                // A plain top-level function binding with no containment or box
+                // channel — the baseline stack-eligible case.
+                let repr = reprOf "let add x = x + 1" "add"
+                Expect.equal repr (Some RegionRepr.StackOnlyEligible) "add rides no heap-repr channel"
             }
         ]

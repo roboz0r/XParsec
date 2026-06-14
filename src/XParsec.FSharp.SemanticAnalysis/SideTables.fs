@@ -740,6 +740,14 @@ type PassContextBindings =
         Scheme: SideTable<TypeScheme>
         TypeVar: SideTable<TypeVar>
         Escape: SideTable<EscapeState>
+        /// Axis-2 representation verdict per closure region, keyed by the same
+        /// binder / anon `NodeKey` as `Escape`. Populated by `Regions.run` from
+        /// the second (representation) fixpoint; read by codegen's
+        /// `discoverClosures` to set `Emit.Closure.Repr`. Orthogonal to `Escape`
+        /// (lifetime): a frame-local closure held in an aggregate is
+        /// `LocalStack` here yet `RequiresHeapRepr` there
+        /// (ref-struct-emit-plan §Axis 2).
+        ClosureRepr: SideTable<RegionRepr>
         /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
         /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
         /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
@@ -755,6 +763,7 @@ module PassContextBindings =
             Scheme = SideTable<_>()
             TypeVar = SideTable<_>()
             Escape = SideTable<_>()
+            ClosureRepr = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
         }
 

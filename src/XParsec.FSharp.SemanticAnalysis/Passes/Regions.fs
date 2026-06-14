@@ -51,6 +51,12 @@ module Regions =
             /// Force-seed: the conservative fallback uses it to mark unhandled
             /// constructs HeapShared without the level / lambda-count heuristics.
             InitialState: EscapeState voption
+            /// Axis-2 seed (ref-struct-emit-plan §Axis 2): this region is itself a
+            /// heap-repr *sink* — a non-`ref struct` aggregate container (tuple /
+            /// record / union / `new`) or the source of a box / interface upcast.
+            /// The representation fixpoint flows `RequiresHeapRepr` DOWN this
+            /// node's `Outlives` edges, pinning everything it transitively holds.
+            mutable HeapReprSink: bool
             mutable Outlives: ResizeArray<RegionId>
         }
 
@@ -70,6 +76,7 @@ module Regions =
                     IsLambda = isLambda
                     IsMutableCell = isMutableCell
                     InitialState = seed
+                    HeapReprSink = false
                     Outlives = ResizeArray()
                 }
             )
@@ -80,6 +87,11 @@ module Regions =
             if longer.Raw < 0 || shorter.Raw < 0 then ()
             elif longer.Raw = shorter.Raw then ()
             else nodes.[longer.Raw].Outlives.Add(shorter)
+
+        /// Seed `id` as an Axis-2 heap-repr sink (no-op for `RegionId.Unknown`).
+        member _.MarkHeapSink(id: RegionId) : unit =
+            if id.Raw >= 0 then
+                nodes.[id.Raw].HeapReprSink <- true
 
         member _.NodeOf(id: RegionId) : RegionNode = nodes.[id.Raw]
         member _.Count = nodes.Count
@@ -183,10 +195,27 @@ module Regions =
 
     let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
 
+    /// Is an `Upcast` to `t` a heap-repr sink (ref-struct-emit-plan §Axis 2)?
+    /// `obj` boxes (`TyConst("obj", _)` — what `translateType` produces, see
+    /// `RuntimeNames`), and the `Vesper.Fun<_,_>` interface upcast (`TyFun`)
+    /// materialises a reference-typed function value. Either pins the upcast
+    /// source to a heap representation. (`Downcast` narrows the static type of
+    /// an existing value and is not a sink.)
+    let rec private isHeapReprTarget (t: SemType) : bool =
+        match resolveLink t with
+        | TyConst("obj", _) -> true
+        | TyFun _ -> true
+        | _ -> false
+
     /// Mint a value region that outlives every child region. Tuples, records,
     /// `new`, and clones all allocate a composite that holds its elements.
+    /// Every such composite is a non-`ref struct` aggregate (a `ValueTuple`
+    /// cannot carry a ref-struct field either), so the region is an Axis-2
+    /// heap-repr sink: a held closure is pinned to a heap representation even
+    /// when it is frame-local by lifetime (ref-struct-emit-plan §Axis 2).
     let private holds (s: State) (children: RegionId seq) : RegionId =
         let r = freshValue s
+        s.Graph.MarkHeapSink r
 
         for c in children do
             s.Graph.AddEdge(r, c)
@@ -389,7 +418,16 @@ module Regions =
         // `:>` / `:?>` are static-type adjustments over the same runtime value —
         // non-allocating, so the result rides the source's region. `:?` produces
         // a bool (Unknown), but walking the source registers any inner captures.
-        | TExpr.Upcast(src, _)
+        | TExpr.Upcast(src, ty) ->
+            // The upcast rides the source's region, but boxing to `obj` / upcasting
+            // to the `Vesper.Fun<_,_>` interface materialises a heap value — seed
+            // the source region as an Axis-2 heap-repr sink (§Axis 2).
+            let r = inferRegion s ctx src
+
+            if isHeapReprTarget ty then
+                s.Graph.MarkHeapSink r
+
+            r
         | TExpr.Downcast(src, _) -> inferRegion s ctx src
         | TExpr.TypeTest(src, _, _) ->
             inferRegion s ctx src |> ignore
@@ -639,12 +677,18 @@ module Regions =
 
         count
 
+    // Linear order `HeapShared > CallerStack > ReturnOnly > LocalStack`; lub
+    // picks the wider (more-escaping) state. `ReturnOnly` slots between
+    // `CallerStack` and `LocalStack` — additive, so every existing verdict is
+    // unchanged (ref-struct-emit-plan §Axis 1).
     let private lub (a: EscapeState) (b: EscapeState) : EscapeState =
         match a, b with
         | HeapShared, _
         | _, HeapShared -> HeapShared
         | CallerStack, _
         | _, CallerStack -> CallerStack
+        | ReturnOnly, _
+        | _, ReturnOnly -> ReturnOnly
         | LocalStack, LocalStack -> LocalStack
 
     let private solve (g: RegionGraph) : EscapeState[] =
@@ -705,6 +749,48 @@ module Regions =
 
         state
 
+    /// Axis-2 representation fixpoint (ref-struct-emit-plan §Axis 2): a second
+    /// forward pass over the SAME `Outlives` edges as `solve`, with a different
+    /// seed/sink set. A region requires a heap representation if it escapes to
+    /// the heap (Axis-1 `HeapShared`) or is itself a `HeapReprSink` — a
+    /// non-`ref struct` aggregate container, or a box / interface-upcast source.
+    /// The mark then flows DOWN every `Outlives` edge: a heap container pins
+    /// everything it transitively holds into a heap representation too. `escape`
+    /// is `solve`'s output, indexed by `RegionId.Raw`. Same loop shape as
+    /// `solve`; defaults to `StackOnlyEligible` and only marks on reaching a sink.
+    let private solveRepr (g: RegionGraph) (escape: EscapeState[]) : RegionRepr[] =
+        let n = g.Count
+        let heap = Array.zeroCreate<bool> n
+
+        for i = 0 to n - 1 do
+            let node = g.NodeOf(RegionId(i))
+
+            if node.HeapReprSink || escape.[i] = HeapShared then
+                heap.[i] <- true
+
+        let mutable changed = true
+
+        while changed do
+            changed <- false
+
+            for i = 0 to n - 1 do
+                if heap.[i] then
+                    let node = g.NodeOf(RegionId(i))
+
+                    for tgt in node.Outlives do
+                        if not heap.[tgt.Raw] then
+                            heap.[tgt.Raw] <- true
+                            changed <- true
+
+        Array.init
+            n
+            (fun i ->
+                if heap.[i] then
+                    RegionRepr.RequiresHeapRepr
+                else
+                    RegionRepr.StackOnlyEligible
+            )
+
     let run (ctx: PassContext) (decls: EqArray<TDecl>) : unit =
         let s: State =
             {
@@ -746,9 +832,11 @@ module Regions =
         |> ignore
 
         let state = solve s.Graph
+        let repr = solveRepr s.Graph state
 
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let tv = UnionFind.find kv.Value
 
             if tv.Region.Raw >= 0 && tv.Region.Raw < state.Length then
                 ctx.Bindings.Escape.Set(kv.Key, state.[tv.Region.Raw])
+                ctx.Bindings.ClosureRepr.Set(kv.Key, repr.[tv.Region.Raw])

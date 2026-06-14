@@ -185,12 +185,95 @@ type Rational =
         else
             sprintf "%O/%O" this.Numerator this.Denominator
 
+/// Roslyn's *ref-safe-context* tiers (ratified C# spec) — the CLR emission
+/// target's vocabulary, in widest-escape-first order. `EscapeState`
+/// coarsens onto these via `EscapeState.toClrRefSafe`. The C# compiler and
+/// the CLR verifier enforce exactly this relation and the .NET 9 `allows ref
+/// struct` rules are layered on top, so matching it is an acceptance
+/// criterion (ref-struct-emit-plan §Axis 1).
+[<RequireQualifiedAccess>]
+type SafeContext =
+    /// Roslyn's "beyond the lattice": must live on the heap, never a
+    /// `ref struct`. The `EscapeState.HeapShared` image.
+    | Heap
+    /// `CallingMethod` — escapes to the caller's frame (e.g. via a
+    /// caller-provided `ref`/`out`).
+    | CallingMethod
+    /// `ReturnOnly` (.NET 7+) — may be returned *by value* (sret), but not
+    /// stored into a caller-visible ref.
+    | ReturnOnly
+    /// `CurrentMethod` — confined to this frame; the unconditional
+    /// ref-struct green-light (modulo the Axis-2 representation check).
+    | CurrentMethod
+
+/// Tofte–Talpin coarsening of `EscapeState` for a future native backend
+/// (MLIR / LLVM). Named so the lattice is understood as a *source* that
+/// targets coarsen, not a CLR artifact (ref-struct-emit-plan §Future native
+/// target). Not consumed yet.
+[<RequireQualifiedAccess>]
+type NativeRegionTier =
+    /// `alloca` + `nocapture` / `noalias` parameter attributes.
+    | Stack
+    /// Caller-provided return slot (`sret`) / out-param.
+    | ReturnSlot
+    /// Arena / bump region (Tofte–Talpin `letregion`) or, when unbounded /
+    /// shared, `Rc` / `Arc` / GC.
+    | Heap
+
 /// Maps to Phase 4.6 target lowering: LocalStack -> `ref struct` (.NET) / `&T`
-/// (Rust); HeapShared -> `Rc<T>` / `Arc<T>` (Rust).
+/// (Rust); HeapShared -> `Rc<T>` / `Arc<T>` (Rust). Ordered (widest escape
+/// first) `HeapShared > CallerStack > ReturnOnly > LocalStack`; the two
+/// coarsening maps (`toClrRefSafe`, `toNativeRegionTier`) live on the
+/// companion module so neither target bakes its semantics into the bare
+/// cases (ref-struct-emit-plan §Axis 1).
 type EscapeState =
     | LocalStack
+    /// May be returned *by value* but not captured by a caller's refs —
+    /// Roslyn's `ReturnOnly` tier. More permissive than `CallerStack`; minted
+    /// on a returned-but-non-escaping closure. v1 lays the tier down but does
+    /// not act on it for emission (ref-struct-emit-plan §Axis 1).
+    | ReturnOnly
     | CallerStack
     | HeapShared
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module EscapeState =
+
+    /// CLR coarsening — the ratified-C# safe-context table
+    /// (ref-struct-emit-plan §Axis 1).
+    let toClrRefSafe (s: EscapeState) : SafeContext =
+        match s with
+        | LocalStack -> SafeContext.CurrentMethod
+        | ReturnOnly -> SafeContext.ReturnOnly
+        | CallerStack -> SafeContext.CallingMethod
+        | HeapShared -> SafeContext.Heap
+
+    /// Native-backend coarsening — the Tofte–Talpin tiering
+    /// (ref-struct-emit-plan §Future native target).
+    let toNativeRegionTier (s: EscapeState) : NativeRegionTier =
+        match s with
+        | LocalStack -> NativeRegionTier.Stack
+        | ReturnOnly
+        | CallerStack -> NativeRegionTier.ReturnSlot
+        | HeapShared -> NativeRegionTier.Heap
+
+/// Axis-2 representation requirement for a region (ref-struct-emit-plan §Axis 2),
+/// orthogonal to the `EscapeState` *lifetime* axis. A closure can be
+/// frame-confined by lifetime yet still pinned to a heap representation by a
+/// containment / boxing channel — held in a non-`ref struct` aggregate
+/// (including a `System.ValueTuple`, which cannot carry a ref-struct field),
+/// captured by a heap-class closure, escaping to the heap, or upcast to
+/// `Vesper.Fun<_,_>` / `obj`. The ref-struct-closure eligibility predicate is
+/// the conjunction `LocalStack ∧ StackOnlyEligible`; this axis supplies the
+/// second conjunct, computed by a forward fixpoint over the same region graph.
+[<RequireQualifiedAccess>]
+type RegionRepr =
+    /// No heap-repr channel reaches this region — eligible for the deferred
+    /// readonly-struct closure shape (modulo the Axis-1 lifetime check).
+    | StackOnlyEligible
+    /// A containment / boxing / heap-escape channel pins this region to a
+    /// reference-type representation.
+    | RequiresHeapRepr
 
 /// Per-type decision on whether the structural-equality triple
 /// (`GetHashCode()` / `Equals(object)` / `IEquatable<Self>::Equals(Self)`) ships
