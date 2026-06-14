@@ -924,6 +924,22 @@ let tests =
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other
             }
 
+            // The parser now grows `a | b | c` (TypeParsing.pUnionType loops into a
+            // left-nested CST chain); translateType already fed that tree to mkUnion,
+            // so a >2-case union canonicalises to a 3-member TyOr.
+            test "int | string | bool translates to a 3-member canonical TyOr" {
+                let dom = unionDomainOf "let f (x: int | string | bool) = x"
+
+                Expect.equal
+                    dom
+                    (mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString; BuiltinTypes.tyBool ])
+                    "f domain is int | string | bool"
+
+                match dom with
+                | TyOr ms -> Expect.equal ms.Members.Length 3 "three distinct members"
+                | other -> failtestf "expected a TyOr, got %A" other
+            }
+
             // Stage 4 of the anonymous-union plan (docs/anon-unions-plan.md): the
             // directional `subsumes` query learns union membership — the first
             // user-visible behaviour. `unify` is untouched; these are read-only

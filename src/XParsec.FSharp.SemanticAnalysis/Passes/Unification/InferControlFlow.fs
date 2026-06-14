@@ -189,7 +189,12 @@ module internal UnificationInferControlFlow =
                 // The binder narrows against the members still live *before* this
                 // arm. Once the residual is exhausted, fall back to the full
                 // scrutinee rather than pin a redundant trailing binder to `never`.
-                armScruts.Add(if List.isEmpty residual then scrutineeTy else mkUnion residual)
+                armScruts.Add(
+                    if List.isEmpty residual then
+                        scrutineeTy
+                    else
+                        mkUnion residual
+                )
 
                 // Shrink the residual by the members this arm definitively catches.
                 // A guarded arm may fail at runtime, so it removes nothing.
