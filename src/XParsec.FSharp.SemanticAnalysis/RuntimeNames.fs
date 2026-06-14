@@ -133,6 +133,19 @@ module RuntimeNames =
         else
             "[" + System.String(',', rank - 1) + "]"
 
+    /// The canonical identity name for a managed by-ref (`T&`) — a *generic
+    /// intrinsic* carried as `TyConst(byrefName, [elem])` / `FTConst(byrefName,
+    /// [elem])`, exactly mirroring the array `arrayName` convention rather than a
+    /// dedicated DU case (so it rides the existing `FrozenType`/`SemType` machinery
+    /// — bridge, `RecoverOpenTypars` arg recursion, unification — untouched). A
+    /// byref is legal only in parameter / return / local positions, never as a
+    /// field or generic argument; `ClrEncoder.encodeType` emits its
+    /// `ELEMENT_TYPE_BYREF` prefix at the return/param seam, not in the recursive
+    /// type encoder. Its sole producer is the BCL-metadata resolver
+    /// (`MetadataSymbols.tryBuildType`, e.g. `Span<T>.get_Item : T&`); the front end
+    /// erases it to the element type at the value position (`inferIndexedLookup`).
+    let byrefName: string = "&"
+
     /// The external head an `[| … |]` array literal lowers to (`FreezeExpr`):
     /// `ArrayModule.OfList` applied to the literal cons-chain. The FSharp.Core
     /// path resolves it as a real module call; the BCL-only path recognises this

@@ -46,8 +46,18 @@ module private MetadataMapping =
             t.FullName
 
     let rec tryBuildType (t: Type) : FrozenType option =
-        if t.IsByRef || t.IsPointer then
-            // No `FrozenType` by-ref / pointer case — skip rather than fake (§6.1).
+        if t.IsByRef then
+            // A managed by-ref (`T&`) maps onto the byref intrinsic
+            // `FTConst(byrefName, [elem])`, mirroring the array intrinsic below — so
+            // a byref-returning member (e.g. `Span<T>.get_Item : T&`) resolves
+            // instead of being dropped. Legal only in param / return position; the
+            // encoder emits `ELEMENT_TYPE_BYREF` at that seam, never inside the
+            // recursive type encoder (PP2b).
+            match tryBuildType (t.GetElementType()) with
+            | Some elem -> Some(FTConst(RuntimeNames.byrefName, EqArray.singleton elem))
+            | None -> None
+        elif t.IsPointer then
+            // Unmanaged pointers stay unrepresentable — skip rather than fake (§6.1).
             None
         elif t.IsArray then
             // A reflection array maps onto Vesper's generic array intrinsic
@@ -360,6 +370,40 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 )
             )
 
+        // Indexers (`this[i]`) surface under their accessor's CIL name `get_Item`
+        // as an ordinary *method* member carrying the index parameter(s) + the
+        // (possibly by-ref) element return — NOT as a parameterless property, whose
+        // `propertySignature` shape can't model the index argument. The `Item`
+        // property itself is skipped by the property walk above whenever its getter
+        // returns by-ref (`Span<T>.Item : T&`, unmappable as a value type), so this
+        // is the only surface for a ref-returning indexer; for a by-value indexer it
+        // is additive (the lookup names `get_Item` vs `Item` don't collide). The
+        // front-end indexer dispatch (`inferIndexedLookup`) probes `get_Item`.
+        let indexers =
+            t.GetProperties declaredFlags
+            |> Array.filter (fun p -> p.GetIndexParameters().Length > 0 && not (isNull p.GetMethod))
+            |> Array.choose (fun p ->
+                let getter = p.GetMethod
+
+                MetadataMapping.tryMethodSignature getter
+                |> Option.map (fun (ps, ret) ->
+                    let argSig =
+                        getter.GetParameters()
+                        |> Array.map (fun ip -> MetadataMapping.openTyparSig ip.ParameterType)
+                        |> EqArray.ofArray
+
+                    {
+                        Name = "get_Item"
+                        IsStatic = getter.IsStatic
+                        IsProperty = false
+                        Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
+                        MethodArity = 0
+                        Origin = origin
+                        Key = SymbolKey.MemberKey(declKey, "get_Item", argSig, MemberKind.Method)
+                    }
+                )
+            )
+
         // Constructors surface under the canonical name `".ctor"` — the same
         // name CIL uses, and the lookup key `inferNew` / `TryEmitCtor` probe
         // when lowering `new ExternalType(args)`. `t.GetMethods` excludes them
@@ -388,7 +432,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 )
             )
 
-        Array.concat [| properties; methods; ctors |]
+        Array.concat [| properties; methods; indexers; ctors |]
 
     /// Build the type's interface set as `(compiled-name, type-args)` template
     /// pairs over the declaring type's typars. Each interface arg goes through

@@ -75,6 +75,13 @@ type ILInstr =
     /// reference, pushes the length (net 0). F#'s `arr.Length` narrows the
     /// result to int32 with a following `conv.i4`.
     | Ldlen
+    /// `ldobj <type>` — load the value a managed pointer points to; pops the
+    /// pointer, pushes the pointed-to value (net 0). The deref behind a by-ref
+    /// return — `span.[i]` is `call get_Item` (yields `T&`) followed by
+    /// `ldobj T` (PP2b). The generic `ldobj` carries a type token, so it serves
+    /// any element type (including structs); the sized `ldind.*` forms are an
+    /// unused optimisation.
+    | Ldobj of EntityHandle
     | Newobj of EntityHandle * argc: int
     | Call of EntityHandle * argc: int * pushes: int
     | Callvirt of EntityHandle * argc: int * pushes: int
@@ -186,6 +193,8 @@ module private InstrDelta =
         | ILInstr.Ldelem _ -> -1
         // `stelem` pops the array ref + index + value, pushes nothing (net −3).
         | ILInstr.Stelem _ -> -3
+        // `ldobj` pops the managed pointer, pushes the pointed-to value (net 0).
+        | ILInstr.Ldobj _ -> 0
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
@@ -276,6 +285,8 @@ module IlIr =
         | ILInstr.Constrained _
         | ILInstr.Newarr _
         | ILInstr.Ldlen
+        // `ldobj` pops the managed pointer, pushes the pointed-to value (net 0).
+        | ILInstr.Ldobj _
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _ -> 1
         | ILInstr.Stsfld _ -> -1
@@ -508,6 +519,7 @@ module IlIr =
             | ILInstr.Newarr t -> Cil.emitNewarr il t
             | ILInstr.Ldelem t -> Cil.emitLdelem il t
             | ILInstr.Stelem t -> Cil.emitStelem il t
+            | ILInstr.Ldobj t -> Cil.emitLdobj il t
             | ILInstr.Ldlen -> Cil.emitLdlen il
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes

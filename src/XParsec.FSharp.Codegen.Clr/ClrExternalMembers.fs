@@ -105,6 +105,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (ret: ReturnTypeEncoder) ->
                         match retT with
                         | FTConst("unit", _) -> ret.Void()
+                        // A by-ref return (`Span<T>.get_Item : T&`) emits the
+                        // `ELEMENT_TYPE_BYREF` prefix via the *return* encoder's
+                        // `isByRef` flag, then the element — byref is not a standalone
+                        // `SignatureTypeEncoder` shape, it rides the param/return seam
+                        // (PP2b). The member-ref signature must match the BCL method's
+                        // by-ref return exactly or it fails to bind at JIT.
+                        | FTConst(n, args) when n = RuntimeNames.byrefName && args.Length = 1 ->
+                            encodeType (ret.Type(true)) args.[0]
                         | _ -> encodeType (ret.Type()) retT
                     ),
                     (fun (pars: ParametersEncoder) ->

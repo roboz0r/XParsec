@@ -315,12 +315,47 @@ module internal UnificationInferRecordAccess =
         // the array element type, the `int` index, and the result — and (like every
         // resolved call) grounds the types so `InlineExpansion` can splice the
         // source `ldelem` at the use site. The mnemonic never originates here.
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArray" with
-        | ValueSome sym ->
-            let resultTy = TyVar(freshTyVar ctx)
-            unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(recvTy, TyFun(idxTy, resultTy)))
-            resultTy
-        | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
+        let getArrayIndex () =
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArray" with
+            | ValueSome sym ->
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(recvTy, TyFun(idxTy, resultTy)))
+                resultTy
+            | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
+
+        // An indexer on an *external* class (`span.[i]` on a `Span<char>`) is the
+        // BCL `get_Item` accessor — for a ref struct it is `get_Item(i) : T&` with no
+        // by-value accessor, so it can't go through `GetArray`/`ldelem`. Resolve it
+        // through the provider, record it in `ExternalAccess` (`FreezeExpr` lowers it
+        // like an external instance call + a byref deref), and return the *element*
+        // type — the by-ref is erased at the value position. A project-local class,
+        // an intrinsic array, or a still-free receiver keeps the `GetArray` path.
+        match resolveStep recvTy with
+        | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
+            let clsQual = SymbolKeyOps.qualifiedName clsKey
+
+            match ctx.Provider.TryLookupMember(clsQual, "get_Item") with
+            | ValueSome m when not m.IsStatic ->
+                let memberSig = ExternalSymbols.openSignature m (clsArgs.AsSpan().ToArray())
+
+                ctx.Resolution.ExternalAccess.Set(
+                    key,
+                    {
+                        Key = m.Key
+                        IsStatic = false
+                        IsProperty = false
+                        Signature = memberSig
+                    }
+                )
+
+                // `get_Item : idx -> T&`; unify against `idx -> (resultTy)&` to pin
+                // the index type and read out the element `resultTy` (byref erased).
+                let resultTy = TyVar(freshTyVar ctx)
+                let byrefTy = TyConst(RuntimeNames.byrefName, EqArray.singleton resultTy)
+                unify ctx key memberSig (TyFun(idxTy, byrefTy))
+                resultTy
+            | _ -> getArrayIndex ()
+        | _ -> getArrayIndex ()
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// head segment NameResolution resolved as a local binding; the remaining

@@ -178,6 +178,15 @@ module Cil =
         il.Encoder.Token(t)
         il.Adjust -3
 
+    /// `ldobj <type>` — load the value a managed pointer points to: pops the
+    /// pointer, pushes the pointed-to value (net 0). The deref behind a by-ref
+    /// return (`span.[i]` = `call get_Item` → `ldobj T`, PP2b); the generic
+    /// `ldobj` carries a type token, so it serves any element type.
+    let emitLdobj (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldobj)
+        il.Encoder.Token(t)
+        il.Adjust 0
+
     /// `ldlen` — load an array's length as a native int: pops the array
     /// reference, pushes the length (net 0). No type operand.
     let emitLdlen (il: Il) : unit =

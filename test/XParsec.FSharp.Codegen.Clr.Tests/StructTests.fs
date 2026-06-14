@@ -889,4 +889,32 @@ let structTests =
                             "printfn \"%d\" v.Tail.Length"
                         ])
             }
+
+            // PP2b (printf-port-steps): the byref-return indexer `chars.[i]`, the one
+            // piece PP2a deferred. `Span<T>`'s only element accessor is
+            // `get_Item(i) : T&` (a managed-pointer return, no by-value form), so this
+            // exercises the whole byref stack: resolving a by-ref-returning BCL member
+            // (`tryBuildType` no longer drops `T&`; the indexer surfaces as
+            // `get_Item` carrying a `FTConst("&", [elem])` return), encoding
+            // `ELEMENT_TYPE_BYREF` at the member-ref return seam, and dereferencing the
+            // result (`call get_Item` → `ldobj <elem>`). `At 1 = 'e'` is the checkpoint
+            // assertion. (The 1-arg `Slice(int)` the plan also lists is blocked on an
+            // orthogonal gap — folded-`LongIdent` instance-method overload resolution,
+            // not byref — see printf-port-steps.md PP2b.)
+            test "PP2b: ref struct Span<char> byref indexer read — chars.[i]" {
+                runsLines
+                    [ "e"; "o" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "[<Struct; IsByRefLike>]"
+                            "type SpanView(chars: Span<char>) ="
+                            "    member this.At(i) = chars.[i]"
+                            "let arr = [| 'h'; 'e'; 'l'; 'l'; 'o' |]"
+                            "let v = SpanView(Span<char>(arr))"
+                            "printfn \"%c\" (v.At 1)"
+                            "printfn \"%c\" (v.At 4)"
+                        ])
+            }
         ]

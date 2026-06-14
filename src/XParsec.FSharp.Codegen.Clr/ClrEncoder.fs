@@ -269,6 +269,16 @@ type internal ClrEncoder(env: ClrEnv) =
 
             for t in items do
                 encodeType (g.AddArgument()) t
+        // A by-ref (`T&`) is legal only in parameter / return / local position,
+        // where its `ELEMENT_TYPE_BYREF` prefix is emitted at the encoder seam
+        // (`mintMemberRef`'s return encoder, the local-sig encoder). Reaching the
+        // recursive type encoder means it appears as a field / generic argument —
+        // illegal in CLR metadata — so flag it explicitly rather than via the opaque
+        // catch-all (PP2b).
+        | FTConst(n, _) when n = RuntimeNames.byrefName ->
+            failwithf
+                "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
+                t
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other

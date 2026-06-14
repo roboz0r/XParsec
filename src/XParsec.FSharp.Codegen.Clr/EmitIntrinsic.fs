@@ -51,6 +51,17 @@ module EmitIntrinsic =
             // expression (`for`, `()` literal) — a function body that is a bare
             // `arr.[i] <- v` must leave the unit return value for `ret`.
             EmitTypes.buildUnitValue env b
+        | TExprG.ILIntrinsic("ldobj", operand, args, _) ->
+            // `span.[i]` byref-return deref — emit the arg (the `call get_Item`,
+            // which leaves a managed pointer `T&` on the stack), then `ldobj <elem>`
+            // to load the pointed-to element value (PP2b). The element type rides
+            // `typeOperand` (Freeze set it to the value-position result type).
+            for a in args do
+                recur env b a
+
+            match operand with
+            | ValueSome elem -> b.Add(ILInstr.Ldobj(env.Provider.TypeToken elem))
+            | ValueNone -> failwith "Emit: 'ldobj' without an element type operand"
         | TExprG.ILIntrinsic("box", operand, args, _) ->
             // `box value` — push the value, then `box <T>`. The boxed type rides
             // `typeOperand` (Freeze recovered it from the argument's static type).

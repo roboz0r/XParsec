@@ -421,13 +421,33 @@ module internal FreezeExpr =
         // the operator path (`translateInfix`): emit a curried `External` call whose
         // type is rebuilt from the resolved operand types. `ty` is the element type.
         | Expr.IndexedLookup(expr = r; indexExpr = idx) ->
-            let arrTy = typeOfKey ctx (CstKeys.ofExpr r)
-            let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
-            let partialTy = TyFun(idxTy, ty)
-            let getTy = TyFun(arrTy, partialTy)
-            let getExpr = TExpr.External("GetArray", ValueNone, getTy)
-            let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy)
-            TExpr.App(app1, translateExpr ctx idx, ty)
+            match ctx.Resolution.ExternalAccess.TryGetValue key with
+            | ValueSome info ->
+                // `span.[i]` on an external indexer (`Span<char>.get_Item(i) : T&`):
+                // Unification recorded the resolved `get_Item` in `ExternalAccess`.
+                // The BCL accessor returns a managed pointer and has no by-value
+                // form, so call it through the external-instance-method machinery
+                // (PP2a address dispatch — the receiver is an unboxed struct) and
+                // dereference the result with `ldobj <elem>`. `ty` is the
+                // value-position element; the call's static type is `elem&`
+                // (`TyConst(byrefName, [elem])`), which `ldobj` loads.
+                let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
+                let byrefTy = TyConst(RuntimeNames.byrefName, EqArray.singleton ty)
+                let memberFnTy = TyFun(idxTy, byrefTy)
+
+                let getItem =
+                    TExpr.ExternalMember(ValueSome(translateExpr ctx r), info.Key, "get_Item", false, memberFnTy)
+
+                let callExpr = TExpr.App(getItem, translateExpr ctx idx, byrefTy)
+                TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton callExpr, ty)
+            | ValueNone ->
+                let arrTy = typeOfKey ctx (CstKeys.ofExpr r)
+                let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
+                let partialTy = TyFun(idxTy, ty)
+                let getTy = TyFun(arrTy, partialTy)
+                let getExpr = TExpr.External("GetArray", ValueNone, getTy)
+                let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy)
+                TExpr.App(app1, translateExpr ctx idx, ty)
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->
             let opCode = stitchIlInstruction ctx parts
             let tArgs = EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
