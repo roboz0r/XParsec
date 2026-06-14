@@ -223,7 +223,15 @@ module SymbolProviders =
     /// matching `composite`'s first-listed-source priority for symbol lookup. A
     /// parse / impl-file-shape failure contributes no body (it surfaces as the
     /// emit-time "no inline body / no recipe" failure at the use site, not here).
-    let inlineBodies (provider: IExternalSymbolProvider) (manifestPaths: string list) : Map<string, InlineBody> =
+    /// `target` selects the per-target `inline-bodies-<t>` override
+    /// (`resolveInlineBodies`): `None` is the base list (the CLR path); `Some "js"`
+    /// picks `ops-platform.js.fs` &c. where a package declares it, falling back to
+    /// the base list per-package.
+    let inlineBodies
+        (target: string option)
+        (provider: IExternalSymbolProvider)
+        (manifestPaths: string list)
+        : Map<string, InlineBody> =
         let mutable acc = Map.empty
 
         for manifestPath in manifestPaths do
@@ -233,7 +241,7 @@ module SymbolProviders =
             | Result.Ok manifest ->
                 let dir = Path.GetDirectoryName manifestPath
 
-                for rel in manifest.InlineBodies do
+                for rel in ReferencedProject.resolveInlineBodies target manifest do
                     let file: VesperLib.LibFile =
                         {
                             BucketName = manifest.Name
@@ -326,9 +334,14 @@ module SymbolProviders =
     /// reaches the bodies through the provider's inline-body channel
     /// (`buildContract`); the raw `Map` (`contractInlineBodies`) is an
     /// introspection seam for the inline-body collection tests.
-    let private buildContractCached (manifestPaths: string list) : IExternalSymbolProvider * Map<string, InlineBody> =
+    let private buildContractCached
+        (target: string option)
+        (manifestPaths: string list)
+        : IExternalSymbolProvider * Map<string, InlineBody> =
         let normalised = manifestPaths |> List.map Path.GetFullPath
-        let key = String.concat ";" normalised
+        // The target is part of the cache identity: the JS and CLR collections of
+        // the same manifest set freeze different `inline-bodies` files.
+        let key = (defaultArg target "") + "|" + String.concat ";" normalised
 
         contractCache
             .GetOrAdd(
@@ -347,7 +360,7 @@ module SymbolProviders =
                         // contract symbols AND its cross-package inline bodies).
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
                          let provider = composeProviders ordered transitiveDeps
-                         let inlines = inlineBodies provider ordered
+                         let inlines = inlineBodies target provider ordered
                          // Rekey the inline bodies by the resolved `SymbolKey` the
                          // consumer's use-site `TExpr.External` carries — looked up
                          // through this same `provider`, so the body's key is exactly
@@ -375,7 +388,7 @@ module SymbolProviders =
     /// bodies. The single entry point the default compile path uses once
     /// `MockBuiltins` is demoted to the backstop.
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
-        buildContractCached manifestPaths |> fst
+        buildContractCached None manifestPaths |> fst
 
     /// The raw cross-package inline bodies collected for a manifest set, keyed by
     /// source name — an introspection seam for the inline-body collection tests.
@@ -383,4 +396,11 @@ module SymbolProviders =
     /// channel (see `buildContract`), never this map. Shares `buildContract`'s
     /// cache.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
-        buildContractCached manifestPaths |> snd
+        buildContractCached None manifestPaths |> snd
+
+    /// `contractInlineBodies` for a specific target (`Some "js"` selects the
+    /// `inline-bodies-js` files via `ReferencedProject.resolveInlineBodies`). The
+    /// introspection seam the F1 / JS-target inline-body tests use to confirm a
+    /// target's bodies freeze with their `$N` templates intact.
+    let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
+        buildContractCached target manifestPaths |> snd

@@ -46,6 +46,19 @@ module ReferencedProject =
             /// to `Impl` when the key is absent — the common case where the impl
             /// files are themselves the inline-body source.
             InlineBodies: string list
+            /// Per-target `impl` overrides: every `impl-<t>` key (e.g. `impl-js`),
+            /// keyed by the bare suffix `<t>` ("js"). SemanticAnalysis stores these
+            /// inertly and never enumerates target names — each *backend* asks for
+            /// its own suffix via `resolveImpl`, falling back to the base `Impl` when
+            /// absent. A target's `.fs` bodies diverge from the CLR ones only where
+            /// they carry platform IL (Vesper.Core / .Comparison / .Array); the rest
+            /// of the library is target-neutral and needs no override.
+            ImplOverrides: Map<string, string list>
+            /// Per-target `inline-bodies` overrides: every `inline-bodies-<t>` key,
+            /// keyed by the bare suffix `<t>`. Mirror of `ImplOverrides` for the
+            /// inline-splice source; resolved by `resolveInlineBodies`, falling back
+            /// to the base `InlineBodies`.
+            InlineBodiesOverrides: Map<string, string list>
         }
 
     let private asString (v: TomlValue) : string option =
@@ -66,6 +79,40 @@ module ReferencedProject =
         match Map.tryFind key t with
         | Some(TomlValue.Array xs) -> xs |> List.choose asString |> Some
         | _ -> None
+
+    /// Collect every `<prefix>-<t>` key from a `[core]` table into a
+    /// `suffix -> string list` map (`impl-js` -> "js"). Target-agnostic: the parser
+    /// records whatever suffixes are present without knowing the target set.
+    let private collectOverrides (core: TomlTable) (prefix: string) : Map<string, string list> =
+        let dash = prefix + "-"
+
+        core
+        |> Map.toSeq
+        |> Seq.choose (fun (key, value) ->
+            if key.StartsWith dash then
+                match value with
+                | TomlValue.Array xs -> Some(key.Substring dash.Length, xs |> List.choose asString)
+                | _ -> None
+            else
+                None
+        )
+        |> Map.ofSeq
+
+    /// Resolve the `impl` file list for an optional target suffix: the target's
+    /// override if present, else the base `impl`. `None` (and any suffix with no
+    /// override) yields the base list — the CLR path is `resolveImpl None`.
+    let resolveImpl (target: string option) (m: Manifest) : string list =
+        match target with
+        | Some t -> m.ImplOverrides |> Map.tryFind t |> Option.defaultValue m.Impl
+        | None -> m.Impl
+
+    /// Resolve the `inline-bodies` file list for an optional target suffix; mirror
+    /// of `resolveImpl`. The future JS backend calls `resolveInlineBodies (Some "js")`;
+    /// the CLR backend keeps reading `m.InlineBodies` (i.e. `resolveInlineBodies None`).
+    let resolveInlineBodies (target: string option) (m: Manifest) : string list =
+        match target with
+        | Some t -> m.InlineBodiesOverrides |> Map.tryFind t |> Option.defaultValue m.InlineBodies
+        | None -> m.InlineBodies
 
     /// Parse a package `manifest.toml` document. `dirName` is the manifest's
     /// directory name, used as the assembly name when `[core]` carries no `name`.
@@ -108,6 +155,11 @@ module ReferencedProject =
                             // source. Operator packages override it (their DLL compile
                             // target and inline-splice source differ).
                             InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue impl
+                            // Per-target overrides are inert here: any `impl-<t>` /
+                            // `inline-bodies-<t>` key is captured by suffix and resolved
+                            // by the *backend* (`resolveImpl`/`resolveInlineBodies`).
+                            ImplOverrides = collectOverrides core "impl"
+                            InlineBodiesOverrides = collectOverrides core "inline-bodies"
                         }
 
     /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).

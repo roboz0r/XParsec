@@ -16,6 +16,7 @@
     <Compile Include="ILIntrinsicTests.fs" />
     <Compile Include="OperatorRoutingTests.fs" />
     <Compile Include="ArithmeticOperatorTests.fs" />
+    <Compile Include="OpsPlatformJsTests.fs" />
     <Compile Include="LiteralTests.fs" />
     <Compile Include="ComparisonTests.fs" />
     <Compile Include="BindingTests.fs" />

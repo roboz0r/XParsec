@@ -330,4 +330,89 @@ let tests =
                         | Result.Error e -> failtestf "expected Ok, got Error %s" e
                     }
                 ]
+
+            // Per-target `impl-<t>` / `inline-bodies-<t>` overrides (codegen-js
+            // step F0): the manifest parse captures them inertly by suffix; the
+            // *backend* selects via `resolveImpl` / `resolveInlineBodies`. The
+            // `.fsi` contract (`files`) is shared and never overridden.
+            testList
+                "per-target overrides"
+                [
+                    // A manifest carrying both a base and a `js` override for each key.
+                    let withOverrides =
+                        let dir = Path.Combine(tmpSrc, "TargetOverrides")
+                        Directory.CreateDirectory dir |> ignore
+                        let path = Path.Combine(dir, "manifest.toml")
+
+                        File.WriteAllText(
+                            path,
+                            "[core]\n\
+                             namespace = \"X\"\n\
+                             files = [\"contract.fsi\"]\n\
+                             impl = [\"ops.fs\"]\n\
+                             impl-js = [\"ops.js.fs\"]\n\
+                             inline-bodies = [\"ops.fs\"]\n\
+                             inline-bodies-js = [\"ops.js.fs\"]\n"
+                        )
+
+                        match ReferencedProject.loadManifest path with
+                        | Result.Ok m -> m
+                        | Result.Error e -> failwithf "loadManifest failed: %s" e
+
+                    test "overrides are captured by bare suffix" {
+                        Expect.equal
+                            (withOverrides.ImplOverrides |> Map.tryFind "js")
+                            (Some [ "ops.js.fs" ])
+                            "impl-js captured under \"js\""
+
+                        Expect.equal
+                            (withOverrides.InlineBodiesOverrides |> Map.tryFind "js")
+                            (Some [ "ops.js.fs" ])
+                            "inline-bodies-js captured under \"js\""
+                    }
+
+                    test "resolveImpl/resolveInlineBodies pick the override for a known target" {
+                        Expect.equal
+                            (ReferencedProject.resolveImpl (Some "js") withOverrides)
+                            [ "ops.js.fs" ]
+                            "js impl override selected"
+
+                        Expect.equal
+                            (ReferencedProject.resolveInlineBodies (Some "js") withOverrides)
+                            [ "ops.js.fs" ]
+                            "js inline-bodies override selected"
+                    }
+
+                    test "resolve falls back to the base list for None and for an unknown target" {
+                        Expect.equal (ReferencedProject.resolveImpl None withOverrides) [ "ops.fs" ] "None ⇒ base impl"
+
+                        Expect.equal
+                            (ReferencedProject.resolveImpl (Some "wasm") withOverrides)
+                            [ "ops.fs" ]
+                            "unknown target ⇒ base impl"
+
+                        Expect.equal
+                            (ReferencedProject.resolveInlineBodies (Some "wasm") withOverrides)
+                            [ "ops.fs" ]
+                            "unknown target ⇒ base inline-bodies"
+                    }
+
+                    test "a manifest with no overrides has empty override maps and resolves to base" {
+                        let dir = Path.Combine(tmpSrc, "NoOverrides")
+                        Directory.CreateDirectory dir |> ignore
+                        let path = Path.Combine(dir, "manifest.toml")
+                        File.WriteAllText(path, "[core]\nnamespace = \"X\"\nfiles = []\nimpl = [\"ops.fs\"]\n")
+
+                        match ReferencedProject.loadManifest path with
+                        | Result.Error e -> failtestf "loadManifest failed: %s" e
+                        | Result.Ok m ->
+                            Expect.isEmpty m.ImplOverrides "no impl overrides"
+                            Expect.isEmpty m.InlineBodiesOverrides "no inline-bodies overrides"
+                            // `inline-bodies` itself defaults to `impl` (existing behaviour).
+                            Expect.equal
+                                (ReferencedProject.resolveInlineBodies (Some "js") m)
+                                [ "ops.fs" ]
+                                "js ⇒ base (= impl)"
+                    }
+                ]
         ]

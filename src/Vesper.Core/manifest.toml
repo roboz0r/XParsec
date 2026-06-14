@@ -71,3 +71,13 @@ inline-bodies = [
     "ops-platform.fs",
     "ops-std.fs",
 ]
+
+# JS-target override (codegen-js-steps.md step F1), selected by the backend via
+# `ReferencedProject.resolveInlineBodies (Some "js")`. The override REPLACES the
+# whole list, so the target-neutral `ops-std.fs` (logical/composition/pipe — pure
+# F#, no platform IL) is repeated unchanged; only `ops-platform.fs` diverges to
+# its `$N`-template sibling `ops-platform.js.fs`.
+inline-bodies-js = [
+    "ops-platform.js.fs",
+    "ops-std.fs",
+]
