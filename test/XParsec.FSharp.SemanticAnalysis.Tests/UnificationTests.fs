@@ -978,4 +978,74 @@ let tests =
                     UnificationEngine.SubsumeOutcome.Unrelated
                     "(int | string) ⋠ int — the consumer must narrow first"
             }
+
+            // Stage 5 of the anonymous-union plan (docs/anon-unions-plan.md):
+            // committing coercion at expected-type positions. The annotation sites
+            // (let return / parameter `Pat.Typed`) switched from symmetric `unify` to
+            // directional `unifyArg`, so a value flows into a union-typed (or any
+            // upcast) slot the annotation writes down. The assignment site `x <- e`
+            // stays on `unify` — inference never synthesises a union.
+            test "let binding annotated with a union accepts a member value" {
+                let ctx = analyse "let x: int | string = 1"
+                Expect.isEmpty ctx.Diagnostics "int flows into (int | string) annotation"
+            }
+
+            test "let binding annotated with a reordered union accepts the other member" {
+                let ctx = analyse "let x: string | int = \"a\""
+                Expect.isEmpty ctx.Diagnostics "string flows into (string | int) annotation"
+            }
+
+            test "a union-typed parameter accepts arguments of each member" {
+                let ctx = analyse "let f (x: int | string) = 0\nlet a = f 1\nlet b = f \"a\""
+                Expect.isEmpty ctx.Diagnostics "f 1 and f \"a\" both check against (int | string)"
+            }
+
+            test "passing a member into a union slot does NOT narrow the slot" {
+                // `f 1` returns the *union* `int | string`, not `int` — the slot
+                // accepted `1` by assignability without unifying the parameter down
+                // to the actual. (The body returns `x`, so the return type is the
+                // parameter's union.)
+                let ctx = analyse "let f (x: int | string) = x\nlet y = f 1"
+
+                let yKey =
+                    NodeKey.ofSource (("let f (x: int | string) = x\nlet y = f 1").IndexOf "y =") NodeKind.PatIdent
+
+                Expect.equal (typeOf ctx yKey) (mkUnion [ int; str ]) "f 1 : int | string"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "a non-member value is still rejected against a union annotation" {
+                let ctx = analyse "let x: int | string = true"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+
+                Expect.isTrue hasMismatch "bool ⋠ (int | string) — annotation rejects it"
+            }
+
+            test "assignment stays symmetric: `x <- 1` on a string is an error" {
+                // The assignment site was deliberately NOT switched to `unifyArg` —
+                // it has no annotation, so inference must not silently widen to
+                // `string | int`. This is the principality rule made mechanical.
+                let ctx = analyse "let mutable x = \"\"\nx <- 1"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "`x <- 1` against a string binding stays a hard error"
+            }
+
+            test "a union slot accepts a value by assignability WITHOUT pinning its typar" {
+                // The no-box-pin invariant generalised from `obj`: a value that
+                // subsumes into a member flows in without `unify`, so the actual's
+                // typar stays free. A plain `unify` against the union would link the
+                // var; the `TyOr` arm of `tryCoerceUpcast` must not.
+                let tv = TypeVar()
+                let actual = TyVar tv
+                let target = mkUnion [ TyVar tv; int ]
+                let key = NodeKey.ofSource 0 NodeKind.PatIdent
+                let accepted = UnificationEngine.tryCoerceUpcast subsumeCtx key actual target
+                Expect.isTrue accepted "the union slot accepts the value"
+                Expect.equal tv.Link ValueNone "the actual's typar is left free (no pin)"
+            }
         ]

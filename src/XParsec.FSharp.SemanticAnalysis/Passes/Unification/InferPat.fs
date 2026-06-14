@@ -322,7 +322,10 @@ module internal UnificationInferPat =
         | Pat.Typed(pat = inner; typ = t) ->
             let innerTy = inferPat ctx inner
             let annTy = translateType ctx t
-            unify ctx key innerTy annTy
+            // Annotation reconciliation (`x: int | string`): admits value→union but
+            // stays symmetric `unify` for a nominal/`obj` annotation, so the binder
+            // still grounds to its written type (anon-unions plan Stage 5).
+            unifyAnnotation ctx key innerTy annTy
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome annTy
             annTy

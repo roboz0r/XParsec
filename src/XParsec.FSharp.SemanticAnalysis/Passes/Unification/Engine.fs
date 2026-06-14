@@ -1387,16 +1387,27 @@ module UnificationEngine =
             true
         else
 
-            match subtypeNominalOf ctx tgt with
-            | ValueNone -> false
-            | ValueSome(struct (tname, targs)) ->
-                match tryUpcastWitness ctx src tname with
-                | ValueSome sargs when sargs.Length = targs.Length ->
-                    for i in 0 .. targs.Length - 1 do
-                        unify ctx key sargs.[i] targs.[i]
+            // A union-typed slot is `obj` restricted to an enumerated member set: it
+            // accepts any value that subsumes into one of its members, with the *same*
+            // no-pin discipline as `obj` above. `subsumes` is a pure read (no `Link`),
+            // so a generic value threaded through a union-typed parameter is not wrongly
+            // grounded — exactly the `acceptsByAssignability` generalisation of
+            // `absorbsAsObj` the anon-unions plan (Stage 5) calls for. The box / `isinst`
+            // materialises at codegen via the existing `obj` machinery.
+            match resolveStep tgt with
+            | TyOr _ -> subsumes ctx src tgt <> SubsumeOutcome.Unrelated
+            | _ ->
 
-                    true
-                | _ -> false
+                match subtypeNominalOf ctx tgt with
+                | ValueNone -> false
+                | ValueSome(struct (tname, targs)) ->
+                    match tryUpcastWitness ctx src tname with
+                    | ValueSome sargs when sargs.Length = targs.Length ->
+                        for i in 0 .. targs.Length - 1 do
+                            unify ctx key sargs.[i] targs.[i]
+
+                        true
+                    | _ -> false
 
     /// Unify an *argument* against its expected parameter type, admitting the
     /// implicit class→interface / class→base upcast F# inserts at a coercion
@@ -1415,3 +1426,21 @@ module UnificationEngine =
         | a, b ->
             if not (tryCoerceUpcast ctx key a b) then
                 unify ctx key a b
+
+    /// Reconcile an inferred type against a *written annotation* (a `let` return
+    /// type, a parameter `Pat.Typed`). Checking-mode, but narrower than `unifyArg`:
+    /// the ONLY assignability admitted is value→union — when the annotation is a
+    /// `TyOr` the actual subsumes into, accept *without* unifying, so `let x: int |
+    /// string = 1` checks and the actual's typar stays free (the no-pin discipline,
+    /// anon-unions plan Stage 5). Every other annotation — `obj`, a base class, a
+    /// plain nominal — falls through to symmetric `unify`, so a binder annotated
+    /// `obj` still GROUNDS to `obj` (unlike `unifyArg`, whose `absorbsAsObj` accept
+    /// would leave the binder's var unresolved and break signature encoding). The
+    /// no-unify branch is reached only when `subsumes` already succeeds, i.e. the
+    /// actual is concrete enough to subsume — so nothing is left ungrounded. The
+    /// principality rule holds: a union enters only by an annotation, and `unify`
+    /// never synthesises one.
+    let unifyAnnotation (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+        match resolveStep expected with
+        | TyOr _ when subsumes ctx actual expected <> SubsumeOutcome.Unrelated -> ()
+        | _ -> unify ctx key actual expected
