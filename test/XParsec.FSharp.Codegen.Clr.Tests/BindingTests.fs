@@ -45,17 +45,19 @@ let tests =
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _),
-                                         TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
-                                                             TExpr.Const(TConstValue.Int 1, _),
+                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _, _),
+                                         TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
+                                                             TExpr.Const(TConstValue.Int 1, _, _),
+                                                             _,
                                                              _),
-                                                   TExpr.Const(TConstValue.Int 2, _),
+                                                   TExpr.Const(TConstValue.Int 2, _, _),
+                                                   _,
                                                    _),
                                          false,
                                          _)
-                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
-                        | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _)) ] ->
+                        | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _, _)) ] ->
                             Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"
                             Expect.equal hole.Ty (TyConst("int", EqArray.empty)) "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other

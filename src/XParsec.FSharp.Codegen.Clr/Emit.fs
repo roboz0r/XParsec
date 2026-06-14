@@ -50,12 +50,12 @@ module Emit =
             match d with
             | TDeclG.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
-            | TDeclG.Let(TPatG.NamedSimple(binding, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
+            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
             // A module-level value is a `public static` field initialised by its
             // holder's `.cctor` (module-representation-plan §3); a reference loads
             // it with `ldsfld`, so it needs no Main local.
-            | TDeclG.Let(TPatG.NamedSimple(binding, _), _, _, _) when ctx.ModuleValues.ContainsKey binding -> ()
-            | TDeclG.Let(TPatG.NamedSimple(binding, _), value, _, ty) ->
+            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.ModuleValues.ContainsKey binding -> ()
+            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), value, _, ty) ->
                 let slot = b.Local ty
                 env.Slots.[binding] <- slot
                 buildExpr env b value

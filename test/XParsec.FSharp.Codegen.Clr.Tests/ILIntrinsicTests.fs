@@ -26,8 +26,10 @@ let tests =
                 | EqList [ TDecl.Let(TPat.NamedSimple _,
                                      TExpr.Lambda(_,
                                                   TExpr.Lambda(_,
-                                                               TExpr.ILIntrinsic("ceq", _, args, TyConst("bool", _)),
+                                                               TExpr.ILIntrinsic("ceq", _, args, TyConst("bool", _), _),
+                                                               _,
                                                                _),
+                                                  _,
                                                   _),
                                      true,
                                      _) ] ->

@@ -46,7 +46,7 @@ module internal FreezeExprArgs =
     /// carries `ParenKind` + closing token, not a `Constant`.
     let unitConst (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
-        TExpr.Const(TConstValue.Unit, typeOfKey ctx key)
+        TExpr.Const(TConstValue.Unit, typeOfKey ctx key, CstKeys.firstTokenOfExpr e)
 
     /// `[1; 2; 3]` parses as `EnclosedBlock(ParenKind.List, Sequential [...])`;
     /// a one-item literal `[1]` skips the Sequential wrapper.

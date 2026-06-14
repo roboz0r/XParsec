@@ -90,9 +90,10 @@ let tests =
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
                 // every position concrete int.
                 match expanded with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _)),
-                               TExpr.Var(_, TyConst("int", _)),
-                               TyFun(TyConst("int", _), TyConst("int", _))) -> ()
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _), _),
+                               TExpr.Var(_, TyConst("int", _), _),
+                               TyFun(TyConst("int", _), TyConst("int", _)),
+                               _) -> ()
                 | other -> failtestf "expected fully-int `fun x -> x`, got %A" other
             }
 
@@ -110,7 +111,7 @@ let tests =
                     let again = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
 
                     match again with
-                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst("bool", _)), _, _) -> ()
+                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst("bool", _), _), _, _, _) -> ()
                     | other -> failtestf "second expansion at bool failed: %A" other
                 | other -> failtestf "unexpected %A" other
             }
@@ -118,7 +119,7 @@ let tests =
             test "inlineExpand on a TDecl.Expression raises" {
                 // A top-level expression has no binding to expand.
                 let decl =
-                    TDecl.Expression(TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit), BuiltinTypes.tyUnit)
+                    TDecl.Expression(TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, dummyTok), BuiltinTypes.tyUnit)
 
                 Expect.throws (fun () -> Inline.inlineExpand decl [||] |> ignore) "expects a TDecl.Let"
             }
@@ -141,12 +142,15 @@ let tests =
                                      true,
                                      TyFun(TyConst("int", _), TyConst("int", _)))
                            TDecl.Expression(TExpr.Let(TPat.NamedSimple _,
-                                                      TExpr.Const(TConstValue.Int 41, _),
-                                                      TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                      TExpr.Const(TConstValue.Int 41, _, _),
+                                                      TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
                                                                           TExpr.Var _,
+                                                                          _,
                                                                           _),
-                                                                TExpr.Const(TConstValue.Int 1, _),
+                                                                TExpr.Const(TConstValue.Int 1, _, _),
+                                                                _,
                                                                 _),
+                                                      _,
                                                       _),
                                             _) ] -> ()
                 | _ -> failtestf "unexpected shape: %A" tast.Decls
@@ -159,13 +163,16 @@ let tests =
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
                 match Inline.inlineExpand succDecl [||] with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _)),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
-                                                   TExpr.Var(_, TyConst("int", _)),
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _), _),
+                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
+                                                   TExpr.Var(_, TyConst("int", _), _),
+                                                   _,
                                                    _),
-                                         TExpr.Const(TConstValue.Int 1, _),
+                                         TExpr.Const(TConstValue.Int 1, _, _),
+                                         _,
                                          _),
-                               TyFun(TyConst("int", _), TyConst("int", _))) -> ()
+                               TyFun(TyConst("int", _), TyConst("int", _)),
+                               _) -> ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
 
@@ -183,10 +190,12 @@ let tests =
             // shape `fun x -> x + 1`.
             let succBinderAndVar (e: TExpr) =
                 match e with
-                | TExpr.Lambda(TPat.NamedSimple(kb, _),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _), TExpr.Var(kv, _), _),
-                                         TExpr.Const(TConstValue.Int 1, _),
+                | TExpr.Lambda(TPat.NamedSimple(kb, _, _),
+                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _), TExpr.Var(kv, _, _), _, _),
+                                         TExpr.Const(TConstValue.Int 1, _, _),
+                                         _,
                                          _),
+                               _,
                                _) -> kb, kv
                 | other -> failtestf "unexpected succ body: %A" other
 
@@ -225,14 +234,15 @@ let tests =
 
                 let body =
                     TExpr.Let(
-                        TPat.NamedSimple(boundKey, tyInt),
-                        TExpr.Var(freeKey, tyInt),
-                        TExpr.Var(boundKey, tyInt),
-                        tyInt
+                        TPat.NamedSimple(boundKey, tyInt, dummyTok),
+                        TExpr.Var(freeKey, tyInt, dummyTok),
+                        TExpr.Var(boundKey, tyInt, dummyTok),
+                        tyInt,
+                        dummyTok
                     )
 
                 match Inline.freshen (sharedMinter ()) body with
-                | TExpr.Let(TPat.NamedSimple(kb, _), TExpr.Var(kFree, _), TExpr.Var(kRef, _), _) ->
+                | TExpr.Let(TPat.NamedSimple(kb, _, _), TExpr.Var(kFree, _, _), TExpr.Var(kRef, _, _), _, _) ->
                     Expect.equal kFree freeKey "free Var passes through unchanged"
                     Expect.notEqual kb boundKey "the bound name is freshened"
                     Expect.equal kRef kb "the bound reference follows the fresh binder"

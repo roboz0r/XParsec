@@ -18,7 +18,7 @@ module EmitMatch =
 
     let buildMatch (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Match(scrutinee, arms, _) ->
+        | TExprG.Match(scrutinee, arms, _, _) ->
             // Evaluate the scrutinee once into a local, then test each arm in
             // order: on a mismatch branch to the next arm; on a match (and a
             // passing guard) emit the body and branch to the shared end. The
@@ -53,7 +53,7 @@ module EmitMatch =
 
     let buildIfThenElse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.IfThenElse(cond, thenExpr, elseExpr, _) ->
+        | TExprG.IfThenElse(cond, thenExpr, elseExpr, _, _) ->
             // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
             // arms leave one value; the builder's linear depth tracker (which
             // follows only the then-arm) is reset to the post-`brfalse` base
@@ -74,7 +74,7 @@ module EmitMatch =
 
     let buildSequential (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Sequential(items, _) ->
+        | TExprG.Sequential(items, _, _) ->
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item
             // depth); the last item leaves the sequence's result.

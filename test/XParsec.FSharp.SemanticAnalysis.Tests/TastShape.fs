@@ -72,7 +72,7 @@ let rec private tyName (t: SemType) : string =
 
 let private (|InfixOp|_|) (e: TExpr) =
     match e with
-    | TExpr.App(TExpr.App(TExpr.External(name, _, _), left, _), right, _) ->
+    | TExpr.App(TExpr.App(TExpr.External(name, _, _, _), left, _, _), right, _, _) ->
         match Map.tryFind name opSym with
         | Some sym -> Some(sym, left, right)
         | None -> None
@@ -80,7 +80,7 @@ let private (|InfixOp|_|) (e: TExpr) =
 
 let private (|PrefixOp|_|) (e: TExpr) =
     match e with
-    | TExpr.App(TExpr.External(name, _, _), operand, _) ->
+    | TExpr.App(TExpr.External(name, _, _, _), operand, _, _) ->
         match Map.tryFind name prefixSym with
         | Some sym -> Some(sym, operand)
         | None -> None
@@ -106,33 +106,33 @@ type private Renderer() =
 
     member this.Expr(e: TExpr) : unit =
         match e with
-        | TExpr.Const(TConstValue.Int n, _) -> push (string n)
-        | TExpr.Const(TConstValue.Int64 n, _) ->
+        | TExpr.Const(TConstValue.Int n, _, _) -> push (string n)
+        | TExpr.Const(TConstValue.Int64 n, _, _) ->
             push (string n)
             push "L"
-        | TExpr.Const(TConstValue.Byte n, _) ->
+        | TExpr.Const(TConstValue.Byte n, _, _) ->
             push (string n)
             push "uy"
-        | TExpr.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
-        | TExpr.Const(TConstValue.Float32 n, _) ->
+        | TExpr.Const(TConstValue.Float n, _, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        | TExpr.Const(TConstValue.Float32 n, _, _) ->
             push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
             push "f"
-        | TExpr.Const(TConstValue.Bool true, _) -> push "true"
-        | TExpr.Const(TConstValue.Bool false, _) -> push "false"
-        | TExpr.Const(TConstValue.Char c, _) ->
+        | TExpr.Const(TConstValue.Bool true, _, _) -> push "true"
+        | TExpr.Const(TConstValue.Bool false, _, _) -> push "false"
+        | TExpr.Const(TConstValue.Char c, _, _) ->
             push "'"
             push (string c)
             push "'"
-        | TExpr.Const(TConstValue.Decimal d, _) ->
+        | TExpr.Const(TConstValue.Decimal d, _, _) ->
             push (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
             push "M"
-        | TExpr.Const(TConstValue.Unit, _) -> push "()"
-        | TExpr.Const(TConstValue.String s, _) ->
+        | TExpr.Const(TConstValue.Unit, _, _) -> push "()"
+        | TExpr.Const(TConstValue.String s, _, _) ->
             push "\""
             push s
             push "\""
-        | TExpr.Var(k, _) -> push (nameOf k)
-        | TExpr.External(name, _, _) -> push name
+        | TExpr.Var(k, _, _) -> push (nameOf k)
+        | TExpr.External(name, _, _, _) -> push name
 
         | InfixOp(sym, l, r) ->
             push "("
@@ -149,20 +149,20 @@ type private Renderer() =
             this.Expr x
             push ")"
 
-        | TExpr.App(fn, arg, _) ->
+        | TExpr.App(fn, arg, _, _) ->
             push "("
             this.Expr fn
             push " "
             this.Expr arg
             push ")"
 
-        | TExpr.Lambda(p, body, _) ->
+        | TExpr.Lambda(p, body, _, _) ->
             push "fun "
             this.Pat p
             push " -> "
             this.Expr body
 
-        | TExpr.Let(p, v, b, _) ->
+        | TExpr.Let(p, v, b, _, _) ->
             push "let "
             this.Pat p
             push " = "
@@ -170,14 +170,14 @@ type private Renderer() =
             push " in "
             this.Expr b
 
-        | TExpr.Use(p, v, b, _, _) ->
+        | TExpr.Use(p, v, b, _, _, _) ->
             push "use "
             this.Pat p
             push " = "
             this.Expr v
             push " in "
             this.Expr b
-        | TExpr.IfThenElse(c, t, e, _) ->
+        | TExpr.IfThenElse(c, t, e, _, _) ->
             push "if "
             this.Expr c
             push " then "
@@ -185,7 +185,7 @@ type private Renderer() =
             push " else "
             this.Expr e
 
-        | TExpr.Tuple(items, _) ->
+        | TExpr.Tuple(items, _, _) ->
             push "("
 
             items
@@ -198,7 +198,7 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.Sequential(items, _) ->
+        | TExpr.Sequential(items, _, _) ->
             push "("
 
             items
@@ -211,13 +211,13 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.While(c, b, _) ->
+        | TExpr.While(c, b, _, _) ->
             push "while "
             this.Expr c
             push " do "
             this.Expr b
 
-        | TExpr.ForTo(v, s, e2, b, _) ->
+        | TExpr.ForTo(v, s, e2, b, _, _) ->
             push "for "
             push (nameOf v)
             push " = "
@@ -227,7 +227,7 @@ type private Renderer() =
             push " do "
             this.Expr b
 
-        | TExpr.ForIn(p, src, b, _, _) ->
+        | TExpr.ForIn(p, src, b, _, _, _) ->
             push "for "
             this.Pat p
             push " in "
@@ -235,7 +235,7 @@ type private Renderer() =
             push " do "
             this.Expr b
 
-        | TExpr.Match(scrutinee, arms, _) ->
+        | TExpr.Match(scrutinee, arms, _, _) ->
             push "match "
             this.Expr scrutinee
             push " with"
@@ -253,7 +253,7 @@ type private Renderer() =
                 push " -> "
                 this.Expr arm.Body
 
-        | TExpr.TryWith(body, arms, _) ->
+        | TExpr.TryWith(body, arms, _, _) ->
             push "try "
             this.Expr body
             push " with"
@@ -271,20 +271,20 @@ type private Renderer() =
                 push " -> "
                 this.Expr arm.Body
 
-        | TExpr.TryFinally(body, cleanup, _) ->
+        | TExpr.TryFinally(body, cleanup, _, _) ->
             push "try "
             this.Expr body
             push " finally "
             this.Expr cleanup
 
-        | TExpr.Assignment(lhs, rhs, _) ->
+        | TExpr.Assignment(lhs, rhs, _, _) ->
             this.Expr lhs
             push " <- "
             this.Expr rhs
 
-        | TExpr.Null _ -> push "null"
+        | TExpr.Null(_, _) -> push "null"
 
-        | TExpr.Range(s, stepOpt, e2, _) ->
+        | TExpr.Range(s, stepOpt, e2, _, _) ->
             push "("
             this.Expr s
             push ".."
@@ -298,7 +298,7 @@ type private Renderer() =
             this.Expr e2
             push ")"
 
-        | TExpr.RecordCons(fields, _) ->
+        | TExpr.RecordCons(fields, _, _) ->
             push "{ "
 
             fields
@@ -313,7 +313,7 @@ type private Renderer() =
 
             push " }"
 
-        | TExpr.RecordClone(src, overrides, _) ->
+        | TExpr.RecordClone(src, overrides, _, _) ->
             push "{ "
             this.Expr src
             push " with "
@@ -330,19 +330,19 @@ type private Renderer() =
 
             push " }"
 
-        | TExpr.FieldGet(receiver, name, _) ->
+        | TExpr.FieldGet(receiver, name, _, _) ->
             this.Expr receiver
             push "."
             push name
 
-        | TExpr.FieldSet(receiver, name, value, _) ->
+        | TExpr.FieldSet(receiver, name, value, _, _) ->
             this.Expr receiver
             push "."
             push name
             push " <- "
             this.Expr value
 
-        | TExpr.UnionCons(caseName, args, _) ->
+        | TExpr.UnionCons(caseName, args, _, _) ->
             push caseName
 
             if args.Length = 0 then
@@ -363,7 +363,7 @@ type private Renderer() =
 
                 push ")"
 
-        | TExpr.New(className, args, _) ->
+        | TExpr.New(className, args, _, _) ->
             push "new "
             push className
             push "("
@@ -378,7 +378,7 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.MethodCall(receiver, key, via, args, _) ->
+        | TExpr.MethodCall(receiver, key, via, args, _, _) ->
             this.Expr receiver
             // `base.M(...)` renders with a `^` dot so it reads distinctly from a
             // virtual `this.M(...)` (inheritance-plan §Subtle migrations).
@@ -401,7 +401,7 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.PropertyGet(receiver, key, via, _) ->
+        | TExpr.PropertyGet(receiver, key, via, _, _) ->
             this.Expr receiver
 
             push (
@@ -412,7 +412,7 @@ type private Renderer() =
 
             push (SymbolKeyOps.simpleName key)
 
-        | TExpr.StaticMethodCall(key, args, _) ->
+        | TExpr.StaticMethodCall(key, args, _, _) ->
             push (memberDeclName key)
             push "."
             push (SymbolKeyOps.simpleName key)
@@ -428,17 +428,17 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.StaticPropertyGet(key, _) ->
+        | TExpr.StaticPropertyGet(key, _, _) ->
             push (memberDeclName key)
             push "."
             push (SymbolKeyOps.simpleName key)
 
-        | TExpr.StaticFieldGet(declKey, name, _) ->
+        | TExpr.StaticFieldGet(declKey, name, _, _) ->
             push (SymbolKeyOps.simpleName declKey)
             push "."
             push name
 
-        | TExpr.Format(sink, segments, _) ->
+        | TExpr.Format(sink, segments, _, _) ->
             let sinkStr =
                 match sink with
                 | FormatSink.ToStdOut nl -> if nl then "stdoutln" else "stdout"
@@ -470,14 +470,14 @@ type private Renderer() =
 
             push "]"
 
-        | TExpr.ExternalMember(receiver, _, name, _, _) ->
+        | TExpr.ExternalMember(receiver, _, name, _, _, _) ->
             match receiver with
             | ValueSome r ->
                 this.Expr r
                 push "."
                 push name
             | ValueNone -> push name
-        | TExpr.ILIntrinsic(opCode, _, args, _) ->
+        | TExpr.ILIntrinsic(opCode, _, args, _, _) ->
             push "(# \""
             push opCode
             push "\""
@@ -488,7 +488,7 @@ type private Renderer() =
 
             push " #)"
 
-        | TExpr.StaticOptimization(clauses, def, _) ->
+        | TExpr.StaticOptimization(clauses, def, _, _) ->
             push "staticopt["
             this.Expr def
 
@@ -500,25 +500,25 @@ type private Renderer() =
 
             push "]"
 
-        | TExpr.Upcast(source, ty) ->
+        | TExpr.Upcast(source, ty, _) ->
             push "("
             this.Expr source
             push " :> "
             push (tyName ty)
             push ")"
-        | TExpr.Downcast(source, ty) ->
+        | TExpr.Downcast(source, ty, _) ->
             push "("
             this.Expr source
             push " :?> "
             push (tyName ty)
             push ")"
-        | TExpr.TypeTest(source, testTy, _) ->
+        | TExpr.TypeTest(source, testTy, _, _) ->
             push "("
             this.Expr source
             push " :? "
             push (tyName testTy)
             push ")"
-        | TExpr.TraitCall(recv, memberName, args, _) ->
+        | TExpr.TraitCall(recv, memberName, args, _, _) ->
             push (tyName recv)
             push "."
             push memberName
@@ -536,34 +536,34 @@ type private Renderer() =
 
     member this.Pat(p: TPat) : unit =
         match p with
-        | TPat.NamedSimple(k, _) -> push (nameOf k)
+        | TPat.NamedSimple(k, _, _) -> push (nameOf k)
         | TPat.Wildcard _ -> push "_"
-        | TPat.Const(TConstValue.Int n, _) -> push (string n)
-        | TPat.Const(TConstValue.Int64 n, _) ->
+        | TPat.Const(TConstValue.Int n, _, _) -> push (string n)
+        | TPat.Const(TConstValue.Int64 n, _, _) ->
             push (string n)
             push "L"
-        | TPat.Const(TConstValue.Byte n, _) ->
+        | TPat.Const(TConstValue.Byte n, _, _) ->
             push (string n)
             push "uy"
-        | TPat.Const(TConstValue.Float n, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
-        | TPat.Const(TConstValue.Float32 n, _) ->
+        | TPat.Const(TConstValue.Float n, _, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        | TPat.Const(TConstValue.Float32 n, _, _) ->
             push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
             push "f"
-        | TPat.Const(TConstValue.Bool true, _) -> push "true"
-        | TPat.Const(TConstValue.Bool false, _) -> push "false"
-        | TPat.Const(TConstValue.Char c, _) ->
+        | TPat.Const(TConstValue.Bool true, _, _) -> push "true"
+        | TPat.Const(TConstValue.Bool false, _, _) -> push "false"
+        | TPat.Const(TConstValue.Char c, _, _) ->
             push "'"
             push (string c)
             push "'"
-        | TPat.Const(TConstValue.Decimal d, _) ->
+        | TPat.Const(TConstValue.Decimal d, _, _) ->
             push (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
             push "M"
-        | TPat.Const(TConstValue.Unit, _) -> push "()"
-        | TPat.Const(TConstValue.String s, _) ->
+        | TPat.Const(TConstValue.Unit, _, _) -> push "()"
+        | TPat.Const(TConstValue.String s, _, _) ->
             push "\""
             push s
             push "\""
-        | TPat.Tuple(items, _) ->
+        | TPat.Tuple(items, _, _) ->
             push "("
 
             items
@@ -576,7 +576,7 @@ type private Renderer() =
 
             push ")"
 
-        | TPat.Record(fields, _) ->
+        | TPat.Record(fields, _, _) ->
             push "{ "
 
             fields
@@ -591,7 +591,7 @@ type private Renderer() =
 
             push " }"
 
-        | TPat.Union(caseName, fields, _) ->
+        | TPat.Union(caseName, fields, _, _) ->
             push caseName
 
             if fields.Length = 0 then
@@ -612,7 +612,7 @@ type private Renderer() =
 
                 push ")"
 
-        | TPat.TypeTestAs(testTy, inner, _) ->
+        | TPat.TypeTestAs(testTy, inner, _, _) ->
             push ":? "
             push (tyName testTy)
             push " as "

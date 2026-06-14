@@ -4,8 +4,12 @@ open Expecto
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Parser
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+
+let private dummyTok: SyntaxToken =
+    SyntaxToken.virtualToken (XParsec.FSharp.Lexer.PositionedToken.Create(XParsec.FSharp.Lexer.Token.EOF, 0))
 
 // The reified IL-buffer's own unit suite (XParsec.FSharp.Codegen.Clr.IlIr). The two
 // demonstrators below stand in for the two real producers — `buildExpr` for the
@@ -24,9 +28,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 /// production `Emit.buildExpr` arm — a plain recursive append.
 let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
     match e with
-    | TExpr.Const(TConstValue.Int n, _) -> b.Add(ILInstr.LdcI4 n)
-    | TExpr.Const(TConstValue.Bool v, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
-    | TExpr.IfThenElse(c, t, f, _) ->
+    | TExpr.Const(TConstValue.Int n, _, _) -> b.Add(ILInstr.LdcI4 n)
+    | TExpr.Const(TConstValue.Bool v, _, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
+    | TExpr.IfThenElse(c, t, f, _, _) ->
         let elseL = b.Label()
         let endL = b.Label()
         buildExpr b c
@@ -36,7 +40,7 @@ let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
         b.Add(ILInstr.Mark elseL)
         buildExpr b f
         b.Add(ILInstr.Mark endL)
-    | TExpr.ILIntrinsic(op, _, args, _) ->
+    | TExpr.ILIntrinsic(op, _, args, _, _) ->
         for a in args do
             buildExpr b a
 
@@ -81,10 +85,12 @@ let private guardChainEquality (pairs: (int * int) list) : ILBody =
 let tests =
     let tyInt = TyConst("int", EqArray.empty)
     let tyBool = TyConst("bool", EqArray.empty)
-    let cInt n = TExpr.Const(TConstValue.Int n, tyInt)
+
+    let cInt n =
+        TExpr.Const(TConstValue.Int n, tyInt, dummyTok)
 
     let ceq a b =
-        TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool)
+        TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool, dummyTok)
 
     // Lower into a standalone `Il` (no metadata context — the demo bodies carry no
     // tokens) to read the maxStack the live tracker computes, for cross-checking
@@ -107,19 +113,21 @@ let tests =
         [
             // ---- general TAST → buffer (a dynamic walker arm) ----
             test "IfThenElse over a real TExpr lowers + runs (then-arm)" {
-                let e = TExpr.IfThenElse(ceq (cInt 5) (cInt 5), cInt 42, cInt 7, tyInt)
+                let e = TExpr.IfThenElse(ceq (cInt 5) (cInt 5), cInt 42, cInt 7, tyInt, dummyTok)
                 Expect.equal (runBody "IrIfTrue" (mainOf e)) 42 "5 = 5 → 42"
             }
 
             test "IfThenElse over a real TExpr lowers + runs (else-arm)" {
-                let e = TExpr.IfThenElse(ceq (cInt 5) (cInt 4), cInt 42, cInt 7, tyInt)
+                let e = TExpr.IfThenElse(ceq (cInt 5) (cInt 4), cInt 42, cInt 7, tyInt, dummyTok)
                 Expect.equal (runBody "IrIfFalse" (mainOf e)) 7 "5 = 4 → 7"
             }
 
             test "a nested IfThenElse merges correctly through the buffer" {
                 // if (1=2) then 99 else (if (3=3) then 42 else 0)
-                let inner = TExpr.IfThenElse(ceq (cInt 3) (cInt 3), cInt 42, cInt 0, tyInt)
-                let e = TExpr.IfThenElse(ceq (cInt 1) (cInt 2), cInt 99, inner, tyInt)
+                let inner =
+                    TExpr.IfThenElse(ceq (cInt 3) (cInt 3), cInt 42, cInt 0, tyInt, dummyTok)
+
+                let e = TExpr.IfThenElse(ceq (cInt 1) (cInt 2), cInt 99, inner, tyInt, dummyTok)
                 Expect.equal (runBody "IrIfNest" (mainOf e)) 42 "false → inner true → 42"
             }
 
@@ -136,7 +144,7 @@ let tests =
             test "verify's maxStack matches what lowering actually tracks" {
                 let bodies =
                     [
-                        mainOf (TExpr.IfThenElse(ceq (cInt 5) (cInt 5), cInt 42, cInt 7, tyInt))
+                        mainOf (TExpr.IfThenElse(ceq (cInt 5) (cInt 5), cInt 42, cInt 7, tyInt, dummyTok))
                         guardChainEquality [ 1, 1; 2, 2 ]
                     ]
 

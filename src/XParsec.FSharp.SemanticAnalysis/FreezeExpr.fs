@@ -22,9 +22,11 @@ module internal FreezeExpr =
     let rec translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
+        // The source anchor for every node this CST expression projects to.
+        let tok = CstKeys.firstTokenOfExpr e
 
         match e with
-        | Expr.Const c -> TExpr.Const(parseConst ctx c, ty)
+        | Expr.Const c -> TExpr.Const(parseConst ctx c, ty, tok)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
@@ -35,7 +37,7 @@ module internal FreezeExpr =
             // `e.Current` on a BCL `IEnumerator<'T>`), Unification recorded it in
             // `ExternalAccess` on this chain's key — pass it so the last step emits
             // a keyed `TExpr.ExternalMember` rather than a project-local `FieldGet`.
-            translateLongIdentFieldChain ctx li ty (ctx.Resolution.ExternalAccess.TryGetValue key)
+            translateLongIdentFieldChain ctx li ty (ctx.Resolution.ExternalAccess.TryGetValue key) tok
         // Static member on an *external* type reached through a folded LongIdent
         // (`System.Console.Out`, `Console.Out`) — Unification resolved the prefix
         // as a type and recorded the member in `ExternalAccess`. Emit the same
@@ -43,7 +45,7 @@ module internal FreezeExpr =
         // static, so the type-name receiver is dropped.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.IsProperty, ty)
+            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.IsProperty, ty, tok)
         // `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
         // fallback is purely defensive for error paths where Unification couldn't
         // pin the receiver.
@@ -65,20 +67,20 @@ module internal FreezeExpr =
 
                     nameOf t
 
-            mkNew ctx className ty (peelOneArg (translateExpr ctx) argExpr)
+            mkNew ctx className ty (peelOneArg (translateExpr ctx) argExpr) tok
         // Class-name-as-function application: `Point(3, 4)` parses as
         // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
-        | Expr.App(ClassRef ctx className, args) -> mkNew ctx className ty (peelCtorArgs (translateExpr ctx) args)
+        | Expr.App(ClassRef ctx className, args) -> mkNew ctx className ty (peelCtorArgs (translateExpr ctx) args) tok
         | Expr.HighPrecedenceApp(funcExpr = ClassRef ctx className; argExpr = arg) ->
-            mkNew ctx className ty (peelOneArg (translateExpr ctx) arg)
+            mkNew ctx className ty (peelOneArg (translateExpr ctx) arg) tok
         // Class instance method invocation: `r.M(args)` →
         // `App(DotLookup(r, ., M), args)`.
         | Expr.App(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExprs = args) ->
             let receiver = translateExpr ctx r
-            mkMethodCall ctx receiver declKey memberName (peelCtorArgs (translateExpr ctx) args) ty
+            mkMethodCall ctx receiver declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExpr = arg) ->
             let receiver = translateExpr ctx r
-            mkMethodCall ctx receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty
+            mkMethodCall ctx receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
         // the long ident rather than emitting `DotLookup` when the head is a
@@ -88,64 +90,72 @@ module internal FreezeExpr =
                                                                                        receiverTy,
                                                                                        memberName)))
             argExprs = args) ->
-            let receiver = TExpr.Var(bindingSite, receiverTy)
-            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelCtorArgs (translateExpr ctx) args) ty
+            let receiver = TExpr.Var(bindingSite, receiverTy, tok)
+
+            mkMethodCall
+                ctx
+                receiver
+                (nominalDeclKey receiverTy)
+                memberName
+                (peelCtorArgs (translateExpr ctx) args)
+                ty
+                tok
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
                                                                                        receiverTy,
                                                                                        memberName)))
             argExpr = arg) ->
-            let receiver = TExpr.Var(bindingSite, receiverTy)
-            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty
+            let receiver = TExpr.Var(bindingSite, receiverTy, tok)
+            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
-            let receiver = TExpr.Var(bindingSite, receiverTy)
+            let receiver = TExpr.Var(bindingSite, receiverTy, tok)
 
             let key =
                 LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName 0 MemberKind.Property
 
-            TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
+            TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
-            argExprs = args) -> mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty
+            argExprs = args) -> mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
-            argExpr = arg) -> mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty
+            argExpr = arg) -> mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `ClassName<'args>.Method args` — static-method call on an explicitly
         // instantiated generic class (e.g. `Set<'T>.Singleton value`). The
         // `<'args>`-bearing receiver makes the funcExpr a `DotLookup` over a
         // `TypeApp` rather than a folded `LongIdent`; same `StaticMethodCall`
         // lowering as the folded `StaticMethod` arms above.
         | Expr.App(funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExprs = args) ->
-            mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty
+            mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(
             funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExpr = arg) ->
-            mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty
+            mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `ClassName.X` — static property read (or method-as-value).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
             let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
-            TExpr.StaticPropertyGet(key, ty)
+            TExpr.StaticPropertyGet(key, ty, tok)
         | CtorRef ctx caseName ->
             // Bare or qualified ctor reference outside an App. v1 distinguishes
             // nullary ctor (→ `UnionCons`) from ctor-as-value (`let f = Circle`,
             // typed `TyFun(_, TyUnion _)` → External) by the result type.
             match Unification.zonk ty with
-            | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty)
+            | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty, tok)
             // Function-typed ctor-as-value; codegen can eta-expand to a
             // UnionCons lambda.
-            | _ -> TExpr.External(caseName, ValueNone, ty)
+            | _ -> TExpr.External(caseName, ValueNone, ty, tok)
         | Expr.Ident _
-        | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty
+        | Expr.LongIdentOrOp _ -> translateIdent ctx e key ty tok
         | Expr.App(CtorRef ctx caseName, args) ->
             // Ctor application: `Circle 1.0` or `Rectangle(2.0, 3.0)`. F# treats
             // DU arguments as a single tuple; the TAST flattens it back to a
             // per-field list (the same peel the class-ctor arms use) so consumers
             // see the ctor's declared arity directly.
-            mkUnionCons ctx caseName ty (peelCtorArgs (translateExpr ctx) args)
+            mkUnionCons ctx caseName ty (peelCtorArgs (translateExpr ctx) args) tok
         | Expr.HighPrecedenceApp(funcExpr = CtorRef ctx caseName; argExpr = arg) ->
-            mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg)
+            mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg) tok
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
         // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
         // projection below ever runs (vesper-printf-plan P1).
@@ -153,10 +163,10 @@ module internal FreezeExpr =
             // The marker may still decline (a `%A` of a record / DU — gated until
             // step-3 synthesis); fall back to the standard external-call path,
             // which lowers to the FSharp.Core cold printf.
-            match translatePrintfFormat ctx key args ty with
+            match translatePrintfFormat ctx key args ty tok with
             | ValueSome node -> node
-            | ValueNone -> translateApp ctx fn args
-        | Expr.App(fn, args) -> translateApp ctx fn args
+            | ValueNone -> translateApp ctx fn args tok
+        | Expr.App(fn, args) -> translateApp ctx fn args tok
         | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) ->
             // A residual single application (an external .NET method reached as a
             // folded LongIdent, a local function value, a top-level `let f (x: obj)`
@@ -182,29 +192,30 @@ module internal FreezeExpr =
                 | ValueSome p -> wrapObjArg p argT
                 | ValueNone -> argT
 
-            TExpr.App(fnT, argT, ty)
-        | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty
-        | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty
+            TExpr.App(fnT, argT, ty, tok)
+        | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty tok
+        | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty tok
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
         | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> translateLet ctx kw bindings body
         | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner) ->
-            translateListLikeLiteral ctx ty false (listLiteralItems inner)
+            translateListLikeLiteral ctx ty false (listLiteralItems inner) tok
         | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
-            translateListLikeLiteral ctx ty true (listLiteralItems inner)
+            translateListLikeLiteral ctx ty true (listLiteralItems inner) tok
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
-            translateIfThenElse ctx cond thenE elifs elseB ty
-        | Expr.Tuple(exprs = items) -> TExpr.Tuple(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty)
+            translateIfThenElse ctx cond thenE elifs elseB ty tok
+        | Expr.Tuple(exprs = items) ->
+            TExpr.Tuple(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
         | Expr.Sequential(exprs = items) ->
-            TExpr.Sequential(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty)
+            TExpr.Sequential(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
         // The annotation has no runtime representation — it only constrained
         // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
         // Casts carry the resolved node type (`ty`): the target type for
         // `:>` / `:?>`, and `bool` for `:?` — Unification validated the
         // coercion via `subsumes`, codegen emits the box / castclass / isinst.
-        | Expr.StaticUpcast(expr = inner) -> TExpr.Upcast(translateExpr ctx inner, ty)
-        | Expr.DynamicDowncast(expr = inner) -> TExpr.Downcast(translateExpr ctx inner, ty)
+        | Expr.StaticUpcast(expr = inner) -> TExpr.Upcast(translateExpr ctx inner, ty, tok)
+        | Expr.DynamicDowncast(expr = inner) -> TExpr.Downcast(translateExpr ctx inner, ty, tok)
         | Expr.DynamicTypeTest(expr = inner) ->
             // `ty` is the `bool` result; the tested-against type was stashed by
             // Unification (`inferDynamicTypeTest`) keyed by this node.
@@ -213,14 +224,15 @@ module internal FreezeExpr =
                 | ValueSome t -> t
                 | ValueNone -> failwithf "Freeze: no recorded type-test target for %O" key
 
-            TExpr.TypeTest(translateExpr ctx inner, testTy, ty)
-        | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLikeLiteral ctx ty false []
-        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateListLikeLiteral ctx ty true []
+            TExpr.TypeTest(translateExpr ctx inner, testTy, ty, tok)
+        | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLikeLiteral ctx ty false [] tok
+        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateListLikeLiteral ctx ty true [] tok
         | Expr.EmptyBlock _ -> unitConst ctx e
-        | Expr.While(condition = cond; body = body) -> TExpr.While(translateExpr ctx cond, translateExpr ctx body, ty)
+        | Expr.While(condition = cond; body = body) ->
+            TExpr.While(translateExpr ctx cond, translateExpr ctx body, ty, tok)
         | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
             let varKey = CstKeys.ofForToVar ident
-            TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty)
+            TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty, tok)
         | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) ->
             // How the source yields its enumerator was resolved by Unification and
             // stashed by this node's key; absent ⇒ the §4.2 interface path (range
@@ -230,10 +242,10 @@ module internal FreezeExpr =
                 | ValueSome shape -> shape
                 | ValueNone -> ForInEnumeratorG.Interface
 
-            TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, enumerator, ty)
-        | Expr.String _ -> translateString ctx e ty
+            TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, enumerator, ty, tok)
+        | Expr.String _ -> translateString ctx e ty tok
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
-            TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty)
+            TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty, tok)
         | Expr.Function(rules = Rules(rules = rules)) ->
             // `function …` ~ `fun x -> match x with …`. The synthesised parameter
             // has no source token, so mint a synthetic key under the
@@ -247,13 +259,13 @@ module internal FreezeExpr =
                 | TyFun(p, r) -> p, r
                 | _ -> failwithf "Freeze.Function: expected function type, got %A" ty
 
-            let scrutinee = TExpr.Var(paramKey, paramTy)
-            let body = TExpr.Match(scrutinee, translateRules ctx rules, resultTy)
-            TExpr.Lambda(TPat.NamedSimple(paramKey, paramTy), body, ty)
+            let scrutinee = TExpr.Var(paramKey, paramTy, tok)
+            let body = TExpr.Match(scrutinee, translateRules ctx rules, resultTy, tok)
+            TExpr.Lambda(TPat.NamedSimple(paramKey, paramTy, tok), body, ty, tok)
         | Expr.TryWith(expr = body; rules = Rules(rules = rules)) ->
-            TExpr.TryWith(translateExpr ctx body, translateRules ctx rules, ty)
+            TExpr.TryWith(translateExpr ctx body, translateRules ctx rules, ty, tok)
         | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
-            TExpr.TryFinally(translateExpr ctx body, translateExpr ctx finallyE, ty)
+            TExpr.TryFinally(translateExpr ctx body, translateExpr ctx finallyE, ty, tok)
         | Expr.Assignment(leftExpr = left; rightExpr = right) ->
             // `r.X <- v` folds to FieldSet; everything else to Assignment.
             let unwrapped =
@@ -268,7 +280,7 @@ module internal FreezeExpr =
             match unwrapped with
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let fieldName = ctx.NameOf li.Idents.[0]
-                TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty)
+                TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty, tok)
             // `arr.[i] <- v` desugars to the core `SetArray` inline function (the
             // write mirror of the `IndexedLookup` → `GetArray` read path below):
             // the `stelem` mnemonic lives in Vesper.Core's `ops-platform.fs`,
@@ -282,10 +294,10 @@ module internal FreezeExpr =
                 let valTy = typeOfKey ctx (CstKeys.ofExpr right)
                 let valuePartial = TyFun(valTy, ty)
                 let idxPartial = TyFun(idxTy, valuePartial)
-                let setExpr = TExpr.External("SetArray", ValueNone, TyFun(arrTy, idxPartial))
-                let app1 = TExpr.App(setExpr, translateExpr ctx arrE, idxPartial)
-                let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial)
-                TExpr.App(app2, translateExpr ctx right, ty)
+                let setExpr = TExpr.External("SetArray", ValueNone, TyFun(arrTy, idxPartial), tok)
+                let app1 = TExpr.App(setExpr, translateExpr ctx arrE, idxPartial, tok)
+                let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial, tok)
+                TExpr.App(app2, translateExpr ctx right, ty, tok)
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 li.Idents.Length > 1
                 && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
@@ -308,8 +320,8 @@ module internal FreezeExpr =
 
                     let headExpr =
                         match headBinding with
-                        | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy)
-                        | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy)
+                        | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy, tok)
+                        | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy, tok)
 
                     let mutable curr = headExpr
                     let mutable currTy = headTy
@@ -325,14 +337,14 @@ module internal FreezeExpr =
                             | ValueSome t -> t
                             | ValueNone -> currTy
 
-                        curr <- fieldStep ctx curr currTy segName stepTy
+                        curr <- fieldStep ctx curr currTy segName stepTy tok
                         currTy <- stepTy
 
                     curr
 
                 let lastName = ctx.NameOf receiverIdents.[lastIdx]
-                TExpr.FieldSet(receiverChain, lastName, translateExpr ctx right, ty)
-            | _ -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty)
+                TExpr.FieldSet(receiverChain, lastName, translateExpr ctx right, ty, tok)
+            | _ -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty, tok)
         | Expr.Record(fieldInitializers = inits) ->
             let fields =
                 EqArray.ofSeq (
@@ -351,7 +363,7 @@ module internal FreezeExpr =
                     }
                 )
 
-            TExpr.RecordCons(fields, ty)
+            TExpr.RecordCons(fields, ty, tok)
         | Expr.RecordClone(expr = src; fieldInitializers = inits) ->
             let overrides =
                 EqArray.ofSeq (
@@ -362,7 +374,7 @@ module internal FreezeExpr =
                     }
                 )
 
-            TExpr.RecordClone(translateExpr ctx src, overrides, ty)
+            TExpr.RecordClone(translateExpr ctx src, overrides, ty, tok)
         // Member access on an *external* type (static `Type.Member` or instance
         // `value.Member`) that Unification resolved through the provider — emit a
         // keyed `TExpr.ExternalMember`. A static
@@ -378,7 +390,7 @@ module internal FreezeExpr =
                 else
                     ValueSome(translateExpr ctx r)
 
-            TExpr.ExternalMember(receiver, info.Key, memberName, info.IsProperty, ty)
+            TExpr.ExternalMember(receiver, info.Key, memberName, info.IsProperty, ty, tok)
         // `ClassName<'args>.Prop` — local static property read on an explicitly
         // instantiated generic class (e.g. `Set<'T>.Empty`). Same lowering as the
         // folded `ClassName.Member` form; the `<'args>` only pinned the generic
@@ -387,7 +399,7 @@ module internal FreezeExpr =
         // static-method arms.
         | TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Property) ->
             let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
-            TExpr.StaticPropertyGet(key, ty)
+            TExpr.StaticPropertyGet(key, ty, tok)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
             let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
@@ -402,18 +414,18 @@ module internal FreezeExpr =
                 let key =
                     LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName 0 MemberKind.Property
 
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty)
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
             // `(expr).Length` on an intrinsic rank-1 array desugars to the core
             // `GetArrayLength` inline function — the `ldlen` mnemonic lives in
             // `ops-platform.fs`, spliced by `InlineExpansion`. Mirrors the
             // `fieldStep` array guard (the LongIdent-chain form).
             | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
-                TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(rTy, ty)), receiver, ty)
-            | _ -> TExpr.FieldGet(receiver, memberName, ty)
-        | Expr.Null _ -> TExpr.Null ty
-        | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty)
+                TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(rTy, ty), tok), receiver, ty, tok)
+            | _ -> TExpr.FieldGet(receiver, memberName, ty, tok)
+        | Expr.Null _ -> TExpr.Null(ty, tok)
+        | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
-            TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty)
+            TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty, tok)
         // `arr.[i]` desugars to the core `GetArray` inline function (mirroring F#'s
         // `IntrinsicFunctions.GetArray`): the `ldelem` mnemonic lives in
         // Vesper.Core's `ops-platform.fs`, spliced at this use site by
@@ -436,18 +448,18 @@ module internal FreezeExpr =
                 let memberFnTy = TyFun(idxTy, byrefTy)
 
                 let getItem =
-                    TExpr.ExternalMember(ValueSome(translateExpr ctx r), info.Key, "get_Item", false, memberFnTy)
+                    TExpr.ExternalMember(ValueSome(translateExpr ctx r), info.Key, "get_Item", false, memberFnTy, tok)
 
-                let callExpr = TExpr.App(getItem, translateExpr ctx idx, byrefTy)
-                TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton callExpr, ty)
+                let callExpr = TExpr.App(getItem, translateExpr ctx idx, byrefTy, tok)
+                TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton callExpr, ty, tok)
             | ValueNone ->
                 let arrTy = typeOfKey ctx (CstKeys.ofExpr r)
                 let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
                 let partialTy = TyFun(idxTy, ty)
                 let getTy = TyFun(arrTy, partialTy)
-                let getExpr = TExpr.External("GetArray", ValueNone, getTy)
-                let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy)
-                TExpr.App(app1, translateExpr ctx idx, ty)
+                let getExpr = TExpr.External("GetArray", ValueNone, getTy, tok)
+                let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy, tok)
+                TExpr.App(app1, translateExpr ctx idx, ty, tok)
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->
             let opCode = stitchIlInstruction ctx parts
             let tArgs = EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
@@ -466,15 +478,15 @@ module internal FreezeExpr =
                     | TyConst(name, eargs) when name = RuntimeNames.arrayName 1 && eargs.Length = 1 -> eargs.[0]
                     | other -> failwithf "Freeze: 'newarr' result is not a rank-1 array: %A" other
 
-                TExpr.ILIntrinsic("newarr", ValueSome elem, tArgs, ty)
+                TExpr.ILIntrinsic("newarr", ValueSome elem, tArgs, ty, tok)
             elif opCode.StartsWith "ldelem" then
-                TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ty), tArgs, ty)
+                TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ty), tArgs, ty, tok)
             elif opCode.StartsWith "stelem" then
                 // `arr.[i] <- v` / `SetArray`. The store's result is `unit`, so the
                 // element type is recovered from the value operand (the 3rd arg:
                 // array, index, value), not the node's result type as `ldelem` does.
                 let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[2]))
-                TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty)
+                TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty, tok)
             elif opCode.StartsWith "box" then
                 // `box value` — the boxed element type is the *argument's* static
                 // type (the result is always `obj`), so recover it from the single
@@ -482,11 +494,11 @@ module internal FreezeExpr =
                 // box is the JIT-erased identity (codegen leaves it as `box`, which
                 // the runtime treats as a no-op on a ref type).
                 let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[0]))
-                TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty)
+                TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty, tok)
             else
-                TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty)
+                TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty, tok)
         | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
-            translateStaticMemberInvocation ctx argExpr msig ty
+            translateStaticMemberInvocation ctx argExpr msig ty tok
         | Expr.LibraryOnlyStaticOptimization _ ->
             // The clause chain nests left-fold (outermost = the last `when` in
             // source order). Peel it into a flat source-ordered clause list plus
@@ -511,7 +523,7 @@ module internal FreezeExpr =
                 | other -> translateExpr ctx other, acc
 
             let defaultExpr, clauses = peel e []
-            TExpr.StaticOptimization(EqArray.ofList clauses, defaultExpr, ty)
+            TExpr.StaticOptimization(EqArray.ofList clauses, defaultExpr, ty, tok)
         | _ ->
             // TODO: extend as the subset grows; surface the unhandled case
             // loudly rather than emitting a broken TExpr.
@@ -538,7 +550,7 @@ module internal FreezeExpr =
             }
         )
 
-    and private translateString (ctx: PassContext) (e: Expr<SyntaxToken>) (ty: SemType) : TExpr =
+    and private translateString (ctx: PassContext) (e: Expr<SyntaxToken>) (ty: SemType) (tok: SyntaxToken) : TExpr =
         match e with
         | Expr.String(parts = parts) ->
             match Unification.zonk ty with
@@ -549,18 +561,19 @@ module internal FreezeExpr =
                 TExpr.New(
                     PrintfSpec.printfFormatName,
                     EqArray.singleton (
-                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), BuiltinTypes.tyString)
+                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), BuiltinTypes.tyString, tok)
                     ),
-                    ty
+                    ty,
+                    tok
                 )
             | _ ->
                 // A faithfully-renderable interpolation lowers to a `TExpr.Format`
                 // (D9). Otherwise (plain string, or an unrenderable hole) stitch
                 // the literal text, keeping any unrendered hole's `{<expr>}`
                 // placeholder — additive over the pre-D9 behaviour.
-                match tryTranslateInterpolation ctx parts ty with
+                match tryTranslateInterpolation ctx parts ty tok with
                 | Some node -> node
-                | None -> TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ty)
+                | None -> TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ty, tok)
         | _ -> failwithf "Freeze.translateString: not a String expr: %A" e
 
     /// Interpolation holes have no rendering on this path, so they surface as
@@ -610,6 +623,7 @@ module internal FreezeExpr =
         (ctx: PassContext)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         (ty: SemType)
+        (tok: SyntaxToken)
         : TExpr option =
         let segments = ResizeArray<FormatSeg>()
         let litRun = System.Text.StringBuilder()
@@ -665,13 +679,19 @@ module internal FreezeExpr =
 
         if hasHole && lowerable then
             flushLit ()
-            Some(TExpr.Format(FormatSink.ToString, EqArray.ofSeq segments, ty))
+            Some(TExpr.Format(FormatSink.ToString, EqArray.ofSeq segments, ty, tok))
         else
             None
 
-    and private translateIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) (ty: SemType) : TExpr =
+    and private translateIdent
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (key: NodeKey)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
         match ctx.Bindings.Binding.TryGetValue key with
-        | ValueSome rb -> TExpr.Var(rb.BindingSite, ty)
+        | ValueSome rb -> TExpr.Var(rb.BindingSite, ty, tok)
         | ValueNone ->
             // No Binding entry => NameResolution resolved through the provider.
             // Multi-segment names are joined with `.` so `External` carries the
@@ -705,7 +725,7 @@ module internal FreezeExpr =
                 // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
                 // identity rather than name suffix.
                 let symKey = ctx.Resolution.ExternalValue.TryGetValue key
-                TExpr.External(name, symKey, ty)
+                TExpr.External(name, symKey, ty, tok)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
     /// head segment's TAST node is a `Var` pointing back at the local binding.
@@ -714,6 +734,7 @@ module internal FreezeExpr =
         (li: LongIdent<SyntaxToken>)
         (finalTy: SemType)
         (lastExternal: ResolvedExternalMember voption)
+        (tok: SyntaxToken)
         : TExpr =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
@@ -728,8 +749,8 @@ module internal FreezeExpr =
 
         let headExpr =
             match headBinding with
-            | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy)
-            | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy)
+            | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy, tok)
+            | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy, tok)
 
         let mutable currTy = headTy
         let mutable curr = headExpr
@@ -757,8 +778,8 @@ module internal FreezeExpr =
             curr <-
                 match lastExternal with
                 | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
-                    TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.IsProperty, stepTy)
-                | _ -> fieldStep ctx curr currTy segName stepTy
+                    TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.IsProperty, stepTy, tok)
+                | _ -> fieldStep ctx curr currTy segName stepTy tok
 
             currTy <- stepTy
 
@@ -768,6 +789,7 @@ module internal FreezeExpr =
         (ctx: PassContext)
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
+        (tok: SyntaxToken)
         : TExpr =
         let mutable result = translateExpr ctx fn
         let mutable currTy = typeOfKey ctx (CstKeys.ofExpr fn)
@@ -798,7 +820,7 @@ module internal FreezeExpr =
                 | ValueSome dom when isFirst -> wrapObjArg dom argT
                 | _ -> wrapObjArg paramTy argT
 
-            result <- TExpr.App(result, argT, resTy)
+            result <- TExpr.App(result, argT, resTy, tok)
             currTy <- resTy
             isFirst <- false
 
@@ -900,6 +922,7 @@ module internal FreezeExpr =
         (key: NodeKey)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (ty: SemType)
+        (tok: SyntaxToken)
         : TExpr voption =
         let sink =
             match ctx.PrintfApp.TryGetValue key with
@@ -1008,7 +1031,7 @@ module internal FreezeExpr =
                 | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
                 | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
 
-            ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty))
+            ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
 
     /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
     /// call (the body of a `let inline` operator's `when ^T : ^T` static-opt clause,
@@ -1021,6 +1044,7 @@ module internal FreezeExpr =
         (argExpr: Expr<SyntaxToken>)
         (msig: MemberSig<SyntaxToken>)
         (ty: SemType)
+        (tok: SyntaxToken)
         : TExpr =
         let ident =
             match msig with
@@ -1038,7 +1062,7 @@ module internal FreezeExpr =
         // nominal and this node to a `StaticMethodCall`.
         let receiverTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
 
-        TExpr.TraitCall(receiverTy, memberName, args, ty)
+        TExpr.TraitCall(receiverTy, memberName, args, ty, tok)
 
     and private translateInfix
         (ctx: PassContext)
@@ -1046,6 +1070,7 @@ module internal FreezeExpr =
         (left: Expr<SyntaxToken>)
         (right: Expr<SyntaxToken>)
         (resultTy: SemType)
+        (tok: SyntaxToken)
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
@@ -1057,14 +1082,14 @@ module internal FreezeExpr =
             let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
             let partialTy = TyFun(rightTy, resultTy)
             let opTy = TyFun(leftTy, partialTy)
-            let opExpr = TExpr.External(name, ValueNone, opTy)
-            let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy)
-            TExpr.App(app1, translateExpr ctx right, resultTy)
+            let opExpr = TExpr.External(name, ValueNone, opTy, tok)
+            let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)
+            TExpr.App(app1, translateExpr ctx right, resultTy, tok)
         | ValueSome DesugaredForm.ConsExpr ->
             // `h :: t` → `UnionCons("Cons", [h; t])` against the resolved list
             // union — the same shape `[…]` literals lower to (one cons cell).
             let consName, _ = listCaseNames ctx resultTy
-            TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy)
+            TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy, tok)
         | ValueSome _
         | ValueNone ->
             // Desugar always attaches an OpName for an InfixApp key; reaching
@@ -1076,6 +1101,7 @@ module internal FreezeExpr =
         (key: NodeKey)
         (operand: Expr<SyntaxToken>)
         (resultTy: SemType)
+        (tok: SyntaxToken)
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
@@ -1083,8 +1109,8 @@ module internal FreezeExpr =
             // rather than re-instantiating the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
             let opTy = TyFun(operandTy, resultTy)
-            let opExpr = TExpr.External(name, ValueNone, opTy)
-            TExpr.App(opExpr, translateExpr ctx operand, resultTy)
+            let opExpr = TExpr.External(name, ValueNone, opTy, tok)
+            TExpr.App(opExpr, translateExpr ctx operand, resultTy, tok)
         | ValueSome _
         | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key
 
@@ -1099,6 +1125,7 @@ module internal FreezeExpr =
         (literalTy: SemType)
         (isArray: bool)
         (items: Expr<SyntaxToken> list)
+        (tok: SyntaxToken)
         : TExpr =
         let zonked = Unification.zonk literalTy
 
@@ -1140,11 +1167,11 @@ module internal FreezeExpr =
             | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
 
         let listExpr =
-            let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy)
+            let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy, tok)
 
             items
             |> List.foldBack (fun item acc ->
-                TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy)
+                TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy, tok)
             )
             <| nil
 
@@ -1155,7 +1182,7 @@ module internal FreezeExpr =
             // this exact head and emits the array directly (no FSharp.Core).
             let opName = RuntimeNames.arrayOfListName
             let opTy = TyFun(listTy, arrayTy)
-            TExpr.App(TExpr.External(opName, ValueNone, opTy), listExpr, arrayTy)
+            TExpr.App(TExpr.External(opName, ValueNone, opTy, tok), listExpr, arrayTy, tok)
         else
             listExpr
 
@@ -1166,6 +1193,7 @@ module internal FreezeExpr =
         (elifs: ImmutableArray<ElifBranch<SyntaxToken>>)
         (elseB: ElseBranch<SyntaxToken> voption)
         (resultTy: SemType)
+        (tok: SyntaxToken)
         : TExpr =
         // Fold elifs right-to-left, each nested as the else-branch of the previous.
         // A missing else is `else ()` (F# spec): inference has already constrained
@@ -1174,7 +1202,8 @@ module internal FreezeExpr =
         let mutable nestedElse =
             match elseB with
             | ValueSome(ElseBranch(expr = e)) -> translateExpr ctx e
-            | ValueNone -> TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit)
+            // Synthesised `else ()` (no source token) — anchor at the `if`'s token.
+            | ValueNone -> TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, tok)
 
         for i = elifs.Length - 1 downto 0 do
             let elifCond, elifThen =
@@ -1182,9 +1211,10 @@ module internal FreezeExpr =
                 | ElifBranch.Elif(condition = c; expr = e)
                 | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
 
-            nestedElse <- TExpr.IfThenElse(translateExpr ctx elifCond, translateExpr ctx elifThen, nestedElse, resultTy)
+            nestedElse <-
+                TExpr.IfThenElse(translateExpr ctx elifCond, translateExpr ctx elifThen, nestedElse, resultTy, tok)
 
-        TExpr.IfThenElse(translateExpr ctx cond, translateExpr ctx thenE, nestedElse, resultTy)
+        TExpr.IfThenElse(translateExpr ctx cond, translateExpr ctx thenE, nestedElse, resultTy, tok)
 
     and private translateFun
         (ctx: PassContext)
@@ -1199,7 +1229,8 @@ module internal FreezeExpr =
             let tpat = translatePat ctx p
             let pTy = typeOfKey ctx (CstKeys.ofPat p)
             let lamTy = TyFun(pTy, resultTy)
-            result <- TExpr.Lambda(tpat, result, lamTy)
+            // The lambda's source anchor is its parameter pattern's first token.
+            result <- TExpr.Lambda(tpat, result, lamTy, CstKeys.firstTokenOfPat p)
             resultTy <- lamTy
 
         result
@@ -1228,6 +1259,8 @@ module internal FreezeExpr =
             let b = bindings.[i]
             let tpat = translatePat ctx b.headPat
             let valT = translateBinding ctx b
+            // The let/use node's source anchor is its binder pattern's first token.
+            let bindTok = CstKeys.firstTokenOfPat b.headPat
 
             result <-
                 if isUse then
@@ -1235,9 +1268,9 @@ module internal FreezeExpr =
                     // Unification under the head-pattern's key; a project-local binder
                     // has none and codegen takes the duck-typed direct call (§4.3).
                     let dispose = ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat)
-                    TExpr.Use(tpat, valT, result, dispose, resultTy)
+                    TExpr.Use(tpat, valT, result, dispose, resultTy, bindTok)
                 else
-                    TExpr.Let(tpat, valT, result, resultTy)
+                    TExpr.Let(tpat, valT, result, resultTy, bindTok)
 
         result
 

@@ -396,9 +396,11 @@ let tests =
                             TExpr.Lambda(_,
                                          TExpr.Match(_,
                                                      EqList [ {
-                                                                  Pat = TPat.Const(TConstValue.Unit, _)
+                                                                  Pat = TPat.Const(TConstValue.Unit, _, _)
                                                               } ],
+                                                     _,
                                                      _),
+                                         _,
                                          _),
                             _,
                             _) -> ()
@@ -579,7 +581,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.New(name, args, ty) ->
+                | TExpr.New(name, args, ty, _) ->
                     Expect.equal name "Point" "class name"
                     Expect.equal args.Length 2 "two ctor args"
                     Expect.equal ty (TyClass("Point", EqArray.empty)) "ty is TyClass Point"
@@ -604,11 +606,11 @@ let tests =
 
                 let body =
                     match valExpr with
-                    | TExpr.Lambda(_, body, _) -> body
+                    | TExpr.Lambda(_, body, _, _) -> body
                     | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
 
                 match body with
-                | TExpr.PropertyGet(_, key, _, ty) ->
+                | TExpr.PropertyGet(_, key, _, ty, _) ->
                     Expect.equal (SymbolKeyOps.simpleName key) "X" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "property type"
                 | _ -> failtestf "expected PropertyGet, got %A" body
@@ -633,11 +635,11 @@ let tests =
 
                 let body =
                     match valExpr with
-                    | TExpr.Lambda(_, body, _) -> body
+                    | TExpr.Lambda(_, body, _, _) -> body
                     | _ -> failtestf "expected TExpr.Lambda, got %A" valExpr
 
                 match body with
-                | TExpr.MethodCall(_, key, _, args, ty) ->
+                | TExpr.MethodCall(_, key, _, args, ty, _) ->
                     Expect.equal (SymbolKeyOps.simpleName key) "Magnitude" "method name"
                     Expect.equal args.Length 0 "no args (unit-arg fold)"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
@@ -660,7 +662,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticPropertyGet(SymbolKey.MemberKey(decl, name, _, _), ty) ->
+                | TExpr.StaticPropertyGet(SymbolKey.MemberKey(decl, name, _, _), ty, _) ->
                     Expect.equal (SymbolKeyOps.simpleName decl) "C" "class name"
                     Expect.equal name "Origin" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "ty is int"
@@ -684,7 +686,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticMethodCall(SymbolKey.MemberKey(decl, methodName, _, _), args, ty) ->
+                | TExpr.StaticMethodCall(SymbolKey.MemberKey(decl, methodName, _, _), args, ty, _) ->
                     Expect.equal (SymbolKeyOps.simpleName decl) "C" "class name"
                     Expect.equal methodName "M" "method name"
                     Expect.equal args.Length 1 "one arg"
@@ -796,7 +798,7 @@ let tests =
                     let getBody = c.Members.[0].Body
 
                     match getBody with
-                    | TExpr.StaticFieldGet(declKey, name, _) ->
+                    | TExpr.StaticFieldGet(declKey, name, _, _) ->
                         Expect.equal (SymbolKeyOps.simpleName declKey) "C" "static-field class"
                         Expect.equal name "x" "static-field name"
                     | other -> failtestf "expected StaticFieldGet body, got %A" other
@@ -877,7 +879,7 @@ let tests =
                         VisitExpr =
                             fun _ e ->
                                 match e with
-                                | TExpr.MethodCall(_, key, via, _, _) when SymbolKeyOps.simpleName key = "M" ->
+                                | TExpr.MethodCall(_, key, via, _, _, _) when SymbolKeyOps.simpleName key = "M" ->
                                     vias.Add via
                                 | _ -> ()
 

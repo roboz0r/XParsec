@@ -53,6 +53,9 @@ module internal FreezePatterns =
     let rec translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
         let key = CstKeys.ofPat p
         let ty = typeOfKey ctx key
+        // Source-map anchor for this binding site; synthetic sub-nodes (list
+        // desugaring's `Cons`/`Empty` chain) reuse the whole pattern's token.
+        let tok = CstKeys.firstTokenOfPat p
 
         match p with
         | Pat.NamedSimple t when
@@ -67,9 +70,9 @@ module internal FreezePatterns =
             // arm. Both lower to the same `TPat.Union`; the node's type
             // (`typeOfKey`) already carries the right `TyUnion`, so the backend
             // routes local vs external off that.
-            TPat.Union(ctx.NameOf t, EqArray.empty, ty)
-        | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty)
-        | Pat.Wildcard _ -> TPat.Wildcard ty
+            TPat.Union(ctx.NameOf t, EqArray.empty, ty, tok)
+        | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty, tok)
+        | Pat.Wildcard _ -> TPat.Wildcard(ty, tok)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
             // `[a; b; c]` list-literal pattern → nested cons:
             // `Cons(a, Cons(b, Cons(c, Empty)))`. Each cons/nil node carries the
@@ -83,25 +86,26 @@ module internal FreezePatterns =
                 | Pat.Elems(pats = pats) -> List.ofSeq pats
                 | single -> [ single ]
 
-            let nil = TPat.Union(nilName, EqArray.empty, ty)
+            let nil = TPat.Union(nilName, EqArray.empty, ty, tok)
 
             List.foldBack
-                (fun el acc -> TPat.Union(consName, EqArray.ofList [ translatePat ctx el; acc ], ty))
+                (fun el acc -> TPat.Union(consName, EqArray.ofList [ translatePat ctx el; acc ], ty, tok))
                 elems
                 nil
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
-        | Pat.Tuple(patterns = pats) -> TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty)
+        | Pat.Tuple(patterns = pats) ->
+            TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty, tok)
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->
             // `[]` pattern → the list union's nullary (empty) case, by arity.
             let _, nilName = listCaseNames ctx ty
-            TPat.Union(nilName, EqArray.empty, ty)
+            TPat.Union(nilName, EqArray.empty, ty, tok)
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t` → the list union's binary (cons) case. The node's type
             // (`typeOfKey`) is the list `TyUnion` Unification resolved; the backend
             // routes local vs external off it, exactly like a named-ctor pattern.
             let consName, _ = listCaseNames ctx ty
-            TPat.Union(consName, EqArray.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty)
-        | Pat.Const c -> TPat.Const(parseConst ctx c, ty)
+            TPat.Union(consName, EqArray.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty, tok)
+        | Pat.Const c -> TPat.Const(parseConst ctx c, ty, tok)
         | Pat.As(pat = inner) ->
             // The `as`-name isn't surfaced in TPat yet — downstream Var lookups
             // find the alias via the CST + side tables.
@@ -117,7 +121,7 @@ module internal FreezePatterns =
             // Both sides must bind the same names (Validation's job). Until or-
             // patterns are first-class in TPat, pick the left arm for shape.
             translatePat ctx leftPat
-        | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty)
+        | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty, tok)
         | Pat.Record(fieldPats = fieldPats) ->
             let fields =
                 EqArray.ofSeq (
@@ -128,7 +132,7 @@ module internal FreezePatterns =
                     }
                 )
 
-            TPat.Record(fields, ty)
+            TPat.Record(fields, ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
@@ -154,7 +158,7 @@ module internal FreezePatterns =
                 else
                     EqArray.ofSeq (seq { for sub in args -> translatePat ctx sub })
 
-            TPat.Union(caseName, subPats, ty)
+            TPat.Union(caseName, subPats, ty, tok)
         | Pat.TypeTestAs(pat = inner) ->
             // `:? T as x` — Unification stashed the tested type in
             // `TypeTestTargets` (keyed on this node, like the `:?` expression
@@ -165,12 +169,12 @@ module internal FreezePatterns =
                 | ValueSome t -> t
                 | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
 
-            TPat.TypeTestAs(testTy, translatePat ctx inner, ty)
+            TPat.TypeTestAs(testTy, translatePat ctx inner, ty, tok)
         | Pat.Op _ ->
             // Operator-named binding head (`let (=) x y = …`): a single binder,
             // shaped like a `Pat.NamedSimple`. Its source name is the operator's
             // compiled name (`memberNameOfBinding` → `op_Equality`); the key
             // matches `CstKeys.ofBinding`, so the binding's `ModuleMembers` entry
             // (and thus the cross-package inline-body loader) finds it.
-            TPat.NamedSimple(key, ty)
+            TPat.NamedSimple(key, ty, tok)
         | _ -> failwithf "Freeze.translatePat: TODO %A" p

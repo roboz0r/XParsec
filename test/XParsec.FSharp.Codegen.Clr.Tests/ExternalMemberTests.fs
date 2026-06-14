@@ -47,9 +47,10 @@ let tests =
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
-                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy),
-                            TExpr.Const(TConstValue.Int 5, _),
-                            resultTy) ->
+                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy, _),
+                            TExpr.Const(TConstValue.Int 5, _, _),
+                            resultTy,
+                            _) ->
                     // The instance access is a method value `int -> int`; applying
                     // `5` yields `int`.
                     match Unification.zonk ghTy with
@@ -73,7 +74,7 @@ let tests =
                     // The `Default` static property — receiver dropped (ValueNone),
                     // typed EqualityComparer<int>, empty argSig.
                     match inner with
-                    | TExpr.ExternalMember(ValueNone, defKey, "Default", true, defTy) ->
+                    | TExpr.ExternalMember(ValueNone, defKey, "Default", true, defTy, _) ->
                         match Unification.zonk defTy with
                         | TyClass(name, args) when
                             args.Length = 1
@@ -114,7 +115,7 @@ let tests =
 
                 let frozen =
                     match tast.Decls with
-                    | EqList [ TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) ] -> k
+                    | EqList [ TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _, _)) ] -> k
                     | _ -> failtestf "expected App(ExternalMember …), got %A" tast.Decls
 
                 Expect.equal frozen expected "frozen key = provider's resolved key"
@@ -148,9 +149,10 @@ let tests =
                     )
 
                 match value with
-                | ValueSome(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy),
-                                      TExpr.Const(TConstValue.Int 5, _),
-                                      resultTy)) ->
+                | ValueSome(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy, _),
+                                      TExpr.Const(TConstValue.Int 5, _, _),
+                                      resultTy,
+                                      _)) ->
                     match Unification.zonk ghTy with
                     | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
@@ -168,7 +170,7 @@ let tests =
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     match inner with
-                    | TExpr.ExternalMember(ValueNone, _, "Default", true, _) -> ()
+                    | TExpr.ExternalMember(ValueNone, _, "Default", true, _, _) -> ()
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
                 | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
             }
@@ -190,12 +192,12 @@ let tests =
                     tast.Decls
                     |> EqArray.tryFind (
                         function
-                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember _, _, _)) -> true
+                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember _, _, _, _)) -> true
                         | _ -> false
                     )
                     |> ValueOption.map (
                         function
-                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _)) -> k
+                        | TDecl.Let(value = TExpr.App(TExpr.ExternalMember(key = k), _, _, _)) -> k
                         | _ -> failwith "unreachable"
                     )
 
@@ -348,7 +350,7 @@ let tests =
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
-                | TExpr.ExternalMember(ValueNone, key, "Out", true, ty) ->
+                | TExpr.ExternalMember(ValueNone, key, "Out", true, ty, _) ->
                     match Unification.zonk ty with
                     | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
@@ -390,6 +392,7 @@ let tests =
                                                                      MemberKind.Property),
                                                  "Out",
                                                  true,
+                                                 _,
                                                  _)) -> ()
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
             }

@@ -78,16 +78,19 @@ let tests =
                                          TExpr.Lambda _,
                                          true,
                                          TyFun(TyConst("int", _), TyConst("int", _)))
-                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.Let(TPat.NamedSimple _,
-                                                     TExpr.Const(TConstValue.Int 41, _),
-                                                     TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _),
+                                                     TExpr.Const(TConstValue.Int 41, _, _),
+                                                     TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
                                                                          TExpr.Var _,
+                                                                         _,
                                                                          _),
-                                                               TExpr.Const(TConstValue.Int 1, _),
+                                                               TExpr.Const(TConstValue.Int 1, _, _),
+                                                               _,
                                                                _),
+                                                     _,
                                                      _)) ] -> ()
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected inline TAST: %A" other

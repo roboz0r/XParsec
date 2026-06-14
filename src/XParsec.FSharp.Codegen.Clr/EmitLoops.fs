@@ -207,7 +207,7 @@ module EmitLoops =
         // *compiler-exhaustive* — a new enumerator kind fails the build here rather
         // than silently falling through to a wildcard. The outer `_` only guards the
         // (unreachable) non-`ForIn` dispatch.
-        | TExprG.ForIn(pat, source, body, enumerator, _) ->
+        | TExprG.ForIn(pat, source, body, enumerator, _, _) ->
             let elemTy = typeOfPat pat
 
             match enumerator with
@@ -356,7 +356,7 @@ module EmitLoops =
 
     let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.ForTo(var, startExpr, endExpr, body, _) ->
+        | TExprG.ForTo(var, startExpr, endExpr, body, _, _) ->
             // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
             // once (F# semantics) into the loop-variable and a hidden limit local;
             // the loop is exited *before* the increment when `i = limit`, so the
@@ -411,7 +411,7 @@ module EmitLoops =
 
     let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.While(cond, body, _) ->
+        | TExprG.While(cond, body, _, _) ->
             // `while <cond> do <body>` — a unit expression. Shape:
             //   loopStart: <cond>; brfalse loopEnd; <body>; pop…; br loopStart; loopEnd:
             // The condition leaves a `bool` the `brfalse` consumes; the body is a

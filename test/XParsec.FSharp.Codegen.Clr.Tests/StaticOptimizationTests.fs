@@ -44,8 +44,10 @@ let tests =
                 | EqList [ TDecl.Let(TPat.NamedSimple _,
                                      TExpr.Lambda(_,
                                                   TExpr.StaticOptimization(clauses,
-                                                                           TExpr.Const(TConstValue.Int -1, _),
-                                                                           TyConst("int", _)),
+                                                                           TExpr.Const(TConstValue.Int -1, _, _),
+                                                                           TyConst("int", _),
+                                                                           _),
+                                                  _,
                                                   _),
                                      true,
                                      _) ] ->
@@ -54,7 +56,7 @@ let tests =
                     // First clause is `when ^T : int = 1` — one constraint, body `1`.
                     if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then
                         match clauses.[0].Body with
-                        | TExpr.Const(TConstValue.Int 1, _) -> ()
+                        | TExpr.Const(TConstValue.Int 1, _, _) -> ()
                         | other -> failtestf "unexpected first clause body: %A" other
                     else
                         failtestf "unexpected first clause: %A" clauses.[0]
@@ -71,7 +73,10 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(_, TExpr.Lambda(_, TExpr.StaticOptimization(EqList [ clause ], _, _), _), true, _) ] ->
+                | EqList [ TDecl.Let(_,
+                                     TExpr.Lambda(_, TExpr.StaticOptimization(EqList [ clause ], _, _, _), _, _),
+                                     true,
+                                     _) ] ->
                     match clause.Constraints with
                     | EqList [ TStaticOptConstraint.TyconEquals(TyVar a, TyVar b) ] ->
                         Expect.isTrue

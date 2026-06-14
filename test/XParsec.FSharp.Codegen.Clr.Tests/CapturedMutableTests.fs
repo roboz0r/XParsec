@@ -98,33 +98,34 @@ let tests =
                         true
                     else
                         match e with
-                        | TExpr.Lambda(_, b, _) -> scanExpr predicate b
-                        | TExpr.Let(_, v, b, _) -> scanExpr predicate v || scanExpr predicate b
-                        | TExpr.App(f, a, _) -> scanExpr predicate f || scanExpr predicate a
-                        | TExpr.Sequential(items, _) -> items |> EqArray.exists (scanExpr predicate)
-                        | TExpr.IfThenElse(c, t, e, _) ->
+                        | TExpr.Lambda(_, b, _, _) -> scanExpr predicate b
+                        | TExpr.Let(_, v, b, _, _) -> scanExpr predicate v || scanExpr predicate b
+                        | TExpr.App(f, a, _, _) -> scanExpr predicate f || scanExpr predicate a
+                        | TExpr.Sequential(items, _, _) -> items |> EqArray.exists (scanExpr predicate)
+                        | TExpr.IfThenElse(c, t, e, _, _) ->
                             scanExpr predicate c || scanExpr predicate t || scanExpr predicate e
-                        | TExpr.FieldGet(r, _, _) -> scanExpr predicate r
-                        | TExpr.FieldSet(r, _, v, _) -> scanExpr predicate r || scanExpr predicate v
-                        | TExpr.RecordCons(fields, _) -> fields |> EqArray.exists (fun (_, v) -> scanExpr predicate v)
-                        | TExpr.Match(sc, arms, _) ->
+                        | TExpr.FieldGet(r, _, _, _) -> scanExpr predicate r
+                        | TExpr.FieldSet(r, _, v, _, _) -> scanExpr predicate r || scanExpr predicate v
+                        | TExpr.RecordCons(fields, _, _) ->
+                            fields |> EqArray.exists (fun (_, v) -> scanExpr predicate v)
+                        | TExpr.Match(sc, arms, _, _) ->
                             scanExpr predicate sc
                             || arms |> EqArray.exists (fun a -> scanExpr predicate a.Body)
                         | _ -> false
 
                 let isContentsFieldSet =
                     function
-                    | TExpr.FieldSet(_, "contents", _, _) -> true
+                    | TExpr.FieldSet(_, "contents", _, _, _) -> true
                     | _ -> false
 
                 let isContentsFieldGet =
                     function
-                    | TExpr.FieldGet(_, "contents", _) -> true
+                    | TExpr.FieldGet(_, "contents", _, _) -> true
                     | _ -> false
 
                 let isRecordConsOfRef =
                     function
-                    | TExpr.RecordCons(_, TyRecord("Vesper.Ref`1", _)) -> true
+                    | TExpr.RecordCons(_, TyRecord("Vesper.Ref`1", _), _) -> true
                     | _ -> false
 
                 let scan p =

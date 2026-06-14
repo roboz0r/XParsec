@@ -18,7 +18,7 @@ module EmitConstruct =
 
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.New(className, args, ty) ->
+        | TExprG.New(className, args, ty, _) ->
             let tyArgs =
                 match ty with
                 | FTClass(_, xs) -> EqArray.toList xs
@@ -130,7 +130,7 @@ module EmitConstruct =
 
     let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.RecordCons(srcFields, ty) ->
+        | TExprG.RecordCons(srcFields, ty, _) ->
             // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
             // to the type's *declaration* order before the ctor is invoked:
             // the ctor's parameter slots correspond to
@@ -180,7 +180,7 @@ module EmitConstruct =
 
     let buildRecordClone (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.RecordClone(source, overrides, ty) ->
+        | TExprG.RecordClone(source, overrides, ty, _) ->
             // `{ r with X = v; … }` — evaluate `r` into a local, then per
             // declaration-order field: push the override expression if it's in
             // the override list, else `ldloc; ldfld` from the saved source. Then
@@ -220,7 +220,7 @@ module EmitConstruct =
 
     let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.UnionCons(caseName, args, ty) ->
+        | TExprG.UnionCons(caseName, args, ty, _) ->
             // Local union table keys by the nominal `SymbolKey`; the provider's
             // cons recipe (FSharp.Core / Vesper list) selects on the same key.
             let key, tyArgs = nominalShape "UnionCons" ty
@@ -258,7 +258,7 @@ module EmitConstruct =
 
     let buildTuple (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Tuple(elems, ty) ->
+        | TExprG.Tuple(elems, ty, _) ->
             // A standalone tuple *value*. The method-argument-list case never
             // reaches here — it is flattened element-wise at the call site
             // (`buildAppCall`, the `argCount`-discriminated arm), per the .NET

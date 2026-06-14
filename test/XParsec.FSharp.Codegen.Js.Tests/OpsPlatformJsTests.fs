@@ -23,17 +23,17 @@ let private ilOpCodes (body: InlineBody) : string list =
 
     let rec walkExpr (e: TExpr) =
         match e with
-        | TExpr.ILIntrinsic(opCode, _, args, _) ->
+        | TExpr.ILIntrinsic(opCode, _, args, _, _) ->
             acc.Add opCode
 
             for a in args do
                 walkExpr a
-        | TExpr.StaticOptimization(clauses, dflt, _) ->
+        | TExpr.StaticOptimization(clauses, dflt, _, _) ->
             for c in clauses do
                 walkExpr c.Body
 
             walkExpr dflt
-        | TExpr.Lambda(_, b, _) -> walkExpr b
+        | TExpr.Lambda(_, b, _, _) -> walkExpr b
         | _ ->
             // The operator bodies nest IL only through Lambda / StaticOptimization
             // clauses / ILIntrinsic args (handled above); the SRTP `when ^T : ^T`

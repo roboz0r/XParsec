@@ -43,6 +43,13 @@ let (|TyClass|_|) (t: SemType) =
     | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
     | _ -> None
 
+/// A throwaway source token for hand-built TAST construction in tests. The
+/// frozen `TExprG` spine now pins `'tok = SyntaxToken` (tast-tokens-plan.md),
+/// so every hand-assembled `TExpr.*` node needs a token; tests that don't
+/// exercise source-map positions pass this virtual EOF token.
+let dummyTok: SyntaxToken =
+    SyntaxToken.virtualToken (PositionedToken.Create(Token.EOF, 0))
+
 /// Project an `EqArray<'T>` as a plain `'T list` inside a pattern match — lets
 /// tests written against the pre-EqArray TAST keep their list-literal arms
 /// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip

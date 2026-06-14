@@ -40,7 +40,7 @@ module RefCellPromotion =
 
         let considerPat (p: TPat) =
             match p with
-            | TPat.NamedSimple(k, t) -> consider k t
+            | TPat.NamedSimple(k, t, _) -> consider k t
             | _ -> ()
 
         // The only case-specific work is to fire `considerPat` on a `Let`'s
@@ -51,7 +51,7 @@ module RefCellPromotion =
                 VisitExpr =
                     fun _ e ->
                         match e with
-                        | TExpr.Let(pat, _, _, _) -> considerPat pat
+                        | TExpr.Let(pat, _, _, _, _) -> considerPat pat
                         | _ -> ()
 
                         true
@@ -73,8 +73,9 @@ module RefCellPromotion =
     let private rewriteExpr (promote: IReadOnlyDictionary<NodeKey, SemType>) (e: TExpr) : TExpr =
         let wrapValueIfPromoted (pat: TPat) (value: TExpr) : TExpr =
             match pat with
-            | TPat.NamedSimple(k, _) when promote.ContainsKey k ->
-                TExpr.RecordCons(EqArray.singleton (ContentsField, value), promote.[k])
+            | TPat.NamedSimple(k, _, _) when promote.ContainsKey k ->
+                // The synthesised cell wraps `value`; anchor it at the value's token.
+                TExpr.RecordCons(EqArray.singleton (ContentsField, value), promote.[k], TastWalk.exprTok value)
             | _ -> value
 
         // Three overrides:
@@ -93,32 +94,39 @@ module RefCellPromotion =
                 OverridePat =
                     fun _ p ->
                         match p with
-                        | TPat.NamedSimple(k, _) ->
+                        | TPat.NamedSimple(k, _, tok) ->
                             match promote.TryGetValue k with
-                            | true, refTy -> ValueSome(TPat.NamedSimple(k, refTy))
+                            | true, refTy -> ValueSome(TPat.NamedSimple(k, refTy, tok))
                             | _ -> ValueNone
                         | _ -> ValueNone
                 OverrideExpr =
                     fun m e ->
                         match e with
-                        | TExpr.Var(k, ty) ->
+                        | TExpr.Var(k, ty, tok) ->
                             match promote.TryGetValue k with
                             | true, refTy ->
                                 // `ty` is the original (pre-promotion) value type,
                                 // which is also the field's declared type after
-                                // substitution.
-                                ValueSome(TExpr.FieldGet(TExpr.Var(k, refTy), ContentsField, ty))
+                                // substitution. The read replaces the `Var`, so it
+                                // keeps its token.
+                                ValueSome(TExpr.FieldGet(TExpr.Var(k, refTy, tok), ContentsField, ty, tok))
                             | _ -> ValueNone
-                        | TExpr.Assignment(TExpr.Var(k, _), rhs, unitTy) when promote.ContainsKey k ->
+                        | TExpr.Assignment(TExpr.Var(k, _, varTok), rhs, unitTy, tok) when promote.ContainsKey k ->
                             let refTy = promote.[k]
 
                             ValueSome(
-                                TExpr.FieldSet(TExpr.Var(k, refTy), ContentsField, TastWalk.mapExpr m rhs, unitTy)
+                                TExpr.FieldSet(
+                                    TExpr.Var(k, refTy, varTok),
+                                    ContentsField,
+                                    TastWalk.mapExpr m rhs,
+                                    unitTy,
+                                    tok
+                                )
                             )
-                        | TExpr.Let(pat, value, body, ty) ->
+                        | TExpr.Let(pat, value, body, ty, tok) ->
                             let pat' = TastWalk.mapPat m pat
                             let value' = wrapValueIfPromoted pat (TastWalk.mapExpr m value)
-                            ValueSome(TExpr.Let(pat', value', TastWalk.mapExpr m body, ty))
+                            ValueSome(TExpr.Let(pat', value', TastWalk.mapExpr m body, ty, tok))
                         | _ -> ValueNone
             }
 

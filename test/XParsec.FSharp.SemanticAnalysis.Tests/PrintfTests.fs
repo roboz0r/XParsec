@@ -200,11 +200,11 @@ let tests =
                 let tast = analyse "let r = printfn \"%d\" 42"
 
                 match lastDeclValue tast with
-                | TExpr.Format(FormatSink.ToStdOut true, segs, ty) ->
+                | TExpr.Format(FormatSink.ToStdOut true, segs, ty, _) ->
                     Expect.equal ty tyUnit "printfn result is unit"
 
                     match EqArray.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _)) ] ->
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
                         Expect.equal hole.Format None "no .NET format string for %d"
                         Expect.equal hole.Alignment None "no alignment"

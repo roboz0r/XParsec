@@ -193,12 +193,16 @@ let tests =
                     Expect.isEmpty tast.Diagnostics "no diagnostics — (+) resolves as a value"
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _), TExpr.External("op_Addition", _, _), false, _)
-                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _), _) ] ->
+                    | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _), TExpr.External("op_Addition", _, _, _), false, _)
+                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
-                                           TExpr.App(TExpr.App(TExpr.Var(kUse, _), TExpr.Const(TConstValue.Int 40, _), _),
-                                                     TExpr.Const(TConstValue.Int 2, _),
+                                           TExpr.App(TExpr.App(TExpr.Var(kUse, _, _),
+                                                               TExpr.Const(TConstValue.Int 40, _, _),
+                                                               _,
+                                                               _),
+                                                     TExpr.Const(TConstValue.Int 2, _, _),
+                                                     _,
                                                      _)) ] ->
                             Expect.equal kUse kAdd "the call site references the (+) binding"
                         | other -> failtestf "unexpected segments: %A" other
@@ -278,9 +282,9 @@ let tests =
                         )
 
                     match addBinding with
-                    | Some(TExpr.Lambda(_, TExpr.Lambda(_, body, _), _)) ->
+                    | Some(TExpr.Lambda(_, TExpr.Lambda(_, body, _, _), _, _)) ->
                         match body with
-                        | TExpr.StaticMethodCall(SymbolKey.MemberKey(_, "op_Addition", _, _), args, _) ->
+                        | TExpr.StaticMethodCall(SymbolKey.MemberKey(_, "op_Addition", _, _), args, _, _) ->
                             Expect.equal
                                 (EqArray.toList args |> List.length)
                                 2

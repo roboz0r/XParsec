@@ -29,23 +29,29 @@ let tests =
                     SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton (TyConst("int", EqArray.empty)))
 
                 match tast.Decls with
-                | EqList [ TDecl.Expression(TExpr.Format(_, segs, _), _) ] ->
+                | EqList [ TDecl.Expression(TExpr.Format(_, segs, _, _), _) ] ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole,
                                        TExpr.UnionCons("Cons",
-                                                       EqList [ TExpr.Const(TConstValue.Int 1, _)
+                                                       EqList [ TExpr.Const(TConstValue.Int 1, _, _)
                                                                 TExpr.UnionCons("Cons",
                                                                                 EqList [ TExpr.Const(TConstValue.Int 2,
+                                                                                                     _,
                                                                                                      _)
                                                                                          TExpr.UnionCons("Cons",
                                                                                                          EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                                                              _,
                                                                                                                               _)
                                                                                                                   TExpr.UnionCons("Nil",
                                                                                                                                   EqList [],
+                                                                                                                                  _,
                                                                                                                                   _) ],
+                                                                                                         _,
                                                                                                          _) ],
+                                                                                _,
                                                                                 _) ],
-                                                       outerTy)) ] ->
+                                                       outerTy,
+                                                       _)) ] ->
                         Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%A is a Structured hole"
                         Expect.equal outerTy listTy "the hole's arg is the cons chain typed list<int>"
                     | other -> failtestf "unexpected Format segments: %A" other

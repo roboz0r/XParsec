@@ -130,8 +130,8 @@ module EmitPattern =
 
         match pat with
         | TPatG.Wildcard _ -> ()
-        | TPatG.NamedSimple(binding, _) -> env.Slots.[binding] <- scrutSlot
-        | TPatG.Const(value, _) ->
+        | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- scrutSlot
+        | TPatG.Const(value, _, _) ->
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
@@ -142,7 +142,7 @@ module EmitPattern =
             | other -> failwithf "Emit: match on constant %A is out of scope" other
 
             b.Add(ILInstr.BneUn nextLabel)
-        | TPatG.Union(caseName, subPats, ty) ->
+        | TPatG.Union(caseName, subPats, ty, _) ->
             // Local union table keys by the nominal `SymbolKey`; the external union
             // provider lookups take the qualified compiled name derived from it (Phase 6D).
             let key, tyArgs = nominalShape "union pattern" ty
@@ -200,7 +200,7 @@ module EmitPattern =
                 | TPatG.Wildcard _ -> ()
                 | _ -> extractField (fieldRef i) subPat
             )
-        | TPatG.Record(fields, ty) ->
+        | TPatG.Record(fields, ty, _) ->
             // A record pattern never fails on shape (no tag to compare): for each
             // named sub-pattern, `ldfld` the field into a fresh local and recurse
             // — only the sub-patterns themselves can branch to `nextLabel`. A
@@ -228,12 +228,12 @@ module EmitPattern =
                             extractField fieldRef subPat
                         | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
-        | TPatG.Tuple(items, ty) ->
+        | TPatG.Tuple(items, ty, _) ->
             // A tuple pattern never fails on shape (a `ValueTuple`n` has no tag):
             // decompose each element and recurse — only the sub-patterns can branch
             // to `nextLabel`, exactly like the union / record arms above.
             destructureTuple env b scrutSlot ty items (fun s p -> buildMatchTest env b s nextLabel p)
-        | TPatG.TypeTestAs(testTy, inner, _) ->
+        | TPatG.TypeTestAs(testTy, inner, _, _) ->
             // `:? T as x` → `isinst T` then a null check: a non-`T` value yields
             // null (`brfalse` skips the arm). On a match the cast-down value is
             // stored to a `T`-typed local; for a value-type target the `isinst`
@@ -272,8 +272,8 @@ module EmitPattern =
         match pat with
         | TPatG.Wildcard _ -> ()
         | TPatG.Const _ -> () // irrefutable in a binding position — no compare, no bind
-        | TPatG.NamedSimple(binding, _) -> env.Slots.[binding] <- srcSlot
-        | TPatG.Tuple(items, ty) -> destructureTuple env b srcSlot ty items (bindPattern env b)
+        | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- srcSlot
+        | TPatG.Tuple(items, ty, _) -> destructureTuple env b srcSlot ty items (bindPattern env b)
         | other -> failwithf "Emit: destructuring pattern is out of scope: %A" other
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new

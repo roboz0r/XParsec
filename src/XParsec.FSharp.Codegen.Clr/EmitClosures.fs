@@ -11,19 +11,19 @@ module EmitClosures =
 
         let rec go p =
             match p with
-            | TPatG.NamedSimple(k, _) -> acc.Add k
+            | TPatG.NamedSimple(k, _, _) -> acc.Add k
             | TPatG.Wildcard _
             | TPatG.Const _ -> ()
-            | TPatG.Tuple(items, _) ->
+            | TPatG.Tuple(items, _, _) ->
                 for sub in items do
                     go sub
-            | TPatG.Record(fields, _) ->
+            | TPatG.Record(fields, _, _) ->
                 for (_, sub) in fields do
                     go sub
-            | TPatG.Union(_, fields, _) ->
+            | TPatG.Union(_, fields, _, _) ->
                 for sub in fields do
                     go sub
-            | TPatG.TypeTestAs(_, inner, _) -> go inner
+            | TPatG.TypeTestAs(_, inner, _, _) -> go inner
 
         go p
         List.ofSeq acc
@@ -56,25 +56,25 @@ module EmitClosures =
 
         let rec go (e: Frozen.TExpr) =
             match e with
-            | TExprG.Var(key, ty) ->
+            | TExprG.Var(key, ty, _) ->
                 if not (bound.Contains key) then
                     onFree key ty
-            | TExprG.Lambda(p, b, _) -> scoped (patKeys p) (fun () -> go b)
-            | TExprG.Let((TPatG.NamedSimple _ as p), (TExprG.Lambda _ as v), b, _) ->
+            | TExprG.Lambda(p, b, _, _) -> scoped (patKeys p) (fun () -> go b)
+            | TExprG.Let((TPatG.NamedSimple _ as p), (TExprG.Lambda _ as v), b, _, _) ->
                 scoped (patKeys p) (fun () -> go v)
                 scoped (patKeys p) (fun () -> go b)
-            | TExprG.Let(p, v, b, _)
-            | TExprG.Use(p, v, b, _, _) ->
+            | TExprG.Let(p, v, b, _, _)
+            | TExprG.Use(p, v, b, _, _, _) ->
                 go v
                 scoped (patKeys p) (fun () -> go b)
-            | TExprG.ForTo(var, s, e2, b, _) ->
+            | TExprG.ForTo(var, s, e2, b, _, _) ->
                 go s
                 go e2
                 scoped [ var ] (fun () -> go b)
-            | TExprG.ForIn(p, src, b, _, _) ->
+            | TExprG.ForIn(p, src, b, _, _, _) ->
                 go src
                 scoped (patKeys p) (fun () -> go b)
-            | TExprG.Match(sc, arms, _) ->
+            | TExprG.Match(sc, arms, _, _) ->
                 go sc
 
                 for arm in arms do
@@ -84,7 +84,7 @@ module EmitClosures =
                             arm.Guard |> Option.iter go
                             go arm.Body
                         )
-            | TExprG.TryWith(b, arms, _) ->
+            | TExprG.TryWith(b, arms, _, _) ->
                 go b
 
                 for arm in arms do
@@ -154,7 +154,7 @@ module EmitClosures =
         decls
         |> List.choose (fun d ->
             match d with
-            | TDeclG.Let(TPatG.NamedSimple(k, ty), value, isInline, _) when
+            | TDeclG.Let(TPatG.NamedSimple(k, ty, _), value, isInline, _) when
                 not isInline
                 && (
                     match value with
@@ -297,7 +297,7 @@ module EmitClosures =
 
         for d in decls do
             match d with
-            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) ->
+            | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
                 match peelLambda value with
                 | (_ :: _ as ps), body ->
                     candidates.[k] <- (ps, body)
@@ -314,21 +314,21 @@ module EmitClosures =
 
         let rec walkUses (e: Frozen.TExpr) =
             match e with
-            | TExprG.Var(k, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
+            | TExprG.Var(k, _, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
             | TExprG.App _ ->
                 let head, args = TastWalk.collectSpine [] e
 
                 match head with
-                | TExprG.Var(k, _) when candidates.ContainsKey k ->
+                | TExprG.Var(k, _, _) when candidates.ContainsKey k ->
                     if List.length args < arity k then
                         escapes.Add k |> ignore
 
-                    for (a, _) in args do
+                    for (a, _, _) in args do
                         walkUses a
                 | _ ->
                     walkUses head
 
-                    for (a, _) in args do
+                    for (a, _, _) in args do
                         walkUses a
             | _ -> iterChildren walkUses e
 
@@ -497,7 +497,7 @@ module EmitClosures =
         // class's typars (the leading slots) — `0` for a static-fn closure.
         let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
             (match e with
-             | TExprG.Let(TPatG.NamedSimple(k, _), (TExprG.Lambda _ as v), body, _) ->
+             | TExprG.Let(TPatG.NamedSimple(k, _, _), (TExprG.Lambda _ as v), body, _, _) ->
                  go currentTypars declaringOffset (ValueSome k) v
                  go currentTypars declaringOffset ValueNone body
              | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
@@ -549,21 +549,22 @@ module EmitClosures =
                 order.Add e
 
             match e with
-            | TExprG.Lambda((TPatG.NamedSimple(p, pty) as pat), body, lamTy) -> registerClosure p pty pat body lamTy
-            | TExprG.Lambda((TPatG.Const(TConstValue.Unit, pty) as pat), body, lamTy) ->
+            | TExprG.Lambda((TPatG.NamedSimple(p, pty, _) as pat), body, lamTy, _) ->
+                registerClosure p pty pat body lamTy
+            | TExprG.Lambda((TPatG.Const(TConstValue.Unit, pty, _) as pat), body, lamTy, _) ->
                 // A `fun () ->` unit binder has no name to reference, but the
                 // closure's `Invoke` still allocates `ldarg.1` for the unit
                 // value the caller pushes; mint a synthetic placeholder so the
                 // `args` map (and `freeVars`'s bound set) still has a key.
                 registerClosure (mintUnitParamKey ()) pty pat body lamTy
-            | TExprG.Lambda((TPatG.Tuple(_, pty) as pat), body, lamTy) ->
+            | TExprG.Lambda((TPatG.Tuple(_, pty, _) as pat), body, lamTy, _) ->
                 // A tuple-param lambda (`fun (a, b) -> …`). The single `ldarg.1`
                 // carries the `ValueTuple`n` value; mint a synthetic placeholder
                 // for that slot — `buildClosureInvoke` `bindPattern`s the leaf
                 // element bindings out of it (Step 5). `pty` is the param's
                 // `FTTuple`, which the closure's `Invoke` signature encodes.
                 registerClosure (mintTupleParamKey ()) pty pat body lamTy
-            | TExprG.Lambda(p, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
+            | TExprG.Lambda(p, _, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()
 
         let typarsForStaticFn (k: NodeKey) : int =
@@ -576,10 +577,10 @@ module EmitClosures =
             // A static-method function's lambda is not a closure, but its body
             // may still construct inner closures — walk only the body. The
             // closures inherit the method's typars.
-            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) when staticFnKeys.Contains k ->
+            | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) when staticFnKeys.Contains k ->
                 let _, body = peelLambda value
                 go (typarsForStaticFn k) 0 ValueNone body
-            | TDeclG.Let(TPatG.NamedSimple(k, _), value, _, _) -> go 0 0 (ValueSome k) value
+            | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) -> go 0 0 (ValueSome k) value
             | TDeclG.Let(_, value, _, _) -> go 0 0 ValueNone value
             | TDeclG.Expression(e, _) -> go 0 0 ValueNone e
             | TDeclG.Type _ -> ()

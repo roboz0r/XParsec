@@ -17,7 +17,7 @@ module EmitIntrinsic =
 
     let buildILIntrinsic (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.ILIntrinsic("newarr", operand, args, _) ->
+        | TExprG.ILIntrinsic("newarr", operand, args, _, _) ->
             // `Array.zeroCreate count` — push the count, then `newarr <elem>`.
             // The element type rides `typeOperand` (Freeze recovered it from the
             // result array type).
@@ -27,7 +27,7 @@ module EmitIntrinsic =
             match operand with
             | ValueSome elem -> b.Add(ILInstr.Newarr(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'newarr' without an element type operand"
-        | TExprG.ILIntrinsic("ldelem", operand, args, _) ->
+        | TExprG.ILIntrinsic("ldelem", operand, args, _, _) ->
             // `arr.[i]` — push the array then the index, then `ldelem <elem>`.
             for a in args do
                 recur env b a
@@ -35,7 +35,7 @@ module EmitIntrinsic =
             match operand with
             | ValueSome elem -> b.Add(ILInstr.Ldelem(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'ldelem' without an element type operand"
-        | TExprG.ILIntrinsic("stelem", operand, args, _) ->
+        | TExprG.ILIntrinsic("stelem", operand, args, _, _) ->
             // `arr.[i] <- v` — push the array, the index, then the value, then
             // `stelem <elem>`. The element type rides `typeOperand` (Freeze
             // recovered it from the value operand).
@@ -51,7 +51,7 @@ module EmitIntrinsic =
             // expression (`for`, `()` literal) — a function body that is a bare
             // `arr.[i] <- v` must leave the unit return value for `ret`.
             EmitTypes.buildUnitValue env b
-        | TExprG.ILIntrinsic("ldobj", operand, args, _) ->
+        | TExprG.ILIntrinsic("ldobj", operand, args, _, _) ->
             // `span.[i]` byref-return deref — emit the arg (the `call get_Item`,
             // which leaves a managed pointer `T&` on the stack), then `ldobj <elem>`
             // to load the pointed-to element value (PP2b). The element type rides
@@ -62,7 +62,7 @@ module EmitIntrinsic =
             match operand with
             | ValueSome elem -> b.Add(ILInstr.Ldobj(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'ldobj' without an element type operand"
-        | TExprG.ILIntrinsic("box", operand, args, _) ->
+        | TExprG.ILIntrinsic("box", operand, args, _, _) ->
             // `box value` — push the value, then `box <T>`. The boxed type rides
             // `typeOperand` (Freeze recovered it from the argument's static type).
             // Identical instruction to the value-type `:>`-upcast path above; the
@@ -73,7 +73,7 @@ module EmitIntrinsic =
             match operand with
             | ValueSome elem -> b.Add(ILInstr.Box(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'box' without a type operand"
-        | TExprG.ILIntrinsic("ldlen", _, args, _) ->
+        | TExprG.ILIntrinsic("ldlen", _, args, _, _) ->
             // `arr.Length` — push the array, `ldlen` (native int), then `conv.i4`
             // to narrow to the int32 F# `.Length` returns.
             for a in args do
@@ -81,7 +81,7 @@ module EmitIntrinsic =
 
             b.Add ILInstr.Ldlen
             b.Add(ILInstr.Un ILOpCode.Conv_i4)
-        | TExprG.ILIntrinsic(opCode, _, args, _) ->
+        | TExprG.ILIntrinsic(opCode, _, args, _, _) ->
             // Push each operand, then append the mapped opcode. The dispatch
             // (which opcode for which operator/primitive) lives in the operator
             // `.fs` body this node was lowered from, not here — codegen only
@@ -111,7 +111,7 @@ module EmitIntrinsic =
 
     let buildStaticOptimization (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.StaticOptimization(_, def, _) ->
+        | TExprG.StaticOptimization(_, def, _, _) ->
             // Reaching codegen unresolved means the function was never
             // inline-expanded against a concrete operand type (used as a
             // first-class value, or declared without `inline`). F#'s semantics
@@ -121,7 +121,7 @@ module EmitIntrinsic =
 
     let buildUpcast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Upcast(source, _) ->
+        | TExprG.Upcast(source, _, _) ->
             // `e :> T`: a reference-type source is already usable as its base —
             // the JIT erases the cast, so emit nothing. A value-type source must
             // be boxed to reach `obj` / an interface; a *generic typar* source
@@ -138,7 +138,7 @@ module EmitIntrinsic =
 
     let buildDowncast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Downcast(source, ty) ->
+        | TExprG.Downcast(source, ty, _) ->
             // `e :?> T`: `unbox.any` for a value-type target, `castclass` for a
             // reference-type one. Both throw `InvalidCastException` at runtime on
             // a real mismatch.
@@ -153,7 +153,7 @@ module EmitIntrinsic =
 
     let buildTypeTest (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.TypeTest(source, testTy, _) ->
+        | TExprG.TypeTest(source, testTy, _, _) ->
             // `e :? T` → `isinst T; ldnull; cgt.un` — a non-null `isinst` result
             // (the value really is a `T`) compares greater-than null, yielding 1.
             recur env b source

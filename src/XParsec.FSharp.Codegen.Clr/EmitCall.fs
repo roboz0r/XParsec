@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -38,11 +39,11 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (Frozen.TExpr * FrozenType) list)
+        (args: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         : unit =
         let mutable funcTy = funcTy0
 
-        for (arg, resTy) in args do
+        for (arg, resTy, _) in args do
             match tryInvoke funcTy with
             | ValueSome recipe ->
                 recur env b arg
@@ -56,7 +57,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (Frozen.TExpr * FrozenType) list)
+        (args: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         : unit =
         foldInvokeWith recur env.Provider.TryEmitInvoke "Vesper.Fun" env b funcTy0 args
 
@@ -68,7 +69,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (Frozen.TExpr * FrozenType) list)
+        (args: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         : unit =
         foldInvokeWith recur env.Provider.TryEmitFSharpFuncInvoke "FSharpFunc" env b funcTy0 args
 
@@ -86,7 +87,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (arrTy: FrozenType)
-        (spineArgs: (Frozen.TExpr * FrozenType) list)
+        (spineArgs: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         : bool =
         let elemOf =
             match arrTy with
@@ -98,7 +99,7 @@ module EmitCall =
 
         let rec collect (acc: Frozen.TExpr list) (e: Frozen.TExpr) : Frozen.TExpr list option =
             match e with
-            | TExprG.UnionCons(_, args, _) ->
+            | TExprG.UnionCons(_, args, _, _) ->
                 match EqArray.toList args with
                 | [ x; rest ] -> collect (x :: acc) rest
                 | [] -> Some(List.rev acc)
@@ -106,7 +107,7 @@ module EmitCall =
             | _ -> None
 
         match elemOf, spineArgs with
-        | ValueSome elem, [ (chain, _) ] ->
+        | ValueSome elem, [ (chain, _, _) ] ->
             match collect [] chain with
             | Some elems ->
                 let elemTok = env.Provider.TypeToken elem
@@ -147,7 +148,7 @@ module EmitCall =
         let head, spineArgs = TastWalk.collectSpine [] e
 
         match head with
-        | TExprG.External(name, _, _) when
+        | TExprG.External(name, _, _, _) when
             name = RuntimeNames.arrayOfListName
             && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
             ->
@@ -157,7 +158,7 @@ module EmitCall =
             // only commits when the spine arg is the literal cons-chain FreezeExpr
             // builds; any other shape falls through to the recipe path below.
             ()
-        | TExprG.External(name, key, _) ->
+        | TExprG.External(name, key, _, _) ->
             // The recipe reads its generic instantiation from the head's
             // full curried type (`fnTy`). `key` is the resolved
             // `SymbolKey.ValueKey` stamped by Freeze when the front-end
@@ -167,7 +168,7 @@ module EmitCall =
             | ValueSome recipe ->
                 let leading, rest = List.splitAt recipe.ArgCount spineArgs
 
-                for (a, _) in leading do
+                for (a, _, _) in leading do
                     recur env b a
 
                 b.Add(ILInstr.Recipe recipe)
@@ -176,7 +177,7 @@ module EmitCall =
                 // the rest of the spine is applied to.
                 let funcTy =
                     match List.tryLast leading with
-                    | Some(_, ty) -> ty
+                    | Some(_, ty, _) -> ty
                     | None -> typeOfExpr head
 
                 // The cold printf printer is an FSharp.Core `FSharpFunc`, so it
@@ -188,7 +189,7 @@ module EmitCall =
                     foldInvoke recur env b funcTy rest
             | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
-        | TExprG.Var(k, _) when env.StaticMethods.ContainsKey k ->
+        | TExprG.Var(k, _, _) when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method (P3b): `call`
             // it with the first `Arity` args (always present — a non-saturated
             // use would have escaped to a closure, see `collectStaticFns`),
@@ -202,7 +203,7 @@ module EmitCall =
             // The value→obj box for an `obj` parameter is now an explicit `Upcast`
             // node from Freeze (a top-level `let f (x: obj)` emitted as a static
             // method); push each argument raw.
-            for (a, _) in leading do
+            for (a, _, _) in leading do
                 recur env b a
 
             let callHandle =
@@ -213,7 +214,7 @@ module EmitCall =
                     // the application's *result* type instead), matched against
                     // the declared parameter types to recover the instantiation
                     // (by `FTTypar(Method, i)` index).
-                    let paramActualTys = leading |> List.map (fun (a, _) -> typeOfExpr a)
+                    let paramActualTys = leading |> List.map (fun (a, _, _) -> typeOfExpr a)
 
                     // Parameters alone may not mention every typar — e.g.
                     // `zeroCreate: int -> 'T[]` carries `'T` only in its result.
@@ -232,7 +233,7 @@ module EmitCall =
             b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
             foldInvoke recur env b sm.ResultTy rest
 
-        | TExprG.ExternalMember(receiver, key, name, false, memberTy) ->
+        | TExprG.ExternalMember(receiver, key, name, false, memberTy, _) ->
             // An external instance/static *method* call (P4): push the receiver
             // (instance only) beneath the arguments, then `call` (static) /
             // `callvirt` (instance) the keyed member ref. A .NET method is
@@ -275,7 +276,8 @@ module EmitCall =
             match receiver with
             | ValueSome r when receiverIsStruct ->
                 match r with
-                | TExprG.Var(binding, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
+                | TExprG.Var(binding, _, _) when env.Slots.ContainsKey binding ->
+                    b.Add(ILInstr.Ldloca env.Slots.[binding])
                 | _ ->
                     recur env b r
                     let tmp = b.Local(typeOfExpr r)
@@ -287,14 +289,14 @@ module EmitCall =
             let pushedArgs =
                 match argList with
                 | ValueNone -> 0 // no argument supplied (a 0-param method)
-                | ValueSome(argExpr, _) ->
+                | ValueSome(argExpr, _, _) ->
                     if argCount >= 2 then
                         // A multi-param .NET method is tupled; its arguments are
                         // pushed element-wise. The value→`obj` box for an `obj`
                         // parameter is an explicit `Upcast` node from Freeze (which
                         // wraps the tuple element-wise), so push each element raw.
                         match argExpr with
-                        | TExprG.Tuple(elems, _) when elems.Length = argCount ->
+                        | TExprG.Tuple(elems, _, _) when elems.Length = argCount ->
                             for el in elems do
                                 recur env b el
 
@@ -324,7 +326,7 @@ module EmitCall =
             // result type is the consumed `App` node's type.
             let resultTy =
                 match argList with
-                | ValueSome(_, ty) -> ty
+                | ValueSome(_, ty, _) -> ty
                 | ValueNone -> typeOfExpr head
 
             // An external method whose F# return is `unit` is a .NET **void**

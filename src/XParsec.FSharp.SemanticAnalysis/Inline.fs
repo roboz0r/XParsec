@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Parser
 
 // `let inline` expansion helper. The pre-freeze `Passes.InlineExpansion` pass
 // invokes it once per call site, between `Freeze.elaborate` and the
@@ -185,7 +186,7 @@ module Inline =
             (cl.Constraints |> EqArray.forall holds)
             && (
                 match cl.Body with
-                | TExpr.TraitCall(recvTy, _, _, _) -> isNominalType (sub recvTy)
+                | TExpr.TraitCall(recvTy, _, _, _, _) -> isNominalType (sub recvTy)
                 | _ -> true
             )
 
@@ -208,6 +209,7 @@ module Inline =
             (memberName: string)
             (args: EqArray<TExpr>)
             (ty: SemType)
+            (tok: SyntaxToken)
             : TExpr voption =
             match nominalHeadKey (sub recvTy) with
             | ValueSome k ->
@@ -216,8 +218,9 @@ module Inline =
                 // `op_Addition(Set, Set)` must be two parameters, not one `ValueTuple`.
                 // This dispatch may target an *external* declaring type (an `.fsi`-imported
                 // `Vesper.Set`), which is exactly the case `ofMember`'s `arity` covers.
+                // The rewritten node replaces the `TraitCall`, so it keeps its `tok`.
                 let memberKey = LocalSymbolKey.ofMember k memberName args.Length MemberKind.Method
-                ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty))
+                ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty, tok))
             | ValueNone -> ValueNone
 
         { TastWalk.identityMapper with
@@ -225,8 +228,9 @@ module Inline =
             OverrideExpr =
                 fun m e ->
                     match e with
-                    | TExpr.StaticOptimization(clauses, def, _) -> ValueSome(resolveStaticOpt clauses def)
-                    | TExpr.TraitCall(recvTy, memberName, args, ty) -> resolveTraitCall m recvTy memberName args ty
+                    | TExpr.StaticOptimization(clauses, def, _, _) -> ValueSome(resolveStaticOpt clauses def)
+                    | TExpr.TraitCall(recvTy, memberName, args, ty, tok) ->
+                        resolveTraitCall m recvTy memberName args ty tok
                     | _ -> ValueNone
         }
 
@@ -296,17 +300,24 @@ module Inline =
                 OverridePat =
                     fun _ p ->
                         match p with
-                        | TPat.NamedSimple(k, t) -> ValueSome(TPat.NamedSimple(bind k, t))
+                        | TPat.NamedSimple(k, t, tok) -> ValueSome(TPat.NamedSimple(bind k, t, tok))
                         | _ -> ValueNone
                 OverrideExpr =
                     fun m e ->
                         match e with
-                        | TExpr.Var(k, t) -> ValueSome(TExpr.Var(useKey k, t))
-                        | TExpr.ForTo(var, s, e2, b, t) ->
+                        | TExpr.Var(k, t, tok) -> ValueSome(TExpr.Var(useKey k, t, tok))
+                        | TExpr.ForTo(var, s, e2, b, t, tok) ->
                             let var = bind var
 
                             ValueSome(
-                                TExpr.ForTo(var, TastWalk.mapExpr m s, TastWalk.mapExpr m e2, TastWalk.mapExpr m b, t)
+                                TExpr.ForTo(
+                                    var,
+                                    TastWalk.mapExpr m s,
+                                    TastWalk.mapExpr m e2,
+                                    TastWalk.mapExpr m b,
+                                    t,
+                                    tok
+                                )
                             )
                         | _ -> ValueNone
             }

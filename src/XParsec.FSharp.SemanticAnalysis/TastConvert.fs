@@ -23,15 +23,15 @@ namespace XParsec.FSharp.SemanticAnalysis
 [<RequireQualifiedAccess>]
 module TastConvert =
 
-    let rec pat (f: 'a -> 'b) (p: TPatG<'a>) : TPatG<'b> =
+    let rec pat (f: 'a -> 'b) (p: TPatG<'a, 'tok>) : TPatG<'b, 'tok> =
         match p with
-        | TPatG.NamedSimple(k, ty) -> TPatG.NamedSimple(k, f ty)
-        | TPatG.Wildcard ty -> TPatG.Wildcard(f ty)
-        | TPatG.Const(v, ty) -> TPatG.Const(v, f ty)
-        | TPatG.Tuple(items, ty) -> TPatG.Tuple(EqArray.map (pat f) items, f ty)
-        | TPatG.Record(fields, ty) -> TPatG.Record(EqArray.map (fun (n, sub) -> n, pat f sub) fields, f ty)
-        | TPatG.Union(c, fields, ty) -> TPatG.Union(c, EqArray.map (pat f) fields, f ty)
-        | TPatG.TypeTestAs(testTy, inner, ty) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty)
+        | TPatG.NamedSimple(k, ty, tok) -> TPatG.NamedSimple(k, f ty, tok)
+        | TPatG.Wildcard(ty, tok) -> TPatG.Wildcard(f ty, tok)
+        | TPatG.Const(v, ty, tok) -> TPatG.Const(v, f ty, tok)
+        | TPatG.Tuple(items, ty, tok) -> TPatG.Tuple(EqArray.map (pat f) items, f ty, tok)
+        | TPatG.Record(fields, ty, tok) -> TPatG.Record(EqArray.map (fun (n, sub) -> n, pat f sub) fields, f ty, tok)
+        | TPatG.Union(c, fields, ty, tok) -> TPatG.Union(c, EqArray.map (pat f) fields, f ty, tok)
+        | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty, tok)
 
     let hole (f: 'a -> 'b) (h: HoleSpecG<'a>) : HoleSpecG<'b> =
         {
@@ -49,61 +49,63 @@ module TastConvert =
         | ForInEnumeratorG.Pattern(enumTy, ge, members, isVal, disp) ->
             ForInEnumeratorG.Pattern(f enumTy, ge, members, isVal, disp)
 
-    let rec expr (f: 'a -> 'b) (e: TExprG<'a>) : TExprG<'b> =
+    let rec expr (f: 'a -> 'b) (e: TExprG<'a, 'tok>) : TExprG<'b, 'tok> =
         let pe = expr f
         let pp = pat f
         let pa = arm f
 
         match e with
-        | TExprG.Const(v, ty) -> TExprG.Const(v, f ty)
-        | TExprG.Var(k, ty) -> TExprG.Var(k, f ty)
-        | TExprG.External(n, k, ty) -> TExprG.External(n, k, f ty)
-        | TExprG.Null ty -> TExprG.Null(f ty)
-        | TExprG.Lambda(p, b, ty) -> TExprG.Lambda(pp p, pe b, f ty)
-        | TExprG.App(fn, a, ty) -> TExprG.App(pe fn, pe a, f ty)
-        | TExprG.Let(p, v, body, ty) -> TExprG.Let(pp p, pe v, pe body, f ty)
-        | TExprG.Use(p, v, body, dispose, ty) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty)
-        | TExprG.IfThenElse(c, t, el, ty) -> TExprG.IfThenElse(pe c, pe t, pe el, f ty)
-        | TExprG.Tuple(items, ty) -> TExprG.Tuple(EqArray.map pe items, f ty)
-        | TExprG.Sequential(items, ty) -> TExprG.Sequential(EqArray.map pe items, f ty)
-        | TExprG.While(c, b, ty) -> TExprG.While(pe c, pe b, f ty)
-        | TExprG.ForTo(k, s, e2, b, ty) -> TExprG.ForTo(k, pe s, pe e2, pe b, f ty)
-        | TExprG.ForIn(p, src, b, en, ty) -> TExprG.ForIn(pp p, pe src, pe b, forInEnumerator f en, f ty)
-        | TExprG.Match(sc, arms, ty) -> TExprG.Match(pe sc, EqArray.map pa arms, f ty)
-        | TExprG.TryWith(b, arms, ty) -> TExprG.TryWith(pe b, EqArray.map pa arms, f ty)
-        | TExprG.TryFinally(b, c, ty) -> TExprG.TryFinally(pe b, pe c, f ty)
-        | TExprG.Assignment(l, r, ty) -> TExprG.Assignment(pe l, pe r, f ty)
-        | TExprG.Range(s, step, e2, ty) -> TExprG.Range(pe s, Option.map pe step, pe e2, f ty)
-        | TExprG.RecordCons(fields, ty) -> TExprG.RecordCons(EqArray.map (fun (n, v) -> n, pe v) fields, f ty)
-        | TExprG.RecordClone(src, ov, ty) -> TExprG.RecordClone(pe src, EqArray.map (fun (n, v) -> n, pe v) ov, f ty)
-        | TExprG.FieldGet(r, n, ty) -> TExprG.FieldGet(pe r, n, f ty)
-        | TExprG.FieldSet(r, n, v, ty) -> TExprG.FieldSet(pe r, n, pe v, f ty)
-        | TExprG.UnionCons(c, args, ty) -> TExprG.UnionCons(c, EqArray.map pe args, f ty)
-        | TExprG.New(c, args, ty) -> TExprG.New(c, EqArray.map pe args, f ty)
-        | TExprG.MethodCall(r, k, via, args, ty) -> TExprG.MethodCall(pe r, k, via, EqArray.map pe args, f ty)
-        | TExprG.PropertyGet(r, k, via, ty) -> TExprG.PropertyGet(pe r, k, via, f ty)
-        | TExprG.StaticMethodCall(k, args, ty) -> TExprG.StaticMethodCall(k, EqArray.map pe args, f ty)
-        | TExprG.StaticPropertyGet(k, ty) -> TExprG.StaticPropertyGet(k, f ty)
-        | TExprG.StaticFieldGet(k, n, ty) -> TExprG.StaticFieldGet(k, n, f ty)
-        | TExprG.ExternalMember(r, k, n, isProp, ty) -> TExprG.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty)
-        | TExprG.Format(sink, segs, ty) -> TExprG.Format(sinkOf f sink, EqArray.map (segOf f) segs, f ty)
-        | TExprG.ILIntrinsic(op, operand, args, ty) ->
-            TExprG.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty)
-        | TExprG.StaticOptimization(clauses, def, ty) ->
-            TExprG.StaticOptimization(EqArray.map (clause f) clauses, pe def, f ty)
-        | TExprG.Upcast(src, ty) -> TExprG.Upcast(pe src, f ty)
-        | TExprG.Downcast(src, ty) -> TExprG.Downcast(pe src, f ty)
-        | TExprG.TraitCall(recv, n, args, ty) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty)
-        | TExprG.TypeTest(src, testTy, ty) -> TExprG.TypeTest(pe src, f testTy, f ty)
+        | TExprG.Const(v, ty, tok) -> TExprG.Const(v, f ty, tok)
+        | TExprG.Var(k, ty, tok) -> TExprG.Var(k, f ty, tok)
+        | TExprG.External(n, k, ty, tok) -> TExprG.External(n, k, f ty, tok)
+        | TExprG.Null(ty, tok) -> TExprG.Null(f ty, tok)
+        | TExprG.Lambda(p, b, ty, tok) -> TExprG.Lambda(pp p, pe b, f ty, tok)
+        | TExprG.App(fn, a, ty, tok) -> TExprG.App(pe fn, pe a, f ty, tok)
+        | TExprG.Let(p, v, body, ty, tok) -> TExprG.Let(pp p, pe v, pe body, f ty, tok)
+        | TExprG.Use(p, v, body, dispose, ty, tok) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty, tok)
+        | TExprG.IfThenElse(c, t, el, ty, tok) -> TExprG.IfThenElse(pe c, pe t, pe el, f ty, tok)
+        | TExprG.Tuple(items, ty, tok) -> TExprG.Tuple(EqArray.map pe items, f ty, tok)
+        | TExprG.Sequential(items, ty, tok) -> TExprG.Sequential(EqArray.map pe items, f ty, tok)
+        | TExprG.While(c, b, ty, tok) -> TExprG.While(pe c, pe b, f ty, tok)
+        | TExprG.ForTo(k, s, e2, b, ty, tok) -> TExprG.ForTo(k, pe s, pe e2, pe b, f ty, tok)
+        | TExprG.ForIn(p, src, b, en, ty, tok) -> TExprG.ForIn(pp p, pe src, pe b, forInEnumerator f en, f ty, tok)
+        | TExprG.Match(sc, arms, ty, tok) -> TExprG.Match(pe sc, EqArray.map pa arms, f ty, tok)
+        | TExprG.TryWith(b, arms, ty, tok) -> TExprG.TryWith(pe b, EqArray.map pa arms, f ty, tok)
+        | TExprG.TryFinally(b, c, ty, tok) -> TExprG.TryFinally(pe b, pe c, f ty, tok)
+        | TExprG.Assignment(l, r, ty, tok) -> TExprG.Assignment(pe l, pe r, f ty, tok)
+        | TExprG.Range(s, step, e2, ty, tok) -> TExprG.Range(pe s, Option.map pe step, pe e2, f ty, tok)
+        | TExprG.RecordCons(fields, ty, tok) -> TExprG.RecordCons(EqArray.map (fun (n, v) -> n, pe v) fields, f ty, tok)
+        | TExprG.RecordClone(src, ov, ty, tok) ->
+            TExprG.RecordClone(pe src, EqArray.map (fun (n, v) -> n, pe v) ov, f ty, tok)
+        | TExprG.FieldGet(r, n, ty, tok) -> TExprG.FieldGet(pe r, n, f ty, tok)
+        | TExprG.FieldSet(r, n, v, ty, tok) -> TExprG.FieldSet(pe r, n, pe v, f ty, tok)
+        | TExprG.UnionCons(c, args, ty, tok) -> TExprG.UnionCons(c, EqArray.map pe args, f ty, tok)
+        | TExprG.New(c, args, ty, tok) -> TExprG.New(c, EqArray.map pe args, f ty, tok)
+        | TExprG.MethodCall(r, k, via, args, ty, tok) -> TExprG.MethodCall(pe r, k, via, EqArray.map pe args, f ty, tok)
+        | TExprG.PropertyGet(r, k, via, ty, tok) -> TExprG.PropertyGet(pe r, k, via, f ty, tok)
+        | TExprG.StaticMethodCall(k, args, ty, tok) -> TExprG.StaticMethodCall(k, EqArray.map pe args, f ty, tok)
+        | TExprG.StaticPropertyGet(k, ty, tok) -> TExprG.StaticPropertyGet(k, f ty, tok)
+        | TExprG.StaticFieldGet(k, n, ty, tok) -> TExprG.StaticFieldGet(k, n, f ty, tok)
+        | TExprG.ExternalMember(r, k, n, isProp, ty, tok) ->
+            TExprG.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty, tok)
+        | TExprG.Format(sink, segs, ty, tok) -> TExprG.Format(sinkOf f sink, EqArray.map (segOf f) segs, f ty, tok)
+        | TExprG.ILIntrinsic(op, operand, args, ty, tok) ->
+            TExprG.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty, tok)
+        | TExprG.StaticOptimization(clauses, def, ty, tok) ->
+            TExprG.StaticOptimization(EqArray.map (clause f) clauses, pe def, f ty, tok)
+        | TExprG.Upcast(src, ty, tok) -> TExprG.Upcast(pe src, f ty, tok)
+        | TExprG.Downcast(src, ty, tok) -> TExprG.Downcast(pe src, f ty, tok)
+        | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tok)
+        | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tok)
 
-    and arm (f: 'a -> 'b) (a: TMatchArmG<'a>) : TMatchArmG<'b> =
+    and arm (f: 'a -> 'b) (a: TMatchArmG<'a, 'tok>) : TMatchArmG<'b, 'tok> =
         {
             Pat = pat f a.Pat
             Guard = Option.map (expr f) a.Guard
             Body = expr f a.Body
         }
 
-    and sinkOf (f: 'a -> 'b) (s: FormatSinkG<'a>) : FormatSinkG<'b> =
+    and sinkOf (f: 'a -> 'b) (s: FormatSinkG<'a, 'tok>) : FormatSinkG<'b, 'tok> =
         match s with
         | FormatSinkG.ToStdOut nl -> FormatSinkG.ToStdOut nl
         | FormatSinkG.ToStdErr nl -> FormatSinkG.ToStdErr nl
@@ -111,12 +113,12 @@ module TastConvert =
         | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(expr f w)
         | FormatSinkG.ToString -> FormatSinkG.ToString
 
-    and segOf (f: 'a -> 'b) (seg: FormatSegG<'a>) : FormatSegG<'b> =
+    and segOf (f: 'a -> 'b) (seg: FormatSegG<'a, 'tok>) : FormatSegG<'b, 'tok> =
         match seg with
         | FormatSegG.Lit lit -> FormatSegG.Lit lit
         | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole f h, expr f a)
 
-    and clause (f: 'a -> 'b) (c: TStaticOptClauseG<'a>) : TStaticOptClauseG<'b> =
+    and clause (f: 'a -> 'b) (c: TStaticOptClauseG<'a, 'tok>) : TStaticOptClauseG<'b, 'tok> =
         {
             Constraints = c.Constraints
             Body = expr f c.Body
@@ -135,7 +137,7 @@ module TastConvert =
             IsMutable = fld.IsMutable
         }
 
-    let typeMember (f: 'a -> 'b) (m: TTypeMemberG<'a>) : TTypeMemberG<'b> =
+    let typeMember (f: 'a -> 'b) (m: TTypeMemberG<'a, 'tok>) : TTypeMemberG<'b, 'tok> =
         {
             Name = m.Name
             IsStatic = m.IsStatic
@@ -150,27 +152,27 @@ module TastConvert =
             MethodTypeParams = m.MethodTypeParams
         }
 
-    let staticLet (f: 'a -> 'b) (sl: TStaticLetG<'a>) : TStaticLetG<'b> =
+    let staticLet (f: 'a -> 'b) (sl: TStaticLetG<'a, 'tok>) : TStaticLetG<'b, 'tok> =
         {
             Name = sl.Name
             Type = f sl.Type
             Init = expr f sl.Init
         }
 
-    let ctorLet (f: 'a -> 'b) (cl: TCtorLetG<'a>) : TCtorLetG<'b> =
+    let ctorLet (f: 'a -> 'b) (cl: TCtorLetG<'a, 'tok>) : TCtorLetG<'b, 'tok> =
         {
             Binder = cl.Binder
             Type = f cl.Type
             Init = expr f cl.Init
         }
 
-    let ctorFieldInit (f: 'a -> 'b) (fi: TCtorFieldInitG<'a>) : TCtorFieldInitG<'b> =
+    let ctorFieldInit (f: 'a -> 'b) (fi: TCtorFieldInitG<'a, 'tok>) : TCtorFieldInitG<'b, 'tok> =
         {
             Field = fi.Field
             Init = expr f fi.Init
         }
 
-    let secondaryCtor (f: 'a -> 'b) (sc: TSecondaryCtorG<'a>) : TSecondaryCtorG<'b> =
+    let secondaryCtor (f: 'a -> 'b) (sc: TSecondaryCtorG<'a, 'tok>) : TSecondaryCtorG<'b, 'tok> =
         {
             Params = EqArray.map (fun (k, ty) -> k, f ty) sc.Params
             Lets = EqArray.map (ctorLet f) sc.Lets
@@ -178,7 +180,7 @@ module TastConvert =
             FieldInits = EqArray.map (ctorFieldInit f) sc.FieldInits
         }
 
-    let baseCtorCall (f: 'a -> 'b) (bc: TBaseCtorCallG<'a>) : TBaseCtorCallG<'b> =
+    let baseCtorCall (f: 'a -> 'b) (bc: TBaseCtorCallG<'a, 'tok>) : TBaseCtorCallG<'b, 'tok> =
         {
             CtorParams = EqArray.map (fun (k, ty) -> k, f ty) bc.CtorParams
             Args = EqArray.map (expr f) bc.Args
@@ -191,7 +193,7 @@ module TastConvert =
             Signature = f am.Signature
         }
 
-    let kind (f: 'a -> 'b) (k: TTypeKindG<'a>) : TTypeKindG<'b> =
+    let kind (f: 'a -> 'b) (k: TTypeKindG<'a, 'tok>) : TTypeKindG<'b, 'tok> =
         match k with
         | TTypeKindG.Interface methods -> TTypeKindG.Interface(EqArray.map (abstractMethod f) methods)
         | TTypeKindG.Union(cases, members) ->
@@ -213,7 +215,7 @@ module TastConvert =
                     ValueKind = c.ValueKind
                 }
 
-    let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a>) : TTypeDeclG<'b> =
+    let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a, 'tok>) : TTypeDeclG<'b, 'tok> =
         {
             Name = td.Name
             Key = td.Key
@@ -224,7 +226,7 @@ module TastConvert =
             ComparisonSupport = td.ComparisonSupport
         }
 
-    let decl (f: 'a -> 'b) (d: TDeclG<'a>) : TDeclG<'b> =
+    let decl (f: 'a -> 'b) (d: TDeclG<'a, 'tok>) : TDeclG<'b, 'tok> =
         match d with
         | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f binding, expr f value, isInline, f ty)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f e, f ty)
@@ -233,7 +235,7 @@ module TastConvert =
     /// The whole-file rebuild: `Decls` mapped through `f`, the non-`'ty` snapshot
     /// fields (`Diagnostics` / `IntrinsicReprTypes` / `ModuleMembers` /
     /// `ClosureReprs`) carried over.
-    let file (f: 'a -> 'b) (tf: TastFileG<'a>) : TastFileG<'b> =
+    let file (f: 'a -> 'b) (tf: TastFileG<'a, 'tok>) : TastFileG<'b, 'tok> =
         {
             Decls = EqArray.map (decl f) tf.Decls
             Diagnostics = tf.Diagnostics

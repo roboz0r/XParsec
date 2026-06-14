@@ -66,8 +66,8 @@ let tests =
                 let synthDecls =
                     [
                         TDecl.Let(
-                            TPat.NamedSimple(NodeKey(0UL), freeTy),
-                            TExpr.Const(TConstValue.Unit, freeTy),
+                            TPat.NamedSimple(NodeKey(0UL), freeTy, dummyTok),
+                            TExpr.Const(TConstValue.Unit, freeTy, dummyTok),
                             false,
                             freeTy
                         )
@@ -106,7 +106,7 @@ let tests =
 
                 let idKey =
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(k, _), _, _, _) ] -> k
+                    | EqList [ TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) ] -> k
                     | _ -> failwithf "expected single NamedSimple decl, got %A" tast.Decls
 
                 let scheme = ctx.Bindings.Scheme.TryGetValue idKey
@@ -123,7 +123,12 @@ let tests =
                         Decls =
                             EqArray.ofList
                                 [
-                                    TDecl.Let(TPat.NamedSimple(idKey, ty), TExpr.Const(TConstValue.Unit, ty), false, ty)
+                                    TDecl.Let(
+                                        TPat.NamedSimple(idKey, ty, dummyTok),
+                                        TExpr.Const(TConstValue.Unit, ty, dummyTok),
+                                        false,
+                                        ty
+                                    )
                                 ]
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
@@ -156,7 +161,7 @@ let tests =
                     let tast = Pipeline.analyseSem ExternalSymbols.nullProvider src lexed file
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(_, ty), _, _, _) ] -> ty
+                    | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _), _, _, _) ] -> ty
                     | other -> failwithf "expected a single annotated let, got %A" other
 
                 Expect.equal

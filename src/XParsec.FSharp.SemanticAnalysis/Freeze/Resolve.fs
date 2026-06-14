@@ -176,14 +176,17 @@ module internal FreezeResolve =
         match Unification.zonk paramTy with
         | TyTuple ptys ->
             match arg with
-            | TExpr.Tuple(elems, tupTy) when ptys.Length = elems.Length ->
+            | TExpr.Tuple(elems, tupTy, tupTok) when ptys.Length = elems.Length ->
                 TExpr.Tuple(
                     EqArray.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg ptys.[i] elems.[i] }),
-                    tupTy
+                    tupTy,
+                    tupTok
                 )
             | _ -> arg
         | zParam when UnificationEngine.isObjType zParam && not (isObjTy (TastWalk.exprTy arg)) ->
-            TExpr.Upcast(arg, objTy)
+            // The box wraps an existing argument node; anchor the synthesised
+            // `Upcast` at that argument's own source token.
+            TExpr.Upcast(arg, objTy, TastWalk.exprTok arg)
         | _ -> arg
 
     /// Apply `wrapObjArg` per position over an arity-flattened argument array.
@@ -233,7 +236,7 @@ module internal FreezeResolve =
     /// `obj` slots read off its function-type domain at the call site instead.
     let externalHeadDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
         match fnT with
-        | TExpr.ExternalMember(_, _, _, false, _) -> externalMethodParamTy ctx fnKey
+        | TExpr.ExternalMember(_, _, _, false, _, _) -> externalMethodParamTy ctx fnKey
         | _ -> ValueNone
 
     /// Per-argument parameter SemTypes for a *member* call, flattened to the
@@ -353,21 +356,28 @@ module internal FreezeResolve =
                     paramTys
                     |> List.mapi (fun i pty -> NodeKey.ofSynthetic (key.Offset + i) NodeKind.SynthLambdaBody, pty)
 
+                // Wholly-synthetic eta-expansion: no source token exists for these
+                // spliced nodes, so anchor them at the operator value site's offset
+                // via a virtual token (the analogue of the synthetic `NodeKey`s above).
+                let tok =
+                    SyntaxToken.virtualToken (PositionedToken.Create(Token.VirtualApp, key.Offset))
+
                 let memberKey =
                     LocalSymbolKey.ofMember declKey name (List.length psKeyed) MemberKind.Method
 
                 let body =
                     TExpr.StaticMethodCall(
                         memberKey,
-                        EqArray.ofList [ for (k, pty) in psKeyed -> TExpr.Var(k, pty) ],
-                        retTy
+                        EqArray.ofList [ for (k, pty) in psKeyed -> TExpr.Var(k, pty, tok) ],
+                        retTy,
+                        tok
                     )
 
                 let lam, _ =
                     List.foldBack
                         (fun (k, pty) (inner, innerTy) ->
                             let lamTy = TyFun(pty, innerTy)
-                            TExpr.Lambda(TPat.NamedSimple(k, pty), inner, lamTy), lamTy
+                            TExpr.Lambda(TPat.NamedSimple(k, pty, tok), inner, lamTy, tok), lamTy
                         )
                         psKeyed
                         (body, retTy)
@@ -550,7 +560,7 @@ module internal FreezeResolve =
     /// later optimisation.
     let viaOfReceiver (ctx: PassContext) (receiver: TExpr) : CallVia =
         match receiver with
-        | TExpr.Var(bindingSite, _) ->
+        | TExpr.Var(bindingSite, _, _) ->
             let mutable isBase = false
 
             for kv in ctx.Types.Class do
@@ -570,8 +580,8 @@ module internal FreezeResolve =
     // supply only the resolved callee and the peeled (un-wrapped) arguments.
 
     /// `New` for a project-local class construction.
-    let mkNew (ctx: PassContext) (className: string) (ty: SemType) (args: EqArray<TExpr>) : TExpr =
-        TExpr.New(className, wrapObjArgsEq (ctorParamTys ctx ty args.Length) args, ty)
+    let mkNew (ctx: PassContext) (className: string) (ty: SemType) (args: EqArray<TExpr>) (tok: SyntaxToken) : TExpr =
+        TExpr.New(className, wrapObjArgsEq (ctorParamTys ctx ty args.Length) args, ty, tok)
 
     /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
     /// derived from the receiver.
@@ -582,10 +592,11 @@ module internal FreezeResolve =
         (memberName: string)
         (args: EqArray<TExpr>)
         (ty: SemType)
+        (tok: SyntaxToken)
         : TExpr =
         let key = LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
         let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
-        TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty)
+        TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
 
     /// `StaticMethodCall` resolved to `declKey.memberName`.
     let mkStaticMethodCall
@@ -594,13 +605,20 @@ module internal FreezeResolve =
         (memberName: string)
         (args: EqArray<TExpr>)
         (ty: SemType)
+        (tok: SyntaxToken)
         : TExpr =
         let key = LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
-        TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty)
+        TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty, tok)
 
     /// `UnionCons` for case `caseName` of union `ty`.
-    let mkUnionCons (ctx: PassContext) (caseName: string) (ty: SemType) (args: EqArray<TExpr>) : TExpr =
-        TExpr.UnionCons(caseName, wrapObjArgsEq (unionCaseFieldTys ctx ty caseName) args, ty)
+    let mkUnionCons
+        (ctx: PassContext)
+        (caseName: string)
+        (ty: SemType)
+        (args: EqArray<TExpr>)
+        (tok: SyntaxToken)
+        : TExpr =
+        TExpr.UnionCons(caseName, wrapObjArgsEq (unionCaseFieldTys ctx ty caseName) args, ty, tok)
 
     /// Recover segment `segName`'s declared type from receiver type `recvTy` — a
     /// record field, or a union / class instance-member return type — instantiated
@@ -666,7 +684,14 @@ module internal FreezeResolve =
     /// One `receiver.seg` access node: `PropertyGet` for a class / union member,
     /// `FieldGet` otherwise. `recvTy` is the receiver's (un-zonked) type; `stepTy`
     /// is the segment's already-resolved result type.
-    let fieldStep (ctx: PassContext) (receiver: TExpr) (recvTy: SemType) (segName: string) (stepTy: SemType) : TExpr =
+    let fieldStep
+        (ctx: PassContext)
+        (receiver: TExpr)
+        (recvTy: SemType)
+        (segName: string)
+        (stepTy: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
         let isMember (members: TypeMemberInfo[]) =
             members |> Array.exists (fun m -> m.Name = segName)
 
@@ -675,7 +700,7 @@ module internal FreezeResolve =
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
                 let key = LocalSymbolKey.ofMember clsKey segName 0 MemberKind.Property
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
             | _ ->
                 // An *inherited* member (declared on a base class, e.g. `node.Key`
                 // where `Key` is on the parent `SetTree`): upcast the receiver to the
@@ -692,22 +717,28 @@ module internal FreezeResolve =
                     let key =
                         LocalSymbolKey.ofMember (nominalDeclKey cm.DeclaringTy) segName 0 MemberKind.Property
 
-                    TExpr.PropertyGet(TExpr.Upcast(receiver, cm.DeclaringTy), key, viaOfReceiver ctx receiver, stepTy)
-                | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy)
+                    TExpr.PropertyGet(
+                        TExpr.Upcast(receiver, cm.DeclaringTy, TastWalk.exprTok receiver),
+                        key,
+                        viaOfReceiver ctx receiver,
+                        stepTy,
+                        tok
+                    )
+                | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
         | TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info when isMember info.Members ->
                 let key = LocalSymbolKey.ofMember unionKey segName 0 MemberKind.Property
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy)
-            | _ -> TExpr.FieldGet(receiver, segName, stepTy)
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
+            | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
         // `arr.Length` on an intrinsic rank-1 array desugars to the core
         // `GetArrayLength` inline function (the `ldlen` mnemonic lives in
         // `ops-platform.fs`, spliced here by `InlineExpansion`). `array.Length`
         // parses as a local-headed LongIdent field chain (not `DotLookup`), so this
         // `fieldStep` arm is the one that fires; mirrors the `DotLookup` array guard.
         | TyConst(name, _) when name = RuntimeNames.arrayName 1 && segName = "Length" ->
-            TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(recvTy, stepTy)), receiver, stepTy)
-        | _ -> TExpr.FieldGet(receiver, segName, stepTy)
+            TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)
+        | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its
     /// instance methods. Returns the receiver expr + resolved member name so the

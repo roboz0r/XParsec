@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Parser
+
 // TAST does NOT preserve trivia, parens, or token layout — tooling consumers
 // query the CST for that. TAST exists for consumers that only care about
 // semantics (codegen, target plugins).
@@ -8,7 +10,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // need to re-query the side tables.
 //
 // The TAST term/declaration cluster is parameterized over its type field
-// (`'ty`): `TExprG<'ty>` etc. (no-op parameterization). Today every consumer
+// (`'ty`): `TExprG<'ty, 'tok>` etc. (no-op parameterization). Today every consumer
 // instantiates it at `SemType` through
 // the central aliases at the bottom of this file (`type TExpr = TExprG<SemType>`,
 // …), so this is a pure additive change — the bare names mean exactly what they
@@ -60,28 +62,28 @@ type ParamAttrs =
 /// Keeps the destructuring shape so a downstream consumer can introduce every
 /// bound name without re-walking the CST.
 [<RequireQualifiedAccess>]
-type TPatG<'ty> =
+type TPatG<'ty, 'tok> =
     /// `binding` is the source-position NodeKey of the introducing pattern;
     /// references via `TExpr.Var` use the same key.
-    | NamedSimple of binding: NodeKey * ty: 'ty
+    | NamedSimple of binding: NodeKey * ty: 'ty * tok: 'tok
     /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
-    | Wildcard of ty: 'ty
+    | Wildcard of ty: 'ty * tok: 'tok
     /// `ty` is always a `TyTuple` of the elements' types.
-    | Tuple of items: EqArray<TPatG<'ty>> * ty: 'ty
-    | Const of value: TConstValue * ty: 'ty
+    | Tuple of items: EqArray<TPatG<'ty, 'tok>> * ty: 'ty * tok: 'tok
+    | Const of value: TConstValue * ty: 'ty * tok: 'tok
     /// `ty` is a `TyRecord`. May list a subset of the record's fields; unlisted
     /// fields are simply not bound.
-    | Record of fields: EqArray<string * TPatG<'ty>> * ty: 'ty
+    | Record of fields: EqArray<string * TPatG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `fields` is the per-field sub-pattern list, empty for nullary cases. `ty`
     /// is always a `TyUnion`. The declaring union is recoverable via
     /// `ctx.Types.CtorIndex[caseName]` at consumption time.
-    | Union of caseName: string * fields: EqArray<TPatG<'ty>> * ty: 'ty
+    | Union of caseName: string * fields: EqArray<TPatG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `:? testTy as x` type-test pattern. Refutable: codegen lowers it to an
     /// `isinst testTy` + null check (branch to the next arm on mismatch), then
     /// binds `inner` (the `as`-name, an irrefutable sub-pattern) against the
     /// cast-down value. `ty` is the scrutinee's type (the matched value — `obj`
     /// in practice); `testTy` is the tested-against type the binder sees.
-    | TypeTestAs of testTy: 'ty * inner: TPatG<'ty> * ty: 'ty
+    | TypeTestAs of testTy: 'ty * inner: TPatG<'ty, 'tok> * ty: 'ty * tok: 'tok
 
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
 /// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
@@ -128,20 +130,20 @@ type CallVia =
     | Base
 
 [<RequireQualifiedAccess>]
-type TExprG<'ty> =
-    | Const of value: TConstValue * ty: 'ty
+type TExprG<'ty, 'tok> =
+    | Const of value: TConstValue * ty: 'ty * tok: 'tok
     /// `binding` is the NodeKey of the *binding site*, not the use site.
-    | Var of binding: NodeKey * ty: 'ty
+    | Var of binding: NodeKey * ty: 'ty * tok: 'tok
     /// Symbol resolved through IExternalSymbolProvider. Carries the compiled
     /// name so target plugins can dispatch (`op_Addition` -> CIL `add` on
     /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
     /// `key` interns the resolved `SymbolKey` so codegen reads the binding off the
     /// node instead of re-resolving by name;
     /// `ValueNone` until Freeze stamps it (P3) — every site is name-only today.
-    | External of compiledName: string * key: SymbolKey voption * ty: 'ty
-    | Lambda of param: TPatG<'ty> * body: TExprG<'ty> * ty: 'ty
-    | App of fn: TExprG<'ty> * arg: TExprG<'ty> * ty: 'ty
-    | Let of binding: TPatG<'ty> * value: TExprG<'ty> * body: TExprG<'ty> * ty: 'ty
+    | External of compiledName: string * key: SymbolKey voption * ty: 'ty * tok: 'tok
+    | Lambda of param: TPatG<'ty, 'tok> * body: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
+    | App of fn: TExprG<'ty, 'tok> * arg: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
+    | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * body: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `use x = value in body` (B-5). Same shape as `Let`; the distinction is that
     /// codegen wraps `body` in a `try … finally x.Dispose()` exception region so
     /// `x` is disposed on every exit. `ty` is the body's type — the expression's
@@ -151,17 +153,34 @@ type TExprG<'ty> =
     /// disposes an *external* (BCL) binder through the keyed `Dispose` member that
     /// the front-end resolved (its declared `Dispose`, or `System.IDisposable`'s
     /// when the type implements it), emitted as an `ExternalMemberRef` `callvirt`.
-    | Use of binding: TPatG<'ty> * value: TExprG<'ty> * body: TExprG<'ty> * dispose: SymbolKey voption * ty: 'ty
-    | IfThenElse of cond: TExprG<'ty> * thenExpr: TExprG<'ty> * elseExpr: TExprG<'ty> * ty: 'ty
+    | Use of
+        binding: TPatG<'ty, 'tok> *
+        value: TExprG<'ty, 'tok> *
+        body: TExprG<'ty, 'tok> *
+        dispose: SymbolKey voption *
+        ty: 'ty *
+        tok: 'tok
+    | IfThenElse of
+        cond: TExprG<'ty, 'tok> *
+        thenExpr: TExprG<'ty, 'tok> *
+        elseExpr: TExprG<'ty, 'tok> *
+        ty: 'ty *
+        tok: 'tok
     /// `ty` is always a TyTuple of the elements' inferred types.
-    | Tuple of items: EqArray<TExprG<'ty>> * ty: 'ty
+    | Tuple of items: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// All items but the last must have unit type; `ty` is the last item's type.
-    | Sequential of items: EqArray<TExprG<'ty>> * ty: 'ty
+    | Sequential of items: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `ty` is always unit; cond : bool, body : unit.
-    | While of cond: TExprG<'ty> * body: TExprG<'ty> * ty: 'ty
+    | While of cond: TExprG<'ty, 'tok> * body: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `ty` is always unit; the loop variable is bound to `var` with type int.
     /// `startExpr`, `endExpr`, `body` are int, int, unit respectively.
-    | ForTo of var: NodeKey * startExpr: TExprG<'ty> * endExpr: TExprG<'ty> * body: TExprG<'ty> * ty: 'ty
+    | ForTo of
+        var: NodeKey *
+        startExpr: TExprG<'ty, 'tok> *
+        endExpr: TExprG<'ty, 'tok> *
+        body: TExprG<'ty, 'tok> *
+        ty: 'ty *
+        tok: 'tok
     /// `ty` is always unit. `pat`'s type matches the element type of `source`
     /// — pinned to `int` for range sources, left as a free TypeVar otherwise.
     /// `body` types as unit. `enumerator` records how the source yields its
@@ -169,63 +188,80 @@ type TExprG<'ty> =
     /// `IEnumerable<'T>` interface slots (§4.2, the range form too); `Pattern`
     /// carries a pattern-based struct/class `GetEnumerator()` (§4.4 / Gap 2-3).
     /// Codegen can't re-derive this from the element type.
-    | ForIn of pat: TPatG<'ty> * source: TExprG<'ty> * body: TExprG<'ty> * enumerator: ForInEnumeratorG<'ty> * ty: 'ty
+    | ForIn of
+        pat: TPatG<'ty, 'tok> *
+        source: TExprG<'ty, 'tok> *
+        body: TExprG<'ty, 'tok> *
+        enumerator: ForInEnumeratorG<'ty> *
+        ty: 'ty *
+        tok: 'tok
     /// `scrutinee` and each `arms.[i].Pat` share the same type; every
     /// `arms.[i].Body` shares `ty`. `function` desugars to a Match over a
     /// synthetic parameter — same TExpr shape.
-    | Match of scrutinee: TExprG<'ty> * arms: EqArray<TMatchArmG<'ty>> * ty: 'ty
+    | Match of scrutinee: TExprG<'ty, 'tok> * arms: EqArray<TMatchArmG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `try body with | pat -> arm`. `body` and every `arms.[i].Body`
     /// share `ty`; arm patterns currently bind against a fresh TypeVar
     /// (no `exn` type yet).
-    | TryWith of body: TExprG<'ty> * arms: EqArray<TMatchArmG<'ty>> * ty: 'ty
+    | TryWith of body: TExprG<'ty, 'tok> * arms: EqArray<TMatchArmG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `try body finally cleanup`. `body` carries `ty`; `cleanup` is unit.
-    | TryFinally of body: TExprG<'ty> * cleanup: TExprG<'ty> * ty: 'ty
+    | TryFinally of body: TExprG<'ty, 'tok> * cleanup: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `lhs <- rhs`. Always types as unit.
-    | Assignment of lhs: TExprG<'ty> * rhs: TExprG<'ty> * ty: 'ty
+    | Assignment of lhs: TExprG<'ty, 'tok> * rhs: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `null` literal. `ty` is left as a free TypeVar in the tiny subset —
     /// real F# would constrain it to a reference type.
-    | Null of ty: 'ty
+    | Null of ty: 'ty * tok: 'tok
     /// `start..stop` or `start..step..stop`. Endpoints (and step) all type
     /// as int in the tiny subset; `ty` is `seq<int>` (a TyConst placeholder
     /// — see [[BuiltinTypes.tySeqInt]]).
-    | Range of startExpr: TExprG<'ty> * step: TExprG<'ty> option * stopExpr: TExprG<'ty> * ty: 'ty
+    | Range of
+        startExpr: TExprG<'ty, 'tok> *
+        step: TExprG<'ty, 'tok> option *
+        stopExpr: TExprG<'ty, 'tok> *
+        ty: 'ty *
+        tok: 'tok
     /// `{ X = e1; Y = e2 }` record literal. `ty` is a `TyRecord`; field
     /// list is in source order (the unification pass already validated
     /// that the field set matches the record's declared set).
-    | RecordCons of fields: EqArray<string * TExprG<'ty>> * ty: 'ty
+    | RecordCons of fields: EqArray<string * TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `{ r with X = v; … }`. `source` types as the same `TyRecord` as
     /// `ty`; `overrides` is the source-order list of `(name, replacement)`
     /// for the listed fields. Unlisted fields are copied from `source` at
     /// the runtime level — not represented in the TAST.
-    | RecordClone of source: TExprG<'ty> * overrides: EqArray<string * TExprG<'ty>> * ty: 'ty
+    | RecordClone of source: TExprG<'ty, 'tok> * overrides: EqArray<string * TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// `r.X` — `ty` is the field's declared type. `receiver` types as a
     /// `TyRecord`.
-    | FieldGet of receiver: TExprG<'ty> * fieldName: string * ty: 'ty
+    | FieldGet of receiver: TExprG<'ty, 'tok> * fieldName: string * ty: 'ty * tok: 'tok
     /// `r.X <- v` — `ty` is unit. `receiver` types as a `TyRecord` whose
     /// field `fieldName` is mutable (Validation enforces).
-    | FieldSet of receiver: TExprG<'ty> * fieldName: string * value: TExprG<'ty> * ty: 'ty
+    | FieldSet of receiver: TExprG<'ty, 'tok> * fieldName: string * value: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// Discriminated-union constructor application. `args` length matches
     /// the ctor's declared arity (0 for nullary). `ty` is a `TyUnion`.
     /// Nullary ctors (`Point`) and applied ctors (`Circle 1.0`,
     /// `Rectangle(2.0, 3.0)`) both fold to this node — the latter peels
     /// the `Expr.App` chain in Freeze.
-    | UnionCons of caseName: string * args: EqArray<TExprG<'ty>> * ty: 'ty
+    | UnionCons of caseName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// Class primary-constructor invocation. `args` is the per-parameter
     /// list — the parser's tuple wrapper (`new Point(3, 4)` parses with
     /// a `Tuple` arg) is peeled in Freeze so consumers see the ctor's
     /// declared arity directly. `ty` is a `TyClass`.
-    | New of className: string * args: EqArray<TExprG<'ty>> * ty: 'ty
+    | New of className: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// Instance method invocation: `r.M(args)`. `args` is the
     /// per-parameter list (peeled the same way as `New`). `ty` is the
     /// method's declared return type. `key` is the resolved local
     /// `SymbolKey.MemberKey` (declaring type + member name) — codegen reads the declaring type off `key.decl` and the member
     /// name off `key.memberName` instead of re-deriving from a class-name string.
-    | MethodCall of receiver: TExprG<'ty> * key: SymbolKey * via: CallVia * args: EqArray<TExprG<'ty>> * ty: 'ty
-    | PropertyGet of receiver: TExprG<'ty> * key: SymbolKey * via: CallVia * ty: 'ty
+    | MethodCall of
+        receiver: TExprG<'ty, 'tok> *
+        key: SymbolKey *
+        via: CallVia *
+        args: EqArray<TExprG<'ty, 'tok>> *
+        ty: 'ty *
+        tok: 'tok
+    | PropertyGet of receiver: TExprG<'ty, 'tok> * key: SymbolKey * via: CallVia * ty: 'ty * tok: 'tok
     /// Same arg-peeling as `MethodCall`; no receiver. `key` is the resolved local
     /// `SymbolKey.MemberKey`.
-    | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty>> * ty: 'ty
-    | StaticPropertyGet of key: SymbolKey * ty: 'ty
+    | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
+    | StaticPropertyGet of key: SymbolKey * ty: 'ty * tok: 'tok
     /// Read of a class-level `static let` backing field (B-10). Lowered from a `static let`-bound name reference in a member
     /// body (Freeze rewrites the resolved `Var` exactly as a primary-ctor param
     /// becomes a `FieldGet`). Codegen emits `ldsfld` against the class's private
@@ -234,7 +270,7 @@ type TExprG<'ty> =
     /// is the declaring class's `SymbolKey.TypeKey` (NOT a `MemberKey` — a backing
     /// field is a field, resolved through the class's `StaticFields`, and
     /// `MemberKind` has no `Field` case).
-    | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: 'ty
+    | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: 'ty * tok: 'tok
     /// Member access on an *external* type resolved through `IExternalSymbolProvider`
     /// `key` interns the resolved `SymbolKey` so
     /// codegen (P4) mints the ref off the node's identity instead of re-resolving by
@@ -244,7 +280,13 @@ type TExprG<'ty> =
     /// distinguishes a property get from a method value/group. `ty` is the access's
     /// result type — the property's type, or the method's *curried* function type
     /// (a `… GetHashCode 5` lands as `App(ExternalMember(…, ty = int -> int), 5)`).
-    | ExternalMember of receiver: TExprG<'ty> voption * key: SymbolKey * memberName: string * isProperty: bool * ty: 'ty
+    | ExternalMember of
+        receiver: TExprG<'ty, 'tok> voption *
+        key: SymbolKey *
+        memberName: string *
+        isProperty: bool *
+        ty: 'ty *
+        tok: 'tok
     /// Lowered printf / string-interpolation (vesper-printf-plan P1, D9):
     /// `segments` is the interleaved literal / hole sequence in source order,
     /// each hole carrying its argument expression inline (codegen folds left to
@@ -252,7 +294,7 @@ type TExprG<'ty> =
     /// the format literal rewrites the call's arity/arg-types, so the node carries
     /// printf semantics a generic call node cannot. `ty` is the call's result
     /// (`unit` for `printf`/`printfn`, `string` for `sprintf`).
-    | Format of sink: FormatSinkG<'ty> * segments: EqArray<FormatSegG<'ty>> * ty: 'ty
+    | Format of sink: FormatSinkG<'ty, 'tok> * segments: EqArray<FormatSegG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// Value-level inline IL: `(# "opcode" args : retTy #)`. `opCode` is the
     /// stitched instruction mnemonic (e.g. `"ceq"`, `"add"`), `args` the operand
     /// expressions in source order, `ty` the declared result type. Codegen emits
@@ -268,7 +310,7 @@ type TExprG<'ty> =
     /// array forms are synthesised by Freeze from `arr.[i]` / `Array.zeroCreate`
     /// rather than written as `(# … #)` in source — F# treats array access as an
     /// IL intrinsic, so codegen owns one emission path for all three.
-    | ILIntrinsic of opCode: string * typeOperand: 'ty voption * args: EqArray<TExprG<'ty>> * ty: 'ty
+    | ILIntrinsic of opCode: string * typeOperand: 'ty voption * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// F# library-only static optimization: a default expression plus a list of
     /// type-specialized clauses (`expr when ^T : int = … when ^T : ^T = …`).
     /// `clauses` are in source order; at `let inline` expansion the first clause
@@ -278,20 +320,24 @@ type TExprG<'ty> =
     /// **not** emit this node directly — `Inline.inlineExpand` resolves it to the
     /// chosen branch once the call site pins the operand type (prereq 3). See
     /// docs/operators-plan.md.
-    | StaticOptimization of clauses: EqArray<TStaticOptClauseG<'ty>> * defaultExpr: TExprG<'ty> * ty: 'ty
+    | StaticOptimization of
+        clauses: EqArray<TStaticOptClauseG<'ty, 'tok>> *
+        defaultExpr: TExprG<'ty, 'tok> *
+        ty: 'ty *
+        tok: 'tok
     /// `e :> T` static upcast (inheritance-plan §`:>`). `source`'s runtime type
     /// is a subtype of `ty` (validated by Unification's `subsumes`). Codegen
     /// erases it for ref types (the JIT treats a derived reference as the base)
     /// and emits `box` for a value-type source.
-    | Upcast of source: TExprG<'ty> * ty: 'ty
+    | Upcast of source: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `e :?> T` checked downcast. `ty` is the (more-specific) target type;
     /// codegen emits `castclass` for ref types / `unbox.any` for value types,
     /// so a runtime mismatch throws `InvalidCastException`.
-    | Downcast of source: TExprG<'ty> * ty: 'ty
+    | Downcast of source: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `e :? T` type test. `testTy` is the tested-against type `T` (the
     /// `isinst` operand); `ty` is always `TyConst "bool"` (the result). Codegen
     /// emits `isinst <testTy>; ldnull; cgt.un`.
-    | TypeTest of source: TExprG<'ty> * testTy: 'ty * ty: 'ty
+    | TypeTest of source: TExprG<'ty, 'tok> * testTy: 'ty * ty: 'ty * tok: 'tok
     /// SRTP member-trait call, the lowering of a `let inline` operator body's
     /// `when ^T : ^T = ((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` static-opt
     /// clause (`ops-platform.fs`). `receiver` is the trait typar's type (`^T`);
@@ -302,36 +348,36 @@ type TExprG<'ty> =
     /// (the F# "^T is a nominal type" static-optimization condition). It is therefore
     /// resolved — or its clause discarded by static-opt selection — during
     /// `InlineExpansion` and never reaches codegen. See docs/operators-plan.md.
-    | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty>> * ty: 'ty
+    | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
 
-and TMatchArmG<'ty> =
+and TMatchArmG<'ty, 'tok> =
     {
-        Pat: TPatG<'ty>
-        Guard: TExprG<'ty> option
-        Body: TExprG<'ty>
+        Pat: TPatG<'ty, 'tok>
+        Guard: TExprG<'ty, 'tok> option
+        Body: TExprG<'ty, 'tok>
     }
 
 /// Kept abstract from CLR specifics so an alternate target (JS → template
 /// literal) maps it independently. `ToWriter`/`ToBuilder` carry the explicit
 /// sink expression (`fprintf` / `bprintf`); P1 produces only the first three.
-and [<RequireQualifiedAccess>] FormatSinkG<'ty> =
+and [<RequireQualifiedAccess>] FormatSinkG<'ty, 'tok> =
     | ToStdOut of newline: bool
     | ToStdErr of newline: bool
-    | ToWriter of TExprG<'ty>
-    | ToBuilder of TExprG<'ty>
+    | ToWriter of TExprG<'ty, 'tok>
+    | ToBuilder of TExprG<'ty, 'tok>
     | ToString
 
-and [<RequireQualifiedAccess>] FormatSegG<'ty> =
+and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     | Lit of string
-    | Hole of HoleSpecG<'ty> * TExprG<'ty>
+    | Hole of HoleSpecG<'ty> * TExprG<'ty, 'tok>
 
 /// One clause of a `TExpr.StaticOptimization`. `Constraints` is the `and`-joined
 /// list (all must hold; declared in `SemanticInfo.fs` so the side table can carry
 /// it); `Body` is the clause's optimized expression.
-and TStaticOptClauseG<'ty> =
+and TStaticOptClauseG<'ty, 'tok> =
     {
         Constraints: EqArray<TStaticOptConstraint>
-        Body: TExprG<'ty>
+        Body: TExprG<'ty, 'tok>
     }
 
 /// Whether a class declaration emits as a reference type, a `[<Struct>]` value
@@ -347,17 +393,17 @@ type ClassValueKind =
     | RefStruct
 
 [<RequireQualifiedAccess>]
-type TDeclG<'ty> =
+type TDeclG<'ty, 'tok> =
     /// The `value` body is retained verbatim regardless; when `isInline` is set
     /// the flag tells codegen it may expand the body per call site (via
     /// `Inline.inlineExpand`) rather than emit a single callable. See
     /// [front-end-gaps-plan](docs/front-end-gaps-plan.md) §C.
-    | Let of binding: TPatG<'ty> * value: TExprG<'ty> * isInline: bool * ty: 'ty
-    | Expression of expr: TExprG<'ty> * ty: 'ty
+    | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * isInline: bool * ty: 'ty
+    | Expression of expr: TExprG<'ty, 'tok> * ty: 'ty
     /// Emits only the interface shape; records / unions / classes came later.
-    | Type of TTypeDeclG<'ty>
+    | Type of TTypeDeclG<'ty, 'tok>
 
-and TTypeDeclG<'ty> =
+and TTypeDeclG<'ty, 'tok> =
     {
         /// Simple (unqualified) type name, e.g. `"Fun"`. The metadata name gets
         /// the arity suffix (`` Fun`2 ``) from `TypeParams.Length`.
@@ -372,7 +418,7 @@ and TTypeDeclG<'ty> =
         Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
         TypeParams: EqArray<string>
-        Kind: TTypeKindG<'ty>
+        Kind: TTypeKindG<'ty, 'tok>
         /// Equality posture for this type (records / unions / interfaces).
         /// Defaults to `Structural` — interfaces ignore it (no triple is ever
         /// synthesised), records / unions consume it in the codegen loops.
@@ -387,18 +433,18 @@ and TTypeDeclG<'ty> =
         ComparisonSupport: ComparisonVerdict
     }
 
-and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
+and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// A nominal type whose members are all abstract and which has no base type /
     /// field.
     | Interface of methods: EqArray<TAbstractMethodG<'ty>>
     /// `cases` in declaration order (the index is the runtime tag), plus any
     /// augmentation members (`with member …` / `static member …`).
-    | Union of cases: EqArray<TUnionCaseG<'ty>> * members: EqArray<TTypeMemberG<'ty>>
+    | Union of cases: EqArray<TUnionCaseG<'ty>> * members: EqArray<TTypeMemberG<'ty, 'tok>>
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
     /// (`with member …` / `static member …`) — empty for v1, where records carry
     /// only their field shape.
-    | Record of fields: EqArray<TRecordFieldG<'ty>> * members: EqArray<TTypeMemberG<'ty>>
+    | Record of fields: EqArray<TRecordFieldG<'ty>> * members: EqArray<TTypeMemberG<'ty, 'tok>>
     /// Class type emission (B-1).
     /// `fields` are mutable instance fields — empty in B-1 (the classes-plan v1
     /// cut); `ctorParams` borrows the `TRecordField` shape for the primary
@@ -439,21 +485,21 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
     /// (the explicit `val [mutable] x: T` instance fields) are populated for both
     /// structs and classes that declare them — each emits a `FieldDefinition` and
     /// a mutable one admits `this.x <- …`.
-    | Class of TClassG<'ty>
+    | Class of TClassG<'ty, 'tok>
 
 /// The payload of `TTypeKindG.Class` (B-1), lifted out of an 11-wide positional
 /// tuple into a named record. See the `Class` case doc for per-field semantics.
-and TClassG<'ty> =
+and TClassG<'ty, 'tok> =
     {
         Fields: EqArray<TRecordFieldG<'ty>>
         CtorParams: EqArray<TRecordFieldG<'ty>>
-        Members: EqArray<TTypeMemberG<'ty>>
+        Members: EqArray<TTypeMemberG<'ty, 'tok>>
         BaseType: 'ty voption
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty>>>
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
         IsSealed: bool
-        StaticLets: EqArray<TStaticLetG<'ty>>
-        SecondaryCtors: EqArray<TSecondaryCtorG<'ty>>
-        BaseCtorCall: TBaseCtorCallG<'ty> voption
+        StaticLets: EqArray<TStaticLetG<'ty, 'tok>>
+        SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'tok>>
+        BaseCtorCall: TBaseCtorCallG<'ty, 'tok> voption
         ValueKind: ClassValueKind
     }
 
@@ -489,7 +535,7 @@ and [<RequireQualifiedAccess>] TMemberKind =
 
 /// An instance member's body sees `this` (its `ThisKey`, resolved to `ldarg.0`)
 /// and its parameters; a static member's body sees only its parameters.
-and TTypeMemberG<'ty> =
+and TTypeMemberG<'ty, 'tok> =
     {
         Name: string
         IsStatic: bool
@@ -519,7 +565,7 @@ and TTypeMemberG<'ty> =
         /// Parameter binders in declaration order (each `ldarg` after `this` for
         /// an instance method); empty for a property or a nullary method.
         Params: EqArray<NodeKey * 'ty>
-        Body: TExprG<'ty>
+        Body: TExprG<'ty, 'tok>
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`, B-12) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
@@ -541,11 +587,11 @@ and TTypeMemberG<'ty> =
 /// class the field rides the open `TypeDefinition` (one per closed instantiation,
 /// `.cctor`-initialised) and the read/store mint a `MemberRef` on the self-
 /// `TypeSpec` at the declaring typars (G13).
-and TStaticLetG<'ty> =
+and TStaticLetG<'ty, 'tok> =
     {
         Name: string
         Type: 'ty
-        Init: TExprG<'ty>
+        Init: TExprG<'ty, 'tok>
     }
 
 /// One `let`-preamble binding inside a secondary constructor body
@@ -553,11 +599,11 @@ and TStaticLetG<'ty> =
 /// `NodeKey` (codegen allocates a local slot and a body reference to the name
 /// loads it); `Init` is the right-hand side. Only simple (single-name) binders
 /// are modelled in v1.
-and TCtorLetG<'ty> =
+and TCtorLetG<'ty, 'tok> =
     {
         Binder: NodeKey
         Type: 'ty
-        Init: TExprG<'ty>
+        Init: TExprG<'ty, 'tok>
     }
 
 /// One `field = expr` initialiser of a secondary constructor's explicit
@@ -566,7 +612,11 @@ and TCtorLetG<'ty> =
 /// `val` or a primary-ctor backing field); `Init` is the value stored into it
 /// (`ldarg.0; <Init>; stfld Field`). Used only when a secondary ctor takes the
 /// explicit-init form instead of chaining to the primary ctor.
-and TCtorFieldInitG<'ty> = { Field: string; Init: TExprG<'ty> }
+and TCtorFieldInitG<'ty, 'tok> =
+    {
+        Field: string
+        Init: TExprG<'ty, 'tok>
+    }
 
 /// A secondary constructor (B-11). Codegen emits a
 /// `.ctor` overload: `Params` are the overload's parameters (`ldarg` after
@@ -582,12 +632,12 @@ and TCtorFieldInitG<'ty> = { Field: string; Init: TExprG<'ty> }
 ///   declared field (`ldarg.0; <Init>; stfld f`). No primary chain — the fields
 ///   not listed are left default-initialised. `this`'s storage is the freshly
 ///   allocated (zeroed) instance, so `Init` may reference ctor params and lets.
-and TSecondaryCtorG<'ty> =
+and TSecondaryCtorG<'ty, 'tok> =
     {
         Params: EqArray<NodeKey * 'ty>
-        Lets: EqArray<TCtorLetG<'ty>>
-        PrimaryArgs: EqArray<TExprG<'ty>>
-        FieldInits: EqArray<TCtorFieldInitG<'ty>>
+        Lets: EqArray<TCtorLetG<'ty, 'tok>>
+        PrimaryArgs: EqArray<TExprG<'ty, 'tok>>
+        FieldInits: EqArray<TCtorFieldInitG<'ty, 'tok>>
     }
 
 /// An `inherit Base(args)` base-constructor invocation (B-4 Step 2.5). Codegen wires the primary `.ctor` to chain to the
@@ -597,10 +647,10 @@ and TSecondaryCtorG<'ty> =
 /// `this` isn't constructed yet, so an arg can only name a primary-ctor param or
 /// a `static let`). The parent type itself rides the `Class` kind's `baseType`
 /// slot, which also supplies the IL `TypeDefinition.BaseType`.
-and TBaseCtorCallG<'ty> =
+and TBaseCtorCallG<'ty, 'tok> =
     {
         CtorParams: EqArray<NodeKey * 'ty>
-        Args: EqArray<TExprG<'ty>>
+        Args: EqArray<TExprG<'ty, 'tok>>
     }
 
 /// `Signature` is the curried function type; a type parameter of the *declaring
@@ -619,12 +669,14 @@ and TAbstractMethodG<'ty> =
         Signature: 'ty
     }
 
-type TastFileG<'ty> =
+type TastFileG<'ty, 'tok> =
     {
         /// Source order.
-        Decls: EqArray<TDeclG<'ty>>
+        Decls: EqArray<TDeclG<'ty, 'tok>>
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
-        Diagnostics: Diagnostic list
+        // Qualified: this file `open`s `XParsec.FSharp.Parser`, which also declares a
+        // `Diagnostic`; the bare name would bind to the parser's, mistyping the field.
+        Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         /// Vesper type name → target IL representation string (e.g. `"int"` →
         /// `"System.Int32"`), from this file's `type x = (# "..." #)` intrinsic
         /// abbrevs. A use site resolves to `TyConst name`; the backend keys the
@@ -656,26 +708,26 @@ type TastFileG<'ty> =
 // -> TExprG<FrozenType>`) without re-touching every annotation here.
 // ---------------------------------------------------------------------------
 
-type TPat = TPatG<SemType>
+type TPat = TPatG<SemType, SyntaxToken>
 type HoleSpec = HoleSpecG<SemType>
-type TExpr = TExprG<SemType>
-type TMatchArm = TMatchArmG<SemType>
-type FormatSink = FormatSinkG<SemType>
-type FormatSeg = FormatSegG<SemType>
-type TStaticOptClause = TStaticOptClauseG<SemType>
-type TDecl = TDeclG<SemType>
-type TTypeDecl = TTypeDeclG<SemType>
-type TTypeKind = TTypeKindG<SemType>
+type TExpr = TExprG<SemType, SyntaxToken>
+type TMatchArm = TMatchArmG<SemType, SyntaxToken>
+type FormatSink = FormatSinkG<SemType, SyntaxToken>
+type FormatSeg = FormatSegG<SemType, SyntaxToken>
+type TStaticOptClause = TStaticOptClauseG<SemType, SyntaxToken>
+type TDecl = TDeclG<SemType, SyntaxToken>
+type TTypeDecl = TTypeDeclG<SemType, SyntaxToken>
+type TTypeKind = TTypeKindG<SemType, SyntaxToken>
 type TUnionCase = TUnionCaseG<SemType>
 type TRecordField = TRecordFieldG<SemType>
-type TTypeMember = TTypeMemberG<SemType>
-type TStaticLet = TStaticLetG<SemType>
-type TCtorLet = TCtorLetG<SemType>
-type TCtorFieldInit = TCtorFieldInitG<SemType>
-type TSecondaryCtor = TSecondaryCtorG<SemType>
-type TBaseCtorCall = TBaseCtorCallG<SemType>
+type TTypeMember = TTypeMemberG<SemType, SyntaxToken>
+type TStaticLet = TStaticLetG<SemType, SyntaxToken>
+type TCtorLet = TCtorLetG<SemType, SyntaxToken>
+type TCtorFieldInit = TCtorFieldInitG<SemType, SyntaxToken>
+type TSecondaryCtor = TSecondaryCtorG<SemType, SyntaxToken>
+type TBaseCtorCall = TBaseCtorCallG<SemType, SyntaxToken>
 type TAbstractMethod = TAbstractMethodG<SemType>
-type TastFile = TastFileG<SemType>
+type TastFile = TastFileG<SemType, SyntaxToken>
 
 // ---------------------------------------------------------------------------
 // Parallel frozen aliases. The `SemType → FrozenType`
@@ -686,24 +738,24 @@ type TastFile = TastFileG<SemType>
 // ---------------------------------------------------------------------------
 
 module Frozen =
-    type TPat = TPatG<FrozenType>
+    type TPat = TPatG<FrozenType, SyntaxToken>
     type HoleSpec = HoleSpecG<FrozenType>
-    type TExpr = TExprG<FrozenType>
-    type TMatchArm = TMatchArmG<FrozenType>
-    type FormatSink = FormatSinkG<FrozenType>
-    type FormatSeg = FormatSegG<FrozenType>
-    type TStaticOptClause = TStaticOptClauseG<FrozenType>
-    type TDecl = TDeclG<FrozenType>
-    type TTypeDecl = TTypeDeclG<FrozenType>
-    type TTypeKind = TTypeKindG<FrozenType>
+    type TExpr = TExprG<FrozenType, SyntaxToken>
+    type TMatchArm = TMatchArmG<FrozenType, SyntaxToken>
+    type FormatSink = FormatSinkG<FrozenType, SyntaxToken>
+    type FormatSeg = FormatSegG<FrozenType, SyntaxToken>
+    type TStaticOptClause = TStaticOptClauseG<FrozenType, SyntaxToken>
+    type TDecl = TDeclG<FrozenType, SyntaxToken>
+    type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken>
+    type TTypeKind = TTypeKindG<FrozenType, SyntaxToken>
     type TUnionCase = TUnionCaseG<FrozenType>
     type TRecordField = TRecordFieldG<FrozenType>
-    type TTypeMember = TTypeMemberG<FrozenType>
-    type TStaticLet = TStaticLetG<FrozenType>
-    type TCtorLet = TCtorLetG<FrozenType>
-    type TCtorFieldInit = TCtorFieldInitG<FrozenType>
-    type TSecondaryCtor = TSecondaryCtorG<FrozenType>
-    type TBaseCtorCall = TBaseCtorCallG<FrozenType>
+    type TTypeMember = TTypeMemberG<FrozenType, SyntaxToken>
+    type TStaticLet = TStaticLetG<FrozenType, SyntaxToken>
+    type TCtorLet = TCtorLetG<FrozenType, SyntaxToken>
+    type TCtorFieldInit = TCtorFieldInitG<FrozenType, SyntaxToken>
+    type TSecondaryCtor = TSecondaryCtorG<FrozenType, SyntaxToken>
+    type TBaseCtorCall = TBaseCtorCallG<FrozenType, SyntaxToken>
     type TAbstractMethod = TAbstractMethodG<FrozenType>
-    type TastFile = TastFileG<FrozenType>
+    type TastFile = TastFileG<FrozenType, SyntaxToken>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>

@@ -31,7 +31,7 @@ module EmitMember =
         (receiverTy: FrozenType)
         : unit =
         match receiver with
-        | TExprG.Var(binding, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
+        | TExprG.Var(binding, _, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
         | _ ->
             recur env b receiver
             let tmp = b.Local receiverTy
@@ -81,7 +81,7 @@ module EmitMember =
 
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.FieldGet(receiver, name, _) ->
+        | TExprG.FieldGet(receiver, name, _, _) ->
             // `r.X` — load the receiver and `ldfld` the field. The field handle is
             // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
             // `TypeSpec` for a generic one (`resolveRecordField`). A
@@ -93,7 +93,7 @@ module EmitMember =
 
     let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Assignment(TExprG.Var(binding, _), value, _) ->
+        | TExprG.Assignment(TExprG.Var(binding, _, _), value, _, _) ->
             // `x <- v` on a non-promoted `mutable` local — store into its slot.
             // (A `HeapShared` mutable local was already rewritten by
             // `RefCellPromotion` into a `contents` FieldSet, so any `Assignment`
@@ -109,7 +109,7 @@ module EmitMember =
 
     let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.FieldSet(receiver, name, value, _) ->
+        | TExprG.FieldSet(receiver, name, value, _, _) ->
             // `r.X <- v` on a `mutable` field. Validation has rejected the
             // immutable case before we reach here. `stfld` consumes both pushes
             // and leaves nothing on the stack, but a `FieldSet` is *unit-typed*
@@ -126,7 +126,7 @@ module EmitMember =
 
     let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.PropertyGet(receiver, key, via, _) ->
+        | TExprG.PropertyGet(receiver, key, via, _, _) ->
             // Instance property read — a 0-argument instance member access; the
             // receiver/dispatch shape is shared with `buildMethodCall`.
             let receiverTy = typeOfExpr receiver
@@ -138,7 +138,7 @@ module EmitMember =
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.MethodCall(receiver, key, via, args, ty) ->
+        | TExprG.MethodCall(receiver, key, via, args, ty, _) ->
             // Instance method call — the same receiver/dispatch shape as
             // `buildPropertyGet`, with the call's arguments pushed between the
             // receiver and the `call`/`callvirt`.
@@ -171,21 +171,21 @@ module EmitMember =
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.StaticPropertyGet(key, ty) ->
+        | TExprG.StaticPropertyGet(key, ty, _) ->
             let handle = resolveStaticMember env key [] ty
             b.Add(ILInstr.Call(handle, 0, 1))
         | _ -> failwith "EmitMember.buildStaticPropertyGet: unreachable"
 
     let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.StaticFieldGet(declKey, name, _) ->
+        | TExprG.StaticFieldGet(declKey, name, _, _) ->
             let handle = resolveStaticField env declKey name
             b.Add(ILInstr.Ldsfld handle)
         | _ -> failwith "EmitMember.buildStaticFieldGet: unreachable"
 
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.StaticMethodCall(key, args, ty) ->
+        | TExprG.StaticMethodCall(key, args, ty, _) ->
             // The declaring type of the static member. When it is a project-local
             // class/union the emitted tables carry it; when it lives in a referenced
             // package it does not — a *consumer*'s SRTP `+` / `-` dispatching to an
@@ -224,7 +224,7 @@ module EmitMember =
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.ExternalMember(receiver, key, _, true, ty) ->
+        | TExprG.ExternalMember(receiver, key, _, true, ty, _) ->
             // A standalone external *property* get (P4): a static one (`call
             // get_<name>()`) or an instance one reached as the receiver of an outer
             // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
@@ -249,7 +249,7 @@ module EmitMember =
                 else
                     recur env b r
                     b.Add(ILInstr.Callvirt(handle, 1, 1))
-        | TExprG.ExternalMember(_, _, _, false, _) ->
+        | TExprG.ExternalMember(_, _, _, false, _, _) ->
             // An external method used as a first-class value (a method group, not
             // applied) needs closure synthesis — out of scope. Applied methods are
             // handled as an `App` head above.

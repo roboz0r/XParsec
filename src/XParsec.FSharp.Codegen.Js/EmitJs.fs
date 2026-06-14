@@ -29,9 +29,9 @@ module EmitJs =
 
     let rec buildExpr (e: Frozen.TExpr) : JsExpr =
         match e with
-        | TExprG.Const(TConstValue.String s, _) -> JsExpr.Literal(JsLiteral.String s)
+        | TExprG.Const(TConstValue.String s, _, _) -> JsExpr.Literal(JsLiteral.String s)
 
-        | TExprG.Format(sink, segments, _) ->
+        | TExprG.Format(sink, segments, _, _) ->
             let arg = JsExpr.Literal(JsLiteral.String(literalFormat segments))
 
             match sink with

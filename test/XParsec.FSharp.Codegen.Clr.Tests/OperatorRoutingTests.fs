@@ -46,8 +46,11 @@ let tests =
                                                            TExprG.ILIntrinsic("ceq",
                                                                               _,
                                                                               EqList [ TExprG.Var _; TExprG.Var _ ],
-                                                                              FTConst("bool", _)),
+                                                                              FTConst("bool", _),
+                                                                              _),
+                                                           _,
                                                            _),
+                                             _,
                                              _),
                                false,
                                _) ] -> ()
@@ -158,7 +161,7 @@ let tests =
                 // (the `(# \"ceq\" … #)` per-primitive clauses + the fall-clause base).
                 let isStaticOptInline =
                     function
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _), _), true, _) ->
+                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _, _), _, _), true, _) ->
                         true
                     | _ -> false
 

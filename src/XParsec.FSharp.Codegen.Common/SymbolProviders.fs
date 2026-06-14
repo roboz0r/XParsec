@@ -155,7 +155,7 @@ module SymbolProviders =
 
         for d in tast.Decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
+            | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
                 match Map.tryFind k.Raw tast.ModuleMembers with
                 | Some info -> inlineNames.[k.Raw] <- info.Name
                 | None -> ()
@@ -167,9 +167,9 @@ module SymbolProviders =
                     OverrideExpr =
                         fun _ e ->
                             match e with
-                            | TExpr.Var(k, ty) ->
+                            | TExpr.Var(k, ty, tok) ->
                                 match inlineNames.TryGetValue k.Raw with
-                                | true, name -> ValueSome(TExpr.External(name, ValueNone, ty))
+                                | true, name -> ValueSome(TExpr.External(name, ValueNone, ty, tok))
                                 | _ -> ValueNone
                             | _ -> ValueNone
                 }
@@ -187,7 +187,7 @@ module SymbolProviders =
             // `ModuleMembers` (the same map `Emit.collectStaticFns` names static
             // methods from); a top-level inline with no named-module placement is
             // unaddressable from a use site, so it is skipped.
-            | TDecl.Let(TPat.NamedSimple(k, _), _, true, _) ->
+            | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
                 match Map.tryFind k.Raw tast.ModuleMembers with
                 | Some info ->
                     // The parameter attributes (`[<CallAtMostOnce>]` &c.) were

@@ -31,10 +31,10 @@ module Elaborate =
     /// can't carry `[<CallAtMostOnce>]`).
     let rec private nthLambdaParam (body: TExpr) (i: int) : (NodeKey * TExpr) voption =
         match body with
-        | TExpr.Lambda(p, inner, _) ->
+        | TExpr.Lambda(p, inner, _, _) ->
             if i = 0 then
                 match p with
-                | TPat.NamedSimple(k, _) -> ValueSome(k, inner)
+                | TPat.NamedSimple(k, _, _) -> ValueSome(k, inner)
                 | _ -> ValueNone
             else
                 nthLambdaParam inner (i - 1)
@@ -481,8 +481,8 @@ module Elaborate =
         let rec flatten (tp: TPat) =
             seq {
                 match tp with
-                | TPat.NamedSimple(k, ty) -> yield (k, ty)
-                | TPat.Tuple(items, _) ->
+                | TPat.NamedSimple(k, ty, _) -> yield (k, ty)
+                | TPat.Tuple(items, _, _) ->
                     for it in items do
                         yield! flatten it
                 | _ -> ()
@@ -575,9 +575,9 @@ module Elaborate =
                     OverrideExpr =
                         fun _ e ->
                             match e with
-                            | TExpr.Var(k, ty) ->
+                            | TExpr.Var(k, ty, tok) ->
                                 match Map.tryFind k staticLetByKey with
-                                | Some name -> ValueSome(TExpr.StaticFieldGet(declKey, name, ty))
+                                | Some name -> ValueSome(TExpr.StaticFieldGet(declKey, name, ty, tok))
                                 | None -> ValueNone
                             | _ -> ValueNone
                 }
@@ -629,9 +629,10 @@ module Elaborate =
                         OverrideExpr =
                             fun _ e ->
                                 match e with
-                                | TExpr.Var(k, ty) ->
+                                | TExpr.Var(k, ty, tok) ->
                                     match Map.tryFind k ctorParamByKey with
-                                    | Some name -> ValueSome(TExpr.FieldGet(TExpr.Var(info.ThisKey, classTy), name, ty))
+                                    | Some name ->
+                                        ValueSome(TExpr.FieldGet(TExpr.Var(info.ThisKey, classTy, tok), name, ty, tok))
                                     | None -> ValueNone
                                 | _ -> ValueNone
                     }
@@ -1258,7 +1259,7 @@ module Elaborate =
                     // (`[<CallAtMostOnce>]`) for an inline binding, recording them
                     // for `Passes.InlineExpansion`. Keyed by the function binder.
                     match tpat with
-                    | TPat.NamedSimple(binderKey, _) -> recordInlineParamAttrs ctx b binderKey valT
+                    | TPat.NamedSimple(binderKey, _, _) -> recordInlineParamAttrs ctx b binderKey valT
                     | _ -> ()
 
                     // A module-`let` compiled as a generic

@@ -1,60 +1,61 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 
 module EmitLower =
     let typeOfExpr (e: Frozen.TExpr) : FrozenType =
         match e with
-        | TExprG.Const(_, ty) -> ty
-        | TExprG.Var(_, ty) -> ty
-        | TExprG.External(_, _, ty) -> ty
-        | TExprG.Lambda(_, _, ty) -> ty
-        | TExprG.App(_, _, ty) -> ty
-        | TExprG.Let(_, _, _, ty) -> ty
-        | TExprG.Use(_, _, _, _, ty) -> ty
-        | TExprG.IfThenElse(_, _, _, ty) -> ty
-        | TExprG.Tuple(_, ty) -> ty
-        | TExprG.Sequential(_, ty) -> ty
-        | TExprG.While(_, _, ty) -> ty
-        | TExprG.ForTo(_, _, _, _, ty) -> ty
-        | TExprG.ForIn(_, _, _, _, ty) -> ty
-        | TExprG.Match(_, _, ty) -> ty
-        | TExprG.TryWith(_, _, ty) -> ty
-        | TExprG.TryFinally(_, _, ty) -> ty
-        | TExprG.Assignment(_, _, ty) -> ty
-        | TExprG.Null ty -> ty
-        | TExprG.Range(_, _, _, ty) -> ty
-        | TExprG.RecordCons(_, ty) -> ty
-        | TExprG.RecordClone(_, _, ty) -> ty
-        | TExprG.FieldGet(_, _, ty) -> ty
-        | TExprG.FieldSet(_, _, _, ty) -> ty
-        | TExprG.UnionCons(_, _, ty) -> ty
-        | TExprG.New(_, _, ty) -> ty
-        | TExprG.MethodCall(_, _, _, _, ty) -> ty
-        | TExprG.PropertyGet(_, _, _, ty) -> ty
-        | TExprG.StaticMethodCall(_, _, ty) -> ty
-        | TExprG.StaticPropertyGet(_, ty) -> ty
-        | TExprG.StaticFieldGet(_, _, ty) -> ty
-        | TExprG.ExternalMember(_, _, _, _, ty) -> ty
-        | TExprG.Format(_, _, ty) -> ty
-        | TExprG.ILIntrinsic(_, _, _, ty) -> ty
-        | TExprG.StaticOptimization(_, _, ty) -> ty
-        | TExprG.Upcast(_, ty) -> ty
-        | TExprG.Downcast(_, ty) -> ty
-        | TExprG.TraitCall(_, _, _, ty) -> ty
-        | TExprG.TypeTest(_, _, ty) -> ty
+        | TExprG.Const(ty = ty)
+        | TExprG.Var(ty = ty)
+        | TExprG.External(ty = ty)
+        | TExprG.Lambda(ty = ty)
+        | TExprG.App(ty = ty)
+        | TExprG.Let(ty = ty)
+        | TExprG.Use(ty = ty)
+        | TExprG.IfThenElse(ty = ty)
+        | TExprG.Tuple(ty = ty)
+        | TExprG.Sequential(ty = ty)
+        | TExprG.While(ty = ty)
+        | TExprG.ForTo(ty = ty)
+        | TExprG.ForIn(ty = ty)
+        | TExprG.Match(ty = ty)
+        | TExprG.TryWith(ty = ty)
+        | TExprG.TryFinally(ty = ty)
+        | TExprG.Assignment(ty = ty)
+        | TExprG.Null(ty = ty)
+        | TExprG.Range(ty = ty)
+        | TExprG.RecordCons(ty = ty)
+        | TExprG.RecordClone(ty = ty)
+        | TExprG.FieldGet(ty = ty)
+        | TExprG.FieldSet(ty = ty)
+        | TExprG.UnionCons(ty = ty)
+        | TExprG.New(ty = ty)
+        | TExprG.MethodCall(ty = ty)
+        | TExprG.PropertyGet(ty = ty)
+        | TExprG.StaticMethodCall(ty = ty)
+        | TExprG.StaticPropertyGet(ty = ty)
+        | TExprG.StaticFieldGet(ty = ty)
+        | TExprG.ExternalMember(ty = ty)
+        | TExprG.Format(ty = ty)
+        | TExprG.ILIntrinsic(ty = ty)
+        | TExprG.StaticOptimization(ty = ty)
+        | TExprG.Upcast(ty = ty)
+        | TExprG.Downcast(ty = ty)
+        | TExprG.TraitCall(ty = ty)
+        | TExprG.TypeTest(ty = ty) -> ty
 
     let typeOfPat (p: Frozen.TPat) : FrozenType =
         match p with
-        | TPatG.NamedSimple(_, ty)
-        | TPatG.Wildcard ty
-        | TPatG.Tuple(_, ty)
-        | TPatG.Const(_, ty)
-        | TPatG.Record(_, ty)
-        | TPatG.Union(_, _, ty)
-        | TPatG.TypeTestAs(_, _, ty) -> ty
+        | TPatG.NamedSimple(ty = ty)
+        | TPatG.Wildcard(ty = ty)
+        | TPatG.Tuple(ty = ty)
+        | TPatG.Const(ty = ty)
+        | TPatG.Record(ty = ty)
+        | TPatG.Union(ty = ty)
+        | TPatG.TypeTestAs(ty = ty) -> ty
 
     /// Resolve a nominal receiver type to its `(SymbolKey, type-args)` pair
     /// (was a projected string name). The
@@ -128,17 +129,17 @@ module EmitLower =
         | TExprG.Null _
         | TExprG.StaticPropertyGet _
         | TExprG.StaticFieldGet _ -> e
-        | TExprG.Lambda(p, b, t) -> TExprG.Lambda(p, f b, t)
-        | TExprG.App(fn, a, t) -> TExprG.App(f fn, f a, t)
-        | TExprG.Let(p, v, b, t) -> TExprG.Let(p, f v, f b, t)
-        | TExprG.Use(p, v, b, dispose, t) -> TExprG.Use(p, f v, f b, dispose, t)
-        | TExprG.IfThenElse(c, th, el, t) -> TExprG.IfThenElse(f c, f th, f el, t)
-        | TExprG.Tuple(xs, t) -> TExprG.Tuple(EqArray.map f xs, t)
-        | TExprG.Sequential(xs, t) -> TExprG.Sequential(EqArray.map f xs, t)
-        | TExprG.While(c, b, t) -> TExprG.While(f c, f b, t)
-        | TExprG.ForTo(v, s, e2, b, t) -> TExprG.ForTo(v, f s, f e2, f b, t)
-        | TExprG.ForIn(p, src, b, en, t) -> TExprG.ForIn(p, f src, f b, en, t)
-        | TExprG.Match(sc, arms, t) ->
+        | TExprG.Lambda(p, b, t, tk) -> TExprG.Lambda(p, f b, t, tk)
+        | TExprG.App(fn, a, t, tk) -> TExprG.App(f fn, f a, t, tk)
+        | TExprG.Let(p, v, b, t, tk) -> TExprG.Let(p, f v, f b, t, tk)
+        | TExprG.Use(p, v, b, dispose, t, tk) -> TExprG.Use(p, f v, f b, dispose, t, tk)
+        | TExprG.IfThenElse(c, th, el, t, tk) -> TExprG.IfThenElse(f c, f th, f el, t, tk)
+        | TExprG.Tuple(xs, t, tk) -> TExprG.Tuple(EqArray.map f xs, t, tk)
+        | TExprG.Sequential(xs, t, tk) -> TExprG.Sequential(EqArray.map f xs, t, tk)
+        | TExprG.While(c, b, t, tk) -> TExprG.While(f c, f b, t, tk)
+        | TExprG.ForTo(v, s, e2, b, t, tk) -> TExprG.ForTo(v, f s, f e2, f b, t, tk)
+        | TExprG.ForIn(p, src, b, en, t, tk) -> TExprG.ForIn(p, f src, f b, en, t, tk)
+        | TExprG.Match(sc, arms, t, tk) ->
             TExprG.Match(
                 f sc,
                 arms
@@ -148,9 +149,10 @@ module EmitLower =
                         Body = f a.Body
                     }
                 ),
-                t
+                t,
+                tk
             )
-        | TExprG.TryWith(b, arms, t) ->
+        | TExprG.TryWith(b, arms, t, tk) ->
             TExprG.TryWith(
                 f b,
                 arms
@@ -160,22 +162,24 @@ module EmitLower =
                         Body = f a.Body
                     }
                 ),
-                t
+                t,
+                tk
             )
-        | TExprG.TryFinally(b, c, t) -> TExprG.TryFinally(f b, f c, t)
-        | TExprG.Assignment(l, r, t) -> TExprG.Assignment(f l, f r, t)
-        | TExprG.Range(s, step, stop, t) -> TExprG.Range(f s, Option.map f step, f stop, t)
-        | TExprG.RecordCons(fields, t) -> TExprG.RecordCons(EqArray.map (fun (n, v) -> n, f v) fields, t)
-        | TExprG.RecordClone(src, ov, t) -> TExprG.RecordClone(f src, EqArray.map (fun (n, v) -> n, f v) ov, t)
-        | TExprG.FieldGet(r, n, t) -> TExprG.FieldGet(f r, n, t)
-        | TExprG.FieldSet(r, n, v, t) -> TExprG.FieldSet(f r, n, f v, t)
-        | TExprG.UnionCons(c, args, t) -> TExprG.UnionCons(c, EqArray.map f args, t)
-        | TExprG.New(c, args, t) -> TExprG.New(c, EqArray.map f args, t)
-        | TExprG.MethodCall(r, k, via, args, t) -> TExprG.MethodCall(f r, k, via, EqArray.map f args, t)
-        | TExprG.PropertyGet(r, k, via, t) -> TExprG.PropertyGet(f r, k, via, t)
-        | TExprG.StaticMethodCall(k, args, t) -> TExprG.StaticMethodCall(k, EqArray.map f args, t)
-        | TExprG.ExternalMember(r, k, n, isProp, t) -> TExprG.ExternalMember(ValueOption.map f r, k, n, isProp, t)
-        | TExprG.Format(sink, segs, t) ->
+        | TExprG.TryFinally(b, c, t, tk) -> TExprG.TryFinally(f b, f c, t, tk)
+        | TExprG.Assignment(l, r, t, tk) -> TExprG.Assignment(f l, f r, t, tk)
+        | TExprG.Range(s, step, stop, t, tk) -> TExprG.Range(f s, Option.map f step, f stop, t, tk)
+        | TExprG.RecordCons(fields, t, tk) -> TExprG.RecordCons(EqArray.map (fun (n, v) -> n, f v) fields, t, tk)
+        | TExprG.RecordClone(src, ov, t, tk) -> TExprG.RecordClone(f src, EqArray.map (fun (n, v) -> n, f v) ov, t, tk)
+        | TExprG.FieldGet(r, n, t, tk) -> TExprG.FieldGet(f r, n, t, tk)
+        | TExprG.FieldSet(r, n, v, t, tk) -> TExprG.FieldSet(f r, n, f v, t, tk)
+        | TExprG.UnionCons(c, args, t, tk) -> TExprG.UnionCons(c, EqArray.map f args, t, tk)
+        | TExprG.New(c, args, t, tk) -> TExprG.New(c, EqArray.map f args, t, tk)
+        | TExprG.MethodCall(r, k, via, args, t, tk) -> TExprG.MethodCall(f r, k, via, EqArray.map f args, t, tk)
+        | TExprG.PropertyGet(r, k, via, t, tk) -> TExprG.PropertyGet(f r, k, via, t, tk)
+        | TExprG.StaticMethodCall(k, args, t, tk) -> TExprG.StaticMethodCall(k, EqArray.map f args, t, tk)
+        | TExprG.ExternalMember(r, k, n, isProp, t, tk) ->
+            TExprG.ExternalMember(ValueOption.map f r, k, n, isProp, t, tk)
+        | TExprG.Format(sink, segs, t, tk) ->
             let sink =
                 match sink with
                 | FormatSinkG.ToWriter w -> FormatSinkG.ToWriter(f w)
@@ -190,14 +194,14 @@ module EmitLower =
                     | FormatSegG.Hole(h, a) -> FormatSegG.Hole(h, f a)
                 )
 
-            TExprG.Format(sink, segs, t)
-        | TExprG.ILIntrinsic(op, operand, args, t) -> TExprG.ILIntrinsic(op, operand, EqArray.map f args, t)
-        | TExprG.StaticOptimization(clauses, def, t) ->
-            TExprG.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t)
-        | TExprG.Upcast(src, t) -> TExprG.Upcast(f src, t)
-        | TExprG.Downcast(src, t) -> TExprG.Downcast(f src, t)
-        | TExprG.TraitCall(recv, n, args, t) -> TExprG.TraitCall(recv, n, EqArray.map f args, t)
-        | TExprG.TypeTest(src, testTy, t) -> TExprG.TypeTest(f src, testTy, t)
+            TExprG.Format(sink, segs, t, tk)
+        | TExprG.ILIntrinsic(op, operand, args, t, tk) -> TExprG.ILIntrinsic(op, operand, EqArray.map f args, t, tk)
+        | TExprG.StaticOptimization(clauses, def, t, tk) ->
+            TExprG.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t, tk)
+        | TExprG.Upcast(src, t, tk) -> TExprG.Upcast(f src, t, tk)
+        | TExprG.Downcast(src, t, tk) -> TExprG.Downcast(f src, t, tk)
+        | TExprG.TraitCall(recv, n, args, t, tk) -> TExprG.TraitCall(recv, n, EqArray.map f args, t, tk)
+        | TExprG.TypeTest(src, testTy, t, tk) -> TExprG.TypeTest(f src, testTy, t, tk)
 
     /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
     /// discovery / free-variable pre-passes call this.
@@ -245,10 +249,10 @@ module EmitLower =
     /// other pattern stops the peel.
     let rec peelLambda (e: Frozen.TExpr) : StaticParam list * Frozen.TExpr =
         match e with
-        | TExprG.Lambda(TPatG.NamedSimple(k, pty), body, _) ->
+        | TExprG.Lambda(TPatG.NamedSimple(k, pty, _), body, _, _) ->
             let ps, b = peelLambda body
             { Slot = k; Ty = pty; Pat = None } :: ps, b
-        | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty), body, _) ->
+        | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty, _), body, _, _) ->
             let ps, b = peelLambda body
 
             {
@@ -258,7 +262,7 @@ module EmitLower =
             }
             :: ps,
             b
-        | TExprG.Lambda((TPatG.Tuple(_, pty) as pat), body, _) ->
+        | TExprG.Lambda((TPatG.Tuple(_, pty, _) as pat), body, _, _) ->
             let ps, b = peelLambda body
 
             {
@@ -284,20 +288,21 @@ module EmitLower =
     /// through the inline bodies too.
     module private BuiltinOps =
 
-        let private ilBin (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> Frozen.TExpr =
-            fun operands retTy -> TExprG.ILIntrinsic(op, ValueNone, operands, retTy)
+        let private ilBin (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr =
+            fun operands retTy tok -> TExprG.ILIntrinsic(op, ValueNone, operands, retTy, tok)
 
         /// `not (# op … #)`, realised as `ceq (# op … #) false` — the derived ops
         /// with no direct opcode (`<>` = `not =`, `<=` = `not >`, `>=` = `not <`).
-        let private ilBinNot (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> Frozen.TExpr =
-            fun operands retTy ->
-                let inner = TExprG.ILIntrinsic(op, ValueNone, operands, retTy)
+        let private ilBinNot (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr =
+            fun operands retTy tok ->
+                let inner = TExprG.ILIntrinsic(op, ValueNone, operands, retTy, tok)
 
                 TExprG.ILIntrinsic(
                     "ceq",
                     ValueNone,
-                    EqArray.ofList [ inner; TExprG.Const(TConstValue.Bool false, retTy) ],
-                    retTy
+                    EqArray.ofList [ inner; TExprG.Const(TConstValue.Bool false, retTy, tok) ],
+                    retTy,
+                    tok
                 )
 
         /// compiled name → (arity, body builder over the operand expressions).
@@ -306,7 +311,7 @@ module EmitLower =
         /// O7); bitwise/shift use the signed/default IL form (the `ops-platform.fs`
         /// contract bodies, with narrow-int/unsigned refinements, win at a ground
         /// use site — these serve the un-ground fallback).
-        let private table: Map<string, int * (EqArray<Frozen.TExpr> -> FrozenType -> Frozen.TExpr)> =
+        let private table: Map<string, int * (EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr)> =
             Map
                 [
                     "op_Equality", (2, ilBin "ceq")
@@ -339,9 +344,14 @@ module EmitLower =
 
         /// Build the operator's inline-IL body, splicing the (already-rewritten)
         /// operand expressions directly. `retTy` is the application's result type.
-        let buildApp (name: string) (opArgs: EqArray<Frozen.TExpr>) (retTy: FrozenType) : Frozen.TExpr =
+        let buildApp
+            (name: string)
+            (opArgs: EqArray<Frozen.TExpr>)
+            (retTy: FrozenType)
+            (tok: SyntaxToken)
+            : Frozen.TExpr =
             let _, makeInner = table.[name]
-            makeInner opArgs retTy
+            makeInner opArgs retTy tok
 
     /// Rewrite every saturated built-in operator application to its inline-IL
     /// body, so it emits through the single `TExprG.ILIntrinsic` path. Run as the
@@ -355,10 +365,12 @@ module EmitLower =
             let head, spine = TastWalk.collectSpine [] e
 
             match head with
-            | TExprG.External(name, _, _) when BuiltinOps.isSaturated name (List.length spine) ->
-                let retTy = snd (List.last spine)
-                let opArgs = EqArray.ofSeq (seq { for (a, _) in spine -> expandBuiltinOps a })
-                BuiltinOps.buildApp name opArgs retTy
+            | TExprG.External(name, _, _, _) when BuiltinOps.isSaturated name (List.length spine) ->
+                let _, retTy, _ = List.last spine
+                let opArgs = EqArray.ofSeq (seq { for (a, _, _) in spine -> expandBuiltinOps a })
+                // The saturated operator collapses to its inline-IL body; carry the
+                // application node's own token onto every synthesised IL node.
+                BuiltinOps.buildApp name opArgs retTy (TastWalk.exprTok e)
             | _ -> mapChildren expandBuiltinOps e
         | _ -> mapChildren expandBuiltinOps e
 
@@ -393,7 +405,9 @@ module EmitLower =
 
         // Eta-reify `External(name, a -> … -> r)` used as a value into
         // `fun p0 -> … -> name p0 …`, turning a function name into a closure.
-        let etaExpand (name: string) (ty: FrozenType) : Frozen.TExpr =
+        // `tok` is the source `External` value node's token; every synthesised
+        // wrapper (params, applications, lambdas) inherits it.
+        let etaExpand (name: string) (ty: FrozenType) (tok: SyntaxToken) : Frozen.TExpr =
             let rec arrows t =
                 match t with
                 | FTFun(a, b) ->
@@ -407,15 +421,16 @@ module EmitLower =
             let rec applyAll acc accTy ks =
                 match ks, accTy with
                 | [], _ -> acc
-                | (k, pty) :: rest, FTFun(_, resTy) -> applyAll (TExprG.App(acc, TExprG.Var(k, pty), resTy)) resTy rest
+                | (k, pty) :: rest, FTFun(_, resTy) ->
+                    applyAll (TExprG.App(acc, TExprG.Var(k, pty, tok), resTy, tok)) resTy rest
                 | _ -> failwith "Emit: eta-reification arity mismatch"
 
-            let appBody = applyAll (TExprG.External(name, ValueNone, ty)) ty kts
+            let appBody = applyAll (TExprG.External(name, ValueNone, ty, tok)) ty kts
 
             kts
             |> List.foldBack (fun (k, pty) (innerBody, innerTy) ->
                 let lamTy = FTFun(pty, innerTy)
-                TExprG.Lambda(TPatG.NamedSimple(k, pty), innerBody, lamTy), lamTy
+                TExprG.Lambda(TPatG.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
             )
             <| (appBody, retTy)
             |> fst
@@ -433,8 +448,8 @@ module EmitLower =
                     | TExprG.External _ -> head
                     | _ -> lowerExpr head
 
-                TastWalk.rebuildApp head' [ for (a, t) in spineArgs -> lowerExpr a, t ]
-            | TExprG.External(name, _, ty) when isFunTy ty -> etaExpand name ty
+                TastWalk.rebuildApp head' [ for (a, t, tk) in spineArgs -> lowerExpr a, t, tk ]
+            | TExprG.External(name, _, ty, tok) when isFunTy ty -> etaExpand name ty tok
             | _ -> mapChildren lowerExpr e
 
         // Eta lowering surfaces operator applications (an eta-reified `(+)`);

@@ -19,15 +19,15 @@ module EmitExpr =
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Const(TConstValue.String s, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-        | TExprG.Const(TConstValue.Int n, _) -> b.Add(ILInstr.LdcI4 n)
-        | TExprG.Const(TConstValue.Int64 n, _) -> b.Add(ILInstr.LdcI8 n)
-        | TExprG.Const(TConstValue.Bool v, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
-        | TExprG.Const(TConstValue.Byte n, _) -> b.Add(ILInstr.LdcI4(int n))
-        | TExprG.Const(TConstValue.Float x, _) -> b.Add(ILInstr.LdcR8 x)
-        | TExprG.Const(TConstValue.Float32 x, _) -> b.Add(ILInstr.LdcR4 x)
-        | TExprG.Const(TConstValue.Char c, _) -> b.Add(ILInstr.LdcI4(int c))
-        | TExprG.Const(TConstValue.Decimal d, _) ->
+        | TExprG.Const(TConstValue.String s, _, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
+        | TExprG.Const(TConstValue.Int n, _, _) -> b.Add(ILInstr.LdcI4 n)
+        | TExprG.Const(TConstValue.Int64 n, _, _) -> b.Add(ILInstr.LdcI8 n)
+        | TExprG.Const(TConstValue.Bool v, _, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
+        | TExprG.Const(TConstValue.Byte n, _, _) -> b.Add(ILInstr.LdcI4(int n))
+        | TExprG.Const(TConstValue.Float x, _, _) -> b.Add(ILInstr.LdcR8 x)
+        | TExprG.Const(TConstValue.Float32 x, _, _) -> b.Add(ILInstr.LdcR4 x)
+        | TExprG.Const(TConstValue.Char c, _, _) -> b.Add(ILInstr.LdcI4(int c))
+        | TExprG.Const(TConstValue.Decimal d, _, _) ->
             // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
             // the value's bit representation — the same shape F#/Roslyn emit.
             let bits = System.Decimal.GetBits d
@@ -38,7 +38,7 @@ module EmitExpr =
             b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
             b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
             b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
-        | TExprG.Const(TConstValue.Unit, _) ->
+        | TExprG.Const(TConstValue.Unit, _, _) ->
             // `()` literal — reify the `unit` value (a zero-field `System.ValueTuple`
             // struct, not FSharp.Core's null `Unit`). Pushed when a closure
             // invocation needs a unit arg (`c ()`) or a unit value is otherwise
@@ -47,7 +47,7 @@ module EmitExpr =
 
         | TExprG.Null _ -> b.Add ILInstr.Ldnull
 
-        | TExprG.Var(binding, varTy) when env.StaticMethods.ContainsKey binding ->
+        | TExprG.Var(binding, varTy, _) when env.StaticMethods.ContainsKey binding ->
             // A *generic* module value (`let empty : SetTree<'T> = …` at module
             // scope) lowers to a zero-arg generic static method on its holder (a
             // non-generic module holder cannot host a `SetTree<'T>` *field*;
@@ -70,7 +70,7 @@ module EmitExpr =
 
             b.Add(ILInstr.Call(callHandle, 0, 1))
 
-        | TExprG.Var(binding, _) -> buildVarLoad env b binding
+        | TExprG.Var(binding, _, _) -> buildVarLoad env b binding
 
         | TExprG.Let _ -> EmitBindings.buildLet buildExpr env b e
         | TExprG.Use _ -> EmitBindings.buildUse buildExpr env b e
@@ -110,7 +110,7 @@ module EmitExpr =
         | TExprG.StaticMethodCall _ -> EmitMember.buildStaticMethodCall buildExpr env b e
         | TExprG.ExternalMember _ -> EmitMember.buildExternalMember buildExpr env b e
 
-        | TExprG.Format(sink, segments, _) -> EmitFormat.buildFormat buildExpr env b sink segments
+        | TExprG.Format(sink, segments, _, _) -> EmitFormat.buildFormat buildExpr env b sink segments
 
         | TExprG.ILIntrinsic _ -> EmitIntrinsic.buildILIntrinsic buildExpr env b e
         | TExprG.StaticOptimization _ -> EmitIntrinsic.buildStaticOptimization buildExpr env b e

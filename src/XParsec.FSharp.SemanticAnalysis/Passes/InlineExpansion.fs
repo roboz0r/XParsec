@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // The pre-freeze inline-expansion pass. Runs
@@ -53,7 +54,7 @@ module InlineExpansion =
                 OverrideExpr =
                     fun _ e ->
                         match e with
-                        | TExpr.Var(vk, _) when vk = k -> ValueSome replacement
+                        | TExpr.Var(vk, _, _) when vk = k -> ValueSome replacement
                         | _ -> ValueNone
             }
 
@@ -65,13 +66,15 @@ module InlineExpansion =
     /// inline-first lambda parameter at a saturated use site;
     /// the inline FUNCTION itself is reduced by `reduceApplication`, which
     /// peels the same way but classifies lambda params for elimination first.
-    let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType) list) : TExpr =
+    let rec private betaReduce (fn: TExpr) (args: (TExpr * SemType * SyntaxToken) list) : TExpr =
         match fn, args with
         | _, [] -> fn
-        | TExpr.Lambda(TPat.NamedSimple(k, paramTy), lamBody, _), (arg, _) :: rest ->
+        | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), lamBody, _, _), (arg, _, appTok) :: rest ->
             let reduced = betaReduce lamBody rest
-            TExpr.Let(TPat.NamedSimple(k, paramTy), arg, reduced, TastWalk.exprTy reduced)
-        | TExpr.Lambda(param, _, _), _ ->
+            // Anchor the synthesised `Let` at the application node it lowers; the
+            // binder keeps the lambda parameter's own token.
+            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok), arg, reduced, TastWalk.exprTy reduced, appTok)
+        | TExpr.Lambda(param, _, _, _), _ ->
             failwithf "InlineExpansion: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "InlineExpansion: over-application of an inline function"
 
@@ -83,7 +86,7 @@ module InlineExpansion =
     /// otherwise trip `betaReduce`'s destructuring guard).
     let rec private lambdaArity (e: TExpr) : int =
         match e with
-        | TExpr.Lambda(TPat.NamedSimple _, body, _) -> 1 + lambdaArity body
+        | TExpr.Lambda(TPat.NamedSimple _, body, _, _) -> 1 + lambdaArity body
         | _ -> 0
 
     /// Of the lambda-valued inline parameters in `candidates` (key → its bound
@@ -113,16 +116,16 @@ module InlineExpansion =
                             let head, args = TastWalk.collectSpine [] e
 
                             (match head with
-                             | TExpr.Var(k, _) when candidates.ContainsKey k ->
+                             | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
                                  if List.length args <> lambdaArity candidates.[k] then
                                      bad.Add k |> ignore
                              | _ -> TastWalk.iterExpr iter head)
 
-                            for (a, _) in args do
+                            for (a, _, _) in args do
                                 TastWalk.iterExpr iter a
 
                             false
-                        | TExpr.Var(k, _) when candidates.ContainsKey k ->
+                        | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
                             // A bare reference: the lambda is stored / passed on,
                             // so it cannot be inlined away.
                             bad.Add k |> ignore
@@ -171,7 +174,7 @@ module InlineExpansion =
     /// selects. Returned in `Inline.quantifiedTypars` order. A verbatim port of
     /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
     /// `typeOfExpr` → `TastWalk.exprTy`).
-    let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType) list) : SemType[] =
+    let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType * SyntaxToken) list) : SemType[] =
         let typars = Inline.quantifiedTypars declTy
 
         if typars.Length = 0 then
@@ -232,7 +235,7 @@ module InlineExpansion =
 
             let nArgs = List.length spineArgs
 
-            pairGo (peelParams nArgs declTy) [ for (a, _) in spineArgs -> TastWalk.exprTy a ]
+            pairGo (peelParams nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
 
             // Pair the result position too: `failwith`'s only typar `'T` sits in
             // the *return* (`string -> 'T`), so the param walk leaves it unbound.
@@ -250,7 +253,7 @@ module InlineExpansion =
 
             if nArgs > 0 then
                 let declRetTy = returnAfter nArgs declTy
-                let actualRetTy = spineArgs |> List.last |> snd
+                let _, actualRetTy, _ = spineArgs |> List.last
                 go declRetTy actualRetTy
 
             Array.mapi
@@ -324,7 +327,7 @@ module InlineExpansion =
 
         for (d, _) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _), _, true, _) -> localInlines.[b] <- d
+            | TDecl.Let(TPat.NamedSimple(b, _, _), _, true, _) -> localInlines.[b] <- d
             | _ -> ()
 
         // The cast-based "provider carries no inlines" fast-path is retired: every
@@ -360,7 +363,7 @@ module InlineExpansion =
                     | ValueNone -> provider.TryLookupInlineBodyByName name
                 | ValueNone -> provider.TryLookupInlineBodyByName name
 
-            let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType) list) : TExpr =
+            let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType * SyntaxToken) list) : TExpr =
                 let decl = localInlines.[k]
 
                 match decl with
@@ -383,14 +386,14 @@ module InlineExpansion =
             let expandLocal (k: NodeKey) : TExpr =
                 Inline.inlineExpand localInlines.[k] [||] |> Inline.freshen mint
 
-            let expandExternalAt (decl: TDecl) (spineArgs: (TExpr * SemType) list) : TExpr =
+            let expandExternalAt (decl: TDecl) (spineArgs: (TExpr * SemType * SyntaxToken) list) : TExpr =
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
                     Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
                     |> Inline.freshen mint
                 | _ -> failwith "InlineExpansion: external inline body must be a TDecl.Let"
 
-            let externalArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType) list) : bool =
+            let externalArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType * SyntaxToken) list) : bool =
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
                     deriveInlineTypeArgs declTy spineArgs |> Array.forall isSpliceableOperatorArg
@@ -422,14 +425,20 @@ module InlineExpansion =
                 (walk: TExpr -> TExpr)
                 (paramAttrs: ParamAttrs[])
                 (expanded: TExpr)
-                (args: (TExpr * SemType) list)
+                (args: (TExpr * SemType * SyntaxToken) list)
                 : TExpr =
-                let rec peel (fn: TExpr) (args: (TExpr * SemType) list) (acc: (NodeKey * SemType * TExpr) list) =
+                // Carry each application node's `tok` alongside the binder so the
+                // surviving `Let` is anchored at the call site it lowers.
+                let rec peel
+                    (fn: TExpr)
+                    (args: (TExpr * SemType * SyntaxToken) list)
+                    (acc: (NodeKey * SemType * TExpr * SyntaxToken) list)
+                    =
                     match fn, args with
                     | _, [] -> List.rev acc, fn
-                    | TExpr.Lambda(TPat.NamedSimple(k, paramTy), body, _), (arg, _) :: rest ->
-                        peel body rest ((k, paramTy, arg) :: acc)
-                    | TExpr.Lambda(param, _, _), _ ->
+                    | TExpr.Lambda(TPat.NamedSimple(k, paramTy, _), body, _, _), (arg, _, appTok) :: rest ->
+                        peel body rest ((k, paramTy, arg, appTok) :: acc)
+                    | TExpr.Lambda(param, _, _, _), _ ->
                         failwithf "InlineExpansion: inline parameter destructuring is out of scope: %A" param
                     | _, _ :: _ -> failwith "InlineExpansion: over-application of an inline function"
 
@@ -437,7 +446,7 @@ module InlineExpansion =
 
                 let candidates = Dictionary<NodeKey, TExpr>()
 
-                for (k, _, arg) in bindings do
+                for (k, _, arg, _) in bindings do
                     match arg with
                     | TExpr.Lambda _ -> candidates.[k] <- arg
                     | _ -> ()
@@ -479,10 +488,11 @@ module InlineExpansion =
                 // curried parameters; freshen / typar-substitution preserve order)
                 // can gate it. `peel` returns parameters outermost-first, so `i` is
                 // the curried position.
-                let indexed = bindings |> List.mapi (fun i (k, ty, a) -> (i, k, ty, a))
+                let indexed =
+                    bindings |> List.mapi (fun i (k, ty, a, appTok) -> (i, k, ty, a, appTok))
 
                 List.foldBack
-                    (fun (i, k, paramTy, arg) acc ->
+                    (fun (i, k, paramTy, arg, appTok) acc ->
                         if inlinable.Contains k then
                             acc
                         else
@@ -501,7 +511,7 @@ module InlineExpansion =
                             if callAtMostOnce then
                                 substituteVar k warg acc
                             else
-                                TExpr.Let(TPat.NamedSimple(k, paramTy), warg, acc, TastWalk.exprTy acc)
+                                TExpr.Let(TPat.NamedSimple(k, paramTy, appTok), warg, acc, TastWalk.exprTy acc, appTok)
                     )
                     indexed
                     core'
@@ -528,7 +538,7 @@ module InlineExpansion =
                                 let head, spineArgs = TastWalk.collectSpine [] e
 
                                 match head with
-                                | TExpr.Var(k, _) when localInlines.ContainsKey k ->
+                                | TExpr.Var(k, _, _) when localInlines.ContainsKey k ->
                                     ValueSome(
                                         reduceApplication walk (localParamAttrs k) (expandLocalAt k spineArgs) spineArgs
                                     )
@@ -540,9 +550,9 @@ module InlineExpansion =
                                 // `nonInlinableLambdaParams` guaranteed every use is
                                 // saturated, so `betaReduce` consumes exactly the
                                 // lambda's arity — no surviving closure.
-                                | TExpr.Var(k, _) when lambdaEnv.ContainsKey k ->
+                                | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
-                                | TExpr.External(name, keyOpt, _) ->
+                                | TExpr.External(name, keyOpt, _, _) ->
                                     match lookupExternal keyOpt name with
                                     | ValueSome ib when
                                         externalArgsGround ib.Decl spineArgs
@@ -561,13 +571,20 @@ module InlineExpansion =
                                     // lower the args — exactly codegen's `head'`
                                     // rule. Left for codegen's `BuiltinOps` /
                                     // recipe path.
-                                    | _ -> ValueSome(TastWalk.rebuildApp head [ for (a, t) in spineArgs -> walk a, t ])
+                                    | _ ->
+                                        ValueSome(
+                                            TastWalk.rebuildApp head [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
+                                        )
                                 // A non-external, non-local-inline head (e.g. a
                                 // higher-order parameter): lower the head and args,
                                 // keeping the spine intact.
                                 | _ ->
-                                    ValueSome(TastWalk.rebuildApp (walk head) [ for (a, t) in spineArgs -> walk a, t ])
-                            | TExpr.Var(k, _) when localInlines.ContainsKey k -> ValueSome(walk (expandLocal k))
+                                    ValueSome(
+                                        TastWalk.rebuildApp
+                                            (walk head)
+                                            [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
+                                    )
+                            | TExpr.Var(k, _, _) when localInlines.ContainsKey k -> ValueSome(walk (expandLocal k))
                             | _ -> ValueNone
                 }
 

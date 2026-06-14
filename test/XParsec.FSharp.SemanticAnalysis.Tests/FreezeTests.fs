@@ -24,7 +24,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type"
                 | other -> failtestf "unexpected: %A" other
@@ -34,7 +34,7 @@ let tests =
                 let tast = analyse "let b = true"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty), _, _) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty, _), _, _) ->
                     Expect.equal ty BuiltinTypes.tyBool "value type bool"
                 | other -> failtestf "unexpected: %A" other
             }
@@ -47,7 +47,7 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> (v1 + 1)" "TAST shape"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy), _, declTy) ->
+                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy, _), _, declTy) ->
                     Expect.equal lamTy intToInt "lambda type int -> int"
                     Expect.equal declTy intToInt "decl type int -> int"
                 | other -> failtestf "unexpected decl: %A" other
@@ -83,7 +83,8 @@ let tests =
                 let expected = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.NamedSimple(bindingKey, _), _, _, _) -> Expect.equal bindingKey expected "binding key"
+                | TDecl.Let(TPat.NamedSimple(bindingKey, _, _), _, _, _) ->
+                    Expect.equal bindingKey expected "binding key"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -93,7 +94,7 @@ let tests =
                 let xKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls with
-                | EqList [ _; TDecl.Let(_, TExpr.Var(refKey, _), _, _) ] -> Expect.equal refKey xKey "y refs x"
+                | EqList [ _; TDecl.Let(_, TExpr.Var(refKey, _, _), _, _) ] -> Expect.equal refKey xKey "y refs x"
                 | _ -> failtestf "unexpected decls: %A" tast.Decls
             }
 
@@ -116,18 +117,23 @@ let tests =
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
                             TExpr.UnionCons("Cons",
-                                            EqList [ TExpr.Const(TConstValue.Int 1, _)
+                                            EqList [ TExpr.Const(TConstValue.Int 1, _, _)
                                                      TExpr.UnionCons("Cons",
-                                                                     EqList [ TExpr.Const(TConstValue.Int 2, _)
+                                                                     EqList [ TExpr.Const(TConstValue.Int 2, _, _)
                                                                               TExpr.UnionCons("Cons",
                                                                                               EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                                                   _,
                                                                                                                    _)
                                                                                                        TExpr.UnionCons("Nil",
                                                                                                                        EqList [],
+                                                                                                                       _,
                                                                                                                        _) ],
+                                                                                              _,
                                                                                               _) ],
+                                                                     _,
                                                                      _) ],
-                                            outerTy),
+                                            outerTy,
+                                            _),
                             _,
                             _) -> Expect.equal outerTy listTy "outer UnionCons ty"
                 | other -> failtestf "unexpected TAST shape: %A" other
@@ -139,7 +145,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty), _, _) ->
+                | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty, _), _, _) ->
                     match ty with
                     | TyRecord("Microsoft.FSharp.Collections.list`1", args) when args.Length = 1 -> ()
                     | _ -> failtestf "expected list<_> Nil, got %A" ty
@@ -160,9 +166,10 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
-                            TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", _, opTy),
-                                      TExpr.UnionCons("Cons", _, innerTy),
-                                      outerTy),
+                            TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", _, opTy, _),
+                                      TExpr.UnionCons("Cons", _, innerTy, _),
+                                      outerTy,
+                                      _),
                             _,
                             _) ->
                     Expect.equal opTy (TyFun(listTy, arrayTy)) "Array.ofList: list -> array"
@@ -202,7 +209,7 @@ let namespaceTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type int"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other
@@ -262,7 +269,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty), _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type int"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other

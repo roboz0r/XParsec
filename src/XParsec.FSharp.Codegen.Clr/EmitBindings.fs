@@ -17,13 +17,13 @@ module EmitBindings =
 
     let buildLet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Let(TPatG.NamedSimple(binding, ty), value, body, _) ->
+        | TExprG.Let(TPatG.NamedSimple(binding, ty, _), value, body, _, _) ->
             let slot = b.Local ty
             env.Slots.[binding] <- slot
             recur env b value
             b.Add(ILInstr.Stloc slot)
             recur env b body
-        | TExprG.Let(pat, value, body, _) ->
+        | TExprG.Let(pat, value, body, _, _) ->
             // A destructuring `let pat = value in body` (e.g. `let a, b = (1, 2)`).
             // Evaluate the scrutinee once into a temp, then `bindPattern` (irrefutable)
             // pulls each leaf binding out of it before the body runs.
@@ -36,7 +36,7 @@ module EmitBindings =
 
     let buildUse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Use((TPatG.NamedSimple _ | TPatG.Wildcard _) as pat, value, body, dispose, _) ->
+        | TExprG.Use((TPatG.NamedSimple _ | TPatG.Wildcard _) as pat, value, body, dispose, _, tok) ->
             // `use x = value` (named) or `use _ = value` (wildcard). A `_` binder
             // still parks the value in a local — it is the resource the `finally`
             // disposes — but gives the body no name to reference it, so its slot is
@@ -44,8 +44,8 @@ module EmitBindings =
             // check, disposal) is identical for both.
             let binding, varTy =
                 match pat with
-                | TPatG.NamedSimple(b, ty) -> b, ty
-                | TPatG.Wildcard ty -> mintUseBinderKey (), ty
+                | TPatG.NamedSimple(b, ty, _) -> b, ty
+                | TPatG.Wildcard(ty, _) -> mintUseBinderKey (), ty
                 | _ -> failwith "Emit: unreachable — outer match admits only NamedSimple / Wildcard"
             // `use x = value in body` → `let x = value in try body finally if x <> null
             // then x.Dispose()` (B-5). The IL-IR
@@ -118,11 +118,12 @@ module EmitBindings =
                     env
                     b
                     (TExprG.MethodCall(
-                        TExprG.Var(binding, varTy),
+                        TExprG.Var(binding, varTy, tok),
                         disposeKey,
                         CallVia.Self,
                         EqArray.empty,
-                        FTConst("unit", EqArray.empty)
+                        FTConst("unit", EqArray.empty),
+                        tok
                     ))
 
                 b.Add ILInstr.Pop
@@ -151,7 +152,7 @@ module EmitBindings =
             b.SetDepth 0
             b.Add(ILInstr.Mark endLabel)
             b.Add(ILInstr.Ldloc resultSlot)
-        | TExprG.Use(pat, _, _, _, _) ->
+        | TExprG.Use(pat, _, _, _, _, _) ->
             // Only a genuinely destructuring `use` (tuple / record / union / const)
             // can reach here — `NamedSimple` and `Wildcard` are handled above. Such
             // a pattern is rejected up front (`Validation.checkUseBindings` — "Only

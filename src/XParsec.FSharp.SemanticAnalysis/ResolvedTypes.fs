@@ -60,7 +60,7 @@ module ResolvedTypes =
         let added = ResizeArray<TypeVar>()
 
         match binding with
-        | TPat.NamedSimple(key, _) ->
+        | TPat.NamedSimple(key, _, _) ->
             match ctx.Bindings.Scheme.TryGetValue key with
             | ValueSome scheme ->
                 for tv in scheme.Quantified do
@@ -89,7 +89,7 @@ module ResolvedTypes =
                     addFreeRoots allowed acc (TastWalk.exprTy e)
 
                     match e with
-                    | TExpr.Let(binding, value, body, _) ->
+                    | TExpr.Let(binding, value, body, _, _) ->
                         // Inner let's quantified set is scoped to the value RHS and
                         // the binding pattern's type; restore on exit so it doesn't
                         // leak into the body's check.
@@ -99,7 +99,7 @@ module ResolvedTypes =
                         popScheme allowed added
                         TastWalk.iterExpr it body
                         false
-                    | TExpr.Format(sink, segments, _) ->
+                    | TExpr.Format(sink, segments, _, _) ->
                         match sink with
                         | FormatSink.ToWriter w
                         | FormatSink.ToBuilder w -> TastWalk.iterExpr it w
@@ -127,7 +127,7 @@ module ResolvedTypes =
     /// the head pattern is a NamedSimple, otherwise a synthetic-at-0 key.
     let private declKey (d: TDecl) : NodeKey =
         match d with
-        | TDecl.Let(TPat.NamedSimple(k, _), _, _, _) -> k
+        | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
         | _ -> NodeKey(0UL)
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TypeVar>) (d: TDecl) : unit =
