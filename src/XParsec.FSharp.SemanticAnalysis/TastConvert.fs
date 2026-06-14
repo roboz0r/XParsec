@@ -198,28 +198,20 @@ module TastConvert =
             TTypeKindG.Union(EqArray.map (unionCase f) cases, EqArray.map (typeMember f) members)
         | TTypeKindG.Record(fields, members) ->
             TTypeKindG.Record(EqArray.map (recordField f) fields, EqArray.map (typeMember f) members)
-        | TTypeKindG.Class(fields,
-                           ctorParams,
-                           members,
-                           baseType,
-                           interfaces,
-                           isSealed,
-                           staticLets,
-                           secondaryCtors,
-                           baseCtor,
-                           isStruct) ->
-            TTypeKindG.Class(
-                EqArray.map (recordField f) fields,
-                EqArray.map (recordField f) ctorParams,
-                EqArray.map (typeMember f) members,
-                ValueOption.map f baseType,
-                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces,
-                isSealed,
-                EqArray.map (staticLet f) staticLets,
-                EqArray.map (secondaryCtor f) secondaryCtors,
-                ValueOption.map (baseCtorCall f) baseCtor,
-                isStruct
-            )
+        | TTypeKindG.Class c ->
+            TTypeKindG.Class
+                {
+                    Fields = EqArray.map (recordField f) c.Fields
+                    CtorParams = EqArray.map (recordField f) c.CtorParams
+                    Members = EqArray.map (typeMember f) c.Members
+                    BaseType = ValueOption.map f c.BaseType
+                    Interfaces = EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) c.Interfaces
+                    IsSealed = c.IsSealed
+                    StaticLets = EqArray.map (staticLet f) c.StaticLets
+                    SecondaryCtors = EqArray.map (secondaryCtor f) c.SecondaryCtors
+                    BaseCtorCall = ValueOption.map (baseCtorCall f) c.BaseCtorCall
+                    ValueKind = c.ValueKind
+                }
 
     let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a>) : TTypeDeclG<'b> =
         {

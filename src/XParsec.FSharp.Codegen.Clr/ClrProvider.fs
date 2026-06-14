@@ -39,6 +39,10 @@ type ClrProvider
     /// `System.ValueType` — the IL base type of a `[<Struct>]` value type.
     member _.ValueTypeBase: EntityHandle = env.EValueType.Value
 
+    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor()` — the
+    /// `CustomAttribute` constructor stamped on a `[<IsByRefLike>]` value type.
+    member _.IsByRefLikeAttrCtor: EntityHandle = env.EIsByRefLikeAttrCtor.Value
+
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
     member _.ObjectCtorRef: EntityHandle = env.EObjectCtor.Value
 

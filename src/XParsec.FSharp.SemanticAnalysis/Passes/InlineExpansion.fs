@@ -591,41 +591,32 @@ module InlineExpansion =
                 | TTypeKind.Interface _ -> k
                 | TTypeKind.Union(cases, members) -> TTypeKind.Union(cases, members |> EqArray.map walkMember)
                 | TTypeKind.Record(fields, members) -> TTypeKind.Record(fields, members |> EqArray.map walkMember)
-                | TTypeKind.Class(fields,
-                                  ctorParams,
-                                  members,
-                                  baseType,
-                                  interfaces,
-                                  isSealed,
-                                  staticLets,
-                                  secondaryCtors,
-                                  baseCtorCall,
-                                  isStruct) ->
-                    TTypeKind.Class(
-                        fields,
-                        ctorParams,
-                        members |> EqArray.map walkMember,
-                        baseType,
-                        interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember),
-                        isSealed,
-                        staticLets |> EqArray.map (fun sl -> { sl with Init = walkExpr sl.Init }),
-                        secondaryCtors
-                        |> EqArray.map (fun sc ->
-                            { sc with
-                                Lets = sc.Lets |> EqArray.map (fun cl -> { cl with Init = walkExpr cl.Init })
-                                PrimaryArgs = sc.PrimaryArgs |> EqArray.map walkExpr
-                                FieldInits =
-                                    sc.FieldInits |> EqArray.map (fun fi -> { fi with Init = walkExpr fi.Init })
-                            }
-                        ),
-                        baseCtorCall
-                        |> ValueOption.map (fun bc ->
-                            { bc with
-                                Args = bc.Args |> EqArray.map walkExpr
-                            }
-                        ),
-                        isStruct
-                    )
+                | TTypeKind.Class c ->
+                    TTypeKind.Class
+                        { c with
+                            Members = c.Members |> EqArray.map walkMember
+                            Interfaces =
+                                c.Interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember)
+                            StaticLets = c.StaticLets |> EqArray.map (fun sl -> { sl with Init = walkExpr sl.Init })
+                            SecondaryCtors =
+                                c.SecondaryCtors
+                                |> EqArray.map (fun sc ->
+                                    { sc with
+                                        Lets = sc.Lets |> EqArray.map (fun cl -> { cl with Init = walkExpr cl.Init })
+                                        PrimaryArgs = sc.PrimaryArgs |> EqArray.map walkExpr
+                                        FieldInits =
+                                            sc.FieldInits
+                                            |> EqArray.map (fun fi -> { fi with Init = walkExpr fi.Init })
+                                    }
+                                )
+                            BaseCtorCall =
+                                c.BaseCtorCall
+                                |> ValueOption.map (fun bc ->
+                                    { bc with
+                                        Args = bc.Args |> EqArray.map walkExpr
+                                    }
+                                )
+                        }
 
             decls
             |> List.map (fun (d, env) ->

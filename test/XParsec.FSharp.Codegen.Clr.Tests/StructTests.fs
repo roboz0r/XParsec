@@ -815,4 +815,50 @@ let structTests =
                 let fullWrap = Activator.CreateInstance(ty, [| box 5 |])
                 Expect.isTrue (notEmpty.Invoke(fullWrap, [||]) :?> bool) "non-empty stack ⇒ NotEmpty() is true"
             }
+
+            // PP1 (ref-struct-emit / printf-port-steps): a `[<Struct; IsByRefLike>]`
+            // type emits the `IsByRefLikeAttribute` marker so the CLR confines it
+            // to the stack. The runtime surfaces this directly as
+            // `Type.IsByRefLike`; this is the first custom attribute the backend
+            // ever emits.
+            test "a `[<Struct; IsByRefLike>]` type emits a byref-like value type" {
+                let _, artifact =
+                    compileSource
+                        "RefStructShape"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct; IsByRefLike>]"
+                                "type RPoint(x: int, y: int) ="
+                                "    member this.X = x"
+                                "let p = RPoint(3, 4)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "RPoint"
+                Expect.isNotNull ty "the assembly contains the type RPoint"
+                Expect.isTrue ty.IsValueType "RPoint emits as a value type"
+                Expect.isTrue ty.IsByRefLike "RPoint is byref-like (ref struct)"
+            }
+
+            // The marker is opt-in: a plain `[<Struct>]` stays non-byref-like, so
+            // the new attribute can't leak onto every value type.
+            test "a plain `[<Struct>]` type is not byref-like" {
+                let _, artifact =
+                    compileSource
+                        "PlainStructNotRefLike"
+                        (String.concat
+                            "\n"
+                            [
+                                "[<Struct>]"
+                                "type NPoint(x: int, y: int) ="
+                                "    member this.X = x"
+                                "let p = NPoint(3, 4)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "NPoint"
+                Expect.isTrue ty.IsValueType "NPoint is a value type"
+                Expect.isFalse ty.IsByRefLike "a plain [<Struct>] is not byref-like"
+            }
         ]

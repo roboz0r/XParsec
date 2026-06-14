@@ -23,7 +23,7 @@ module Codegen =
             cd.SecondaryCtors,
             cd.BaseCtorCall,
             cd.Interfaces,
-            cd.IsStruct
+            cd.ValueKind <> ClassValueKind.RefType
         )
 
     let private assemble

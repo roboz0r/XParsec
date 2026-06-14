@@ -157,6 +157,22 @@ type internal ClrEnv
     // `System.ValueType` — the IL base type of every `[<Struct>]` value type
     let eValueType = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueType")))
 
+    // `System.Runtime.CompilerServices.IsByRefLikeAttribute` — stamped on a
+    // `[<IsByRefLike>]` value type so the CLR confines it to the stack (PP1).
+    let eIsByRefLikeAttr =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Runtime.CompilerServices", "IsByRefLikeAttribute")))
+
+    // Its parameterless `.ctor`, the constructor a `CustomAttribute` row names.
+    let eIsByRefLikeAttrCtor =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+             toEntity (ctx.MemberRef(eIsByRefLikeAttr.Value, ".ctor", s)))
+
     let eTextWriter =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "TextWriter")))
 
@@ -495,6 +511,7 @@ type internal ClrEnv
     member _.EListModule = eListModule
     member _.EObject = eObject
     member _.EValueType = eValueType
+    member _.EIsByRefLikeAttrCtor = eIsByRefLikeAttrCtor
     member _.ETextWriter = eTextWriter
     member _.EConsole = eConsole
     member _.EFormatter = eFormatter

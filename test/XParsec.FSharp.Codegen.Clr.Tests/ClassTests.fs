@@ -717,8 +717,8 @@ let staticTests =
                     match d with
                     | TDecl.Type td ->
                         match td.Kind with
-                        | TTypeKindG.Class(members = members) ->
-                            for m in EqArray.toList members do
+                        | TTypeKindG.Class c ->
+                            for m in EqArray.toList c.Members do
                                 TastWalk.iterExpr it m.Body
                         | _ -> ()
                     | _ -> ()

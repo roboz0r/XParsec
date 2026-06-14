@@ -104,9 +104,11 @@ type internal TypeSlotKind =
     | Interface
     | Union
     | Record
-    /// `isSealed` reflects `[<Sealed>]`; a `[<Struct>]` value type flips
-    /// sequential layout + `Sealed` + the `ValueType` base.
-    | Class of isSealed: bool * isValueType: bool
+    /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs
+    /// `[<Struct>]` value type (flips sequential layout + `Sealed` + the
+    /// `ValueType` base) vs `[<IsByRefLike>]` byref-like (additionally stamps the
+    /// `IsByRefLikeAttribute` custom attribute, PP1).
+    | Class of isSealed: bool * valueKind: ClassValueKind
     | Closure
     /// A named module holder; `HasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
@@ -318,29 +320,20 @@ module internal Layout =
                             Fields = EqArray.toList fields
                             Members = EqArray.toList members
                         }
-                | TTypeKindG.Class(fields,
-                                   ctorParams,
-                                   members,
-                                   baseType,
-                                   ifaces,
-                                   isSealed,
-                                   staticLets,
-                                   secondaryCtors,
-                                   baseCtorCall,
-                                   isStruct) ->
+                | TTypeKindG.Class c ->
                     classes.Add
                         {
                             Decl = td
-                            Fields = EqArray.toList fields
-                            CtorParams = EqArray.toList ctorParams
-                            Members = EqArray.toList members
-                            BaseType = baseType
-                            Interfaces = [ for (ifaceTy, ms) in ifaces -> ifaceTy, EqArray.toList ms ]
-                            IsSealed = isSealed
-                            StaticLets = EqArray.toList staticLets
-                            SecondaryCtors = EqArray.toList secondaryCtors
-                            BaseCtorCall = baseCtorCall
-                            IsStruct = isStruct
+                            Fields = EqArray.toList c.Fields
+                            CtorParams = EqArray.toList c.CtorParams
+                            Members = EqArray.toList c.Members
+                            BaseType = c.BaseType
+                            Interfaces = [ for (ifaceTy, ms) in c.Interfaces -> ifaceTy, EqArray.toList ms ]
+                            IsSealed = c.IsSealed
+                            StaticLets = EqArray.toList c.StaticLets
+                            SecondaryCtors = EqArray.toList c.SecondaryCtors
+                            BaseCtorCall = c.BaseCtorCall
+                            ValueKind = c.ValueKind
                         }
             | _ -> ()
 
@@ -751,7 +744,7 @@ module internal Layout =
                         ]
 
                     nominalSlot
-                        (TypeSlotKind.Class(cd.IsSealed, cd.IsStruct))
+                        (TypeSlotKind.Class(cd.IsSealed, cd.ValueKind))
                         td
                         (List.length fields)
                         (List.length methodRows),

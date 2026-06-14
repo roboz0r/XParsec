@@ -24,7 +24,8 @@ type internal RecordDecl =
 
 /// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`
 /// instance fields; `CtorParams` become backing fields. `BaseType`/`BaseCtorCall`
-/// carry the optional `inherit`. `IsStruct` flags a `[<Struct>]` value type.
+/// carry the optional `inherit`. `ValueKind` flags a reference type, a
+/// `[<Struct>]` value type, or a `[<IsByRefLike>]` byref-like value type.
 type internal ClassDecl =
     {
         Decl: Frozen.TTypeDecl
@@ -37,7 +38,7 @@ type internal ClassDecl =
         StaticLets: Frozen.TStaticLet list
         SecondaryCtors: Frozen.TSecondaryCtor list
         BaseCtorCall: Frozen.TBaseCtorCall voption
-        IsStruct: bool
+        ValueKind: ClassValueKind
     }
 
 type internal PartitionedTypeDecls =

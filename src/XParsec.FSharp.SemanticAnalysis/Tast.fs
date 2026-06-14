@@ -334,6 +334,18 @@ and TStaticOptClauseG<'ty> =
         Body: TExprG<'ty>
     }
 
+/// Whether a class declaration emits as a reference type, a `[<Struct>]` value
+/// type, or a `[<IsByRefLike>]` byref-like value type. Collapses the former
+/// `isStruct`/`isByRefLike` bool pair so the illegal `(isStruct = false,
+/// isByRefLike = true)` combination is unrepresentable; `RefStruct` implies
+/// value-type emission. Projected at `Freeze` from `ClassTypeInfo`
+/// (`IsValueType` / `IsByRefLike`).
+[<RequireQualifiedAccess>]
+type ClassValueKind =
+    | RefType
+    | Struct
+    | RefStruct
+
 [<RequireQualifiedAccess>]
 type TDeclG<'ty> =
     /// The `value` body is retained verbatim regardless; when `isInline` is set
@@ -418,24 +430,32 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty> =
     /// these args before storing fields. `ValueNone` for a parent-less class (the
     /// primary `.ctor` then chains to `System.Object::.ctor`). Always present
     /// together with a `ValueSome baseType`.
-    /// `isStruct` reflects `[<Struct>]` (or the `struct … end` shape):
-    /// codegen emits a `System.ValueType`-based
-    /// value type (sealed, sequential layout, ctor without a base-ctor chain)
-    /// instead of a reference class. `fields` (the explicit `val [mutable] x: T`
-    /// instance fields) are now populated for both structs and classes that
-    /// declare them — each emits a `FieldDefinition` and a mutable one admits
-    /// `this.x <- …`.
-    | Class of
-        fields: EqArray<TRecordFieldG<'ty>> *
-        ctorParams: EqArray<TRecordFieldG<'ty>> *
-        members: EqArray<TTypeMemberG<'ty>> *
-        baseType: 'ty voption *
-        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty>>> *
-        isSealed: bool *
-        staticLets: EqArray<TStaticLetG<'ty>> *
-        secondaryCtors: EqArray<TSecondaryCtorG<'ty>> *
-        baseCtorCall: TBaseCtorCallG<'ty> voption *
-        isStruct: bool
+    /// `ValueKind` (`ClassValueKind`) replaces the former `isStruct`/`isByRefLike`
+    /// bool pair: `Struct` ⇒ codegen emits a `System.ValueType`-based value type
+    /// (sealed, sequential layout, ctor without a base-ctor chain) instead of a
+    /// reference class; `RefStruct` additionally stamps
+    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute` so the CLR confines
+    /// the value type to the stack (PP1, `docs/printf-port-steps.md`). `fields`
+    /// (the explicit `val [mutable] x: T` instance fields) are populated for both
+    /// structs and classes that declare them — each emits a `FieldDefinition` and
+    /// a mutable one admits `this.x <- …`.
+    | Class of TClassG<'ty>
+
+/// The payload of `TTypeKindG.Class` (B-1), lifted out of an 11-wide positional
+/// tuple into a named record. See the `Class` case doc for per-field semantics.
+and TClassG<'ty> =
+    {
+        Fields: EqArray<TRecordFieldG<'ty>>
+        CtorParams: EqArray<TRecordFieldG<'ty>>
+        Members: EqArray<TTypeMemberG<'ty>>
+        BaseType: 'ty voption
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty>>>
+        IsSealed: bool
+        StaticLets: EqArray<TStaticLetG<'ty>>
+        SecondaryCtors: EqArray<TSecondaryCtorG<'ty>>
+        BaseCtorCall: TBaseCtorCallG<'ty> voption
+        ValueKind: ClassValueKind
+    }
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty

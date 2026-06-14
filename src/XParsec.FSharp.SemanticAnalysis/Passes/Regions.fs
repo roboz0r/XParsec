@@ -201,7 +201,7 @@ module Regions =
     /// materialises a reference-typed function value. Either pins the upcast
     /// source to a heap representation. (`Downcast` narrows the static type of
     /// an existing value and is not a sink.)
-    let rec private isHeapReprTarget (t: SemType) : bool =
+    let private isHeapReprTarget (t: SemType) : bool =
         match resolveLink t with
         | TyConst("obj", _) -> true
         | TyFun _ -> true
@@ -839,35 +839,31 @@ module Regions =
 
             if tv.Region.Raw >= 0 && tv.Region.Raw < state.Length then
                 ctx.Bindings.Escape.Set(kv.Key, state.[tv.Region.Raw])
-                ctx.Bindings.ClosureRepr.Set(kv.Key, repr.[tv.Region.Raw])
+                ctx.Bindings.Repr.Set(kv.Key, repr.[tv.Region.Raw])
 
-    /// Project the RS3 codegen verdict per closure binder: `ClosureRepr.Stack`
-    /// iff the binder is both frame-confined by lifetime (`Axis 1`
-    /// `EscapeState.LocalStack`) and free of any heap-repr channel (`Axis 2`
-    /// `RegionRepr.StackOnlyEligible`); everything else is `Heap`. Keyed by the
-    /// same binder `NodeKey.Raw` codegen's `discoverClosures` reaches through
-    /// `Closure.SelfKey`. Must run after `run` has populated both side tables;
-    /// the Pipeline snapshots the result onto `TastFile.ClosureReprs`
-    /// (ref-struct-emit-plan RS3).
+    /// Fold the RS3 codegen verdict for every binder: `ClosureRepr.Stack` iff the
+    /// binder is both frame-confined by lifetime (`Axis 1` `EscapeState.LocalStack`)
+    /// and free of any heap-repr channel (`Axis 2` `RegionRepr.StackOnlyEligible`);
+    /// everything else is `Heap`. Keyed by `NodeKey.Raw`. The map covers all
+    /// binders, not only closures — codegen's `discoverClosures` only ever looks up
+    /// closure `Closure.SelfKey`s, so non-closure entries are inert. Must run after
+    /// `run` has populated both side tables; the Pipeline snapshots the result onto
+    /// `TastFile.ClosureReprs` (ref-struct-emit-plan RS3).
     let closureReprSnapshot (ctx: PassContext) : Map<uint64, ClosureRepr> =
-        let mutable m = Map.empty
-
-        for kv in ctx.Bindings.Escape.AsDictionary() do
+        ctx.Bindings.Escape.AsDictionary()
+        |> Seq.map (fun kv ->
             let stackEligible =
                 kv.Value = LocalStack
                 && (
-                    match ctx.Bindings.ClosureRepr.TryGetValue kv.Key with
+                    match ctx.Bindings.Repr.TryGetValue kv.Key with
                     | ValueSome RegionRepr.StackOnlyEligible -> true
                     | _ -> false
                 )
 
-            m <-
-                Map.add
-                    kv.Key.Raw
-                    (if stackEligible then
-                         ClosureRepr.Stack
-                     else
-                         ClosureRepr.Heap)
-                    m
-
-        m
+            kv.Key.Raw,
+            (if stackEligible then
+                 ClosureRepr.Stack
+             else
+                 ClosureRepr.Heap)
+        )
+        |> Map.ofSeq

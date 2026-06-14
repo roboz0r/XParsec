@@ -425,6 +425,12 @@ type ClassTypeInfo
     /// projects it onto `TTypeKind.Class.isStruct` so codegen emits a
     /// `System.ValueType`-based value type. A struct is implicitly sealed.
     member val IsValueType: bool = false with get, set
+    /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type. Stamped by
+    /// `registerClassTypeDefn` (implies `IsValueType`); `Freeze` projects it
+    /// onto `TTypeKind.Class.isByRefLike` so codegen stamps
+    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute` (PP1,
+    /// `docs/printf-port-steps.md`).
+    member val IsByRefLike: bool = false with get, set
     /// Explicit `val [mutable] x: T` instance fields in declaration order.
     /// Stamped by `registerClassTypeDefn`; field
     /// types are linked by Unification's `fillClassMembers`; `Freeze` projects
@@ -740,14 +746,13 @@ type PassContextBindings =
         Scheme: SideTable<TypeScheme>
         TypeVar: SideTable<TypeVar>
         Escape: SideTable<EscapeState>
-        /// Axis-2 representation verdict per closure region, keyed by the same
-        /// binder / anon `NodeKey` as `Escape`. Populated by `Regions.run` from
-        /// the second (representation) fixpoint; read by codegen's
-        /// `discoverClosures` to set `Emit.Closure.Repr`. Orthogonal to `Escape`
-        /// (lifetime): a frame-local closure held in an aggregate is
-        /// `LocalStack` here yet `RequiresHeapRepr` there
-        /// (ref-struct-emit-plan §Axis 2).
-        ClosureRepr: SideTable<RegionRepr>
+        /// Axis-2 representation verdict per region (a `RegionRepr`), keyed by the
+        /// same binder / anon `NodeKey` as `Escape`. Populated by `Regions.run`
+        /// from the second (representation) fixpoint; folded with `Escape` into the
+        /// per-closure `ClosureRepr` verdict. Orthogonal to `Escape` (lifetime): a
+        /// frame-local closure held in an aggregate is `LocalStack` here yet
+        /// `RequiresHeapRepr` there (ref-struct-emit-plan §Axis 2).
+        Repr: SideTable<RegionRepr>
         /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
         /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
         /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
@@ -763,7 +768,7 @@ module PassContextBindings =
             Scheme = SideTable<_>()
             TypeVar = SideTable<_>()
             Escape = SideTable<_>()
-            ClosureRepr = SideTable<_>()
+            Repr = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
         }
 

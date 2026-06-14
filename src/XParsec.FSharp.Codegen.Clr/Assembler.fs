@@ -110,7 +110,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             let td = cd.Decl
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
 
-            if cd.IsStruct then
+            if cd.ValueKind <> ClassValueKind.RefType then
                 provider.RegisterUserValueType td.Key
 
             if not td.TypeParams.IsEmpty then
@@ -595,7 +595,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         // recipe, with the Prepare-minted `InterfaceImpl` / `BaseType` handles.
         // Walking the layout in order keeps the `InterfaceImpl` /
         // `GenericParam` rows ascending (sorted by `Class` / `TypeOrMethodDef`).
-        let addNominalRow (slot: TypeSlot) (attrs: TypeAttributes) =
+        let addNominalRow (slot: TypeSlot) (attrs: TypeAttributes) (isByRefLike: bool) =
             let extras =
                 match typeRowExtras.TryGetValue slot.Key with
                 | true, e -> e
@@ -612,6 +612,18 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 )
 
             verifyTypeHandle slot typeHandle
+
+            // A `[<IsByRefLike>]` value type carries the `IsByRefLikeAttribute`
+            // marker (PP1) — a parameterless custom attribute (blob = prolog
+            // `0x0001` + zero named args = `01 00 00 00`). The CLR reads this to
+            // confine the type to the stack; there is no `TypeAttributes` bit.
+            if isByRefLike then
+                let blob = BlobBuilder()
+                blob.WriteUInt16(1us)
+                blob.WriteUInt16(0us)
+
+                ctx.AddCustomAttribute(toEntity typeHandle, provider.IsByRefLikeAttrCtor, blob)
+                |> ignore
 
             for iface in extras.Interfaces do
                 ctx.AddInterfaceImplementation(typeHandle, iface)
@@ -646,9 +658,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             // Unions and records are always sealed (rung 2 forbids
             // inheritance); a class opts in via `[<Sealed>]` / `[<Struct>]`.
             | TypeSlotKind.Union
-            | TypeSlotKind.Record -> addNominalRow slot (classAttrsOf true false)
+            | TypeSlotKind.Record -> addNominalRow slot (classAttrsOf true false) false
 
-            | TypeSlotKind.Class(isSealed, isValueType) -> addNominalRow slot (classAttrsOf isSealed isValueType)
+            | TypeSlotKind.Class(isSealed, valueKind) ->
+                let isValueType = valueKind <> ClassValueKind.RefType
+                let isByRefLike = valueKind = ClassValueKind.RefStruct
+                addNominalRow slot (classAttrsOf isSealed isValueType) isByRefLike
 
             // Each closure derives from `System.Object` and implements its
             // `Vesper.Fun\`2<param, result>` interface (R1). Its `GenericParam`

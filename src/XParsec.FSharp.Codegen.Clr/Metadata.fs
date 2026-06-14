@@ -133,6 +133,14 @@ type MetadataContext() =
     member _.MethodSpec(meth: EntityHandle, instantiation: BlobBuilder) : MethodSpecificationHandle =
         mb.AddMethodSpecification(meth, mb.GetOrAddBlob(instantiation))
 
+    /// Attach a custom attribute to `owner`, constructed via `ctor` (a `.ctor`
+    /// `MemberRef`/`MethodDef`) with the serialised argument `value` blob. For a
+    /// parameterless attribute the blob is the fixed prolog `01 00 00 00`
+    /// (prolog `0x0001`, zero named args). SRM sorts the `CustomAttribute` table
+    /// by parent at serialisation, so rows may be added in any order.
+    member _.AddCustomAttribute(owner: EntityHandle, ctor: EntityHandle, value: BlobBuilder) : CustomAttributeHandle =
+        mb.AddCustomAttribute(owner, ctor, mb.GetOrAddBlob(value))
+
     /// Fields must be added in the order the owning types claim them (each
     /// `TypeDefinition`'s field range runs from its `firstField` to the next type's).
     member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =

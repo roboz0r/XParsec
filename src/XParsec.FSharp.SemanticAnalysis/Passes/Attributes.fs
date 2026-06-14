@@ -187,18 +187,28 @@ module Attributes =
     /// and is normalised to the same flag by `registerClassTypeDefn`.
     let private structNames = [ "Struct"; "StructAttribute" ]
 
+    /// `[<IsByRefLike>]` marks a value type as byref-like (a `ref struct`):
+    /// codegen stamps `System.Runtime.CompilerServices.IsByRefLikeAttribute` so
+    /// the CLR confines it to the stack. Implies value-type emission (a ref
+    /// struct is necessarily a struct); the `.fsi` surface pairs it with
+    /// `[<Struct>]` (`Vesper.Printf/formatter.fsi`).
+    let private byRefLikeNames = [ "IsByRefLike"; "IsByRefLikeAttribute" ]
+
     /// Decoded class-shaping attributes. `IsSealed` flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
     /// `AllowNullLiteral` is consumed only by the front end (Unification's
     /// `Expr.Null` arm); `IsValueType` flips `System.ValueType` base +
-    /// value-type layout (`[<Struct>]`, B-7-adjacent). All default to `false` —
-    /// silently ignored attributes (`[<DefaultValue>]`, etc.) leave them unchanged.
+    /// value-type layout (`[<Struct>]`, B-7-adjacent); `IsByRefLike` additionally
+    /// stamps the byref-like marker (and implies `IsValueType`). All default to
+    /// `false` — silently ignored attributes (`[<DefaultValue>]`, etc.) leave
+    /// them unchanged.
     [<Struct>]
     type ClassAttributeVerdict =
         {
             IsSealed: bool
             AllowNullLiteral: bool
             IsValueType: bool
+            IsByRefLike: bool
         }
 
         static member Default =
@@ -206,6 +216,7 @@ module Attributes =
                 IsSealed = false
                 AllowNullLiteral = false
                 IsValueType = false
+                IsByRefLike = false
             }
 
     /// Decode an attribute set list into a `ClassAttributeVerdict`. Mirrors
@@ -218,6 +229,7 @@ module Attributes =
             let mutable isSealed = false
             let mutable allowNullLiteral = false
             let mutable isValueType = false
+            let mutable isByRefLike = false
 
             for AttributeSet(attributes = entries) in sets do
                 for Attribute(construction = construction), _sep in entries do
@@ -230,10 +242,14 @@ module Attributes =
                     | ValueSome n when List.contains n sealedNames -> isSealed <- true
                     | ValueSome n when List.contains n allowNullLiteralNames -> allowNullLiteral <- true
                     | ValueSome n when List.contains n structNames -> isValueType <- true
+                    | ValueSome n when List.contains n byRefLikeNames -> isByRefLike <- true
                     | _ -> ()
 
             {
                 IsSealed = isSealed
                 AllowNullLiteral = allowNullLiteral
-                IsValueType = isValueType
+                // A ref struct is necessarily a value type, even without an
+                // explicit `[<Struct>]` alongside `[<IsByRefLike>]`.
+                IsValueType = isValueType || isByRefLike
+                IsByRefLike = isByRefLike
             }

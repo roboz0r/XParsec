@@ -314,16 +314,7 @@ module Elaborate =
             TTypeKind.Union(cases, members |> EqArray.map (freezeMember f))
         | TTypeKind.Record(fields, members) ->
             TTypeKind.Record(fields |> EqArray.map field, members |> EqArray.map (freezeMember f))
-        | TTypeKind.Class(fields,
-                          ctorParams,
-                          members,
-                          baseType,
-                          interfaces,
-                          isSealed,
-                          staticLets,
-                          secondaryCtors,
-                          baseCtorCall,
-                          isStruct) ->
+        | TTypeKind.Class c ->
             let staticLet (sl: TStaticLet) =
                 { sl with
                     Type = f sl.Type
@@ -356,19 +347,21 @@ module Elaborate =
                     Args = bc.Args |> EqArray.map (mapExprTypes f)
                 }
 
-            TTypeKind.Class(
-                fields |> EqArray.map field,
-                ctorParams |> EqArray.map field,
-                members |> EqArray.map (freezeMember f),
-                baseType |> ValueOption.map f,
-                interfaces
-                |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f)),
-                isSealed,
-                staticLets |> EqArray.map staticLet,
-                secondaryCtors |> EqArray.map secondary,
-                baseCtorCall |> ValueOption.map baseCtor,
-                isStruct
-            )
+            TTypeKind.Class
+                {
+                    Fields = c.Fields |> EqArray.map field
+                    CtorParams = c.CtorParams |> EqArray.map field
+                    Members = c.Members |> EqArray.map (freezeMember f)
+                    BaseType = c.BaseType |> ValueOption.map f
+                    Interfaces =
+                        c.Interfaces
+                        |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
+                    IsSealed = c.IsSealed
+                    StaticLets = c.StaticLets |> EqArray.map staticLet
+                    SecondaryCtors = c.SecondaryCtors |> EqArray.map secondary
+                    BaseCtorCall = c.BaseCtorCall |> ValueOption.map baseCtor
+                    ValueKind = c.ValueKind
+                }
 
     /// The deferred typar cut. Walk every `SemType` in a
     /// decl through `remapDeclTypars env`, rewriting the decl's open `TyVar` typars
@@ -1135,18 +1128,25 @@ module Elaborate =
                     info.Key
                     ns
                     (EqArray.ofList declTypars)
-                    (TTypeKind.Class(
-                        instanceFields,
-                        ctorParams,
-                        members,
-                        baseType,
-                        interfaces,
-                        info.IsSealed,
-                        staticLets,
-                        secondaryCtors,
-                        baseCtorCall,
-                        info.IsValueType
-                    ))
+                    (TTypeKind.Class
+                        {
+                            Fields = instanceFields
+                            CtorParams = ctorParams
+                            Members = members
+                            BaseType = baseType
+                            Interfaces = interfaces
+                            IsSealed = info.IsSealed
+                            StaticLets = staticLets
+                            SecondaryCtors = secondaryCtors
+                            BaseCtorCall = baseCtorCall
+                            // The mutable `ClassTypeInfo` bool pair collapses into the
+                            // invariant-enforcing tri-state here (a ref struct is
+                            // necessarily a value type, so `IsByRefLike` wins).
+                            ValueKind =
+                                if info.IsByRefLike then ClassValueKind.RefStruct
+                                elif info.IsValueType then ClassValueKind.Struct
+                                else ClassValueKind.RefType
+                        })
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.
                     EqualityVerdict.Reference

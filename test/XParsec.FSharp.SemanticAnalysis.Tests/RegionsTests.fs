@@ -74,12 +74,12 @@ let private regionOf (input: string) (name: string) : RegionId option =
     | ValueNone -> None
 
 /// Axis-2 representation verdict of a *module-level* binding (ref-struct-emit-plan
-/// RS2). Mirrors `escapeOf` over the `ClosureRepr` side table.
+/// RS2). Mirrors `escapeOf` over the `Repr` side table.
 let private reprOf (input: string) (name: string) : RegionRepr option =
     let ctx, file = analyse input
     let key = headKeyOf ctx file name
 
-    match ctx.Bindings.ClosureRepr.TryGetValue key with
+    match ctx.Bindings.Repr.TryGetValue key with
     | ValueSome r -> Some r
     | ValueNone -> None
 
@@ -127,7 +127,7 @@ let private reprOfNested (input: string) (name: string) : RegionRepr option =
 
     match findLetKey ctx name rhs with
     | ValueSome key ->
-        match ctx.Bindings.ClosureRepr.TryGetValue key with
+        match ctx.Bindings.Repr.TryGetValue key with
         | ValueSome r -> Some r
         | ValueNone -> None
     | ValueNone -> failwithf "binding %s not found" name
