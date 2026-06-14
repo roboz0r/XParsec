@@ -154,6 +154,24 @@ module RuntimeNames =
     /// (`FreezeExpr`) and the recogniser (`EmitCall`) can't drift.
     let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
 
+    // --- Anonymous-union reserved member names (anon-unions-plan.md Stage 3b) ---------
+    //
+    // TypeScript-style literal types that are real *members* of an anonymous
+    // structural union (`T | null`, `T | undefined`) rather than nominal types.
+    // They carry no payload and resolve to a bare `TyConst name` — the same opaque
+    // shape an unknown bare name produces, so `translateType` needs no dedicated arm
+    // beyond `Type.Null` (the `null` keyword parses as `Type.Null`, not a named
+    // type); `undefined` falls out of the named-type arm's opaque fallback. Codegen
+    // erases them per backend (JS: literal `null`/`undefined`; CLR: a null reference
+    // for `null`). `never` needs no name — it is the empty `TyOr` that `mkUnion []`
+    // produces. Single-sourced here alongside the other well-known type names.
+
+    /// The `null` literal type — the reserved member of `T | null`.
+    let nullTypeName: string = "null"
+
+    /// The `undefined` literal type — the reserved member of `T | undefined`.
+    let undefinedTypeName: string = "undefined"
+
     // --- Well-known-singleton recognition by key (Phase 5.4) ---
     //
     // Recognition is asm-blind structural field comparison against the canonical

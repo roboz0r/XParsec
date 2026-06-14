@@ -489,27 +489,74 @@ module UnificationEngine =
     /// with invariant-equal args; reflexive (same root nominal) is `Equal`, a
     /// base/interface hop is `Subtype`. Non-nominal operands fall back to identity.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
-        match subtypeNominalOf ctx src, subtypeNominalOf ctx tgt with
-        | ValueSome(struct (s, _)), ValueSome(struct (t, ta)) ->
-            match tryUpcastWitness ctx src t with
-            // v1 args are invariant: every witnessed arg must itself be `Equal`.
-            // The length guard is belt-and-suspenders — a name match implies equal
-            // arity in a well-formed program.
-            | ValueSome wargs when
-                wargs.Length = ta.Length
-                && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
-                ->
-                if s = t then
-                    SubsumeOutcome.Equal
-                else
-                    SubsumeOutcome.Subtype
-            | _ -> SubsumeOutcome.Unrelated
-        | _ ->
-            // Non-nominal operands (vars, funcs, tuples): identity only.
-            if resolveStep src = resolveStep tgt then
+        match resolveStep src, resolveStep tgt with
+        // union → union (`A | B ≤ A | B | C`, order-insensitive): every member of
+        // the source must land in some member of the target. Identical canonical
+        // member sets are `Equal` (reflexivity, sound because both are sorted/deduped);
+        // a member-wise subset is `Subtype`. `A | B ⋠ A | C` ⇒ `Unrelated`.
+        | TyOr ss, TyOr ts ->
+            let ssm = ss.Members
+            let tsm = ts.Members
+
+            if ssm = tsm then
                 SubsumeOutcome.Equal
+            elif
+                ssm
+                |> EqArray.forall (fun s ->
+                    tsm |> EqArray.exists (fun t -> subsumes ctx s t <> SubsumeOutcome.Unrelated)
+                )
+            then
+                SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
+        // member → union (`A ≤ A | B`): `Equal` when `src` *is* a member by
+        // structural `=`, `Subtype` when it subsumes into some member (e.g. a
+        // subclass of a member). `src` is necessarily non-union here (the
+        // union → union arm above caught that case).
+        | src', TyOr ts ->
+            let tsm = ts.Members
+
+            if tsm |> EqArray.exists (fun t -> t = src') then
+                SubsumeOutcome.Equal
+            elif tsm |> EqArray.exists (fun t -> subsumes ctx src t <> SubsumeOutcome.Unrelated) then
+                SubsumeOutcome.Subtype
+            else
+                SubsumeOutcome.Unrelated
+        // union → member/other (`A | B ⋠ A`): coerces only when *every* member
+        // subsumes the target (target = `obj` or a wider type) — otherwise the
+        // consumer must narrow first. `never` (`TyOr []`) subsumes into everything
+        // (`forall` over the empty set).
+        | TyOr ss, _ ->
+            if
+                ss.Members
+                |> EqArray.forall (fun s -> subsumes ctx s tgt <> SubsumeOutcome.Unrelated)
+            then
+                SubsumeOutcome.Subtype
+            else
+                SubsumeOutcome.Unrelated
+        | _ ->
+
+            match subtypeNominalOf ctx src, subtypeNominalOf ctx tgt with
+            | ValueSome(struct (s, _)), ValueSome(struct (t, ta)) ->
+                match tryUpcastWitness ctx src t with
+                // v1 args are invariant: every witnessed arg must itself be `Equal`.
+                // The length guard is belt-and-suspenders — a name match implies equal
+                // arity in a well-formed program.
+                | ValueSome wargs when
+                    wargs.Length = ta.Length
+                    && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
+                    ->
+                    if s = t then
+                        SubsumeOutcome.Equal
+                    else
+                        SubsumeOutcome.Subtype
+                | _ -> SubsumeOutcome.Unrelated
+            | _ ->
+                // Non-nominal operands (vars, funcs, tuples): identity only.
+                if resolveStep src = resolveStep tgt then
+                    SubsumeOutcome.Equal
+                else
+                    SubsumeOutcome.Unrelated
 
     [<RequireQualifiedAccess>]
     type private NominalKind =

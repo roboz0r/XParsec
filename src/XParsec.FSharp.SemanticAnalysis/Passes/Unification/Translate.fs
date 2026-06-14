@@ -303,6 +303,22 @@ module internal UnificationTranslate =
             // unable to constrain the element and broke `Seq.toArray`'s `'T`).
             let rank = commas.Length + 1
             TyConst(RuntimeNames.arrayName rank, EqArray.singleton (translateType ctx baseTy))
+        | Type.Null _ ->
+            // The `null` literal type — a real *member* of an anonymous union
+            // (`T | null`), not a nominal type. Resolves to the reserved
+            // `TyConst "null"` (RuntimeNames, Stage 3b); erased per backend at
+            // codegen. Bare `null` outside a union is just `TyConst "null"` — its
+            // (lack of) assignability is decided later, like any other member.
+            TyConst(RuntimeNames.nullTypeName, EqArray.empty)
+        | Type.UnionType(left = l; right = r) ->
+            // TypeScript-style anonymous structural union (`X | Y`, Stage 3c). The
+            // CST is a binary node (left-nested for `a | b | c`); translate both
+            // sides and hand them to `mkUnion`, which flattens nested unions,
+            // dedups, sorts to canonical order, and collapses a singleton — so
+            // `int | string`, `string | int`, and `string | int | string` all yield
+            // the one canonical `TyOr [int; string]`. `null`/`undefined` members
+            // arrive as the reserved `TyConst`s above.
+            mkUnion [ translateType ctx l; translateType ctx r ]
         | _ ->
             // Multi-segment named/generic types and other shapes (arrays,
             // anonymous records, etc.) aren't modelled yet. Hand back a free

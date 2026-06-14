@@ -879,4 +879,103 @@ let tests =
 
                 Expect.isTrue hasWarning "unrelated type test warns (not errors)"
             }
+
+            // Stage 3 of the anonymous-union plan (docs/anon-unions-plan.md): the
+            // front door. `translateType` maps the CST `Type.UnionType` / `Type.Null`
+            // surface to a canonical `TyOr` via `mkUnion`. No assignability yet
+            // (Stage 4+), so a union only enters here through an *annotation* on a
+            // parameter, whose fresh TyVar links to it without any subtyping — the
+            // function's domain is the translated union. We assert on the translated
+            // `SemType`, not on any call type-checking.
+            let unionDomainOf (input: string) : SemType =
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "f ") NodeKind.PatIdent
+
+                match typeOf ctx patKey with
+                | TyFun(dom, _) -> dom
+                | other -> failtestf "expected f : _ -> _, got %A" other
+
+            test "int | string translates to the canonical TyOr [int; string]" {
+                let dom = unionDomainOf "let f (x: int | string) = x"
+                Expect.equal dom (mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]) "f domain is int | string"
+            }
+
+            test "string | int translates to the SAME canonical union (order-insensitive)" {
+                let a = unionDomainOf "let f (x: int | string) = x"
+                let b = unionDomainOf "let f (x: string | int) = x"
+                Expect.equal b a "string | int ≡ int | string after translate"
+
+                match b with
+                | TyOr ms -> Expect.equal ms.Members.Length 2 "two distinct members"
+                | other -> failtestf "expected a TyOr, got %A" other
+            }
+
+            test "int | null translates with the reserved `null` member present" {
+                let dom = unionDomainOf "let f (x: int | null) = x"
+
+                match dom with
+                | TyOr ms ->
+                    Expect.equal ms.Members.Length 2 "two members"
+
+                    Expect.contains
+                        (EqArray.toList ms.Members)
+                        (TyConst(RuntimeNames.nullTypeName, EqArray.empty))
+                        "the reserved `null` literal type is a member"
+                | other -> failtestf "expected int | null to be a TyOr, got %A" other
+            }
+
+            // Stage 4 of the anonymous-union plan (docs/anon-unions-plan.md): the
+            // directional `subsumes` query learns union membership — the first
+            // user-visible behaviour. `unify` is untouched; these are read-only
+            // calls (no `Link` mutation), asserted directly. All three relations
+            // are covered, including the negative `A | B ⋠ A`.
+            let subsumeCtx = analyse "let x = 1"
+            let int = BuiltinTypes.tyInt
+            let str = BuiltinTypes.tyString
+            let boolTy = BuiltinTypes.tyBool
+
+            let subsumes a b =
+                UnificationEngine.subsumes subsumeCtx a b
+
+            test "member → union: a member is Equal to the union it belongs to" {
+                Expect.equal
+                    (subsumes int (mkUnion [ int; str ]))
+                    UnificationEngine.SubsumeOutcome.Equal
+                    "int ≤ (int | string) is Equal (int is a member)"
+            }
+
+            test "member → union: a non-member is Unrelated" {
+                Expect.equal
+                    (subsumes boolTy (mkUnion [ int; str ]))
+                    UnificationEngine.SubsumeOutcome.Unrelated
+                    "bool ⋠ (int | string)"
+            }
+
+            test "union → union: a narrower union is a Subtype of a wider one" {
+                Expect.equal
+                    (subsumes (mkUnion [ int; str ]) (mkUnion [ int; str; boolTy ]))
+                    UnificationEngine.SubsumeOutcome.Subtype
+                    "(int | string) ≤ (int | string | bool)"
+            }
+
+            test "union → union: identical canonical member sets are Equal" {
+                Expect.equal
+                    (subsumes (mkUnion [ int; str ]) (mkUnion [ str; int ]))
+                    UnificationEngine.SubsumeOutcome.Equal
+                    "(int | string) ≤ (string | int) is Equal (order-insensitive)"
+            }
+
+            test "union → union: a member outside the target makes it Unrelated" {
+                Expect.equal
+                    (subsumes (mkUnion [ int; str ]) (mkUnion [ int; boolTy ]))
+                    UnificationEngine.SubsumeOutcome.Unrelated
+                    "(int | string) ⋠ (int | bool)"
+            }
+
+            test "union → member: a union does NOT subsume one of its members" {
+                Expect.equal
+                    (subsumes (mkUnion [ int; str ]) int)
+                    UnificationEngine.SubsumeOutcome.Unrelated
+                    "(int | string) ⋠ int — the consumer must narrow first"
+            }
         ]
