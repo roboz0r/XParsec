@@ -1400,28 +1400,37 @@ module TypeDefn =
                     return TypeDefn.Record(typeName, equals, lBrace, fields, rBrace, ext)
 
                 | Token.OpBar ->
-                    // Try Enum first (each case has '= <value>'), then Union
+                    // Try Enum first (each case has '= <value>'), then Union.
+                    // Push a SeqBlock at the leading `|` column: a union case's field
+                    // type (`S of int`) ends at the offside line, so a postfix suffix
+                    // (`int option`) on a following line is a continuation only when
+                    // indented past the `|`. Without this the type parser's suffix loop
+                    // runs at the enclosing module indent and swallows the next
+                    // declaration's leading identifier (`S of int⏎printfn …` → `int
+                    // printfn`). F# uses the same offside reference (the case list).
                     return!
-                        choiceL
-                            [
-                                parser {
-                                    let! cases, bars = EnumTypeCases.parse
-                                    return TypeDefn.Enum(typeName, equals, cases, bars)
-                                }
-                                parser {
-                                    let! cases, bars = UnionTypeCases.parse
+                        withContext
+                            OffsideContext.SeqBlock
+                            (choiceL
+                                [
+                                    parser {
+                                        let! cases, bars = EnumTypeCases.parse
+                                        return TypeDefn.Enum(typeName, equals, cases, bars)
+                                    }
+                                    parser {
+                                        let! cases, bars = UnionTypeCases.parse
 
-                                    let! ext =
-                                        opt (
-                                            choiceL
-                                                [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
-                                                "Type Extension"
-                                        )
+                                        let! ext =
+                                            opt (
+                                                choiceL
+                                                    [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
+                                                    "Type Extension"
+                                            )
 
-                                    return TypeDefn.Union(typeName, equals, cases, bars, ext)
-                                }
-                            ]
-                            "Union or Enum"
+                                        return TypeDefn.Union(typeName, equals, cases, bars, ext)
+                                    }
+                                ]
+                                "Union or Enum")
 
                 | _ ->
                     // Try union without leading '|' (e.g., type Foo = Foo of int | Bar of string)

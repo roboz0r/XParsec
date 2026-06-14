@@ -546,9 +546,31 @@ module Type =
                             | Token.Identifier
                             | Token.BacktickedIdentifier
                             | Token.UnterminatedBacktickedIdentifier ->
-                                match pPostfixSuffixCont reader with
-                                | Ok lid -> acc <- Type.SuffixedType(acc, lid)
-                                | Error e -> errOpt <- ValueSome e
+                                // Postfix suffix application (`int list`) must obey the offside
+                                // line: the suffix identifier has to be on the same line as — or
+                                // indented past — the enclosing construct. `peekNextSyntaxToken`
+                                // skips the newline, so without this guard a dedented identifier
+                                // starting the *next* declaration (e.g. `S of int⏎printfn …`) is
+                                // wrongly swallowed as `int printfn`, stranding the rest of that
+                                // line. A same-line suffix always sits strictly right of the
+                                // context indent (the base type is itself ≥ ctxIndent), so a plain
+                                // `col > ctxIndent` test only ever rejects a dedented new line.
+                                let peekedCol =
+                                    match peeked.Index with
+                                    | TokenIndex.Virtual -> 0
+                                    | TokenIndex.Regular ti -> ParseState.getIndent state ti
+
+                                let ctxIndent =
+                                    match state.Context with
+                                    | head :: _ -> head.Indent
+                                    | [] -> 0
+
+                                if peekedCol > ctxIndent then
+                                    match pPostfixSuffixCont reader with
+                                    | Ok lid -> acc <- Type.SuffixedType(acc, lid)
+                                    | Error e -> errOpt <- ValueSome e
+                                else
+                                    keepGoing <- false
                             | _ -> keepGoing <- false
 
                 match errOpt with
