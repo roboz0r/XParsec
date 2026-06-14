@@ -861,4 +861,32 @@ let structTests =
                 Expect.isTrue ty.IsValueType "NPoint is a value type"
                 Expect.isFalse ty.IsByRefLike "a plain [<Struct>] is not byref-like"
             }
+
+            // PP2 (printf-port-steps): a ref struct with a `Span<char>` field, a ctor
+            // that fills it from a `char[]`, and members that read `.Length` and
+            // `.Slice` it, round-trip through compile + run. Exercises three things the
+            // backend lacked: an external generic *value-type* TypeSpec parent (the
+            // `Span`1<char>` ctor / member refs must be tagged `VALUETYPE`, not
+            // `CLASS`), and address-based (`ldloca` + non-virtual `call`) dispatch of
+            // an external struct receiver's method (`Slice`) and property (`Length`) —
+            // a by-value `callvirt` is verifier-illegal on a ref struct. (The
+            // `ref T`-returning indexer `chars.[i]` needs byref support and is tracked
+            // separately.)
+            test "PP2: ref struct with a Span<char> field — ctor, Length, Slice round-trip" {
+                runsLines
+                    [ "5"; "3" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "[<Struct; IsByRefLike>]"
+                            "type SpanView(chars: Span<char>) ="
+                            "    member this.Len = chars.Length"
+                            "    member this.Tail = chars.Slice(2, 3)"
+                            "let arr = [| 'h'; 'e'; 'l'; 'l'; 'o' |]"
+                            "let v = SpanView(Span<char>(arr))"
+                            "printfn \"%d\" v.Len"
+                            "printfn \"%d\" v.Tail.Length"
+                        ])
+            }
         ]

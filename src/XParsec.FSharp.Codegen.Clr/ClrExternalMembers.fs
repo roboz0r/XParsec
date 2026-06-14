@@ -37,7 +37,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let recoverOpenTypars declArity methodArity (openT: FrozenType) (instT: FrozenType) =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
-    let externalTypeSpec tref instArgs = enc.ExternalTypeSpec(tref, instArgs)
+    // The declaring-type key drives the `VALUETYPE` vs `CLASS` tag of the parent generic-inst
+    // (`Span`1<char>` and struct unions/records are value types); a non-value-type or an
+    // unresolvable name tags `CLASS`, as before.
+    let externalTypeSpec (key: SymbolKey) tref instArgs =
+        enc.ExternalTypeSpec(tref, env.ExternalIsValueType key, instArgs)
+
     let typeSpecOf ty = enc.TypeSpecOf ty
 
     /// `SymbolKey` (+ instantiation) → minted `MemberRef`, so a member is reified once across a
@@ -177,7 +182,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | ValueNone ->
                     failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-            let parent = externalTypeSpec tref (declArgs)
+            let parent = externalTypeSpec declKey tref (declArgs)
 
             let handle =
                 methodSpec
@@ -265,7 +270,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalRecordRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, fields) ->
-            let parent = externalTypeSpec tref args
+            let parent = externalTypeSpec key tref args
 
             // The fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
             // descriptor template — no closure run on marker typars.
@@ -307,7 +312,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
             | None -> ValueNone
             | Some case ->
-                let parent = externalTypeSpec tref args
+                let parent = externalTypeSpec key tref args
 
                 // The case fields in their *open* (`FTTypar(Declaring, i)`) form, read straight off the
                 // descriptor template; the return type is the union itself over the same open markers, so
@@ -350,7 +355,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match cases |> Array.tryFindIndex (fun c -> c.Name = caseName) with
             | None -> ValueNone
             | Some tag ->
-                let parent = externalTypeSpec tref args
+                let parent = externalTypeSpec key tref args
                 let s = BlobBuilder()
                 encodeType (BlobEncoder(s).FieldSignature()) (FTConst("int", EqArray.empty))
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
@@ -374,7 +379,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome(tref, cases) ->
             match cases |> Array.tryFind (fun c -> c.Name = caseName) with
             | Some case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
-                let parent = externalTypeSpec tref args
+                let parent = externalTypeSpec key tref args
 
                 // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob so it
                 // matches the generic field definition; `substituteDeclaring` substitutes the use-site
@@ -435,7 +440,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match externalClassRef key with
             | ValueNone -> ValueNone
             | ValueSome tref ->
-                let parent = externalTypeSpec tref tyArgs
+                let parent = externalTypeSpec key tref tyArgs
 
                 // The ctor's parameters in their *open* (`FTTypar(Declaring, i)`) form, read off the
                 // descriptor template's single tupled `Parameters` slot and flattened by the chosen key's
@@ -483,7 +488,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             match fields |> Array.tryFind (fun f -> f.Name = fieldName) with
             | None -> ValueNone
             | Some field ->
-                let parent = externalTypeSpec tref args
+                let parent = externalTypeSpec key tref args
 
                 // The field's *open* (`FTTypar(Declaring, i)`) template drives the signature blob;
                 // `substituteDeclaring` substitutes the use-site args for the returned (use-site)

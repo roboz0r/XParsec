@@ -236,9 +236,19 @@ module EmitMember =
                 let handle = env.Provider.ExternalMemberRef(key, true, true, ty)
                 b.Add(ILInstr.Call(handle, 0, 1))
             | ValueSome r ->
-                let handle = externalInstanceMemberRef env key (typeOfExpr r) true (ty)
-                recur env b r
-                b.Add(ILInstr.Callvirt(handle, 1, 1))
+                let receiverTy = typeOfExpr r
+                let handle = externalInstanceMemberRef env key receiverTy true (ty)
+
+                // A property getter on an *unboxed* value-type receiver (`span.Length`,
+                // any external struct) is reached by address + non-virtual `call`, not
+                // by value + `callvirt` (the verifier rejects the latter — a ref struct
+                // can't be boxed). Same dispatch as `emitInstanceMember`'s struct self.
+                if isValueType env receiverTy then
+                    loadStructReceiverAddr recur env b r receiverTy
+                    b.Add(ILInstr.Call(handle, 1, 1))
+                else
+                    recur env b r
+                    b.Add(ILInstr.Callvirt(handle, 1, 1))
         | TExprG.ExternalMember(_, _, _, false, _) ->
             // An external method used as a first-class value (a method group, not
             // applied) needs closure synthesis — out of scope. Applied methods are

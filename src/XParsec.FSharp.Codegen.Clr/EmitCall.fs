@@ -259,7 +259,28 @@ module EmitCall =
                 | first :: more -> ValueSome first, more
                 | [] -> ValueNone, []
 
+            // An instance method on an *unboxed* value-type receiver (a `Span`1<char>`
+            // field/local, any external struct) must be reached by **address** + a
+            // non-virtual `call`, not by value + `callvirt` (which the verifier
+            // rejects — a ref struct can't even be boxed). Mirrors the local-struct
+            // dispatch in `EmitMember.emitInstanceMember`: a slot-bound local is
+            // addressed in place (`ldloca`), any other receiver expression is spilled
+            // to a temp and addressed there (a struct copy is fine — Span methods read
+            // through the copied (ptr,len), they don't mutate the struct itself).
+            let receiverIsStruct =
+                match receiver with
+                | ValueSome r -> isValueType env (typeOfExpr r)
+                | ValueNone -> false
+
             match receiver with
+            | ValueSome r when receiverIsStruct ->
+                match r with
+                | TExprG.Var(binding, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
+                | _ ->
+                    recur env b r
+                    let tmp = b.Local(typeOfExpr r)
+                    b.Add(ILInstr.Stloc tmp)
+                    b.Add(ILInstr.Ldloca tmp)
             | ValueSome r -> recur env b r
             | ValueNone -> ()
 
@@ -320,7 +341,10 @@ module EmitCall =
 
             let resultCount = if returnsVoid then 0 else 1
 
-            if isStatic then
+            // Static → `call`; value-type instance method → `call` on the receiver
+            // address (non-virtual, the verifier-legal struct dispatch); reference
+            // instance method → `callvirt`.
+            if isStatic || receiverIsStruct then
                 b.Add(ILInstr.Call(handle, total, resultCount))
             else
                 b.Add(ILInstr.Callvirt(handle, total, resultCount))

@@ -376,14 +376,16 @@ type internal ClrEncoder(env: ClrEnv) =
         collect "declaring" decl, collect "method" meth
 
     /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec` instantiation when
-    /// generic (`EqualityComparer`1<int>`).
-    let externalTypeSpec (tref: EntityHandle) (instArgs: FrozenType list) : EntityHandle =
+    /// generic (`EqualityComparer`1<int>`). `isValueType` selects the `VALUETYPE` vs `CLASS` element
+    /// tag of the generic-inst — a `Span`1<char>` / struct-union / struct-record declaring type must
+    /// be tagged `VALUETYPE` or the runtime rejects the member ref ("value type mismatch").
+    let externalTypeSpec (tref: EntityHandle) (isValueType: bool) (instArgs: FrozenType list) : EntityHandle =
         match instArgs with
         | [] -> tref
         | _ ->
             let tsB = BlobBuilder()
             let te = BlobEncoder(tsB).TypeSpecificationSignature()
-            let g = te.GenericInstantiation(tref, List.length instArgs, false)
+            let g = te.GenericInstantiation(tref, List.length instArgs, isValueType)
 
             for a in instArgs do
                 encodeType (g.AddArgument()) (a)
@@ -425,12 +427,15 @@ type internal ClrEncoder(env: ClrEnv) =
 
     member _.MethodSpec(handle, args) = methodSpec handle args
 
-    member _.ExternalTypeSpec(tref, instArgs) = externalTypeSpec tref instArgs
+    member _.ExternalTypeSpec(tref, isValueType, instArgs) =
+        externalTypeSpec tref isValueType instArgs
 
     /// A `TypeSpec` token for an arbitrary `FrozenType`, encoded through the full
     /// `encodeType` path — so a struct external type lands as a `VALUETYPE`
-    /// generic-inst (the duck-typed enumerator's member-ref parent, §4.4), unlike
-    /// `externalTypeSpec`, which hardcodes the class tag. Mirrors `ClrRecipes.typeToken`.
+    /// generic-inst (the duck-typed enumerator's member-ref parent, §4.4). Equivalent
+    /// to `externalTypeSpec` once its caller supplies the right `isValueType`, but
+    /// reads the tag straight off the type rather than from a separate flag. Mirrors
+    /// `ClrRecipes.typeToken`.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
