@@ -2049,13 +2049,6 @@ module Expr =
                 | Ok fragment ->
                     parts.Add(StringPart.Text fragment)
                     loop isInterpolated parts reader
-            // Escape sequences (plain strings only)
-            | Ok t when t.Token = Token.EscapeSequence ->
-                match consumePeeked t reader with
-                | Error e -> Error e
-                | Ok esc ->
-                    parts.Add(StringPart.EscapeSequence esc)
-                    loop isInterpolated parts reader
             // Format specifier (%d etc.) — may be followed by expression hole in interpolated strings
             | Ok t when t.Token = Token.FormatPlaceholder ->
                 match consumePeeked t reader with
@@ -2118,24 +2111,39 @@ module Expr =
                     loop isInterpolated parts reader
             | Ok _ -> Ok parts
 
-        parser {
-            let! opening = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringOpen t.Token) "Expected string open"
+        fun (reader: Reader<PositionedToken, ParseState, _>) ->
+            match peekNextSyntaxToken reader with
+            | Error e -> Error e
+            // Plain (non-interpolated) strings share ONE body parser with the
+            // IL-intrinsic path — `parsePlainStringLiteral` — so the plain-string
+            // token vocabulary cannot drift between the two. (That drift is what let
+            // an unescaped `%` in an IL template mis-parse: this loop carried invalid
+            // format tokens through as `InvalidText`, but the IL helper bailed.)
+            // Interpolated strings keep the hole-aware loop above, which needs `refExpr`.
+            | Ok t when isPlainStringOpen t.Token ->
+                match parsePlainStringLiteral "Expected string open" reader with
+                | Error e -> Error e
+                | Ok(kind, parts, closing) -> preturn (Expr.String(kind, parts, closing)) reader
+            | Ok _ ->
+                (parser {
+                    let! opening = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringOpen t.Token) "Expected string open"
 
-            let kind = stringKindOfToken opening
+                    let kind = stringKindOfToken opening
 
-            let isInterpolated =
-                match kind with
-                | StringKind.InterpolatedString _
-                | StringKind.VerbatimInterpolatedString _
-                | StringKind.Interpolated3String _ -> true
-                | _ -> false
+                    let isInterpolated =
+                        match kind with
+                        | StringKind.InterpolatedString _
+                        | StringKind.VerbatimInterpolatedString _
+                        | StringKind.Interpolated3String _ -> true
+                        | _ -> false
 
-            let! parts = loop isInterpolated (ResizeArray())
+                    let! parts = loop isInterpolated (ResizeArray())
 
-            let! closing = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
+                    let! closing = nextSyntaxTokenSatisfiesLMsg (fun t -> isStringClose t.Token) "Expected string close"
 
-            return Expr.String(kind, ImmutableArray.CreateRange parts, closing)
-        }
+                    return Expr.String(kind, ImmutableArray.CreateRange parts, closing)
+                })
+                    reader
 
     let pIdentExpr = nextSyntaxIdentifierLMsg "Expected identifier" |>> Expr.Ident
 

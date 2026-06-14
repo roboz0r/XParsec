@@ -834,7 +834,17 @@ module Parsing =
         | Token.EscapeSequence
         | Token.EscapePercent
         | Token.VerbatimEscapeQuote
-        | Token.FormatPlaceholder -> true
+        | Token.FormatPlaceholder
+        // A plain (non-interpolated) string body is NOT a printf format: a `%` that
+        // does not start a valid placeholder is just literal text. The lexer scans
+        // `%` in every string flavor, so this is the only place to keep those
+        // chars verbatim — mirrors `pString`'s `isStringInvalidText` handling. It
+        // matters for IL-intrinsic instruction strings (the sole consumer of this
+        // helper), e.g. a JS-template `(# "$0 % $1" #)`: the string is opaque to
+        // the front end, and only a printf-family consumer would care about format
+        // validity.
+        | Token.InvalidFormatPlaceholder
+        | Token.InvalidFormatPercents -> true
         | _ -> false
 
     let plainStringKindOfToken (t: SyntaxToken) =
@@ -846,11 +856,24 @@ module Parsing =
 
     let plainStringPartOfToken (t: SyntaxToken) =
         match t.Token with
-        | Token.StringFragment -> StringPart.Text t
-        | Token.EscapeSequence -> StringPart.EscapeSequence t
-        | Token.EscapePercent -> StringPart.EscapePercent t
-        | Token.VerbatimEscapeQuote -> StringPart.VerbatimEscapeQuote t
+        // Literal content collapses to `Text`: escape sequences, the verbatim
+        // doubled-quote, and the escaped `%%` are all string content that every
+        // consumer (the freeze stitchers, printf typing) treats identically to
+        // plain text. Only the *format markers* below stay distinct, because they
+        // mark a string as a printf format / non-constant literal. This matches
+        // `pString` (the string-expression parser), which delegates plain strings
+        // to this one body parser.
+        | Token.StringFragment
+        | Token.EscapeSequence
+        | Token.EscapePercent
+        | Token.VerbatimEscapeQuote -> StringPart.Text t
         | Token.FormatPlaceholder -> StringPart.FormatSpecifier t
+        // A malformed `%` (or run of `%`) in a plain / IL-intrinsic string is not a
+        // valid placeholder, so it is literal text — carried verbatim, NOT an error.
+        // The lexer scans `%` in every string flavor, so this is the one place to
+        // keep it; only a printf-family consumer would interpret format validity.
+        | Token.InvalidFormatPlaceholder
+        | Token.InvalidFormatPercents -> StringPart.InvalidText t
         | _ -> invalidOp $"Not a string fragment token: {t.Token}"
 
     /// Parses a plain (non-interpolated) string literal into StringKind * StringPart list * closing token.
