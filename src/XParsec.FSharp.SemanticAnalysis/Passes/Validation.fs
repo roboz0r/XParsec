@@ -9,6 +9,13 @@ open XParsec.FSharp.SemanticAnalysis
 // Read-only. Checks: pattern-match exhaustiveness (TODO), value restriction
 // on mutable bindings, immutability enforcement (per docs/passes.md §4.5
 // and docs/mutable-plan.md).
+//
+// NOTE: closed anonymous-union exhaustiveness is ALREADY handled inline in
+// `UnificationInferControlFlow.inferRules` (it co-computes the uncovered
+// `residual` alongside per-arm binder narrowing, so the warning lives where that
+// state does — see docs/anon-unions-plan.md Stage 7). When the general DU/literal
+// exhaustiveness check lands here, leave the `TyOr` scrutinee case to `inferRules`
+// rather than re-deriving union coverage.
 
 module Validation =
 

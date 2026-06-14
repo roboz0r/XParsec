@@ -128,6 +128,20 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// A short display name for an anonymous-union member in an incomplete-match
+    /// diagnostic. v1 members are ground annotation types (`int`, `string`,
+    /// `null`), so the bare `TyConst` name reads well; anything compound falls
+    /// back to `%A`.
+    let rec private describeUnionMember (m: SemType) : string =
+        match resolveStep m with
+        | TyConst(n, args) when args.IsEmpty -> n
+        | TyOr inner ->
+            inner.Members
+            |> EqArray.toList
+            |> List.map describeUnionMember
+            |> String.concat " | "
+        | other -> sprintf "%A" other
+
     let rec inferIfThenElse
         (infer: Infer)
         (ctx: PassContext)
@@ -462,11 +476,57 @@ module internal UnificationInferControlFlow =
         (resultTy: SemType)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : unit =
+        // Closed anonymous-union scrutinee (`match (x: A | B) with …`): each arm
+        // narrows against the *residual* union — the members not already caught by
+        // an earlier arm — so a `:? M as x` binder sees `M` and a trailing
+        // catch-all sees the leftover `mkUnion (ts \ matched)` (anon-unions plan
+        // Stage 7). Because the union is *closed*, arms that fail to cover every
+        // member leave a non-empty residual, which is a non-exhaustiveness warning
+        // — provable here precisely because the member set is enumerated, unlike
+        // the open `obj`/inheritance case.
+        let unionScrutinee =
+            match zonk scrutineeTy with
+            | TyOr members -> ValueSome(EqArray.toList members.Members)
+            | _ -> ValueNone
+
+        // The members a `:? T` / `:? T as _` arm tests for, recursing through `|`
+        // alternatives. Anything else tests no member.
+        let rec patTests pat =
+            match pat with
+            | Pat.TypeTest(typ = t)
+            | Pat.TypeTestAs(typ = t) -> [ translateType ctx t ]
+            | Pat.Or(left = l; right = r) -> patTests l @ patTests r
+            | Pat.EnclosedBlock(pat = p)
+            | Pat.Attributed(pat = p) -> patTests p
+            | _ -> []
+
+        // A binder / wildcard with no type test catches the whole residual.
+        let rec isCatchAll pat =
+            match pat with
+            | Pat.Wildcard _
+            | Pat.NamedSimple _ -> true
+            | Pat.As(pat = p)
+            | Pat.EnclosedBlock(pat = p)
+            | Pat.Attributed(pat = p) -> isCatchAll p
+            | _ -> false
+
+        let mutable residual = unionScrutinee |> ValueOption.defaultValue []
+
         for r in rules do
             match r with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->
                 let patTy = inferPat ctx pat
-                unify ctx key patTy scrutineeTy
+
+                // Narrow the scrutinee for this arm to the residual union. Fall
+                // back to the full scrutinee for a non-union scrutinee, or once the
+                // residual is exhausted (don't pin a redundant trailing arm's
+                // binder to `never`).
+                let armScrut =
+                    match unionScrutinee with
+                    | ValueSome _ when not (List.isEmpty residual) -> mkUnion residual
+                    | _ -> scrutineeTy
+
+                unify ctx key patTy armScrut
 
                 match guard with
                 | ValueSome(PatternGuard(expr = g)) ->
@@ -476,7 +536,31 @@ module internal UnificationInferControlFlow =
 
                 let bodyTy = infer ctx body
                 unify ctx key bodyTy resultTy
+
+                // Shrink the residual by the members this arm definitively catches.
+                // A guarded arm may fail at runtime, so it removes nothing.
+                match unionScrutinee, guard with
+                | ValueSome _, ValueNone ->
+                    if isCatchAll pat then
+                        residual <- []
+                    else
+                        let tests = patTests pat
+
+                        if not (List.isEmpty tests) then
+                            residual <-
+                                residual
+                                |> List.filter (fun m ->
+                                    tests |> List.forall (fun tst -> subsumes ctx m tst = SubsumeOutcome.Unrelated)
+                                )
+                | _ -> ()
             | _ -> ()
+
+        match unionScrutinee with
+        | ValueSome _ when not (List.isEmpty residual) ->
+            let names = residual |> List.map describeUnionMember |> String.concat " | "
+
+            ctx.Warn(key, sprintf "Incomplete pattern match on anonymous union: member(s) '%s' not handled" names)
+        | _ -> ()
 
     and inferMatch
         (infer: Infer)

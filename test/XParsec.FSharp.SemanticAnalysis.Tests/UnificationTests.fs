@@ -982,9 +982,11 @@ let tests =
             // Stage 5 of the anonymous-union plan (docs/anon-unions-plan.md):
             // committing coercion at expected-type positions. The annotation sites
             // (let return / parameter `Pat.Typed`) switched from symmetric `unify` to
-            // directional `unifyArg`, so a value flows into a union-typed (or any
-            // upcast) slot the annotation writes down. The assignment site `x <- e`
-            // stays on `unify` — inference never synthesises a union.
+            // directional `unifyAnnotation`, so a value flows into a union-typed slot
+            // the annotation writes down — while every non-union annotation (`obj`, a
+            // base class, a plain nominal) still grounds via symmetric `unify`. The
+            // assignment site `x <- e` stays on `unify` — inference never synthesises
+            // a union.
             test "let binding annotated with a union accepts a member value" {
                 let ctx = analyse "let x: int | string = 1"
                 Expect.isEmpty ctx.Diagnostics "int flows into (int | string) annotation"
@@ -1047,5 +1049,51 @@ let tests =
                 let accepted = UnificationEngine.tryCoerceUpcast subsumeCtx key actual target
                 Expect.isTrue accepted "the union slot accepts the value"
                 Expect.equal tv.Link ValueNone "the actual's typar is left free (no pin)"
+            }
+
+            // Stage 7 of the anonymous-union plan (docs/anon-unions-plan.md):
+            // binder narrowing + closed-union exhaustiveness. A `match` on a `TyOr`
+            // scrutinee narrows each `:? M as x` arm to `M`, narrows a fall-through
+            // catch-all to the residual `mkUnion (ts \ matched)`, and — because the
+            // union is *closed* — warns when the arms leave a member uncovered.
+            let hasUnionExhaustivenessWarning (ctx: PassContext) =
+                ctx.Diagnostics
+                |> Seq.exists (fun d -> d.Severity = Severity.Warning && d.Message.Contains "anonymous union")
+
+            test "an exhaustive type-test match on a union checks with no warning" {
+                // The seed milestone: both members tested, so the match is provably
+                // exhaustive and the binders `i`/`s` narrow to `int`/`string`.
+                let ctx =
+                    analyse
+                        "let f (x: int | string) =\n    match x with\n    | :? int as i -> i\n    | :? string as s -> 0"
+
+                Expect.isEmpty ctx.Diagnostics "exhaustive union match — no diagnostics"
+                Expect.isFalse (hasUnionExhaustivenessWarning ctx) "no non-exhaustiveness warning"
+            }
+
+            test "a union match missing a member warns (closed-union exhaustiveness)" {
+                let ctx =
+                    analyse "let f (x: int | string) =\n    match x with\n    | :? int as i -> i"
+
+                Expect.isTrue (hasUnionExhaustivenessWarning ctx) "missing `string` arm warns"
+
+                let warning =
+                    ctx.Diagnostics
+                    |> Seq.find (fun d -> d.Severity = Severity.Warning && d.Message.Contains "anonymous union")
+
+                Expect.isTrue (warning.Message.Contains "string") "the warning names the uncovered member"
+            }
+
+            test "a fall-through catch-all binds the narrowed residual union" {
+                // After `:? int` catches `int`, the residual is `int | string \ int`
+                // = `string`, so `other` binds at `string` (a collapsed singleton),
+                // not the full union — and the catch-all makes the match exhaustive.
+                let input =
+                    "let f (x: int | string) =\n    match x with\n    | :? int as i -> i\n    | other -> 0"
+
+                let ctx = analyse input
+                let otherKey = NodeKey.ofSource (input.IndexOf "other") NodeKind.PatIdent
+                Expect.equal (typeOf ctx otherKey) BuiltinTypes.tyString "other : string (residual)"
+                Expect.isFalse (hasUnionExhaustivenessWarning ctx) "catch-all makes it exhaustive"
             }
         ]

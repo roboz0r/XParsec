@@ -488,6 +488,12 @@ module UnificationEngine =
     /// lives in one place. `src` subsumes `tgt` iff `src` reaches `tgt`'s nominal
     /// with invariant-equal args; reflexive (same root nominal) is `Equal`, a
     /// base/interface hop is `Subtype`. Non-nominal operands fall back to identity.
+    ///
+    /// This is the union-aware dispatcher: a `TyOr` on either side resolves
+    /// structurally (member set ⊆ member set, value ∈ member set) and the
+    /// non-union case delegates to `subsumesNominal`, which carries the original
+    /// inherit/interface walk. Splitting the two keeps the nominal traversal flat
+    /// rather than nested under a union fallthrough.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match resolveStep src, resolveStep tgt with
         // union → union (`A | B ≤ A | B | C`, order-insensitive): every member of
@@ -518,7 +524,7 @@ module UnificationEngine =
 
             if tsm |> EqArray.exists (fun t -> t = src') then
                 SubsumeOutcome.Equal
-            elif tsm |> EqArray.exists (fun t -> subsumes ctx src t <> SubsumeOutcome.Unrelated) then
+            elif tsm |> EqArray.exists (fun t -> subsumes ctx src' t <> SubsumeOutcome.Unrelated) then
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
@@ -534,29 +540,37 @@ module UnificationEngine =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        | _ ->
+        // Neither operand is a union: the nominal subtype walk.
+        | _ -> subsumesNominal ctx src tgt
 
-            match subtypeNominalOf ctx src, subtypeNominalOf ctx tgt with
-            | ValueSome(struct (s, _)), ValueSome(struct (t, ta)) ->
-                match tryUpcastWitness ctx src t with
-                // v1 args are invariant: every witnessed arg must itself be `Equal`.
-                // The length guard is belt-and-suspenders — a name match implies equal
-                // arity in a well-formed program.
-                | ValueSome wargs when
-                    wargs.Length = ta.Length
-                    && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
-                    ->
-                    if s = t then
-                        SubsumeOutcome.Equal
-                    else
-                        SubsumeOutcome.Subtype
-                | _ -> SubsumeOutcome.Unrelated
-            | _ ->
-                // Non-nominal operands (vars, funcs, tuples): identity only.
-                if resolveStep src = resolveStep tgt then
+    /// The nominal core of `subsumes` (no union operands): `src` subsumes `tgt`
+    /// iff `src` reaches `tgt`'s nominal via the inherit/interface witness with
+    /// invariant-equal args — reflexive (same root nominal) is `Equal`, a
+    /// base/interface hop is `Subtype`. Non-nominal operands (vars, funcs, tuples)
+    /// fall back to identity. Mutually recursive with `subsumes` only through the
+    /// invariant-arg check, which may itself face union args.
+    and subsumesNominal (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
+        match subtypeNominalOf ctx src, subtypeNominalOf ctx tgt with
+        | ValueSome(struct (s, _)), ValueSome(struct (t, ta)) ->
+            match tryUpcastWitness ctx src t with
+            // v1 args are invariant: every witnessed arg must itself be `Equal`.
+            // The length guard is belt-and-suspenders — a name match implies equal
+            // arity in a well-formed program.
+            | ValueSome wargs when
+                wargs.Length = ta.Length
+                && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
+                ->
+                if s = t then
                     SubsumeOutcome.Equal
                 else
-                    SubsumeOutcome.Unrelated
+                    SubsumeOutcome.Subtype
+            | _ -> SubsumeOutcome.Unrelated
+        | _ ->
+            // Non-nominal operands (vars, funcs, tuples): identity only.
+            if resolveStep src = resolveStep tgt then
+                SubsumeOutcome.Equal
+            else
+                SubsumeOutcome.Unrelated
 
     [<RequireQualifiedAccess>]
     type private NominalKind =
@@ -1102,13 +1116,28 @@ module UnificationEngine =
             // reference-equal by default; structural equality / comparison
             // for classes requires the attribute walker. Defer in v1.
             Defer
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyOr members ->
-            // Anonymous union (anon-unions-plan §Constraints): the union satisfies a
-            // structural constraint iff EVERY member does — the same all-members-or-
-            // defer reduction used for tuple/record/union fields. (Stage 6's gate
-            // exercises this; reachable only once the Stage 3 front door builds a
-            // `TyOr`.)
+        | SemanticConstraintKind.Equality, TyOr members ->
+            // Anonymous union (anon-unions-plan §Constraints): the union satisfies
+            // EQUALITY iff EVERY member does — the all-members-or-defer reduction used
+            // for tuple/record/union fields. Sound because F#'s generic equality is
+            // *total* on the union's `obj`+`isinst` (CLR) / bare-value (JS) repr:
+            // cross-member `=` returns `false` (different runtime types), never throws
+            // — and `false` is the semantically correct answer (an int is not a
+            // string). A non-equatable member (e.g. a `TyFun` arm) still fails the
+            // reduction. (Stage 6's gate exercises this; reachable only once the
+            // Stage 3 front door builds a `TyOr`.)
             reduceOutcome (checkConstraint ctx c) members.Members
+        | SemanticConstraintKind.Comparison, TyOr members ->
+            // COMPARISON does NOT reduce member-wise, unlike equality above. F#'s
+            // generic `compare` on two `obj` of *different* runtime types THROWS
+            // (`(1).CompareTo("a")` raises ArgumentException), so a genuinely
+            // heterogeneous union is non-comparable even when every member is
+            // individually comparable — admitting it would let `List.sort` on a
+            // `(int | string) list` type-check and then throw at runtime. Any ≥2-member
+            // union is heterogeneous (a singleton is collapsed away by `mkUnion`), so
+            // the only comparable `TyOr` is the empty one (`never` = bottom), which
+            // satisfies every constraint vacuously.
+            if members.Members.IsEmpty then Satisfied else Violated
         | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
             // v1: tuples, functions, and reference records / unions /
             // classes are all reference types. An anonymous union erases to the
