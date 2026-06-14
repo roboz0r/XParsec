@@ -142,6 +142,75 @@ module internal UnificationInferControlFlow =
             |> String.concat " | "
         | other -> sprintf "%A" other
 
+    /// Per-arm scrutinee narrowing for a closed anonymous-union match
+    /// (`match (x: A | B) with …`, anon-unions plan Stage 7). Pure over the arm
+    /// *patterns* — it reads nothing from body typing — so it runs as a pre-pass
+    /// ahead of `inferRules`'s typing loop. Returns the narrowed scrutinee each
+    /// arm's binder should see (the residual union of members not yet caught by an
+    /// earlier *unguarded* arm) paired 1:1 with `rules`, plus the final uncovered
+    /// `residual`. A non-empty residual is a non-exhaustiveness warning — provable
+    /// here because a *closed* union enumerates its members, unlike the open
+    /// `obj`/inheritance case.
+    ///
+    /// For a non-union scrutinee every arm just sees `scrutineeTy` and the residual
+    /// is empty (nothing to prove).
+    let private computeArmNarrowing
+        (ctx: PassContext)
+        (scrutineeTy: SemType)
+        (rules: ImmutableArray<Rule<SyntaxToken>>)
+        : SemType list * SemType list =
+        match zonk scrutineeTy with
+        | TyOr members ->
+            // The members a `:? T` / `:? T as _` arm tests for, recursing through
+            // `|` alternatives. Anything else tests no member.
+            let rec patTests pat =
+                match pat with
+                | Pat.TypeTest(typ = t)
+                | Pat.TypeTestAs(typ = t) -> [ translateType ctx t ]
+                | Pat.Or(left = l; right = r) -> patTests l @ patTests r
+                | Pat.EnclosedBlock(pat = p)
+                | Pat.Attributed(pat = p) -> patTests p
+                | _ -> []
+
+            // A binder / wildcard with no type test catches the whole residual.
+            let rec isCatchAll pat =
+                match pat with
+                | Pat.Wildcard _
+                | Pat.NamedSimple _ -> true
+                | Pat.As(pat = p)
+                | Pat.EnclosedBlock(pat = p)
+                | Pat.Attributed(pat = p) -> isCatchAll p
+                | _ -> false
+
+            let mutable residual = EqArray.toList members.Members
+            let armScruts = ResizeArray(rules.Length)
+
+            for r in rules do
+                // The binder narrows against the members still live *before* this
+                // arm. Once the residual is exhausted, fall back to the full
+                // scrutinee rather than pin a redundant trailing binder to `never`.
+                armScruts.Add(if List.isEmpty residual then scrutineeTy else mkUnion residual)
+
+                // Shrink the residual by the members this arm definitively catches.
+                // A guarded arm may fail at runtime, so it removes nothing.
+                match r with
+                | Rule.Rule(pat = pat; guard = ValueNone) ->
+                    if isCatchAll pat then
+                        residual <- []
+                    else
+                        let tests = patTests pat
+
+                        if not (List.isEmpty tests) then
+                            residual <-
+                                residual
+                                |> List.filter (fun m ->
+                                    tests |> List.forall (fun tst -> subsumes ctx m tst = SubsumeOutcome.Unrelated)
+                                )
+                | _ -> ()
+
+            List.ofSeq armScruts, residual
+        | _ -> [ for _ in rules -> scrutineeTy ], []
+
     let rec inferIfThenElse
         (infer: Infer)
         (ctx: PassContext)
@@ -476,56 +545,18 @@ module internal UnificationInferControlFlow =
         (resultTy: SemType)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : unit =
-        // Closed anonymous-union scrutinee (`match (x: A | B) with …`): each arm
-        // narrows against the *residual* union — the members not already caught by
-        // an earlier arm — so a `:? M as x` binder sees `M` and a trailing
-        // catch-all sees the leftover `mkUnion (ts \ matched)` (anon-unions plan
-        // Stage 7). Because the union is *closed*, arms that fail to cover every
-        // member leave a non-empty residual, which is a non-exhaustiveness warning
-        // — provable here precisely because the member set is enumerated, unlike
-        // the open `obj`/inheritance case.
-        let unionScrutinee =
-            match zonk scrutineeTy with
-            | TyOr members -> ValueSome(EqArray.toList members.Members)
-            | _ -> ValueNone
+        // Closed anonymous-union scrutinee (`match (x: A | B) with …`): each arm's
+        // binder narrows against the residual union — the members not yet caught by
+        // an earlier unguarded arm — and an unguarded shortfall is a
+        // non-exhaustiveness warning (anon-unions plan Stage 7). The residual reads
+        // nothing from body typing, so it is a pure pre-pass and the loop below
+        // stays a flat fold over arms (see `computeArmNarrowing`).
+        let armScruts, residual = computeArmNarrowing ctx scrutineeTy rules
 
-        // The members a `:? T` / `:? T as _` arm tests for, recursing through `|`
-        // alternatives. Anything else tests no member.
-        let rec patTests pat =
-            match pat with
-            | Pat.TypeTest(typ = t)
-            | Pat.TypeTestAs(typ = t) -> [ translateType ctx t ]
-            | Pat.Or(left = l; right = r) -> patTests l @ patTests r
-            | Pat.EnclosedBlock(pat = p)
-            | Pat.Attributed(pat = p) -> patTests p
-            | _ -> []
-
-        // A binder / wildcard with no type test catches the whole residual.
-        let rec isCatchAll pat =
-            match pat with
-            | Pat.Wildcard _
-            | Pat.NamedSimple _ -> true
-            | Pat.As(pat = p)
-            | Pat.EnclosedBlock(pat = p)
-            | Pat.Attributed(pat = p) -> isCatchAll p
-            | _ -> false
-
-        let mutable residual = unionScrutinee |> ValueOption.defaultValue []
-
-        for r in rules do
+        for r, armScrut in Seq.zip rules armScruts do
             match r with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->
                 let patTy = inferPat ctx pat
-
-                // Narrow the scrutinee for this arm to the residual union. Fall
-                // back to the full scrutinee for a non-union scrutinee, or once the
-                // residual is exhausted (don't pin a redundant trailing arm's
-                // binder to `never`).
-                let armScrut =
-                    match unionScrutinee with
-                    | ValueSome _ when not (List.isEmpty residual) -> mkUnion residual
-                    | _ -> scrutineeTy
-
                 unify ctx key patTy armScrut
 
                 match guard with
@@ -536,31 +567,14 @@ module internal UnificationInferControlFlow =
 
                 let bodyTy = infer ctx body
                 unify ctx key bodyTy resultTy
-
-                // Shrink the residual by the members this arm definitively catches.
-                // A guarded arm may fail at runtime, so it removes nothing.
-                match unionScrutinee, guard with
-                | ValueSome _, ValueNone ->
-                    if isCatchAll pat then
-                        residual <- []
-                    else
-                        let tests = patTests pat
-
-                        if not (List.isEmpty tests) then
-                            residual <-
-                                residual
-                                |> List.filter (fun m ->
-                                    tests |> List.forall (fun tst -> subsumes ctx m tst = SubsumeOutcome.Unrelated)
-                                )
-                | _ -> ()
             | _ -> ()
 
-        match unionScrutinee with
-        | ValueSome _ when not (List.isEmpty residual) ->
+        match residual with
+        | _ :: _ ->
             let names = residual |> List.map describeUnionMember |> String.concat " | "
 
             ctx.Warn(key, sprintf "Incomplete pattern match on anonymous union: member(s) '%s' not handled" names)
-        | _ -> ()
+        | [] -> ()
 
     and inferMatch
         (infer: Infer)

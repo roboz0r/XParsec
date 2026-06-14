@@ -1150,4 +1150,64 @@ let tests =
                 Expect.equal (typeOf ctx otherKey) BuiltinTypes.tyString "other : string (residual)"
                 Expect.isFalse (hasUnionExhaustivenessWarning ctx) "catch-all makes it exhaustive"
             }
+
+            // Stage 8 of the anonymous-union plan (docs/anon-unions-plan.md): the
+            // closing freeze round-trip + backend handoff. No codegen — the front
+            // end must hand a well-formed `FTOr` (in canonical order) to the backend
+            // boundary. Stage 1 already mapped `TyOr → FTOr` in `freezeTy`; this is
+            // the *end-to-end* assertion through a real annotated binding, run all
+            // the way through `Pipeline.analyse` (every pass + the final
+            // `SemType → FrozenType` freeze).
+            let freezeDecls (input: string) : Frozen.TastFile =
+                let lexed, file = parseFile input
+                Pipeline.analyse MockBuiltins.provider input lexed file
+
+            // The frozen type of the (sole) top-level `let f` binding.
+            let frozenLetTy (file: Frozen.TastFile) : FrozenType =
+                file.Decls
+                |> EqArray.toList
+                |> List.tryPick (fun d ->
+                    match d with
+                    | TDeclG.Let(ty = ty) -> Some ty
+                    | _ -> None
+                )
+                |> Option.defaultWith (fun () -> failtest "expected a frozen `let` decl")
+
+            test "an annotated `int | string` binding freezes to a canonical FTOr signature" {
+                // The seed milestone's signature: domain AND return both `int |
+                // string`, so the frozen decl type is `FTFun(FTOr, FTOr)`. The
+                // expected `FrozenType` is built by freezing the *same* canonical
+                // SemType (`toFrozen ∘ mkUnion`), so the member order under test is
+                // exactly the canonical one `freeze` preserves — not a hand-written
+                // guess at the sort order.
+                let file = freezeDecls "let f (x: int | string) : int | string = x"
+                let union = mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+                let expected = toFrozen (TyFun(union, union))
+                Expect.equal (frozenLetTy file) expected "f freezes to (int | string) -> (int | string)"
+            }
+
+            test "the frozen union carries both members as FTOr in canonical order" {
+                // Pin the `FTOr` shape directly (not just via the round-trip equality
+                // above): the domain is an `FTOr` of exactly the two `FTConst`
+                // leaves, sorted to the canonical order `mkUnion` produces.
+                let file = freezeDecls "let f (x: int | string) : int | string = x"
+
+                match frozenLetTy file with
+                | FTFun(FTOr members, _) ->
+                    let canonical =
+                        match toFrozen (mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]) with
+                        | FTOr ms -> ms
+                        | other -> failtestf "expected the canonical union to freeze to FTOr, got %A" other
+
+                    Expect.equal members canonical "domain members are the canonical FTOr [int; string]"
+                | other -> failtestf "expected f's domain to freeze to an FTOr, got %A" other
+            }
+
+            test "the frozen FTOr round-trips through the SemType bridge" {
+                // The backend handoff contract rests on `ofFrozen`/`toFrozen` being
+                // mutual inverses (FrozenTypeTests proves it on synthetic samples);
+                // assert it holds on a union that travelled the *real* freeze.
+                let frozen = frozenLetTy (freezeDecls "let f (x: int | string) : int | string = x")
+                Expect.equal (toFrozen (ofFrozen frozen)) frozen "ofFrozen >> toFrozen = id on the frozen signature"
+            }
         ]
