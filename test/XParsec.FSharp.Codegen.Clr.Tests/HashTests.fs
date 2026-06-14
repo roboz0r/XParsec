@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.HashTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `hash` — the third equality-family member (docs/operators-plan.md,

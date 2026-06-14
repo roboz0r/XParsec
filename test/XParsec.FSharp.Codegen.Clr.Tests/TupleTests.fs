@@ -11,6 +11,7 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// A fresh provider over an empty metadata context — enough to mint TypeRef /

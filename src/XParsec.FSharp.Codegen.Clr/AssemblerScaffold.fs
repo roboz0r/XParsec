@@ -4,6 +4,7 @@ open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// Stateless helpers shared by the converged `Assembler` and the `Codegen`
 /// facade: signature builders and the hand-written-body test seam

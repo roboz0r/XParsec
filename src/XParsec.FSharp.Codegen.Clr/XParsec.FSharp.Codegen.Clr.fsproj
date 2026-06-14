@@ -8,8 +8,6 @@
     <Compile Include="Types.fs" />
     <Compile Include="Cil.fs" />
     <Compile Include="Metadata.fs" />
-    <Compile Include="MetadataSymbols.fs" />
-    <Compile Include="SymbolProviders.fs" />
     <Compile Include="ICodegenProvider.fs" />
     <Compile Include="CodegenSymbols.fs" />
     <Compile Include="ClrEnv.fs" />
@@ -47,6 +45,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+    <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr`, `MetadataSymbols`
+         (layer-2 BCL metadata reader), and the target-generic `SymbolProviders`. -->
+    <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
     <!-- Bootstrap printf runtime (Vesper.Printf.dll). Referenced so `ClrProvider`
          can read its live-assembly identity (like FSharp.Core) and so it lands in
          the output dir for `materialiseApp` to copy beside emitted PEs. -->
@@ -54,8 +55,5 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
-    <!-- Layer 2 of the symbol-resolution stack: read referenced assemblies'
-         metadata reflection-only (MetadataSymbols.fs). -->
-    <PackageReference Include="System.Reflection.MetadataLoadContext" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.LogicalOperatorTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `&&` / `||` are NOT compiler intrinsics: they are `val inline` operators whose

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Target.fs" />
+    <Compile Include="IntrinsicRepr.fs" />
+    <Compile Include="MetadataSymbols.fs" />
+    <Compile Include="SymbolProviders.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <!-- Layer 2 of the symbol-resolution stack: read referenced assemblies'
+         metadata reflection-only (MetadataSymbols.fs). -->
+    <PackageReference Include="System.Reflection.MetadataLoadContext" />
+  </ItemGroup>
+</Project>

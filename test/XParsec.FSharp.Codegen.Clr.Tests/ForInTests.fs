@@ -4,6 +4,7 @@ open System
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // B-6 backend tests. `for x in src do body` over an `IEnumerable<'T>` lowers to

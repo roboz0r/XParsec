@@ -5,6 +5,7 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `[<Struct>]` value-type emission. These tests reflect over the emitted PE so

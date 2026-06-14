@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.InferResolutionTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Systematic, source-synthetic coverage of `Infer`'s *application / construction*

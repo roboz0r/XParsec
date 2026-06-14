@@ -8,6 +8,7 @@ open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 
 // The nominal `SemType` cases carry a
 // `SymbolKey`; these shadow the constructors + expose name-projecting active

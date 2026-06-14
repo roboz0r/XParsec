@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+namespace XParsec.FSharp.Codegen.Common
 
 open System
 open System.Collections.Generic

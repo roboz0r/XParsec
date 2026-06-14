@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.BitwiseOperatorTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The bitwise operator family (`&&& ||| ^^^ <<< >>> ~~~`) sourced from the

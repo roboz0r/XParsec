@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.MetadataSymbolsTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 
 let private provider = MetadataSymbols.provider
 

@@ -1,9 +1,9 @@
-module XParsec.FSharp.Codegen.Clr.Tests.OpsPlatformJsTests
+module XParsec.FSharp.Codegen.Js.Tests.OpsPlatformJsTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
-open XParsec.FSharp.Codegen.Clr
-open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // codegen-js step F1: `Vesper.Core/ops-platform.js.fs` re-authors the operator
 // inline bodies with `$N`-template JS expressions, selected over the CLR
@@ -52,7 +52,9 @@ let tests =
         "OpsPlatformJs"
         [
             test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
-                let js = SymbolProviders.contractInlineBodiesFor (Some "js") [ vesperCoreManifest ]
+                let js =
+                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+
                 let clr = SymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ]
 
                 let jsMul = ilOpCodes js.["op_Multiply"]
@@ -67,7 +69,8 @@ let tests =
             }
 
             test "arithmetic operator bodies are collected as cross-package inlines (js target)" {
-                let js = SymbolProviders.contractInlineBodiesFor (Some "js") [ vesperCoreManifest ]
+                let js =
+                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
                 for name in
                     [
@@ -82,7 +85,9 @@ let tests =
             }
 
             test "the int32 / int64 / float clauses freeze with their JS templates intact" {
-                let js = SymbolProviders.contractInlineBodiesFor (Some "js") [ vesperCoreManifest ]
+                let js =
+                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+
                 let add = ilOpCodes js.["op_Addition"]
 
                 Expect.contains add "$0 + $1" "float base template"
@@ -103,7 +108,8 @@ let tests =
             }
 
             test "equality operators freeze with `===` primitive clauses + structural base" {
-                let js = SymbolProviders.contractInlineBodiesFor (Some "js") [ vesperCoreManifest ]
+                let js =
+                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let eq = ilOpCodes js.["op_Equality"]
                 Expect.contains eq "$0 === $1" "primitive `===` clause"

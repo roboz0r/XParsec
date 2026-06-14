@@ -5,6 +5,7 @@ open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open AssemblerScaffold
 
 /// The converged assembler over the `AssemblyLayout`: the layout enumerates

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The hand-curated symbol provider; printf is special-cased in the front
+         end, so `MockBuiltins.provider` alone resolves `printfn "hi"`. -->
+    <Compile Include="..\XParsec.FSharp.SemanticAnalysis.Tests\MockBuiltins.fs" Link="MockBuiltins.fs" />
+    <Compile Include="TestHelpers.fs" />
+    <Compile Include="Step0aTests.fs" />
+    <Compile Include="OpsPlatformJsTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Expecto" />
+    <PackageReference Include="YoloDev.Expecto.TestSdk" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+    <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Js\XParsec.FSharp.Codegen.Js.fsproj" />
+    <!-- The F1 inline-body tests resolve through the shared, target-generic
+         `Codegen.Common.SymbolProviders.contractInlineBodiesFor`, which selects
+         `ops-platform.js.fs` via `ReferencedProject.resolveInlineBodies (Some Target.Js)`.
+         No dependency on the CLR backend. -->
+    <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
+  </ItemGroup>
+</Project>

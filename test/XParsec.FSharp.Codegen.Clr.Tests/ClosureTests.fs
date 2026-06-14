@@ -260,7 +260,7 @@ let tests =
                             ]
 
                     let provider =
-                        XParsec.FSharp.Codegen.Clr.SymbolProviders.buildContract defaultManifests
+                        XParsec.FSharp.Codegen.Common.SymbolProviders.buildContract defaultManifests
 
                     let lexed, file = parseFile src
                     let tast = Pipeline.analyseSem provider src lexed file

@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.ArithmeticOperatorTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The arithmetic / unary-negation operator family (`+ - * / %`, `~-`) is now

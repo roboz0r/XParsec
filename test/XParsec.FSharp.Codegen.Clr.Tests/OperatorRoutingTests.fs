@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.OperatorRoutingTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The C-Eq1 last mile (docs/operators-plan.md): an operator use site
