@@ -21,6 +21,10 @@ module EmitExpr =
         match e with
         | TExprG.Const(TConstValue.String s, _, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
         | TExprG.Const(TConstValue.Int n, _, _) -> b.Add(ILInstr.LdcI4 n)
+        // `uint32` shares the 32-bit stack representation of `int32`; `ldc.i4`
+        // pushes its two's-complement bit pattern (the value's signedness is a
+        // type-level distinction the verifier reads off the slot, not the load).
+        | TExprG.Const(TConstValue.UInt n, _, _) -> b.Add(ILInstr.LdcI4(int n))
         | TExprG.Const(TConstValue.Int64 n, _, _) -> b.Add(ILInstr.LdcI8 n)
         | TExprG.Const(TConstValue.Bool v, _, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
         | TExprG.Const(TConstValue.Byte n, _, _) -> b.Add(ILInstr.LdcI4(int n))

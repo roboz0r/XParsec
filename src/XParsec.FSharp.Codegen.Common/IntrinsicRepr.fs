@@ -25,6 +25,11 @@ module IntrinsicRepr =
         Map
             [
                 "int", "System.Int32"
+                // `uint`/`uint32` both abbreviate `System.UInt32`; only the
+                // canonical `uint32` is listed — the front end expands the `uint`
+                // abbreviation to it, and `MetadataSymbols.reprToName` (this map
+                // inverted) needs one name per repr.
+                "uint32", "System.UInt32"
                 "int64", "System.Int64"
                 "byte", "System.Byte"
                 "float", "System.Double"
@@ -47,6 +52,9 @@ module IntrinsicRepr =
         match repr with
         | "System.Int32" ->
             te.Int32()
+            true
+        | "System.UInt32" ->
+            te.UInt32()
             true
         | "System.Int64" ->
             te.Int64()

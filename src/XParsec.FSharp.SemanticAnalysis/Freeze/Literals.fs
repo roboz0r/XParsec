@@ -20,6 +20,62 @@ module internal FreezeLiterals =
         else
             text
 
+    /// Strip the trailing integer-literal suffix letters (`u`/`l`/`y`/`s`/`n`,
+    /// any case) from a numeric literal's raw text. None of these overlap the
+    /// hex digit set (`a`–`f`), so this is safe even for a `0x…` literal whose
+    /// magnitude carries hex letters.
+    let private stripIntSuffix (text: string) =
+        let mutable len = text.Length
+
+        while len > 0
+              && (
+                  match System.Char.ToLowerInvariant text.[len - 1] with
+                  | 'u'
+                  | 'l'
+                  | 'y'
+                  | 's'
+                  | 'n' -> true
+                  | _ -> false
+              ) do
+            len <- len - 1
+
+        text.Substring(0, len)
+
+    /// Split a (suffix-stripped) integer magnitude into its radix — from the
+    /// `0x`/`0o`/`0b` prefix, else decimal — and the underscore-free digit span.
+    let private splitRadix (mag: string) : int * string =
+        let radix, digits =
+            if mag.Length >= 2 && mag.[0] = '0' then
+                match System.Char.ToLowerInvariant mag.[1] with
+                | 'x' -> 16, mag.Substring 2
+                | 'o' -> 8, mag.Substring 2
+                | 'b' -> 2, mag.Substring 2
+                | _ -> 10, mag
+            else
+                10, mag
+
+        radix, digits.Replace("_", "")
+
+    /// `0x…` / `0o…` / `0b…` (or decimal) → `int32`. `Convert.ToInt32` reads a
+    /// non-decimal literal as its two's-complement bit pattern (`0xFFFFFFFF` →
+    /// `-1`), matching F#'s wrap semantics for radix int literals.
+    let private parseInt32Radix (text: string) : int =
+        let radix, digits = splitRadix (stripIntSuffix text)
+
+        if radix = 10 then
+            System.Int32.Parse(digits, System.Globalization.CultureInfo.InvariantCulture)
+        else
+            System.Convert.ToInt32(digits, radix)
+
+    /// `0x…` / `0o…` / `0b…` (or decimal) → `uint32`.
+    let private parseUInt32Radix (text: string) : uint32 =
+        let radix, digits = splitRadix (stripIntSuffix text)
+
+        if radix = 10 then
+            System.UInt32.Parse(digits, System.Globalization.CultureInfo.InvariantCulture)
+        else
+            System.Convert.ToUInt32(digits, radix)
+
     /// The escape set mirrors the lexer's `pCharChar` (Lexing.fs) exactly — a
     /// char literal that reaches here already lexed clean, so any unexpected
     /// shape is a broken invariant.
@@ -107,10 +163,18 @@ module internal FreezeLiterals =
                         System.Globalization.CultureInfo.InvariantCulture
                     )
                 )
+            | Token.NumInt32
+            | Token.NumInt32Hex
+            | Token.NumInt32Octal
+            | Token.NumInt32Binary -> TConstValue.Int(parseInt32Radix text)
+            | Token.NumUInt32
+            | Token.NumUInt32Hex
+            | Token.NumUInt32Octal
+            | Token.NumUInt32Binary -> TConstValue.UInt(parseUInt32Radix text)
             | _ ->
-                // NumInt32 family and anything Unification hasn't classified are
-                // treated as plain ints.
-                TConstValue.Int(Int32.Parse text)
+                // Anything Unification hasn't classified is treated as a plain
+                // (radix-aware) int.
+                TConstValue.Int(parseInt32Radix text)
 
         match c with
         | Constant.Literal t -> parseLiteral t

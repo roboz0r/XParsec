@@ -142,6 +142,7 @@ module EmitPattern =
 
             match value with
             | TConstValue.Int n -> b.Add(ILInstr.LdcI4 n)
+            | TConstValue.UInt n -> b.Add(ILInstr.LdcI4(int n))
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Byte n -> b.Add(ILInstr.LdcI4(int n))
             | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))

@@ -166,3 +166,11 @@ module Operators =
     /// Boolean negation — JS logical `!`. (The CLR body negates via `ceq value
     /// false`; the JS template is the direct operator.)
     let inline not (value: bool) : bool = (# "!$0" value : bool #)
+
+    /// Convert to `uint32`. The JS idiom `$0 >>> 0` coerces any number to a
+    /// 32-bit *unsigned* integer (zero-fill right shift by 0), the counterpart of
+    /// the CLR `conv.u4` / sign-only reinterpret. (printf-port-steps.md PP5b.)
+    let inline uint32 (value: ^T) : uint32 = (# "$0 >>> 0" value : uint32 #)
+
+    /// `uint` abbreviation of `uint32`.
+    let inline uint (value: ^T) : uint32 = uint32 value

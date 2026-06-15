@@ -1053,4 +1053,39 @@ let structTests =
                             "printfn \"%b\" a.ProviderOk"
                         ])
             }
+
+            // PP5b (printf-port-steps): unsigned literals + the `uint` cast.
+            test "PP5b: hex uint32 literal reads back; radix literals" {
+                runsLines
+                    [ "true"; "true"; "true"; "true" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "let MaxChars = 0x3FFFFFDFu"
+                            "let hexI = 0xFF"
+                            "let octI = 0o17"
+                            "let binU = 0b1010u"
+                            "printfn \"%b\" (MaxChars = 1073741791u)"
+                            "printfn \"%b\" (hexI = 255)"
+                            "printfn \"%b\" (octI = 15)"
+                            "printfn \"%b\" (binU = 10u)"
+                        ])
+            }
+
+            test "PP5b: uint cast feeding Math.Max/Min/Clamp" {
+                runsLines
+                    [ "true" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "let MaxChars = 0x3FFFFFDFu"
+                            "let grow (pos: int) (additional: int) (cap: int) ="
+                            "    let needed = uint pos + uint additional"
+                            "    let doubled = uint cap * 2u"
+                            "    let size = Math.Max(needed, doubled)"
+                            "    Math.Min(Math.Clamp(size, 256u, MaxChars), MaxChars)"
+                            "printfn \"%b\" (grow 10 20 8 = 256u)"
+                        ])
+            }
         ]

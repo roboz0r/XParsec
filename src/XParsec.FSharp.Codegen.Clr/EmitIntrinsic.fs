@@ -99,6 +99,13 @@ module EmitIntrinsic =
                     failwithf "Emit: %d-ary inline-IL instruction 'throw' is out of scope" args.Length
 
                 b.Add ILInstr.Throw
+            elif opCode = "" then
+                // Empty-mnemonic reinterpret cast, e.g. `(# "" value : uint32 #)` —
+                // F#'s sign-only int32↔uint32 conversion, a stack no-op per
+                // ECMA-335 III §1.5 (the two share one 32-bit slot). The operand is
+                // already pushed; emit nothing.
+                if args.Length <> 1 then
+                    failwithf "Emit: %d-ary empty inline-IL reinterpret is out of scope" args.Length
             else
                 match Cil.tryOpCodeOfMnemonic opCode with
                 | ValueSome code ->

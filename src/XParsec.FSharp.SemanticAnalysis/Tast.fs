@@ -21,6 +21,7 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 type TConstValue =
     | Int of int
+    | UInt of uint32
     | Int64 of int64
     | Byte of byte
     | Float of double

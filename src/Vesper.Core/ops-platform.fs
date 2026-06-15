@@ -218,6 +218,33 @@ module Operators =
     /// enumerator (`IEnumerator.Current = box this.current`).
     let inline box (value: 'T) : obj = (# "box !0" type ('T) value : obj #)
 
+    /// Convert a value to `uint32`. A reduced transliteration of FSharp.Core
+    /// `prim-types.fs`'s `ToUInt32` (`[<CompiledName("ToUInt32")>]`): the leading
+    /// (dynamic) body is the `conv.u4` fallback used when the function is NOT
+    /// inline-expanded (taken as a first-class value); each `when ^T : …` clause
+    /// picks the width-correct conversion at the use site. A same-width
+    /// `int32`→`uint32` (and `uint32`→`uint32`) is the sign-only reinterpret
+    /// `(# "" … #)`, a stack no-op per ECMA-335 III §1.5. As a cross-package
+    /// inline the chosen body splices at each use site, so this pins no Vesper
+    /// runtime dependency. (printf-port-steps.md PP5b — `GrowCore`'s `(uint)`
+    /// clamp arithmetic.)
+    let inline uint32 (value: ^T) : uint32 =
+        (# "conv.u4" value : uint32 #)
+        when ^T: int32 = (# "" value : uint32 #)
+        when ^T: uint32 = (# "" value : uint32 #)
+        when ^T: int64 = (# "conv.u4" value : uint32 #)
+        when ^T: uint64 = (# "conv.u4" value : uint32 #)
+        when ^T: float = (# "conv.u4" value : uint32 #)
+        when ^T: float32 = (# "conv.u4" value : uint32 #)
+        when ^T: char = (# "conv.u4" value : uint32 #)
+        when ^T: byte = (# "conv.u4" value : uint32 #)
+
+    /// `uint` is the F# abbreviation of `uint32` (matching FSharp.Core's
+    /// `[<CompiledName("ToUInt")>] let inline uint value = uint32 value`). The
+    /// body delegates to `uint32`, so the same per-source-width static-opt
+    /// applies after the inline splice.
+    let inline uint (value: ^T) : uint32 = uint32 value
+
     /// Indexed read of a single-dimensional, zero-based array — the lowering
     /// target the front end desugars `arr.[i]` to (mirroring F#'s
     /// `IntrinsicFunctions.GetArray`). The `(# "ldelem.any !0" … #)` inline IL

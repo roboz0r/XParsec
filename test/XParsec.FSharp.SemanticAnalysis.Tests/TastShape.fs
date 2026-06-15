@@ -107,6 +107,9 @@ type private Renderer() =
     member this.Expr(e: TExpr) : unit =
         match e with
         | TExpr.Const(TConstValue.Int n, _, _) -> push (string n)
+        | TExpr.Const(TConstValue.UInt n, _, _) ->
+            push (string n)
+            push "u"
         | TExpr.Const(TConstValue.Int64 n, _, _) ->
             push (string n)
             push "L"
@@ -539,6 +542,9 @@ type private Renderer() =
         | TPat.NamedSimple(k, _, _) -> push (nameOf k)
         | TPat.Wildcard _ -> push "_"
         | TPat.Const(TConstValue.Int n, _, _) -> push (string n)
+        | TPat.Const(TConstValue.UInt n, _, _) ->
+            push (string n)
+            push "u"
         | TPat.Const(TConstValue.Int64 n, _, _) ->
             push (string n)
             push "L"

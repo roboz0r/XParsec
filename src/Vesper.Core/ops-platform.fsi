@@ -344,6 +344,29 @@ module Operators =
         /// target-agnostic Semantic Analysis layer.</remarks>
         val inline box: value: 'T -> obj
 
+        /// <summary>Convert a value to <c>uint32</c> (mirroring FSharp.Core's
+        /// <c>ToUInt32</c>).</summary>
+        ///
+        /// <param name="value">The input value.</param>
+        ///
+        /// <returns>The converted <c>uint32</c>.</returns>
+        ///
+        /// <remarks>Inline static-optimization over inline IL — each source width
+        /// picks its own conversion at the use site (a same-width
+        /// <c>int32</c>→<c>uint32</c> is a sign-only reinterpret, a stack no-op).
+        /// The platform mnemonics live in <c>ops-platform.fs</c>. Drives
+        /// <c>GrowCore</c>'s <c>(uint)</c> clamp arithmetic (printf-port-steps.md
+        /// PP5b).</remarks>
+        val inline uint32: value: ^T -> uint32
+
+        /// <summary>Convert a value to <c>uint32</c> — the <c>uint</c> abbreviation
+        /// of <c>uint32</c> (mirroring FSharp.Core's <c>ToUInt</c>).</summary>
+        ///
+        /// <param name="value">The input value.</param>
+        ///
+        /// <returns>The converted <c>uint32</c>.</returns>
+        val inline uint: value: ^T -> uint32
+
         /// <summary>Indexed read of a single-dimensional, zero-based array — the
         /// lowering target the front end desugars <c>arr.[i]</c> to (mirroring F#'s
         /// <c>IntrinsicFunctions.GetArray</c>).</summary>

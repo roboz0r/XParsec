@@ -799,6 +799,7 @@ module internal FreezeExpr =
         let ty =
             match cv with
             | TConstValue.Int _ -> BuiltinTypes.tyInt
+            | TConstValue.UInt _ -> BuiltinTypes.tyUInt32
             | TConstValue.Int64 _ -> BuiltinTypes.tyInt64
             | TConstValue.Byte _ -> BuiltinTypes.tyByte
             | TConstValue.Float _ -> BuiltinTypes.tyFloat
