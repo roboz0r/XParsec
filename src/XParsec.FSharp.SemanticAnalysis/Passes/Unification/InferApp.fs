@@ -247,6 +247,24 @@ module internal UnificationInferApp =
         let operandTy = infer ctx operand
 
         match ctx.Desugared.TryGetValue key with
+        | ValueSome(DesugaredForm.OpName "op_AddressOf") ->
+            // `&local` (managed address-of) is the byref intrinsic, not a
+            // provider operator — `op_AddressOf` has no Vesper.Core / BCL symbol.
+            // Type it directly as `TyConst("&", [operandTy])` (mirroring
+            // `inferIndexedLookup`'s byref wrapping) so it matches a BCL method's
+            // byref/`out` parameter (`Int32.TryParse(string, int&)`). The operand
+            // must be an addressable mutable local; that is enforced at codegen
+            // (a `Var` bound to a slot), deferred here per the relax-then-reject
+            // convention (PP5d).
+            //
+            // TODO(byref-producer): this is the *consume* side only — `&local` as an
+            // argument into an external method. Vesper source cannot yet *declare* a
+            // byref parameter / return, nor use the `byref<'T>` / `inref<'T>` /
+            // `outref<'T>` type aliases as annotations (no alias → byref-intrinsic
+            // resolution is wired; only the `&` prefix is). `Formatter`/printf needs
+            // neither (its byref returns come from BCL `Span.get_Item`, PP2b), so the
+            // producer side is unbuilt.
+            TyConst(RuntimeNames.byrefName, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym ->

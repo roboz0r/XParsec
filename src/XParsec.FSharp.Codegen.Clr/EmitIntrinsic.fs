@@ -62,6 +62,17 @@ module EmitIntrinsic =
             match operand with
             | ValueSome elem -> b.Add(ILInstr.Ldobj(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'ldobj' without an element type operand"
+        | TExprG.ILIntrinsic("ldloca", _, args, _, _) ->
+            // `&local` (managed address-of, PP5d) — push the *address* of the
+            // mutable local so a BCL `out`/`ref` parameter can write through it.
+            // The sole operand is the local `Var`; emit `ldloca <slot>` rather than
+            // recurring (which would `ldloc` the value). Mirrors the PP2a
+            // struct-receiver address dispatch in `EmitCall`.
+            match EqArray.toList args with
+            | [ TExprG.Var(binding, _, _) ] when env.Slots.ContainsKey binding ->
+                b.Add(ILInstr.Ldloca env.Slots.[binding])
+            | [ other ] -> failwithf "Emit: address-of (&) requires an addressable mutable local, got %A" other
+            | _ -> failwith "Emit: 'ldloca' intrinsic expects exactly one operand"
         | TExprG.ILIntrinsic("box", operand, args, _, _) ->
             // `box value` — push the value, then `box <T>`. The boxed type rides
             // `typeOperand` (Freeze recovered it from the argument's static type).

@@ -1149,4 +1149,81 @@ let structTests =
                             "printfn \"%s\" (format 3.14)"
                         ])
             }
+
+            // PP5d (printf-port-steps): byref `out`/`ref` *arguments* — the
+            // genuinely-new compiler feature. `&local` (managed address-of) is the
+            // byref intrinsic `TyConst("&", [T])` (`inferPrefix`), lowered at Freeze
+            // to an `ldloca` of the operand's slot; the member-ref encodes the
+            // parameter with the `ELEMENT_TYPE_BYREF` prefix (`mintMemberRef`), so a
+            // BCL method writes back through the local. `Int32.TryParse(string,
+            // out int)` is the clean non-`Span` `out` probe: the local must be a
+            // function-local mutable (a module-level mutable is a static field, not a
+            // slot-addressable local).
+            test "PP5d: Int32.TryParse(s, &r) writes the out local through a byref arg" {
+                runsLines
+                    [ "123"; "-1" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "let parse (s: string) : int ="
+                            "    let mutable r = 0"
+                            "    let ok = Int32.TryParse(s, &r)"
+                            "    if ok then r else -1"
+                            "printfn \"%d\" (parse \"123\")"
+                            "printfn \"%d\" (parse \"oops\")"
+                        ])
+            }
+
+            // PP5d part 4 (printf-port-steps): the `ISpanFormattable.TryFormat`
+            // span fast-path — the no-alloc branch the `Formatter` prefers over the
+            // `IFormattable.ToString` fallback. `box value` once, then
+            // `:? ISpanFormattable as sf -> sf.TryFormat(dest, &cw,
+            // ReadOnlySpan<char>.Empty, provider)` writes the formatted chars
+            // straight into the `Span<char>` buffer (no intermediate string),
+            // reading the count back through the `&cw` out arg (PP5d's byref-arg
+            // machinery) and slicing the dest to materialise the result. The two
+            // earlier-deferred ingredients now compile: the empty
+            // `ReadOnlySpan<char>.Empty` format arg (the `TODO TypeApp` blocker is
+            // gone — an external generic-type static-property receiver resolves
+            // through `ExternalAccess`) and the `Span<char>` by-value `dest`
+            // (PP5a). `int` / `float` implement `ISpanFormattable` (the fast path);
+            // `string` implements neither, so it falls to the `o.ToString()` arm —
+            // and every fast-path result is byte-identical to the `IFormattable`
+            // path PP5c delivers.
+            test "PP5d part 4: AppendFormatted span fast-path via ISpanFormattable.TryFormat" {
+                runsLines
+                    [ "42"; "3.14"; "hi" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "open System.Buffers"
+                            "open System.Globalization"
+                            "[<Struct; IsByRefLike>]"
+                            "type Holder(seed: int) ="
+                            "    static let provider : IFormatProvider = CultureInfo.InvariantCulture"
+                            "    member this.AppendFormatted(value: 'T) : string ="
+                            "        let buf = ArrayPool<char>.Shared.Rent(64)"
+                            "        let dest = Span<char>(buf)"
+                            "        let o = box value"
+                            "        let result ="
+                            "            match o with"
+                            "            | :? ISpanFormattable as sf ->"
+                            "                let mutable cw = 0"
+                            "                if sf.TryFormat(dest, &cw, ReadOnlySpan<char>.Empty, provider) then"
+                            "                    dest.Slice(0, cw).ToString()"
+                            "                else"
+                            "                    \"\""
+                            "            | :? IFormattable as f -> f.ToString(null, provider)"
+                            "            | null -> \"\""
+                            "            | _ -> o.ToString()"
+                            "        ArrayPool<char>.Shared.Return(buf)"
+                            "        result"
+                            "let h = Holder(0)"
+                            "printfn \"%s\" (h.AppendFormatted 42)"
+                            "printfn \"%s\" (h.AppendFormatted 3.14)"
+                            "printfn \"%s\" (h.AppendFormatted \"hi\")"
+                        ])
+            }
         ]

@@ -117,7 +117,26 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     ),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
+                            match p with
+                            // A by-ref / `out` / `ref` parameter (`Int32.TryParse(string,
+                            // int&)`, `ISpanFormattable.TryFormat(…, int&, …)`) emits the
+                            // `ELEMENT_TYPE_BYREF` prefix via the *parameter* encoder's
+                            // `isByRef` flag, then the element — symmetric with the byref
+                            // *return* arm above (PP2b). The signature must match the BCL
+                            // method's by-ref parameter exactly or it fails to bind at JIT;
+                            // the caller pushes the argument's *address* (`ldloca`, PP5d).
+                            //
+                            // TODO(inref): a C# `in` parameter is `T&` plus a
+                            // `modreq(System.Runtime.InteropServices.InAttribute)` the CLR
+                            // includes in member-ref matching; this emits a bare `T&`, so an
+                            // `in`-parameter call would `MissingMethodException`. To support
+                            // it, surface the modreq in `tryBuildType` (paired TODO in
+                            // MetadataSymbols.fs) and emit it here via
+                            // `CustomModifiers(...).Type(true)`. No printf-port consumer needs
+                            // it (TryFormat/TryParse use `out` + by-value spans).
+                            | FTConst(n, args) when n = RuntimeNames.byrefName && args.Length = 1 ->
+                                encodeType (pars.AddParameter().Type(true)) args.[0]
+                            | _ -> encodeType (pars.AddParameter().Type()) p
                     )
                 )
 

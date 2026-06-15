@@ -49,10 +49,22 @@ module private MetadataMapping =
         if t.IsByRef then
             // A managed by-ref (`T&`) maps onto the byref intrinsic
             // `FTConst(byrefName, [elem])`, mirroring the array intrinsic below — so
-            // a byref-returning member (e.g. `Span<T>.get_Item : T&`) resolves
+            // a byref-returning member (e.g. `Span<T>.get_Item : T&`) and a byref/
+            // `out`/`ref` *parameter* (`Int32.TryParse(string, int&)`, PP5d) resolve
             // instead of being dropped. Legal only in param / return position; the
             // encoder emits `ELEMENT_TYPE_BYREF` at that seam, never inside the
             // recursive type encoder (PP2b).
+            //
+            // TODO(inref): direction-agnostic — `in`/`out`/`ref` all collapse to the
+            // same `T&` here. A C# `in` parameter additionally carries a *required
+            // custom modifier* `modreq(System.Runtime.InteropServices.InAttribute)`
+            // (via `t`'s declaring `ParameterInfo.GetRequiredCustomModifiers()`),
+            // which this drops. Since the CLR matches member-ref signatures
+            // including modreqs, calling a BCL method with an `in` parameter would
+            // fail to bind until that modifier is threaded through to the encoder
+            // (`mintMemberRef`, ClrExternalMembers.fs — paired TODO there). No
+            // current consumer (`Formatter`/printf) hits an `in` parameter, so it is
+            // unbuilt + untested rather than wrong.
             match tryBuildType (t.GetElementType()) with
             | Some elem -> Some(FTConst(RuntimeNames.byrefName, EqArray.singleton elem))
             | None -> None

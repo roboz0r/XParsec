@@ -52,6 +52,13 @@ module Desugar =
         // (wellKnownOps); `~-`/`~+` only appear as binding heads / values today,
         // not as their own prefix use site (`-x` is `OpSubtraction`).
         | Token.OpLogicalNot -> ValueSome "op_LogicalNot"
+        // `&local` is the managed address-of (byref): its prefix compiled name is
+        // `op_AddressOf`. Unlike the other prefix ops it has no provider symbol —
+        // `inferPrefix` / `translatePrefix` special-case the name (the byref
+        // intrinsic + an `ldloca` of the local), so it never reaches operator
+        // resolution. `&&` (`OpAmpAmp`, native int address-of) is left unmapped
+        // (no consumer) and the boolean `&&` is an `InfixApp`, not a prefix.
+        | Token.OpAmp -> ValueSome "op_AddressOf"
         | _ -> ValueNone
 
     /// `[ … ]` / `[| … |]` literals share the same lowering target — the
