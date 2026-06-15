@@ -239,6 +239,26 @@ module UnificationEngine =
     let instantiateMember (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>) (ty: SemType) : SemType =
         substituteWith (mkNamedTypeSubst typeParams args) ty
 
+    /// Append `c` to `tv`'s constraints unless one of the same `Kind` is already
+    /// present. Both per-use freshening paths (`freshConstrainedTyVar` here and
+    /// `UnificationInferGeneralize.instantiate`'s scheme re-stamp) apply this
+    /// dedup so a use site never accumulates duplicate SRTP / equality bounds.
+    let addConstraintByKind (tv: TypeVar) (c: SemanticConstraint) : unit =
+        if not (tv.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
+            tv.Constraints <- c :: tv.Constraints
+
+    /// Mint a fresh instance TyVar at the current level carrying a deduped copy
+    /// of `constraints`, so the use site re-evaluates SRTP / equality
+    /// satisfaction against its own substitution rather than the shared prototype.
+    let freshConstrainedTyVar (ctx: PassContext) (constraints: SemanticConstraint list) : TypeVar =
+        let fresh = TypeVar()
+        fresh.Level <- ctx.CurrentLevel
+
+        for c in constraints do
+            addConstraintByKind fresh c
+
+        fresh
+
     /// Instantiate a member's type for a *call / use site*. As well as the
     /// declaring-type substitution (`typeParams ↦ args`, the declaring axis),
     /// freshen the member's OWN method typars (`methodTypars`, the method axis)
@@ -272,16 +292,9 @@ module UnificationEngine =
             // by a declaring-axis arg, leave the existing mapping — substituteWith
             // follows the link / arg as before.
             if root.Link.IsNone && not (subst.ContainsKey root) then
-                let fresh = TypeVar()
-                fresh.Level <- ctx.CurrentLevel
-
                 // Re-stamp constraints (SRTP / equality bounds) onto the fresh
                 // instance so each site re-evaluates satisfaction independently.
-                for c in root.Constraints do
-                    if not (fresh.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
-                        fresh.Constraints <- c :: fresh.Constraints
-
-                subst.[root] <- TyVar fresh
+                subst.[root] <- TyVar(freshConstrainedTyVar ctx root.Constraints)
 
         substituteWith subst ty
 
@@ -415,6 +428,28 @@ module UnificationEngine =
     /// instance-method probe) route an intrinsic *receiver*'s instance members
     /// through the provider without hard-coding the BCL name.
     let intrinsicCanonName (ctx: PassContext) (n: string) : string = canonName ctx n
+
+    /// Resolve a *receiver* type to the external `(qualifiedBclName, typeArgs)` a
+    /// provider member lookup keys on: a non-project-local `TyClass` (a BCL /
+    /// contract class), or an *intrinsic* `TyConst` whose `(# "…" #)` binding
+    /// canonicalises to a BCL type (`intrinsicCanonName`, via `prim-types-*.fs`).
+    /// `ValueNone` for a project-local class (which routes through
+    /// `resolveLocalInstanceMember`), an array (`"[]"`), or byref (`"&"`) — each
+    /// keeps its own path. Shared by the dot-access resolver
+    /// (`resolveFieldStep`) and the arg-aware external instance-method probe so
+    /// neither re-derives the receiver→BCL-name mapping.
+    let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =
+        match resolveStep ty with
+        | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
+            ValueSome(struct (SymbolKeyOps.qualifiedName clsKey, typeArgs))
+        | TyConst(name, typeArgs) ->
+            let canonQual = intrinsicCanonName ctx name
+
+            if canonQual <> name then
+                ValueSome(struct (canonQual, typeArgs))
+            else
+                ValueNone
+        | _ -> ValueNone
 
     // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
     // (so the `exn` bound participates), not just `TyClass`.

@@ -31,9 +31,7 @@ module internal UnificationInferGeneralize =
             let qRoot = UnionFind.find qTv
 
             match freshOf.TryGetValue qRoot with
-            | true, fresh ->
-                if not (fresh.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
-                    fresh.Constraints <- c :: fresh.Constraints
+            | true, fresh -> addConstraintByKind fresh c
             | false, _ -> ()
 
         substituteWith subst scheme.Body
