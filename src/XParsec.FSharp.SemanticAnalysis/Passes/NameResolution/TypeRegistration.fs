@@ -203,19 +203,16 @@ module NameResolutionTypeRegistration =
                 registerRecordTypeDefn ctx declNs td
         | _ -> ()
 
-    /// Map a union-case head to its case name. The operator-named cases that
-    /// matter are FSharp.Core's list ctors — `([])`→`Empty`, `(::)`→`Cons`.
-    /// Heads we can't name (`(*)`, range/active-pattern ops) yield `""`, which
-    /// `inspectCaseData` reads as "drop this case".
+    /// Map a union-case head to its case name. Delegates to the shared
+    /// `OperatorNames.unionCaseCtorName` (the operator-named cases that matter are
+    /// the cons-list ctors — `([])`→`Empty`, `(::)`→`Cons`) so the registered name
+    /// can't drift from the contract extractor's. Heads we can't name (`(*)`,
+    /// range/active-pattern ops) yield `""`, which `inspectCaseData` reads as "drop
+    /// this case".
     let private unionCaseName (ctx: PassContext) (head: IdentOrOp<SyntaxToken>) : string =
-        match head with
-        | IdentOrOp.Ident t -> ctx.NameOf t
-        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> "Empty"
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) ->
-            match ctx.NameOf op with
-            | "::" -> "Cons"
-            | s -> s
-        | _ -> ""
+        match OperatorNames.unionCaseCtorName ctx.NameOf head with
+        | ValueSome n -> n
+        | ValueNone -> ""
 
     /// Pull a ctor case's name + arity + per-field names from `UnionTypeCaseData`.
     /// Handles plain forms, operator-named cases, and the explicit-return

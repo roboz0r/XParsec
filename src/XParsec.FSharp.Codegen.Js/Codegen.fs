@@ -47,6 +47,11 @@ type JsArtifact =
         Map: string option
         /// `<OutputPath>.map`, `None` when not writing to disk or no map.
         MapPath: string option
+        /// The JS runtime modules the program imports (Step 5b — `Vesper.List`),
+        /// each written beside the output by `materialise` so Node can resolve the
+        /// emitted `import … from "./<FileName>"`. Empty for a program that imports
+        /// no package runtime.
+        RuntimeModules: JsRuntimeModule list
     }
 
 /// Entry point mirroring `Codegen.Clr.Codegen.compile`. `compileWith` takes the
@@ -94,10 +99,17 @@ module Codegen =
                 Provider = ValueSome provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
                 ExternalUnionDecls = ResizeArray()
+                Imports = JsImports.create ()
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)
         let jsFile = jsFileName project
+
+        // The runtime modules the walk imported (`ctx.Imports` is the same shared
+        // accumulator the walker populated): each home assembly's `JsRuntimeModule`,
+        // resolved once at first reference, materialised beside the output so Node
+        // resolves the `./<file>.mjs` imports.
+        let runtimeModules = JsImports.modules ctx.Imports
 
         // Source text supplied ⇒ emit the V3 map and append the
         // `sourceMappingURL` comment pointing the runtime at `<jsFile>.map`.
@@ -118,6 +130,7 @@ module Codegen =
                 match map, project.OutputPath with
                 | Some _, Some path -> Some(path + ".map")
                 | _ -> None
+            RuntimeModules = runtimeModules
         }
 
     /// `compileWith` against the empty provider — for a program that references no
@@ -136,7 +149,15 @@ module Codegen =
     /// `MapPath` when those are set.
     let materialise (artifact: JsArtifact) : unit =
         match artifact.OutputPath with
-        | Some path -> System.IO.File.WriteAllText(path, artifact.Source)
+        | Some path ->
+            System.IO.File.WriteAllText(path, artifact.Source)
+
+            // Runtime modules sit next to the output `.js` so the emitted
+            // `import … from "./<FileName>"` resolves under Node.
+            let dir = System.IO.Path.GetDirectoryName path
+
+            for rt in artifact.RuntimeModules do
+                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, rt.FileName), rt.Source)
         | None -> ()
 
         match artifact.MapPath, artifact.Map with

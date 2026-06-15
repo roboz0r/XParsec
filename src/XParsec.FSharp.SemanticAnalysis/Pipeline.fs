@@ -147,6 +147,21 @@ module Pipeline =
         : Frozen.TastFile =
         analyseFor "" provider input lexed file
 
+    /// The self-host **`SemType`** (pre-freeze) entry — like `analyseSem` but a
+    /// bare-program list literal/pattern defaults to the Vesper cons-list, not
+    /// FSharp.Core's `list`. The JS backend's front end always runs through this:
+    /// the JS target has no FSharp.Core (and imports no Fable.Core), so the
+    /// cons-list is the only list representation. Callers inspect `Diagnostics`
+    /// before freezing.
+    let analyseSemForSelfHost
+        (provider: IExternalSymbolProvider)
+        (input: string)
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : TastFile =
+        let _, tast = analyseSemWithContextForCore true "" provider input lexed file
+        tast
+
     /// The self-host production entry: like `analyseFor` but a bare-program list
     /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`,
     /// so a BCL-only package (no FSharp.Core reference) emits `Vesper.List`-only.

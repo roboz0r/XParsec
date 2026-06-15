@@ -132,13 +132,20 @@ module EmitJs =
             /// External unions resolved on demand during the walk, keyed by the
             /// same `SymbolKey` the `Unions` table uses. Shared mutable state: a
             /// miss in `Unions` falls back here, resolving + caching the shape and
-            /// recording its emission order in `ExternalUnionOrder` so `buildProgram`
+            /// recording its emission order in `ExternalUnionDecls` so `buildProgram`
             /// can prepend the classes (JS classes are not hoisted).
             ExternalUnions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
             /// The `Union` statements for the external unions resolved during the
             /// walk, in discovery order — `buildProgram` prepends them to the body
             /// (deterministic given a deterministic walk; JS classes are not hoisted).
             ExternalUnionDecls: ResizeArray<JsStatement>
+            /// Runtime-module imports discovered during the walk (Step 5b): the
+            /// `External`-value walker calls `JsImports.addRef` (which resolves +
+            /// caches each home assembly's runtime module once). `buildProgram`
+            /// reads `JsImports.importStatements` for the leading `import …` block;
+            /// `Codegen.compileWith` reads `JsImports.modules` off this same shared
+            /// accumulator to materialise the runtime files.
+            Imports: JsImports
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -242,6 +249,13 @@ module EmitJs =
     /// gets a fresh unused name (JS array holes would shift later positions).
     /// Lambda parameters are irrefutable, so no refutable leaf (`Const` / `Union`)
     /// can appear here.
+    //
+    // TODO (boundary): a tuple leaf returns a JS *destructuring pattern* (`[a, b]`)
+    // smuggled through this `string`, which `JsPrint` emits verbatim into `Arrow`'s
+    // `string list` params. Consistent with the pre-existing opaque param strings
+    // (`unit` / `_v<offset>`), but the seam wants a real `JsPattern` (identifier |
+    // array-destructure | object-destructure) once nested/object-destructuring
+    // params arrive — at which point `Arrow.parameters` should carry that, not text.
     let rec private lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
         match p with
         | TPatG.NamedSimple(k, _, _) -> identName source k
@@ -362,7 +376,7 @@ module EmitJs =
     /// Resolve an *external* union type (one not declared in this file — `Option`,
     /// `List`) to a `JsUnionInfo`, reading its case shapes off the symbol provider
     /// and emitting honest nominal JS classes for it (the same base-class +
-    /// per-case-subclass shape a local union gets, queued in `ctx.ExternalUnionOrder`
+    /// per-case-subclass shape a local union gets, queued in `ctx.ExternalUnionDecls`
     /// for `buildProgram` to prepend). Cached in `ctx.ExternalUnions` so the classes
     /// are emitted once. `ValueNone` when there is no provider or the type does not
     /// resolve to a union — the caller then fails loudly.
@@ -439,6 +453,13 @@ module EmitJs =
         | TExprG.Const(value, _, _) -> constExpr value loc
 
         | TExprG.Var(k, _, _) -> JsExpr.Identifier(identName ctx.Source k, loc)
+
+        // An external module function (`List.length`, `List.map`) — a value imported
+        // from its package's JS runtime module (Step 5b). The reference is the
+        // import alias; `App` saturates it (`List.map f xs` ≡ `$…map(f)(xs)`,
+        // curried unary like every JS call).
+        | TExprG.External(compiledName, key, _, _) ->
+            JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key, loc)
 
         | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
             JsExpr.Conditional(buildExpr ctx cond, buildExpr ctx thenE, buildExpr ctx elseE, loc)
@@ -947,10 +968,14 @@ module EmitJs =
                     | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
             ]
 
-        // External union classes (`Option`, …) are discovered *during* the body
-        // walk, so they are gathered into `ctx.ExternalUnionDecls` and prepended
-        // here — both they and the local classes must precede every `new`/match
-        // site (JS classes are not hoisted).
+        // Runtime-module imports (`Vesper.List`) are also discovered during the
+        // walk; they lead the program (an `import` must precede every reference).
+        // External union classes (`Option`, …) and local classes follow — both must
+        // precede every `new`/match site (JS classes are not hoisted).
         {
-            Body = classDecls @ List.ofSeq ctx.ExternalUnionDecls @ body
+            Body =
+                JsImports.importStatements ctx.Imports
+                @ classDecls
+                @ List.ofSeq ctx.ExternalUnionDecls
+                @ body
         }

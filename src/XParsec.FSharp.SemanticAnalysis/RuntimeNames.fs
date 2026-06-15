@@ -204,6 +204,15 @@ module RuntimeNames =
 
     let isFsharpCoreListKey (k: SymbolKey) : bool = sameTypeAsmBlind fsharpCoreListKey k
 
+    /// True iff the *compiled qualified type-name string* (`Vesper.Collections.List`1`)
+    /// denotes the Vesper cons-list `List` union — the string-keyed analogue of
+    /// `isVesperListKey`, for the one consumer holding the extracted contract's
+    /// `TypeShapes` name (a string) rather than a `SymbolKey`: the reverse
+    /// union-case index in `VesperLib.TyparCapture`, which excludes the cons-list's
+    /// `Empty`/`Cons` cases from bare-ctor-name resolution.
+    let isVesperListName (compiledName: string) : bool =
+        compiledName = SymbolKeyOps.qualifiedName vesperListKey
+
     /// True iff `k` denotes the `%A` structural-format interface
     /// `Vesper.IStructuralFormattable`. The single source the codegen `Layout` and
     /// `Assembler` both consult to detect *this* compilation defining the interface

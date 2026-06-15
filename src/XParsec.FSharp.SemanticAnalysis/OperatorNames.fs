@@ -68,6 +68,26 @@ module OperatorNames =
             | ValueSome op -> ValueSome(op.GetName text)
             | ValueNone -> ValueNone
 
+    /// The canonical **union-case constructor name** for a case head. The
+    /// cons-list's operator cases map to their source ctor names (`([])` →
+    /// `Empty`, `(::)` → `Cons`) — the names `FreezeExpr` mints and codegen
+    /// resolves through — *not* the `op_Nil`/`op_ColonColon` compiled-op form
+    /// (`ofIdentOp`/`identOrOpName`, the *value*-position binding-head surface).
+    /// Shared by the front-end union registration (`TypeRegistration`) and the
+    /// contract extractor (`VesperLib`) so a locally-compiled union and its
+    /// extracted contract name their cases identically. `ValueNone` for a head
+    /// with no nameable ctor form (`(*)`, range / active-pattern ops), which the
+    /// caller treats as "drop this case".
+    let unionCaseCtorName (nameOf: SyntaxToken -> string) (head: IdentOrOp<SyntaxToken>) : string voption =
+        match head with
+        | IdentOrOp.Ident t -> ValueSome(nameOf t)
+        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome "Empty"
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) ->
+            match nameOf op with
+            | "::" -> ValueSome "Cons"
+            | s -> ValueSome s
+        | _ -> ValueNone
+
     /// Compiled member name for the operator segment of a parenthesised operator
     /// reference (`(+)` in `A.B.(+)`). Only the symbolic-op form has an `op_`
     /// member; the active-pattern / nil / range op-name forms have none, so a

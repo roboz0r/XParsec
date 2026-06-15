@@ -820,18 +820,17 @@ module VesperLib =
         let caseCsts = ResizeArray<Type<SyntaxToken>[]>(cases.Length)
         let mutable err = None
 
+        // Operator-named cases (the cons-list's `([])` / `(::)`) take their
+        // canonical *ctor* names `Empty`/`Cons` — the names `FreezeExpr` mints and
+        // codegen (both the CLR recipes and the JS external-union path) resolves
+        // through — via the shared `OperatorNames.unionCaseCtorName`, so the
+        // extracted contract's case names match a locally-compiled union's exactly.
+        // The reverse bare-ctor-name index (`TyparCapture.toProvider`) excludes the
+        // cons-list's cases, so `Empty`/`Cons` here cannot shadow a user union's
+        // ctor in bare-name resolution (the role the old `op_Nil`/`op_ColonColon`
+        // form served).
         let caseName (ioo: IdentOrOp<SyntaxToken>) : string voption =
-            match ioo with
-            | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
-            | _ ->
-                // Operator-named cases (the cons-list's `([])` → `op_Nil`,
-                // `(::)` → `op_ColonColon`) keep their *compiled-op* form, NOT the
-                // source ctor name (`Empty`/`Cons`). The cons-list is special-cased
-                // throughout construction/literals (`FreezeExpr`, `TryEmitUnionCons`),
-                // so its case names are never resolved through the generic
-                // `TryLookupUnionCase` path; the op-form keeps them from colliding
-                // with a user union's `Cons` / `Nil` in ctor-name resolution.
-                identOrOpName lexed input ioo
+            OperatorNames.unionCaseCtorName (nameOfTok lexed input) ioo
 
         for i in 0 .. cases.Length - 1 do
             if err.IsNone then

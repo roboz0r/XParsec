@@ -125,7 +125,10 @@ let jsProvider: Lazy<IExternalSymbolProvider> =
 /// `MockBuiltins`, which has no JS bodies). Fails on any error diagnostic.
 let frozenOfJs (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSem jsProvider.Value input lexed file
+    // Self-host list default: the JS target has no FSharp.Core, so an unpinned
+    // `[]`/`::` resolves to the Vesper cons-list (`Vesper.Collections.List`1`),
+    // emitted as honest nominal JS classes via the same provider path as `Option`.
+    let tast = Pipeline.analyseSemForSelfHost jsProvider.Value input lexed file
 
     let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 

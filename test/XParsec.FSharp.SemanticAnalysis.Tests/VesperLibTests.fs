@@ -590,9 +590,10 @@ let tests =
             test "A GADT-cased union extracts as a genuine Union shape" {
                 // The cons-list shape (operator cases with explicit return types):
                 // `([])` and `(::)` are GADT-syntax. GADT-case extraction
-                // registers a real `Union` — cases named by their compiled-op form
-                // (`op_Nil` / `op_ColonColon`, kept distinct from a user union's
-                // `Cons` / `Nil`), fields drawn from the `(::)` signature's args, the
+                // registers a real `Union` — cases named by their canonical *ctor*
+                // form (`Empty` / `Cons`, via the shared
+                // `OperatorNames.unionCaseCtorName`), matching `FreezeExpr` and
+                // codegen, fields drawn from the `(::)` signature's args, the
                 // return type ignored. (`Thing<'T>` stands in for `'T list` to keep
                 // the fixture self-contained — the self-referential field resolves
                 // because the type's name is registered before its body is kinded.)
@@ -641,9 +642,9 @@ let tests =
                 | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
                     Expect.equal arity 1 "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases extracted"
-                    Expect.equal cases.[0].Name "op_Nil" "`([])` names the nullary case by its op form"
+                    Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"
                     Expect.equal cases.[0].FrozenFieldTypes.Length 0 "the nullary case has no fields"
-                    Expect.equal cases.[1].Name "op_ColonColon" "`(::)` names the cons case by its op form"
+                    Expect.equal cases.[1].Name "Cons" "`(::)` names the cons case by its canonical ctor form"
                     Expect.equal cases.[1].FrozenFieldTypes.Length 2 "cons has Head + Tail fields"
                     Expect.equal cases.[1].FieldNames [| ValueSome "Head"; ValueSome "Tail" |] "cons field names"
                 | ValueSome other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other

@@ -297,6 +297,14 @@ module VesperLibTyparCapture =
 
                 for kv in ctx.TypeShapes do
                     match kv.Value with
+                    // The cons-list's cases are now the canonical `Empty`/`Cons`
+                    // (shared `OperatorNames.unionCaseCtorName`), matching `FreezeExpr`
+                    // and codegen. They must NOT enter the bare-ctor-name index: the
+                    // list is constructed/matched only via `[]`/`::` (which lower
+                    // specially), never by writing `Cons`/`Empty`, so indexing them
+                    // would shadow a user union's same-named ctor. This exclusion is
+                    // what the old `op_Nil`/`op_ColonColon` extraction form provided.
+                    | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName kv.Key -> ()
                     | ExternalTypeShape.Union(arity, cases, origin) ->
                         let rqa = ctx.RqaTypes.Contains kv.Key
 
