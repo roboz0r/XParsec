@@ -12,9 +12,10 @@ module EmitLower =
     // ---- Re-exports of the platform-neutral utilities (now in TastLower) ----
     let typeOfExpr = TastLower.typeOfExpr
     let typeOfPat = TastLower.typeOfPat
-    let receiverShape = TastLower.receiverShape
+    // `inline` so the call sites keep `TastLower.receiverShape`'s inlining (a plain
+    // re-export `let` would demote it to an allocated function value).
+    let inline receiverShape ty = TastLower.receiverShape ty
     let matchInstantiation = TastLower.matchInstantiation
-    let mapChildren = TastLower.mapChildren
     let iterChildren = TastLower.iterChildren
     let mintUnitParamKey = TastLower.mintUnitParamKey
     let mintTupleParamKey = TastLower.mintTupleParamKey

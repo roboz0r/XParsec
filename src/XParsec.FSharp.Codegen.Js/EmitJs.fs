@@ -20,6 +20,14 @@ open XParsec.FSharp.SemanticAnalysis
 /// templated operator bodies themselves were already spliced pre-freeze by
 /// `Passes.InlineExpansion` from `ops-platform.js.fs` (Step F1), so a ground
 /// `2 + 2` arrives as `ILIntrinsic("($0 + $1) | 0", …)`.
+///
+/// **Step 2** adds functions: `Lambda` → a chain of nested *unary* arrows,
+/// `App` → a unary call (`f a b` → `f(a)(b)`). The curried representation is
+/// correct for saturated calls, partial application, and higher-order values
+/// with no call-site arity analysis (the flat-call optimisation is deferred —
+/// it needs boundary curry/uncurry adaptation to stay sound). Self-recursion in
+/// tail position is trampolined to a `while (true)` loop with param-shadow
+/// mutation (`emitFunction` / `buildTailBody`) so it runs in constant stack.
 module EmitJs =
 
     /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
@@ -139,6 +147,55 @@ module EmitJs =
         | TExprG.Var(vk, _, _) when vk.Raw = k.Raw -> value
         | _ -> TastLower.mapChildren (substVar k value) e
 
+    // ---- Functions -----------------------------------------------------------
+
+    /// A lambda parameter's JS identifier. A `NamedSimple` binder reuses the
+    /// `Var`/binder naming (`identName`); a `unit` parameter (`fun () -> …`) is
+    /// never referenced, so it gets a fresh unused name keyed off its source
+    /// offset. Tuple-destructuring parameters (`fun (a, b) -> …`) are Step 5 and
+    /// fail loudly here.
+    let private lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
+        match p with
+        | TPatG.NamedSimple(k, _, _) -> identName source k
+        | TPatG.Const(TConstValue.Unit, _, tok) -> "_u" + string tok.StartIndex
+        | other -> failwithf "EmitJs (Step 2): unsupported lambda parameter pattern %A" other
+
+    /// Peel a curried `Lambda` chain into its parameter names and the innermost
+    /// body. The inverse of the nested-arrow emission.
+    let rec private peelArrow (source: string voption) (e: Frozen.TExpr) : string list * Frozen.TExpr =
+        match e with
+        | TExprG.Lambda(p, body, _, _) ->
+            let names, inner = peelArrow source body
+            lambdaParamName source p :: names, inner
+        | _ -> [], e
+
+    /// `e` is a fully-saturated self-call of the function bound to `selfKey` at
+    /// `arity`; yields its argument expressions in source order. The single
+    /// definition of "tail self-call" shared by the detector (`hasTailSelfCall`)
+    /// and the rewriter (`buildTailBody`), so the two can't drift and the spine is
+    /// walked once.
+    let private (|TailSelfCall|_|) (selfKey: NodeKey) (arity: int) (e: Frozen.TExpr) : Frozen.TExpr list option =
+        match e with
+        | TExprG.App _ ->
+            match TastWalk.collectSpine [] e with
+            | TExprG.Var(k, _, _), spine when k.Raw = selfKey.Raw && List.length spine = arity ->
+                Some [ for (a, _, _) in spine -> a ]
+            | _ -> None
+        | _ -> None
+
+    /// Is `e`, in tail position, a fully-saturated self-call of the function
+    /// bound to `selfKey` (arity `arity`)? Recurses through the constructs that
+    /// preserve tail position (`if`/`let`/`Sequential`-tail); a saturated tail
+    /// self-call is what the trampoline rewrites to param mutation + `continue`.
+    let rec private hasTailSelfCall (selfKey: NodeKey) (arity: int) (e: Frozen.TExpr) : bool =
+        match e with
+        | TExprG.IfThenElse(_, thenE, elseE, _, _) ->
+            hasTailSelfCall selfKey arity thenE || hasTailSelfCall selfKey arity elseE
+        | TExprG.Let(_, _, body, _, _) -> hasTailSelfCall selfKey arity body
+        | TExprG.Sequential(xs, _, _) when xs.Length > 0 -> hasTailSelfCall selfKey arity xs.[xs.Length - 1]
+        | TailSelfCall selfKey arity _ -> true
+        | _ -> false
+
     // ---- The walker ----------------------------------------------------------
 
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
@@ -174,10 +231,38 @@ module EmitJs =
         // A `let` in expression position (the operand lets `InlineExpansion`
         // introduces around a spliced operator body). When the bound value is pure
         // it is substituted into its uses — collapsing `let a = 2 in let b = 2 in
-        // (# … a b #)` back to the clean template. A non-pure value would need an
-        // IIFE (arrows, Step 2), so it fails loudly until then.
+        // (# … a b #)` back to the clean template.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
             buildExpr ctx (substVar k value body)
+
+        // A non-pure `let` in expression position (e.g. an operator operand that is
+        // itself a function call: `n * fact (n - 1)` binds `fact (n - 1)` to a
+        // let). JS has no let-expression, so it lowers to an IIFE
+        // `((x) => <body>)(<value>)` — the binder evaluated once, then the body.
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
+            let name = identName ctx.Source k
+
+            JsExpr.Call(
+                JsExpr.Arrow([ name ], JsFnBody.Expr(buildExpr ctx body), ValueNone),
+                [ buildExpr ctx value ],
+                loc
+            )
+
+        // An anonymous function value. Named bindings route through `emitBound`
+        // (which knows the binder key, so it can recognise — and trampoline —
+        // self-recursion); an anonymous lambda has no name to call itself by, so
+        // no self-tail-call analysis applies.
+        | TExprG.Lambda _ -> emitFunction ctx ValueNone e
+
+        // Curried application: `f a b` (`App(App(f, a), b)`) emits one unary call
+        // per `App` (`f(a)(b)`). F# functions are emitted as nested unary arrows
+        // (`emitFunction`), so a unary call chain is correct for saturated calls,
+        // partial application, and higher-order values alike — without any
+        // call-site arity analysis. (The flat-call optimisation the plan sketches
+        // — `add(x, y)` with re-curry at partial sites — needs boundary
+        // curry/uncurry adaptation to stay sound across generic higher-order
+        // functions, so it is deferred to its own slice.)
+        | TExprG.App(fn, arg, _, _) -> JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
 
         | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
@@ -279,11 +364,90 @@ module EmitJs =
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
 
+    /// Emit a function value as a chain of nested *unary* arrows. When `selfKey`
+    /// names the binding the function is bound to and its body makes a saturated
+    /// self-call in tail position, the innermost arrow becomes a `while (true)`
+    /// trampoline (`buildTailBody`) so self-recursion runs in constant stack;
+    /// otherwise the innermost body is the concise expression. The nested-unary
+    /// shape keeps the parameters of every arrow in lexical scope at the innermost
+    /// body, which is what lets the trampoline write them back and `continue`.
+    and emitFunction (ctx: WalkCtx) (selfKey: NodeKey voption) (lam: Frozen.TExpr) : JsExpr =
+        let loc = locOf ctx (TastWalk.exprTok lam)
+        let names, body = peelArrow ctx.Source lam
+        let arity = List.length names
+
+        let innermost =
+            match selfKey with
+            | ValueSome k when hasTailSelfCall k arity body ->
+                JsFnBody.Block
+                    [
+                        JsStatement.While(
+                            JsExpr.Literal(JsLiteral.Boolean true, ValueNone),
+                            buildTailBody ctx k names body
+                        )
+                    ]
+            | _ -> JsFnBody.Expr(buildExpr ctx body)
+
+        let rec nest names =
+            match names with
+            | [ last ] -> JsExpr.Arrow([ last ], innermost, loc)
+            | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nest rest), loc)
+            | [] -> failwith "EmitJs (Step 2): a lambda peeled to zero parameters"
+
+        nest names
+
+    /// Build the statements of a self-tail-call trampoline's loop body, walking
+    /// tail position. A saturated tail self-call writes its arguments back to the
+    /// parameter variables — through per-argument temporaries first, so an
+    /// argument that reads a parameter (`sum (n-1) (acc+n)`) sees the *old* value
+    /// — then `continue`s. Tail `if`/`let`/`Sequential`-tail thread through;
+    /// every other tail expression `return`s its value.
+    and buildTailBody (ctx: WalkCtx) (selfKey: NodeKey) (paramNames: string list) (e: Frozen.TExpr) : JsStatement list =
+        let arity = List.length paramNames
+        let recur = buildTailBody ctx selfKey paramNames
+
+        match e with
+        | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
+            [ JsStatement.If(buildExpr ctx cond, recur thenE, recur elseE) ]
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
+            recur (substVar k value body)
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
+            JsStatement.Const(identName ctx.Source k, buildExpr ctx value) :: recur body
+        | TExprG.Sequential(xs, _, _) when xs.Length > 0 ->
+            let items = EqArray.toList xs
+            let init = items.[.. items.Length - 2]
+            let last = items.[items.Length - 1]
+            (init |> List.collect (buildStatements ctx)) @ recur last
+        | TailSelfCall selfKey arity args ->
+            // `_tc<i>` temporaries only need to avoid the param names in scope;
+            // they are not collision-proof against a source parameter literally
+            // named `_tc0` (the JS backend keys synthetic names off strings, not
+            // `NodeKey`s as the CLR backend does — see `_u`/`_v` in `identName`).
+            let tmp i = "_tc" + string i
+            // Evaluate every new argument into a temporary before any write-back,
+            // so a self-call argument that mentions a parameter reads its current
+            // (pre-iteration) value.
+            [ for i, a in List.indexed args -> JsStatement.Const(tmp i, buildExpr ctx a) ]
+            @ [
+                for i, name in List.indexed paramNames -> JsStatement.Assign(name, JsExpr.Identifier(tmp i, ValueNone))
+            ]
+            @ [ JsStatement.Continue ]
+        | _ -> [ JsStatement.Return(buildExpr ctx e) ]
+
+    /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
+    /// value routes through `emitFunction` carrying its binder key, so a
+    /// recursive binding (`let rec`) can recognise its own tail calls; any other
+    /// value is a plain `buildExpr`.
+    and emitBound (ctx: WalkCtx) (k: NodeKey) (value: Frozen.TExpr) : JsExpr =
+        match value with
+        | TExprG.Lambda _ -> emitFunction ctx (ValueSome k) value
+        | _ -> buildExpr ctx value
+
     /// An expression in *statement* position (a top-level `do`, or a `let … in …`
     /// body). `Sequential` flattens to one statement per element (the trailing
     /// value is discarded); a `let` binder becomes a `const` then the body
     /// continues. Anything else is one `ExpressionStatement` over `buildExpr`.
-    let rec buildStatements (ctx: WalkCtx) (e: Frozen.TExpr) : JsStatement list =
+    and buildStatements (ctx: WalkCtx) (e: Frozen.TExpr) : JsStatement list =
         match e with
         | TExprG.Sequential(xs, _, _) ->
             [
@@ -295,7 +459,7 @@ module EmitJs =
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
             buildStatements ctx (substVar k value body)
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            JsStatement.Const(identName ctx.Source k, buildExpr ctx value)
+            JsStatement.Const(identName ctx.Source k, emitBound ctx k value)
             :: buildStatements ctx body
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
@@ -320,7 +484,7 @@ module EmitJs =
                     match decl with
                     | TDeclG.Expression(e, _) -> yield! buildStatements ctx e
                     | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                        JsStatement.Const(identName ctx.Source k, buildExpr ctx value)
+                        JsStatement.Const(identName ctx.Source k, emitBound ctx k value)
                     | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
             ]
 

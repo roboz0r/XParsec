@@ -17,6 +17,12 @@ namespace XParsec.FSharp.Codegen.Js
 // parser lands). Every `JsExpr` carries a `loc` (source position) for V3 source
 // maps, resolved from the originating `TExprG` node's `'tok` (`SyntaxToken`),
 // `ValueNone` on synthesised sub-nodes with no source origin.
+//
+// Step 2 adds functions: the `Arrow` expression (F# functions emit as nested
+// *unary* arrows so currying / partial application are free), and the
+// statement-level `If` / `While` / `Return` / `Continue` / `Assign` the
+// self-tail-call loop form needs (`while (true)` + param-shadow mutation +
+// `continue`, codegen-js-steps Step 2 / plan §"Self tail calls").
 
 /// A 0-based source position — V3 source-map coordinates (`Line`, then `Column`
 /// counted in UTF-16 code units). ESTree spells a full `loc` as
@@ -73,18 +79,43 @@ and [<RequireQualifiedAccess>] JsExpr =
     /// printer. Not an ESTree node — retired per-construct when the bounded
     /// template parser (b) lands.
     | Raw of segments: JsRawSeg list * loc: JsLoc voption
+    /// `ArrowFunctionExpression` — `(p0, …) => body`. An F# function emits as a
+    /// chain of *unary* arrows (`(x) => (y) => …`) so currying and partial
+    /// application fall out for free, so `parameters` is conventionally a single
+    /// name; the list form is kept for a possible later flat-call optimisation.
+    | Arrow of parameters: string list * body: JsFnBody * loc: JsLoc voption
 
-[<RequireQualifiedAccess>]
-type JsStatement =
+/// An arrow function's body: a concise expression (`=> e`) or a brace-delimited
+/// statement block (`=> { … }`) — the latter is the self-tail-call loop form.
+and [<RequireQualifiedAccess>] JsFnBody =
+    | Expr of JsExpr
+    | Block of JsStatement list
+
+and [<RequireQualifiedAccess>] JsStatement =
     /// `ExpressionStatement` — an expression evaluated for effect.
     | Expression of JsExpr
     /// `VariableDeclaration` with `kind = "const"` — a top-level `let x = e`
     /// module value (Step 1 binds it as a `const`; mutation / hoisting awaits a
-    /// later step).
+    /// later step). Also the loop form's per-call argument temporaries.
     | Const of name: string * init: JsExpr
     /// `ImportDeclaration` — `import { specifiers… } from "source"`. Carried in the
     /// subset for the runtime-import step; Steps 0–1 emit none.
     | Import of specifiers: string list * source: string
+    /// `IfStatement` — statement-position `if (test) { … } else { … }`. Used in
+    /// the self-tail-call loop body, where the branches carry `return`/`continue`
+    /// (the expression-position conditional stays the `Conditional` ternary).
+    /// An empty `alternate` prints without the `else`.
+    | If of test: JsExpr * consequent: JsStatement list * alternate: JsStatement list
+    /// `WhileStatement` — the `while (true) { … }` self-tail-call trampoline.
+    | While of test: JsExpr * body: JsStatement list
+    /// `ReturnStatement` — yields a tail value out of a loop-form function body.
+    | Return of JsExpr
+    /// `ContinueStatement` — re-enters the `while (true)` loop after the self-call
+    /// arguments have been written back to the parameter variables.
+    | Continue
+    /// `AssignmentExpression` (as a statement) — `target = value;`, the
+    /// param-shadow mutation a self-tail-call performs before `continue`.
+    | Assign of target: string * value: JsExpr
 
 /// `Program` with `sourceType: "module"` (ESM output).
 type JsProgram = { Body: JsStatement list }

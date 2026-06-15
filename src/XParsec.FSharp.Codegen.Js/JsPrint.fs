@@ -65,6 +65,7 @@ module JsPrint =
             Sb: StringBuilder
             mutable Line: int
             mutable Col: int
+            mutable Indent: int
             mutable Maps: Mapping list
         }
 
@@ -77,6 +78,16 @@ module JsPrint =
         p.Sb.Append '\n' |> ignore
         p.Line <- p.Line + 1
         p.Col <- 0
+
+    /// Newline then the current indentation (two spaces per level) — used inside
+    /// brace-delimited blocks so generated coordinates (and therefore source-map
+    /// columns) account for the leading whitespace.
+    let private newlineIndent (p: Printer) =
+        p.Sb.Append '\n' |> ignore
+        p.Line <- p.Line + 1
+        let pad = p.Indent * 2
+        p.Sb.Append(' ', pad) |> ignore
+        p.Col <- pad
 
     /// Record a mapping from the current generated position to `loc`'s source
     /// position, when the node carries one. Call immediately before writing the
@@ -115,7 +126,19 @@ module JsPrint =
                 expr p property
         | JsExpr.Call(callee, args, loc) ->
             mark p loc
-            expr p callee
+            // A callee that is not a plain reference / call needs parenthesising
+            // so the `(args)` binds to it and not to a sub-expression — notably an
+            // arrow (`((x) => …)(v)`, the IIFE), whose body would otherwise extend
+            // rightward and swallow the argument list.
+            match callee with
+            | JsExpr.Identifier _
+            | JsExpr.Member _
+            | JsExpr.Call _ -> expr p callee
+            | _ ->
+                write p "("
+                expr p callee
+                write p ")"
+
             write p "("
 
             args
@@ -168,8 +191,42 @@ module JsPrint =
                     write p ")"
 
             write p ")"
+        | JsExpr.Arrow(parameters, body, loc) ->
+            mark p loc
+            write p "("
 
-    let private statement (p: Printer) (s: JsStatement) =
+            parameters
+            |> List.iteri (fun i n ->
+                if i > 0 then
+                    write p ", "
+
+                write p n
+            )
+
+            write p ") => "
+
+            match body with
+            // A concise body composes safely as-is in Step 2 (arrow / call /
+            // ternary / `Raw` all self-delimit). An object-literal body (records,
+            // Step 3) will need its own parenthesisation when it lands.
+            | JsFnBody.Expr e -> expr p e
+            | JsFnBody.Block stmts -> block p stmts
+
+    /// A brace-delimited statement block: `{` then one indented statement per
+    /// line, then the closing `}` at the enclosing indentation.
+    and private block (p: Printer) (stmts: JsStatement list) =
+        write p "{"
+        p.Indent <- p.Indent + 1
+
+        for s in stmts do
+            newlineIndent p
+            statement p s
+
+        p.Indent <- p.Indent - 1
+        newlineIndent p
+        write p "}"
+
+    and private statement (p: Printer) (s: JsStatement) =
         match s with
         | JsStatement.Expression e ->
             expr p e
@@ -182,6 +239,30 @@ module JsPrint =
             write p ";"
         | JsStatement.Import(specifiers, source) ->
             write p (sprintf "import { %s } from %s;" (String.concat ", " specifiers) (JsEscape.quoted source))
+        | JsStatement.If(test, consequent, alternate) ->
+            write p "if ("
+            expr p test
+            write p ") "
+            block p consequent
+
+            if not (List.isEmpty alternate) then
+                write p " else "
+                block p alternate
+        | JsStatement.While(test, body) ->
+            write p "while ("
+            expr p test
+            write p ") "
+            block p body
+        | JsStatement.Return e ->
+            write p "return "
+            expr p e
+            write p ";"
+        | JsStatement.Continue -> write p "continue;"
+        | JsStatement.Assign(target, value) ->
+            write p target
+            write p " = "
+            expr p value
+            write p ";"
 
     /// The emitted ESM source (trailing-newline terminated) plus its mappings.
     let print (program: JsProgram) : PrintResult =
@@ -190,6 +271,7 @@ module JsPrint =
                 Sb = StringBuilder()
                 Line = 0
                 Col = 0
+                Indent = 0
                 Maps = []
             }
 

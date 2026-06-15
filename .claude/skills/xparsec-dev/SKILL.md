@@ -30,6 +30,7 @@ To compile a specific library project (path `src/<SourceProject>`) and isolate c
 - `XParsec.CLArgs`
 - `XParsec.FSharp`
 - `XParsec.FSharp.Codegen.Clr`
+- `XParsec.FSharp.Codegen.Js`
 - `XParsec.FSharp.SemanticAnalysis`
 - `XParsec.Json`
 
@@ -48,6 +49,7 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 - `XParsec.CLArgs.Interactive`
 - `XParsec.CLArgs.Tests`
 - `XParsec.FSharp.Codegen.Clr.Tests`
+- `XParsec.FSharp.Codegen.Js.Tests`
 - `XParsec.FSharp.Lexer.Tests`
 - `XParsec.FSharp.SemanticAnalysis.Tests`
 - `XParsec.FSharp.Tests`
