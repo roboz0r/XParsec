@@ -239,6 +239,52 @@ module UnificationEngine =
     let instantiateMember (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>) (ty: SemType) : SemType =
         substituteWith (mkNamedTypeSubst typeParams args) ty
 
+    /// Instantiate a member's type for a *call / use site*. As well as the
+    /// declaring-type substitution (`typeParams ↦ args`, the declaring axis),
+    /// freshen the member's OWN method typars (`methodTypars`, the method axis)
+    /// — each gets a fresh `TyVar` at the current level so independent call
+    /// sites instantiate the member's generic parameters separately rather than
+    /// all sharing (and thereby grounding) the one registered prototype TyVar.
+    /// Mirrors `UnificationInferGeneralize.instantiate`'s per-use freshening of a
+    /// generalised scheme, but for a member resolved by name off its receiver.
+    ///
+    /// Without it, a generic member (`member _.Format(v: 'T)`) *called within the
+    /// defining assembly* has its prototype `'T` unified with the first call's
+    /// argument type, so `Elaborate.methodTypeParams` zonks it to a concrete type
+    /// and drops it — the member emits as a single monomorphic method specialised
+    /// to that first type. A second call at a different type then passes a
+    /// wrong-typed argument to it, which the JIT rejects (`InvalidProgramException`).
+    /// A property / field carries no method typars, so this collapses to
+    /// `instantiateMember`.
+    let instantiateMemberCall
+        (ctx: PassContext)
+        (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>)
+        (methodTypars: EqArray<string * TypeVar>)
+        (ty: SemType)
+        : SemType =
+        let subst = mkNamedTypeSubst typeParams args
+
+        for (_, ptv) in methodTypars do
+            let root = UnionFind.find ptv
+
+            // A still-free prototype typar (the common case): mint a fresh
+            // instance var. If it already links to a concrete type or is shadowed
+            // by a declaring-axis arg, leave the existing mapping — substituteWith
+            // follows the link / arg as before.
+            if root.Link.IsNone && not (subst.ContainsKey root) then
+                let fresh = TypeVar()
+                fresh.Level <- ctx.CurrentLevel
+
+                // Re-stamp constraints (SRTP / equality bounds) onto the fresh
+                // instance so each site re-evaluates satisfaction independently.
+                for c in root.Constraints do
+                    if not (fresh.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
+                        fresh.Constraints <- c :: fresh.Constraints
+
+                subst.[root] <- TyVar fresh
+
+        substituteWith subst ty
+
     /// Walk a class's inheritance chain for a *non-static* member named
     /// `memberName`, returning its type instantiated against the receiver's
     /// `args`. Derived members shadow inherited ones — the derived class's
@@ -282,7 +328,7 @@ module UnificationEngine =
                         ValueSome
                             {
                                 DeclaringTy = TyClass(info.Key, args)
-                                MemberTy = instantiateMember (info.TypeParams, args) m.Type
+                                MemberTy = instantiateMemberCall ctx (info.TypeParams, args) m.MethodTypeParams m.Type
                             }
                     | None ->
                         match info.BaseType with

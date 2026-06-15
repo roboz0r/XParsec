@@ -146,7 +146,7 @@ module internal UnificationInferRecordAccess =
         (memberName: string)
         : SemType =
         match members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-        | Some m -> instantiateMember (typeParams, args) m.Type
+        | Some m -> instantiateMemberCall ctx (typeParams, args) m.MethodTypeParams m.Type
         | None ->
             if members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic) then
                 errorTy

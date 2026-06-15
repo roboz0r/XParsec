@@ -1088,4 +1088,65 @@ let structTests =
                             "printfn \"%b\" (grow 10 20 8 = 256u)"
                         ])
             }
+
+            // PP5c (printf-port-steps): the hole-formatting dispatch
+            // `AppendFormatted<'T>` via `IFormattable`. `box value` once, then a
+            // 3-way match: `:? IFormattable` (the invariant-culture
+            // `ToString(null, provider)` — value types like int / float), the
+            // `null` literal pattern (PP4), and the `o.ToString()` fallback for a
+            // non-`IFormattable` reference (string). The member is generic and
+            // *called within the defining assembly at three distinct types* (int,
+            // float, string), which forced the inference fix: a project-local
+            // generic member's own method typars are now freshened per call site
+            // (`Engine.instantiateMemberCall`) instead of the one prototype typar
+            // grounding to the first call's type — without it the member emitted
+            // as a single mono method specialised to `int` and the `float` call
+            // passed a wrong-typed argument (`InvalidProgramException` at JIT).
+            test "PP5c: AppendFormatted<'T> IFormattable dispatch (int/float/ref), same-assembly multi-instantiation" {
+                runsLines
+                    [ "42"; "3.14"; "hi" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "open System.Globalization"
+                            "[<Struct; IsByRefLike>]"
+                            "type Holder(seed: int) ="
+                            "    static let provider : IFormatProvider = CultureInfo.InvariantCulture"
+                            "    member this.AppendFormatted(value: 'T) : string ="
+                            "        let o = box value"
+                            "        match o with"
+                            "        | :? IFormattable as f -> f.ToString(null, provider)"
+                            "        | null -> \"\""
+                            "        | _ -> o.ToString()"
+                            "let h = Holder(0)"
+                            "printfn \"%s\" (h.AppendFormatted 42)"
+                            "printfn \"%s\" (h.AppendFormatted 3.14)"
+                            "printfn \"%s\" (h.AppendFormatted \"hi\")"
+                        ])
+            }
+
+            // Regression for the same inference fix at module scope: a project-local
+            // *generic free function* called at two distinct types must stay one
+            // generic method, not ground to the first call. (A generic free function
+            // that *captures a module value* is lifted to a generic closure, a
+            // separate still-open gap — this one captures nothing.)
+            test "PP5c: generic free function, same-assembly multi-instantiation" {
+                runsLines
+                    [ "42"; "3.14" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "open System.Globalization"
+                            "let format (value: 'T) : string ="
+                            "    let o = box value"
+                            "    match o with"
+                            "    | :? IFormattable as f -> f.ToString(null, CultureInfo.InvariantCulture)"
+                            "    | null -> \"\""
+                            "    | _ -> o.ToString()"
+                            "printfn \"%s\" (format 42)"
+                            "printfn \"%s\" (format 3.14)"
+                        ])
+            }
         ]
