@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step0aTests
+module XParsec.FSharp.Codegen.Js.Tests.PrintfEmissionTests
 
 open System
 open Expecto
@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step 0a"
+        "Codegen.Js printf emission"
         [
             test "`printfn \"hi\"` emits `console.log(\"hi\")`" {
                 Expect.equal (emit "printfn \"hi\"") "console.log(\"hi\");\n" "the emitted ESM source"

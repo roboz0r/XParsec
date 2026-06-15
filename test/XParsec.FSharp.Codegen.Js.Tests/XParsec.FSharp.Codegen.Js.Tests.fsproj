@@ -11,7 +11,8 @@
          end, so `MockBuiltins.provider` alone resolves `printfn "hi"`. -->
     <Compile Include="..\XParsec.FSharp.SemanticAnalysis.Tests\MockBuiltins.fs" Link="MockBuiltins.fs" />
     <Compile Include="TestHelpers.fs" />
-    <Compile Include="Step0aTests.fs" />
+    <Compile Include="PrintfEmissionTests.fs" />
+    <Compile Include="SourceMapTests.fs" />
     <Compile Include="OpsPlatformJsTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
