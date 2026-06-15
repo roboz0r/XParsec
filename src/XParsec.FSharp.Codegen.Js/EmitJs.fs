@@ -36,6 +36,15 @@ open XParsec.FSharp.SemanticAnalysis
 /// reordered to declaration order; `RecordClone` (`{ r with … }`) →
 /// reconstruction `new R(…)` copying `r.field` for unlisted fields (through an
 /// IIFE binder when the source is effectful); `FieldGet` → a `Member` access.
+///
+/// **Step 4** adds DUs + match: a union `type` decl becomes a JS base class
+/// (integer `tag` + `cases()`) plus one `extends`-subclass per case
+/// (`collectTypes`, read off the *un-lowered* decls); `UnionCons` → `new
+/// <Union>_<Case>(args…)` (args already in field order); `Match` lowers to an IIFE
+/// that tests each arm (`compileMatchPattern` returns a `&&`-conjoined test plus
+/// path-projection `const` bindings — the JS analogue of `EmitPattern`'s
+/// branch-to-`nextLabel`) and `return`s the first match's body, an unmatched value
+/// `throw`ing.
 module EmitJs =
 
     /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
@@ -90,6 +99,16 @@ module EmitJs =
     /// literal's source order is reordered against it).
     type JsRecordInfo = { Name: string; Fields: string list }
 
+    /// A union type's JS shape (Step 4): the emitted base-class `Name` and its
+    /// cases keyed by F# case name. `UnionCons` looks a case up by name to pick
+    /// its subclass + field order; a union *pattern* looks it up to compare the
+    /// scrutinee's `tag` and read each field by name.
+    type JsUnionInfo =
+        {
+            Name: string
+            Cases: System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>
+        }
+
     /// The walker's ambient context: the source-map resolver, the raw source text
     /// (for recovering a `let`-bound variable's *source* name from its binder token
     /// offset), and the record table (`SymbolKey` → `JsRecordInfo`, for ordering
@@ -102,6 +121,7 @@ module EmitJs =
             Resolver: Resolver
             Source: string voption
             Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
+            Unions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -143,6 +163,25 @@ module EmitJs =
         elif System.Double.IsPositiveInfinity d then "Infinity"
         elif System.Double.IsNegativeInfinity d then "-Infinity"
         else d.ToString("R", CultureInfo.InvariantCulture)
+
+    /// A scalar `Const` value → its JS expression. Shared by the expression arm
+    /// (`buildExpr`) and a `Const` *pattern* (whose equality test compares the
+    /// scrutinee against this literal).
+    let private constExpr (value: TConstValue) (loc: JsLoc voption) : JsExpr =
+        match value with
+        | TConstValue.Int n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
+        | TConstValue.Byte b -> JsExpr.Literal(JsLiteral.Number(string (int b)), loc)
+        | TConstValue.Int64 n -> JsExpr.Literal(JsLiteral.BigInt(string n), loc)
+        | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)
+        | TConstValue.Float32 f -> JsExpr.Literal(JsLiteral.Number(formatDouble (float f)), loc)
+        | TConstValue.Bool b -> JsExpr.Literal(JsLiteral.Boolean b, loc)
+        // A `char` is a length-1 JS string (no distinct char type).
+        | TConstValue.Char c -> JsExpr.Literal(JsLiteral.String(string c), loc)
+        | TConstValue.String s -> JsExpr.Literal(JsLiteral.String s, loc)
+        // The unit value is `undefined` — JS has no unit, and `undefined` is the
+        // harmless value a discarded effectful expression yields.
+        | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
+        | TConstValue.Decimal _ -> failwithf "EmitJs (Step 1): decimal literals are not yet supported"
 
     // ---- Pure-`let` substitution ---------------------------------------------
 
@@ -217,17 +256,63 @@ module EmitJs =
 
     // ---- Records -------------------------------------------------------------
 
-    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver type to its
-    /// emitted `JsRecordInfo`. `what` names the construct for the diagnostic. The
-    /// nominal `SymbolKey` keys the same table the type declaration filled, so an
-    /// absent entry means the record's `type` decl never reached this file.
-    let private recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
+    /// The nominal `SymbolKey` of a `RecordCons` / `RecordClone` / `FieldGet` /
+    /// `UnionCons` / pattern receiver type — the key the type declaration filled
+    /// its lookup table under. `what` names the construct for the diagnostic; a
+    /// non-nominal receiver is an invariant break (these constructs only ever
+    /// target a declared record/union).
+    let private nominalKey (what: string) (ty: FrozenType) : SymbolKey =
         match TastLower.receiverShape ty with
-        | ValueSome(key, _) ->
-            match ctx.Records.TryGetValue key with
-            | true, info -> info
-            | _ -> failwithf "EmitJs (Step 3): %s on record with no emitted type (key %A)" what key
-        | ValueNone -> failwithf "EmitJs (Step 3): %s on non-nominal type %A" what ty
+        | ValueSome(key, _) -> key
+        | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
+
+    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver type to its
+    /// emitted `JsRecordInfo`. An absent entry means the record's `type` decl never
+    /// reached this file.
+    let private recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
+        let key = nominalKey what ty
+
+        match ctx.Records.TryGetValue key with
+        | true, info -> info
+        | _ -> failwithf "EmitJs (Step 3): %s on record with no emitted type (key %A)" what key
+
+    // ---- Unions --------------------------------------------------------------
+
+    /// Resolve a `UnionCons` / union-pattern receiver type + case name to the
+    /// emitted `JsUnionCaseDecl` (subclass name, tag, field names). An absent type —
+    /// or case — means the union's `type` decl never reached this file (or the front
+    /// end admitted a case the declaration lacks, an invariant break).
+    let private unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
+        let key = nominalKey what ty
+
+        match ctx.Unions.TryGetValue key with
+        | true, info ->
+            match info.Cases.TryGetValue caseName with
+            | true, c -> c
+            | _ -> failwithf "EmitJs (Step 4): %s on union '%s' has no case '%s'" what info.Name caseName
+        | _ -> failwithf "EmitJs (Step 4): %s on union with no emitted type (key %A)" what key
+
+    /// The fallthrough a `match` reaches when no arm matched — `throw new
+    /// Error("…")`. An exhaustive match never reaches it at runtime, but it gives
+    /// a non-exhaustive one defined behaviour (mirrors the CLR backend's
+    /// `buildMatchFailure`).
+    let private matchFailure: JsStatement =
+        JsStatement.Throw(
+            JsExpr.New(
+                JsExpr.Identifier("Error", ValueNone),
+                [
+                    JsExpr.Literal(JsLiteral.String "The match cases were incomplete", ValueNone)
+                ],
+                ValueNone
+            )
+        )
+
+    /// Conjoin a list of optional pattern tests with `&&` (a `None` test is
+    /// always-true and drops out). `None` ⇒ the pattern is irrefutable.
+    let private conjoin (tests: JsExpr option list) : JsExpr option =
+        match List.choose id tests with
+        | [] -> None
+        | t :: rest -> Some(List.fold (fun acc x -> JsExpr.Logical("&&", acc, x, ValueNone)) t rest)
 
     // ---- The walker ----------------------------------------------------------
 
@@ -235,21 +320,7 @@ module EmitJs =
         let loc = locOf ctx (TastWalk.exprTok e)
 
         match e with
-        | TExprG.Const(value, _, _) ->
-            match value with
-            | TConstValue.Int n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
-            | TConstValue.Byte b -> JsExpr.Literal(JsLiteral.Number(string (int b)), loc)
-            | TConstValue.Int64 n -> JsExpr.Literal(JsLiteral.BigInt(string n), loc)
-            | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)
-            | TConstValue.Float32 f -> JsExpr.Literal(JsLiteral.Number(formatDouble (float f)), loc)
-            | TConstValue.Bool b -> JsExpr.Literal(JsLiteral.Boolean b, loc)
-            // A `char` is a length-1 JS string (no distinct char type).
-            | TConstValue.Char c -> JsExpr.Literal(JsLiteral.String(string c), loc)
-            | TConstValue.String s -> JsExpr.Literal(JsLiteral.String s, loc)
-            // The unit value is `undefined` — JS has no unit, and `undefined` is
-            // the harmless value a discarded effectful expression yields.
-            | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
-            | TConstValue.Decimal _ -> failwithf "EmitJs (Step 1): decimal literals are not yet supported"
+        | TExprG.Const(value, _, _) -> constExpr value loc
 
         | TExprG.Var(k, _, _) -> JsExpr.Identifier(identName ctx.Source k, loc)
 
@@ -315,44 +386,70 @@ module EmitJs =
             JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), args, loc)
 
         // `{ r with X = v; … }` → reconstruction `new R(…)`: each declaration-order
-        // field takes its override expression if listed, else reads `r.field`. A
-        // pure source (`{ p with … }`, a `Var`) is read field-wise inline; an
-        // effectful source is evaluated once through an IIFE binder so it is not
-        // re-run per copied field.
+        // field takes its override expression if listed, else reads `<src>.field`.
+        // The source is read once per copied field, so `<src>` must be cheap and
+        // re-evaluable: a bare `Var` (`{ p with … }`) is spliced inline as the
+        // identifier; *any* other source — effectful or merely a larger pure
+        // expression that we'd otherwise duplicate across every field — is bound
+        // once through an IIFE binder.
         | TExprG.RecordClone(source, overrides, ty, _) ->
             let info = recordInfoOf ctx "RecordClone" ty
             let overrideMap = Map.ofSeq (EqArray.toList overrides)
 
-            let argsFrom (srcRef: unit -> JsExpr) =
+            let argsFrom (srcRef: JsExpr) =
                 [
                     for f in info.Fields ->
                         match Map.tryFind f overrideMap with
                         | Some ov -> buildExpr ctx ov
-                        | None -> JsExpr.Member(srcRef (), JsExpr.Identifier(f, ValueNone), false, ValueNone)
+                        | None -> JsExpr.Member(srcRef, JsExpr.Identifier(f, ValueNone), false, ValueNone)
                 ]
 
-            if isPureValue source then
-                JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (fun () -> buildExpr ctx source), loc)
-            else
+            match source with
+            | TExprG.Var _ -> JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (buildExpr ctx source), loc)
+            | _ ->
                 let sName = "_rc" + string (TastWalk.exprTok e).StartIndex
 
                 let newExpr =
                     JsExpr.New(
                         JsExpr.Identifier(info.Name, ValueNone),
-                        argsFrom (fun () -> JsExpr.Identifier(sName, ValueNone)),
+                        argsFrom (JsExpr.Identifier(sName, ValueNone)),
                         loc
                     )
 
-                JsExpr.Call(
-                    JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone),
-                    [ buildExpr ctx source ],
-                    loc
-                )
+                JsExpr.Call(JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone), [ buildExpr ctx source ], loc)
 
         // `r.X` → `r.X` — a member access on the record's like-named property
         // (the emitted class stores each field under its source field name).
         | TExprG.FieldGet(receiver, fieldName, _, _) ->
             JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(fieldName, ValueNone), false, loc)
+
+        // A union constructor `Case e0 e1 …` → `new <Union>_<Case>(args…)`. The
+        // args already arrive in declaration (field) order, so — unlike a record
+        // literal — no reordering is needed; the subclass constructor stores them
+        // positionally under the case's field names.
+        | TExprG.UnionCons(caseName, args, ty, _) ->
+            let c = unionCaseOf ctx "UnionCons" ty caseName
+
+            JsExpr.New(JsExpr.Identifier(c.ClassName, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
+
+        // `match scrut with …` → an IIFE: bind the scrutinee once to a parameter,
+        // then test each arm in order, `return`ing the first whose pattern (and
+        // guard) matches; an unmatched value `throw`s. (The plan sketched a
+        // `switch(tag)`; the ported `EmitPattern`/`EmitMatch` logic is the more
+        // general sequential test — it subsumes the tag dispatch and also covers
+        // guards, constants, nested patterns, and non-union scrutinees.)
+        | TExprG.Match(scrutinee, arms, _, _) ->
+            let mv = "_m" + string (TastWalk.exprTok e).StartIndex
+            let access = JsExpr.Identifier(mv, ValueNone)
+
+            let body =
+                [
+                    for arm in EqArray.toList arms do
+                        yield! buildMatchArm ctx access arm
+                    yield matchFailure
+                ]
+
+            JsExpr.Call(JsExpr.Arrow([ mv ], JsFnBody.Block body, loc), [ buildExpr ctx scrutinee ], loc)
 
         | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
@@ -453,6 +550,100 @@ module EmitJs =
                 | FormatSegG.Hole(_, operand) -> pieces.Add(JsRawSeg.Hole(buildExpr ctx operand))
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
+
+    /// Compile a pattern against a (pure) scrutinee-access expression `access`
+    /// into a refutability *test* (`None` ⇒ irrefutable) and the `const` bindings
+    /// its named sub-patterns introduce. The JS analogue of `EmitPattern`'s
+    /// `buildMatchTest`: where the CLR backend branches to a `nextLabel` on a
+    /// mismatch and aliases bound slots, this returns a boolean test (the
+    /// `&&`-conjunction of every tag/constant comparison in the tree) plus
+    /// path-projection `const`s — a bound name binds to its `access` sub-path. Both
+    /// are valid because `access` is always a pure projection of the scrutinee
+    /// variable, so it may be duplicated across the test and the bindings, and the
+    /// test short-circuits so a sub-field is only read once its enclosing tag
+    /// matched.
+    and private compileMatchPattern
+        (ctx: WalkCtx)
+        (access: JsExpr)
+        (pat: Frozen.TPat)
+        : JsExpr option * JsStatement list =
+        let memberAccess (field: string) =
+            JsExpr.Member(access, JsExpr.Identifier(field, ValueNone), false, ValueNone)
+
+        match pat with
+        | TPatG.Wildcard _ -> None, []
+        | TPatG.NamedSimple(k, _, _) -> None, [ JsStatement.Const(identName ctx.Source k, access) ]
+        | TPatG.Const(value, _, _) -> Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
+        | TPatG.Union(caseName, subPats, ty, _) ->
+            let c = unionCaseOf ctx "match pattern" ty caseName
+
+            let tagTest =
+                JsExpr.Binary(
+                    "===",
+                    memberAccess "tag",
+                    JsExpr.Literal(JsLiteral.Number(string c.Tag), ValueNone),
+                    ValueNone
+                )
+
+            // Each sub-pattern matches a declaration-order field, read by name off
+            // the case's emitted property; the per-field tests conjoin under the tag
+            // test (which short-circuits), and the bindings accumulate. `map2`
+            // asserts the front-end invariant that a case pattern carries exactly one
+            // sub-pattern per field (a mismatch fails here, attributably).
+            let childTests, childBinds =
+                List.map2
+                    (fun fld sub -> compileMatchPattern ctx (memberAccess fld) sub)
+                    c.Fields
+                    (EqArray.toList subPats)
+                |> List.unzip
+
+            conjoin (Some tagTest :: childTests), List.concat childBinds
+        | TPatG.Record(fields, ty, _) ->
+            // A record pattern never fails on shape (no tag): only its sub-patterns
+            // can refute. The emitted class stores each field under its source name,
+            // so a field sub-pattern matches `access.<fieldName>`; validate each
+            // pattern field against the emitted record so a stale name fails here
+            // rather than emitting an `access.<bogus>` that is silently `undefined`.
+            let info = recordInfoOf ctx "record pattern" ty
+            let known = Set.ofList info.Fields
+
+            let tests, binds =
+                EqArray.toList fields
+                |> List.map (fun (fieldName, sub) ->
+                    if not (Set.contains fieldName known) then
+                        failwithf
+                            "EmitJs (Step 4): record pattern on '%s' names unknown field '%s'"
+                            info.Name
+                            fieldName
+
+                    compileMatchPattern ctx (memberAccess fieldName) sub
+                )
+                |> List.unzip
+
+            conjoin tests, List.concat binds
+        | TPatG.Tuple _ -> failwithf "EmitJs (Step 4): tuple patterns are Step 5"
+        | TPatG.TypeTestAs _ -> failwithf "EmitJs (Step 4): type-test patterns are out of MVP scope"
+
+    /// Build one `match` arm's statements: when the pattern matches (and the guard,
+    /// if any, passes) the arm `return`s its body. An always-matching arm
+    /// (wildcard / bare variable, `test = None`) emits a bare `Block` so its
+    /// bindings stay scoped (two arms may bind the same source name); a refutable
+    /// arm guards that block with `if (test)`.
+    and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: Frozen.TMatchArm) : JsStatement list =
+        let test, binds = compileMatchPattern ctx access arm.Pat
+
+        let inner =
+            match arm.Guard with
+            | None -> binds @ [ JsStatement.Return(buildExpr ctx arm.Body) ]
+            | Some g ->
+                binds
+                @ [
+                    JsStatement.If(buildExpr ctx g, [ JsStatement.Return(buildExpr ctx arm.Body) ], [])
+                ]
+
+        match test with
+        | None -> [ JsStatement.Block inner ]
+        | Some t -> [ JsStatement.If(t, inner, []) ]
 
     /// Emit a function value as a chain of nested *unary* arrows. When `selfKey`
     /// names the binding the function is bound to and its body makes a saturated
@@ -561,17 +752,35 @@ module EmitJs =
     /// `buildExpr` until a later step routes it.)
     let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
 
-    /// Collect the file's record type declarations, in source order, into the
-    /// emission list (one `class` statement each) and the lookup table the walker
-    /// keys `RecordCons` / `RecordClone` / `FieldGet` through. `TastLower.lower`
-    /// drops every `type` decl (they are metadata, not in the expression stream),
-    /// so the record shape is read from the *un-lowered* decls here. Only `Record`
-    /// kinds are collected; unions / classes / interfaces are later steps.
-    let private collectRecords
-        (tast: Frozen.TastFile)
-        : (SymbolKey * JsRecordInfo) list * System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo> =
-        let ordered = ResizeArray<SymbolKey * JsRecordInfo>()
-        let table = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
+    /// A union case's declaration-order field names. A *named* field
+    /// (`| Case of x: int`) keeps its name; a *positional* field is synthesised
+    /// to F#'s compiled convention — `Item` for a lone field, `Item1` / `Item2` /
+    /// … when there are several — so `UnionCons`'s positional args and a union
+    /// pattern's positional sub-patterns address the same property names.
+    let private caseFieldNames (case: Frozen.TUnionCase) : string list =
+        let fields = EqArray.toList case.Fields
+
+        match fields with
+        | [ (ValueSome n, _) ] -> [ n ]
+        | [ (ValueNone, _) ] -> [ "Item" ]
+        | many ->
+            many
+            |> List.mapi (fun i (nm, _) ->
+                match nm with
+                | ValueSome n -> n
+                | ValueNone -> "Item" + string (i + 1)
+            )
+
+    /// Collect the file's nominal `type` declarations, in source order, into the
+    /// emission list (one `Class` statement per record, one `Union` per union) and
+    /// the two lookup tables the walker keys `RecordCons`/`FieldGet` and
+    /// `UnionCons`/union-patterns through. `TastLower.lower` drops every `type`
+    /// decl (they are metadata, not in the expression stream), so the shapes are
+    /// read from the *un-lowered* decls here. Classes / interfaces are later steps.
+    let private collectTypes (tast: Frozen.TastFile) =
+        let ordered = ResizeArray<JsStatement>()
+        let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
+        let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
 
         for decl in tast.Decls do
             match decl with
@@ -584,12 +793,32 @@ module EmitJs =
                             Fields = [ for f in fields -> f.Name ]
                         }
 
-                    ordered.Add(td.Key, info)
-                    table.[td.Key] <- info
+                    records.[td.Key] <- info
+                    ordered.Add(JsStatement.Class(info.Name, info.Fields))
+                | TTypeKindG.Union(cases, _) ->
+                    // Tag = declaration-order index (the runtime discriminator).
+                    let caseDecls =
+                        EqArray.toList cases
+                        |> List.mapi (fun tag case ->
+                            {
+                                CaseName = case.Name
+                                ClassName = td.Name + "_" + case.Name
+                                Tag = tag
+                                Fields = caseFieldNames case
+                            }
+                        )
+
+                    let table = System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>()
+
+                    for c in caseDecls do
+                        table.[c.CaseName] <- c
+
+                    unions.[td.Key] <- { Name = td.Name; Cases = table }
+                    ordered.Add(JsStatement.Union(td.Name, caseDecls))
                 | _ -> ()
             | _ -> ()
 
-        List.ofSeq ordered, table
+        List.ofSeq ordered, records, unions
 
     /// The whole frozen file → a `Program`. Record `type` declarations become JS
     /// `class`es first (classes are not hoisted, so they must precede their `new`
@@ -597,11 +826,15 @@ module EmitJs =
     /// JS `finishOps`) — inline `let inline` templates and `type` decls drop out,
     /// leaving top-level `let` values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
-        let recordList, recordTable = collectRecords tast
-        let ctx = { ctx0 with Records = recordTable }
-        let lowered = TastLower.lower jsFinishOps tast.Decls
+        let classDecls, recordTable, unionTable = collectTypes tast
 
-        let classDecls = [ for (_, info) in recordList -> JsStatement.Class(info.Name, info.Fields) ]
+        let ctx =
+            { ctx0 with
+                Records = recordTable
+                Unions = unionTable
+            }
+
+        let lowered = TastLower.lower jsFinishOps tast.Decls
 
         let body =
             [

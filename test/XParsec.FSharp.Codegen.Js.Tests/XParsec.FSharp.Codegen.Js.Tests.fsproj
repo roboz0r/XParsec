@@ -17,6 +17,7 @@
     <Compile Include="Step1Tests.fs" />
     <Compile Include="Step2Tests.fs" />
     <Compile Include="Step3Tests.fs" />
+    <Compile Include="Step4Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

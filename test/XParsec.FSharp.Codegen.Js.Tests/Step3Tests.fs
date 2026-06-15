@@ -62,8 +62,7 @@ let tests =
 
             test "a copy-update reconstructs new R with copied + overridden fields" {
                 Expect.equal
-                    (emitJs
-                        "type Point = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet p2 = { p with Y = 99 }")
+                    (emitJs "type Point = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet p2 = { p with Y = 99 }")
                     ("class Point {\n"
                      + "  constructor(X, Y) {\n"
                      + "    this.X = X;\n"

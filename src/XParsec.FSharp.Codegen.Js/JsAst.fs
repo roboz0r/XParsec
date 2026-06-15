@@ -28,6 +28,15 @@ namespace XParsec.FSharp.Codegen.Js
 // `RecordClone` copy-update construct positionally), the `Class` statement (a
 // record's emitted JS class), and field access reuses the existing `Member`
 // node (`r.X`).
+//
+// Step 4 adds DUs + match: the `Union` statement (a union's emitted base class —
+// integer `tag` + `cases()` — plus one subclass per case carrying its named
+// fields, codegen-js-steps Step 4); the `Binary` / `Logical` expressions a
+// compiled match test is built from (`scrut.tag === N`, `&&`-conjoined); the
+// statement-level `Block` (a bare lexical scope, one per match arm so each arm's
+// pattern bindings stay isolated) and `Throw` (the match-failure fallthrough).
+// `Match` itself lowers to an IIFE over these (an arrow whose `Block` body tests
+// each arm and `return`s the first match's body).
 
 /// A 0-based source position — V3 source-map coordinates (`Line`, then `Column`
 /// counted in UTF-16 code units). ESTree spells a full `loc` as
@@ -35,6 +44,21 @@ namespace XParsec.FSharp.Codegen.Js
 /// node carries exactly that.
 [<Struct>]
 type JsLoc = { Line: int; Column: int }
+
+/// One case of an emitted union (Step 4). `CaseName` is the F# case name (the
+/// `cases()` entry); `ClassName` is its emitted subclass name (`<Union>_<Case>`);
+/// `Tag` is the declaration-order integer the base-class `tag` field carries (the
+/// match discriminator); `Fields` are the case's declaration-order field names
+/// (positional fields synthesised as `Item` / `Item1` / `Item2` / …, named fields
+/// verbatim) — the subclass constructor's positional parameters and the property
+/// names `UnionCons` / a union pattern build / read.
+type JsUnionCaseDecl =
+    {
+        CaseName: string
+        ClassName: string
+        Tag: int
+        Fields: string list
+    }
 
 /// `Literal` payload. `Number` and `BigInt` carry the *already-formatted* numeric
 /// text (round-trippable), so the printer never re-formats and can't drift from
@@ -93,6 +117,15 @@ and [<RequireQualifiedAccess>] JsExpr =
     /// application fall out for free, so `parameters` is conventionally a single
     /// name; the list form is kept for a possible later flat-call optimisation.
     | Arrow of parameters: string list * body: JsFnBody * loc: JsLoc voption
+    /// `BinaryExpression` — `left <op> right` (Step 4: a match's `===` tag /
+    /// constant tests). The printer parenthesises the whole node (the (a\*)
+    /// universal-parenthesization discipline), so no precedence table is needed.
+    | Binary of operator: string * left: JsExpr * right: JsExpr * loc: JsLoc voption
+    /// `LogicalExpression` — `left <op> right` for the short-circuiting `&&` / `||`
+    /// (Step 4: a composite match pattern's tests `&&`-conjoined, so a sub-field
+    /// access is only reached once the enclosing tag test has passed). Kept distinct
+    /// from `Binary` for ESTree exactness; the printer treats them identically.
+    | Logical of operator: string * left: JsExpr * right: JsExpr * loc: JsLoc voption
 
 /// An arrow function's body: a concise expression (`=> e`) or a brace-delimited
 /// statement block (`=> { … }`) — the latter is the self-tail-call loop form.
@@ -133,6 +166,24 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// against which `RecordCons` / `RecordClone` build with `new`. Augmentation
     /// members + the structural triple (Step 6) grow this later.
     | Class of name: string * fields: string list
+    /// A union's emitted JS classes (Step 4) — like `Class`, a compressed
+    /// stand-in for the ESTree class tree. The printer renders a `baseName` base
+    /// class (a `constructor(tag) { this.tag = tag; }` + a `cases()` returning the
+    /// case-name array) followed by one `extends`-subclass per case (its
+    /// `constructor(fields…) { super(tag); this.f = f; … }`). The base class is the
+    /// hand-stub Step 6 grows the structural triple onto; the integer `tag` is the
+    /// match discriminator. Emitted before any `new`/match site (classes are not
+    /// hoisted).
+    | Union of baseName: string * cases: JsUnionCaseDecl list
+    /// A bare lexical block `{ … }` (Step 4) — scopes a match arm's pattern
+    /// bindings so two arms binding the same source name don't collide as sibling
+    /// `const`s. Used for an always-matching (wildcard / variable) arm, where the
+    /// guarding `if` is elided.
+    | Block of body: JsStatement list
+    /// `ThrowStatement` — `throw <expr>;`. The match-failure fallthrough
+    /// (`throw new Error("…")`) an exhaustive match never reaches at runtime but
+    /// which keeps a non-exhaustive one well-defined.
+    | Throw of JsExpr
 
 /// `Program` with `sourceType: "module"` (ESM output).
 type JsProgram = { Body: JsStatement list }

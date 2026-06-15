@@ -86,6 +86,7 @@ module Codegen =
                     | Some src -> ValueSome src.Content
                     | None -> ValueNone
                 Records = System.Collections.Generic.Dictionary()
+                Unions = System.Collections.Generic.Dictionary()
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)

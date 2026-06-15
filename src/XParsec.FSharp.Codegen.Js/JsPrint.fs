@@ -26,11 +26,21 @@ module internal JsEscape =
         sb.Append('"') |> ignore
         sb.ToString()
 
-/// `JsProgram → source text + V3 source map`. The printer tracks the generated
-/// line/column as it writes, and records a mapping for every `JsExpr` that
-/// carries a `loc` (Step 0b). `JsSourceMap.build` then turns the collected
-/// mappings into a V3 JSON document (VLQ-encoded `mappings`, embedded
-/// `sourcesContent`). One statement per line, each `;`-terminated.
+/// `JsProgram → source text + V3 source map`. The printer builds an intermediate
+/// layout document (`Doc`) from the AST, then renders it once: rendering tracks
+/// the generated line/column and emits a mapping for every `Mark` node (the
+/// in-data successor to Step 0b's imperative cursor pokes). `JsSourceMap.build`
+/// then turns the collected mappings into a V3 JSON document (VLQ-encoded
+/// `mappings`, embedded `sourcesContent`). One statement per line, each
+/// `;`-terminated.
+///
+/// `Doc` is the structural subset of a Wadler/Leijen pretty-printer —
+/// `Text`/`Cat`/`Line`/`Nest` with a source-position `Mark`, but *no* width-driven
+/// `group`/best-fit: generated code lays out deterministically (blocks always
+/// break, argument lists always inline), so the only layout decisions are
+/// structural. The win over an imperative cursor is that indentation is carried by
+/// `Nest` (no hand-balanced `Indent +/- 1` bookkeeping) and source mappings fall
+/// out of the `Mark` nodes during a single render pass.
 module JsPrint =
 
     /// One generated→source correspondence. `Src*` are 0-based source coordinates;
@@ -44,7 +54,7 @@ module JsPrint =
         }
 
     /// The printer's result: the emitted ESM text plus the mappings collected
-    /// while emitting it (in generated-order: ascending line then column).
+    /// while rendering it (in generated-order: ascending line then column).
     type PrintResult =
         {
             Source: string
@@ -58,280 +68,274 @@ module JsPrint =
         | JsLiteral.BigInt digits -> digits + "n"
         | JsLiteral.Boolean b -> if b then "true" else "false"
 
-    /// Mutable emit cursor: the output buffer plus the running generated
-    /// position and the accumulating (reverse-order) mappings.
-    type private Printer =
-        {
-            Sb: StringBuilder
-            mutable Line: int
-            mutable Col: int
-            mutable Indent: int
-            mutable Maps: Mapping list
-        }
+    // ---- The layout document -------------------------------------------------
 
-    /// Append text with no embedded newline, advancing the column.
-    let private write (p: Printer) (s: string) =
-        p.Sb.Append s |> ignore
-        p.Col <- p.Col + s.Length
+    /// A break-only layout document. `Text` carries a run with no embedded newline
+    /// (string literals are escaped, so none arises); `Line` is a hard break
+    /// (newline + the current indentation); `Nest` widens the indentation of the
+    /// `Line`s inside it; `Cat` is sequencing; `Mark` records a source mapping at
+    /// the generated position the document reaches during rendering.
+    type private Doc =
+        | Nil
+        | Text of string
+        | Line
+        | Nest of int * Doc
+        | Cat of Doc list
+        | Mark of JsLoc * Doc
 
-    let private newline (p: Printer) =
-        p.Sb.Append '\n' |> ignore
-        p.Line <- p.Line + 1
-        p.Col <- 0
+    let private (++) (a: Doc) (b: Doc) = Cat [ a; b ]
+    let private cat (docs: Doc list) = Cat docs
+    let private text (s: string) = Text s
 
-    /// Newline then the current indentation (two spaces per level) — used inside
-    /// brace-delimited blocks so generated coordinates (and therefore source-map
-    /// columns) account for the leading whitespace.
-    let private newlineIndent (p: Printer) =
-        p.Sb.Append '\n' |> ignore
-        p.Line <- p.Line + 1
-        let pad = p.Indent * 2
-        p.Sb.Append(' ', pad) |> ignore
-        p.Col <- pad
+    /// One indentation level = two spaces.
+    let private indent (d: Doc) = Nest(2, d)
 
-    /// Record a mapping from the current generated position to `loc`'s source
-    /// position, when the node carries one. Call immediately before writing the
-    /// node's first character.
-    let private mark (p: Printer) (loc: JsLoc voption) =
+    /// Wrap a doc in a source `Mark` when its node carries a `loc` (the mapping is
+    /// recorded at the position the doc starts, matching the prior printer's
+    /// "mark immediately before the node's first character").
+    let private marked (loc: JsLoc voption) (d: Doc) =
         match loc with
-        | ValueSome l ->
-            p.Maps <-
-                {
-                    GenLine = p.Line
-                    GenCol = p.Col
-                    SrcLine = l.Line
-                    SrcCol = l.Column
-                }
-                :: p.Maps
-        | ValueNone -> ()
+        | ValueSome l -> Mark(l, d)
+        | ValueNone -> d
 
-    let rec private expr (p: Printer) (e: JsExpr) =
+    /// `d0 sep d1 sep …` — interpose `sep` between docs (no trailing separator).
+    let private punctuate (sep: Doc) (docs: Doc list) : Doc =
+        match docs with
+        | [] -> Nil
+        | first :: rest -> cat (first :: [ for d in rest -> sep ++ d ])
+
+    let private commaList (docs: Doc list) = punctuate (text ", ") docs
+
+    // ---- AST → Doc -----------------------------------------------------------
+
+    let rec private expr (e: JsExpr) : Doc =
         match e with
-        | JsExpr.Identifier(name, loc) ->
-            mark p loc
-            write p name
-        | JsExpr.Literal(l, loc) ->
-            mark p loc
-            write p (literal l)
+        | JsExpr.Identifier(name, loc) -> marked loc (text name)
+        | JsExpr.Literal(l, loc) -> marked loc (text (literal l))
         | JsExpr.Member(object, property, computed, loc) ->
-            mark p loc
-            expr p object
-
-            if computed then
-                write p "["
-                expr p property
-                write p "]"
-            else
-                write p "."
-                expr p property
+            marked
+                loc
+                (expr object
+                 ++ (if computed then
+                         text "[" ++ expr property ++ text "]"
+                     else
+                         text "." ++ expr property))
         | JsExpr.Call(callee, args, loc) ->
-            mark p loc
             // A callee that is not a plain reference / call needs parenthesising
             // so the `(args)` binds to it and not to a sub-expression — notably an
             // arrow (`((x) => …)(v)`, the IIFE), whose body would otherwise extend
             // rightward and swallow the argument list.
-            match callee with
-            | JsExpr.Identifier _
-            | JsExpr.Member _
-            | JsExpr.Call _ -> expr p callee
-            | _ ->
-                write p "("
-                expr p callee
-                write p ")"
+            let calleeDoc =
+                match callee with
+                | JsExpr.Identifier _
+                | JsExpr.Member _
+                | JsExpr.Call _ -> expr callee
+                | _ -> text "(" ++ expr callee ++ text ")"
 
-            write p "("
-
-            args
-            |> List.iteri (fun i a ->
-                if i > 0 then
-                    write p ", "
-
-                expr p a
-            )
-
-            write p ")"
+            marked loc (calleeDoc ++ text "(" ++ commaList (List.map expr args) ++ text ")")
         | JsExpr.New(callee, args, loc) ->
-            mark p loc
-            write p "new "
-            // The callee is a class-name `Identifier` (record construction), so
-            // it self-delimits — no parenthesising needed as `Call` requires.
-            expr p callee
-            write p "("
-
-            args
-            |> List.iteri (fun i a ->
-                if i > 0 then
-                    write p ", "
-
-                expr p a
-            )
-
-            write p ")"
+            // The callee is a class-name `Identifier` (record construction), so it
+            // self-delimits — no parenthesising needed as `Call` requires.
+            marked
+                loc
+                (text "new "
+                 ++ expr callee
+                 ++ text "("
+                 ++ commaList (List.map expr args)
+                 ++ text ")")
         | JsExpr.Conditional(test, consequent, alternate, loc) ->
-            // Parenthesised whole so the ternary composes safely wherever it
-            // lands (it is the lowest-precedence JS operator).
-            mark p loc
-            write p "("
-            expr p test
-            write p " ? "
-            expr p consequent
-            write p " : "
-            expr p alternate
-            write p ")"
-        | JsExpr.Sequence(exprs, loc) ->
-            mark p loc
-            write p "("
-
-            exprs
-            |> List.iteri (fun i e ->
-                if i > 0 then
-                    write p ", "
-
-                expr p e
-            )
-
-            write p ")"
+            // Parenthesised whole so the ternary composes safely wherever it lands
+            // (it is the lowest-precedence JS operator).
+            marked
+                loc
+                (text "("
+                 ++ expr test
+                 ++ text " ? "
+                 ++ expr consequent
+                 ++ text " : "
+                 ++ expr alternate
+                 ++ text ")")
+        | JsExpr.Sequence(exprs, loc) -> marked loc (text "(" ++ commaList (List.map expr exprs) ++ text ")")
         | JsExpr.Raw(segments, loc) ->
             // (a*) universal parenthesization: wrap the whole template, and each
             // substituted operand, in `(…)` — precedence-correct by construction
             // with zero JS-grammar knowledge (codegen-js-steps §"Template →
             // ESTree").
-            mark p loc
-            write p "("
+            let seg s =
+                match s with
+                | JsRawSeg.Verbatim v -> text v
+                | JsRawSeg.Hole e -> text "(" ++ expr e ++ text ")"
 
-            for seg in segments do
-                match seg with
-                | JsRawSeg.Verbatim s -> write p s
-                | JsRawSeg.Hole e ->
-                    write p "("
-                    expr p e
-                    write p ")"
-
-            write p ")"
+            marked loc (text "(" ++ cat (List.map seg segments) ++ text ")")
         | JsExpr.Arrow(parameters, body, loc) ->
-            mark p loc
-            write p "("
+            // A concise body composes safely as-is (arrow / call / `new` / ternary
+            // / `Raw` all self-delimit). A bare object-*literal* body (`() => ({…})`)
+            // would need wrapping, but records construct via `new R(…)`, which
+            // self-delimits, so none is needed.
+            let bodyDoc =
+                match body with
+                | JsFnBody.Expr e -> expr e
+                | JsFnBody.Block stmts -> block stmts
 
-            parameters
-            |> List.iteri (fun i n ->
-                if i > 0 then
-                    write p ", "
-
-                write p n
-            )
-
-            write p ") => "
-
-            match body with
-            // A concise body composes safely as-is (arrow / call / `new` /
-            // ternary / `Raw` all self-delimit). A bare object-*literal* body
-            // (`() => ({…})`) would need wrapping, but records construct via
-            // `new R(…)`, which self-delimits, so none is needed.
-            | JsFnBody.Expr e -> expr p e
-            | JsFnBody.Block stmts -> block p stmts
+            marked loc (text "(" ++ commaList (List.map text parameters) ++ text ") => " ++ bodyDoc)
+        // `Binary` / `Logical` both print `(left <op> right)` — the whole node
+        // parenthesised (the (a*) universal-parenthesization discipline), so no
+        // precedence table is needed and they compose safely wherever they land.
+        | JsExpr.Binary(op, left, right, loc)
+        | JsExpr.Logical(op, left, right, loc) ->
+            marked
+                loc
+                (text "("
+                 ++ expr left
+                 ++ text " "
+                 ++ text op
+                 ++ text " "
+                 ++ expr right
+                 ++ text ")")
 
     /// A brace-delimited statement block: `{` then one indented statement per
     /// line, then the closing `}` at the enclosing indentation.
-    and private block (p: Printer) (stmts: JsStatement list) =
-        write p "{"
-        p.Indent <- p.Indent + 1
+    and private block (stmts: JsStatement list) : Doc =
+        text "{"
+        ++ indent (cat [ for s in stmts -> Line ++ statement s ])
+        ++ Line
+        ++ text "}"
 
-        for s in stmts do
-            newlineIndent p
-            statement p s
+    /// A class member `<header> { <body statements> }`.
+    and private memberDecl (header: Doc) (body: Doc list) : Doc =
+        header
+        ++ text " {"
+        ++ indent (cat [ for s in body -> Line ++ s ])
+        ++ Line
+        ++ text "}"
 
-        p.Indent <- p.Indent - 1
-        newlineIndent p
-        write p "}"
+    /// The one constructor shape shared by records, union bases, and union
+    /// subclasses: `constructor(params) { <prologue> this.f = f; … }` — store each
+    /// declaration-order field into the like-named property. Records and union
+    /// bases pass no prologue; a union subclass passes `super(tag);`.
+    and private ctorDecl (paramNames: string list) (prologue: Doc list) (assigns: string list) : Doc =
+        let assignStmts =
+            [
+                for f in assigns -> text "this." ++ text f ++ text " = " ++ text f ++ text ";"
+            ]
 
-    and private statement (p: Printer) (s: JsStatement) =
+        memberDecl (text "constructor(" ++ commaList (List.map text paramNames) ++ text ")") (prologue @ assignStmts)
+
+    /// `class Name [extends Base] { member… }`.
+    and private classDecl (name: string) (extends: string option) (members: Doc list) : Doc =
+        let ext =
+            match extends with
+            | Some b -> text " extends " ++ text b
+            | None -> Nil
+
+        text "class "
+        ++ text name
+        ++ ext
+        ++ text " {"
+        ++ indent (cat [ for m in members -> Line ++ m ])
+        ++ Line
+        ++ text "}"
+
+    and private statement (s: JsStatement) : Doc =
         match s with
-        | JsStatement.Expression e ->
-            expr p e
-            write p ";"
-        | JsStatement.Const(name, init) ->
-            write p "const "
-            write p name
-            write p " = "
-            expr p init
-            write p ";"
+        | JsStatement.Expression e -> expr e ++ text ";"
+        | JsStatement.Const(name, init) -> text "const " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Import(specifiers, source) ->
-            write p (sprintf "import { %s } from %s;" (String.concat ", " specifiers) (JsEscape.quoted source))
+            text (sprintf "import { %s } from %s;" (String.concat ", " specifiers) (JsEscape.quoted source))
         | JsStatement.If(test, consequent, alternate) ->
-            write p "if ("
-            expr p test
-            write p ") "
-            block p consequent
+            let elseDoc =
+                if List.isEmpty alternate then
+                    Nil
+                else
+                    text " else " ++ block alternate
 
-            if not (List.isEmpty alternate) then
-                write p " else "
-                block p alternate
-        | JsStatement.While(test, body) ->
-            write p "while ("
-            expr p test
-            write p ") "
-            block p body
-        | JsStatement.Return e ->
-            write p "return "
-            expr p e
-            write p ";"
-        | JsStatement.Continue -> write p "continue;"
-        | JsStatement.Assign(target, value) ->
-            write p target
-            write p " = "
-            expr p value
-            write p ";"
+            text "if (" ++ expr test ++ text ") " ++ block consequent ++ elseDoc
+        | JsStatement.While(test, body) -> text "while (" ++ expr test ++ text ") " ++ block body
+        | JsStatement.Return e -> text "return " ++ expr e ++ text ";"
+        | JsStatement.Continue -> text "continue;"
+        | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"
+        | JsStatement.Block body -> block body
+        | JsStatement.Throw e -> text "throw " ++ expr e ++ text ";"
         | JsStatement.Class(name, fields) ->
-            // The canonical record class: a positional constructor that stores
-            // each declaration-order field into the like-named property, so
-            // `new R(a, b)` and `r.X` line up. No structural methods yet (Step 6).
-            write p "class "
-            write p name
-            write p " "
-            write p "{"
-            p.Indent <- p.Indent + 1
-            newlineIndent p
-            write p "constructor("
-            fields |> List.iteri (fun i f -> (if i > 0 then write p ", "); write p f)
-            write p ") {"
-            p.Indent <- p.Indent + 1
+            // The canonical record class: one positional constructor storing each
+            // declaration-order field into the like-named property, so `new R(a, b)`
+            // and `r.X` line up. No structural methods yet (Step 6).
+            classDecl name None [ ctorDecl fields [] fields ]
+        | JsStatement.Union(baseName, cases) ->
+            // The base class — a `tag`-storing constructor plus `cases()` returning
+            // the declaration-order case names (the hand-stub Step 6 grows the
+            // structural triple onto) — then one `extends`-subclass per case storing
+            // its named fields after `super(tag)`.
+            let baseClass =
+                classDecl
+                    baseName
+                    None
+                    [
+                        ctorDecl [ "tag" ] [] [ "tag" ]
+                        memberDecl
+                            (text "cases()")
+                            [
+                                text "return ["
+                                ++ commaList [ for c in cases -> text (JsEscape.quoted c.CaseName) ]
+                                ++ text "];"
+                            ]
+                    ]
 
-            for f in fields do
-                newlineIndent p
-                write p "this."
-                write p f
-                write p " = "
-                write p f
-                write p ";"
+            let subclass (c: JsUnionCaseDecl) =
+                classDecl
+                    c.ClassName
+                    (Some baseName)
+                    [ ctorDecl c.Fields [ text (sprintf "super(%d);" c.Tag) ] c.Fields ]
 
-            p.Indent <- p.Indent - 1
-            newlineIndent p
-            write p "}"
-            p.Indent <- p.Indent - 1
-            newlineIndent p
-            write p "}"
+            cat (baseClass :: [ for c in cases -> Line ++ subclass c ])
+
+    // ---- Rendering -----------------------------------------------------------
+
+    /// Render a `Doc` to text + V3 mappings in one pass, tracking the generated
+    /// cursor so each `Mark` records the (line, col) it lands at. `Nest` carries
+    /// the indentation a `Line` re-emits, so there is no mutable indent to balance.
+    let private render (doc: Doc) : PrintResult =
+        let sb = StringBuilder()
+        let maps = ResizeArray<Mapping>()
+        let mutable line = 0
+        let mutable col = 0
+
+        let rec go (ind: int) (d: Doc) =
+            match d with
+            | Nil -> ()
+            | Text s ->
+                sb.Append s |> ignore
+                col <- col + s.Length
+            | Line ->
+                sb.Append '\n' |> ignore
+                line <- line + 1
+                sb.Append(' ', ind) |> ignore
+                col <- ind
+            | Nest(n, inner) -> go (ind + n) inner
+            | Cat docs ->
+                for d in docs do
+                    go ind d
+            | Mark(loc, inner) ->
+                maps.Add
+                    {
+                        GenLine = line
+                        GenCol = col
+                        SrcLine = loc.Line
+                        SrcCol = loc.Column
+                    }
+
+                go ind inner
+
+        go 0 doc
+
+        {
+            Source = sb.ToString()
+            Mappings = List.ofSeq maps
+        }
 
     /// The emitted ESM source (trailing-newline terminated) plus its mappings.
     let print (program: JsProgram) : PrintResult =
-        let p =
-            {
-                Sb = StringBuilder()
-                Line = 0
-                Col = 0
-                Indent = 0
-                Maps = []
-            }
-
-        program.Body
-        |> List.iter (fun s ->
-            statement p s
-            newline p
-        )
-
-        {
-            Source = p.Sb.ToString()
-            Mappings = List.rev p.Maps
-        }
+        render (cat [ for s in program.Body -> statement s ++ Line ])
 
 
 /// The V3 source-map document: base64-VLQ `mappings` + embedded
