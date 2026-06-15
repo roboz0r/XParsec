@@ -76,6 +76,8 @@ module Codegen =
         // The raw source text also drives `let`-bound variable naming (recovering
         // the source identifier from its binder token offset), independent of
         // whether maps are emitted.
+        // The record table is filled by `buildProgram` from the file's type
+        // declarations; the context starts with an empty one.
         let ctx: EmitJs.WalkCtx =
             {
                 Resolver = resolver
@@ -83,6 +85,7 @@ module Codegen =
                     match project.Source with
                     | Some src -> ValueSome src.Content
                     | None -> ValueNone
+                Records = System.Collections.Generic.Dictionary()
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)

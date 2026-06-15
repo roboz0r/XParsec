@@ -150,6 +150,23 @@ module JsPrint =
             )
 
             write p ")"
+        | JsExpr.New(callee, args, loc) ->
+            mark p loc
+            write p "new "
+            // The callee is a class-name `Identifier` (record construction), so
+            // it self-delimits — no parenthesising needed as `Call` requires.
+            expr p callee
+            write p "("
+
+            args
+            |> List.iteri (fun i a ->
+                if i > 0 then
+                    write p ", "
+
+                expr p a
+            )
+
+            write p ")"
         | JsExpr.Conditional(test, consequent, alternate, loc) ->
             // Parenthesised whole so the ternary composes safely wherever it
             // lands (it is the lowest-precedence JS operator).
@@ -206,9 +223,10 @@ module JsPrint =
             write p ") => "
 
             match body with
-            // A concise body composes safely as-is in Step 2 (arrow / call /
-            // ternary / `Raw` all self-delimit). An object-literal body (records,
-            // Step 3) will need its own parenthesisation when it lands.
+            // A concise body composes safely as-is (arrow / call / `new` /
+            // ternary / `Raw` all self-delimit). A bare object-*literal* body
+            // (`() => ({…})`) would need wrapping, but records construct via
+            // `new R(…)`, which self-delimits, so none is needed.
             | JsFnBody.Expr e -> expr p e
             | JsFnBody.Block stmts -> block p stmts
 
@@ -263,6 +281,35 @@ module JsPrint =
             write p " = "
             expr p value
             write p ";"
+        | JsStatement.Class(name, fields) ->
+            // The canonical record class: a positional constructor that stores
+            // each declaration-order field into the like-named property, so
+            // `new R(a, b)` and `r.X` line up. No structural methods yet (Step 6).
+            write p "class "
+            write p name
+            write p " "
+            write p "{"
+            p.Indent <- p.Indent + 1
+            newlineIndent p
+            write p "constructor("
+            fields |> List.iteri (fun i f -> (if i > 0 then write p ", "); write p f)
+            write p ") {"
+            p.Indent <- p.Indent + 1
+
+            for f in fields do
+                newlineIndent p
+                write p "this."
+                write p f
+                write p " = "
+                write p f
+                write p ";"
+
+            p.Indent <- p.Indent - 1
+            newlineIndent p
+            write p "}"
+            p.Indent <- p.Indent - 1
+            newlineIndent p
+            write p "}"
 
     /// The emitted ESM source (trailing-newline terminated) plus its mappings.
     let print (program: JsProgram) : PrintResult =

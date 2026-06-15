@@ -23,6 +23,11 @@ namespace XParsec.FSharp.Codegen.Js
 // statement-level `If` / `While` / `Return` / `Continue` / `Assign` the
 // self-tail-call loop form needs (`while (true)` + param-shadow mutation +
 // `continue`, codegen-js-steps Step 2 / plan §"Self tail calls").
+//
+// Step 3 adds records: the `New` expression (`new R(…)` — `RecordCons` and the
+// `RecordClone` copy-update construct positionally), the `Class` statement (a
+// record's emitted JS class), and field access reuses the existing `Member`
+// node (`r.X`).
 
 /// A 0-based source position — V3 source-map coordinates (`Line`, then `Column`
 /// counted in UTF-16 code units). ESTree spells a full `loc` as
@@ -67,6 +72,10 @@ and [<RequireQualifiedAccess>] JsExpr =
     | Member of object: JsExpr * property: JsExpr * computed: bool * loc: JsLoc voption
     /// `CallExpression` — `callee(arguments…)`.
     | Call of callee: JsExpr * arguments: JsExpr list * loc: JsLoc voption
+    /// `NewExpression` — `new callee(arguments…)`. A record literal
+    /// (`RecordCons`) / copy-update (`RecordClone`) constructs its emitted class
+    /// positionally; the callee is the class-name `Identifier`.
+    | New of callee: JsExpr * arguments: JsExpr list * loc: JsLoc voption
     /// `ConditionalExpression` — `test ? consequent : alternate` (an
     /// `IfThenElse`). The printer parenthesises the whole node.
     | Conditional of test: JsExpr * consequent: JsExpr * alternate: JsExpr * loc: JsLoc voption
@@ -116,6 +125,14 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `AssignmentExpression` (as a statement) — `target = value;`, the
     /// param-shadow mutation a self-tail-call performs before `continue`.
     | Assign of target: string * value: JsExpr
+    /// A record's emitted JS class (Step 3) — a compressed stand-in for the
+    /// ESTree `ClassDeclaration`/`ClassBody`/`MethodDefinition` tree (same
+    /// compression `Const` makes of `VariableDeclaration`). `fields` are the
+    /// record's *declaration-order* field names; the printer renders the
+    /// canonical positional constructor (`constructor(X, Y) { this.X = X; … }`)
+    /// against which `RecordCons` / `RecordClone` build with `new`. Augmentation
+    /// members + the structural triple (Step 6) grow this later.
+    | Class of name: string * fields: string list
 
 /// `Program` with `sourceType: "module"` (ESM output).
 type JsProgram = { Body: JsStatement list }

@@ -28,6 +28,14 @@ open XParsec.FSharp.SemanticAnalysis
 /// it needs boundary curry/uncurry adaptation to stay sound). Self-recursion in
 /// tail position is trampolined to a `while (true)` loop with param-shadow
 /// mutation (`emitFunction` / `buildTailBody`) so it runs in constant stack.
+///
+/// **Step 3** adds records: a record `type` decl becomes a JS `class` with a
+/// positional constructor (`collectRecords` reads the declaration-order field
+/// names off the *un-lowered* decls, since `TastLower.lower` drops `type`
+/// decls); `RecordCons` → `new R(…)` with the literal's source-order fields
+/// reordered to declaration order; `RecordClone` (`{ r with … }`) →
+/// reconstruction `new R(…)` copying `r.field` for unlisted fields (through an
+/// IIFE binder when the source is effectful); `FieldGet` → a `Member` access.
 module EmitJs =
 
     /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
@@ -75,14 +83,25 @@ module EmitJs =
     /// (no source text supplied); `ValueSome` carries the line index.
     type Resolver = LineIndex voption
 
-    /// The walker's ambient context: the source-map resolver plus the raw source
-    /// text (for recovering a `let`-bound variable's *source* name from its binder
-    /// token offset). Both come from `JsProjectInfo.Source`; absent it, maps are
-    /// off and variable names fall back to a synthetic `_v<offset>`.
+    /// A record type's JS shape (Step 3): the emitted class `Name` and its
+    /// `Fields` in *declaration* order. `RecordCons` / `RecordClone` build with
+    /// `new Name(…)` and must order their arguments to match the class's
+    /// positional constructor, so the declaration order is the authority (the
+    /// literal's source order is reordered against it).
+    type JsRecordInfo = { Name: string; Fields: string list }
+
+    /// The walker's ambient context: the source-map resolver, the raw source text
+    /// (for recovering a `let`-bound variable's *source* name from its binder token
+    /// offset), and the record table (`SymbolKey` → `JsRecordInfo`, for ordering
+    /// `RecordCons` / `RecordClone` arguments against the class's positional
+    /// constructor). The resolver/source come from `JsProjectInfo.Source` (absent
+    /// it, maps are off and variable names fall back to `_v<offset>`); the record
+    /// table is built from the file's type declarations by `buildProgram`.
     type WalkCtx =
         {
             Resolver: Resolver
             Source: string voption
+            Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -196,6 +215,20 @@ module EmitJs =
         | TailSelfCall selfKey arity _ -> true
         | _ -> false
 
+    // ---- Records -------------------------------------------------------------
+
+    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver type to its
+    /// emitted `JsRecordInfo`. `what` names the construct for the diagnostic. The
+    /// nominal `SymbolKey` keys the same table the type declaration filled, so an
+    /// absent entry means the record's `type` decl never reached this file.
+    let private recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
+        match TastLower.receiverShape ty with
+        | ValueSome(key, _) ->
+            match ctx.Records.TryGetValue key with
+            | true, info -> info
+            | _ -> failwithf "EmitJs (Step 3): %s on record with no emitted type (key %A)" what key
+        | ValueNone -> failwithf "EmitJs (Step 3): %s on non-nominal type %A" what ty
+
     // ---- The walker ----------------------------------------------------------
 
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
@@ -263,6 +296,63 @@ module EmitJs =
         // curry/uncurry adaptation to stay sound across generic higher-order
         // functions, so it is deferred to its own slice.)
         | TExprG.App(fn, arg, _, _) -> JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
+
+        // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
+        // reordered from source order to the class's *declaration*-order
+        // positional constructor.
+        | TExprG.RecordCons(srcFields, ty, _) ->
+            let info = recordInfoOf ctx "RecordCons" ty
+            let srcMap = Map.ofSeq (EqArray.toList srcFields)
+
+            let args =
+                [
+                    for f in info.Fields ->
+                        match Map.tryFind f srcMap with
+                        | Some e -> buildExpr ctx e
+                        | None -> failwithf "EmitJs (Step 3): record literal for '%s' is missing field '%s'" info.Name f
+                ]
+
+            JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), args, loc)
+
+        // `{ r with X = v; … }` → reconstruction `new R(…)`: each declaration-order
+        // field takes its override expression if listed, else reads `r.field`. A
+        // pure source (`{ p with … }`, a `Var`) is read field-wise inline; an
+        // effectful source is evaluated once through an IIFE binder so it is not
+        // re-run per copied field.
+        | TExprG.RecordClone(source, overrides, ty, _) ->
+            let info = recordInfoOf ctx "RecordClone" ty
+            let overrideMap = Map.ofSeq (EqArray.toList overrides)
+
+            let argsFrom (srcRef: unit -> JsExpr) =
+                [
+                    for f in info.Fields ->
+                        match Map.tryFind f overrideMap with
+                        | Some ov -> buildExpr ctx ov
+                        | None -> JsExpr.Member(srcRef (), JsExpr.Identifier(f, ValueNone), false, ValueNone)
+                ]
+
+            if isPureValue source then
+                JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (fun () -> buildExpr ctx source), loc)
+            else
+                let sName = "_rc" + string (TastWalk.exprTok e).StartIndex
+
+                let newExpr =
+                    JsExpr.New(
+                        JsExpr.Identifier(info.Name, ValueNone),
+                        argsFrom (fun () -> JsExpr.Identifier(sName, ValueNone)),
+                        loc
+                    )
+
+                JsExpr.Call(
+                    JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone),
+                    [ buildExpr ctx source ],
+                    loc
+                )
+
+        // `r.X` → `r.X` — a member access on the record's like-named property
+        // (the emitted class stores each field under its source field name).
+        | TExprG.FieldGet(receiver, fieldName, _, _) ->
+            JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(fieldName, ValueNone), false, loc)
 
         | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
@@ -471,12 +561,47 @@ module EmitJs =
     /// `buildExpr` until a later step routes it.)
     let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
 
-    /// The whole frozen file → a `Program`. The decls are first lowered (shared
-    /// `TastLower.lower` with the JS `finishOps`): inline `let inline` templates
-    /// and `type` decls drop out, leaving top-level `let` values and effectful
-    /// expressions.
-    let buildProgram (ctx: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
+    /// Collect the file's record type declarations, in source order, into the
+    /// emission list (one `class` statement each) and the lookup table the walker
+    /// keys `RecordCons` / `RecordClone` / `FieldGet` through. `TastLower.lower`
+    /// drops every `type` decl (they are metadata, not in the expression stream),
+    /// so the record shape is read from the *un-lowered* decls here. Only `Record`
+    /// kinds are collected; unions / classes / interfaces are later steps.
+    let private collectRecords
+        (tast: Frozen.TastFile)
+        : (SymbolKey * JsRecordInfo) list * System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo> =
+        let ordered = ResizeArray<SymbolKey * JsRecordInfo>()
+        let table = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
+
+        for decl in tast.Decls do
+            match decl with
+            | TDeclG.Type td ->
+                match td.Kind with
+                | TTypeKindG.Record(fields, _) ->
+                    let info =
+                        {
+                            Name = td.Name
+                            Fields = [ for f in fields -> f.Name ]
+                        }
+
+                    ordered.Add(td.Key, info)
+                    table.[td.Key] <- info
+                | _ -> ()
+            | _ -> ()
+
+        List.ofSeq ordered, table
+
+    /// The whole frozen file → a `Program`. Record `type` declarations become JS
+    /// `class`es first (classes are not hoisted, so they must precede their `new`
+    /// sites); the remaining decls are lowered (shared `TastLower.lower` with the
+    /// JS `finishOps`) — inline `let inline` templates and `type` decls drop out,
+    /// leaving top-level `let` values and effectful expressions.
+    let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
+        let recordList, recordTable = collectRecords tast
+        let ctx = { ctx0 with Records = recordTable }
         let lowered = TastLower.lower jsFinishOps tast.Decls
+
+        let classDecls = [ for (_, info) in recordList -> JsStatement.Class(info.Name, info.Fields) ]
 
         let body =
             [
@@ -488,4 +613,4 @@ module EmitJs =
                     | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
             ]
 
-        { Body = body }
+        { Body = classDecls @ body }
