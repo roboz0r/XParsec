@@ -121,6 +121,7 @@ let tests =
                         MethodArity = 2
                         Origin = SymbolOrigin.Empty
                         Key = SymbolKeyOps.valueKeyOf None "genericMethod"
+                        OptionalDefaults = []
                     }
 
                 let level = 7
@@ -177,6 +178,7 @@ let tests =
                             MethodArity = methodArity
                             Origin = SymbolOrigin.Empty
                             Key = SymbolKeyOps.valueKeyOf None name
+                            OptionalDefaults = []
                         }
 
                     let args = argsForArity declArity

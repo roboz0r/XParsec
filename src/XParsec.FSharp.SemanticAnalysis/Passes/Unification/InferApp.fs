@@ -39,13 +39,13 @@ module internal UnificationInferApp =
 
         // The generic curried-application fallback: the head is a function, each
         // arg unifies against the next domain. Reached only when no specialised
-        // probe claims the call.
-        let inferGenericApp () =
-            let mutable currTy = infer ctx fn
+        // probe claims the call. `fn` is inferred by the caller and threaded in so
+        // the optional-argument fill (which needs `fn`'s recorded external member)
+        // and this loop share one inference of the head.
+        let inferGenericAppFrom (fnTy: SemType) (argTys: SemType[]) =
+            let mutable currTy = fnTy
 
-            for a in args do
-                let argTy = infer ctx a
-
+            for argTy in argTys do
                 match resolveStep currTy with
                 | TyFun(dom, cod) ->
                     // Allow an implicit class→interface / class→base upcast on the
@@ -76,7 +76,18 @@ module internal UnificationInferApp =
         |> ValueOption.orElseWith (fun () -> single (tryInferExternalGenericCtorApp infer))
         |> ValueOption.orElseWith (fun () -> single (tryInferLocalCtorApp infer))
         |> ValueOption.orElseWith (fun () -> single (tryInferExternalInstanceMethodCall infer))
-        |> ValueOption.defaultWith inferGenericApp
+        |> ValueOption.defaultWith (fun () ->
+            // Infer the head and each argument once, then either fill omitted trailing
+            // optional arguments (an external method call short of its full arity) or
+            // run the generic curried-application loop. Both consumers need the args
+            // inferred, and the optional-fill probe may inspect the single arg's arity
+            // and then decline — so sharing one inference avoids re-inferring it here.
+            let fnTy = infer ctx fn
+            let argTys = [| for a in args -> infer ctx a |]
+
+            tryFillOptionalCall ctx key fn args argTys
+            |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
+        )
 
     /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
     /// printf entry point with a plain-literal format argument, the format spec

@@ -243,6 +243,18 @@ type ExternalMember =
         /// `!0`-typars), minted by the resolving source. Freeze stamps it into
         /// `TExpr.ExternalMember` so codegen reads the binding off the node.
         Key: SymbolKey
+        /// The compile-time-constant default values of this member's *trailing*
+        /// optional parameters (`ArrayPool<'T>.Return(array, [<Optional>] clearArray =
+        /// false)` ⇒ `[Bool false]`), in declaration order. A call may omit any
+        /// suffix of these: the front end (`InferExternalCall.tryFillOptionalCall`)
+        /// permits the under-applied arity and Freeze synthesises the omitted defaults
+        /// as literal arguments so codegen sees the full tupled call unchanged. Empty
+        /// for a member with no omittable optionals — every property, ctor, and the
+        /// contract (`.fsi`) layer, which doesn't publish optional defaults yet. Only
+        /// constants representable as a `TConstValue` are surfaced; an optional whose
+        /// default is `null` / a non-primitive `default(struct)` ends the trailing run
+        /// (that parameter stays required), so no call can omit past it.
+        OptionalDefaults: TConstValue list
     }
 
 /// Capability flags on an external class or interface. The metadata layer reads

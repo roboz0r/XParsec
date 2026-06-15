@@ -969,6 +969,7 @@ module UnificationEngine =
                                 IsStatic = false
                                 IsProperty = m.IsProperty
                                 Signature = memberSig
+                                OptionalDefaults = m.OptionalDefaults
                             }
                         )
 

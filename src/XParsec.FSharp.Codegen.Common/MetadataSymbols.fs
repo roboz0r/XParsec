@@ -148,6 +148,88 @@ module private MetadataMapping =
         else
             0
 
+    /// The zero value of a primitive value type as a `TConstValue` — the default an
+    /// `[<Optional>]` parameter with no `[<DefaultParameterValue>]` receives
+    /// (`default(T)`). `None` for a reference type (its default is `null`, which has
+    /// no `TConstValue`) or a non-primitive struct (no representable constant), which
+    /// ends an optional-parameter run rather than being faked.
+    let private zeroOfValueType (t: Type) : TConstValue option =
+        if not t.IsValueType then
+            None
+        else
+            match t.FullName with
+            | "System.Boolean" -> Some(TConstValue.Bool false)
+            | "System.Char" -> Some(TConstValue.Char '\000')
+            | "System.SByte"
+            | "System.Int16"
+            | "System.UInt16"
+            | "System.Int32"
+            | "System.UInt32" -> Some(TConstValue.Int 0)
+            | "System.Byte" -> Some(TConstValue.Byte 0uy)
+            | "System.Int64"
+            | "System.UInt64" -> Some(TConstValue.Int64 0L)
+            | "System.Single" -> Some(TConstValue.Float32 0.0f)
+            | "System.Double" -> Some(TConstValue.Float 0.0)
+            | _ -> None
+
+    /// A boxed constant (a parameter's `RawDefaultValue`) as a `TConstValue`. The
+    /// unsigned forms fold onto the matching signed `TConstValue` — the IL constant
+    /// is bit-identical and only disambiguates an *omitted* argument, never re-typed.
+    let private constOfBoxed (v: obj) : TConstValue option =
+        match v with
+        | :? bool as b -> Some(TConstValue.Bool b)
+        | :? char as c -> Some(TConstValue.Char c)
+        | :? sbyte as n -> Some(TConstValue.Int(int n))
+        | :? int16 as n -> Some(TConstValue.Int(int n))
+        | :? uint16 as n -> Some(TConstValue.Int(int n))
+        | :? int as n -> Some(TConstValue.Int n)
+        | :? uint32 as n -> Some(TConstValue.Int(int n))
+        | :? byte as n -> Some(TConstValue.Byte n)
+        | :? int64 as n -> Some(TConstValue.Int64 n)
+        | :? uint64 as n -> Some(TConstValue.Int64(int64 n))
+        | :? single as f -> Some(TConstValue.Float32 f)
+        | :? double as f -> Some(TConstValue.Float f)
+        | :? string as s -> Some(TConstValue.String s)
+        | _ -> None
+
+    /// The compile-time-constant defaults of a member's *trailing* optional
+    /// parameters, in declaration order — surfaced on `ExternalMember.OptionalDefaults`
+    /// so a call may omit any suffix of them. Walks parameters from the end: an
+    /// optional parameter contributes its explicit constant default
+    /// (`[<DefaultParameterValue>]`) or, lacking one, the zero of a primitive value
+    /// type (`[<Optional>]` alone ⇒ `default(T)`). The walk stops at the first
+    /// parameter that is not optional or whose default isn't a representable constant
+    /// (a `null` reference default, a non-primitive `default(struct)`), so the
+    /// surfaced list is exactly the omittable suffix.
+    let optionalDefaults (ps: ParameterInfo[]) : TConstValue list =
+        let tryConstOf (p: ParameterInfo) : TConstValue option =
+            if not p.IsOptional then
+                None
+            elif p.HasDefaultValue then
+                match
+                    (try
+                        Some p.RawDefaultValue
+                     with _ ->
+                         None)
+                with
+                | Some v when not (isNull v) -> constOfBoxed v
+                | _ -> None // a `null` (reference-type) default isn't a `TConstValue`
+            else
+                zeroOfValueType p.ParameterType
+
+        let mutable acc = []
+        let mutable i = ps.Length - 1
+        let mutable go = true
+
+        while go && i >= 0 do
+            match tryConstOf ps.[i] with
+            | Some c ->
+                acc <- c :: acc
+                i <- i - 1
+            | None -> go <- false
+
+        acc
+
     /// A property reads as a value of its type (no leading arrow) — `Default` is a
     /// `EqualityComparer<'T>`, not a function. `IsProperty` tells the consumer not
     /// to expect a `TyFun`.
@@ -339,6 +421,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             MethodArity = 0
                             Origin = origin
                             Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
+                            OptionalDefaults = []
                         }
                 | None -> None
             )
@@ -366,6 +449,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         MethodArity = methodArity
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
+                        OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
                     }
                 )
             )
@@ -400,6 +484,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         MethodArity = 0
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, "get_Item", argSig, MemberKind.Method)
+                        OptionalDefaults = []
                     }
                 )
             )
@@ -428,6 +513,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         MethodArity = 0
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+                        OptionalDefaults = MetadataMapping.optionalDefaults (c.GetParameters())
                     }
                 )
             )
@@ -574,6 +660,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         MethodArity = 0
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+                                        OptionalDefaults = MetadataMapping.optionalDefaults (c.GetParameters())
                                     }
                                 )
                             )
@@ -599,6 +686,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         MethodArity = methodArity
                                         Origin = origin
                                         Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
+                                        OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
                                     }
                                 )
                             )
@@ -621,6 +709,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                                 EqArray.empty,
                                                 MemberKind.Property
                                             )
+                                        OptionalDefaults = []
                                     }
                                 |]
                             | None -> [||]

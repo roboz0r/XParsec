@@ -946,6 +946,9 @@ module VesperLib =
                                     MethodArity = 0
                                     Origin = SymbolOrigin.Empty
                                     Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
+                                    // The `.fsi` contract layer doesn't publish optional-parameter
+                                    // defaults yet.
+                                    OptionalDefaults = []
                                 }
 
                             memberCsts.Add

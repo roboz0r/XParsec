@@ -177,22 +177,30 @@ module internal FreezeExpr =
             // un-grounded applied shape); everything else reads the parameter off
             // the head's function type.
             let fnT = translateExpr ctx fn
-            let argT = translateExpr ctx arg
+            let fnKey = CstKeys.ofExpr fn
 
-            let paramTy =
-                match externalHeadDom ctx (CstKeys.ofExpr fn) fnT with
-                | ValueSome _ as dom -> dom
-                | ValueNone ->
-                    match Unification.zonk (TastWalk.exprTy fnT) with
-                    | TyFun(p, _) -> ValueSome p
-                    | _ -> ValueNone
+            match tryTranslateExternalOptionalFill ctx fnT fnKey (ImmutableArray.Create arg) tok with
+            // An external method call that omitted trailing optionals (the call parses
+            // as a high-precedence application of the folded LongIdent).
+            | ValueSome node -> node
+            | ValueNone ->
 
-            let argT =
-                match paramTy with
-                | ValueSome p -> wrapObjArg p argT
-                | ValueNone -> argT
+                let argT = translateExpr ctx arg
 
-            TExpr.App(fnT, argT, ty, tok)
+                let paramTy =
+                    match externalHeadDom ctx fnKey fnT with
+                    | ValueSome _ as dom -> dom
+                    | ValueNone ->
+                        match Unification.zonk (TastWalk.exprTy fnT) with
+                        | TyFun(p, _) -> ValueSome p
+                        | _ -> ValueNone
+
+                let argT =
+                    match paramTy with
+                    | ValueSome p -> wrapObjArg p argT
+                    | ValueNone -> argT
+
+                TExpr.App(fnT, argT, ty, tok)
         | Expr.InfixApp(left, _, right) -> translateInfix ctx key left right ty tok
         | Expr.PrefixApp(_, operand) -> translatePrefix ctx key operand ty tok
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
@@ -785,6 +793,87 @@ module internal FreezeExpr =
 
         curr
 
+    /// A trailing optional argument the call omitted, synthesised as a literal node
+    /// from the constant default `Unification` recorded in `ExternalOptionalFill`.
+    and private optionalDefaultNode (cv: TConstValue) (tok: SyntaxToken) : TExpr =
+        let ty =
+            match cv with
+            | TConstValue.Int _ -> BuiltinTypes.tyInt
+            | TConstValue.Int64 _ -> BuiltinTypes.tyInt64
+            | TConstValue.Byte _ -> BuiltinTypes.tyByte
+            | TConstValue.Float _ -> BuiltinTypes.tyFloat
+            | TConstValue.Float32 _ -> BuiltinTypes.tyFloat32
+            | TConstValue.Bool _ -> BuiltinTypes.tyBool
+            | TConstValue.Char _ -> BuiltinTypes.tyChar
+            | TConstValue.Decimal _ -> BuiltinTypes.tyDecimal
+            | TConstValue.String _ -> BuiltinTypes.tyString
+            | TConstValue.Unit -> BuiltinTypes.tyUnit
+
+        TExpr.Const(cv, ty, tok)
+
+    /// Dispatch an application head through the optional-argument fill iff
+    /// `Unification.tryFillOptionalCall` recorded omitted trailing optionals for it.
+    /// Both application arms (`Expr.App`'s tupled list and the residual single
+    /// `Expr.HighPrecedenceApp`) consult this first so the "did this call omit
+    /// optionals?" decision lives in one place; `ValueNone` ⇒ the arm's ordinary
+    /// lowering runs unchanged. `head` is the already lowered application head.
+    and private tryTranslateExternalOptionalFill
+        (ctx: PassContext)
+        (head: TExpr)
+        (fnKey: NodeKey)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        (tok: SyntaxToken)
+        : TExpr voption =
+        match ctx.Resolution.ExternalOptionalFill.TryGetValue fnKey with
+        | ValueSome omitted when not (List.isEmpty omitted) ->
+            ValueSome(translateExternalOptionalCall ctx head fnKey args omitted tok)
+        | _ -> ValueNone
+
+    /// Lower an external method call that omitted a suffix of the member's trailing
+    /// optional parameters (`Unification.tryFillOptionalCall` recorded the omitted
+    /// constant defaults in `ExternalOptionalFill`). The supplied arguments are
+    /// flattened, the recorded defaults appended as literal nodes, and the result
+    /// re-tupled to the member's *full* arity — so codegen sees a fully applied
+    /// tupled call and needs no optional-argument awareness. `head` is the already
+    /// lowered `TExpr.ExternalMember`; its own type stays the full signature, so the
+    /// backend recovers the complete member-ref.
+    and private translateExternalOptionalCall
+        (ctx: PassContext)
+        (head: TExpr)
+        (fnKey: NodeKey)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        (omitted: TConstValue list)
+        (tok: SyntaxToken)
+        : TExpr =
+        let supplied =
+            if args.Length = 1 then
+                peelOneArg (translateExpr ctx) args.[0]
+            else
+                EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
+
+        let defaults = [ for cv in omitted -> optionalDefaultNode cv tok ]
+        let filled = (EqArray.toList supplied) @ defaults
+
+        // The full tupled parameter domain (for the synthesised tuple's type and the
+        // element-wise `obj` box) and the member's return type, off the recorded
+        // signature.
+        let fullDom, ret =
+            match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
+            | ValueSome info ->
+                match Unification.zonk info.Signature with
+                | TyFun(d, r) -> d, r
+                | other -> other, other
+            | ValueNone -> BuiltinTypes.tyUnit, BuiltinTypes.tyUnit
+
+        let argNode =
+            match filled with
+            | [ single ] -> wrapObjArg fullDom single
+            | many ->
+                let tuple = TExpr.Tuple(EqArray.ofList many, fullDom, tok)
+                wrapObjArg fullDom tuple
+
+        TExpr.App(head, argNode, ret, tok)
+
     and private translateApp
         (ctx: PassContext)
         (fn: Expr<SyntaxToken>)
@@ -792,39 +881,45 @@ module internal FreezeExpr =
         (tok: SyntaxToken)
         : TExpr =
         let mutable result = translateExpr ctx fn
-        let mutable currTy = typeOfKey ctx (CstKeys.ofExpr fn)
+        let fnKey = CstKeys.ofExpr fn
 
-        // An external .NET method head reads its obj slots off the declared
-        // signature Unification recorded (`externalHeadDom`); its node SemType is
-        // the un-grounded applied shape, not the function type. The method consumes
-        // the first spine arg (its tupled argument list); a project-local function
-        // reads each obj parameter off the head's function type (`currTy`) instead.
-        let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
-        let mutable isFirst = true
+        match tryTranslateExternalOptionalFill ctx result fnKey args tok with
+        | ValueSome node -> node
+        | ValueNone ->
 
-        for a in args do
-            let argT = translateExpr ctx a
+            let mutable currTy = typeOfKey ctx (CstKeys.ofExpr fn)
 
-            let paramTy, resTy =
-                match currTy with
-                | TyFun(p, r) -> p, r
-                | _ ->
-                    failwithf
-                        "Freeze.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
-                        currTy
+            // An external .NET method head reads its obj slots off the declared
+            // signature Unification recorded (`externalHeadDom`); its node SemType is
+            // the un-grounded applied shape, not the function type. The method consumes
+            // the first spine arg (its tupled argument list); a project-local function
+            // reads each obj parameter off the head's function type (`currTy`) instead.
+            let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
+            let mutable isFirst = true
 
-            // Box a value / open-typar argument flowing into an `obj` parameter —
-            // the implicit upcast made explicit.
-            let argT =
-                match externalDom with
-                | ValueSome dom when isFirst -> wrapObjArg dom argT
-                | _ -> wrapObjArg paramTy argT
+            for a in args do
+                let argT = translateExpr ctx a
 
-            result <- TExpr.App(result, argT, resTy, tok)
-            currTy <- resTy
-            isFirst <- false
+                let paramTy, resTy =
+                    match currTy with
+                    | TyFun(p, r) -> p, r
+                    | _ ->
+                        failwithf
+                            "Freeze.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
+                            currTy
 
-        result
+                // Box a value / open-typar argument flowing into an `obj` parameter —
+                // the implicit upcast made explicit.
+                let argT =
+                    match externalDom with
+                    | ValueSome dom when isFirst -> wrapObjArg dom argT
+                    | _ -> wrapObjArg paramTy argT
+
+                result <- TExpr.App(result, argT, resTy, tok)
+                currTy <- resTy
+                isFirst <- false
+
+            result
 
     /// Whether `%A` of an argument of this (zonked) type renders faithfully on the
     /// structural engine. Faithful shapes are: primitives, `string` / `char` /

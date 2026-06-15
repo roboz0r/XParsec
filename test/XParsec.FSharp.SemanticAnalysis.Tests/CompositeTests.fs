@@ -54,6 +54,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                                 EqArray.empty,
                                 MemberKind.Method
                             )
+                        OptionalDefaults = []
                     }
             else
                 ValueNone

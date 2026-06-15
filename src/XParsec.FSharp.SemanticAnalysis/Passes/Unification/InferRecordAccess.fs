@@ -209,6 +209,7 @@ module internal UnificationInferRecordAccess =
                             IsStatic = false
                             IsProperty = m.IsProperty
                             Signature = memberSig
+                            OptionalDefaults = m.OptionalDefaults
                         }
                     )
 
@@ -246,6 +247,7 @@ module internal UnificationInferRecordAccess =
                             IsStatic = false
                             IsProperty = m.IsProperty
                             Signature = memberSig
+                            OptionalDefaults = m.OptionalDefaults
                         }
                     )
 
@@ -345,6 +347,8 @@ module internal UnificationInferRecordAccess =
                         IsStatic = false
                         IsProperty = false
                         Signature = memberSig
+                        // An indexer's `get_Item` takes no omittable optionals.
+                        OptionalDefaults = []
                     }
                 )
 

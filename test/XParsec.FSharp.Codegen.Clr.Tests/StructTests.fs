@@ -918,4 +918,33 @@ let structTests =
                             "printfn \"%c\" (v.At 4)"
                         ])
             }
+
+            // PP3 (printf-port-steps): `ArrayPool<char>.Shared.Rent/Return` — generic
+            // external static-property access (`.Shared` on the constructed generic
+            // `ArrayPool<char>`) plus instance method calls on the result. `Rent(int)`
+            // is the plan's stated checkpoint; `Return(arr)` is the load-bearing
+            // addition — it omits `Return`'s trailing optional `clearArray = false`
+            // parameter. Optional-argument omission is the real PP3 gap (the generic
+            // two-axis signature build already landed): the provider surfaces the
+            // member's `OptionalDefaults`, Unification permits the under-applied arity
+            // and records the omitted constant, and Freeze synthesises it as a literal
+            // so codegen sees the full tupled call. Both the bound-receiver form
+            // (`pool.Return`) and the chained static form (`ArrayPool<char>.Shared.Return`,
+            // as `Formatter.cs` writes it) are exercised.
+            test "PP3: ArrayPool<char>.Shared Rent + Return (omitted optional arg)" {
+                runsLines
+                    [ "ok" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System.Buffers"
+                            "let pool = ArrayPool<char>.Shared"
+                            "let a = pool.Rent(256)"
+                            "let b = ArrayPool<char>.Shared.Rent(512)"
+                            "let ok = a.Length >= 256 && b.Length >= 512"
+                            "pool.Return(a)"
+                            "ArrayPool<char>.Shared.Return(b)"
+                            "printfn \"%s\" (if ok then \"ok\" else \"no\")"
+                        ])
+            }
         ]

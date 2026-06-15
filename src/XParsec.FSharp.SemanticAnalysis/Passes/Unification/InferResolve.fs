@@ -276,6 +276,7 @@ module internal UnificationInferResolve =
                     IsStatic = m.IsStatic
                     IsProperty = m.IsProperty
                     Signature = memberSig
+                    OptionalDefaults = m.OptionalDefaults
                 }
             )
 

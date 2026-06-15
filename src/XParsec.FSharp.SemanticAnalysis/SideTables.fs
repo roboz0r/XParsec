@@ -471,6 +471,12 @@ type ResolvedExternalMember =
         IsStatic: bool
         IsProperty: bool
         Signature: SemType
+        /// The resolved member's trailing optional-parameter defaults, carried
+        /// forward verbatim from `ExternalMember.OptionalDefaults` so a later call
+        /// site (`InferExternalCall.tryFillOptionalCall`) reads them off the resolved
+        /// record instead of re-querying the provider and re-matching by `Key`. Empty
+        /// for a member with no omittable optionals (the common case).
+        OptionalDefaults: TConstValue list
     }
 
 /// A use of an operator as a value (`(+)` in `Seq.fold (+) …`), enqueued by
@@ -832,6 +838,17 @@ type PassContextResolution =
         /// stamping the resolved `SymbolKey` (P3). Absent
         /// for project-local member access (resolved via `Types.Class` / `Types.Union`).
         ExternalAccess: SideTable<ResolvedExternalMember>
+        /// Keyed by an external *method-call head*'s `NodeKey` (the same key
+        /// `ExternalAccess` stores the resolved member under): the compile-time
+        /// constant defaults of the trailing optional parameters this call *omitted*,
+        /// in declaration order. Recorded by `Unification`'s optional-argument fill
+        /// (`InferExternalCall.tryFillOptionalCall`) when a call supplies fewer
+        /// arguments than the member's parameter count, relying on the member's
+        /// `ExternalMember.OptionalDefaults`; read by `Freeze.translateApp`, which
+        /// synthesises them as literal arguments so codegen sees the full tupled call
+        /// (`ArrayPool<'T>.Return(arr)` ⇒ `Return(arr, false)`). Absent ⇒ a fully
+        /// applied call (the common case), emitted unchanged.
+        ExternalOptionalFill: SideTable<TConstValue list>
         /// Keyed by an external-value use-site's `NodeKey` (the `Expr.Ident` /
         /// `Expr.LongIdentOrOp` that resolved through `IExternalSymbolProvider.TryLookup`):
         /// the resolved value's `SymbolKey.ValueKey`. Freeze stamps it onto
@@ -916,6 +933,7 @@ module PassContextResolution =
             EnclosingTypars = ValueNone
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
+            ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()
             ResolvedOperatorValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()

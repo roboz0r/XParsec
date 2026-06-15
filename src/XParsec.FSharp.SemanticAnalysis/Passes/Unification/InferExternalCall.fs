@@ -45,6 +45,7 @@ module internal UnificationInferExternalCall =
                 IsStatic = chosen.IsStatic
                 IsProperty = chosen.IsProperty
                 Signature = memberSig
+                OptionalDefaults = chosen.OptionalDefaults
             }
         )
 
@@ -157,3 +158,66 @@ module internal UnificationInferExternalCall =
                     | ValueNone -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
+
+    /// Permit an external method call that omits a suffix of the member's *trailing
+    /// optional* parameters (`ArrayPool<'T>.Return(arr)` for `Return(arr, [<Optional>]
+    /// clearArray = false)`). Runs as the last fallback in `inferApp` (after `fn` is
+    /// already inferred, so `resolveFieldStep` has recorded the member in
+    /// `ExternalAccess`): without it, the generic application loop would unify the
+    /// single supplied argument against the full tupled parameter domain and report a
+    /// spurious arity mismatch. When the supplied arity sits between the member's
+    /// required and full parameter counts, this unifies the supplied arguments against
+    /// only the *leading* parameters and records the omitted constant defaults in
+    /// `ExternalOptionalFill` for Freeze to synthesise — leaving the head's own type
+    /// (and so the member-ref the backend recovers) at the full signature. Declines
+    /// (so the ordinary path runs, unchanged) on every other shape, so it can only
+    /// *admit* a call the old path rejected.
+    and tryFillOptionalCall
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        (argTys: SemType[])
+        : SemType voption =
+        // Only a single .NET-tupled argument list can carry omitted optionals; a
+        // genuinely curried application isn't a .NET method-call shape.
+        if args.Length <> 1 then
+            ValueNone
+        else
+            let fnKey = CstKeys.ofExpr fn
+
+            // The member's optional defaults were carried forward onto the resolved
+            // record when `fn` was inferred (`ResolvedExternalMember.OptionalDefaults`),
+            // so there is no provider re-query here.
+            match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
+            | ValueSome info when not info.IsProperty && not (List.isEmpty info.OptionalDefaults) ->
+                match info.Key with
+                | SymbolKey.MemberKey(_, _, argSig, _) ->
+                    let optDefaults = info.OptionalDefaults
+                    let fullCount = argSig.Length
+                    let requiredCount = fullCount - List.length optDefaults
+                    let argTy = argTys.[0]
+                    let suppliedCount = argArityOf argTy
+
+                    // Fire only for a *partial* omission: a fully applied call
+                    // (or one below the required minimum) is left to the normal path.
+                    if suppliedCount < requiredCount || suppliedCount >= fullCount then
+                        ValueNone
+                    else
+                        match resolveStep info.Signature with
+                        | TyFun(fullParams, ret) ->
+                            let leading =
+                                match resolveStep fullParams with
+                                | TyTuple elems -> elems |> EqArray.toList |> List.truncate suppliedCount
+                                | single -> [ single ]
+
+                            let resultTy = TyVar(freshTyVar ctx)
+                            unifyAppliedSig ctx key (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle leading, ret))
+                            // The omitted defaults are the last `fullCount - suppliedCount`
+                            // of the optional suffix; Freeze appends them.
+                            let omitted = optDefaults |> List.skip (suppliedCount - requiredCount)
+                            ctx.Resolution.ExternalOptionalFill.Set(fnKey, omitted)
+                            ValueSome resultTy
+                        | _ -> ValueNone
+                | _ -> ValueNone
+            | _ -> ValueNone
