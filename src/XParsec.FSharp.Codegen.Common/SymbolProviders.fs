@@ -390,6 +390,16 @@ module SymbolProviders =
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
         buildContractCached None manifestPaths |> fst
 
+    /// `buildContract` for a specific backend target (`Some Target.Js` selects the
+    /// `inline-bodies-js` `.fs` bodies via `ReferencedProject.resolveInlineBodies`),
+    /// so the provider's `IInlineBodyProvider` channel splices the target's
+    /// templated operator bodies (`($0 + $1) | 0` for int32 `+`) at the consumer's
+    /// use site. `None` is identical to `buildContract` (the CLR base list). The
+    /// matched inline `Map` is the target-keyed cache entry shared with
+    /// `contractInlineBodiesFor`.
+    let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
+        buildContractCached target manifestPaths |> fst
+
     /// The raw cross-package inline bodies collected for a manifest set, keyed by
     /// source name — an introspection seam for the inline-body collection tests.
     /// Production splices these through the provider's `IInlineBodyProvider`

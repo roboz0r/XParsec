@@ -1,19 +1,25 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open System.Globalization
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-/// The `TAST → JsAst` walker — the JS analogue of `Emit*` in `Codegen.Clr`. Step
-/// 0a covers exactly the slice a `printfn "hi"` program needs: a string `Const`,
-/// and a top-level printf-family `Format` whose segments are all literals lowered
-/// to `console.log` / `console.error`. Every other node is an explicit `failwithf`
-/// so an unsupported arm surfaces loudly rather than dropping silently — the band
-/// of arms grows one step at a time (codegen-js-steps.md), and `EmitExpr.buildExpr`
-/// in the CLR backend is the master checklist each step works toward.
+/// The `TAST → JsAst` walker — the JS analogue of `Emit*` in `Codegen.Clr`. The
+/// band of arms grows one step at a time (codegen-js-steps.md), and
+/// `EmitExpr.buildExpr` in the CLR backend is the master checklist each step works
+/// toward. Every un-handled node is an explicit `failwithf` so an unsupported arm
+/// surfaces loudly rather than dropping silently.
 ///
-/// Step 0b adds source-map `loc`s: each emitted top-level `JsExpr` carries the
-/// (line, col) of its originating `TExprG` node's `'tok` (`SyntaxToken`), resolved
-/// against the raw source text via `LineIndex`.
+/// Step 0a covered `printfn "hi"`; Step 0b added source-map `loc`s. **Step 1**
+/// adds: scalar `Const`s (int32 / int64-`BigInt` / float / float32 / char / bool /
+/// unit); `Var` / `Let` / `Sequential` / `IfThenElse`; and the `ILIntrinsic`
+/// `$N`-template path (the **(a\*)** `JsRaw` MVP — universal parenthesization, no
+/// JS-grammar knowledge). The decls are first run through the shared
+/// `TastLower.lower` with a JS `finishOps` (identity — JS keeps operators as
+/// emit-able templates, it has no stack-machine intrinsic to collapse to); the
+/// templated operator bodies themselves were already spliced pre-freeze by
+/// `Passes.InlineExpansion` from `ops-platform.js.fs` (Step F1), so a ground
+/// `2 + 2` arrives as `ILIntrinsic("($0 + $1) | 0", …)`.
 module EmitJs =
 
     /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
@@ -61,35 +67,122 @@ module EmitJs =
     /// (no source text supplied); `ValueSome` carries the line index.
     type Resolver = LineIndex voption
 
-    let private locOf (resolver: Resolver) (tok: SyntaxToken) : JsLoc voption =
-        match resolver with
+    /// The walker's ambient context: the source-map resolver plus the raw source
+    /// text (for recovering a `let`-bound variable's *source* name from its binder
+    /// token offset). Both come from `JsProjectInfo.Source`; absent it, maps are
+    /// off and variable names fall back to a synthetic `_v<offset>`.
+    type WalkCtx =
+        {
+            Resolver: Resolver
+            Source: string voption
+        }
+
+    let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
+        match ctx.Resolver with
         | ValueSome idx -> ValueSome(LineIndex.resolve idx tok.StartIndex)
         | ValueNone -> ValueNone
 
-    let private console (method: string) : JsExpr =
-        JsExpr.Member(JsExpr.Identifier("console", ValueNone), JsExpr.Identifier(method, ValueNone), false, ValueNone)
+    // ---- Variable names ------------------------------------------------------
 
-    /// Fold a printf-family format whose segments are all literals into a single
-    /// string. Step 0a does not emit holes: a `%d`-style placeholder needs the
-    /// Step 1 `ILIntrinsic` template path, so it fails loudly until then.
-    let private literalFormat (segments: EqArray<Frozen.FormatSeg>) : string =
-        let sb = System.Text.StringBuilder()
+    let private isIdentStart (c: char) = System.Char.IsLetter c || c = '_'
 
-        for seg in segments do
-            match seg with
-            | FormatSegG.Lit s -> sb.Append s |> ignore
-            | FormatSegG.Hole _ -> failwith "EmitJs (Step 0a): format holes are not yet supported"
+    let private isIdentCont (c: char) =
+        System.Char.IsLetterOrDigit c || c = '_' || c = '\''
 
-        sb.ToString()
+    /// A `Var` / binder `NodeKey` → its JS identifier. The binder and every
+    /// reference carry the *same* key (the CLR backend resolves them through one
+    /// slot table the same way), so a key-derived name is consistent across the
+    /// binding and its uses. When the source text is available the binder token's
+    /// offset points at the source identifier, recovered verbatim (apostrophes,
+    /// illegal in JS, become `_`); otherwise a synthetic `_v<offset>` keeps it
+    /// stable and collision-free.
+    let private identName (source: string voption) (k: NodeKey) : string =
+        match source with
+        | ValueSome s when k.Offset >= 0 && k.Offset < s.Length && isIdentStart s.[k.Offset] ->
+            let mutable i = k.Offset
 
-    let rec buildExpr (resolver: Resolver) (e: Frozen.TExpr) : JsExpr =
-        let loc = locOf resolver (TastWalk.exprTok e)
+            while i < s.Length && isIdentCont s.[i] do
+                i <- i + 1
+
+            (s.Substring(k.Offset, i - k.Offset)).Replace('\'', '_')
+        | _ -> "_v" + string k.Offset
+
+    // ---- Scalar constants ----------------------------------------------------
+
+    /// Format a `double` round-trippably for a JS `number` literal. `NaN` /
+    /// `Infinity` / `-Infinity` map to the matching JS globals.
+    let private formatDouble (d: double) : string =
+        if System.Double.IsNaN d then "NaN"
+        elif System.Double.IsPositiveInfinity d then "Infinity"
+        elif System.Double.IsNegativeInfinity d then "-Infinity"
+        else d.ToString("R", CultureInfo.InvariantCulture)
+
+    // ---- Pure-`let` substitution ---------------------------------------------
+
+    /// A value safe to splice at its use site(s): no side effects and no
+    /// evaluation-order dependence, so moving it (even duplicating it) preserves
+    /// semantics. Covers the operands `Passes.InlineExpansion` `let`-binds when it
+    /// splices an operator body (`2 + 2` → `let a = 2 in let b = 2 in (# … a b #)`):
+    /// `Const`/`Var`, and a pure `ILIntrinsic` (the operator templates) over pure
+    /// args.
+    let rec private isPureValue (e: Frozen.TExpr) : bool =
+        match e with
+        | TExprG.Const _
+        | TExprG.Var _ -> true
+        | TExprG.ILIntrinsic(_, _, args, _, _) -> EqArray.toList args |> List.forall isPureValue
+        | _ -> false
+
+    /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
+    /// duplicating it across multiple uses is semantics-preserving.
+    let rec private substVar (k: NodeKey) (value: Frozen.TExpr) (e: Frozen.TExpr) : Frozen.TExpr =
+        match e with
+        | TExprG.Var(vk, _, _) when vk.Raw = k.Raw -> value
+        | _ -> TastLower.mapChildren (substVar k value) e
+
+    // ---- The walker ----------------------------------------------------------
+
+    let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
+        let loc = locOf ctx (TastWalk.exprTok e)
 
         match e with
-        | TExprG.Const(TConstValue.String s, _, _) -> JsExpr.Literal(JsLiteral.String s, loc)
+        | TExprG.Const(value, _, _) ->
+            match value with
+            | TConstValue.Int n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
+            | TConstValue.Byte b -> JsExpr.Literal(JsLiteral.Number(string (int b)), loc)
+            | TConstValue.Int64 n -> JsExpr.Literal(JsLiteral.BigInt(string n), loc)
+            | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)
+            | TConstValue.Float32 f -> JsExpr.Literal(JsLiteral.Number(formatDouble (float f)), loc)
+            | TConstValue.Bool b -> JsExpr.Literal(JsLiteral.Boolean b, loc)
+            // A `char` is a length-1 JS string (no distinct char type).
+            | TConstValue.Char c -> JsExpr.Literal(JsLiteral.String(string c), loc)
+            | TConstValue.String s -> JsExpr.Literal(JsLiteral.String s, loc)
+            // The unit value is `undefined` — JS has no unit, and `undefined` is
+            // the harmless value a discarded effectful expression yields.
+            | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
+            | TConstValue.Decimal _ -> failwithf "EmitJs (Step 1): decimal literals are not yet supported"
+
+        | TExprG.Var(k, _, _) -> JsExpr.Identifier(identName ctx.Source k, loc)
+
+        | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
+            JsExpr.Conditional(buildExpr ctx cond, buildExpr ctx thenE, buildExpr ctx elseE, loc)
+
+        // A `Sequential` in *expression* position is a comma expression: evaluate
+        // each, yield the last. (At top level it is expanded to statements by
+        // `buildStatements`.)
+        | TExprG.Sequential(xs, _, _) -> JsExpr.Sequence([ for x in xs -> buildExpr ctx x ], loc)
+
+        // A `let` in expression position (the operand lets `InlineExpansion`
+        // introduces around a spliced operator body). When the bound value is pure
+        // it is substituted into its uses — collapsing `let a = 2 in let b = 2 in
+        // (# … a b #)` back to the clean template. A non-pure value would need an
+        // IIFE (arrows, Step 2), so it fails loudly until then.
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
+            buildExpr ctx (substVar k value body)
+
+        | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
         | TExprG.Format(sink, segments, _, _) ->
-            let arg = JsExpr.Literal(JsLiteral.String(literalFormat segments), ValueNone)
+            let arg = buildFormatArg ctx segments
 
             match sink with
             // `console.log` / `console.error` append the trailing newline
@@ -98,23 +191,137 @@ module EmitJs =
             // step, as do the `sprintf` (`ToString`) / `fprintf` (`ToWriter`) sinks.
             | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
             | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
-            | other -> failwithf "EmitJs (Step 0a): unsupported format sink %A" other
+            | other -> failwithf "EmitJs (Step 1): unsupported format sink %A" other
 
-        | other -> failwithf "EmitJs (Step 0a): unsupported expression %A" other
+        | other -> failwithf "EmitJs (Step 1): unsupported expression %A" other
 
-    /// An expression evaluated for effect (a top-level `do` such as `printfn`).
-    let buildStatement (resolver: Resolver) (e: Frozen.TExpr) : JsStatement =
-        JsStatement.Expression(buildExpr resolver e)
+    and private console (method: string) : JsExpr =
+        JsExpr.Member(JsExpr.Identifier("console", ValueNone), JsExpr.Identifier(method, ValueNone), false, ValueNone)
 
-    /// The whole frozen file → a `Program`. Step 0a handles only top-level
-    /// expression declarations; `let` / `type` decls await Steps 1+.
-    let buildProgram (resolver: Resolver) (tast: Frozen.TastFile) : JsProgram =
+    /// Expand a `$N` JS-expression template (the `ILIntrinsic` opCode) into
+    /// `JsRawSeg`s: verbatim chunks interleaved with the operand expressions the
+    /// `$N` holes index (zero-based, source order). `$$` is a literal `$`. A CLR
+    /// CIL mnemonic that slipped through (no `$` hole though operands exist) is a
+    /// hard error — only `$N` templates may reach the JS backend (F0).
+    and private expandTemplate (ctx: WalkCtx) (template: string) (args: Frozen.TExpr list) : JsRawSeg list =
+        let segs = ResizeArray<JsRawSeg>()
+        let buf = System.Text.StringBuilder()
+        let mutable sawHole = false
+
+        let flush () =
+            if buf.Length > 0 then
+                segs.Add(JsRawSeg.Verbatim(buf.ToString()))
+                buf.Clear() |> ignore
+
+        let mutable i = 0
+
+        while i < template.Length do
+            let c = template.[i]
+
+            if c = '$' && i + 1 < template.Length && template.[i + 1] = '$' then
+                buf.Append '$' |> ignore
+                i <- i + 2
+            elif c = '$' && i + 1 < template.Length && System.Char.IsDigit template.[i + 1] then
+                flush ()
+                let mutable j = i + 1
+
+                while j < template.Length && System.Char.IsDigit template.[j] do
+                    j <- j + 1
+
+                let idx =
+                    System.Int32.Parse(template.Substring(i + 1, j - i - 1), CultureInfo.InvariantCulture)
+
+                if idx < 0 || idx >= List.length args then
+                    failwithf
+                        "EmitJs: template '%s' references operand $%d but only %d supplied"
+                        template
+                        idx
+                        (List.length args)
+
+                segs.Add(JsRawSeg.Hole(buildExpr ctx (List.item idx args)))
+                sawHole <- true
+                i <- j
+            else
+                buf.Append c |> ignore
+                i <- i + 1
+
+        flush ()
+
+        // A template carrying operands but no hole is a bare CIL mnemonic
+        // (`ceq`, `add`) that escaped the CLR-only finish pass — it can't be
+        // emitted as JS.
+        if not (List.isEmpty args) && not sawHole then
+            failwithf "EmitJs: non-template ILIntrinsic opcode '%s' reached the JS backend" template
+
+        List.ofSeq segs
+
+    /// Build the single argument a `console.log`/`error` call prints from a
+    /// printf-family format's segments. An all-literal format is one string; a
+    /// lone hole is its operand value (Node stringifies); a mixed format is a
+    /// string concatenation seeded with `""` so every `+` is string-valued
+    /// (printf width/precision fidelity — `%5.2f` &c. — is deferred).
+    and private buildFormatArg (ctx: WalkCtx) (segments: EqArray<Frozen.FormatSeg>) : JsExpr =
+        match EqArray.toList segments with
+        | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
+        | [ FormatSegG.Hole(_, operand) ] -> buildExpr ctx operand
+        | segs ->
+            let pieces = ResizeArray<JsRawSeg>()
+            // Seed with `""` so the first `+` already concatenates strings, even
+            // when the format opens with two adjacent holes (`%d%d`).
+            pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String "", ValueNone)))
+
+            for seg in segs do
+                pieces.Add(JsRawSeg.Verbatim " + ")
+
+                match seg with
+                | FormatSegG.Lit s -> pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
+                | FormatSegG.Hole(_, operand) -> pieces.Add(JsRawSeg.Hole(buildExpr ctx operand))
+
+            JsExpr.Raw(List.ofSeq pieces, ValueNone)
+
+    /// An expression in *statement* position (a top-level `do`, or a `let … in …`
+    /// body). `Sequential` flattens to one statement per element (the trailing
+    /// value is discarded); a `let` binder becomes a `const` then the body
+    /// continues. Anything else is one `ExpressionStatement` over `buildExpr`.
+    let rec buildStatements (ctx: WalkCtx) (e: Frozen.TExpr) : JsStatement list =
+        match e with
+        | TExprG.Sequential(xs, _, _) ->
+            [
+                for x in xs do
+                    yield! buildStatements ctx x
+            ]
+        // A pure binder substitutes away (mirrors `buildExpr`); the synthetic
+        // operand lets `InlineExpansion` leaves never surface as named `const`s.
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
+            buildStatements ctx (substVar k value body)
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
+            JsStatement.Const(identName ctx.Source k, buildExpr ctx value)
+            :: buildStatements ctx body
+        | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
+
+    /// JS `finishOps` (`TastLower.lower`'s knob): identity. JS keeps operators as
+    /// emit-able templates / `BinaryExpression`s — it has no stack-machine
+    /// intrinsic to collapse a saturated operator into, so nothing is rewritten.
+    /// (Ground operators were already templated pre-freeze by `InlineExpansion`;
+    /// any un-ground residue stays an `External` head and fails loudly in
+    /// `buildExpr` until a later step routes it.)
+    let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
+
+    /// The whole frozen file → a `Program`. The decls are first lowered (shared
+    /// `TastLower.lower` with the JS `finishOps`): inline `let inline` templates
+    /// and `type` decls drop out, leaving top-level `let` values and effectful
+    /// expressions.
+    let buildProgram (ctx: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
+        let lowered = TastLower.lower jsFinishOps tast.Decls
+
         let body =
             [
-                for decl in tast.Decls do
+                for decl in lowered do
                     match decl with
-                    | TDeclG.Expression(e, _) -> buildStatement resolver e
-                    | other -> failwithf "EmitJs (Step 0a): unsupported declaration %A" other
+                    | TDeclG.Expression(e, _) -> yield! buildStatements ctx e
+                    | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
+                        JsStatement.Const(identName ctx.Source k, buildExpr ctx value)
+                    | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
             ]
 
         { Body = body }

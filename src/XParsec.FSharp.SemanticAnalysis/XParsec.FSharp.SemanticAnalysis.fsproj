@@ -18,6 +18,7 @@
     <Compile Include="SideTypes.fs" />
     <Compile Include="Tast.fs" />
     <Compile Include="TastWalk.fs" />
+    <Compile Include="TastLower.fs" />
     <Compile Include="TastConvert.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="VesperLib\Manifest.fs" />

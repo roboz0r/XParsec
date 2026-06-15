@@ -14,6 +14,7 @@
     <Compile Include="PrintfEmissionTests.fs" />
     <Compile Include="SourceMapTests.fs" />
     <Compile Include="OpsPlatformJsTests.fs" />
+    <Compile Include="Step1Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

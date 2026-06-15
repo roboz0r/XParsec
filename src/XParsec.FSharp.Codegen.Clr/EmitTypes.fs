@@ -177,12 +177,9 @@ module EmitTypes =
     /// `Pat = Some …` and a synthetic `Slot`, whose `ldarg` value
     /// `buildStaticMethod` spills to a local and `bindPattern`s into the leaf
     /// bindings — exactly as `buildClosureInvoke` does for a tuple closure param.
-    type StaticParam =
-        {
-            Slot: NodeKey
-            Ty: FrozenType
-            Pat: Frozen.TPat option
-        }
+    /// The type itself is platform-neutral, so it lives in `TastLower`; this alias
+    /// keeps the CLR call sites reading `StaticParam`.
+    type StaticParam = TastLower.StaticParam
 
     /// A top-level function lowered to a **static method**: `let [rec] f p0 p1 …`
     /// becomes `static f(p0, p1, …)`, curried parameters flattened. Eligible only

@@ -73,7 +73,19 @@ module Codegen =
             | Some src -> ValueSome(EmitJs.LineIndex.build src.Content)
             | None -> ValueNone
 
-        let result = JsPrint.print (EmitJs.buildProgram resolver tast)
+        // The raw source text also drives `let`-bound variable naming (recovering
+        // the source identifier from its binder token offset), independent of
+        // whether maps are emitted.
+        let ctx: EmitJs.WalkCtx =
+            {
+                Resolver = resolver
+                Source =
+                    match project.Source with
+                    | Some src -> ValueSome src.Content
+                    | None -> ValueNone
+            }
+
+        let result = JsPrint.print (EmitJs.buildProgram ctx tast)
         let jsFile = jsFileName project
 
         // Source text supplied ⇒ emit the V3 map and append the

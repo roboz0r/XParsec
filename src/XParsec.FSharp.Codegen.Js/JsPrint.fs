@@ -54,6 +54,9 @@ module JsPrint =
     let private literal (l: JsLiteral) : string =
         match l with
         | JsLiteral.String s -> JsEscape.quoted s
+        | JsLiteral.Number raw -> raw
+        | JsLiteral.BigInt digits -> digits + "n"
+        | JsLiteral.Boolean b -> if b then "true" else "false"
 
     /// Mutable emit cursor: the output buffer plus the running generated
     /// position and the accumulating (reverse-order) mappings.
@@ -124,11 +127,58 @@ module JsPrint =
             )
 
             write p ")"
+        | JsExpr.Conditional(test, consequent, alternate, loc) ->
+            // Parenthesised whole so the ternary composes safely wherever it
+            // lands (it is the lowest-precedence JS operator).
+            mark p loc
+            write p "("
+            expr p test
+            write p " ? "
+            expr p consequent
+            write p " : "
+            expr p alternate
+            write p ")"
+        | JsExpr.Sequence(exprs, loc) ->
+            mark p loc
+            write p "("
+
+            exprs
+            |> List.iteri (fun i e ->
+                if i > 0 then
+                    write p ", "
+
+                expr p e
+            )
+
+            write p ")"
+        | JsExpr.Raw(segments, loc) ->
+            // (a*) universal parenthesization: wrap the whole template, and each
+            // substituted operand, in `(…)` — precedence-correct by construction
+            // with zero JS-grammar knowledge (codegen-js-steps §"Template →
+            // ESTree").
+            mark p loc
+            write p "("
+
+            for seg in segments do
+                match seg with
+                | JsRawSeg.Verbatim s -> write p s
+                | JsRawSeg.Hole e ->
+                    write p "("
+                    expr p e
+                    write p ")"
+
+            write p ")"
 
     let private statement (p: Printer) (s: JsStatement) =
         match s with
         | JsStatement.Expression e ->
             expr p e
+            write p ";"
+        | JsStatement.Const(name, init) ->
+            write p "const "
+            write p name
+            write p " = "
+            expr p init
             write p ";"
         | JsStatement.Import(specifiers, source) ->
             write p (sprintf "import { %s } from %s;" (String.concat ", " specifiers) (JsEscape.quoted source))
