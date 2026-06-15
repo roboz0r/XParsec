@@ -617,6 +617,7 @@ type private Renderer() =
             push (tyName testTy)
             push " as "
             this.Pat inner
+        | TPat.Null _ -> push "null"
 
     member this.Decl(d: TDecl) : unit =
         match d with

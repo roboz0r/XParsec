@@ -93,6 +93,9 @@ type NodeKind =
     /// binder's first token) so the test node never collides with its inner
     /// `NamedSimple` sub-pattern's key — same rationale as `PatCons`.
     | PatTypeTestAs = 115us
+    /// `null` literal pattern (`match x with null -> …`). Keyed off the `null`
+    /// keyword token, which is unique to it.
+    | PatNull = 116us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

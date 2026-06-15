@@ -170,6 +170,11 @@ module internal FreezePatterns =
                 | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
 
             TPat.TypeTestAs(testTy, translatePat ctx inner, ty, tok)
+        | Pat.Null _ ->
+            // `null` literal pattern → `TPat.Null`; codegen lowers it to a
+            // non-null test (`ldloc; brtrue nextLabel`). The node's type is the
+            // scrutinee's reference type (pinned by Unification).
+            TPat.Null(ty, tok)
         | Pat.Op _ ->
             // Operator-named binding head (`let (=) x y = …`): a single binder,
             // shaped like a `Pat.NamedSimple`. Its source name is the operator's

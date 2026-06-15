@@ -32,6 +32,7 @@ module TastConvert =
         | TPatG.Record(fields, ty, tok) -> TPatG.Record(EqArray.map (fun (n, sub) -> n, pat f sub) fields, f ty, tok)
         | TPatG.Union(c, fields, ty, tok) -> TPatG.Union(c, EqArray.map (pat f) fields, f ty, tok)
         | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty, tok)
+        | TPatG.Null(ty, tok) -> TPatG.Null(f ty, tok)
 
     let hole (f: 'a -> 'b) (h: HoleSpecG<'a>) : HoleSpecG<'b> =
         {

@@ -13,6 +13,7 @@ module EmitClosures =
             match p with
             | TPatG.NamedSimple(k, _, _) -> acc.Add k
             | TPatG.Wildcard _
+            | TPatG.Null _
             | TPatG.Const _ -> ()
             | TPatG.Tuple(items, _, _) ->
                 for sub in items do

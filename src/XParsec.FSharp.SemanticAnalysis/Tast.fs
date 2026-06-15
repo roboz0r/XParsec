@@ -84,6 +84,12 @@ type TPatG<'ty, 'tok> =
     /// cast-down value. `ty` is the scrutinee's type (the matched value — `obj`
     /// in practice); `testTy` is the tested-against type the binder sees.
     | TypeTestAs of testTy: 'ty * inner: TPatG<'ty, 'tok> * ty: 'ty * tok: 'tok
+    /// `null` literal pattern (`match x with null -> …`). Refutable, binds
+    /// nothing: codegen lowers it to a `ldloc; brtrue nextLabel` (a non-null
+    /// scrutinee skips the arm). `ty` is the scrutinee's (reference) type. The
+    /// explicit-null-match shape the `Formatter` port replaces C#'s `?.` with
+    /// (printf-port-steps.md PP4).
+    | Null of ty: 'ty * tok: 'tok
 
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
 /// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are

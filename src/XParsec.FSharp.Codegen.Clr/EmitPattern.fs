@@ -131,6 +131,12 @@ module EmitPattern =
         match pat with
         | TPatG.Wildcard _ -> ()
         | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- scrutSlot
+        | TPatG.Null _ ->
+            // `null` pattern: match only a null scrutinee. A non-null value
+            // (`brtrue`) skips the arm; null falls through to the body. Binds
+            // nothing (printf-port-steps.md PP4, the `?.` replacement).
+            b.Add(ILInstr.Ldloc scrutSlot)
+            b.Add(ILInstr.Brtrue nextLabel)
         | TPatG.Const(value, _, _) ->
             b.Add(ILInstr.Ldloc scrutSlot)
 

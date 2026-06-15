@@ -947,4 +947,70 @@ let structTests =
                             "printfn \"%s\" (if ok then \"ok\" else \"no\")"
                         ])
             }
+
+            // PP4 (printf-port-steps): the `null` literal *pattern* (`match x with
+            // null -> …`), the explicit-null-match shape the `Formatter` port uses
+            // to replace C#'s `?.` / `??`. It binds nothing and lowers to a non-null
+            // test (`ldloc; brtrue` skips the arm), so a null scrutinee falls to the
+            // body and any other value to the next arm. New front-to-back: a
+            // `TPatG.Null` case threaded through Freeze + the pattern emitter.
+            test "PP4: a `null` literal pattern matches a null reference, binds nothing" {
+                runsLines
+                    [ "null"; "value" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "let describe (s: string) ="
+                            "    match s with"
+                            "    | null -> \"null\""
+                            "    | _ -> \"value\""
+                            "printfn \"%s\" (describe null)"
+                            "printfn \"%s\" (describe \"hi\")"
+                        ])
+            }
+
+            // PP4 checkpoint: the `Formatter` field block declares + initialises
+            // cleanly. Mirrors `Formatter.cs`'s fields front-to-back — `const int`
+            // ported as module-level `let`s, `static readonly Provider` as a
+            // `static let` (a static field + the type `.cctor`), the nullable ref
+            // fields (`TextWriter?`, `char[]?`) as their underlying ref types with
+            // explicit `null` handling (the `?.` replacement), the `Span<char>`
+            // buffer (PP2a) and the `int` position. Two construction shapes — a
+            // write-through sink (a real writer + a pooled buffer) and a string sink
+            // (both null) — prove each field declares and initialises, and the
+            // null-matching members prove the explicit-null handling.
+            test "PP4: the Formatter field block declares + initialises (static let, nullable refs, Span)" {
+                runsLines
+                    [ "true"; "5"; "5"; "false"; "-1"; "true" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "open System.IO"
+                            "open System.Globalization"
+                            "let GuessedLengthPerHole = 11"
+                            "let MinimumArrayPoolLength = 256"
+                            "[<Struct; IsByRefLike>]"
+                            "type FieldBlock ="
+                            "    static let provider : IFormatProvider = CultureInfo.InvariantCulture"
+                            "    val mutable private Writer: TextWriter"
+                            "    val mutable private Pool: char[]"
+                            "    val mutable private Chars: Span<char>"
+                            "    val mutable private Pos: int"
+                            "    new(w: TextWriter, buf: char[]) = { Writer = w; Pool = buf; Chars = Span<char>(buf); Pos = 0 }"
+                            "    member this.HasWriter = match this.Writer with null -> false | _ -> true"
+                            "    member this.Cap = this.Chars.Length"
+                            "    member this.PoolLen = match this.Pool with null -> -1 | arr -> arr.Length"
+                            "    member this.ProviderOk = match box provider with null -> false | _ -> true"
+                            "let arr = [| 'h'; 'e'; 'l'; 'l'; 'o' |]"
+                            "let a = FieldBlock(Console.Out, arr)"
+                            "let b = FieldBlock(null, null)"
+                            "printfn \"%b\" a.HasWriter"
+                            "printfn \"%d\" a.Cap"
+                            "printfn \"%d\" a.PoolLen"
+                            "printfn \"%b\" b.HasWriter"
+                            "printfn \"%d\" b.PoolLen"
+                            "printfn \"%b\" a.ProviderOk"
+                        ])
+            }
         ]

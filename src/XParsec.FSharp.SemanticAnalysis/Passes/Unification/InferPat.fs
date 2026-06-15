@@ -277,6 +277,12 @@ module internal UnificationInferPat =
                 nodeTv.Link <- ValueSome unionTy
                 unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
+        | Pat.Null _ ->
+            // A `null` pattern matches a reference value. Leave the node type a
+            // free TyVar so the scrutinee (a reference type — `TextWriter`,
+            // `char[]`) pins it via `inferRules`' unify; the real F# nullability
+            // constraint is deferred (feedback_relax_parser_defer_to_typecheck).
+            TyVar(freshTv ctx key)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
             // `[a; b; c]` list-literal pattern ≡ `a :: b :: c :: []`: every
             // element shares one element type and the whole pattern is that list
