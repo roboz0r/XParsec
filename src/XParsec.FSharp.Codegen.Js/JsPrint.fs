@@ -156,6 +156,7 @@ module JsPrint =
                  ++ expr alternate
                  ++ text ")")
         | JsExpr.Sequence(exprs, loc) -> marked loc (text "(" ++ commaList (List.map expr exprs) ++ text ")")
+        | JsExpr.Array(elements, loc) -> marked loc (text "[" ++ commaList (List.map expr elements) ++ text "]")
         | JsExpr.Raw(segments, loc) ->
             // (a*) universal parenthesization: wrap the whole template, and each
             // substituted operand, in `(…)` — precedence-correct by construction

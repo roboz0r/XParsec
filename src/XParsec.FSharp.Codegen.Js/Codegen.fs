@@ -49,11 +49,12 @@ type JsArtifact =
         MapPath: string option
     }
 
-/// Entry point mirroring `Codegen.Clr.Codegen.compile`. Steps 0a–0b take the
-/// project + frozen TAST: the `IExternalSymbolProvider` the CLR backend threads is
-/// not yet needed (nothing resolves a runtime import until a real one lands), so
-/// it is omitted rather than carried unused, and rejoins the signature when Step 5
-/// imports `Vesper.List`.
+/// Entry point mirroring `Codegen.Clr.Codegen.compile`. `compileWith` takes the
+/// `IExternalSymbolProvider` (Step 5: it resolves the case shapes of external
+/// union types — `Option`, `List` — the file references but does not declare, so
+/// they can be emitted as honest nominal JS classes); `compile` is the
+/// null-provider convenience for the earlier scalar / `printfn` slices that touch
+/// no library type.
 module Codegen =
 
     /// The generated `.js` file name (basename) — drives the map's `file` field
@@ -66,8 +67,11 @@ module Codegen =
 
     /// Frozen TAST → in-memory JS artifact. Deterministic given the same input.
     /// When `Source` is `Some` a V3 source map is produced and the emitted JS
-    /// gains a trailing `//# sourceMappingURL` comment.
-    let compile (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
+    /// gains a trailing `//# sourceMappingURL` comment. The `provider` resolves
+    /// external union/record shapes (`Option`, `List`) the file references but does
+    /// not declare — they are emitted as honest nominal JS classes (Step 5); pass
+    /// `ExternalSymbols.nullProvider` for a program that touches none.
+    let compileWith (provider: IExternalSymbolProvider) (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
         let resolver: EmitJs.Resolver =
             match project.Source with
             | Some src -> ValueSome(EmitJs.LineIndex.build src.Content)
@@ -87,6 +91,9 @@ module Codegen =
                     | None -> ValueNone
                 Records = System.Collections.Generic.Dictionary()
                 Unions = System.Collections.Generic.Dictionary()
+                Provider = ValueSome provider
+                ExternalUnions = System.Collections.Generic.Dictionary()
+                ExternalUnionDecls = ResizeArray()
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)
@@ -112,6 +119,12 @@ module Codegen =
                 | Some _, Some path -> Some(path + ".map")
                 | _ -> None
         }
+
+    /// `compileWith` against the empty provider — for a program that references no
+    /// external union/record (the `printfn`/scalar/source-map slices). A program
+    /// that touches `Option` / `List` must use `compileWith`.
+    let compile (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
+        compileWith ExternalSymbols.nullProvider project tast
 
     /// The emitted ESM source text.
     let toSource (artifact: JsArtifact) : string = artifact.Source

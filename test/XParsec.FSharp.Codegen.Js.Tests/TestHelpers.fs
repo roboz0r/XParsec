@@ -101,7 +101,17 @@ let runNode (jsPath: string) : (int * string) option =
 /// JS templates; `Vesper.Printf` gives `printfn` a resolvable symbol. (Ordering
 /// operators live in `Vesper.Comparison`, which has no JS bodies yet, so Step-1
 /// exec tests stay on `= <>` + arithmetic.)
-let jsManifests: string list = [ vesperCoreManifest; vesperPrintfManifest ]
+let jsManifests: string list =
+    [
+        vesperCoreManifest
+        vesperPrintfManifest
+        // Step 5: `Option` (`Some`/`None`) and `List` (`[]`/`::`) are external
+        // union types the backend emits as honest nominal JS classes — their case
+        // shapes are read off the provider. `Vesper.List`'s contract forward-refs
+        // `int option`, so `Vesper.Option` precedes it.
+        srcManifest "Vesper.Option"
+        srcManifest "Vesper.List"
+    ]
 
 /// The JS-target provider: built with `Some Target.Js` so its inline-body channel
 /// splices the JS operator templates at the consumer's use site (a ground
@@ -135,7 +145,10 @@ let emitJs (input: string) : string =
             Source = Some { Path = "test.fsx"; Content = input }
         }
 
-    let src = Codegen.compile project (frozenOfJs input) |> Codegen.toSource
+    let src =
+        Codegen.compileWith jsProvider.Value project (frozenOfJs input)
+        |> Codegen.toSource
+
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
 
@@ -156,7 +169,8 @@ let runJs (name: string) (input: string) : (int * string) option =
                     }
         }
 
-    Codegen.compile project (frozenOfJs input) |> Codegen.materialise
+    Codegen.compileWith jsProvider.Value project (frozenOfJs input)
+    |> Codegen.materialise
 
     runNode jsPath
     |> Option.map (fun (code, out) -> code, out.Replace("\r", "").Trim())

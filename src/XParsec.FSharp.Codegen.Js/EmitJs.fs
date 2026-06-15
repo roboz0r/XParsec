@@ -122,6 +122,23 @@ module EmitJs =
             Source: string voption
             Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
             Unions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
+            /// The external-symbol provider (`Some` once a program references a
+            /// library union/record). External union types — `Option`, `List` —
+            /// are not in the file's `tast.Decls`, so their case shapes (tag +
+            /// field names) are read off the provider on first use and emitted as
+            /// honest nominal JS classes (Step 5), exactly the base-class +
+            /// per-case-subclass shape a local union gets.
+            Provider: IExternalSymbolProvider voption
+            /// External unions resolved on demand during the walk, keyed by the
+            /// same `SymbolKey` the `Unions` table uses. Shared mutable state: a
+            /// miss in `Unions` falls back here, resolving + caching the shape and
+            /// recording its emission order in `ExternalUnionOrder` so `buildProgram`
+            /// can prepend the classes (JS classes are not hoisted).
+            ExternalUnions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
+            /// The `Union` statements for the external unions resolved during the
+            /// walk, in discovery order — `buildProgram` prepends them to the body
+            /// (deterministic given a deterministic walk; JS classes are not hoisted).
+            ExternalUnionDecls: ResizeArray<JsStatement>
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -196,6 +213,14 @@ module EmitJs =
         | TExprG.Const _
         | TExprG.Var _ -> true
         | TExprG.ILIntrinsic(_, _, args, _, _) -> EqArray.toList args |> List.forall isPureValue
+        // A pure `let` chain (the operand lets `InlineExpansion` nests around a
+        // composite operator body — `a + b + c` binds the inner `a + b` to a let
+        // whose value is *itself* a let chain) is pure when both its bound value and
+        // body are: substituting it into the use site lets the recursive pure-`let`
+        // collapse reduce it to a clean template, rather than emitting an IIFE whose
+        // synthetic binder has no source name (it would mis-recover one from the
+        // binder key's offset).
+        | TExprG.Let(TPatG.NamedSimple _, value, body, _, _) -> isPureValue value && isPureValue body
         | _ -> false
 
     /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
@@ -207,16 +232,25 @@ module EmitJs =
 
     // ---- Functions -----------------------------------------------------------
 
-    /// A lambda parameter's JS identifier. A `NamedSimple` binder reuses the
+    /// A lambda parameter's JS binding form. A `NamedSimple` binder reuses the
     /// `Var`/binder naming (`identName`); a `unit` parameter (`fun () -> …`) is
     /// never referenced, so it gets a fresh unused name keyed off its source
-    /// offset. Tuple-destructuring parameters (`fun (a, b) -> …`) are Step 5 and
-    /// fail loudly here.
-    let private lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
+    /// offset; a tuple parameter (`fun (a, b) -> …`, Step 5) becomes a JS
+    /// array-destructuring pattern (`[a, b]`) — the leaf binders carry the same
+    /// `NodeKey`s the body's `Var`s reference, so the names line up — recursing for
+    /// nested tuples (`fun ((a, b), c) -> …` → `[[a, b], c]`). A `Wildcard` leaf
+    /// gets a fresh unused name (JS array holes would shift later positions).
+    /// Lambda parameters are irrefutable, so no refutable leaf (`Const` / `Union`)
+    /// can appear here.
+    let rec private lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
         match p with
         | TPatG.NamedSimple(k, _, _) -> identName source k
+        | TPatG.Wildcard(_, tok) -> "_w" + string tok.StartIndex
         | TPatG.Const(TConstValue.Unit, _, tok) -> "_u" + string tok.StartIndex
-        | other -> failwithf "EmitJs (Step 2): unsupported lambda parameter pattern %A" other
+        | TPatG.Tuple(items, _, _) ->
+            let parts = EqArray.toList items |> List.map (lambdaParamName source)
+            "[" + System.String.Join(", ", parts) + "]"
+        | other -> failwithf "EmitJs (Step 5): unsupported lambda parameter pattern %A" other
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.
@@ -278,19 +312,101 @@ module EmitJs =
 
     // ---- Unions --------------------------------------------------------------
 
+    /// A union case's declaration-order field names, synthesised to F#'s compiled
+    /// convention from each field's optional source name: a *named* field
+    /// (`| Case of x: int`, `Some of Value: 'T`) keeps its name; a *positional*
+    /// field becomes `Item` (a lone field) or `Item1` / `Item2` / … (several), so
+    /// `UnionCons`'s positional args and a union pattern's positional sub-patterns
+    /// address the same property names. Shared by the local (`Frozen.TUnionCase`)
+    /// and external (`ExternalCaseShape`) paths.
+    let private synthFieldNames (fieldNames: string voption list) : string list =
+        match fieldNames with
+        | [ ValueSome n ] -> [ n ]
+        | [ ValueNone ] -> [ "Item" ]
+        | many ->
+            many
+            |> List.mapi (fun i nm ->
+                match nm with
+                | ValueSome n -> n
+                | ValueNone -> "Item" + string (i + 1)
+            )
+
+    /// Build a `JsUnionInfo` (+ the case-name → `JsUnionCaseDecl` table) for a union
+    /// named `baseName` whose cases are `(caseName, fieldNames)` in declaration
+    /// order. The shared core of the local (`collectTypes`) and external
+    /// (`resolveExternalUnion`) emission: the tag is the declaration-order index,
+    /// the subclass name is `<baseName>_<case>`, the fields are synthesised by
+    /// `synthFieldNames`.
+    let private buildUnionInfo
+        (baseName: string)
+        (cases: (string * string voption list) list)
+        : JsUnionInfo * JsUnionCaseDecl list =
+        let caseDecls =
+            cases
+            |> List.mapi (fun tag (caseName, fieldNames) ->
+                {
+                    CaseName = caseName
+                    ClassName = baseName + "_" + caseName
+                    Tag = tag
+                    Fields = synthFieldNames fieldNames
+                }
+            )
+
+        let table = System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>()
+
+        for c in caseDecls do
+            table.[c.CaseName] <- c
+
+        { Name = baseName; Cases = table }, caseDecls
+
+    /// Resolve an *external* union type (one not declared in this file — `Option`,
+    /// `List`) to a `JsUnionInfo`, reading its case shapes off the symbol provider
+    /// and emitting honest nominal JS classes for it (the same base-class +
+    /// per-case-subclass shape a local union gets, queued in `ctx.ExternalUnionOrder`
+    /// for `buildProgram` to prepend). Cached in `ctx.ExternalUnions` so the classes
+    /// are emitted once. `ValueNone` when there is no provider or the type does not
+    /// resolve to a union — the caller then fails loudly.
+    let private resolveExternalUnion (ctx: WalkCtx) (key: SymbolKey) : JsUnionInfo voption =
+        match ctx.ExternalUnions.TryGetValue key with
+        | true, info -> ValueSome info
+        | _ ->
+            match ctx.Provider with
+            | ValueNone -> ValueNone
+            | ValueSome provider ->
+                match ExternalSymbols.tryLookupType provider key with
+                | ValueSome(ExternalTypeShape.Union(_, cases, _)) ->
+                    let baseName = SymbolKeyOps.simpleName key
+
+                    let info, caseDecls =
+                        buildUnionInfo baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
+
+                    ctx.ExternalUnions.[key] <- info
+                    ctx.ExternalUnionDecls.Add(JsStatement.Union(baseName, caseDecls))
+                    ValueSome info
+                | _ -> ValueNone
+
     /// Resolve a `UnionCons` / union-pattern receiver type + case name to the
-    /// emitted `JsUnionCaseDecl` (subclass name, tag, field names). An absent type —
-    /// or case — means the union's `type` decl never reached this file (or the front
-    /// end admitted a case the declaration lacks, an invariant break).
-    let private unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
+    /// emitted `JsUnionCaseDecl` (subclass name, tag, field names). A type not in
+    /// the file's own `Unions` table is resolved as an *external* union (`Option`,
+    /// `List`) through the provider; an absent case — or a type that resolves to
+    /// neither — is an invariant break (the front end admitted a construct the
+    /// declaration lacks).
+    let private unionInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsUnionInfo =
         let key = nominalKey what ty
 
         match ctx.Unions.TryGetValue key with
-        | true, info ->
-            match info.Cases.TryGetValue caseName with
-            | true, c -> c
-            | _ -> failwithf "EmitJs (Step 4): %s on union '%s' has no case '%s'" what info.Name caseName
-        | _ -> failwithf "EmitJs (Step 4): %s on union with no emitted type (key %A)" what key
+        | true, info -> info
+        | _ ->
+            match resolveExternalUnion ctx key with
+            | ValueSome info -> info
+            | ValueNone -> failwithf "EmitJs (Step 4): %s on union with no emitted type (key %A)" what key
+
+    let private unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
+        let info = unionInfoOf ctx what ty
+
+        match info.Cases.TryGetValue caseName with
+        | true, c -> c
+        | _ -> failwithf "EmitJs (Step 4): %s on union '%s' has no case '%s'" what info.Name caseName
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
     /// Error("…")`. An exhaustive match never reaches it at runtime, but it gives
@@ -331,6 +447,10 @@ module EmitJs =
         // each, yield the last. (At top level it is expanded to statements by
         // `buildStatements`.)
         | TExprG.Sequential(xs, _, _) -> JsExpr.Sequence([ for x in xs -> buildExpr ctx x ], loc)
+
+        // A tuple `(a, b, …)` is a JS array `[a, b, …]` (Step 5); a tuple pattern
+        // reads each element back by positional index.
+        | TExprG.Tuple(items, _, _) -> JsExpr.Array([ for x in items -> buildExpr ctx x ], loc)
 
         // A `let` in expression position (the operand lets `InlineExpansion`
         // introduces around a spliced operator body). When the bound value is pure
@@ -621,7 +741,21 @@ module EmitJs =
                 |> List.unzip
 
             conjoin tests, List.concat binds
-        | TPatG.Tuple _ -> failwithf "EmitJs (Step 4): tuple patterns are Step 5"
+        // A tuple pattern never fails on shape (a tuple is a fixed-arity array, no
+        // tag): only its element sub-patterns can refute. Each element matches its
+        // positional index `access[i]` — a *computed* member, a pure projection of
+        // the scrutinee, so it may be duplicated across the test and the bindings
+        // exactly as the union/record field accesses are.
+        | TPatG.Tuple(items, _, _) ->
+            let indexAccess i =
+                JsExpr.Member(access, JsExpr.Literal(JsLiteral.Number(string i), ValueNone), true, ValueNone)
+
+            let tests, binds =
+                EqArray.toList items
+                |> List.mapi (fun i sub -> compileMatchPattern ctx (indexAccess i) sub)
+                |> List.unzip
+
+            conjoin tests, List.concat binds
         | TPatG.TypeTestAs _ -> failwithf "EmitJs (Step 4): type-test patterns are out of MVP scope"
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,
@@ -752,25 +886,6 @@ module EmitJs =
     /// `buildExpr` until a later step routes it.)
     let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
 
-    /// A union case's declaration-order field names. A *named* field
-    /// (`| Case of x: int`) keeps its name; a *positional* field is synthesised
-    /// to F#'s compiled convention — `Item` for a lone field, `Item1` / `Item2` /
-    /// … when there are several — so `UnionCons`'s positional args and a union
-    /// pattern's positional sub-patterns address the same property names.
-    let private caseFieldNames (case: Frozen.TUnionCase) : string list =
-        let fields = EqArray.toList case.Fields
-
-        match fields with
-        | [ (ValueSome n, _) ] -> [ n ]
-        | [ (ValueNone, _) ] -> [ "Item" ]
-        | many ->
-            many
-            |> List.mapi (fun i (nm, _) ->
-                match nm with
-                | ValueSome n -> n
-                | ValueNone -> "Item" + string (i + 1)
-            )
-
     /// Collect the file's nominal `type` declarations, in source order, into the
     /// emission list (one `Class` statement per record, one `Union` per union) and
     /// the two lookup tables the walker keys `RecordCons`/`FieldGet` and
@@ -796,24 +911,10 @@ module EmitJs =
                     records.[td.Key] <- info
                     ordered.Add(JsStatement.Class(info.Name, info.Fields))
                 | TTypeKindG.Union(cases, _) ->
-                    // Tag = declaration-order index (the runtime discriminator).
-                    let caseDecls =
-                        EqArray.toList cases
-                        |> List.mapi (fun tag case ->
-                            {
-                                CaseName = case.Name
-                                ClassName = td.Name + "_" + case.Name
-                                Tag = tag
-                                Fields = caseFieldNames case
-                            }
-                        )
+                    let info, caseDecls =
+                        buildUnionInfo td.Name [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
 
-                    let table = System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>()
-
-                    for c in caseDecls do
-                        table.[c.CaseName] <- c
-
-                    unions.[td.Key] <- { Name = td.Name; Cases = table }
+                    unions.[td.Key] <- info
                     ordered.Add(JsStatement.Union(td.Name, caseDecls))
                 | _ -> ()
             | _ -> ()
@@ -846,4 +947,10 @@ module EmitJs =
                     | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
             ]
 
-        { Body = classDecls @ body }
+        // External union classes (`Option`, …) are discovered *during* the body
+        // walk, so they are gathered into `ctx.ExternalUnionDecls` and prepended
+        // here — both they and the local classes must precede every `new`/match
+        // site (JS classes are not hoisted).
+        {
+            Body = classDecls @ List.ofSeq ctx.ExternalUnionDecls @ body
+        }

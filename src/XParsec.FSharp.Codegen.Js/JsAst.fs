@@ -37,6 +37,14 @@ namespace XParsec.FSharp.Codegen.Js
 // pattern bindings stay isolated) and `Throw` (the match-failure fallthrough).
 // `Match` itself lowers to an IIFE over these (an arrow whose `Block` body tests
 // each arm and `return`s the first match's body).
+//
+// Step 5 adds tuples + Option: the `Array` expression (a tuple `(1, 2)` is a JS
+// array `[1, 2]`, a tuple pattern indexes it positionally) and array-destructuring
+// arrow parameters (`fun (a, b) -> …` → `([a, b]) => …`, carried as a single
+// parameter *string* the printer emits verbatim). Option rides the existing
+// `Union` machinery: an external union type (`Option`, `List`) resolved through
+// the symbol provider emits the same base-class + per-case-subclass shape a local
+// union does (`UnionCons` / union patterns are target-agnostic).
 
 /// A 0-based source position — V3 source-map coordinates (`Line`, then `Column`
 /// counted in UTF-16 code units). ESTree spells a full `loc` as
@@ -106,6 +114,9 @@ and [<RequireQualifiedAccess>] JsExpr =
     /// `SequenceExpression` — `(a, b, …)`: evaluate each in order, yield the last
     /// (a `Sequential` used in expression position).
     | Sequence of expressions: JsExpr list * loc: JsLoc voption
+    /// `ArrayExpression` — `[a, b, …]`. A tuple is represented as a JS array
+    /// (Step 5): `(1, 2)` → `[1, 2]`, a tuple pattern indexes it positionally.
+    | Array of elements: JsExpr list * loc: JsLoc voption
     /// The **(a\*)** template escape hatch (codegen-js-steps §"Template →
     /// ESTree"): a `$N`-template `ILIntrinsic` expanded to verbatim text +
     /// parenthesised operand holes, the whole wrapped in parentheses by the
