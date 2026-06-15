@@ -979,6 +979,46 @@ let structTests =
             // write-through sink (a real writer + a pooled buffer) and a string sink
             // (both null) — prove each field declares and initialises, and the
             // null-matching members prove the explicit-null handling.
+            // PP5a (printf-port-steps): `Span<char>` passed as a *by-value argument*
+            // plus the buffer-copy method surface every `Formatter` body uses —
+            // `string.CopyTo(Span<char>)`, `Span<char>.CopyTo(Span<char>)`,
+            // `Span<char>.Fill(char)`, `Span<char>.ToString()`, and
+            // `string.TryCopyTo(Span<char>) : bool`. Rides PP2a (Span as a value), but
+            // each call passes / produces a `Span<char>` in *argument* position (where
+            // PP2a only proved the receiver/field/return), so the member-ref parent for
+            // a Span parameter must encode `VALUETYPE`. The slices use the 2-arg
+            // `Slice(int,int)` form throughout — the 1-arg `Slice(int)` folds into a
+            // LongIdent head and hits the orthogonal overload-resolution gap PP2b noted.
+            test "PP5a: Span<char> by-value args — string.CopyTo, span CopyTo, Fill, ToString, TryCopyTo" {
+                runsLines
+                    [ "ab---cd"; "ab---cdab"; "true"; "false" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "[<Struct; IsByRefLike>]"
+                            "type Buf(chars: Span<char>) ="
+                            // 'ab' at 0..1, '---' filled at 2..4, 'cd' at 5..6
+                            "    member this.Build() ="
+                            "        \"ab\".CopyTo(chars.Slice(0, 2))"
+                            "        chars.Slice(2, 3).Fill('-')"
+                            "        \"cd\".CopyTo(chars.Slice(5, 2))"
+                            "        chars.Slice(0, 7).ToString()"
+                            // span→span copy: duplicate 'ab' into 7..8
+                            "    member this.Dup() ="
+                            "        chars.Slice(0, 2).CopyTo(chars.Slice(7, 2))"
+                            "        chars.Slice(0, 9).ToString()"
+                            "    member this.Fits() = \"xy\".TryCopyTo(chars.Slice(0, 2))"
+                            "    member this.Overflows() = \"toolong\".TryCopyTo(chars.Slice(0, 2))"
+                            "let arr = [| '.'; '.'; '.'; '.'; '.'; '.'; '.'; '.'; '.' |]"
+                            "let b = Buf(Span<char>(arr))"
+                            "printfn \"%s\" (b.Build())"
+                            "printfn \"%s\" (b.Dup())"
+                            "printfn \"%b\" (b.Fits())"
+                            "printfn \"%b\" (b.Overflows())"
+                        ])
+            }
+
             test "PP4: the Formatter field block declares + initialises (static let, nullable refs, Span)" {
                 runsLines
                     [ "true"; "5"; "5"; "false"; "-1"; "true" ]

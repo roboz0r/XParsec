@@ -360,6 +360,16 @@ module UnificationEngine =
             ctx.IntrinsicCanonCache.[n] <- repr
             repr
 
+    /// Public view of `canonName`: map an intrinsic Vesper type name to the
+    /// canonical BCL representation its `(# "…" #)` binding records
+    /// (`"string"` ⇒ `"System.String"`, via `prim-types-string.fs`; local-first,
+    /// provider-fallback). Returns `n` unchanged for a name that is not a known
+    /// intrinsic (so a project-local / already-qualified name passes through).
+    /// Lets the dot-access resolvers (`resolveFieldStep`, the external
+    /// instance-method probe) route an intrinsic *receiver*'s instance members
+    /// through the provider without hard-coding the BCL name.
+    let intrinsicCanonName (ctx: PassContext) (n: string) : string = canonName ctx n
+
     // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
     // (so the `exn` bound participates), not just `TyClass`.
     let private subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =

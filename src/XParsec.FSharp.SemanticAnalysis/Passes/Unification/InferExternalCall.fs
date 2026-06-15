@@ -132,11 +132,27 @@ module internal UnificationInferExternalCall =
             // (`sb.Append(..).Append(..)`) this re-inflates at every level. If it
             // shows up, thread the already-computed receiver `SemType` out of the
             // probe instead of re-inferring.
-            match resolveStep (infer ctx recv) with
-            // External only: a project-local class routes through the local
-            // instance-member path (`resolveLocalInstanceMember`), unchanged.
-            | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
-                let clsQual = SymbolKeyOps.qualifiedName clsKey
+            //
+            // Resolve the receiver to an external `(qualifiedName, typeArgs)`: either
+            // a non-project-local `TyClass` (a BCL/contract class routes through the
+            // provider; a project-local class uses `resolveLocalInstanceMember`,
+            // unchanged) or an *intrinsic* `TyConst` whose `(# "…" #)` binding maps it
+            // to a BCL type (`"ab".CopyTo(span)` ⇒ `System.String`, canonicalised via
+            // `prim-types-string.fs`). Arrays / byref are left unchanged by
+            // `intrinsicCanonName`, so they decline here and keep their own paths.
+            let resolved =
+                match resolveStep (infer ctx recv) with
+                | TyClass(clsKey, typeArgs) when
+                    (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone
+                    ->
+                    ValueSome(SymbolKeyOps.qualifiedName clsKey, typeArgs |> EqArray.toList |> List.toArray)
+                | TyConst(name, typeArgs) when (intrinsicCanonName ctx name) <> name ->
+                    ValueSome(intrinsicCanonName ctx name, typeArgs |> EqArray.toList |> List.toArray)
+                | _ -> ValueNone
+
+            match resolved with
+            | ValueNone -> ValueNone
+            | ValueSome(clsQual, declArgs) ->
                 let memberName = ctx.NameOf li.Idents.[0]
 
                 let candidates =
@@ -147,7 +163,6 @@ module internal UnificationInferExternalCall =
                     // 0 / 1 instance overload: the single-pick path is unambiguous.
                     ValueNone
                 else
-                    let declArgs = typeArgs |> EqArray.toList |> List.toArray
                     let argTy = infer ctx argExpr
 
                     match pickBestOverload declArgs candidates (argElemsOf argTy) with
@@ -156,7 +171,6 @@ module internal UnificationInferExternalCall =
                     // error, so the existing single-pick path keeps the prior
                     // behaviour (this probe only ever *improves* a confident pick).
                     | ValueNone -> ValueNone
-            | _ -> ValueNone
         | _ -> ValueNone
 
     /// Permit an external method call that omits a suffix of the member's *trailing

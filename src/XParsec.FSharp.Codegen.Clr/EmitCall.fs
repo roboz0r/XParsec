@@ -336,8 +336,20 @@ module EmitCall =
             // statement discard underflows on (`InvalidProgramException`). Reify the
             // `unit` value afterwards so a value-position consumer still gets one,
             // exactly like the `for` / `stelem` unit expressions.
+            //
+            // Void-ness is read from the member's *declared* signature codomain
+            // (`memberTy` is `paramsT → retT` for a .NET method), NOT the applied
+            // spine type: a void instance method on a generic value-type receiver
+            // (`Span<char>.Fill(T)`) can leave the applied node type un-grounded as a
+            // non-`unit` placeholder, which mis-modelled it as result-bearing (the
+            // `pop` then underflowed). The declared return is authoritative.
             let returnsVoid =
-                match resultTy with
+                let declaredRet =
+                    match memberTy with
+                    | FTFun(_, r) -> r
+                    | other -> other
+
+                match declaredRet with
                 | FTConst("unit", _) -> true
                 | _ -> false
 

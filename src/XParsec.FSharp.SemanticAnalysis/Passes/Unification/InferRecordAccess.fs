@@ -276,6 +276,40 @@ module internal UnificationInferRecordAccess =
         // `GetArrayLength` inline function (scheme `'T[] -> int`), grounding the
         // call so `InlineExpansion` can splice the source `ldlen` — the same path as
         // `arr.[i]`/`GetArray`. No member metadata on the intrinsic `'T[]`.
+        // An instance member on an *intrinsic* receiver whose `(# "…" #)` binding
+        // maps it to a BCL type (`"hello".TryCopyTo(span)` / `s.Length`): resolve
+        // through the provider by the canonical BCL name (`canonName`, routed via
+        // `prim-types-string.fs`), recording it for Freeze exactly as the external
+        // `TyClass` arm does. The single-pick `TryLookupMember` suffices for a member
+        // name with one overload; an arg-overloaded name (`string.CopyTo`) is picked
+        // arg-aware earlier by `tryInferExternalInstanceMethodCall`. Guarded on the
+        // name actually being a known intrinsic (`canonQual <> name`), so arrays
+        // (`"[]"`) / byref (`"&"`) — unchanged by `canonName` — fall through.
+        | TyConst(name, args) when
+            (let canonQual = intrinsicCanonName ctx name in
+
+             canonQual <> name
+             && (ctx.Provider.TryLookupMember(canonQual, memberName)).IsSome)
+            ->
+            let clsQual = intrinsicCanonName ctx name
+
+            match ctx.Provider.TryLookupMember(clsQual, memberName) with
+            | ValueSome m when not m.IsStatic ->
+                let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+
+                ctx.Resolution.ExternalAccess.Set(
+                    diagKey,
+                    {
+                        Key = m.Key
+                        IsStatic = false
+                        IsProperty = m.IsProperty
+                        Signature = memberSig
+                        OptionalDefaults = m.OptionalDefaults
+                    }
+                )
+
+                memberSig
+            | _ -> errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" clsQual memberName)
         | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArrayLength" with
             | ValueSome sym ->
