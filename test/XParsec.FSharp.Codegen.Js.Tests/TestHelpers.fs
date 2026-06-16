@@ -102,12 +102,14 @@ let runNode (jsPath: string) : (int * string) option =
 /// The manifests a Step-1 program resolves against: `Vesper.Core` owns the
 /// primitives (`int`/`float`/…) plus the arithmetic / equality operators whose
 /// `inline-bodies-js` `.fs` bodies (`ops-platform.js.fs`, Step F1) carry the `$N`
-/// JS templates; `Vesper.Printf` gives `printfn` a resolvable symbol. (Ordering
-/// operators live in `Vesper.Comparison`, which has no JS bodies yet, so Step-1
-/// exec tests stay on `= <>` + arithmetic.)
+/// JS templates; `Vesper.Printf` gives `printfn` a resolvable symbol;
+/// `Vesper.Comparison` owns the ordering operators (`< > <= >=`), whose
+/// `inline-bodies-js` `comparison.js.fs` + `runtime-js` `Vesper.Comparison.mjs`
+/// landed in Step 6's compare half.
 let jsManifests: string list =
     [
         vesperCoreManifest
+        srcManifest "Vesper.Comparison"
         vesperPrintfManifest
         // Step 5: `Option` (`Some`/`None`) and `List` (`[]`/`::`) are external
         // union types the backend emits as honest nominal JS classes — their case

@@ -47,3 +47,14 @@ impl = []
 inline-bodies = [
     "comparison.fs",
 ]
+
+# JS-target override (mirrors Vesper.Core's `inline-bodies-js` / `runtime-js`): the
+# operator bodies re-authored as `$N`-template JS, and the structural comparator their
+# aggregate bases import. See `Vesper.Comparison.mjs` for the wiring.
+inline-bodies-js = [
+    "comparison.js.fs",
+]
+
+runtime-js = [
+    "Vesper.Comparison.mjs",
+]
