@@ -175,6 +175,43 @@ let tests =
                     Expect.stringContains out "boom" "the Error carries the failwith message"
             }
 
+            // ---- raise of a constructed BCL exception (the external-`new` arm) ----
+
+            test "raise of a constructed exception emits `new Error(msg)`" {
+                let src =
+                    emitJs "let f (b: bool) = if b then 7 else raise (System.InvalidOperationException \"boom\")"
+                // The BCL exception erases to a native JS `Error`; the `raise` template
+                // (`(() => { throw $0; })()`) throws it, the message carried through.
+                Expect.stringContains src "new Error(" "the exception construction lowers to `new Error`"
+                Expect.stringContains src "throw" "the `raise` template throws the constructed error"
+            }
+
+            test "raise of a constructed exception throws with the message (uncaught → non-zero)" {
+                match
+                    runJs
+                        "step7-raise-exn"
+                        ("let f (b: bool) = if b then 7 else raise (System.InvalidOperationException \"kaboom\")\n"
+                         + "printfn \"%d\" (f false)")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.notEqual code 0 "an uncaught throw exits non-zero"
+                    Expect.stringContains out "kaboom" "the Error carries the exception's message"
+            }
+
+            test "raise of a constructed exception leaves the non-raising branch intact" {
+                match
+                    runJs
+                        "step7-raise-exn-ok"
+                        ("let f (b: bool) = if b then 7 else raise (System.InvalidOperationException \"kaboom\")\n"
+                         + "printfn \"%d\" (f true)")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "7" "the non-raising branch evaluates normally"
+            }
+
             test "a member body can failwith on the empty case (list-style Head)" {
                 let lst =
                     lines

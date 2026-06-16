@@ -32,18 +32,16 @@ impl = [
     "option.fs",
 ]
 
-# JS-target impl override (codegen-js-steps.md Step 5b Phase 3), selected by the
-# backend via `ReferencedProject.resolveImpl (Some "js")`. `option.js.fs` is the
-# `option.fs` module with the JS-backend deviations (no `[<Struct>]`, no type member
-# methods, `get` raising via an FFI `throw` template); compiled in library mode it
-# GENERATES the `runtime-js` `Vesper.Option.mjs` below. The CLR backend keeps building
-# the full `option.fs` (base `impl`).
-impl-js = [
-    "option.js.fs",
-]
+# No `impl-js` override: as of codegen-js-steps.md Step 7 the JS backend compiles the
+# full `option.fs` directly (type members emit as free curried receiver-first
+# functions, and `raise (InvalidOperationException …)` lowers through the external-`new`
+# arm to a native `new Error`), so `resolveImpl (Some "js")` falls back to the base
+# `impl` above — the member-stripped `option.js.fs` is retired. (`[<Struct>]` and the
+# `[<CompiledName>]`/equality attributes are inert on the JS target; the union erases to
+# the same `{ tag, Value }` shape either way.)
 
 # JS runtime *asset*: the `Option` module functions a consumer imports + ships beside
 # its output (the option *type* itself rides inline via the external-union path, like
-# any union — only the module functions need the import). GENERATED from `option.js.fs`
-# (Phase 3), not hand-authored; regenerable via the codegen-js test suite.
+# any union — only the module functions need the import). GENERATED from `option.fs`
+# (Step 7), not hand-authored; regenerable via the codegen-js test suite.
 runtime-js = ["Vesper.Option.mjs"]

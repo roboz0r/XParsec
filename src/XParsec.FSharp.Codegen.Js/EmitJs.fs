@@ -54,7 +54,10 @@ open XParsec.FSharp.SemanticAnalysis
 /// methods), so the structural-interop invariant holds. The call arms (`PropertyGet`
 /// / `MethodCall` / `StaticPropertyGet` / `StaticMethodCall`) lower to a `Call` of
 /// the mangled name curried over receiver-then-args; `ExternalMember` imports the
-/// mangled member from the declaring type's `runtime-js` module.
+/// mangled member from the declaring type's `runtime-js` module. The external-`new`
+/// arm lowers `TExprG.New` of a `System.*Exception` to a native `new Error(<message>)`
+/// (so `raise (InvalidOperationException …)` — `option.fs`'s `get`/`Value` — compiles),
+/// letting the full `option.fs` build and retiring `option.js.fs`.
 module EmitJs =
 
     /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
@@ -721,6 +724,40 @@ module EmitJs =
             let c = unionCaseOf ctx "UnionCons" ty caseName
 
             JsExpr.New(JsExpr.Identifier(c.ClassName, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
+
+        // Construction of an *external* exception (`raise (InvalidOperationException
+        // msg)` — `option.fs`'s `Value`/`get`) → a native JS `new Error(msg)`. JS has
+        // no BCL exception hierarchy, so every `System.*Exception` erases to `Error`
+        // carrying the (optional) string message; type identity is moot until a
+        // `try`/`catch` surface exists (out of MVP scope). BCL exception ctors lead with
+        // the `message`, so the first argument is it; any further args (`paramName`,
+        // `innerException`) have no `Error` slot and are dropped. A non-exception
+        // external construction has no JS analogue and fails loudly. (A project-local
+        // class is never constructed through `New` on this target — records/unions use
+        // `RecordCons`/`UnionCons`; the general class surface is deferred.)
+        //
+        // The `Error` root is hardcoded here today. Sourcing it from the `exn` type's
+        // intrinsic repr (`prim-types-exn.js.fs` → `Error`) is **deferred to Step 8**:
+        // a per-target intrinsic repr overload breaks the front-end's `subsumes`
+        // reconciliation of a BCL `System.Exception`-derived type against `exn`
+        // (`canonName` uses the SAME repr for BCL matching and codegen emission). See
+        // codegen-js-steps.md Step 8.
+        | TExprG.New(className, args, _, _) ->
+            let simpleName =
+                let i = className.LastIndexOf '.'
+                if i >= 0 then className.Substring(i + 1) else className
+
+            if simpleName.EndsWith "Exception" then
+                let errArgs =
+                    match EqArray.toList args with
+                    | [] -> []
+                    | msg :: _ -> [ buildExpr ctx msg ]
+
+                JsExpr.New(JsExpr.Identifier("Error", ValueNone), errArgs, loc)
+            else
+                failwithf
+                    "EmitJs (Step 7): construction of external type '%s' has no JS analogue (only exceptions map to `new Error`)"
+                    className
 
         // A member call on a *local* record/union (Step 7). Each member is emitted
         // as a free, curried, receiver-first function under the shared mangled name

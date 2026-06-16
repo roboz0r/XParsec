@@ -4,20 +4,23 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 5 Phase 3 (Option) — the `impl-js` + library-mode recipe applied to
-// `Vesper.Option`: `option.js.fs` (the full `option.fs` `Option` module, minus
-// `[<Struct>]` and the type member methods, with `get` raising via the FFI `throw`
-// template) compiles to the committed `Vesper.Option.mjs` runtime asset. Same shape as
-// the List Phase-3 tests: deps-only provider, regenerable golden, and a Node exec where
-// the consumer builds plain `{ tag, Value }` cells (proving the `.tag`-not-`instanceof`
-// interop the Step-6 runtime relies on).
+// codegen-js Step 5 Phase 3 (Option), completed by Step 7 — the library-mode recipe
+// applied to `Vesper.Option`: the full `option.fs` (type members + `[<Struct>]` + the
+// `raise (InvalidOperationException …)` in `Value`/`get`) compiles directly to the
+// committed `Vesper.Option.mjs` runtime asset, the member-stripped `option.js.fs` now
+// retired (Step 7 landed member emission and the external-`new` arm — `[<Struct>]` and
+// the `[<CompiledName>]`/equality attributes are inert on the JS target). The instance
+// members emit as free curried receiver-first exports (`Option__get_Value` &c.). Same
+// shape as the List Phase-3 tests: deps-only provider, regenerable golden, and a Node
+// exec where the consumer builds plain `{ tag, Value }` cells (proving the
+// `.tag`-not-`instanceof` interop the Step-6 runtime relies on).
 
 let private generated: Lazy<string> =
     lazy
         compileLibrary
             coreDepsJsProvider.Value
             "Vesper.Option"
-            (IO.File.ReadAllText(srcFile "Vesper.Option" "option.js.fs"))
+            (IO.File.ReadAllText(srcFile "Vesper.Option" "option.fs"))
 
 let private lf (s: string) : string = s.Replace("\r\n", "\n")
 
@@ -50,6 +53,16 @@ let tests =
                     ] do
                     Expect.stringContains src (sprintf "export const %s = " name) (sprintf "exports %s" name)
 
+                // Step 7: the instance members compile directly from `option.fs` now,
+                // emitted as free curried receiver-first exports (the data class stays
+                // method-free). `Value` raises through the external-`new` arm.
+                for memberName in [ "Option__get_Value"; "Option__get_IsSome"; "Option__get_IsNone" ] do
+                    Expect.stringContains
+                        src
+                        (sprintf "export const %s = " memberName)
+                        (sprintf "exports %s" memberName)
+
+                Expect.stringContains src "new Error(" "Value raises a constructed exception → `new Error`"
                 Expect.stringContains src "class Option_Some extends Option" "emits the Some subclass"
                 Expect.isFalse (src.Contains "import ") "the Option module imports nothing"
             }
