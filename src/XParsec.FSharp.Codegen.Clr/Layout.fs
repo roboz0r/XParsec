@@ -113,8 +113,10 @@ type internal TypeSlotKind =
     /// A named module holder; `HasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
     | Holder of hasCctor: bool
-    /// The anonymous "Program" holder (holder-less fns + `Main`).
-    | Program
+    /// The anonymous "Program" holder (holder-less fns + `Main`, and §10 the
+    /// top-level value fields). `hasCctor` ⇔ it owns leading-prefix values (drops
+    /// `BeforeFieldInit`, its `.cctor` runs before `Main`).
+    | Program of hasCctor: bool
 
 /// Identity of one `Field` row in the layout (§3.1) — who resolves this
 /// handle at `Bind` time. Structural; a collision fails loudly.
@@ -176,6 +178,9 @@ type internal MethodKey =
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
     | HolderCctor of Emit.HolderKey
+    /// The anonymous "Program" holder's `.cctor` (§10) — initialises the
+    /// leading-prefix top-level values; at most one per assembly.
+    | ProgramCctor
     | StaticFn of NodeKey
     | Main
 
@@ -451,7 +456,28 @@ module internal Layout =
     /// passes unchanged and carries their products.
     let build (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
         let lowered = Emit.lower tast.Decls
-        let plan = HolderPlan.create tast.ModuleMembers lowered
+        // The anonymous "Program" holder's key — `(None, project.ModuleName)` — owns
+        // the holder-less fns + `Main` + (§10) the top-level value fields / `.cctor`.
+        let programHolder = None, project.ModuleName
+
+        // `(ns, name)` of every `[<Struct; IsByRefLike>]` type — a top-level value of
+        // such a type can't be a static field (§10); computed from `tast.Decls` since
+        // `Emit.lower` strips the type decls `lowered` would carry.
+        let refStructNsNames =
+            tast.Decls
+            |> EqArray.toList
+            |> List.choose (fun d ->
+                match d with
+                | TDeclG.Type td ->
+                    match td.Kind with
+                    | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct -> Emit.typeKeyNsName td.Key
+                    | _ -> None
+                | _ -> None
+            )
+            |> HashSet
+
+        let plan =
+            HolderPlan.create tast.ModuleMembers programHolder tast.TopLevelNames refStructNsNames lowered
 
         // Member bodies never pass through `Emit.lower`; they only need the
         // closing `expandBuiltinOps` pass (`NominalEmit` used to apply it per
@@ -896,6 +922,13 @@ module internal Layout =
                                 Name = fn.Name
                                 Attrs = staticMethodAttrs
                             }
+                    | ProgramCctor ->
+                        yield
+                            {
+                                Key = MethodKey.ProgramCctor
+                                Name = ".cctor"
+                                Attrs = cctorAttrs
+                            }
 
                 if emitEntryPoint then
                     yield
@@ -906,17 +939,50 @@ module internal Layout =
                         }
             ]
 
+        // §10: the Program holder's top-level value fields — leading-prefix values
+        // are `initonly` (written by the Program `.cctor`), values after a top-level
+        // `do` are plain mutable `static` (written by `Main`). These are the trailing
+        // field rows (the Program slot is the last type).
+        let programFields =
+            [
+                for mv in plan.ProgramCctorValues ->
+                    {
+                        Key = FieldKey.ModuleValue mv.Key
+                        Name = mv.Name
+                        Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                        Ty = mv.Ty
+                        ClosureScope = ValueNone
+                    }
+                for mv in plan.ProgramMainValues ->
+                    {
+                        Key = FieldKey.ModuleValue mv.Key
+                        Name = mv.Name
+                        Attrs = FieldAttributes.Public ||| FieldAttributes.Static
+                        Ty = mv.Ty
+                        ClosureScope = ValueNone
+                    }
+            ]
+
+        let hasProgramCctor = not (List.isEmpty plan.ProgramCctorValues)
+
         let programSlots =
-            if emitEntryPoint || not (List.isEmpty plan.HolderlessFns) then
+            if
+                emitEntryPoint
+                || not (List.isEmpty plan.HolderlessFns)
+                || not (List.isEmpty programFields)
+            then
                 [
                     {
                         Key = TypeKey.Program
-                        Kind = TypeSlotKind.Program
+                        Kind = TypeSlotKind.Program hasProgramCctor
                         Namespace = ""
                         MetaName = project.ModuleName
                         Typars = []
-                        FieldCount = 0
-                        MethodCount = List.length plan.HolderlessFns + (if emitEntryPoint then 1 else 0)
+                        FieldCount = List.length programFields
+                        MethodCount =
+                            List.length plan.HolderlessFns
+                            + (if hasProgramCctor then 1 else 0)
+                            + (if emitEntryPoint then 1 else 0)
                     }
                 ]
             else
@@ -952,6 +1018,7 @@ module internal Layout =
                 @ List.collect fieldsOf classParts
                 @ List.collect fieldsOf closureParts
                 @ List.collect snd holderParts
+                @ programFields
             Methods = methods
             Lowered = lowered
             Plan = plan

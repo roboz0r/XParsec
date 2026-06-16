@@ -1290,7 +1290,16 @@ module Elaborate =
                                     Name = compiledNm
                                 }
                         | ValueNone -> ()
-                    | None -> ()
+                    // A top-level (implicit-Program-module) binding records no
+                    // `ModuleMemberInfo`; stash its source name so the backend can
+                    // name a top-level value's Program-holder static field
+                    // (module-representation-plan §10). Recorded for every top-level
+                    // binding (function or value); only the value collector reads it,
+                    // so a top-level function's `fn$<off>` path is untouched.
+                    | None ->
+                        match memberNameOfBinding ctx b with
+                        | ValueSome nm -> ctx.Bindings.TopLevelNames.[(CstKeys.ofBinding b).Raw] <- nm
+                        | ValueNone -> ()
 
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
@@ -1431,6 +1440,10 @@ module Elaborate =
             // Snapshot the named-module placements (R3 deferred): the backend keys
             // off a binding's `NodeKey.Raw` to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            // Snapshot the top-level (implicit-Program-module) binding names so the
+            // backend can name a top-level value's static field
+            // (module-representation-plan §10).
+            TopLevelNames = ctx.Bindings.TopLevelNames |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
             // The RS3 closure verdict is filled in by the Pipeline after
             // `Regions.run` — escape analysis hasn't run at elaboration time.
             ClosureReprs = Map.empty

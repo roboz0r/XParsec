@@ -239,6 +239,13 @@ module EmitTypes =
             /// (`ldsfld`). Shared by every body builder so a module value resolves
             /// uniformly in any method/ctor/cctor (module-representation-plan §3).
             ModuleValues: Dictionary<NodeKey, EntityHandle>
+            /// The subset of top-level ("Program") values that are **initialised in
+            /// `Main`** via `stsfld` (the §10.3 trailing values, after a top-level
+            /// `do`) → their field handle. `buildMain` emits the store here instead of
+            /// allocating a `Main` local; references still read `ldsfld` via
+            /// `ModuleValues`. Leading-prefix values are absent (their `.cctor`
+            /// initialises them), as are named-holder values.
+            MainInitValues: Dictionary<NodeKey, EntityHandle>
         }
 
     /// Per-method codegen state, layered on top of the run-wide `EmitContext`.

@@ -243,5 +243,6 @@ module TastConvert =
             Diagnostics = tf.Diagnostics
             IntrinsicReprTypes = tf.IntrinsicReprTypes
             ModuleMembers = tf.ModuleMembers
+            TopLevelNames = tf.TopLevelNames
             ClosureReprs = tf.ClosureReprs
         }

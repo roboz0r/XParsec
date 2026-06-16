@@ -311,10 +311,12 @@ let tests =
             }
 
             test "a closure program references Vesper.Core (for Fun), not FSharp.Core, and runs" {
-                // A *capturing* lambda is synthesised as a closure (a non-capturing
-                // `let f = fun x -> …` lowers to a static method — no function value).
+                // A lambda capturing a genuine local (here `mk`'s parameter `n`) is
+                // synthesised as a closure. (A lambda capturing only a top-level *value*
+                // lowers to a static method now that the value is a static field —
+                // module-representation-plan §10/§4 — so capture a real local instead.)
                 let _, artifact =
-                    compileSource "R1Closure" "let n = 1\nlet f = fun x -> x + n\nprintfn \"%d\" (f 41)"
+                    compileSource "R1Closure" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
                 Expect.isEmpty artifact.FSharpCoreDependencies "a plain closure pins no FSharp.Core construct"
 
@@ -333,8 +335,10 @@ let tests =
             }
 
             test "the synthesised closure derives from System.Object and implements Vesper.Fun`2" {
+                // Capture a genuine local (`mk`'s parameter) so a closure is synthesised
+                // — a top-level value is a static field now (§10/§4), not a capture.
                 let _, artifact =
-                    compileSource "R1ClosureShape" "let n = 1\nlet f = fun x -> x + n\nprintfn \"%d\" (f 41)"
+                    compileSource "R1ClosureShape" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 

@@ -773,6 +773,13 @@ type PassContextBindings =
         /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
         /// backend keys off it to name + place a module function (`ListModule::fold`).
         ModuleMembers: Dictionary<uint64, ModuleMemberInfo>
+        /// A *top-level* (implicit-"Program"-module, `holder = None`) binding's
+        /// `NodeKey.Raw` → its source name. Top-level bindings record no
+        /// `ModuleMemberInfo`, so this is the only name source for a top-level value
+        /// lowered to a Program-holder static field (module-representation-plan §10).
+        /// Consulted only by the value collector, so top-level functions keep their
+        /// `fn$<off>` holderless path.
+        TopLevelNames: Dictionary<uint64, string>
     }
 
 module PassContextBindings =
@@ -784,6 +791,7 @@ module PassContextBindings =
             Escape = SideTable<_>()
             Repr = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
+            TopLevelNames = Dictionary<_, _>()
         }
 
 /// Name-resolution scopes: the `open` / typar / external-access state the passes

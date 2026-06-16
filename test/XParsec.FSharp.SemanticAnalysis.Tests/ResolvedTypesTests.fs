@@ -79,6 +79,7 @@ let tests =
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty
+                        TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
                     }
 
@@ -133,6 +134,7 @@ let tests =
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty
+                        TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
                     }
 

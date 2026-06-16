@@ -704,6 +704,12 @@ type TastFileG<'ty, 'tok> =
         /// not the anonymous "Program" holder). Empty for a program with no named
         /// modules — every static method then lands on "Program" as before.
         ModuleMembers: Map<uint64, ModuleMemberInfo>
+        /// A *top-level* (implicit-"Program"-module) binding's `NodeKey.Raw` → its
+        /// source name. Top-level bindings (an exe's last file, FS0222) record no
+        /// `ModuleMemberInfo`; this names a top-level value lowered to a
+        /// Program-holder static field (module-representation-plan §10). Empty for a
+        /// library or a file led by a `module`/`namespace` declaration.
+        TopLevelNames: Map<uint64, string>
         /// A closure binder's `NodeKey.Raw` → its RS3 stack-vs-heap verdict
         /// (the `EscapeState.LocalStack ∧ RegionRepr.StackOnlyEligible`
         /// conjunction), snapshotted from `ctx.Bindings.Escape` /

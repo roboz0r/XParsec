@@ -235,6 +235,16 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         plan.ModuleValueFieldOrder
         |> List.iter (fun mv -> moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.Key])
 
+    // The §10.3 trailing top-level values: their `public static` field is written in
+    // `Main` (`buildMain` `stsfld`), not a `.cctor`. Same field handles, a separate
+    // map so `buildMain` knows to emit the store (vs the cctor-initialised values it
+    // skips).
+    let mainInitValues = Dictionary<NodeKey, EntityHandle>()
+
+    do
+        plan.ProgramMainValues
+        |> List.iter (fun mv -> mainInitValues.[mv.Key] <- moduleValueFields.[mv.Key])
+
     let emitCtx: Emit.EmitContext =
         {
             Provider = icodegen
@@ -246,6 +256,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             Classes = classes
             StaticMethods = staticMethods
             ModuleValues = moduleValueFields
+            MainInitValues = mainInitValues
         }
 
     // ---- Prepared methods ----
@@ -523,10 +534,30 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
+        // The anonymous "Program" holder's `.cctor` (§10): the same value-store
+        // recipe as a named holder's, over the leading-prefix top-level values.
+        let prepareProgramCctor () =
+            let lets =
+                [ for mv in plan.ProgramCctorValues -> moduleValueFields.[mv.Key], mv.Init ]
+
+            let bodyOffset =
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx lets))
+
+            this.AddPrepared(
+                MethodKey.ProgramCctor,
+                {
+                    Signature = provider.CctorSignature()
+                    BodyOffset = bodyOffset
+                    ParamNames = []
+                    MethodTypars = []
+                }
+            )
+
         for slot in plan.MethodPlan do
             match slot with
             | HolderCctor h -> prepareHolderCctor h
             | HolderFn fn -> prepareStaticFn fn
+            | ProgramCctor -> prepareProgramCctor ()
 
     // ---- Prepare: Main (executable only; presence is a layout decision) ----
     member this.PrepareMain() =
@@ -710,9 +741,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 verifyTypeHandle slot typeHandle
 
             // The anonymous "Program" holder owns the holder-less static
-            // methods (and `Main`, when an executable). Its presence is a
-            // layout decision (`Layout.build`).
-            | TypeSlotKind.Program ->
+            // methods (and `Main`, when an executable), and §10 the top-level
+            // value fields. `hasCctor` ⇔ it owns leading-prefix values, dropping
+            // `BeforeFieldInit` so its `.cctor` runs before `Main`. Its presence is
+            // a layout decision (`Layout.build`).
+            | TypeSlotKind.Program hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(
                         slot.Namespace,
@@ -720,7 +753,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                         provider.ObjectType,
                         layoutHandles.FirstFieldOf slot.Key,
                         layoutHandles.FirstMethodOf slot.Key,
-                        true
+                        not hasCctor
                     )
 
                 verifyTypeHandle slot typeHandle

@@ -33,6 +33,8 @@ module Emit =
     let lower = EmitLower.lower
     let collectModuleValues = EmitClosures.collectModuleValues
     let collectGenericModuleValues = EmitClosures.collectGenericModuleValues
+    let collectProgramValues = EmitClosures.collectProgramValues
+    let typeKeyNsName = EmitClosures.typeKeyNsName
     let validateModuleValueInits = EmitClosures.validateModuleValueInits
     let collectStaticFns = EmitClosures.collectStaticFns
     let staticFnTypars = EmitClosures.staticFnTypars
@@ -51,6 +53,14 @@ module Emit =
             | TDeclG.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
             | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
+            // A top-level ("Program") value that follows a top-level `do` (§10.3): its
+            // `public static` field is written **here**, in `Main`, in source order —
+            // not in the Program `.cctor` (which runs before `Main`). A reference reads
+            // `ldsfld` via `ModuleValues`. (Checked before the `ModuleValues` skip,
+            // which it would otherwise match.)
+            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), value, _, _) when ctx.MainInitValues.ContainsKey binding ->
+                buildExpr env b value
+                b.Add(ILInstr.Stsfld ctx.MainInitValues.[binding])
             // A module-level value is a `public static` field initialised by its
             // holder's `.cctor` (module-representation-plan §3); a reference loads
             // it with `ldsfld`, so it needs no Main local.

@@ -259,6 +259,89 @@ module EmitClosures =
                 }
             )
 
+    /// Classify the *top-level* (implicit-"Program"-module) ground values
+    /// (module-representation-plan §10): a non-`inline`, non-`Lambda`, non-function
+    /// `let name = <value>` with **no** enclosing named module (it records a
+    /// `TopLevelNames` entry but no `ModuleMemberInfo`) whose type is fully ground.
+    /// Each becomes a `public static` field on the anonymous "Program" holder; the
+    /// leading/trailing `.cctor`-vs-`Main` **placement** is decided later in
+    /// `HolderPlan.create` (the §10.3 first-`do` partition). Generic top-level
+    /// values are handled by `collectGenericModuleValues`' holderless fallback;
+    /// function-typed values (a stored closure) are deferred, as for a named holder.
+    /// `(ns, name)` of a `TypeKey`, used to match a value's type against the
+    /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
+    /// the decl key can carry different `asm` qualification.
+    let typeKeyNsName (k: SymbolKey) : (string * string) option =
+        match k with
+        | SymbolKey.TypeKey(_, ns, name) -> Some(ns, name)
+        | _ -> None
+
+    let collectProgramValues
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (programHolder: HolderKey)
+        (topLevelNames: Map<uint64, string>)
+        // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this
+        // assembly. `EmitLower.lower` strips type decls, so the caller computes this
+        // from `tast.Decls`.
+        (refStructNsNames: HashSet<string * string>)
+        (decls: Frozen.TDecl list)
+        : ModuleValue list =
+        // A `[<Struct; IsByRefLike>]` value cannot be a static field (the CLR confines
+        // a byref-like type to the stack) — and never needs to be (a ref struct can't
+        // be read from a member / cctor anyway). Such a top-level value stays a `Main`
+        // local; a byref (`FTConst("&", _)`) likewise.
+        let isFieldEmittable (ty: FrozenType) =
+            match ty with
+            | FTClass(key, _) ->
+                match typeKeyNsName key with
+                | Some nsName -> not (refStructNsNames.Contains nsName)
+                | None -> true
+            | FTConst(n, _) when n = RuntimeNames.byrefName -> false
+            | _ -> true
+
+        decls
+        |> List.choose (fun d ->
+            match d with
+            | TDeclG.Let(TPatG.NamedSimple(k, ty, _), value, isInline, _) when
+                not isInline
+                && (
+                    match value with
+                    | TExprG.Lambda _ -> false
+                    | _ -> true
+                )
+                && ftIsGround ty
+                && (
+                    match ty with
+                    | FTFun _ -> false
+                    | _ -> true
+                )
+                && isFieldEmittable ty
+                // A named-holder value (`module Foo`) takes the §7 path; a top-level
+                // (`holder = None`) value records no `ModuleMemberInfo`.
+                && not (Map.containsKey k.Raw moduleMembers)
+                ->
+                // A *leading* top-level value is a standalone `ModuleElem.Let`, so
+                // `Elaborate` recorded its source name. A value *after* a top-level
+                // statement folds into the preceding sequential (it is a nested `let`,
+                // not its own module element), so it has no recorded name — synthesise
+                // one fsc-style (`r@3`), the field being assembly-internal and resolved
+                // by `NodeKey`, never by name.
+                let name =
+                    match Map.tryFind k.Raw topLevelNames with
+                    | Some n -> n
+                    | None -> sprintf "value@%d" k.Offset
+
+                Some
+                    {
+                        Key = k
+                        Name = name
+                        Ty = ty
+                        Init = value
+                        Holder = programHolder
+                    }
+            | _ -> None
+        )
+
     /// A module value's initialiser runs in its holder's `.cctor`, where only
     /// other module values (`ldsfld`) and static-method functions (direct `call`)
     /// resolve — any other top-level reference (an anonymous "Program" value, a

@@ -150,22 +150,28 @@ let tests =
                     Expect.equal (staticFnMethods bytes).Length 2 "both inc and add3 are static methods"
                 }
 
+            // A lambda capturing a genuine local (a function parameter) is a closure.
+            // (module-representation-plan §10/§4: a top-level *value* is now a static
+            // field, so a lambda capturing only a top-level value — `let n = 10; let
+            // addN x = x + n` — captures nothing and lowers to a static method, not a
+            // closure. To still exercise closure synthesis, capture a real local: `mk`'s
+            // parameter `n`. `mk` itself is the one static method; its inner lambda is
+            // the closure.)
             yield
-                test "a capturing function stays a closure, not a static method (prints 15)" {
-                    let src = "let n = 10\nlet addN x = x + n\nprintfn \"%d\" (addN 5)"
+                test "a lambda capturing a function parameter is a closure (curried mk; prints 15)" {
+                    let src = "let mk n = (fun x -> x + n)\nlet addN = mk 10\nprintfn \"%d\" (addN 5)"
                     let _, artifact = compileSource "FnCapture" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
-                    Expect.equal (output.Trim()) "15" "addN 5 = 15 via a capturing closure"
-                    Expect.isEmpty (staticFnMethods bytes) "addN captures n, so it stays a closure (no static fn)"
+                    Expect.equal (output.Trim()) "15" "addN 5 = (mk 10) 5 = 15 via a capturing closure"
 
                     let asm = loadAssembly bytes
 
                     let hasClosure =
                         asm.GetTypes() |> Array.exists (fun t -> t.Name.StartsWith "<closure>")
 
-                    Expect.isTrue hasClosure "a closure type was emitted for the capturing addN"
+                    Expect.isTrue hasClosure "a closure type was emitted for mk's inner lambda (it captures n)"
                 }
 
             // A function inside a `module M = …` compiles to a static method on an

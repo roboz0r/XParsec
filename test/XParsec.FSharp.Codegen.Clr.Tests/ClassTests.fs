@@ -797,6 +797,83 @@ let staticTests =
                             "printfn \"%d\" ((v.SumAll xs).N)"
                         ])
             }
+
+            // module-representation-plan §10: a *top-level* (implicit-"Program"-module)
+            // value is a `public static` field on the Program holder, read everywhere
+            // as `ldsfld` (never a `Main` local). The §10.3 leading/trailing partition:
+            // a value before the first top-level `do` is `initonly` (the Program
+            // `.cctor`); a value after a `do` is a mutable `static` written by `Main`
+            // (`stsfld`) in source order. This is the PP7c-5 route-around's closure.
+            // module-representation-plan §10: leading top-level values (declared
+            // before any top-level statement) are `static initonly` fields on the
+            // Program holder, initialised by its `.cctor` in declaration order — so a
+            // later leading value reads an earlier one (`ldsfld`, already set). A
+            // member then reads them, and a trailing `printfn` confirms the runtime
+            // values. (A value *after* a statement folds into the sequential and stays
+            // a `Main` local — §10.3's trailing case, deferred until top-level
+            // sequentials are flattened to decls.)
+            test "§10: leading top-level values are Program-holder initonly fields, cctor-initialised in order" {
+                let _, artifact =
+                    compileSource
+                        "TopLevelLeading"
+                        (String.concat
+                            "\n"
+                            [
+                                "let a = 10" // leading → .cctor, initonly
+                                "let b = a + 5" // leading → .cctor, initonly; reads a (ldsfld) in the cctor
+                                "type Reader() ="
+                                "    member this.Sum () : int = a + b"
+                                "printfn \"%d\" ((Reader()).Sum())"
+                            ])
+
+                let bytes = Codegen.toBytes artifact
+
+                // The member observes both values; the cctor set them in order (b = a + 5).
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "the program exits 0"
+                Expect.stringContains output "25" "Reader().Sum() = a + b = 10 + 15 = 25"
+
+                let asm = loadAssembly bytes
+                let program = asm.GetType "Program"
+
+                let field n =
+                    program.GetField(n, BindingFlags.Public ||| BindingFlags.Static)
+
+                Expect.isNotNull (field "a") "a is a public static field on Program"
+                Expect.isTrue (field "a").IsInitOnly "a (leading) is initonly — set by the Program .cctor"
+                Expect.isNotNull (field "b") "b is a public static field on Program"
+                Expect.isTrue (field "b").IsInitOnly "b (leading) is initonly — set by the Program .cctor"
+            }
+
+            test "§10: a member reads a top-level (leading) value via a Program-holder initonly field" {
+                let _, artifact =
+                    compileSource
+                        "TopLevelValMember"
+                        (String.concat
+                            "\n"
+                            [
+                                "let provider = 42"
+                                "type Reader() ="
+                                "    member this.Get () : int = provider"
+                                "let _z = Reader()"
+                            ])
+
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let program = asm.GetType "Program"
+                Expect.isNotNull program "the Program holder is emitted"
+
+                let providerField =
+                    program.GetField("provider", BindingFlags.Public ||| BindingFlags.Static)
+
+                Expect.isNotNull providerField "the top-level value `provider` is a public static field on Program"
+                Expect.isTrue providerField.IsInitOnly "provider (leading) is initonly — set by the Program .cctor"
+
+                let readerTy = asm.GetType "Reader"
+                let inst = readerTy.GetConstructors().[0].Invoke [||]
+                let m = readerTy.GetMethod("Get", declaredInstance, null, [||], null)
+                Expect.equal (m.Invoke(inst, [||]) :?> int) 42 "Reader().Get() reads the top-level value provider = 42"
+            }
         ]
 
 [<Tests>]
