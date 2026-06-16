@@ -45,6 +45,16 @@ open XParsec.FSharp.SemanticAnalysis
 /// path-projection `const` bindings — the JS analogue of `EmitPattern`'s
 /// branch-to-`nextLabel`) and `return`s the first match's body, an unmatched value
 /// `throw`ing.
+///
+/// **Step 7** adds instance / static type members: each member declared on a
+/// record / union (`collectTypes` now keeps the `members`) emits as a free,
+/// curried, *receiver-first* function under a shared mangled name (`emitMemberFn` /
+/// `mangledMemberName` — `<Type>__<member>`, property getter `<Type>__get_<P>`,
+/// static `<Type>_<member>`); the data-carrying class is unchanged (no prototype
+/// methods), so the structural-interop invariant holds. The call arms (`PropertyGet`
+/// / `MethodCall` / `StaticPropertyGet` / `StaticMethodCall`) lower to a `Call` of
+/// the mangled name curried over receiver-then-args; `ExternalMember` imports the
+/// mangled member from the declaring type's `runtime-js` module.
 module EmitJs =
 
     /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
@@ -166,6 +176,58 @@ module EmitJs =
     let private isIdentCont (c: char) =
         System.Char.IsLetterOrDigit c || c = '_' || c = '\''
 
+    /// JS reserved words that are legal F# identifiers and could therefore be
+    /// recovered as a binder name — most notably `this` (the conventional
+    /// instance-member receiver binder, `member this.X`). A recovered name that
+    /// collides is suffixed with `$` (illegal in F#, so it can't itself clash with
+    /// a source name); both the parameter and the body's `Var` reference go through
+    /// `identName`, so the rewrite is applied consistently and they still line up.
+    let private jsReserved =
+        Set.ofList
+            [
+                "this"
+                "new"
+                "in"
+                "do"
+                "if"
+                "else"
+                "for"
+                "while"
+                "return"
+                "var"
+                "let"
+                "const"
+                "function"
+                "class"
+                "delete"
+                "typeof"
+                "void"
+                "instanceof"
+                "default"
+                "switch"
+                "case"
+                "break"
+                "continue"
+                "throw"
+                "try"
+                "catch"
+                "finally"
+                "yield"
+                "await"
+                "super"
+                "extends"
+                "import"
+                "export"
+                "null"
+                "true"
+                "false"
+                "with"
+                "enum"
+            ]
+
+    let private jsSafe (name: string) =
+        if Set.contains name jsReserved then name + "$" else name
+
     /// A `Var` / binder `NodeKey` → its JS identifier. The binder and every
     /// reference carry the *same* key (the CLR backend resolves them through one
     /// slot table the same way), so a key-derived name is consistent across the
@@ -194,7 +256,7 @@ module EmitJs =
             while i < s.Length && isIdentCont s.[i] do
                 i <- i + 1
 
-            (s.Substring(k.Offset, i - k.Offset)).Replace('\'', '_')
+            jsSafe ((s.Substring(k.Offset, i - k.Offset)).Replace('\'', '_'))
         | _ -> (if k.IsSynthetic then "_s" else "_v") + string k.Offset
 
     // ---- Scalar constants ----------------------------------------------------
@@ -293,6 +355,16 @@ module EmitJs =
             let names, inner = peelArrow source body
             lambdaParamName source p :: names, inner
         | _ -> [], e
+
+    /// Nest a non-empty parameter-name list into a chain of *unary* arrows around
+    /// `innermost` (`["a"; "b"]` → `(a) => (b) => <innermost>`). The shared shape of
+    /// `emitFunction`'s lambda emission and a member function's receiver-then-params
+    /// chain.
+    let rec private nestUnaryArrows (loc: JsLoc voption) (names: string list) (innermost: JsFnBody) : JsExpr =
+        match names with
+        | [ last ] -> JsExpr.Arrow([ last ], innermost, loc)
+        | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nestUnaryArrows loc rest innermost), loc)
+        | [] -> failwith "EmitJs: nestUnaryArrows on an empty parameter list"
 
     /// `e` is a fully-saturated self-call of the function bound to `selfKey` at
     /// `arity`; yields its argument expressions in source order. The single
@@ -440,6 +512,64 @@ module EmitJs =
         match info.Cases.TryGetValue caseName with
         | true, c -> c
         | _ -> failwithf "EmitJs (Step 4): %s on union '%s' has no case '%s'" what info.Name caseName
+
+    // ---- Members -------------------------------------------------------------
+
+    /// The shared name-mangling convention (Step 7), mirroring Fable's, consumed by
+    /// both the member-function *emission* and the call-site arms (and the deferred
+    /// `.d.ts` emitter) so the pair lines up: an instance method →
+    /// `<Type>__<member>`; an instance property getter → `<Type>__get_<Prop>`; a
+    /// static member → `<Type>_<member>` (single underscore). A static property and a
+    /// static method share the single-underscore form (the call site distinguishes
+    /// them — a property reads the value, a method applies it).
+    let private mangledMemberName (typeName: string) (isStatic: bool) (isProperty: bool) (memberName: string) : string =
+        if isStatic then typeName + "_" + memberName
+        elif isProperty then typeName + "__get_" + memberName
+        else typeName + "__" + memberName
+
+    /// The declaring type's `SymbolKey` carried by a member-call node's `key`
+    /// (`MemberKey(decl, …)`). An `ExternalMember` `key` may also be a non-member
+    /// key (a static access folded to the type itself), so the fallthrough returns
+    /// it verbatim.
+    let private memberDeclKey (key: SymbolKey) : SymbolKey =
+        match key with
+        | SymbolKey.MemberKey(decl, _, _, _) -> decl
+        | _ -> key
+
+    /// The home assembly of an *external* type, for selecting its `runtime-js`
+    /// module. A nominal `TypeKey` carries `asm = None` today (the codegen rekey is
+    /// still pending), so the assembly is recovered off the provider's type-shape
+    /// `origin` — the same origin the external union/record class emission reads —
+    /// falling back to the key's own assembly when present.
+    let private externalTypeAssembly (ctx: WalkCtx) (declKey: SymbolKey) (what: string) : string =
+        match SymbolKeyOps.keyAsm declKey with
+        | Some a -> a
+        | None ->
+            let origin =
+                match ctx.Provider with
+                | ValueSome provider ->
+                    match ExternalSymbols.tryLookupType provider declKey with
+                    | ValueSome(ExternalTypeShape.Union(_, _, o))
+                    | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
+                    | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
+                    | _ -> None
+                | ValueNone -> None
+
+            match origin with
+            | Some a -> a
+            | None -> failwithf "EmitJs (Step 7): %s has no resolvable home assembly (key %A)" what declKey
+
+    /// The emitted type name a member's mangled name is built from: the local
+    /// `JsUnionInfo`/`JsRecordInfo` `Name` (so it matches what `collectTypes`
+    /// emitted) when the declaring type is in this file, else the key's bare simple
+    /// name (an external type — the consumer half).
+    let private memberTypeName (ctx: WalkCtx) (declKey: SymbolKey) : string =
+        match ctx.Unions.TryGetValue declKey with
+        | true, info -> info.Name
+        | _ ->
+            match ctx.Records.TryGetValue declKey with
+            | true, info -> info.Name
+            | _ -> SymbolKeyOps.simpleName declKey
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
     /// Error("…")`. An exhaustive match never reaches it at runtime, but it gives
@@ -591,6 +721,63 @@ module EmitJs =
             let c = unionCaseOf ctx "UnionCons" ty caseName
 
             JsExpr.New(JsExpr.Identifier(c.ClassName, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
+
+        // A member call on a *local* record/union (Step 7). Each member is emitted
+        // as a free, curried, receiver-first function under the shared mangled name
+        // (`emitMemberFn`), so a call is just a `Call` of that name — there is no
+        // `.member` access path. The declaring type's emitted name is read off
+        // `key.decl` through the `Unions`/`Records` tables.
+        | TExprG.PropertyGet(receiver, key, _, _, _) ->
+            let fn =
+                mangledMemberName (memberTypeName ctx (memberDeclKey key)) false true (SymbolKeyOps.simpleName key)
+
+            JsExpr.Call(JsExpr.Identifier(fn, ValueNone), [ buildExpr ctx receiver ], loc)
+
+        | TExprG.MethodCall(receiver, key, _, args, _, _) ->
+            let fn =
+                mangledMemberName (memberTypeName ctx (memberDeclKey key)) false false (SymbolKeyOps.simpleName key)
+            // `<Type>__<member>(recv)(a)(b)…` — receiver first, then one unary call
+            // per argument (matching the curried emission).
+            let withRecv =
+                JsExpr.Call(JsExpr.Identifier(fn, ValueNone), [ buildExpr ctx receiver ], loc)
+
+            EqArray.toList args
+            |> List.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) withRecv
+
+        | TExprG.StaticPropertyGet(key, _, _) ->
+            // A static property reads the module-level value binding directly (no call).
+            JsExpr.Identifier(
+                mangledMemberName (memberTypeName ctx (memberDeclKey key)) true true (SymbolKeyOps.simpleName key),
+                loc
+            )
+
+        | TExprG.StaticMethodCall(key, args, _, _) ->
+            let fn =
+                mangledMemberName (memberTypeName ctx (memberDeclKey key)) true false (SymbolKeyOps.simpleName key)
+
+            EqArray.toList args
+            |> List.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) (JsExpr.Identifier(fn, loc))
+
+        // A member on an *external* type (the consumer half) — `o.IsSome` where
+        // `Option` is imported. The mangled member is imported from the declaring
+        // type's `runtime-js` module (`JsImports.addMemberRef`, the member analogue
+        // of the `External`-value `addRef` path), then applied receiver-first; an
+        // instance method's arguments arrive through the enclosing `App` chain.
+        | TExprG.ExternalMember(receiver, key, memberName, isProperty, _, _) ->
+            let declKey = memberDeclKey key
+            let isStatic = (receiver = ValueNone)
+
+            let exportName =
+                mangledMemberName (SymbolKeyOps.simpleName declKey) isStatic isProperty memberName
+
+            let asm =
+                externalTypeAssembly ctx declKey (sprintf "external member '%s'" memberName)
+
+            let local = JsImports.addMemberRef ctx.Imports asm exportName
+
+            match receiver with
+            | ValueSome r -> JsExpr.Call(JsExpr.Identifier(local, ValueNone), [ buildExpr ctx r ], loc)
+            | ValueNone -> JsExpr.Identifier(local, loc)
 
         // `match scrut with …` → an IIFE: bind the scrutinee once to a parameter,
         // then test each arm in order, `return`ing the first whose pattern (and
@@ -855,13 +1042,7 @@ module EmitJs =
                     ]
             | _ -> JsFnBody.Expr(buildExpr ctx body)
 
-        let rec nest names =
-            match names with
-            | [ last ] -> JsExpr.Arrow([ last ], innermost, loc)
-            | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nest rest), loc)
-            | [] -> failwith "EmitJs (Step 2): a lambda peeled to zero parameters"
-
-        nest names
+        nestUnaryArrows loc names innermost
 
     /// Build the statements of a self-tail-call trampoline's loop body, walking
     /// tail position. A saturated tail self-call writes its arguments back to the
@@ -900,6 +1081,46 @@ module EmitJs =
             ]
             @ [ JsStatement.Continue ]
         | _ -> [ JsStatement.Return(buildExpr ctx e) ]
+
+    /// Emit one record/union member as a free top-level function (Step 7), curried
+    /// and receiver-first: a property `member this.Length2` →
+    /// `<Type>__get_Length2 = (this$) => <body>`; a method `member this.Foo a b` →
+    /// `<Type>__Foo = (this$) => (a) => (b) => <body>`; a static member drops the
+    /// receiver. The body is walked by `buildExpr` with the member's `ThisKey` and
+    /// `Params` as the function's parameters — the existing `Var`/`identName` path
+    /// resolves the receiver and every parameter with no new machinery (the `ThisKey`
+    /// is typically synthetic, so the receiver is a stable `_s<n>`; a real source
+    /// binder named `this` would map to `this$` via the reserved-word guard, and
+    /// either way the body's receiver refs share the key so they line up). A *static
+    /// property* has no
+    /// parameters at all, so it emits as a plain value binding (the `StaticPropertyGet`
+    /// site reads it directly). In *library* mode the binding is `export`ed (the
+    /// runtime module's public member surface), else a plain `const`.
+    and emitMemberFn (ctx: WalkCtx) (typeName: string) (m: Frozen.TTypeMember) : JsStatement =
+        let isProperty = (m.Kind = TMemberKind.Property)
+        let name = mangledMemberName typeName m.IsStatic isProperty m.Name
+
+        let receiverNames =
+            if m.IsStatic then
+                []
+            else
+                match m.ThisKey with
+                | ValueSome k -> [ identName ctx.Source k ]
+                | ValueNone -> [ "this$" ]
+
+        let paramNames = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+        let allNames = receiverNames @ paramNames
+        let body = buildExpr ctx m.Body
+
+        let init =
+            match allNames with
+            | [] -> body
+            | _ -> nestUnaryArrows ValueNone allNames (JsFnBody.Expr body)
+
+        if ctx.ExportTopLevel then
+            JsStatement.Export(name, init)
+        else
+            JsStatement.Const(name, init)
 
     /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
     /// value routes through `emitFunction` carrying its binder key, so a
@@ -944,16 +1165,24 @@ module EmitJs =
     /// `UnionCons`/union-patterns through. `TastLower.lower` drops every `type`
     /// decl (they are metadata, not in the expression stream), so the shapes are
     /// read from the *un-lowered* decls here. Classes / interfaces are later steps.
+    /// The member bodies are read off the same un-lowered decls, paired with their
+    /// declaring type's emitted name; `buildProgram` emits each as a free function
+    /// (`emitMemberFn`) once the lookup tables are built into the walker context.
     let private collectTypes (tast: Frozen.TastFile) =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
+        let members = ResizeArray<string * Frozen.TTypeMember>()
+
+        let addMembers (typeName: string) (ms: EqArray<Frozen.TTypeMember>) =
+            for m in ms do
+                members.Add(typeName, m)
 
         for decl in tast.Decls do
             match decl with
             | TDeclG.Type td ->
                 match td.Kind with
-                | TTypeKindG.Record(fields, _) ->
+                | TTypeKindG.Record(fields, recMembers) ->
                     let info =
                         {
                             Name = td.Name
@@ -962,16 +1191,18 @@ module EmitJs =
 
                     records.[td.Key] <- info
                     ordered.Add(JsStatement.Class(info.Name, info.Fields))
-                | TTypeKindG.Union(cases, _) ->
+                    addMembers td.Name recMembers
+                | TTypeKindG.Union(cases, unionMembers) ->
                     let info, caseDecls =
                         buildUnionInfo td.Name [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
 
                     unions.[td.Key] <- info
                     ordered.Add(JsStatement.Union(td.Name, caseDecls))
+                    addMembers td.Name unionMembers
                 | _ -> ()
             | _ -> ()
 
-        List.ofSeq ordered, records, unions
+        List.ofSeq ordered, records, unions, List.ofSeq members
 
     /// The whole frozen file → a `Program`. Record `type` declarations become JS
     /// `class`es first (classes are not hoisted, so they must precede their `new`
@@ -979,13 +1210,18 @@ module EmitJs =
     /// JS `finishOps`) — inline `let inline` templates and `type` decls drop out,
     /// leaving top-level `let` values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
-        let classDecls, recordTable, unionTable = collectTypes tast
+        let classDecls, recordTable, unionTable, memberDefs = collectTypes tast
 
         let ctx =
             { ctx0 with
                 Records = recordTable
                 Unions = unionTable
             }
+
+        // Each record/union member is a free, curried, receiver-first function
+        // (Step 7), emitted after the class decls (they reference the classes via
+        // `new`/match, and `const` arrows are not hoisted) and before the main body.
+        let memberDecls = [ for (typeName, m) in memberDefs -> emitMemberFn ctx typeName m ]
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
 
@@ -1017,5 +1253,6 @@ module EmitJs =
                 JsImports.importStatements ctx.Imports
                 @ classDecls
                 @ List.ofSeq ctx.ExternalUnionDecls
+                @ memberDecls
                 @ body
         }

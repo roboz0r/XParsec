@@ -103,6 +103,21 @@ module JsImports =
             alias
         | _ -> failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
 
+    /// Resolve an external *member* reference (Step 7 — a consumer's `o.IsSome` on an
+    /// imported `Option`) to the local identifier of its runtime import. The member is
+    /// emitted by its home package in library mode under the shared mangled name
+    /// (`Option__get_IsSome`), so that is the runtime module's export; this records the
+    /// import of that export from `asm`'s module and aliases it to `$<exportName>` — the
+    /// `$` prefix (illegal in F#) keeps it collision-free against the bare local mangled
+    /// names a self-compile emits, and the mangled name carries no `.` so it needs no
+    /// further sanitising. The member analogue of `addRef`; a member on a package with
+    /// no authored runtime fails loudly the same way.
+    let addMemberRef (imports: JsImports) (asm: string) (exportName: string) : string =
+        let _, specs = entryFor imports asm (sprintf "external member '%s'" exportName)
+        let alias = "$" + exportName
+        specs.Add(sprintf "%s as %s" exportName alias) |> ignore
+        alias
+
     /// Ensure the structural-core runtime (`Vesper.Core.mjs`) is imported under the
     /// *unaliased* export `name` (`equals` / `structuralHash`). Module functions
     /// alias to `$Ns_name` (`addRef`) to dodge collisions, but these are referenced
