@@ -149,7 +149,7 @@ let emitJs (input: string) : string =
         }
 
     let src =
-        Codegen.compileWith jsProvider.Value project (frozenOfJs input)
+        Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
         |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
@@ -172,7 +172,7 @@ let runJs (name: string) (input: string) : (int * string) option =
                     }
         }
 
-    Codegen.compileWith jsProvider.Value project (frozenOfJs input)
+    Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
     |> Codegen.materialise
 
     runNode jsPath

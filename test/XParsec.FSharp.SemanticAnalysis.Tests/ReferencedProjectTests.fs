@@ -352,7 +352,8 @@ let tests =
                              impl = [\"ops.fs\"]\n\
                              impl-js = [\"ops.js.fs\"]\n\
                              inline-bodies = [\"ops.fs\"]\n\
-                             inline-bodies-js = [\"ops.js.fs\"]\n"
+                             inline-bodies-js = [\"ops.js.fs\"]\n\
+                             runtime-js = [\"runtime.mjs\"]\n"
                         )
 
                         match ReferencedProject.loadManifest path with
@@ -369,6 +370,13 @@ let tests =
                             (withOverrides.InlineBodiesOverrides |> Map.tryFind "js")
                             (Some [ "ops.js.fs" ])
                             "inline-bodies-js captured under \"js\""
+
+                        // `runtime-js` (the platform-support `.mjs` asset) is captured
+                        // the same way — by bare suffix, with no base `runtime` key.
+                        Expect.equal
+                            (withOverrides.RuntimeOverrides |> Map.tryFind "js")
+                            (Some [ "runtime.mjs" ])
+                            "runtime-js captured under \"js\""
                     }
 
                     test "resolveImpl/resolveInlineBodies pick the override for a known target" {
@@ -381,6 +389,51 @@ let tests =
                             (ReferencedProject.resolveInlineBodies (Some "js") withOverrides)
                             [ "ops.js.fs" ]
                             "js inline-bodies override selected"
+                    }
+
+                    // `resolveRuntime` has NO base list (a runtime asset is inherently
+                    // target-specific), so `None` and any target without the key yield
+                    // the empty list — unlike `resolveImpl`/`resolveInlineBodies`.
+                    test "resolveRuntime selects the target asset, empty for None / unknown" {
+                        Expect.equal
+                            (ReferencedProject.resolveRuntime (Some "js") withOverrides)
+                            [ "runtime.mjs" ]
+                            "js runtime asset selected"
+
+                        Expect.isEmpty (ReferencedProject.resolveRuntime None withOverrides) "None ⇒ no runtime"
+
+                        Expect.isEmpty
+                            (ReferencedProject.resolveRuntime (Some "wasm") withOverrides)
+                            "unknown target ⇒ no runtime (no base fallback)"
+                    }
+
+                    // `runtimeModules` reads the resolved asset's contents off disk,
+                    // keyed by package/assembly name — the map the JS backend threads
+                    // into `JsImports` and materialises beside its output.
+                    test "runtimeModules reads the asset contents keyed by package name" {
+                        let dir = Path.Combine(tmpSrc, "RuntimeAsset")
+                        Directory.CreateDirectory dir |> ignore
+                        File.WriteAllText(Path.Combine(dir, "asset.mjs"), "export const k = 1;\n")
+                        let path = Path.Combine(dir, "manifest.toml")
+
+                        File.WriteAllText(
+                            path,
+                            "[core]\n\
+                             namespace = \"X\"\n\
+                             files = []\n\
+                             runtime-js = [\"asset.mjs\"]\n"
+                        )
+
+                        let resolved = ReferencedProject.runtimeModules "js" [ path ]
+
+                        Expect.equal
+                            (resolved |> Map.tryFind "RuntimeAsset")
+                            (Some("asset.mjs", "export const k = 1;\n"))
+                            "package RuntimeAsset → (fileName, source) read from disk"
+
+                        Expect.isEmpty
+                            (ReferencedProject.runtimeModules "wasm" [ path ])
+                            "a target with no runtime asset resolves to an empty map"
                     }
 
                     test "resolve falls back to the base list for None and for an unknown target" {
@@ -408,6 +461,7 @@ let tests =
                         | Result.Ok m ->
                             Expect.isEmpty m.ImplOverrides "no impl overrides"
                             Expect.isEmpty m.InlineBodiesOverrides "no inline-bodies overrides"
+                            Expect.isEmpty m.RuntimeOverrides "no runtime overrides"
                             // `inline-bodies` itself defaults to `impl` (existing behaviour).
                             Expect.equal
                                 (ReferencedProject.resolveInlineBodies (Some "js") m)

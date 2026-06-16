@@ -57,9 +57,11 @@ type JsArtifact =
 /// Entry point mirroring `Codegen.Clr.Codegen.compile`. `compileWith` takes the
 /// `IExternalSymbolProvider` (Step 5: it resolves the case shapes of external
 /// union types — `Option`, `List` — the file references but does not declare, so
-/// they can be emitted as honest nominal JS classes); `compile` is the
-/// null-provider convenience for the earlier scalar / `printfn` slices that touch
-/// no library type.
+/// they can be emitted as honest nominal JS classes) **and the manifest set** (the
+/// same one the provider was built from), from which it resolves the `runtime-js`
+/// platform-support assets (`Vesper.Core.mjs`, `Vesper.List.mjs`) to ship beside
+/// the output. `compile` is the null-provider / no-manifest convenience for the
+/// earlier scalar / `printfn` slices that touch no library type or package runtime.
 module Codegen =
 
     /// The generated `.js` file name (basename) — drives the map's `file` field
@@ -75,8 +77,26 @@ module Codegen =
     /// gains a trailing `//# sourceMappingURL` comment. The `provider` resolves
     /// external union/record shapes (`Option`, `List`) the file references but does
     /// not declare — they are emitted as honest nominal JS classes (Step 5); pass
-    /// `ExternalSymbols.nullProvider` for a program that touches none.
-    let compileWith (provider: IExternalSymbolProvider) (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
+    /// `ExternalSymbols.nullProvider` for a program that touches none. `manifestPaths`
+    /// is the package set whose `runtime-js` `.mjs` assets back the program's runtime
+    /// imports; pass `[]` when none are needed.
+    let compileWith
+        (provider: IExternalSymbolProvider)
+        (manifestPaths: string list)
+        (project: JsProjectInfo)
+        (tast: Frozen.TastFile)
+        : JsArtifact =
+        // The JS runtime *assets* this compile may import (`Vesper.Core.mjs`,
+        // `Vesper.List.mjs`): resolved from the same manifest set the provider was
+        // built from, via the package `runtime-js` keys. The committed `.mjs`
+        // contents are read here and threaded into `JsImports`; only the subset the
+        // walk actually references is materialised (`JsImports.modules`). `"js"` is
+        // the JS backend's own target suffix (cf. the `$N` template idiom — a
+        // backend-private convention, not a SemanticAnalysis concept).
+        let runtimeAssets =
+            ReferencedProject.runtimeModules "js" manifestPaths
+            |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
+
         let resolver: EmitJs.Resolver =
             match project.Source with
             | Some src -> ValueSome(EmitJs.LineIndex.build src.Content)
@@ -99,7 +119,7 @@ module Codegen =
                 Provider = ValueSome provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
                 ExternalUnionDecls = ResizeArray()
-                Imports = JsImports.create ()
+                Imports = JsImports.create runtimeAssets
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)
@@ -133,11 +153,13 @@ module Codegen =
             RuntimeModules = runtimeModules
         }
 
-    /// `compileWith` against the empty provider — for a program that references no
-    /// external union/record (the `printfn`/scalar/source-map slices). A program
-    /// that touches `Option` / `List` must use `compileWith`.
+    /// `compileWith` against the empty provider and an empty manifest set — for a
+    /// program that references no external union/record and imports no package
+    /// runtime (the `printfn`/scalar/source-map slices). A program that touches
+    /// `Option` / `List` or compares/hashes an aggregate must use `compileWith` with
+    /// the manifest set, so the `Vesper.*` `runtime-js` assets resolve.
     let compile (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
-        compileWith ExternalSymbols.nullProvider project tast
+        compileWith ExternalSymbols.nullProvider [] project tast
 
     /// The emitted ESM source text.
     let toSource (artifact: JsArtifact) : string = artifact.Source

@@ -20,6 +20,7 @@
     <Compile Include="Step4Tests.fs" />
     <Compile Include="Step5Tests.fs" />
     <Compile Include="Step5bTests.fs" />
+    <Compile Include="Step6Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

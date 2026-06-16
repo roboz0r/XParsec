@@ -39,9 +39,11 @@ namespace Vesper
 // (byte/sbyte/int16/uint16/uint32/uint64 — `& 0xFF`, `<< 24 >> 24`, `>>> 0`, …)
 // are deferred to the F-step gated by the backend step that first exercises those
 // widths, so each width's mask lands WITH an execution test rather than as
-// untested template surface. `hash`, `box`, the array ops, and `raise`/`failwith`
-// (structural / Step-5 / Step-6 concerns) likewise are not re-authored here yet;
-// a use site needing one simply finds no JS inline body until its F-step lands.
+// untested template surface. `hash` is re-authored here as part of Step 6
+// (equality + hashing) — it lowers to the JS-runtime `structuralHash` template
+// (see `module Operators` below). `box`, the array ops, and `raise`/`failwith`
+// likewise are not re-authored here yet; a use site needing one simply finds no
+// JS inline body until its F-step lands.
 
 [<AutoOpen>]
 module ArithmeticOperators =
@@ -162,6 +164,17 @@ module EqualityOperators =
 
 [<AutoOpen>]
 module Operators =
+
+    /// Generate a hash value. The CLR body rides `EqualityComparer<'T>.Default`;
+    /// JS has no such facility, so the primitive/aggregate split lives wholly in
+    /// the JS-runtime `structuralHash` (a primitive hashes by `typeof`, an
+    /// aggregate recurses over its own-property / array shape). A single template
+    /// therefore covers every width, and `hash` agrees with `(=)` by construction
+    /// — both walk the same structural shape, so equal values hash equal.
+    /// `structuralHash` is the structural-core entry bootstrapped in Step 6
+    /// (`Vesper.Core.mjs`); like `equals`, it is referenced verbatim (not aliased),
+    /// so the backend imports it under that bare name when this template is emitted.
+    let inline hash (obj: 'T) : int = (# "structuralHash($0)" obj : int #)
 
     /// Boolean negation — JS logical `!`. (The CLR body negates via `ceq value
     /// false`; the JS template is the direct operator.)

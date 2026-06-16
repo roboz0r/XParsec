@@ -41,3 +41,9 @@ files = [
 impl = [
     "list.fs",
 ]
+
+# Hand-authored JS runtime *asset* (codegen-js-steps.md Step 5b): the cons-list
+# module functions (`List.length`/`map`/…) the JS backend imports and ships beside
+# its output, read via `ReferencedProject.runtimeModules`. See Vesper.Core's
+# `runtime-js` note for the platform-support-asset pattern.
+runtime-js = ["Vesper.List.mjs"]

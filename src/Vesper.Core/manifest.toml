@@ -81,3 +81,12 @@ inline-bodies-js = [
     "ops-platform.js.fs",
     "ops-std.fs",
 ]
+
+# Hand-authored JS runtime *asset* (codegen-js-steps.md Step 6): the structural
+# core (`equals` / `structuralHash`) the JS backend imports and ships beside its
+# output — the platform-support analogue of Vesper.Printf's committed DLL, read via
+# `ReferencedProject.runtimeModules`. NOT a parsed source (a `.mjs`, not an
+# `.fsi`/`.fs`): a runtime asset is inherently target-specific, so there is no base
+# `runtime` key. Route B (the `--compiling-fslib` bootstrap) later generates this
+# same module from Vesper source.
+runtime-js = ["Vesper.Core.mjs"]

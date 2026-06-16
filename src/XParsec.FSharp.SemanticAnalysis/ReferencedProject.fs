@@ -59,6 +59,15 @@ module ReferencedProject =
             /// inline-splice source; resolved by `resolveInlineBodies`, falling back
             /// to the base `InlineBodies`.
             InlineBodiesOverrides: Map<string, string list>
+            /// Per-target runtime *asset* modules: every `runtime-<t>` key (e.g.
+            /// `runtime-js`), keyed by the bare suffix `<t>`. Unlike `Impl` /
+            /// `InlineBodies` these are NOT `.fsi`/`.fs` sources the front end parses
+            /// — they are hand-authored platform-support artifacts (the JS `.mjs`
+            /// runtime, the analogue of Vesper.Printf's committed DLL) the backend
+            /// ships beside its output and resolves via `runtimeModules`. There is no
+            /// base `runtime` key (a runtime asset is inherently target-specific), so
+            /// an absent key yields nothing (`resolveRuntime`).
+            RuntimeOverrides: Map<string, string list>
         }
 
     let private asString (v: TomlValue) : string option =
@@ -114,6 +123,15 @@ module ReferencedProject =
         | Some t -> m.InlineBodiesOverrides |> Map.tryFind t |> Option.defaultValue m.InlineBodies
         | None -> m.InlineBodies
 
+    /// Resolve the `runtime-<t>` asset-module file list for a target suffix. Unlike
+    /// `resolveImpl` / `resolveInlineBodies` there is NO base list — a runtime asset
+    /// (the JS `.mjs`) is inherently target-specific — so an absent key (or `None`)
+    /// yields the empty list.
+    let resolveRuntime (target: string option) (m: Manifest) : string list =
+        match target with
+        | Some t -> m.RuntimeOverrides |> Map.tryFind t |> Option.defaultValue []
+        | None -> []
+
     /// Parse a package `manifest.toml` document. `dirName` is the manifest's
     /// directory name, used as the assembly name when `[core]` carries no `name`.
     let parseManifest (dirName: string) (doc: TomlDocument) : Result<Manifest, string> =
@@ -160,6 +178,7 @@ module ReferencedProject =
                             // by the *backend* (`resolveImpl`/`resolveInlineBodies`).
                             ImplOverrides = collectOverrides core "impl"
                             InlineBodiesOverrides = collectOverrides core "inline-bodies"
+                            RuntimeOverrides = collectOverrides core "runtime"
                         }
 
     /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).
@@ -338,6 +357,36 @@ module ReferencedProject =
                 | _ -> []
 
             Ok(ordered, lookup)
+
+    /// Resolve the per-target runtime *asset* modules (`runtime-<t>`) for a manifest
+    /// set, closed over `depends-on`, reading each file's contents from disk. Maps
+    /// each package/assembly name (`Manifest.Name`) to its `(fileName, source)` —
+    /// the hand-authored platform-support module (the JS `.mjs`) the backend
+    /// materialises beside the output and imports by `./<fileName>`. A package with
+    /// no `runtime-<t>` key contributes nothing; one module per package (only the
+    /// first listed is taken — the import specifier keys one file per assembly); a
+    /// later package wins a name clash. This is the seam Route B (a backend-compiled
+    /// runtime, the `--compiling-fslib` bootstrap) later slots into — it generates
+    /// the same module the backend ships, leaving import + materialise unchanged.
+    let runtimeModules (target: string) (rootManifests: string list) : Map<string, string * string> =
+        match buildClosure rootManifests with
+        | Error _ -> Map.empty
+        | Ok ordered ->
+            let mutable acc = Map.empty
+
+            for manifestPath in ordered do
+                match loadManifest manifestPath with
+                | Error _ -> ()
+                | Ok manifest ->
+                    match resolveRuntime (Some target) manifest with
+                    | rel :: _ ->
+                        let abs = Path.Combine(Path.GetDirectoryName manifestPath, rel)
+
+                        if File.Exists abs then
+                            acc <- Map.add manifest.Name (Path.GetFileName rel, File.ReadAllText abs) acc
+                    | [] -> ()
+
+            acc
 
     /// Wrap the extractor's provider so (a) every resolved descriptor carries
     /// the package `Origin` (the extractor records `SymbolOrigin.Empty`; the
