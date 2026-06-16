@@ -54,6 +54,10 @@ let srcManifest (pkg: string) : string =
 /// `ops-platform.js.fs`).
 let vesperCoreManifest: string = srcManifest "Vesper.Core"
 
+/// A file beside a package's `manifest.toml` (e.g. `srcFile "Vesper.List" "list.js.fs"`).
+let srcFile (pkg: string) (file: string) : string =
+    IO.Path.Combine(IO.Path.GetDirectoryName(srcManifest pkg), file)
+
 /// `src/Vesper.Printf/manifest.toml` — gives `printfn`/`eprintfn`/… a resolvable
 /// symbol. The actual lowering to a `Format` node is front-end special-casing
 /// (no inline body is emitted), so no `inline-bodies-js` is needed here.
@@ -154,6 +158,90 @@ let emitJs (input: string) : string =
 
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
+
+/// Compile a Step-1 `input` in **library** mode (top-level `let`s become
+/// `export const …`, Step 5b Phase 3) to JS source text. Same source-driven naming
+/// + `sourceMappingURL` stripping as `emitJs`; only `Kind = Library` differs.
+let emitJsLibrary (input: string) : string =
+    let project =
+        { JsProjectInfo.defaults "Test" with
+            Source = Some { Path = "test.fsx"; Content = input }
+            Kind = Library
+        }
+
+    let src =
+        Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
+        |> Codegen.toSource
+
+    let idx = src.IndexOf "//# sourceMappingURL"
+    if idx >= 0 then src.Substring(0, idx) else src
+
+// ---- Step 5b Phase 3: compile a package *impl* (`list.js.fs`) to a runtime .mjs --
+
+/// Deps-only JS provider for compiling a package impl whose only dependency is
+/// `Vesper.Core` (both `Vesper.List` and `Vesper.Option`). The package's OWN contract
+/// must be ABSENT — the impl declares its type in-file, so a provider that also
+/// declared it would collide — mirroring CLR `buildPackage`'s "provider = `depends-on`
+/// only". `Vesper.Core` carries the primitives + `Fun` + the `+` JS inline body; built
+/// with `Some Target.Js` so use sites carry the JS templates.
+let coreDepsJsProvider: Lazy<IExternalSymbolProvider> =
+    lazy SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+
+/// Front-end + freeze a JS-target package *impl* through a deps-only `provider`.
+/// Like `frozenOfJs` (self-host list default on, JS target) but the provider carries
+/// only the package's dependencies, so the impl's own in-file type declarations are
+/// the resolution authority (the `buildPackage` self-compile shape).
+let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : Frozen.TastFile =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyseSemForSelfHost provider input lexed file
+
+    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    if not (List.isEmpty errors) then
+        failwithf "impl analysis errors: %A" (errors |> List.map (fun d -> d.Message))
+
+    Freeze.run tast
+
+/// Compile a package impl in **library** mode (top-level `let`s → `export const …`)
+/// to its runtime-module source text. `Source` is supplied so the exported bindings
+/// take their real source names (`length`, `map`, …); the trailing
+/// `//# sourceMappingURL` comment that enables is stripped (a committed runtime asset
+/// ships map-free, like the hand-authored predecessor). No runtime imports are
+/// resolved (`manifestPaths = []`) — the List subset imports nothing.
+let compileLibrary (provider: IExternalSymbolProvider) (moduleName: string) (input: string) : string =
+    let project =
+        { JsProjectInfo.defaults moduleName with
+            Source =
+                Some
+                    {
+                        Path = moduleName + ".fs"
+                        Content = input
+                    }
+            Kind = Library
+        }
+
+    let src =
+        Codegen.compileWith provider [] project (frozenImplJs provider input)
+        |> Codegen.toSource
+
+    let idx = src.IndexOf "//# sourceMappingURL"
+    if idx >= 0 then src.Substring(0, idx) else src
+
+/// Run a `.mjs` source string under Node by writing it (plus any sibling modules) to
+/// a fresh tmp dir and executing `entry`. `files` is `(fileName, source)` pairs; the
+/// first is the entry point. Returns `Some(exitCode, trimmed-output)` or `None` when
+/// `node` is absent.
+let runNodeFiles (name: string) (files: (string * string) list) : (int * string) option =
+    let dir = tmpDir name
+
+    for (fileName, source) in files do
+        IO.File.WriteAllText(IO.Path.Combine(dir, fileName), source)
+
+    match files with
+    | (entry, _) :: _ ->
+        runNode (IO.Path.Combine(dir, entry))
+        |> Option.map (fun (code, out) -> code, out.Replace("\r", "").Trim())
+    | [] -> failwith "runNodeFiles: no files"
 
 /// Compile a Step-1 `input` and run it under Node, returning `Some(exitCode,
 /// trimmed-stdout)` or `None` when `node` is absent (the test then skips).

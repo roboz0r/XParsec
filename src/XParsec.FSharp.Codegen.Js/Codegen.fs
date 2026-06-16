@@ -16,6 +16,17 @@ type JsSource =
         Content: string
     }
 
+/// Whether top-level `let` bindings emit as module `export`s or plain `const`s.
+/// A runnable **script** (the `printfn` / scalar slices, and any program executed
+/// as an entry point) binds its module values as `const`; a compiled **library**
+/// (`list.js.fs` → `Vesper.List.mjs`, Step 5b Phase 3) `export`s them so a
+/// consumer's `import { name as $… } from "./<asm>.mjs"` resolves. Only top-level
+/// `let`s differ between the two — effectful top-level expressions stay statements
+/// in both.
+type JsCompileKind =
+    | Script
+    | Library
+
 /// Per-build configuration for the JS backend — far thinner than the CLR
 /// `ProjectInfo` (no assembly references, no TFM): a JS module is a single `.js`
 /// file. `OutputPath = None` keeps the emitted source in-memory.
@@ -27,6 +38,9 @@ type JsProjectInfo =
         /// `Some` turns on V3 source-map emission; `None` keeps the output
         /// map-free.
         Source: JsSource option
+        /// `Library` exports top-level bindings (a compiled runtime module);
+        /// `Script` keeps them as `const` (the default — a runnable program).
+        Kind: JsCompileKind
     }
 
 module JsProjectInfo =
@@ -35,6 +49,7 @@ module JsProjectInfo =
             ModuleName = moduleName
             OutputPath = None
             Source = None
+            Kind = Script
         }
 
 /// The emitted artifact: the ESM source, its V3 source map (when source text was
@@ -120,6 +135,10 @@ module Codegen =
                 ExternalUnions = System.Collections.Generic.Dictionary()
                 ExternalUnionDecls = ResizeArray()
                 Imports = JsImports.create runtimeAssets
+                ExportTopLevel =
+                    match project.Kind with
+                    | Library -> true
+                    | Script -> false
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)

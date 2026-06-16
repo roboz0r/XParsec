@@ -146,6 +146,12 @@ module EmitJs =
             /// `Codegen.compileWith` reads `JsImports.modules` off this same shared
             /// accumulator to materialise the runtime files.
             Imports: JsImports
+            /// `true` in *library* compile mode (Step 5b Phase 3): a top-level
+            /// `let` binding emits as `export const …` so a compiled runtime module
+            /// (`Vesper.List.mjs`) exposes its functions for a consumer's `import`.
+            /// `false` (the default — a runnable script) keeps top-level `let`s as
+            /// plain `const`s.
+            ExportTopLevel: bool
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -163,20 +169,33 @@ module EmitJs =
     /// A `Var` / binder `NodeKey` → its JS identifier. The binder and every
     /// reference carry the *same* key (the CLR backend resolves them through one
     /// slot table the same way), so a key-derived name is consistent across the
-    /// binding and its uses. When the source text is available the binder token's
-    /// offset points at the source identifier, recovered verbatim (apostrophes,
-    /// illegal in JS, become `_`); otherwise a synthetic `_v<offset>` keeps it
+    /// binding and its uses. When the source text is available a *real* (source)
+    /// binder's offset points at the source identifier, recovered verbatim
+    /// (apostrophes, illegal in JS, become `_`); otherwise a `_v<offset>` keeps it
     /// stable and collision-free.
+    ///
+    /// A *synthetic* key (`IsSynthetic` — e.g. the operand `let`s `InlineExpansion`
+    /// mints when it splices an operator body) carries a per-build counter in its
+    /// `Offset` slot, **not** a source position, so it must NOT index the source
+    /// (doing so recovered a stray substring — `length t`'s IIFE binder picked up
+    /// `"amespace"` from the file's `namespace` header). Such keys get a `_s<offset>`
+    /// name — a namespace disjoint from real binders' `_v<offset>`, so a synthetic
+    /// counter can't collide with a real source offset.
     let private identName (source: string voption) (k: NodeKey) : string =
         match source with
-        | ValueSome s when k.Offset >= 0 && k.Offset < s.Length && isIdentStart s.[k.Offset] ->
+        | ValueSome s when
+            not k.IsSynthetic
+            && k.Offset >= 0
+            && k.Offset < s.Length
+            && isIdentStart s.[k.Offset]
+            ->
             let mutable i = k.Offset
 
             while i < s.Length && isIdentCont s.[i] do
                 i <- i + 1
 
             (s.Substring(k.Offset, i - k.Offset)).Replace('\'', '_')
-        | _ -> "_v" + string k.Offset
+        | _ -> (if k.IsSynthetic then "_s" else "_v") + string k.Offset
 
     // ---- Scalar constants ----------------------------------------------------
 
@@ -975,8 +994,17 @@ module EmitJs =
                 for decl in lowered do
                     match decl with
                     | TDeclG.Expression(e, _) -> yield! buildStatements ctx e
+                    // A top-level module value. In *library* mode it is `export`ed
+                    // (a compiled runtime module's public surface, Step 5b Phase 3);
+                    // in *script* mode it stays a plain `const`.
                     | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                        JsStatement.Const(identName ctx.Source k, emitBound ctx k value)
+                        let name = identName ctx.Source k
+                        let init = emitBound ctx k value
+
+                        if ctx.ExportTopLevel then
+                            JsStatement.Export(name, init)
+                        else
+                            JsStatement.Const(name, init)
                     | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
             ]
 

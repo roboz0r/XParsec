@@ -151,6 +151,13 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// module value (Step 1 binds it as a `const`; mutation / hoisting awaits a
     /// later step). Also the loop form's per-call argument temporaries.
     | Const of name: string * init: JsExpr
+    /// An *exported* top-level binding — `export const <name> = <init>;` — the
+    /// `Const` variant emitted in *module* compile mode (Step 5b Phase 3) so a
+    /// compiled library (`list.js.fs` → `Vesper.List.mjs`) exposes its module
+    /// functions under their bare source names for a consumer's
+    /// `import { name as $… } from "./<asm>.mjs"`. `name` is the source identifier
+    /// (`identName`), matching what `JsImports.addRef` imports.
+    | Export of name: string * init: JsExpr
     /// `ImportDeclaration` — `import { specifiers… } from "source"`. Carried in the
     /// subset for the runtime-import step; Steps 0–1 emit none.
     | Import of specifiers: string list * source: string

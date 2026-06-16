@@ -31,3 +31,19 @@ files = [
 impl = [
     "option.fs",
 ]
+
+# JS-target impl override (codegen-js-steps.md Step 5b Phase 3), selected by the
+# backend via `ReferencedProject.resolveImpl (Some "js")`. `option.js.fs` is the
+# `option.fs` module with the JS-backend deviations (no `[<Struct>]`, no type member
+# methods, `get` raising via an FFI `throw` template); compiled in library mode it
+# GENERATES the `runtime-js` `Vesper.Option.mjs` below. The CLR backend keeps building
+# the full `option.fs` (base `impl`).
+impl-js = [
+    "option.js.fs",
+]
+
+# JS runtime *asset*: the `Option` module functions a consumer imports + ships beside
+# its output (the option *type* itself rides inline via the external-union path, like
+# any union — only the module functions need the import). GENERATED from `option.js.fs`
+# (Phase 3), not hand-authored; regenerable via the codegen-js test suite.
+runtime-js = ["Vesper.Option.mjs"]

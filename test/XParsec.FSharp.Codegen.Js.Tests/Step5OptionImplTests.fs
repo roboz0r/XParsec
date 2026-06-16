@@ -1,0 +1,134 @@
+module XParsec.FSharp.Codegen.Js.Tests.Step5OptionImplTests
+
+open System
+open Expecto
+open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+
+// codegen-js Step 5 Phase 3 (Option) — the `impl-js` + library-mode recipe applied to
+// `Vesper.Option`: `option.js.fs` (the full `option.fs` `Option` module, minus
+// `[<Struct>]` and the type member methods, with `get` raising via the FFI `throw`
+// template) compiles to the committed `Vesper.Option.mjs` runtime asset. Same shape as
+// the List Phase-3 tests: deps-only provider, regenerable golden, and a Node exec where
+// the consumer builds plain `{ tag, Value }` cells (proving the `.tag`-not-`instanceof`
+// interop the Step-6 runtime relies on).
+
+let private generated: Lazy<string> =
+    lazy
+        compileLibrary
+            coreDepsJsProvider.Value
+            "Vesper.Option"
+            (IO.File.ReadAllText(srcFile "Vesper.Option" "option.js.fs"))
+
+let private lf (s: string) : string = s.Replace("\r\n", "\n")
+
+[<Tests>]
+let tests =
+    testList
+        "Codegen.Js Step5-OptionImpl"
+        [
+            test "the generated module exports the Option module surface" {
+                let src = generated.Value
+
+                for name in
+                    [
+                        "isSome"
+                        "isNone"
+                        "defaultValue"
+                        "defaultWith"
+                        "orElse"
+                        "orElseWith"
+                        "get"
+                        "count"
+                        "fold"
+                        "exists"
+                        "forall"
+                        "iter"
+                        "map"
+                        "bind"
+                        "flatten"
+                        "filter"
+                    ] do
+                    Expect.stringContains src (sprintf "export const %s = " name) (sprintf "exports %s" name)
+
+                Expect.stringContains src "class Option_Some extends Option" "emits the Some subclass"
+                Expect.isFalse (src.Contains "import ") "the Option module imports nothing"
+            }
+
+            test "the committed Vesper.Option.mjs matches the generated source (regenerable)" {
+                let path = srcFile "Vesper.Option" "Vesper.Option.mjs"
+
+                if Environment.GetEnvironmentVariable "UPDATE_SNAPSHOTS" = "1" then
+                    IO.File.WriteAllText(path, generated.Value)
+
+                Expect.equal
+                    (lf generated.Value)
+                    (lf (IO.File.ReadAllText path))
+                    "committed asset is stale — rerun with UPDATE_SNAPSHOTS=1"
+            }
+
+            test "the generated module runs under Node (consumer builds plain option cells)" {
+                let driver =
+                    String.concat
+                        "\n"
+                        [
+                            "import { isSome, isNone, defaultValue, defaultWith, orElse, get, count, fold, exists, forall, map, bind, flatten, filter } from \"./Vesper.Option.mjs\";"
+                            // Consumer-built option cells — `.tag` (0 = None, 1 = Some)
+                            // + `.Value`, the own-property shape the match compiler
+                            // reads (never `instanceof`).
+                            "const some = (x) => ({ tag: 1, Value: x });"
+                            "const none = { tag: 0 };"
+                            "const s5 = some(5);"
+                            "console.log(isSome(s5));"
+                            "console.log(isNone(none));"
+                            "console.log(defaultValue(0)(none));"
+                            "console.log(defaultValue(0)(s5));"
+                            "console.log(get(s5));"
+                            "console.log(count(s5));"
+                            "console.log(count(none));"
+                            "console.log(get(map((x) => x * 2)(s5)));"
+                            "console.log(fold((acc) => (x) => (acc + x))(100)(s5));"
+                            "console.log(isSome(filter((x) => x > 3)(s5)));"
+                            "console.log(isSome(filter((x) => x > 9)(s5)));"
+                            "console.log(get(bind((x) => some(x + 1))(s5)));"
+                            "console.log(get(flatten(some(s5))));"
+                            "console.log(exists((x) => x > 3)(s5));"
+                            "console.log(forall((x) => x > 9)(s5));"
+                            "console.log(defaultWith(() => 42)(none));"
+                            "console.log(isSome(orElse(s5)(none)));"
+                            "try { get(none); console.log(\"NO_THROW\"); } catch (e) { console.log(e.message); }"
+                        ]
+
+                match
+                    runNodeFiles "option-js-phase3" [ "driver.mjs", driver; "Vesper.Option.mjs", generated.Value ]
+                with
+                | None -> skiptest "node is not installed"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "driver exited non-zero: %s" out)
+
+                    Expect.equal
+                        out
+                        (String.concat
+                            "\n"
+                            [
+                                "true"
+                                "true"
+                                "0"
+                                "5"
+                                "5"
+                                "1"
+                                "0"
+                                "10"
+                                "105"
+                                "true"
+                                "false"
+                                "6"
+                                "5"
+                                "true"
+                                "false"
+                                "42"
+                                "true"
+                                "Option.get: the option value was None"
+                            ])
+                        "isSome/isNone/defaultValue/get/count/map/fold/filter/bind/flatten/exists/forall/defaultWith/orElse + get-None throw"
+            }
+        ]

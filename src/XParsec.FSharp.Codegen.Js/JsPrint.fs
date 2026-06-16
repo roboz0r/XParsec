@@ -241,6 +241,7 @@ module JsPrint =
         match s with
         | JsStatement.Expression e -> expr e ++ text ";"
         | JsStatement.Const(name, init) -> text "const " ++ text name ++ text " = " ++ expr init ++ text ";"
+        | JsStatement.Export(name, init) -> text "export const " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Import(specifiers, source) ->
             text (sprintf "import { %s } from %s;" (String.concat ", " specifiers) (JsEscape.quoted source))
         | JsStatement.If(test, consequent, alternate) ->

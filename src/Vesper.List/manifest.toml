@@ -42,8 +42,20 @@ impl = [
     "list.fs",
 ]
 
-# Hand-authored JS runtime *asset* (codegen-js-steps.md Step 5b): the cons-list
-# module functions (`List.length`/`map`/…) the JS backend imports and ships beside
-# its output, read via `ReferencedProject.runtimeModules`. See Vesper.Core's
-# `runtime-js` note for the platform-support-asset pattern.
+# JS-target impl override (codegen-js-steps.md Step 5b Phase 3), selected by the
+# backend via `ReferencedProject.resolveImpl (Some "js")`. `list.js.fs` is the
+# subset of `list.fs` the JS backend can compile (the cons-list type's cases without
+# member methods + the `isEmpty`/`length`/`head`/`tail`/`map`/`append`/`rev` module
+# functions, `head`/`tail` raising via an FFI `throw` template); compiled in library
+# mode it GENERATES the `runtime-js` `Vesper.List.mjs` below, replacing the
+# hand-authored asset. The CLR backend keeps building the full `list.fs` (base `impl`).
+impl-js = [
+    "list.js.fs",
+]
+
+# JS runtime *asset* (codegen-js-steps.md Step 5b): the cons-list module functions
+# (`List.length`/`map`/…) the JS backend imports and ships beside its output, read
+# via `ReferencedProject.runtimeModules`. GENERATED from `list.js.fs` (Phase 3) by
+# the JS backend, not hand-authored; regenerable via the codegen-js test suite. See
+# Vesper.Core's `runtime-js` note for the platform-support-asset pattern.
 runtime-js = ["Vesper.List.mjs"]
