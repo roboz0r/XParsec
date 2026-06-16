@@ -96,6 +96,9 @@ type NodeKind =
     /// `null` literal pattern (`match x with null -> …`). Keyed off the `null`
     /// keyword token, which is unique to it.
     | PatNull = 116us
+    /// Bare type-test pattern (`:? T`, no `as`-binder). Keyed off the `:?` token,
+    /// like `PatTypeTestAs`; binds nothing.
+    | PatTypeTest = 117us
 
     | TypeNamed = 200us
     | TypeVarRef = 201us

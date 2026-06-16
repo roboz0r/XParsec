@@ -372,20 +372,19 @@ module internal UnificationInferRecordAccess =
                 resultTy
             | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
 
-        // An indexer on an *external* class (`span.[i]` on a `Span<char>`) is the
-        // BCL `get_Item` accessor — for a ref struct it is `get_Item(i) : T&` with no
-        // by-value accessor, so it can't go through `GetArray`/`ldelem`. Resolve it
-        // through the provider, record it in `ExternalAccess` (`FreezeExpr` lowers it
-        // like an external instance call + a byref deref), and return the *element*
-        // type — the by-ref is erased at the value position. A project-local class,
-        // an intrinsic array, or a still-free receiver keeps the `GetArray` path.
-        match resolveStep recvTy with
-        | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
-            let clsQual = SymbolKeyOps.qualifiedName clsKey
-
-            match ctx.Provider.TryLookupMember(clsQual, "get_Item") with
+        // An indexer on an *external* receiver is its BCL `get_Item` (or, for a
+        // `string` intrinsic, `get_Chars`) accessor — it can't go through
+        // `GetArray`/`ldelem`. Resolve it through the provider, record it in
+        // `ExternalAccess`, and return the *element* type. The accessor's return is
+        // either by-ref (`Span<char>.get_Item : T&`, needs an `ldobj` deref at
+        // Freeze) or by-value (`string.get_Chars : char`, `List<T>.get_Item : T`,
+        // `ITuple.get_Item : obj`) — detect it from the resolved signature so the
+        // unify RHS (and Freeze's lowering) match. A project-local class, an
+        // intrinsic array, or a still-free receiver keeps the `GetArray` path.
+        let resolveExternalIndexer (clsQual: string) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
+            match ctx.Provider.TryLookupMember(clsQual, accessorName) with
             | ValueSome m when not m.IsStatic ->
-                let memberSig = ExternalSymbols.openSignature m (clsArgs.AsSpan().ToArray())
+                let memberSig = ExternalSymbols.openSignature m clsArgs
 
                 ctx.Resolution.ExternalAccess.Set(
                     key,
@@ -394,19 +393,45 @@ module internal UnificationInferRecordAccess =
                         IsStatic = false
                         IsProperty = false
                         Signature = memberSig
-                        // An indexer's `get_Item` takes no omittable optionals.
+                        // An indexer's accessor takes no omittable optionals.
                         OptionalDefaults = []
                     }
                 )
 
-                // `get_Item : idx -> T&`; unify against `idx -> (resultTy)&` to pin
-                // the index type and read out the element `resultTy` (byref erased).
+                // The accessor is `idx -> ret`; `ret` is `T&` (byref) or `T` (value).
+                let retIsByref =
+                    match memberSig with
+                    | TyFun(_, TyConst(n, _)) when n = RuntimeNames.byrefName -> true
+                    | _ -> false
+
                 let resultTy = TyVar(freshTyVar ctx)
-                let byrefTy = TyConst(RuntimeNames.byrefName, EqArray.singleton resultTy)
-                unify ctx key memberSig (TyFun(idxTy, byrefTy))
-                resultTy
-            | _ -> getArrayIndex ()
-        | _ -> getArrayIndex ()
+
+                let rhsRet =
+                    if retIsByref then
+                        TyConst(RuntimeNames.byrefName, EqArray.singleton resultTy)
+                    else
+                        resultTy
+
+                unify ctx key memberSig (TyFun(idxTy, rhsRet))
+                ValueSome resultTy
+            | _ -> ValueNone
+
+        match resolveStep recvTy with
+        | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
+            let clsQual = SymbolKeyOps.qualifiedName clsKey
+
+            match resolveExternalIndexer clsQual (clsArgs.AsSpan().ToArray()) "get_Item" with
+            | ValueSome resultTy -> resultTy
+            | ValueNone -> getArrayIndex ()
+        | _ ->
+            // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose
+            // indexer accessor is `System.String.get_Chars(int) : char`.
+            match tryExternalReceiver ctx recvTy with
+            | ValueSome(clsQual, clsArgs) ->
+                match resolveExternalIndexer clsQual (clsArgs.AsSpan().ToArray()) "get_Chars" with
+                | ValueSome resultTy -> resultTy
+                | ValueNone -> getArrayIndex ()
+            | ValueNone -> getArrayIndex ()
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// head segment NameResolution resolved as a local binding; the remaining

@@ -170,6 +170,16 @@ module internal FreezePatterns =
                 | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
 
             TPat.TypeTestAs(testTy, translatePat ctx inner, ty, tok)
+        | Pat.TypeTest _ ->
+            // Bare `:? T` — same lowering as `:? T as x` but with a synthesised
+            // wildcard inner (binds nothing). Codegen's `isinst` + null-check arm
+            // discards the cast-down value.
+            let testTy =
+                match ctx.Resolution.TypeTestTargets.TryGetValue key with
+                | ValueSome t -> t
+                | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
+
+            TPat.TypeTestAs(testTy, TPat.Wildcard(testTy, tok), ty, tok)
         | Pat.Null _ ->
             // `null` literal pattern → `TPat.Null`; codegen lowers it to a
             // non-null test (`ldloc; brtrue nextLabel`). The node's type is the

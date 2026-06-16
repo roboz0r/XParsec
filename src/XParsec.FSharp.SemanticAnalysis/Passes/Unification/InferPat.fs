@@ -347,6 +347,13 @@ module internal UnificationInferPat =
             let innerTy = inferPat ctx inner
             unify ctx (CstKeys.ofPat inner) innerTy tgtTy
             TyVar(freshTv ctx key)
+        | Pat.TypeTest(typ = t) ->
+            // `:? T` — the bare type-test (no `as`-binder). Same as `TypeTestAs`
+            // minus the inner binder: stash the tested type for Freeze's `isinst`
+            // operand; the pattern matches the scrutinee's type (left free).
+            let tgtTy = translateType ctx t
+            ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
+            TyVar(freshTv ctx key)
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->
             // `[]` pattern: a list whose element type is left free for the
             // scrutinee to pin (`match xs with [] -> …`).

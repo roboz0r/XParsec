@@ -133,6 +133,8 @@ module CstKeys =
         // Key off the `:?` token (not the inner binder) so the test node never
         // collides with its inner `NamedSimple` sub-pattern's key.
         | Pat.TypeTestAs(colonQuestion = t) -> t
+        // Bare `:? T` — key off the `:?` token (no inner binder to collide with).
+        | Pat.TypeTest(colonQuestion = t) -> t
         | Pat.Null t -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
@@ -209,6 +211,7 @@ module CstKeys =
             | Pat.Op _ -> NodeKind.PatOp
             | Pat.Cons _ -> NodeKind.PatCons
             | Pat.TypeTestAs _ -> NodeKind.PatTypeTestAs
+            | Pat.TypeTest _ -> NodeKind.PatTypeTest
             | Pat.Null _ -> NodeKind.PatNull
             | _ -> NodeKind.Unknown
 

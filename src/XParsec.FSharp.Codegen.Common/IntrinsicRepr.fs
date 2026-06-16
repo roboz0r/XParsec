@@ -31,7 +31,11 @@ module IntrinsicRepr =
                 // inverted) needs one name per repr.
                 "uint32", "System.UInt32"
                 "int64", "System.Int64"
+                "uint64", "System.UInt64"
+                "sbyte", "System.SByte"
                 "byte", "System.Byte"
+                "int16", "System.Int16"
+                "uint16", "System.UInt16"
                 "float", "System.Double"
                 "float32", "System.Single"
                 "bool", "System.Boolean"
@@ -59,8 +63,20 @@ module IntrinsicRepr =
         | "System.Int64" ->
             te.Int64()
             true
+        | "System.UInt64" ->
+            te.UInt64()
+            true
+        | "System.SByte" ->
+            te.SByte()
+            true
         | "System.Byte" ->
             te.Byte()
+            true
+        | "System.Int16" ->
+            te.Int16()
+            true
+        | "System.UInt16" ->
+            te.UInt16()
             true
         | "System.Double" ->
             te.Double()

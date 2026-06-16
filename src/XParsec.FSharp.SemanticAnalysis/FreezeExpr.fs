@@ -472,14 +472,46 @@ module internal FreezeExpr =
                 // value-position element; the call's static type is `elem&`
                 // (`TyConst(byrefName, [elem])`), which `ldobj` loads.
                 let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
-                let byrefTy = TyConst(RuntimeNames.byrefName, EqArray.singleton ty)
-                let memberFnTy = TyFun(idxTy, byrefTy)
+                let memberName = SymbolKeyOps.simpleName info.Key
 
-                let getItem =
-                    TExpr.ExternalMember(ValueSome(translateExpr ctx r), info.Key, "get_Item", false, memberFnTy, tok)
+                // A byref-returning accessor (`Span<char>.get_Item : T&`) needs the
+                // `ldobj` deref; a by-value one (`string.get_Chars : char`) is a plain
+                // call. Read the declared return off the recorded signature.
+                let retIsByref =
+                    match Unification.zonk info.Signature with
+                    | TyFun(_, TyConst(n, _)) when n = RuntimeNames.byrefName -> true
+                    | _ -> false
 
-                let callExpr = TExpr.App(getItem, translateExpr ctx idx, byrefTy, tok)
-                TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton callExpr, ty, tok)
+                if retIsByref then
+                    let byrefTy = TyConst(RuntimeNames.byrefName, EqArray.singleton ty)
+                    let memberFnTy = TyFun(idxTy, byrefTy)
+
+                    let getItem =
+                        TExpr.ExternalMember(
+                            ValueSome(translateExpr ctx r),
+                            info.Key,
+                            memberName,
+                            false,
+                            memberFnTy,
+                            tok
+                        )
+
+                    let callExpr = TExpr.App(getItem, translateExpr ctx idx, byrefTy, tok)
+                    TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton callExpr, ty, tok)
+                else
+                    let memberFnTy = TyFun(idxTy, ty)
+
+                    let getItem =
+                        TExpr.ExternalMember(
+                            ValueSome(translateExpr ctx r),
+                            info.Key,
+                            memberName,
+                            false,
+                            memberFnTy,
+                            tok
+                        )
+
+                    TExpr.App(getItem, translateExpr ctx idx, ty, tok)
             | ValueNone ->
                 let arrTy = typeOfKey ctx (CstKeys.ofExpr r)
                 let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
