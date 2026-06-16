@@ -214,6 +214,7 @@ module TastConvert =
                     SecondaryCtors = EqArray.map (secondaryCtor f) c.SecondaryCtors
                     BaseCtorCall = ValueOption.map (baseCtorCall f) c.BaseCtorCall
                     ValueKind = c.ValueKind
+                    HasPrimaryCtor = c.HasPrimaryCtor
                 }
 
     let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a, 'tok>) : TTypeDeclG<'b, 'tok> =

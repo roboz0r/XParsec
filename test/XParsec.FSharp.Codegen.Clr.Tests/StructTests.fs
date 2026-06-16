@@ -1874,4 +1874,29 @@ let structTests =
                             "printfn \"%s\" (print (MyOpt((MyOpt(box 1, true) :> obj), true) :> obj) 80)"
                         ])
             }
+
+            // A `val`-field reference class whose only constructor is a parameterless
+            // `new() = { … }` (the form `RuntimeFormatState` would take if it dropped
+            // its width/size params). The backend used to synthesise an empty primary
+            // `.ctor()` ALONGSIDE the `new()` — two identical `.ctor()` rows — and
+            // construction (`S()`) bound the empty one, leaving every field
+            // uninitialised. Fixed: the val-field form (parser `pcOpt = ValueNone`)
+            // emits NO synthesised primary; the secondaries are the only ctors and
+            // `EmitConstruct.buildNew` resolves `S()` to the `new()` secondary.
+            test "a val-field class with only a parameterless new() initialises its fields" {
+                runsLines
+                    [ "42"; "7" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "type S ="
+                            "    val mutable X: int"
+                            "    val mutable Y: int"
+                            "    new() = { X = 42; Y = 7 }"
+                            "    member this.Sum = this.X + this.Y"
+                            "let s = S()"
+                            "printfn \"%d\" s.X"
+                            "printfn \"%d\" s.Y"
+                        ])
+            }
         ]

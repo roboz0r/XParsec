@@ -334,6 +334,7 @@ module internal Layout =
                             SecondaryCtors = EqArray.toList c.SecondaryCtors
                             BaseCtorCall = c.BaseCtorCall
                             ValueKind = c.ValueKind
+                            HasPrimaryCtor = c.HasPrimaryCtor
                         }
             | _ -> ()
 
@@ -705,14 +706,28 @@ module internal Layout =
                                 }
                         ]
 
+                    // The `val`-field *reference* form (`type T = val …; new(…) = …`)
+                    // has no primary ctor — its secondaries are the only `.ctor`s, so
+                    // a synthesised parameterless primary would collide with a
+                    // parameterless `new()`. Suppress it there. Structs always keep
+                    // their synthesised primary (a value type's other emission paths
+                    // reference its `NominalCtor`, and F# forbids a struct
+                    // parameterless ctor, so there is no collision). The no-secondary
+                    // fallback keeps the primary so a ctor-less type still has one.
+                    let emitPrimaryCtor =
+                        cd.ValueKind <> ClassValueKind.RefType
+                        || cd.HasPrimaryCtor
+                        || List.isEmpty cd.SecondaryCtors
+
                     let methodRows =
                         [
-                            yield
-                                {
-                                    Key = MethodKey.NominalCtor td.Key
-                                    Name = ".ctor"
-                                    Attrs = ctorAttrs
-                                }
+                            if emitPrimaryCtor then
+                                yield
+                                    {
+                                        Key = MethodKey.NominalCtor td.Key
+                                        Name = ".ctor"
+                                        Attrs = ctorAttrs
+                                    }
 
                             if not (List.isEmpty cd.StaticLets) then
                                 yield

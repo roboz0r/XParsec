@@ -508,6 +508,14 @@ and TClassG<'ty, 'tok> =
         SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'tok>>
         BaseCtorCall: TBaseCtorCallG<'ty, 'tok> voption
         ValueKind: ClassValueKind
+        /// True when the class declares a *primary* constructor (`type T(args) =`,
+        /// including the parameterless `type T() =`); false for the `val`-field form
+        /// (`type T = val …; new(…) = { … }`) whose only ctors are secondaries. The
+        /// backend emits a synthesised primary `.ctor` only when this is true — for
+        /// the val-field form the secondaries ARE the ctors, and a synthesised
+        /// parameterless primary would collide with a parameterless `new()` (two
+        /// identical `.ctor()` rows) and shadow it at construction.
+        HasPrimaryCtor: bool
     }
 
 /// `Fields` are the case's payload in declaration order; a field's name is

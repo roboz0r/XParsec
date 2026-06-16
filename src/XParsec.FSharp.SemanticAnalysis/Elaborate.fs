@@ -365,6 +365,7 @@ module Elaborate =
                     SecondaryCtors = c.SecondaryCtors |> EqArray.map secondary
                     BaseCtorCall = c.BaseCtorCall |> ValueOption.map baseCtor
                     ValueKind = c.ValueKind
+                    HasPrimaryCtor = c.HasPrimaryCtor
                 }
 
     /// The deferred typar cut. Walk every `SemType` in a
@@ -1189,6 +1190,7 @@ module Elaborate =
                                 if info.IsByRefLike then ClassValueKind.RefStruct
                                 elif info.IsValueType then ClassValueKind.Struct
                                 else ClassValueKind.RefType
+                            HasPrimaryCtor = info.HasPrimaryCtor
                         })
                     // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.

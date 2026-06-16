@@ -27,7 +27,7 @@ module internal NominalEmit =
 
     let private ifaceMembersOf (input: NominalEmissionInput) : Frozen.TTypeMember list =
         match input with
-        | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _) ->
+        | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) ->
             [
                 for (_, ms) in interfaces do
                     yield! ms
@@ -116,7 +116,16 @@ module internal NominalEmit =
                     Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
                 }
 
-        | NominalEmissionInput.Class(instanceFields, ctorParams, _, _, staticLets, secondaryCtors, _, _, isStruct) ->
+        | NominalEmissionInput.Class(instanceFields,
+                                     ctorParams,
+                                     _,
+                                     _,
+                                     staticLets,
+                                     secondaryCtors,
+                                     _,
+                                     _,
+                                     isStruct,
+                                     hasPrimaryCtor) ->
             // The handle every `ldsfld`/`stsfld` *references*. A generic class
             // reaches its own `static let` field through a `MemberRef` on the
             // open self-`TypeSpec` (`Set\`1<!0>::empty`), the static analogue of
@@ -147,6 +156,22 @@ module internal NominalEmit =
                     toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, i)))
                 )
 
+            // The val-field *reference* form (no primary ctor) emits no `NominalCtor`
+            // row (see `Layout`), so don't reserve its handle — `Ctor` aliases the
+            // first secondary (never dereferenced as a primary: construction resolves
+            // to a secondary by arity, and only a class WITH a primary has chaining
+            // secondaries that read `Ctor`). Structs always keep their primary, as
+            // does the no-secondary fallback — matching `Layout`'s `emitPrimaryCtor`.
+            let emitPrimaryCtor =
+                isStruct || hasPrimaryCtor || List.isEmpty secondaryCtorHandles
+
+            let ctorHandle =
+                if emitPrimaryCtor then
+                    toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+                else
+                    let (_, _, h) = List.head secondaryCtorHandles
+                    h
+
             asm.Classes.[td.Key] <-
                 {
                     Name = td.Name
@@ -162,7 +187,8 @@ module internal NominalEmit =
                                 f.Name, toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, f.Name))), f.Type
                         ]
                     IsValueType = isStruct
-                    Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+                    Ctor = ctorHandle
+                    HasPrimaryCtor = emitPrimaryCtor
                     Members = emittedMembers
                     StaticFields = staticFieldsDict
                     SecondaryCtors = secondaryCtorHandles
@@ -311,7 +337,8 @@ module internal NominalEmit =
                                      secondaryCtors,
                                      baseCtorCall,
                                      _interfaces,
-                                     isStruct) ->
+                                     isStruct,
+                                     hasPrimaryCtor) ->
             // Resolve the parent handle for the IL `TypeDefinition.BaseType`
             // (B-4 Step 2.5). A non-generic parent (`Shape`) is the parent's
             // `TypeDefinition` token directly — the base-type column rejects a
@@ -333,7 +360,22 @@ module internal NominalEmit =
                 if isStruct then
                     baseTypeHandle <- provider.ValueTypeBase
 
-            let classCtor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+            // The val-field *reference* form (no primary ctor) emits no primary
+            // `.ctor` — its secondaries are the only ctors (matches `Layout`'s
+            // `emitPrimaryCtor` and the `register` handle reservation). Structs and
+            // the no-secondary fallback keep the synthesised primary.
+            let emitPrimaryCtor = isStruct || hasPrimaryCtor || List.isEmpty secondaryCtors
+
+            // `classCtor` is the chain target for a secondary ctor that chains to the
+            // primary; those occur only when a primary exists. For the suppressed
+            // val-field form it aliases the first secondary's `.ctor` so the (unused)
+            // `primaryCtorRef` resolves to a real token rather than reserving an
+            // absent `NominalCtor` handle.
+            let classCtor =
+                if emitPrimaryCtor then
+                    toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+                else
+                    toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, 0)))
 
             // A *generic* class's ctor `stfld` sequence must reference each
             // field through a `MemberRef` on the open self-`TypeSpec`
@@ -394,17 +436,18 @@ module internal NominalEmit =
                     Emit.buildStructCtor ctorFieldRefs
                 | ValueNone -> Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
 
-            let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)
+            if emitPrimaryCtor then
+                let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)
 
-            asm.AddPrepared(
-                MethodKey.NominalCtor td.Key,
-                {
-                    Signature = provider.RecordCtorSignature [ for p in ctorParams -> p.Type ]
-                    BodyOffset = ctorBodyOffset
-                    ParamNames = [ for p in ctorParams -> p.Name ]
-                    MethodTypars = []
-                }
-            )
+                asm.AddPrepared(
+                    MethodKey.NominalCtor td.Key,
+                    {
+                        Signature = provider.RecordCtorSignature [ for p in ctorParams -> p.Type ]
+                        BodyOffset = ctorBodyOffset
+                        ParamNames = [ for p in ctorParams -> p.Name ]
+                        MethodTypars = []
+                    }
+                )
 
             // The synthesised `.cctor` initialises the `static let` backing
             // fields in declaration order. An initialiser referencing an earlier
@@ -506,7 +549,7 @@ module internal NominalEmit =
         // trail — the same indexing the layout's `MethodKey.Member` rows use.
         let classInterfaces =
             match input with
-            | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _) -> interfaces
+            | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) -> interfaces
             | _ -> []
 
         let ifaceMembers = ifaceMembersOf input

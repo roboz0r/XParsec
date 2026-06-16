@@ -39,6 +39,9 @@ type internal ClassDecl =
         SecondaryCtors: Frozen.TSecondaryCtor list
         BaseCtorCall: Frozen.TBaseCtorCall voption
         ValueKind: ClassValueKind
+        /// `false` for the `val`-field form (`type T = val …; new(…) = …`): the
+        /// secondaries are the only ctors (no synthesised primary `.ctor`).
+        HasPrimaryCtor: bool
     }
 
 type internal PartitionedTypeDecls =
@@ -74,7 +77,12 @@ type internal NominalEmissionInput =
         secondaryCtors: Frozen.TSecondaryCtor list *
         baseCtorCall: Frozen.TBaseCtorCall voption *
         interfaces: (FrozenType * Frozen.TTypeMember list) list *
-        isStruct: bool
+        isStruct: bool *
+        // `false` for the `val`-field form (`type T = val …; new(…) = …`): the
+        // secondaries are the only ctors, so `NominalEmit` skips the synthesised
+        // primary `.ctor` (it would collide with a parameterless `new()`) and
+        // `EmitConstruct.buildNew` resolves every construction to a secondary.
+        hasPrimaryCtor: bool
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

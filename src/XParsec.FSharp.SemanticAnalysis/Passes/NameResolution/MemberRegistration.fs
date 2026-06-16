@@ -512,6 +512,10 @@ module NameResolutionMemberRegistration =
 
                     info.StaticLets <- staticLets
                     info.SecondaryCtors <- extractSecondaryCtors ctx declKey body.elements
+                    // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
+                    // (`type T = val …; new(…) = …`): the secondaries are the only ctors,
+                    // so codegen must not synthesise a colliding primary `.ctor`.
+                    info.HasPrimaryCtor <- pc.IsSome
 
                     // B-8: `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
                     // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's

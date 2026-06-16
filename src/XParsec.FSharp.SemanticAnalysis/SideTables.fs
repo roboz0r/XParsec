@@ -408,6 +408,14 @@ type ClassTypeInfo
     /// linked by Unification's `fillClassMembers`; `Freeze` projects each onto a
     /// `TSecondaryCtor`. Empty unless the class declares `new(...)` overloads.
     member val SecondaryCtors: ClassSecondaryCtorInfo[] = [||] with get, set
+    /// True when the class declares a *primary* constructor (`type T(args) =` /
+    /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) =`)
+    /// whose only ctors are secondaries. Stamped by `registerClassTypeDefn` from the
+    /// parsed `PrimaryConstrArgs` presence; `Freeze` projects it onto
+    /// `TClassG.HasPrimaryCtor` so codegen suppresses the synthesised primary `.ctor`
+    /// for the val-field form (else it collides with a parameterless `new()`).
+    /// Defaults `true` so any path that doesn't stamp it keeps the prior behaviour.
+    member val HasPrimaryCtor: bool = true with get, set
     /// `[<AllowNullLiteral>]` (B-8). Stamped
     /// by `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// read only by Unification's `Expr.Null` arm so `null` unifies with the

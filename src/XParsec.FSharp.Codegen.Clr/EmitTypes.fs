@@ -132,6 +132,12 @@ module EmitTypes =
             /// sites (box on `:>`, `unbox.any` on `:?>`).
             IsValueType: bool
             Ctor: EntityHandle
+            /// `true` when a synthesised primary `.ctor` was emitted (so `Ctor` is a
+            /// real primary handle a `TExpr.New` of the field arity may target). For
+            /// the `val`-field form (`type T = val …; new(…) = …`) with secondary
+            /// ctors this is `false`: there is no primary, `Ctor` aliases the first
+            /// secondary, and every construction resolves to a secondary by arity.
+            HasPrimaryCtor: bool
             Members: Dictionary<string, EmittedMember>
             /// `static let` backing fields keyed by source name (B-10); a
             /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. A mono class

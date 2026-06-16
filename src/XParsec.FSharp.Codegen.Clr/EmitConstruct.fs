@@ -77,8 +77,12 @@ module EmitConstruct =
                         // A user class emitted into this assembly (B-1). The primary ctor's
                         // arity equals its field count; a different arg count selects
                         // a secondary ctor (B-11) by arity — F# forbids two ctors of
-                        // the same signature, so arity is a key.
-                        if argCount = List.length c.Fields then
+                        // the same signature, so arity is a key. The `val`-field form
+                        // (`type T = val …; new(…) = …`) has NO primary ctor
+                        // (`HasPrimaryCtor = false`), so every construction — including
+                        // a 0-arg `T()` that would otherwise match the (absent) primary
+                        // by field count — resolves to a secondary by arity.
+                        if c.HasPrimaryCtor && argCount = List.length c.Fields then
                             // Primary. Monomorphic: the ctor's `Def` token directly.
                             // Generic: a `MemberRef` on the receiver's instantiated
                             // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
