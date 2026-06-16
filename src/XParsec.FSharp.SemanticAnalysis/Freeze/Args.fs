@@ -13,6 +13,20 @@ open XParsec.FSharp.SemanticAnalysis.FreezeResolve
 
 module internal FreezeExprArgs =
 
+    /// Round-paren `( … )` or `begin … end` — the only enclosures that *group a
+    /// value expression* and so collapse into a call's argument list. A `[ … ]`
+    /// / `[| … |]` / `{ … }` / `{| … |}` enclosure is a *literal value* (list,
+    /// array, record, anon-record) — a single argument — and must translate
+    /// whole, never unwrap to its inner element sequence. (Unwrapping a list
+    /// literal's inner `Sequential` was the PP7a gap #3: `LCat [ a; b ]` lowered
+    /// the cons-list to empty because its `[ … ]` matched the bare
+    /// `EnclosedBlock` arm.)
+    let private (|ValueParen|_|) (lParen: ParenKind<SyntaxToken>) =
+        match lParen with
+        | ParenKind.Paren _
+        | ParenKind.BeginEnd _ -> Some()
+        | _ -> None
+
     /// Peel an `Expr.App` argument that may be a single `EnclosedBlock`
     /// wrapping a `Tuple` (the F# parser shape for `Point(3, 4)`) so
     /// downstream consumers see the constructor's declared arity directly.
@@ -22,11 +36,11 @@ module internal FreezeExprArgs =
         : EqArray<TExpr> =
         if args.Length = 1 then
             match args.[0] with
-            | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) ->
+            | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.Tuple(exprs = items)) ->
                 EqArray.ofSeq (seq { for a in items -> translate a })
             | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
-            | Expr.EnclosedBlock(expr = inner) -> EqArray.singleton (translate inner)
-            | Expr.EmptyBlock _ -> EqArray.empty
+            | Expr.EnclosedBlock(lParen = ValueParen; expr = inner) -> EqArray.singleton (translate inner)
+            | Expr.EmptyBlock(lParen = ValueParen) -> EqArray.empty
             | a -> EqArray.singleton (translate a)
         else
             EqArray.ofSeq (seq { for a in args -> translate a })
@@ -35,11 +49,12 @@ module internal FreezeExprArgs =
     /// (HighPrecedenceApp form / Expr.New).
     let peelOneArg (translate: Expr<SyntaxToken> -> TExpr) (arg: Expr<SyntaxToken>) : EqArray<TExpr> =
         match arg with
-        | Expr.EnclosedBlock(expr = Expr.Tuple(exprs = items)) -> EqArray.ofSeq (seq { for a in items -> translate a })
+        | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.Tuple(exprs = items)) ->
+            EqArray.ofSeq (seq { for a in items -> translate a })
         | Expr.Tuple(exprs = items) -> EqArray.ofSeq (seq { for a in items -> translate a })
-        | Expr.EnclosedBlock(expr = Expr.EmptyBlock _) -> EqArray.empty
-        | Expr.EnclosedBlock(expr = inner) -> EqArray.singleton (translate inner)
-        | Expr.EmptyBlock _ -> EqArray.empty
+        | Expr.EnclosedBlock(lParen = ValueParen; expr = Expr.EmptyBlock _) -> EqArray.empty
+        | Expr.EnclosedBlock(lParen = ValueParen; expr = inner) -> EqArray.singleton (translate inner)
+        | Expr.EmptyBlock(lParen = ValueParen) -> EqArray.empty
         | a -> EqArray.singleton (translate a)
 
     /// `()` literal. Distinct from `parseConst` because `Expr.EmptyBlock`

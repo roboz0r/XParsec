@@ -1609,20 +1609,48 @@ let structTests =
                             "let layout (d: LDoc) (width: int) : string ="
                             "    let r = render (LGroup(d, false)) 0 false 0 width"
                             "    r.Txt"
-                            // List literals are let-bound before being wrapped in
-                            // `LCat`: passing a list literal *directly* as a union-case
-                            // argument (`LCat [ … ]`) mis-lowers the cons-list to empty
-                            // (a codegen gap surfaced building this probe); a bound `let`
-                            // round-trips correctly. See docs/printf-port-steps.md PP7a.
-                            "let elems = [ LLine \"\"; LText \"1\"; LText \";\"; LLine \" \"; LText \"2\"; LText \";\"; LLine \" \"; LText \"3\" ]"
-                            "let listKids = [ LText \"[\"; LNest(2, LCat elems); LLine \"\"; LText \"]\" ]"
-                            "let listDoc = LGroup(LCat listKids, false)"
-                            "let appKids = [ LText \"Some\"; LLine \" \"; LText \"1\" ]"
-                            "let appDoc = LGroup(LCat appKids, true)"
+                            // List literals are now passed *directly* as union-case
+                            // arguments (`LCat [ … ]`, even nested): the gap #3 that
+                            // mis-lowered such a cons-list to empty is fixed (see
+                            // docs/printf-port-steps.md PP7a; `peelCtorArgs` only
+                            // collapses round-paren grouping, never a `[ … ]` literal).
+                            "let listDoc = LGroup(LCat [ LText \"[\"; LNest(2, LCat [ LLine \"\"; LText \"1\"; LText \";\"; LLine \" \"; LText \"2\"; LText \";\"; LLine \" \"; LText \"3\" ]); LLine \"\"; LText \"]\" ], false)"
+                            "let appDoc = LGroup(LCat [ LText \"Some\"; LLine \" \"; LText \"1\" ], true)"
                             "printfn \"%s\" (layout listDoc 80)"
                             "printfn \"%s\" (layout listDoc 0)"
                             "printfn \"%s\" (layout listDoc 5)"
                             "printfn \"%s\" (layout appDoc 80)"
+                        ])
+            }
+
+            // PP7a gap #3 (now FIXED): a cons-list *literal* passed DIRECTLY as a
+            // union-case argument — `LCat [ a; b; c ]` — used to lower the list to
+            // empty (so a `Doc list` field read back `[]` and folds over it
+            // returned 0). The cause: `peelCtorArgs`/`peelOneArg` matched the
+            // `[ … ]` literal's `EnclosedBlock` and unwrapped it to its inner
+            // `Sequential`, dropping the `ParenKind.List` literal lowering. Fixed
+            // by only collapsing round-paren / begin-end grouping (`ValueParen`)
+            // into the argument list. The probe above let-binds every list to dodge
+            // this; here we pass the literal inline and assert the field round-trips.
+            test "PP7a gap #3: list literal as a direct union-case argument round-trips" {
+                runsLines
+                    [ "3"; "6" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "type Bag = | Items of int list"
+                            "let rec sumList (xs: int list) : int ="
+                            "    match xs with"
+                            "    | [] -> 0"
+                            "    | h :: t -> h + sumList t"
+                            "let count (b: Bag) : int ="
+                            "    match b with"
+                            "    | Items xs -> sumList xs"
+                            // inline literal as the sole ctor arg (the formerly-broken shape)
+                            "let direct = Items [ 1; 1; 1 ]"
+                            "let total = Items [ 1; 2; 3 ]"
+                            "printfn \"%d\" (count direct)"
+                            "printfn \"%d\" (count total)"
                         ])
             }
         ]
