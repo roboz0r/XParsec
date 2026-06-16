@@ -190,8 +190,22 @@ module InlineExpansion =
 
                     match roots |> Array.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
                     | Some i ->
-                        if result.[i].IsNone then
-                            result.[i] <- ValueSome act
+                        match result.[i] with
+                        | ValueNone -> result.[i] <- ValueSome act
+                        // A later position mapping to the SAME typar can upgrade a
+                        // non-ground candidate to a ground one. A chained `a + b + c`
+                        // matches `^T` first against the inner `(+) a b`-App, whose
+                        // recorded result type is still an abstract `TyVar` at this
+                        // pre-freeze pass; the concrete sibling `c : string` (and the
+                        // application's `string` return position) must be allowed to
+                        // win, or `^T` stays abstract, the operator fails the splice
+                        // gate (`isSpliceableOperatorArg`), and falls to its numeric
+                        // `add` base — emitting `add` on two string references (an
+                        // AccessViolation at runtime). Keeping the first ground match
+                        // is intentional: a genuinely generic `let f a b = a + b`
+                        // never sees a ground candidate, so `^T` stays abstract.
+                        | ValueSome prev when not (isGroundType prev) && isGroundType act -> result.[i] <- ValueSome act
+                        | ValueSome _ -> ()
                     | None -> ()
                 | TyFun(a1, r1), TyFun(a2, r2) ->
                     go a1 a2

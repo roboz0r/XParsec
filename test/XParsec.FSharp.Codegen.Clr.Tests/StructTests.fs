@@ -1458,4 +1458,171 @@ let structTests =
                             "printfn \"%d\" (s())"
                         ])
             }
+
+            // PP7a regression guard 1: chained string concatenation. `a + b` (one
+            // `+`) already lowered to `String.Concat` (overload-resolution-bug Gap C),
+            // but `a + b + c` = `(a + b) + c` mis-dispatched: the *outer* `+`'s `^T`
+            // was pinned (first) to the inner `+`-App's still-abstract result type, so
+            // the operator failed the inline splice gate and fell to its numeric `add`
+            // base — `add` on two string references (an AccessViolation, not a wrong
+            // string). Fixed in `InlineExpansion.deriveInlineTypeArgs`: a ground
+            // sibling operand (here `c : string`, and the `string` return position)
+            // upgrades the abstract candidate so `^T` grounds to `string` and the
+            // `when ^T : string` clause fires. `surround` exercises the literal-edged
+            // form (`"(" + s + ")"`) the `%A` engine's parens wrapping uses.
+            test "Chained string concat a + b + c lowers to String.Concat (not numeric add)" {
+                runsLines
+                    [ "abc"; "(x)" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "let join3 (a: string) (b: string) (c: string) : string = a + b + c"
+                            "let surround (s: string) : string = \"(\" + s + \")\""
+                            "printfn \"%s\" (join3 \"a\" \"b\" \"c\")"
+                            "printfn \"%s\" (surround \"x\")"
+                        ])
+            }
+
+            // PP7a regression guard 2: escape sequences in a string-literal *value*.
+            // The parser folds a `\n` / `\t` / `\"` fragment into a `StringPart.Text`
+            // carrying its raw 2-char span; `FreezeLiterals.foldStringParts` used to
+            // append that span verbatim, so a `"\n"` value emitted a literal
+            // backslash-n. Now it decodes an escape-sequence-token fragment to the
+            // char it denotes. The `%A` broken layout depends on real `"\n"` newlines.
+            test "string literal escape sequences decode in the emitted value" {
+                runsLines
+                    [ "a"; "b"; "x\ty"; "q\"r" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "let nl : string = \"a\\nb\""
+                            "let tab : string = \"x\\ty\""
+                            "let quo : string = \"q\\\"r\""
+                            "printfn \"%s\" nl"
+                            "printfn \"%s\" tab"
+                            "printfn \"%s\" quo"
+                        ])
+            }
+
+            // PP7a (printf-port-steps): the `%A` engine's layout core — the `Doc`
+            // DU, the recursive `flatWidth`, and the recursive `Render` — ported
+            // pure, with NO `IFormatSink` / dispatch (those are PP7b/PP7c). This
+            // isolates the recursion / DU / string-building surface `StructuralFormat.cs`
+            // needs before stitching the whole engine. Deviations from the C# (each
+            // sanctioned by the plan's capability survey): `flatWidth` is recomputed
+            // recursively instead of cached eagerly per node (the trees are small,
+            // fully immutable); `render` accumulates functionally — it returns a
+            // record `{ Txt; Col }` of the rendered text + resulting column rather
+            // than appending to a `StringBuilder` (the StringBuilder probe is PP7c;
+            // a record sidesteps the wide-tuple convention and the mixed ref/value
+            // ValueTuple path), and the broken-line indent is built by a recursive
+            // `spaces` concat rather than `Append(char, int)`. The all-or-nothing
+            // group rule is the load-bearing logic: a group is flat iff
+            // `col + inner.flatWidth <= width` (`width = 0` ⇒ always flat — the `%0A`
+            // "never break" mode), so a composite renders all-flat or all-broken,
+            // never half-broken.
+            //
+            // The driver hand-builds the exact `Doc` shapes `RuntimeFormatState`
+            // would record for `[1; 2; 3]` (a group over text / soft-break / cat /
+            // nest) and a parenthesised DU application `(Some 1)` (a `parens=true`
+            // group), and asserts the laid-out string flat (width 80), never-break
+            // (width 0), and broken (width 5 forces the group open, hanging the
+            // elements at the nest indent).
+            //
+            // Two backend gaps surfaced + fixed building this probe (regression
+            // guards immediately below): chained string concat `a + b + c`
+            // mis-dispatched to numeric `add` on string refs (an AccessViolation) —
+            // `InlineExpansion.deriveInlineTypeArgs` now lets a ground sibling
+            // operand pin the operator's `^T`; and a string literal's `\n` escape
+            // emitted a literal backslash-n — `FreezeLiterals.foldStringParts` now
+            // decodes escape-sequence fragments. A third gap is routed around
+            // (see the `listKids`/`elems` `let`-binding note below), not yet fixed.
+            test "PP7a: Doc layout core — flatWidth + Render (flat / never-break / broken)" {
+                runsLines
+                    [
+                        "[1; 2; 3]" // width 80: fits ⇒ all-flat
+                        "[1; 2; 3]" // width 0: never-break ⇒ all-flat
+                        "[" // width 5: group broken ⇒ all soft breaks become newlines
+                        "  1;"
+                        "  2;"
+                        "  3"
+                        "]"
+                        "(Some 1)" // a parens group (DU application) renders its `(`/`)`
+                    ]
+                    // The DU + cases are named `LDoc`/`LText`/… (not the C# port's
+                    // `Doc`/`DocText`/…) on purpose: the still-C# `StructuralFormat.cs`
+                    // already defines `Vesper.Doc`/`Vesper.DocGroup`/… and the default
+                    // test stack resolves `Vesper.Printf`, so a local `DocGroup(…)`
+                    // binds the external C# class (no ctor recipe) instead of the
+                    // local union case. PP7e drops the C# and frees the names.
+                    (String.concat
+                        "\n"
+                        [
+                            "type LDoc ="
+                            "    | LText of string"
+                            "    | LLine of string"
+                            "    | LCat of LDoc list"
+                            "    | LNest of int * LDoc"
+                            "    | LGroup of LDoc * bool"
+                            "let rec flatWidth (d: LDoc) : int ="
+                            "    match d with"
+                            "    | LText s -> s.Length"
+                            "    | LLine flat -> flat.Length"
+                            "    | LCat kids -> catWidth kids"
+                            "    | LNest (_, inner) -> flatWidth inner"
+                            "    | LGroup (inner, parens) -> flatWidth inner + (if parens then 2 else 0)"
+                            "and catWidth (kids: LDoc list) : int ="
+                            "    match kids with"
+                            "    | [] -> 0"
+                            "    | k :: rest -> flatWidth k + catWidth rest"
+                            "let rec spaces (n: int) : string ="
+                            "    if n <= 0 then \"\" else \" \" + spaces (n - 1)"
+                            // `render` mirrors the C# `Render` — it produces the laid-out
+                            // text and the resulting column. The C# threads a
+                            // `StringBuilder` + an `int` return; here `render` returns a
+                            // record `{ Txt; Col }`. (A `(string * int)` tuple return is
+                            // the natural F# shape, but the project's wide-tuple-→-record
+                            // convention applies, and a record sidesteps the mixed
+                            // ref/value-field path cleanly.)
+                            "type R = { Txt: string; Col: int }"
+                            "let rec render (d: LDoc) (indent: int) (broken: bool) (col: int) (width: int) : R ="
+                            "    match d with"
+                            "    | LText s -> { Txt = s; Col = col + s.Length }"
+                            "    | LLine flat ->"
+                            "        if broken then { Txt = \"\\n\" + spaces indent; Col = indent }"
+                            "        else { Txt = flat; Col = col + flat.Length }"
+                            "    | LNest (i, inner) -> render inner (indent + i) broken col width"
+                            "    | LCat kids -> renderCat kids indent broken col width"
+                            "    | LGroup (inner, parens) ->"
+                            "        let openCol = if parens then col + 1 else col"
+                            "        let groupBroken = width <> 0 && openCol + flatWidth inner > width"
+                            "        let r = render inner indent groupBroken openCol width"
+                            "        if parens then { Txt = \"(\" + r.Txt + \")\"; Col = r.Col + 1 }"
+                            "        else r"
+                            "and renderCat (kids: LDoc list) (indent: int) (broken: bool) (col: int) (width: int) : R ="
+                            "    match kids with"
+                            "    | [] -> { Txt = \"\"; Col = col }"
+                            "    | k :: rest ->"
+                            "        let r1 = render k indent broken col width"
+                            "        let r2 = renderCat rest indent broken r1.Col width"
+                            "        { Txt = r1.Txt + r2.Txt; Col = r2.Col }"
+                            "let layout (d: LDoc) (width: int) : string ="
+                            "    let r = render (LGroup(d, false)) 0 false 0 width"
+                            "    r.Txt"
+                            // List literals are let-bound before being wrapped in
+                            // `LCat`: passing a list literal *directly* as a union-case
+                            // argument (`LCat [ … ]`) mis-lowers the cons-list to empty
+                            // (a codegen gap surfaced building this probe); a bound `let`
+                            // round-trips correctly. See docs/printf-port-steps.md PP7a.
+                            "let elems = [ LLine \"\"; LText \"1\"; LText \";\"; LLine \" \"; LText \"2\"; LText \";\"; LLine \" \"; LText \"3\" ]"
+                            "let listKids = [ LText \"[\"; LNest(2, LCat elems); LLine \"\"; LText \"]\" ]"
+                            "let listDoc = LGroup(LCat listKids, false)"
+                            "let appKids = [ LText \"Some\"; LLine \" \"; LText \"1\" ]"
+                            "let appDoc = LGroup(LCat appKids, true)"
+                            "printfn \"%s\" (layout listDoc 80)"
+                            "printfn \"%s\" (layout listDoc 0)"
+                            "printfn \"%s\" (layout listDoc 5)"
+                            "printfn \"%s\" (layout appDoc 80)"
+                        ])
+            }
         ]

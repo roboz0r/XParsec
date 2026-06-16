@@ -12,46 +12,53 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module internal FreezeLiterals =
 
+    /// Decode one backslash escape body (`inner` starts with `\\`) to its char.
     /// The escape set mirrors the lexer's `pCharChar` (Lexing.fs) exactly — a
-    /// char literal that reaches here already lexed clean, so any unexpected
-    /// shape is a broken invariant.
+    /// literal that reaches here already lexed clean, so any unexpected shape is a
+    /// broken invariant. Shared by `parseCharLiteral` (a `'\n'` char literal) and
+    /// `foldStringParts` (a `\n` *string*-part escape) so the two never diverge.
+    let private decodeEscape (inner: string) : char =
+        match inner.[1] with
+        | '"' -> '"'
+        | '\\' -> '\\'
+        | '\'' -> '\''
+        | 'n' -> '\n'
+        | 't' -> '\t'
+        | 'b' -> '\b'
+        | 'r' -> '\r'
+        | 'a' -> '\a'
+        | 'f' -> '\f'
+        | 'v' -> '\v'
+        | 'u' ->
+            char (
+                System.UInt16.Parse(
+                    inner.Substring(2, 4),
+                    System.Globalization.NumberStyles.AllowHexSpecifier,
+                    System.Globalization.CultureInfo.InvariantCulture
+                )
+            )
+        | 'x' ->
+            char (
+                System.Byte.Parse(
+                    inner.Substring(2, 2),
+                    System.Globalization.NumberStyles.AllowHexSpecifier,
+                    System.Globalization.CultureInfo.InvariantCulture
+                )
+            )
+        | d when System.Char.IsDigit d ->
+            // Trigraph `\DDD` (decimal byte).
+            char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
+        | other -> failwithf "Freeze.decodeEscape: unsupported escape '\\%c' in %s" other inner
+
+    /// A char literal that reaches here already lexed clean; decode its (possibly
+    /// escaped) single character.
     let private parseCharLiteral (text: string) : char =
         let inner = text.Substring(1, text.Length - 2)
 
         if inner.Length = 1 then
             inner.[0]
         elif inner.Length >= 2 && inner.[0] = '\\' then
-            match inner.[1] with
-            | '"' -> '"'
-            | '\\' -> '\\'
-            | '\'' -> '\''
-            | 'n' -> '\n'
-            | 't' -> '\t'
-            | 'b' -> '\b'
-            | 'r' -> '\r'
-            | 'a' -> '\a'
-            | 'f' -> '\f'
-            | 'v' -> '\v'
-            | 'u' ->
-                char (
-                    System.UInt16.Parse(
-                        inner.Substring(2, 4),
-                        System.Globalization.NumberStyles.AllowHexSpecifier,
-                        System.Globalization.CultureInfo.InvariantCulture
-                    )
-                )
-            | 'x' ->
-                char (
-                    System.Byte.Parse(
-                        inner.Substring(2, 2),
-                        System.Globalization.NumberStyles.AllowHexSpecifier,
-                        System.Globalization.CultureInfo.InvariantCulture
-                    )
-                )
-            | d when System.Char.IsDigit d ->
-                // Trigraph `\DDD` (decimal byte).
-                char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
-            | other -> failwithf "Freeze.parseCharLiteral: unsupported char escape '\\%c' in %s" other text
+            decodeEscape inner
         else
             failwithf "Freeze.parseCharLiteral: unexpected char literal text %s" text
 
@@ -96,8 +103,17 @@ module internal FreezeLiterals =
 
         for part in parts do
             match part with
-            | StringPart.Text t
-            | StringPart.EscapeSequence t
+            // The parser folds every string fragment — including escape-sequence
+            // tokens (`\n`, `\t`, `\"`, `\uXXXX`) — into a `StringPart.Text`
+            // carrying the raw 2+-char source span (`ctx.NameOf` = `\n`, two
+            // chars). Decode an escape *token* to the single char it denotes; a
+            // plain text fragment appends verbatim. Without this a literal `"\n"`
+            // value would emit a backslash-n, not a newline.
+            | StringPart.Text t ->
+                match t.Token with
+                | Token.EscapeSequence -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
+                | _ -> sb.Append(ctx.NameOf t) |> ignore
+            | StringPart.EscapeSequence t -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
             | StringPart.FormatSpecifier t
             | StringPart.EscapePercent t
             | StringPart.VerbatimEscapeQuote t
