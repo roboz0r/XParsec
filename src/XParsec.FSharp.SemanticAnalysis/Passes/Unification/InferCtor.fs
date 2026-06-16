@@ -99,16 +99,29 @@ module internal UnificationInferCtor =
         (argExpr: Expr<SyntaxToken>)
         : SemType =
         let ctors = ctx.Provider.TryLookupMembers(name, ".ctor")
+        let argTy = infer ctx argExpr
+        let typeArgs = args |> EqArray.toList |> List.toArray
+        let argElems = argElemsOf argTy
 
-        if ctors.Length = 0 then
+        // A 0-argument construction of an external *value type* is `default(T)`,
+        // not a real ctor call — `Span<char>()`, `default(SomeStruct)`. A .NET
+        // struct's implicit parameterless ctor is not in `GetConstructors`, so the
+        // overload pick below finds no candidate; admit it directly here (codegen's
+        // `EmitConstruct.buildNew` lowers it to `initobj`, the Gap D path). This
+        // also covers a value type whose only ctors are explicit (`ctors` non-empty
+        // but none 0-arg) and one with no surfaced ctors at all.
+        let isExternalValueType () =
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.IsValueType
+            | _ -> false
+
+        if List.isEmpty argElems && isExternalValueType () then
+            receiverTy
+        elif ctors.Length = 0 then
             ctx.Error(key, sprintf "External type '%s' has no accessible constructor" name)
-            infer ctx argExpr |> ignore
             receiverTy
         else
-            let argTy = infer ctx argExpr
-            let typeArgs = args |> EqArray.toList |> List.toArray
-
-            match pickBestOverload typeArgs ctors (argElemsOf argTy) with
+            match pickBestOverload typeArgs ctors argElems with
             | ValueSome chosen ->
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)

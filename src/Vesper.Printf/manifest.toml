@@ -14,10 +14,23 @@
 namespace = "Vesper"
 description = "printf / printfn / sprintf and the write-through format handler."
 
+# Depends on Vesper.Core for the language primitives (`string`, `uint`, `char[]`,
+# the arithmetic/equality operators) and Vesper.Comparison for the ordering
+# operators (`<` / `>`, used by the alignment + grow arithmetic) the formatter
+# body resolves against.
+depends-on = ["Vesper.Core", "Vesper.Comparison"]
+
 # .fsi files in compile order. printf-format (PrintfFormat type) before printf
 # (its signatures reference PrintfFormat); formatter is independent.
 files = [
     "printf-format.fsi",
     "formatter.fsi",
     "printf.fsi",
+]
+
+# The `.fs` compiled into Vesper.Printf.dll by this repo's own backend (PP6): the
+# write-through format handler ported from `Formatter.cs`. The `%A` structural
+# engine (`StructuralFormat.cs`) stays C# (PP7) and is linked, not compiled here.
+impl = [
+    "formatter.fs",
 ]

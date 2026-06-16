@@ -12,15 +12,18 @@ open System.IO
 // grow arithmetic (PP5b), the `IFormattable` hole dispatch (PP5c), and the
 // `null` pattern (PP4).
 //
-// STATUS (2026-06-15): this is the *intended* full port; it does **not** yet
-// compile end-to-end through this repo's backend. PP5f proved the non-overloaded
-// core compiles + runs byte-identically (StructTests "PP5f: Formatter core …")
-// and landed the struct self-call codegen fix the bodies require, but stitching
-// the *whole* file surfaced several front-end gaps — the four overloaded
-// `AppendFormatted<'T>`, `TextWriter.Write` / `string.CopyTo` overload picks, the
-// parameterless `Span<char>()` ctor, the `uint`→`int` conversion — tracked in
-// `../XParsec.FSharp.SemanticAnalysis/docs/overload-resolution-bug.md`. PP6
-// (adding this file to `manifest.toml` and compiling it) is gated on those.
+// STATUS (2026-06-15): PP6 compile milestone landed. This full port now compiles
+// end-to-end through this repo's backend to a BCL-only `Vesper.Printf.dll` — it is
+// listed in `manifest.toml`'s `impl` and guarded by `PackageBuildTriage`
+// "Vesper.Printf builds BCL-only (formatter.fs, PP6)". The front-end gaps PP5f
+// surfaced (overload-resolution-bug.md Gaps A–F) plus the parameterless
+// `Span<char>()` ctor (fixed in `InferCtor.inferExternalCtorOn` — a 0-arg external
+// value-type construction is `default(T)`) are all closed. The *runtime swap* —
+// removing the C# `Formatter.cs` from the compile and binding printf golden /
+// RunnableAppTests against this handler — is deferred: it needs `StructuralFormat.cs`
+// (the still-C# `%A` engine, PP7) split into its own assembly, since the
+// Vesper-compiled `Formatter` and the C# `StructuralPrinter` can't share the
+// `Vesper.Printf` assembly name. See printf-port-steps.md PP6.
 //
 // Deviations from `Formatter.cs`, each byte-identical:
 //   * `AppendFormatted` uses the `IFormattable.ToString(format, provider)` path
@@ -277,8 +280,12 @@ type Formatter =
         let newCapacity =
             Math.Max(requiredMinCapacity, Math.Min(uint this.Chars.Length * 2u, MaxChars))
 
+        // `Int32.MaxValue` (a CLR `const` field) is written as its literal value:
+        // the metadata provider surfaces no fields, so a `const`-field read has no
+        // lowering (a general gap, off the printf-port path). Byte-identical —
+        // `int.MaxValue` *is* `2147483647`.
         let arraySize =
-            int (Math.Clamp(newCapacity, uint MinimumArrayPoolLength, uint Int32.MaxValue))
+            int (Math.Clamp(newCapacity, uint MinimumArrayPoolLength, 2147483647u))
 
         let newArray = ArrayPool<char>.Shared.Rent(arraySize)
         this.Chars.Slice(0, this.Pos).CopyTo(Span<char>(newArray))

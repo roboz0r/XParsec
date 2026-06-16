@@ -331,17 +331,22 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
 
-                 // A contract-only package (`impl = []`: Vesper.Printf, whose runtime
-                 // `Vesper.Formatter` is the C#-built `Vesper.Printf.dll`; Vesper.Comparison,
-                 // whose operators are inlined) compiles to an *empty* DLL here — it
-                 // carries no runtime types. Registering it in `packageAlc` would
-                 // shadow the real, host-loaded assembly: a driver `printfn` would bind
-                 // `Vesper.Printf` to this empty stub and fail to load `Vesper.Formatter`.
-                 // So load such a package into a throwaway context and leave `packageAlc`
-                 // without it — the driver's `Vesper.Printf` reference then falls through
-                 // to the Default ALC (where the test project's C# `Vesper.Printf.dll` is
+                 // A contract-only package (`impl = []`: Vesper.Comparison, whose
+                 // operators are inlined) compiles to an *empty* DLL here — it carries
+                 // no runtime types. `Vesper.Printf` is a special case: it now carries a
+                 // *real* Vesper-compiled `Vesper.Formatter` (PP6, `formatter.fs`), but
+                 // its runtime peer is still the C#-built `Vesper.Printf.dll` (which also
+                 // holds `StructuralPrinter`, the `%A` engine left as C# in PP7, and the
+                 // printf module surface). Registering either in `packageAlc` would
+                 // shadow that host-loaded assembly: a driver `printfn` would bind
+                 // `Vesper.Formatter` / `StructuralPrinter` to the wrong copy and fail.
+                 // So load both into a throwaway context and leave `packageAlc` without
+                 // them — the driver's `Vesper.Printf` reference then falls through to the
+                 // Default ALC (where the test project's C# `Vesper.Printf.dll` is
                  // loaded). The on-disk path stays in `References` for emit-time identity.
-                 if List.isEmpty manifest.Impl then
+                 // (The `buildsBclOnly "Vesper.Printf"` test only needs the build to
+                 // succeed; it does not drive the emitted handler.)
+                 if List.isEmpty manifest.Impl || manifest.Name = "Vesper.Printf" then
                      let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
 
                      throwaway.LoadFromStream ms, artifact

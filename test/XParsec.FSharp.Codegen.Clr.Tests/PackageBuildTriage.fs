@@ -54,4 +54,12 @@ let tests =
             test "Vesper.Seq builds BCL-only" { buildsBclOnly "Vesper.Seq" }
 
             test "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
+
+            // PP6: the printf write-through handler ported from `Formatter.cs` to
+            // `src/Vesper.Printf/formatter.fs` compiles through this repo's own
+            // backend to a BCL-only DLL. `Vesper.Printf` is no longer a pure
+            // contract-only (`impl = []`) package — it carries the Vesper-compiled
+            // `Vesper.Formatter`. (`StructuralFormat.cs`, the `%A` engine, stays C#
+            // and is linked — PP7.)
+            test "Vesper.Printf builds BCL-only (formatter.fs, PP6)" { buildsBclOnly "Vesper.Printf" }
         ]
