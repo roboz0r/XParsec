@@ -4,6 +4,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="JsNativeSymbols.fs" />
     <Compile Include="JsAst.fs" />
     <Compile Include="JsPrint.fs" />
     <Compile Include="JsRuntime.fs" />
@@ -13,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+    <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />

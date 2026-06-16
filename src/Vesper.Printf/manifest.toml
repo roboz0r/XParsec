@@ -39,3 +39,10 @@ impl = [
     "structural-printer.fs",
     "formatter.fs",
 ]
+
+# JS-target inline-body source: none. The printf family is front-end special-cased on
+# JS (lowered to `Format` nodes, not inline-spliced), and `formatter.fs` pulls in
+# `System.Span`/`ArrayPool` — unresolvable under a BCL-free JS provider
+# (codegen-js-steps.md Step 8). An explicit empty override keeps `resolveInlineBodies
+# (Some "js")` from falling back to the BCL-heavy base `impl`.
+inline-bodies-js = []

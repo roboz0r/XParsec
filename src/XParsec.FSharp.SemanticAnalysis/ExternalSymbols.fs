@@ -257,6 +257,32 @@ type ExternalMember =
         OptionalDefaults: TConstValue list
     }
 
+    /// The canonical `.ctor` member shape every layer must agree on: `Name =
+    /// ".ctor"`, instance, non-property, `MethodArity = 0`, keyed as a
+    /// `MemberKind.Method` over `declKey`. The metadata layer (`MetadataSymbols`),
+    /// the `.fsi` contract extractor (`VesperLib`), and the JS-native stubs
+    /// (`JsNativeSymbols`) all mint a constructor through this, so the constant
+    /// fields stay in one place. Only the per-layer parts vary: the frozen
+    /// `signature`, the `argSig` the key interns, the `origin`, and any
+    /// `optionalDefaults` (metadata-layer only — the contract layers pass `[]`).
+    static member ctor
+        (declKey: SymbolKey)
+        (signature: ExternalSignature)
+        (argSig: EqArray<string>)
+        (origin: SymbolOrigin)
+        (optionalDefaults: TConstValue list)
+        : ExternalMember =
+        {
+            Name = ".ctor"
+            IsStatic = false
+            IsProperty = false
+            Signature = signature
+            MethodArity = 0
+            Origin = origin
+            Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+            OptionalDefaults = optionalDefaults
+        }
+
 /// Capability flags on an external class or interface. The metadata layer reads
 /// them off the .NET `TypeAttributes` plus
 /// `[<AllowNullLiteral>]` attribute decoding; the contract layer leaves them at

@@ -343,6 +343,68 @@ module EmitJs =
         else
             JsStatement.Const(name, init)
 
+    /// Walk an external type's contract `inherit` chain (`ExternalClassShape.FrozenBaseType`,
+    /// extracted Step 8) up to the `exn` intrinsic root, then resolve `exn`'s
+    /// `(# "Error" #)` repr through the provider to the **native runtime class**
+    /// (`JsNativeSymbols.Error`) and return its compiled name — `Error` on JS. A
+    /// constructed exception (`raise (InvalidOperationException …)`) lowers to
+    /// `new <class>(message)` sourced from this chain, NOT a hardcoded `"Error"` / an
+    /// `EndsWith "Exception"` name heuristic (codegen-js-steps.md Step 8). Routing the
+    /// repr through `TryLookupType` makes the JS-native provider authoritative for the
+    /// runtime type: `ValueNone` (→ caller fails loudly) when the type is not an `exn`
+    /// subtype, when the repr names no provider class, or with no provider.
+    let private exnReprOf (ctx: WalkCtx) (ty: FrozenType) : string voption =
+        match ctx.Provider with
+        | ValueNone -> ValueNone
+        | ValueSome provider ->
+            // Resolve a base-chain `FrozenType` node to its shape: a nominal key looks
+            // up directly; a bare `FTConst` name (how an intrinsic base such as `exn`
+            // freezes — `mkNominal` returns the short name for an `Intrinsic`) probes
+            // the bare name then each ambient open prefix (`Vesper` → `Vesper.exn`).
+            let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
+                match ft with
+                | FTClass(key, _)
+                | FTUnion(key, _)
+                | FTRecord(key, _) -> ExternalSymbols.tryLookupType provider key
+                | FTConst(name, _) ->
+                    match provider.TryLookupType name with
+                    | ValueSome s -> ValueSome s
+                    | ValueNone ->
+                        provider.AmbientOpenPrefixes
+                        |> List.tryPick (fun p ->
+                            match provider.TryLookupType(p + "." + name) with
+                            | ValueSome s -> Some s
+                            | ValueNone -> None
+                        )
+                        |> function
+                            | Some s -> ValueSome s
+                            | None -> ValueNone
+                | _ -> ValueNone
+
+            // Bounded climb: every hop is a strict ancestor, so the chain is finite;
+            // the depth cap only backstops a malformed cyclic `inherit`.
+            let rec climb (depth: int) (ft: FrozenType) : string voption =
+                if depth > 16 then
+                    ValueNone
+                else
+                    match shapeOf ft with
+                    | ValueSome(ExternalTypeShape.Intrinsic repr) ->
+                        // `exn`'s `(# "Error" #)` repr names a native runtime type;
+                        // resolve it through the provider to that class so we emit the
+                        // `JsNativeSymbols.Error` *definition*'s name (the provider is
+                        // authoritative for the runtime type), not a bare repr string.
+                        // No provider class for the repr ⇒ `ValueNone` → fail loudly.
+                        match shapeOf (FTConst(repr, EqArray.empty)) with
+                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome repr
+                        | _ -> ValueNone
+                    | ValueSome(ExternalTypeShape.Class shape) ->
+                        match shape.FrozenBaseType with
+                        | ValueSome b -> climb (depth + 1) b
+                        | ValueNone -> ValueNone
+                    | _ -> ValueNone
+
+            climb 0 ty
+
     // ---- The walker ----------------------------------------------------------
 
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
@@ -462,31 +524,26 @@ module EmitJs =
             JsExpr.New(JsExpr.Identifier(c.ClassName, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
 
         // Construction of an *external* exception (`raise (InvalidOperationException
-        // msg)`) → `new Error(msg)`. JS has no BCL exception hierarchy, so every
-        // `System.*Exception` erases to `Error` carrying the (optional) leading
-        // message arg; further args (`paramName`, …) have no `Error` slot and drop.
-        // A non-exception external construction fails loudly (project-local classes
-        // never reach `New` — records/unions use `RecordCons`/`UnionCons`).
-        //
-        // The `Error` root is hardcoded, not sourced from `exn`'s intrinsic repr:
-        // **deferred to Step 8** because a per-target repr overload breaks the
-        // front-end's `subsumes` reconciliation against `exn` (`canonName` shares the
-        // repr for BCL matching and emission). See codegen-js-steps.md Step 8.
-        | TExprG.New(className, args, _, _) ->
-            let simpleName =
-                let i = className.LastIndexOf '.'
-                if i >= 0 then className.Substring(i + 1) else className
-
-            if simpleName.EndsWith "Exception" then
+        // msg)`) → `new <exn repr>(msg)`. The repr is sourced from the type's contract
+        // `inherit` chain (`exnReprOf` walks to the `exn` intrinsic — `Error` on JS),
+        // NOT a hardcoded `"Error"` or an `EndsWith "Exception"` name heuristic
+        // (Step 8). Every `exn` subtype erases to the one `exn` root, carrying the
+        // leading message arg; further args (`paramName`, …) have no `Error` slot and
+        // drop. A non-`exn`-subtype external construction has no JS analogue and fails
+        // loudly (project-local classes never reach `New` — records/unions use
+        // `RecordCons`/`UnionCons`).
+        | TExprG.New(className, args, ty, _) ->
+            match exnReprOf ctx ty with
+            | ValueSome repr ->
                 let errArgs =
                     match EqArray.toList args with
                     | [] -> []
                     | msg :: _ -> [ buildExpr ctx msg ]
 
-                JsExpr.New(JsExpr.Identifier("Error", ValueNone), errArgs, loc)
-            else
+                JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
+            | ValueNone ->
                 failwithf
-                    "EmitJs (Step 7): construction of external type '%s' has no JS analogue (only exceptions map to `new Error`)"
+                    "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
                     className
 
         // Member calls on a *local* record/union (Step 7): each member is a free,

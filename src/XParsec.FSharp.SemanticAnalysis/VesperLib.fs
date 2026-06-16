@@ -383,6 +383,17 @@ module VesperLib =
         | FTTuple items -> items |> EqArray.toList |> List.map argTypeName |> EqArray.ofList
         | single -> EqArray.singleton (argTypeName single)
 
+    /// Fold a method/ctor's frozen parameter types into the single `.NET`-tupled
+    /// `Parameters` form an `ExternalSignature` carries: none ⇒ `unit`, one ⇒ itself,
+    /// several ⇒ a tuple. The inverse of `argSigOfParameters` / the metadata layer's
+    /// `frozenParams` (`MetadataSymbols`), here so the contract extractor can freeze a
+    /// `new: … -> T` constructor without reaching across the codegen-layer boundary.
+    let private frozenParamsOf (ps: FrozenType[]) : FrozenType =
+        match ps.Length with
+        | 0 -> FTConst("unit", EqArray.empty)
+        | 1 -> ps.[0]
+        | _ -> FTTuple(EqArray.ofArray ps)
+
     /// Freeze the deferred body / member / val CSTs stashed during extraction into
     /// `FrozenType` templates, in place, once the registry is complete.
     /// A body / val may forward-reference a type
@@ -422,6 +433,17 @@ module VesperLib =
                     ExternalTypeShape.Union(arity, cases', origin)
                 | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev(dc, rhs)) ->
                     ExternalTypeShape.Abbrev(arity, freezeBodyType ctx dc rhs)
+                // A class's deferred `inherit <type>` base, frozen now the registry is
+                // complete (the base may forward-reference a sibling). The members ride
+                // the separate `DeferredMembers` channel (loop below); this loop fills
+                // only `FrozenBaseType`, which a consumer's subtype walk
+                // (`Engine.subtypeParentOf` → `instantiateBaseType`) reads to reconcile
+                // through the contract inherit chain — the Step-8 JS exception hierarchy.
+                | ExternalTypeShape.Class shape, (true, DeferredBody.Class(dc, baseOpt, _)) ->
+                    ExternalTypeShape.Class
+                        { shape with
+                            FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
+                        }
                 | _ -> shape
 
             ctx.TypeShapes.[k] <- finalized
@@ -484,6 +506,54 @@ module VesperLib =
                                 Members = members.ToArray()
                             }
                 | _ -> ()
+            | _ -> ()
+
+        // Constructors: a class's deferred `new: … -> T` sigs freeze into `.ctor`
+        // members (the shape kind a `constructor-as-function` application — `inferExternalCtorOn`
+        // probes `TryLookupMembers(type, ".ctor")`). Runs AFTER the member loop with the
+        // signature frozen directly (no `DeferredMembers` slot), so it neither re-indexes
+        // that loop nor is reprocessed. The `.ctor` member mirrors the metadata layer's
+        // shape (`MetadataSymbols`): `Name = ".ctor"`, instance, `MemberKind.Method`,
+        // `Parameters`/`Return` from the sig. This is what lets a BCL-free provider type
+        // `InvalidOperationException "msg"` without host metadata (codegen-js-steps.md Step 8).
+        for k in shapeKeys do
+            match ctx.DeferredBodies.TryGetValue k with
+            | true, DeferredBody.Class(dc, _, ctors) when not (List.isEmpty ctors) ->
+                let arity =
+                    match ctx.TypeShapes.TryGetValue k with
+                    | true, ExternalTypeShape.Class shape -> shape.Arity
+                    | _ -> 0
+
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOf None k arity
+
+                let ctorMembers =
+                    [
+                        for (paramCsts, retCst) in ctors do
+                            let parameters = paramCsts |> Array.map (freezeBodyType ctx dc) |> frozenParamsOf
+                            let ret = freezeBodyType ctx dc retCst
+
+                            ExternalMember.ctor
+                                declKey
+                                {
+                                    DeclaringArity = arity
+                                    MethodArity = 0
+                                    Parameters = parameters
+                                    Return = ret
+                                }
+                                (argSigOfParameters parameters)
+                                SymbolOrigin.Empty
+                                []
+                    ]
+
+                let merged =
+                    match ctx.TypeMembers.TryGetValue k with
+                    | true, existing ->
+                        let r = ResizeArray<ExternalMember>(existing)
+                        r.AddRange ctorMembers
+                        r
+                    | _ -> ResizeArray<ExternalMember>(ctorMembers)
+
+                ctx.TypeMembers.[k] <- merged
             | _ -> ()
 
         // Vals last: a val signature / constraint target may name an abbreviation,
@@ -957,14 +1027,11 @@ module VesperLib =
         else
             // Split the qualified compiled name into the declaring `TypeKey`
             // (ns, simple name) so each member carries a best-effort identity;
-            // the asm slot is stamped later by the wrapping source.
-            let declKey =
-                let i = compiled.LastIndexOf '.'
-
-                if i < 0 then
-                    SymbolKey.TypeKey(None, "", compiled)
-                else
-                    SymbolKey.TypeKey(None, compiled.Substring(0, i), compiled.Substring(i + 1))
+            // the asm slot is stamped later by the wrapping source. The same split
+            // the finalize-pass ctor loop applies — both route through the shared
+            // `qualifiedTypeKeyOf` so the `.ctor` and ordinary members of a type
+            // carry the identical declaring key.
+            let declKey = SymbolKeyOps.qualifiedTypeKeyOf None compiled arity
 
             let members = ResizeArray<ExternalMember>()
             // The per-member signature CSTs, index-aligned with `members`;
@@ -1192,6 +1259,49 @@ module VesperLib =
 
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty))
+
+                // An `inherit <type>` clause and any `new: … -> T` constructors are
+                // deferred (like the body templates) so a base / ctor type that
+                // forward-references a sibling resolves once the registry is complete;
+                // the finalize pass freezes the base into `FrozenBaseType` and each ctor
+                // into a `.ctor` member. Only a class that declares one of them registers
+                // a deferred body — the previously-empty common case is untouched.
+                let inheritBase =
+                    elements
+                    |> Seq.tryPick (fun e ->
+                        match e with
+                        | TypeSignatureElement.Inherit(ClassInheritsDecl(typ = t)) -> Some t
+                        | _ -> None
+                    )
+
+                let ctors =
+                    [
+                        for e in elements do
+                            match e with
+                            | TypeSignatureElement.Constructor(signature = UncurriedSig(ArgsSpec(args, _), _, retTy)) ->
+                                let paramTys = [| for ArgSpec(typ = t) in args -> t |]
+                                (paramTys, retTy)
+                            | _ -> ()
+                    ]
+
+                match inheritBase, ctors with
+                | None, [] -> ()
+                | _ ->
+                    let collector = collectorForTypeName lexed input typeName
+
+                    ctx.DeferredBodies.[compiled] <-
+                        DeferredBody.Class(
+                            {
+                                Lexed = lexed
+                                Input = input
+                                Opens = opens
+                                Typars = collector
+                            },
+                            (match inheritBase with
+                             | Some t -> ValueSome t
+                             | None -> ValueNone),
+                            ctors
+                        )
 
                 extractTypeMembers ctx lexed input opens compiled arity typeName elements
 

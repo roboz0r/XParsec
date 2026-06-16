@@ -13,6 +13,16 @@ open XParsec.FSharp.SemanticAnalysis
 /// passing it now is what proves the wiring.
 module SymbolProviders =
 
+    /// The default layer-2 ("metadata") tail behind the layer-1 `.fsi` contracts:
+    /// host BCL reflection (`MetadataSymbols`, the CLR path). A non-CLR backend injects
+    /// its own tail through `buildContractWithMetadata` — the JS target supplies
+    /// `JsNativeSymbols` (`Codegen.Js`), which resolves `exn`'s `(# "Error" #)` repr to
+    /// the native `Error` class so its `Vesper.Exceptions` contract (`System.*Exception
+    /// : exn`) reconciles through the contract `inherit` chain without a same-named BCL
+    /// metadata type colliding on the home-assembly invariant (codegen-js-steps.md Step
+    /// 8). Common stays target-agnostic: it never names the JS provider.
+    let private bclMetaTail: IExternalSymbolProvider list = [ MetadataSymbols.provider ]
+
     /// Compose the layer-1 referenced-project providers (each stood up from its
     /// `manifest.toml`) ahead of the layer-2 referenced-assembly provider:
     ///
@@ -71,7 +81,14 @@ module SymbolProviders =
     /// cache, because a package's extraction now depends on its dependency shapes;
     /// the whole composite is still memoised per manifest set by `buildContract`'s
     /// `contractCache`, so each set is built once.
+    /// `metaTail` is the layer-2 tail of the **front-end-facing** composite (BCL
+    /// reflection by default; a backend injects its own — see `bclMetaTail`). The
+    /// extraction-time ambient (`depComposite`) always keeps BCL metadata so a contract
+    /// naming a raw BCL nominal head still kinds at bake time; only the symbols the
+    /// compiler later queries follow `metaTail`.
     let private composeProviders
+        (metaTail: IExternalSymbolProvider list)
+        (target: string option)
         (orderedManifestPaths: string list)
         (transitiveDeps: string -> string list)
         : IExternalSymbolProvider =
@@ -113,17 +130,17 @@ module SymbolProviders =
 
             // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
             // brings `Severity.Error` into scope, shadowing the bare cases.
-            match ReferencedProject.buildProviderWith ambientShapes path with
+            match ReferencedProject.buildProviderWith target ambientShapes path with
             | Result.Ok(provider, _) ->
                 built.Add provider
                 byPath.[key] <- provider
             | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
 
-        ExternalSymbols.composite (List.ofSeq built @ [ MetadataSymbols.provider ])
+        ExternalSymbols.composite (List.ofSeq built @ metaTail)
 
     let build (manifestPaths: string list) : IExternalSymbolProvider =
         let ordered, transitiveDeps = orderedManifestsWithDeps manifestPaths
-        composeProviders ordered transitiveDeps
+        composeProviders bclMetaTail None ordered transitiveDeps
 
     /// The inline `val` bindings a referenced project contributes whose `.fs`
     /// bodies must be *spliced* at the consumer's use site — a cross-package
@@ -335,13 +352,17 @@ module SymbolProviders =
     /// (`buildContract`); the raw `Map` (`contractInlineBodies`) is an
     /// introspection seam for the inline-body collection tests.
     let private buildContractCached
+        (cacheTag: string)
+        (metaTail: IExternalSymbolProvider list)
         (target: string option)
         (manifestPaths: string list)
         : IExternalSymbolProvider * Map<string, InlineBody> =
         let normalised = manifestPaths |> List.map Path.GetFullPath
-        // The target is part of the cache identity: the JS and CLR collections of
-        // the same manifest set freeze different `inline-bodies` files.
-        let key = (defaultArg target "") + "|" + String.concat ";" normalised
+        // The target AND the metadata-layer tag are part of the cache identity: the JS
+        // and CLR collections of the same set freeze different `inline-bodies`, and a
+        // backend (`cacheTag = "jsnative"`) composes a different layer-2 provider.
+        let key =
+            cacheTag + "|" + (defaultArg target "") + "|" + String.concat ";" normalised
 
         contractCache
             .GetOrAdd(
@@ -359,7 +380,7 @@ module SymbolProviders =
                         // closure (a root's transitive dependency contributes its
                         // contract symbols AND its cross-package inline bodies).
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
-                         let provider = composeProviders ordered transitiveDeps
+                         let provider = composeProviders metaTail target ordered transitiveDeps
                          let inlines = inlineBodies target provider ordered
                          // Rekey the inline bodies by the resolved `SymbolKey` the
                          // consumer's use-site `TExpr.External` carries — looked up
@@ -388,7 +409,7 @@ module SymbolProviders =
     /// bodies. The single entry point the default compile path uses once
     /// `MockBuiltins` is demoted to the backstop.
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
-        buildContractCached None manifestPaths |> fst
+        buildContractCached "bcl" bclMetaTail None manifestPaths |> fst
 
     /// `buildContract` for a specific backend target (`Some Target.Js` selects the
     /// `inline-bodies-js` `.fs` bodies via `ReferencedProject.resolveInlineBodies`),
@@ -398,7 +419,22 @@ module SymbolProviders =
     /// matched inline `Map` is the target-keyed cache entry shared with
     /// `contractInlineBodiesFor`.
     let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
-        buildContractCached target manifestPaths |> fst
+        buildContractCached "bcl" bclMetaTail target manifestPaths |> fst
+
+    /// `buildContractFor` with a backend-injected layer-2 `metaTail` in place of host
+    /// BCL reflection — the target-agnostic seam a non-CLR backend composes through.
+    /// `cacheTag` is a short, stable discriminator folded into the contract-cache key
+    /// (so a backend's stack never aliases the `"bcl"` entry for the same manifest set).
+    /// The JS target calls this from `Codegen.Js` with `JsNativeSymbols` as the tail
+    /// (codegen-js-steps.md Step 8); BCL metadata still serves the extraction-time
+    /// ambient regardless of the tail.
+    let buildContractWithMetadata
+        (cacheTag: string)
+        (metaTail: IExternalSymbolProvider list)
+        (target: string option)
+        (manifestPaths: string list)
+        : IExternalSymbolProvider =
+        buildContractCached cacheTag metaTail target manifestPaths |> fst
 
     /// The raw cross-package inline bodies collected for a manifest set, keyed by
     /// source name — an introspection seam for the inline-body collection tests.
@@ -406,11 +442,11 @@ module SymbolProviders =
     /// channel (see `buildContract`), never this map. Shares `buildContract`'s
     /// cache.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
-        buildContractCached None manifestPaths |> snd
+        buildContractCached "bcl" bclMetaTail None manifestPaths |> snd
 
     /// `contractInlineBodies` for a specific target (`Some "js"` selects the
     /// `inline-bodies-js` files via `ReferencedProject.resolveInlineBodies`). The
     /// introspection seam the F1 / JS-target inline-body tests use to confirm a
     /// target's bodies freeze with their `$N` templates intact.
     let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
-        buildContractCached target manifestPaths |> snd
+        buildContractCached "bcl" bclMetaTail target manifestPaths |> snd

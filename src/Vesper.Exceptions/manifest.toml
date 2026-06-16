@@ -1,0 +1,26 @@
+# Vesper.Exceptions — the common BCL exception roots as Vesper *contract* types
+# (codegen-js-steps.md Step 8).
+#
+# A JS-target package: it lets `InvalidOperationException` & co. resolve through a
+# Vesper-owned `inherit exn` chain WITHOUT host BCL metadata, so a BCL-free JS
+# build type-checks and lowers `raise (InvalidOperationException …)` to a native
+# `new Error`. The types are declared under `namespace System` (matching the BCL
+# names a consumer reaches via `open System`); on JS they all erase to the `exn`
+# root (`Error`).
+#
+# It is referenced by the JS provider only (TestHelpers `jsManifests` /
+# `coreDepsJsProvider`). CLR builds do NOT reference it — they keep resolving the
+# same names through `System.Private.CoreLib` (the metadata layer), so the
+# contract never shadows the BCL type in a CLR `newobj` (which would mint a
+# TypeRef into the wrong assembly). The shared seam stays the `.fsi` contract; the
+# per-target binding is `prim-types-exn`'s `(# … #)` repr (`System.Exception` on
+# CLR, `Error` on JS).
+
+[core]
+namespace = "System"
+description = "Common BCL exception roots as Vesper contract types inheriting exn."
+depends-on = ["Vesper.Core"]
+
+files = [
+    "exceptions.fsi",
+]

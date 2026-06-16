@@ -85,6 +85,19 @@ module VesperLibTyparCapture =
         /// One field-type CST array per union case (in case order), each indexed
         /// by the case's fields.
         | Union of DeferredCtx * cases: Type<SyntaxToken>[][]
+        /// A class's `inherit <type>` base CST (if any) plus its `new: … -> T`
+        /// constructor signatures — frozen by the finalize pass into the shape's
+        /// `FrozenBaseType` and into `.ctor` `ExternalMember`s. The base lets a
+        /// consumer's subtype walk reconcile through the *contract* inherit chain
+        /// (the JS exception hierarchy, `InvalidOperationException : exn`;
+        /// codegen-js-steps.md Step 8) independent of BCL metadata; the ctors let a
+        /// BCL-free provider type the constructor-as-function application
+        /// (`InvalidOperationException "msg"`). Each ctor is `(param-type CSTs,
+        /// return-type CST)`. `ValueNone` base ⇒ no declared base; `[]` ctors ⇒ none.
+        | Class of
+            DeferredCtx *
+            baseType: Type<SyntaxToken> voption *
+            ctors: (Type<SyntaxToken>[] * Type<SyntaxToken>) list
 
     /// The deferred **CST** for one augmentation member's signature, frozen into
     /// its `ExternalMember.Signature` by the finalize pass. Each member carries

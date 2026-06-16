@@ -53,6 +53,15 @@ impl-js = [
     "list.js.fs",
 ]
 
+# JS-target inline-body source. Without this, `resolveInlineBodies (Some "js")` falls
+# back to the base `inline-bodies` (= `impl` = `list.fs`), whose `toSeq` leg pulls in
+# `System.Collections.Generic.IEnumerable<_>` — unresolvable under a BCL-free JS
+# provider (codegen-js-steps.md Step 8). `list.js.fs` is the metadata-free subset, so
+# the JS inline-body analysis stays self-contained.
+inline-bodies-js = [
+    "list.js.fs",
+]
+
 # JS runtime *asset* (codegen-js-steps.md Step 5b): the cons-list module functions
 # (`List.length`/`map`/…) the JS backend imports and ships beside its output, read
 # via `ReferencedProject.runtimeModules`. GENERATED from `list.js.fs` (Phase 3) by

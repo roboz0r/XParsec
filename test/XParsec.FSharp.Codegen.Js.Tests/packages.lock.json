@@ -139,6 +139,7 @@
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
+          "XParsec.FSharp.Codegen.Common": "[1.0.0, )",
           "XParsec.FSharp.SemanticAnalysis": "[1.0.0, )"
         }
       },

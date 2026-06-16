@@ -24,6 +24,7 @@
     <Compile Include="Step5bPhase3Tests.fs" />
     <Compile Include="Step6Tests.fs" />
     <Compile Include="Step7Tests.fs" />
+    <Compile Include="Step8Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

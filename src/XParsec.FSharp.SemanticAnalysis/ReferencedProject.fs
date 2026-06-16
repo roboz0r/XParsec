@@ -417,7 +417,24 @@ module ReferencedProject =
     /// before the file walk, since signature translation runs inside it.
     /// Returns per-file parse diagnostics alongside the provider (a file that
     /// fails to parse contributes no symbols but does not abort the build).
+    /// The `.fs` companion to harvest a contract `.fsi`'s intrinsic repr from, for
+    /// an optional backend target. A target's `<base>.<target>.fs` (`prim-types-exn.js.fs`,
+    /// `exn → Error`) wins over the base `<base>.fs` (`exn → System.Exception`) when it
+    /// exists — the intrinsic-repr analogue of the manifest's `inline-bodies-<t>`
+    /// override (codegen-js-steps.md Step 8). `None`, or a target with no override file,
+    /// falls back to the base companion.
+    let private companionFs (target: string option) (dir: string) (fsiRel: string) : string =
+        let baseAbs = Path.Combine(dir, Path.ChangeExtension(fsiRel, ".fs"))
+
+        match target with
+        | Some t ->
+            // `ChangeExtension("prim-types-exn.fsi", "js.fs")` → `prim-types-exn.js.fs`.
+            let targetAbs = Path.Combine(dir, Path.ChangeExtension(fsiRel, t + ".fs"))
+            if File.Exists targetAbs then targetAbs else baseAbs
+        | None -> baseAbs
+
     let buildProviderWith
+        (target: string option)
         (ambientShapes: string -> ExternalTypeShape voption)
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
@@ -440,14 +457,13 @@ module ReferencedProject =
             // (the `.fsi` commits `type exn = extern`, no repr) —
             // Moved here from the codegen-layer harvest.
             for rel in manifest.Files do
-                let fsRel = Path.ChangeExtension(rel, ".fs")
-                let abs = Path.Combine(dir, fsRel)
+                let abs = companionFs target dir rel
 
                 if File.Exists abs then
                     let fsFile: VesperLib.LibFile =
                         {
                             BucketName = manifest.Name
-                            Relative = fsRel
+                            Relative = Path.GetFileName abs
                             Absolute = abs
                         }
 
@@ -495,7 +511,7 @@ module ReferencedProject =
     let buildProvider
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
-        buildProviderWith (fun _ -> ValueNone) manifestPath
+        buildProviderWith None (fun _ -> ValueNone) manifestPath
 
     /// Lazy cache keyed by the (normalised) manifest path so repeated callers
     /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.

@@ -527,16 +527,12 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
                         |> EqArray.ofArray
 
-                    {
-                        Name = ".ctor"
-                        IsStatic = false
-                        IsProperty = false
-                        Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
-                        MethodArity = 0
-                        Origin = origin
-                        Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
-                        OptionalDefaults = MetadataMapping.optionalDefaults (c.GetParameters())
-                    }
+                    ExternalMember.ctor
+                        declKey
+                        (MetadataMapping.methodSignature arity 0 (ps, ret))
+                        argSig
+                        origin
+                        (MetadataMapping.optionalDefaults (c.GetParameters()))
                 )
             )
 
@@ -674,16 +670,12 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
                                         |> EqArray.ofArray
 
-                                    {
-                                        Name = ".ctor"
-                                        IsStatic = false
-                                        IsProperty = false
-                                        Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
-                                        MethodArity = 0
-                                        Origin = origin
-                                        Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
-                                        OptionalDefaults = MetadataMapping.optionalDefaults (c.GetParameters())
-                                    }
+                                    ExternalMember.ctor
+                                        declKey
+                                        (MetadataMapping.methodSignature arity 0 (ps, ret))
+                                        argSig
+                                        origin
+                                        (MetadataMapping.optionalDefaults (c.GetParameters()))
                                 )
                             )
                         | (null: PropertyInfo) ->

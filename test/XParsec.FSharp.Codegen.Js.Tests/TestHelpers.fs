@@ -111,6 +111,12 @@ let jsManifests: string list =
         vesperCoreManifest
         srcManifest "Vesper.Comparison"
         vesperPrintfManifest
+        // Step 8: the common BCL exceptions as Vesper contract types inheriting
+        // `exn` (under `namespace System`), so `raise (InvalidOperationException …)`
+        // resolves through the contract `inherit` chain on a BCL-free JS build and
+        // lowers to a native `new Error`. JS-target only — CLR builds reach these
+        // names through `System.Private.CoreLib`.
+        srcManifest "Vesper.Exceptions"
         // Step 5: `Option` (`Some`/`None`) and `List` (`[]`/`::`) are external
         // union types the backend emits as honest nominal JS classes — their case
         // shapes are read off the provider. `Vesper.List`'s contract forward-refs
@@ -124,7 +130,11 @@ let jsManifests: string list =
 /// `2 + 2` freezes to `ILIntrinsic("($0 + $1) | 0", …)`). Lazily built once — the
 /// `SymbolProviders` cache also memoises the contract per target.
 let jsProvider: Lazy<IExternalSymbolProvider> =
-    lazy SymbolProviders.buildContractFor (Some Target.Js) jsManifests
+    // JS-native layer-2 (Step 8): the JS target resolves against `JsNativeSymbols`
+    // (`Error` &c., the future `tsc`-metadata seam), not host BCL reflection — so the
+    // exceptions resolve through `Vesper.Exceptions`'s contract `inherit exn` chain and
+    // no same-named BCL metadata type collides on the home-assembly invariant.
+    lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) jsManifests
 
 /// Front-end a program to a `Frozen.TastFile` through the **JS-target** contract
 /// provider, so operator use sites carry the JS templates (vs `frozenOf`'s
@@ -187,7 +197,15 @@ let emitJsLibrary (input: string) : string =
 /// only". `Vesper.Core` carries the primitives + `Fun` + the `+` JS inline body; built
 /// with `Some Target.Js` so use sites carry the JS templates.
 let coreDepsJsProvider: Lazy<IExternalSymbolProvider> =
-    lazy SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+    lazy
+        JsNativeSymbols.buildJsNativeContractFor
+            (Some Target.Js)
+            // `Vesper.Exceptions` rides alongside `Vesper.Core`: `option.fs`'s
+            // `raise (InvalidOperationException …)` resolves the exception through the
+            // contract `inherit exn` chain (Step 8), so its `:> exn` argument
+            // type-checks under the JS `exn → Error` repr (a BCL `System.Exception`
+            // chain no longer reconciles once `exn` canonicalises to `Error`).
+            [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 
 /// Front-end + freeze a JS-target package *impl* through a deps-only `provider`.
 /// Like `frozenOfJs` (self-host list default on, JS target) but the provider carries
