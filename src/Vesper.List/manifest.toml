@@ -46,7 +46,7 @@ impl = [
 # backend via `ReferencedProject.resolveImpl (Some "js")`. `list.js.fs` is the
 # subset of `list.fs` the JS backend can compile (the cons-list type's cases without
 # member methods + the `isEmpty`/`length`/`head`/`tail`/`map`/`append`/`rev` module
-# functions, `head`/`tail` raising via an FFI `throw` template); compiled in library
+# functions, `head`/`tail` raising via `failwith`); compiled in library
 # mode it GENERATES the `runtime-js` `Vesper.List.mjs` below, replacing the
 # hand-authored asset. The CLR backend keeps building the full `list.fs` (base `impl`).
 impl-js = [

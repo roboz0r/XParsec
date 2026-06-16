@@ -7,6 +7,7 @@
     <Compile Include="JsAst.fs" />
     <Compile Include="JsPrint.fs" />
     <Compile Include="JsRuntime.fs" />
+    <Compile Include="JsEmitHelpers.fs" />
     <Compile Include="EmitJs.fs" />
     <Compile Include="Codegen.fs" />
   </ItemGroup>

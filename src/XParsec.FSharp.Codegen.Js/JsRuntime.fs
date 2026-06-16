@@ -32,8 +32,11 @@ type JsRuntimeModule =
 /// Built over a resolved `Runtime` registry (package/assembly name →
 /// `JsRuntimeModule`, read from the manifests' `runtime-js` assets by
 /// `ReferencedProject.runtimeModules`). The expression walker calls `addRef` for
-/// every `External` value node and `ensureCoreImport` when it emits a
-/// structural-core template; `buildProgram` reads `importStatements` (the leading
+/// every `External` value node — including the structural-core entries
+/// (`Vesper.Core`'s non-inline `structuralEquals` / `structuralHash`, which an
+/// aggregate `=` / `<>` / `hash` lowers to an ordinary external call), so they need
+/// no bespoke import path; `addMemberRef` is the member analogue. `buildProgram`
+/// reads `importStatements` (the leading
 /// `import …` block) and `Codegen` reads `modules` (the `JsRuntimeModule`s to
 /// materialise). Each home assembly's module is recorded **once**, on its first
 /// reference — the one place a missing runtime fails loudly — so the import

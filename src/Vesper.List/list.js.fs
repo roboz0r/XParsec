@@ -5,11 +5,10 @@ namespace Vesper.Collections
 // `inline-bodies-js`) and compiled by the JS backend in *library* mode into the
 // committed `Vesper.List.mjs` runtime asset — retiring the hand-authored `.mjs`.
 //
-// This is NOT the full `list.fs`: a faithful `list.fs` compile needs three things
+// This is NOT the full `list.fs`: a faithful `list.fs` compile needs two things
 // the JS backend has no surface for (union/record member methods; the
-// class/interface/`[<Struct>]` machinery behind `ListSeq`/`ListEnumerator`/`toSeq`;
-// and `failwith` → `throw`). Instead this exposes only the `.mjs` subset, authored
-// in backend-friendly idiom:
+// class/interface/`[<Struct>]` machinery behind `ListSeq`/`ListEnumerator`/`toSeq`).
+// Instead this exposes only the `.mjs` subset, authored in backend-friendly idiom:
 //
 //   * The cons-list *type* is declared here with its `[]`/`::` cases but **no member
 //     methods** (the `IsEmpty`/`Head`/`Tail`/`Length`/… the `.fsi` advertises) — so
@@ -17,11 +16,11 @@ namespace Vesper.Collections
 //     (`collectTypes`), no member emission. Like `list.fs`, the impl resolves its own
 //     type locally (the provider is `depends-on` only — `Vesper.Core`), so the
 //     module functions' `[]`/`::` construct/match the in-file union.
-//   * `head`/`tail` re-author the empty-list raise as an **FFI throw template** — an
-//     expression-position IIFE `(() => { throw new Error($0); })()`, riding the
-//     existing `ILIntrinsic` → `JsExpr.Raw` path with no new backend arms (cf.
-//     `ops-platform.js.fs`'s `$N` operator templates). `failwith` would freeze to a
-//     `System.Exception` construction the JS backend cannot emit.
+//   * `head`/`tail` raise the empty-list error with `failwith`, whose JS inline body
+//     (`ops-platform.js.fs`) is the expression-position IIFE
+//     `(() => { throw new Error($0); })()` — riding the `ILIntrinsic` → `JsExpr.Raw`
+//     path with no new backend arms (cf. `ops-platform.js.fs`'s `$N` operator
+//     templates).
 //   * The set is `fold`/`isEmpty`/`length`/`head`/`tail`/`map`/`filter`/`append`/`rev`
 //     (the `list.fs` "grow" set minus `toSeq`/`ofSeq`, which need the
 //     class/interface surface). `fold` is tail-recursive → trampolined; the rest
@@ -64,12 +63,12 @@ module List =
 
     let head (list: 'T list) : 'T =
         match list with
-        | [] -> (# "(() => { throw new Error($0); })()" "The input list was empty." : 'T #)
+        | [] -> failwith "The input list was empty."
         | h :: _ -> h
 
     let tail (list: 'T list) : 'T list =
         match list with
-        | [] -> (# "(() => { throw new Error($0); })()" "The input list was empty." : 'T list #)
+        | [] -> failwith "The input list was empty."
         | _ :: t -> t
 
     let rec map (mapping: 'T -> 'U) (list: 'T list) : 'U list =
