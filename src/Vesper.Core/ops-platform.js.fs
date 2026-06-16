@@ -41,9 +41,12 @@ namespace Vesper
 // widths, so each width's mask lands WITH an execution test rather than as
 // untested template surface. `hash` is re-authored here as part of Step 6
 // (equality + hashing) — it lowers to the JS-runtime `structuralHash` template
-// (see `module Operators` below). `box`, the array ops, and `raise`/`failwith`
-// likewise are not re-authored here yet; a use site needing one simply finds no
-// JS inline body until its F-step lands.
+// (see `module Operators` below). `raise` / `failwith` ARE re-authored here (a
+// Step 7 adjacent slice) as FFI `throw` templates: `failwith` builds its own native
+// `Error`, so a `failwith` use site (e.g. `list.fs`'s `head`/`tail`) lowers with no
+// per-call template. `box`, the array ops, and `invalidArg` are not re-authored here
+// yet (the last needs external-`new`); a use site needing one simply finds no JS
+// inline body until its F-step lands.
 
 [<AutoOpen>]
 module ArithmeticOperators =
@@ -196,3 +199,23 @@ module Operators =
 
     /// `int` abbreviation of `int32`.
     let inline int (value: ^T) : int = int32 value
+
+    /// Raise the given exception. The CLR body is the bare `(# "throw" e #)`
+    /// mnemonic (the terminal `throw` arm leaves no balanced stack value); the JS
+    /// form is an expression-position IIFE that `throw`s the operand
+    /// (`(() => { throw e; })()`), so it composes anywhere a value is expected —
+    /// the `'T` result type is never realised, exactly as on the CLR. The operand
+    /// must already be a thrown-able value; constructing a BCL exception
+    /// (`raise (InvalidOperationException …)`) still awaits the external-`new`
+    /// arm — until then prefer `failwith`, which builds its own `Error`.
+    let inline raise (e: 'TException) : 'T = (# "(() => { throw $0; })()" e : 'T #)
+
+    /// Throw with the given message. The CLR body is
+    /// `raise (new System.Exception(message))`; JS has no `System.Exception`, so
+    /// this throws a native `new Error($0)` directly — self-contained, needing
+    /// neither the `raise` chain nor external-`new` (the same FFI-throw shape
+    /// `option.js.fs` / `list.js.fs` inlined by hand, now the library body so a
+    /// `failwith` use site lowers with no per-call template). The message is the
+    /// thrown `Error`'s `.message`, surfaced by Node as the uncaught-error text.
+    let inline failwith (message: string) : 'T =
+        (# "(() => { throw new Error($0); })()" message : 'T #)

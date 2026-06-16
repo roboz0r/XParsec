@@ -150,4 +150,49 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "42" "Lst_Single(x) = Cons(x, Nil)"
             }
+
+            // ---- failwith / raise (the FFI `throw` ops-platform bodies) ----
+
+            test "failwith lowers to a throwing IIFE (a non-thrown branch returns)" {
+                match
+                    runJs "step7-failwith-ok" "let f b = if b then 7 else failwith \"boom\"\nprintfn \"%d\" (f true)"
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "7" "the non-failing branch evaluates normally"
+            }
+
+            test "failwith throws a native Error with the message (uncaught → non-zero exit)" {
+                match
+                    runJs
+                        "step7-failwith-throw"
+                        "let f b = if b then 7 else failwith \"boom\"\nprintfn \"%d\" (f false)"
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.notEqual code 0 "an uncaught throw exits non-zero"
+                    Expect.stringContains out "boom" "the Error carries the failwith message"
+            }
+
+            test "a member body can failwith on the empty case (list-style Head)" {
+                let lst =
+                    lines
+                        [
+                            "type Lst ="
+                            "    | Nil"
+                            "    | Cons of int * Lst"
+                            ""
+                            "    member this.Head ="
+                            "        match this with"
+                            "        | Cons(h, _) -> h"
+                            "        | Nil -> failwith \"The input list was empty.\""
+                        ]
+
+                match runJs "step7-member-failwith" (lst + "\nlet e = Nil\nprintfn \"%d\" e.Head") with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.notEqual code 0 "Nil.Head throws"
+                    Expect.stringContains out "The input list was empty." "the member body's failwith surfaces"
+            }
         ]
