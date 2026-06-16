@@ -111,6 +111,9 @@ module JsEmitHelpers =
     let constExpr (value: TConstValue) (loc: JsLoc voption) : JsExpr =
         match value with
         | TConstValue.Int n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
+        // `uint32` is a plain JS `number` — its range (≤ 2³²-1) fits a double
+        // exactly, so the unsigned value emits as a decimal literal verbatim.
+        | TConstValue.UInt n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
         | TConstValue.Byte b -> JsExpr.Literal(JsLiteral.Number(string (int b)), loc)
         | TConstValue.Int64 n -> JsExpr.Literal(JsLiteral.BigInt(string n), loc)
         | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)

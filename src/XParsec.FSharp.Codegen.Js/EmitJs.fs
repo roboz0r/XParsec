@@ -719,6 +719,10 @@ module EmitJs =
 
             conjoin tests, List.concat binds
         | TPatG.TypeTestAs _ -> failwithf "EmitJs (Step 4): type-test patterns are out of MVP scope"
+        // `null` pattern: refutable, binds nothing. JS loose `== null` matches both
+        // `null` and `undefined` (the latter being how a unit/absent value emits),
+        // mirroring the CLR `brtrue`-skips-non-null lowering.
+        | TPatG.Null _ -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,
     /// if any, passes) the arm `return`s its body. An always-matching arm
