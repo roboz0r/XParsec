@@ -199,6 +199,31 @@ module BitwiseOperators =
         /// 
         val inline (~~~): value: ^T -> ^T when ^T: (static member (~~~): ^T -> ^T) and default ^T: int
 
+// The structural-runtime entries the JS backend imports from `Vesper.Core.mjs`
+// (the committed `runtime-js` asset). Unlike every other binding in this contract
+// these are NOT `inline`: they are real runtime functions referenced by *call*, so
+// an aggregate `=` / `<>` / `hash` lowers to an ordinary external call that rides
+// the standard runtime-import path (`JsImports.addRef`) — aliased like any other
+// Vesper module function, with no bare-name template side-channel. The `=` / `<>` /
+// `hash` *base* arms delegate here for aggregate operands; the primitive
+// `when ^T : …` arms stay inline `===`, so a program over primitives pulls in no
+// runtime import. The CLR target keeps its own `EqualityComparer` bodies and never
+// references these, so they carry a JS body only (the `.mjs`) and no CLR footprint —
+// a `val` whose body is supplied per-target is the established Vesper.Core pattern.
+[<AutoOpen>]
+module StructuralRuntime =
+
+        /// Structural equality of two values — the runtime entry the JS `=` / `<>`
+        /// base arms call for aggregate operands. JS body: `Vesper.Core.mjs`'s
+        /// curried `structuralEquals` (a shape-keyed walk; agrees with
+        /// `structuralHash` by construction, so equal values hash equal).
+        val structuralEquals: x: 'T -> y: 'T -> bool when 'T: equality
+
+        /// Structural hash of a value — the runtime entry the JS `hash` base arm
+        /// calls for an aggregate operand. JS body: `Vesper.Core.mjs`'s curried
+        /// `structuralHash`.
+        val structuralHash: obj: 'T -> int when 'T: equality
+
 // Equality (`=` / `<>`) and `hash` stay in Vesper.Core. The four ordering
 // operators (`<` / `>` / `<=` / `>=`) moved to `Vesper.Comparison`
 // (operators-plan.md O2); `compare` / `min` / `max` join them there in C-Cmp1.

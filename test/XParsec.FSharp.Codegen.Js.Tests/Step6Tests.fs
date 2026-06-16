@@ -4,14 +4,15 @@ open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // codegen-js Step 6 (equality + hashing half) — the structural runtime core.
-// The `ops-platform.js.fs` `(=)` / `(<>)` aggregate base calls `equals($0, $1)`
-// and `hash` lowers to `structuralHash($0)`: bare ambient references into the
-// hand-authored `Vesper.Core.mjs` prelude. The backend pulls in that core import
-// (unaliased) the first time it emits one of those templates, and `materialise`
-// writes `Vesper.Core.mjs` beside the output. Both walkers dispatch on value
-// SHAPE — primitives, tuples (arrays), records / unions (objects with a numeric
-// `tag`) — so a value built inline and one built by a structural runtime module
-// (the Step 5b list interop) compare and hash identically.
+// The `ops-platform.js.fs` `(=)` / `(<>)` aggregate base calls `structuralEquals`
+// and `hash` calls `structuralHash`: non-inline `Vesper.Core` runtime values, so a
+// use site lowers to an ordinary external call that rides the standard runtime
+// import (`JsImports.addRef`) — `$`-aliased like any other Vesper module function,
+// and curried (`f(a)(b)`). `materialise` writes `Vesper.Core.mjs` beside the
+// output. Both walkers dispatch on value SHAPE — primitives, tuples (arrays),
+// records / unions (objects with a numeric `tag`) — so a value built inline and one
+// built by a structural runtime module (the Step 5b list interop) compare and hash
+// identically.
 //
 // Scope: equality + hashing. `compare` / ordering awaits its `Vesper.Comparison`
 // JS bodies; `toString` / `%A` rides the parallel Printf track. Golden text for
@@ -24,7 +25,7 @@ let tests =
         [
             // ---- golden text: the structural-core import wiring ----
 
-            test "aggregate `=` pulls in the unaliased `equals` core import" {
+            test "aggregate `=` imports the aliased `structuralEquals` runtime value" {
                 let src =
                     emitJs (
                         "type Point = { X: int; Y: int }\n"
@@ -35,22 +36,28 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "import { equals } from \"./Vesper.Core.mjs\";"
-                    "the equality base imports `equals` verbatim (not `$`-aliased)"
+                    "import { structuralEquals as $Vesper_StructuralRuntime_structuralEquals } from \"./Vesper.Core.mjs\";"
+                    "the equality base imports `structuralEquals`, `$`-aliased like any external value"
 
-                Expect.stringContains src "(equals((a), (b)))" "the aggregate base emits the `equals` call"
+                Expect.stringContains
+                    src
+                    "$Vesper_StructuralRuntime_structuralEquals(a)(b)"
+                    "the aggregate base emits a curried call to the runtime value"
             }
 
-            test "`hash` pulls in the unaliased `structuralHash` core import" {
+            test "`hash` imports the aliased `structuralHash` runtime value" {
                 let src =
                     emitJs ("type Point = { X: int; Y: int }\nlet a = { X = 1; Y = 2 }\nprintfn \"%d\" (hash a)")
 
                 Expect.stringContains
                     src
-                    "import { structuralHash } from \"./Vesper.Core.mjs\";"
-                    "`hash` lowers to the `structuralHash` template + import"
+                    "import { structuralHash as $Vesper_StructuralRuntime_structuralHash } from \"./Vesper.Core.mjs\";"
+                    "`hash` lowers to a call to the `structuralHash` runtime value + its import"
 
-                Expect.stringContains src "(structuralHash((a)))" "the hash template emits the runtime call"
+                Expect.stringContains
+                    src
+                    "$Vesper_StructuralRuntime_structuralHash(a)"
+                    "the hash base emits the runtime call"
             }
 
             test "a primitive-only `=` pulls in NO core import (`===` stays inline)" {

@@ -107,16 +107,28 @@ let tests =
                 Expect.contains modOps "($0 % $1) | 0" "modulus int32 clause keeps the bare `%`"
             }
 
-            test "equality operators freeze with `===` primitive clauses + structural base" {
+            test "equality operators freeze with `===` primitive clauses + structural-call base" {
                 let js =
                     SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
+                // The aggregate base is now a CALL to the non-inline `structuralEquals`
+                // runtime value, not a bare-name IL template — so `ilOpCodes` (which
+                // captures only IL intrinsics) sees the `===` primitive clauses but no
+                // `equals(` opcode. `(<>)` still wraps the call in a `!$0` IL template,
+                // so that one opcode survives.
                 let eq = ilOpCodes js.["op_Equality"]
                 Expect.contains eq "$0 === $1" "primitive `===` clause"
-                Expect.contains eq "equals($0, $1)" "structural-runtime base (bootstrapped in Step 6)"
+
+                Expect.isFalse
+                    (eq |> List.exists (fun s -> s.Contains "equals"))
+                    "the structural base is an external call, not a bare-name IL template"
 
                 let neq = ilOpCodes js.["op_Inequality"]
                 Expect.contains neq "$0 !== $1" "primitive `!==` clause"
-                Expect.contains neq "!equals($0, $1)" "negated structural base"
+                Expect.contains neq "!$0" "the base negates the `structuralEquals` call via a `!$0` template"
+
+                Expect.isFalse
+                    (neq |> List.exists (fun s -> s.Contains "equals"))
+                    "the negated base wraps a call, not a bare-name IL template"
             }
         ]

@@ -118,20 +118,6 @@ module JsImports =
         specs.Add(sprintf "%s as %s" exportName alias) |> ignore
         alias
 
-    /// Ensure the structural-core runtime (`Vesper.Core.mjs`) is imported under the
-    /// *unaliased* export `name` (`equals` / `structuralHash`). Module functions
-    /// alias to `$Ns_name` (`addRef`) to dodge collisions, but these are referenced
-    /// verbatim from the `ops-platform` equality / hash `$N` templates
-    /// (`equals($0, $1)`, `structuralHash($0)`), so the export name must reach the
-    /// call site unchanged. Registered in the same `Entries` map as the aliased
-    /// runtimes, so it orders and materialises through the existing
-    /// `importStatements` / `modules` paths. Driven by the JS backend on emitting a
-    /// template that references one of these helpers (Step 6), so a program that
-    /// never compares / hashes an aggregate pulls in no core import.
-    let ensureCoreImport (imports: JsImports) (name: string) : unit =
-        let _, specs = entryFor imports "Vesper.Core" "the structural core"
-        specs.Add name |> ignore
-
     /// The leading `import … from "./<file>"` block — one statement per home
     /// assembly, specifiers sorted and assemblies sorted (deterministic). Imports
     /// must precede every reference, the emitted classes included.

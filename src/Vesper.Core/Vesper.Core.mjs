@@ -3,11 +3,16 @@
 // Committed platform-support asset — the JS analogue of Vesper.Printf's committed
 // CLR DLL. Declared by this package's manifest `runtime-js` key, read by the JS
 // backend through `ReferencedProject.runtimeModules`, materialised beside the
-// output and imported as `./Vesper.Core.mjs`. The `ops-platform.js.fs` equality /
-// hash inline bodies reference `equals` / `structuralHash` verbatim from their
-// `$N` templates, so these exports keep those exact (unaliased) names.
+// output and imported as `./Vesper.Core.mjs`. The `ops-platform.js.fs` `=` / `<>` /
+// `hash` base arms delegate to the non-inline `Vesper.Core` values
+// `structuralEquals` / `structuralHash`, which the backend imports from here through
+// the ordinary external-call path (`JsImports.addRef`) — so these two exports are
+// the public surface, aliased like any other Vesper module function. They are
+// CURRIED to match the backend's unary-arrow calling convention
+// (`structuralEquals(a)(b)`); the recursive walkers (`eq` / `hashOf`) stay private,
+// uncurried, and never cross the module boundary.
 //
-// Generic `equals` / `structuralHash` keyed on value SHAPE, never on class
+// Generic `eq` / `hashOf` keyed on value SHAPE, never on class
 // identity. Both walkers handle the full emitted value surface: primitives
 // (number / bigint / string / boolean — F# `char` is a length-1 string), tuples
 // (arrays), and records / unions (plain objects; a union carries a numeric `tag`
@@ -18,7 +23,7 @@
 //
 // ERASURE CORNER (documented, not a bug for the supported set): type erasure makes
 // every nullary case { tag: 0 } — None, Empty, a nullary Dot — structurally
-// identical, so `equals` reports them equal. F#'s type system makes that
+// identical, so `eq` reports them equal. F#'s type system makes that
 // comparison unreachable through `=` (it is statically same-typed); it only
 // surfaces if such values are boxed into a shared `obj` collection. Closing it
 // needs per-type methods carrying a type brand — the post-MVP slot that also
@@ -27,13 +32,13 @@
 // Route B (the --compiling-fslib bootstrap) eventually replaces this hand-authored
 // file with a backend-compiled module — same shape, same imports.
 
-export function equals(a, b) {
+function eq(a, b) {
   if (a === b) return true;
   if (a === null || a === undefined || b === null || b === undefined) return false;
   if (typeof a !== "object") return false;
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) { if (!equals(a[i], b[i])) return false; }
+    for (let i = 0; i < a.length; i++) { if (!eq(a[i], b[i])) return false; }
     return true;
   }
   if (Array.isArray(b)) return false;
@@ -42,7 +47,7 @@ export function equals(a, b) {
   if (ka.length !== kb.length) return false;
   for (const k of ka) {
     if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-    if (!equals(a[k], b[k])) return false;
+    if (!eq(a[k], b[k])) return false;
   }
   return true;
 }
@@ -55,7 +60,7 @@ function stringHash(s) {
   return h;
 }
 
-export function structuralHash(x) {
+function hashOf(x) {
   if (x === null || x === undefined) return 0;
   const t = typeof x;
   if (t === "number") return x | 0;
@@ -64,10 +69,14 @@ export function structuralHash(x) {
   if (t === "string") return stringHash(x);
   if (Array.isArray(x)) {
     let h = 0;
-    for (let i = 0; i < x.length; i++) { h = combineHash(h, structuralHash(x[i])); }
+    for (let i = 0; i < x.length; i++) { h = combineHash(h, hashOf(x[i])); }
     return h;
   }
   let h = 0;
-  for (const k of Object.keys(x)) { h = combineHash(h, structuralHash(x[k])); }
+  for (const k of Object.keys(x)) { h = combineHash(h, hashOf(x[k])); }
   return h;
 }
+
+// Public, curried entries — the surface the backend imports (`structuralEquals(a)(b)`).
+export const structuralEquals = (a) => (b) => eq(a, b);
+export const structuralHash = (x) => hashOf(x);

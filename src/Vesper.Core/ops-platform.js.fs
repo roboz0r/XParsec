@@ -40,8 +40,11 @@ namespace Vesper
 // are deferred to the F-step gated by the backend step that first exercises those
 // widths, so each width's mask lands WITH an execution test rather than as
 // untested template surface. `hash` is re-authored here as part of Step 6
-// (equality + hashing) — it lowers to the JS-runtime `structuralHash` template
-// (see `module Operators` below). `raise` / `failwith` ARE re-authored here (a
+// (equality + hashing) — for an aggregate it delegates to the non-inline
+// `Vesper.Core` runtime entry `structuralHash` (imported from `Vesper.Core.mjs`
+// through the ordinary external-call path; see `module StructuralRuntime` /
+// `module Operators` below), as `=` / `<>` delegate to `structuralEquals`.
+// `raise` / `failwith` ARE re-authored here (a
 // Step 7 adjacent slice) as FFI `throw` templates: `failwith` builds its own native
 // `Error`, so a `failwith` use site (e.g. `list.fs`'s `head`/`tail`) lowers with no
 // per-call template. `box`, the array ops, and `invalidArg` are not re-authored here
@@ -141,12 +144,12 @@ module EqualityOperators =
 
     /// Structural equality. A primitive operand lowers to a JS strict `===`
     /// through its `when ^T : …` clause (BigInt / number / boolean / string `===`
-    /// are all value comparisons); an aggregate operand falls to the structural
-    /// runtime `equals` base. `equals` is the JS-runtime structural-equality entry
-    /// the backend imports — it is bootstrapped in Step 6; until then only the
-    /// primitive clauses (which backend Step 1 exercises) are exec-reachable.
+    /// are all value comparisons); an aggregate operand delegates to
+    /// `structuralEquals`, the non-inline `Vesper.Core` runtime entry the backend
+    /// imports from `Vesper.Core.mjs` through the ordinary external-call path — no
+    /// bare-name template token. So a program over primitives pulls in no import.
     let inline (=) (x: ^T) (y: ^T) : bool =
-        (# "equals($0, $1)" x y : bool #)
+        structuralEquals x y
         when ^T: int = (# "$0 === $1" x y : bool #)
         when ^T: int64 = (# "$0 === $1" x y : bool #)
         when ^T: float = (# "$0 === $1" x y : bool #)
@@ -155,9 +158,10 @@ module EqualityOperators =
         when ^T: char = (# "$0 === $1" x y : bool #)
 
     /// Structural inequality — the negation of `(=)`. Each primitive form is a
-    /// strict `!==`; the base negates the structural comparer.
+    /// strict `!==`; the base negates the `structuralEquals` runtime call (wrapped
+    /// in a `!$0` template because `not` is defined later in this file).
     let inline (<>) (x: ^T) (y: ^T) : bool =
-        (# "!equals($0, $1)" x y : bool #)
+        (# "!$0" (structuralEquals x y) : bool #)
         when ^T: int = (# "$0 !== $1" x y : bool #)
         when ^T: int64 = (# "$0 !== $1" x y : bool #)
         when ^T: float = (# "$0 !== $1" x y : bool #)
@@ -171,13 +175,12 @@ module Operators =
     /// Generate a hash value. The CLR body rides `EqualityComparer<'T>.Default`;
     /// JS has no such facility, so the primitive/aggregate split lives wholly in
     /// the JS-runtime `structuralHash` (a primitive hashes by `typeof`, an
-    /// aggregate recurses over its own-property / array shape). A single template
+    /// aggregate recurses over its own-property / array shape). A single call
     /// therefore covers every width, and `hash` agrees with `(=)` by construction
     /// — both walk the same structural shape, so equal values hash equal.
-    /// `structuralHash` is the structural-core entry bootstrapped in Step 6
-    /// (`Vesper.Core.mjs`); like `equals`, it is referenced verbatim (not aliased),
-    /// so the backend imports it under that bare name when this template is emitted.
-    let inline hash (obj: 'T) : int = (# "structuralHash($0)" obj : int #)
+    /// `structuralHash` is the non-inline `Vesper.Core` runtime entry the backend
+    /// imports from `Vesper.Core.mjs` through the ordinary external-call path.
+    let inline hash (obj: 'T) : int = structuralHash obj
 
     /// Boolean negation — JS logical `!`. (The CLR body negates via `ceq value
     /// false`; the JS template is the direct operator.)

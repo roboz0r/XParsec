@@ -860,18 +860,6 @@ module EmitJs =
     /// CIL mnemonic that slipped through (no `$` hole though operands exist) is a
     /// hard error — only `$N` templates may reach the JS backend (F0).
     and private expandTemplate (ctx: WalkCtx) (template: string) (args: Frozen.TExpr list) : JsRawSeg list =
-        // The `ops-platform` equality / hash bodies call the structural core
-        // (`equals($0, $1)`, `structuralHash($0)`) by bare name from their
-        // templates — so emitting one of those templates is exactly when the
-        // `Vesper.Core.mjs` import must be pulled in (under the unaliased export
-        // name). `!equals(…)` (`<>`'s base) carries the same `equals(` substring.
-        // (The `(` form avoids tripping on an unrelated user-FFI identifier.)
-        if template.Contains "structuralHash(" then
-            JsImports.ensureCoreImport ctx.Imports "structuralHash"
-
-        if template.Contains "equals(" then
-            JsImports.ensureCoreImport ctx.Imports "equals"
-
         let segs = ResizeArray<JsRawSeg>()
         let buf = System.Text.StringBuilder()
         let mutable sawHole = false
