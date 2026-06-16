@@ -57,6 +57,16 @@ module ArithmeticOperators =
         when ^T: sbyte = (# "conv.i1" (# "add" x y : int32 #) : sbyte #)
         when ^T: int16 = (# "conv.i2" (# "add" x y : int32 #) : int16 #)
         when ^T: uint16 = (# "conv.u2" (# "add" x y : int32 #) : uint16 #)
+        // String concatenation, not numeric `add` (two `add`ed string references
+        // are a garbage pointer → AccessViolation). Mirrors FSharp.Core
+        // `prim-types.fs`'s `when ^T1 : string and ^T2 : string` clause: lower to
+        // `System.String.Concat(string, string)`. The `(# "" … #)` empty-mnemonic
+        // reinterprets coerce the free `^T` ↔ `string` at extraction (the clause
+        // body must type-check while `^T` is still unpinned; it's only *selected*
+        // when `^T` is `string`), each a stack no-op. (overload-resolution-bug.md
+        // Gap C.)
+        when ^T: string =
+            (# "" (System.String.Concat((# "" x: string #), (# "" y: string #))) : ^T #)
         when ^T: ^T = (^T: (static member (+): ^T * ^T -> ^T) (x, y))
 
     /// Overloaded subtraction. Same shape as `(+)` — `sub` is sign-agnostic
@@ -244,6 +254,33 @@ module Operators =
     /// body delegates to `uint32`, so the same per-source-width static-opt
     /// applies after the inline splice.
     let inline uint (value: ^T) : uint32 = uint32 value
+
+    /// Convert a value to `int32` — the signed sibling of `uint32` above. A reduced
+    /// transliteration of FSharp.Core `prim-types.fs`'s `ToInt32`: the leading
+    /// (dynamic) body is the `conv.i4` fallback used when the function is NOT
+    /// inline-expanded; each `when ^T : …` clause picks the width-correct
+    /// conversion at the use site. A same-width `uint32`→`int32` (and
+    /// `int32`→`int32`) is the sign-only reinterpret `(# "" … #)`, a stack no-op
+    /// per ECMA-335 III §1.5. As a cross-package inline the chosen body splices at
+    /// each use site, so this pins no Vesper runtime dependency.
+    /// (printf-port-steps.md Gap E — `GrowCore`'s `int (Math.Clamp(uint …))`
+    /// narrows the clamped `uint` size back to the `int` array length.)
+    let inline int32 (value: ^T) : int32 =
+        (# "conv.i4" value : int32 #)
+        when ^T: int32 = (# "" value : int32 #)
+        when ^T: uint32 = (# "" value : int32 #)
+        when ^T: int64 = (# "conv.i4" value : int32 #)
+        when ^T: uint64 = (# "conv.i4" value : int32 #)
+        when ^T: float = (# "conv.i4" value : int32 #)
+        when ^T: float32 = (# "conv.i4" value : int32 #)
+        when ^T: char = (# "conv.i4" value : int32 #)
+        when ^T: byte = (# "conv.i4" value : int32 #)
+
+    /// `int` is the F# abbreviation of `int32` (matching FSharp.Core's
+    /// `[<CompiledName("ToInt")>] let inline int value = int32 value`). The body
+    /// delegates to `int32`, so the same per-source-width static-opt applies after
+    /// the inline splice.
+    let inline int (value: ^T) : int = int32 value
 
     /// Indexed read of a single-dimensional, zero-based array — the lowering
     /// target the front end desugars `arr.[i]` to (mirroring F#'s

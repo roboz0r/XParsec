@@ -465,6 +465,26 @@ module Elaborate =
 
         walk b.headPat
 
+    /// The member's declaration `NodeKey` — `CstKeys.ofPat` of the same name-head
+    /// pattern `MemberRegistration.memberNameOf` keys the `TypeMemberInfo.DeclKey`
+    /// from. Unique per declared member (it carries the member's source offset), so
+    /// it disambiguates *same-name overloads* that share a name + kind + static-ness
+    /// — which a name-only `Array.tryFind` cannot. Used to recover the *right*
+    /// overload's `MethodTypeParams` (Gap A: without it every `Fmt` overload took
+    /// the first one's typars, so the others' own `'T` was never generalised and
+    /// froze ungrounded).
+    let private memberKeyOfBinding (b: Binding<SyntaxToken>) : NodeKey voption =
+        let rec walk (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.NamedSimple _
+            | Pat.Op _ -> ValueSome(CstKeys.ofPat p)
+            | Pat.EnclosedBlock(pat = inner)
+            | Pat.Typed(pat = inner)
+            | Pat.Attributed(pat = inner) -> walk inner
+            | _ -> ValueNone
+
+        walk b.headPat
+
     /// Member parameter list as `(bindingKey, ty)` pairs in declaration order
     /// (`this` is separate). The binding key is the same one `translatePat` mints,
     /// so a `Var` reference in the body resolves to it.
@@ -653,16 +673,34 @@ module Elaborate =
             // (mirrors the abstract-method path); entries that unified away to a
             // concrete type are dropped. Codegen installs these roots as ambient
             // method typars so they encode to `!!i`.
-            let methodTypeParams (n: string) (kind: TMemberKind) : EqArray<string * TypeVar> =
+            let methodTypeParams
+                (n: string)
+                (kind: TMemberKind)
+                (declKey: NodeKey voption)
+                : EqArray<string * TypeVar> =
                 let kindMatches (mi: TypeMemberInfo) =
                     match mi.Kind, kind with
                     | ClassMemberKind.Method, TMemberKind.Method
                     | ClassMemberKind.Property, TMemberKind.Property -> true
                     | _ -> false
 
+                // Match the *exact* overload by its registration `DeclKey` first —
+                // same-name overloads share `Name`/`Kind`/`IsStatic`, so a name-only
+                // `tryFind` would return the first overload's typars for every one,
+                // dropping the others' own `'T` (Gap A). Fall back to the name match
+                // for any member whose binding key didn't resolve (operator heads,
+                // auto-properties — none of which overload generically).
+                let byKey =
+                    match declKey with
+                    | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclKey = k)
+                    | ValueNone -> None
+
                 match
-                    info.Members
-                    |> Array.tryFind (fun mi -> mi.Name = n && mi.IsStatic = isStatic && kindMatches mi)
+                    byKey
+                    |> Option.orElseWith (fun () ->
+                        info.Members
+                        |> Array.tryFind (fun mi -> mi.Name = n && mi.IsStatic = isStatic && kindMatches mi)
+                    )
                 with
                 | Some mi ->
                     EqArray.ofSeq (
@@ -690,7 +728,7 @@ module Elaborate =
                             Params = memberParams ctx b
                             Body = lowerBody b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
-                            MethodTypeParams = methodTypeParams n kind
+                            MethodTypeParams = methodTypeParams n kind (memberKeyOfBinding b)
                         }
                 | ValueNone -> ValueNone
 

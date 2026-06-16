@@ -174,3 +174,12 @@ module Operators =
 
     /// `uint` abbreviation of `uint32`.
     let inline uint (value: ^T) : uint32 = uint32 value
+
+    /// Convert to `int32`. The JS idiom `$0 | 0` coerces any number to a 32-bit
+    /// *signed* integer (bitwise-OR with zero), the signed counterpart of
+    /// `uint32`'s `$0 >>> 0` and of the CLR `conv.i4` / sign-only reinterpret.
+    /// (printf-port-steps.md Gap E.)
+    let inline int32 (value: ^T) : int32 = (# "$0 | 0" value : int32 #)
+
+    /// `int` abbreviation of `int32`.
+    let inline int (value: ^T) : int = int32 value

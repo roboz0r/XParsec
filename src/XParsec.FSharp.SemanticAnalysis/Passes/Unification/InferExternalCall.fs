@@ -14,6 +14,7 @@ open UnificationInferPat
 open UnificationInferOverload
 open UnificationInferForwardSchemes
 open UnificationInferDispatch
+open UnificationInferRecordAccess
 
 module internal UnificationInferExternalCall =
 
@@ -124,24 +125,24 @@ module internal UnificationInferExternalCall =
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
-        match fn with
-        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+        // Given the receiver's inferred type + the member name, resolve the call
+        // against *all* instance overloads by the argument types. Declines (so the
+        // single-pick path runs unchanged) on a non-external receiver, a 0/1-overload
+        // member, or when no unique best matches — so it only ever *improves* a
+        // confident pick. Shared by the `DotLookup` and folded-`LongIdent` heads.
+        let resolveOn (recvTy: SemType) (memberName: string) : SemType voption =
             // TODO(perf): `infer` is not memoised, so on the *decline* path the
             // receiver is inferred here and then again by the fallback's
-            // `infer ctx fn` (which re-infers `recv`). On a fluent chain
-            // (`sb.Append(..).Append(..)`) this re-inflates at every level. If it
-            // shows up, thread the already-computed receiver `SemType` out of the
-            // probe instead of re-inferring.
+            // `infer ctx fn`. If a fluent chain shows it up, thread the receiver
+            // `SemType` out of the probe instead of re-inferring.
             //
             // Resolve the receiver to an external `(qualifiedName, typeArgs)` — a
             // non-project-local `TyClass` or an intrinsic `TyConst` mapped to a BCL
             // type (`tryExternalReceiver`). A project-local class / array / byref
             // declines and keeps its own path.
-            match tryExternalReceiver ctx (infer ctx recv) with
+            match tryExternalReceiver ctx recvTy with
             | ValueNone -> ValueNone
             | ValueSome(clsQual, typeArgs) ->
-                let memberName = ctx.NameOf li.Idents.[0]
-
                 let candidates =
                     ctx.Provider.TryLookupMembers(clsQual, memberName)
                     |> Array.filter (fun m -> not m.IsStatic)
@@ -159,6 +160,24 @@ module internal UnificationInferExternalCall =
                     // error, so the existing single-pick path keeps the prior
                     // behaviour (this probe only ever *improves* a confident pick).
                     | ValueNone -> ValueNone
+
+        match fn with
+        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            resolveOn (infer ctx recv) (ctx.NameOf li.Idents.[0])
+        // Folded-LongIdent value receiver: `w.Write(arg)` parses with `fn =
+        // LongIdent [w; Write]` — the parser folds the dot into the long ident
+        // when the head is a plain identifier, so it never reaches the `DotLookup`
+        // arm and falls to the single-pick field walk (which grabs an arbitrary,
+        // here the widest, overload). The head must be a *local binding* (a value);
+        // a type-qualified head (`TextWriter.Synchronized`) is the static probe's
+        // job and is excluded by the binding guard. The receiver is the chain minus
+        // its last segment; the member is the last segment.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length >= 2
+            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            ->
+            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.ofExpr fn) li
+            resolveOn recvTy (ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | _ -> ValueNone
 
     /// Permit an external method call that omits a suffix of the member's *trailing

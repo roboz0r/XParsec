@@ -42,17 +42,22 @@ module EmitConstruct =
 
             let argCount = args.Length
 
-            // Parameterless value-type construction (`Counter()`) is the one shape
-            // that pushes no arguments and emits no `newobj`: the idiomatic CLR
-            // lowering is `initobj` on a zeroed scratch local, not a `newobj`
-            // against the synthesised parameterless `.ctor` (a struct's
+            // Parameterless value-type construction (`Counter()`, `Span<char>()`) is
+            // the one shape that pushes no arguments and emits no `newobj`: the
+            // idiomatic CLR lowering is `initobj` on a zeroed scratch local, not a
+            // `newobj` against the synthesised parameterless `.ctor` (a struct's
             // parameterless ctor only zero-inits anyway, and this avoids relying on
-            // the JIT tolerating an explicit value-type `.ctor()` call). Handled
+            // the JIT tolerating an explicit value-type `.ctor()` call). Covers both
+            // a project-local struct and an *external* value type (`Span<char>` has
+            // no real parameterless ctor recipe — `default(Span<char>)`). Handled
             // first so every other path shares the single push-then-construct seam.
             let isInitObj =
-                match localClass with
-                | ValueSome(_, c) -> argCount = 0 && c.IsValueType
-                | ValueNone -> false
+                argCount = 0
+                && (
+                    match localClass with
+                    | ValueSome(_, c) -> c.IsValueType
+                    | ValueNone -> isValueType env ty
+                )
 
             if isInitObj then
                 let slot = b.Local ty

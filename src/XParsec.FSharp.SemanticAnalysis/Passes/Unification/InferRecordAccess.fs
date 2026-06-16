@@ -430,3 +430,26 @@ module internal UnificationInferRecordAccess =
             currTy <- resolveFieldStep ctx key currTy segName
 
         currTy
+
+    /// The type of a folded field chain MINUS its *last* segment — the receiver
+    /// of a folded-LongIdent instance method call (`w.Write(arg)` parses with
+    /// `fn = LongIdent [w; Write]`, the member being the last segment). Mirrors
+    /// `inferLongIdentFieldChain` but stops one short, so the last segment can be
+    /// resolved arg-aware as an overloaded instance method instead of falling to
+    /// the single-pick field step. The head is assumed a local binding (the
+    /// caller guards on it).
+    and inferLongIdentReceiverPrefix (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
+        let head = li.Idents.[0]
+        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+        let headTy =
+            match ctx.Bindings.Binding.TryGetValue headKey with
+            | ValueSome rb -> instantiateBinding ctx rb
+            | ValueNone -> TyVar(freshTyVar ctx)
+
+        let mutable currTy = headTy
+
+        for i = 1 to li.Idents.Length - 2 do
+            currTy <- resolveFieldStep ctx key currTy (ctx.NameOf li.Idents.[i])
+
+        currTy

@@ -1338,4 +1338,124 @@ let structTests =
                             "printfn \"%d\" (grown())"
                         ])
             }
+
+            // overload-resolution-bug.md Gap A: same-name overloaded *generic*
+            // members. Each `Fmt` overload carries its own method typar `'T`;
+            // `Elaborate.methodTypeParams` recovered them by *name* (`Array.tryFind`),
+            // so all three overloads took the first one's typars and the others' own
+            // `'T` was never generalised → froze as `?ungrounded-operator`. Fixed by
+            // matching the exact overload through its registration `DeclKey`. The
+            // backend emits all four `AppendFormatted` overloads of `formatter.fs`
+            // this way, so this unblocks PP6.
+            test "Gap A: same-name overloaded generic members each generalise their own 'T" {
+                runsLines
+                    [ "42" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "open System.Globalization"
+                            "[<Struct; IsByRefLike>]"
+                            "type Box(seed: int) ="
+                            "    static let provider : IFormatProvider = CultureInfo.InvariantCulture"
+                            "    member this.Fmt(value: 'T) : string ="
+                            "        let o = box value"
+                            "        match o with"
+                            "        | :? IFormattable as f -> f.ToString(null, provider)"
+                            "        | null -> \"\""
+                            "        | _ -> o.ToString()"
+                            "    member this.Fmt(value: 'T, format: string) : string ="
+                            "        let o = box value"
+                            "        match o with"
+                            "        | :? IFormattable as f -> f.ToString(format, provider)"
+                            "        | null -> \"\""
+                            "        | _ -> o.ToString()"
+                            "    member this.Fmt(value: 'T, pad: int) : string ="
+                            "        let o = box value"
+                            "        match o with"
+                            "        | :? IFormattable as f -> f.ToString(null, provider)"
+                            "        | null -> \"\""
+                            "        | _ -> o.ToString()"
+                            "let b = Box(0)"
+                            "printfn \"%s\" (b.Fmt 42)"
+                        ])
+            }
+
+            // overload-resolution-bug.md Gap B: external *instance* method overload
+            // resolution on a *variable/property* receiver. `w.Write("hi")` parses
+            // with `fn = LongIdent [w; Write]` (the parser folds the dot when the
+            // head is a plain ident), which bypassed the `DotLookup`-only arg-aware
+            // probe and fell to the single-pick field walk — grabbing the widest
+            // `Write(string, object, object, object)` overload for one `string` arg.
+            // Fixed by routing the folded-LongIdent value receiver through the same
+            // `pickBestOverload` path. (A *literal* receiver `"ab".CopyTo` already
+            // worked — it stays a `DotLookup`.) Unblocks `formatter.fs`'s `Flush`.
+            test "Gap B: external instance overload pick on a folded-LongIdent receiver" {
+                runsLines [ "hi" ] (String.concat "\n" [ "open System"; "let w = Console.Out"; "w.Write(\"hi\")" ])
+            }
+
+            // overload-resolution-bug.md Gap C: binary `+` on `string` must lower
+            // to `System.String.Concat`, not a numeric `add` on two string
+            // references (a garbage pointer → AccessViolation). The `(+)` operator
+            // (Vesper.Core/ops-platform.fs) gained a `when ^T : string` static-opt
+            // clause mirroring FSharp.Core. Independent correctness bug; the
+            // Formatter never uses string `+`, but it crashed an early PP5f probe.
+            test "Gap C: binary + on string concatenates (String.Concat), not numeric add" {
+                runsLines
+                    [ "xy" ]
+                    (String.concat "\n" [ "let f (a: string) (b: string) = a + b"; "printfn \"%s\" (f \"x\" \"y\")" ])
+            }
+
+            // overload-resolution-bug.md Gap D: the parameterless `Span<char>()`
+            // ctor (`default(Span<char>)`). An *external* value type with 0 ctor
+            // args now lowers to `initobj` (the same path a project-local struct
+            // takes), not a missing `newobj` ctor recipe.
+            test "Gap D: parameterless Span<char>() (external value-type default ctor)" {
+                runsLines
+                    [ "0" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "let g () ="
+                            "    let s = Span<char>()"
+                            "    s.Length"
+                            "printfn \"%d\" (g())"
+                        ])
+            }
+
+            // overload-resolution-bug.md Gap E: the `int` (`ToInt32`) conversion
+            // *from* a `uint` — the signed sibling of PP5b's `uint`/`uint32`, now
+            // in Vesper.Core/ops-platform.fs. `GrowCore` narrows its clamped `uint`
+            // size back to the `int` array length.
+            test "Gap E: int conversion of a uint (Math.Clamp narrowing)" {
+                runsLines
+                    [ "50" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "let h (x: int) = int (Math.Clamp(uint x, 0u, 100u))"
+                            "printfn \"%d\" (h 50)"
+                        ])
+            }
+
+            // overload-resolution-bug.md Gap F: `for i in a..b do` over an integer
+            // range. Freeze lowers a unit-step range source to a counted `ForTo`
+            // loop (F#'s own lowering) instead of trying to walk a non-existent
+            // range enumerable (`Emit: unsupported expression: Range`).
+            test "Gap F: for i in 1..n range loop (lowers to counted ForTo)" {
+                runsLines
+                    [ "15" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "let s () ="
+                            "    let mutable acc = 0"
+                            "    for i in 1..5 do"
+                            "        acc <- acc + i"
+                            "    acc"
+                            "printfn \"%d\" (s())"
+                        ])
+            }
         ]

@@ -367,6 +367,29 @@ module Operators =
         /// <returns>The converted <c>uint32</c>.</returns>
         val inline uint: value: ^T -> uint32
 
+        /// <summary>Convert a value to <c>int32</c> — the signed sibling of
+        /// <c>uint32</c> (mirroring FSharp.Core's <c>ToInt32</c>).</summary>
+        ///
+        /// <param name="value">The input value.</param>
+        ///
+        /// <returns>The converted <c>int32</c>.</returns>
+        ///
+        /// <remarks>Inline static-optimization over inline IL — each source width
+        /// picks its own conversion at the use site (a same-width
+        /// <c>uint32</c>→<c>int32</c> is a sign-only reinterpret, a stack no-op).
+        /// The platform mnemonics live in <c>ops-platform.fs</c>. Narrows
+        /// <c>GrowCore</c>'s clamped <c>uint</c> size back to the <c>int</c> array
+        /// length (printf-port-steps.md Gap E).</remarks>
+        val inline int32: value: ^T -> int32
+
+        /// <summary>Convert a value to <c>int32</c> — the <c>int</c> abbreviation
+        /// of <c>int32</c> (mirroring FSharp.Core's <c>ToInt</c>).</summary>
+        ///
+        /// <param name="value">The input value.</param>
+        ///
+        /// <returns>The converted <c>int32</c>.</returns>
+        val inline int: value: ^T -> int
+
         /// <summary>Indexed read of a single-dimensional, zero-based array — the
         /// lowering target the front end desugars <c>arr.[i]</c> to (mirroring F#'s
         /// <c>IntrinsicFunctions.GetArray</c>).</summary>

@@ -242,15 +242,35 @@ module internal FreezeExpr =
             let varKey = CstKeys.ofForToVar ident
             TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty, tok)
         | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) ->
-            // How the source yields its enumerator was resolved by Unification and
-            // stashed by this node's key; absent ⇒ the §4.2 interface path (range
-            // sources and IEnumerable<'T> sources alike).
-            let enumerator =
-                match ctx.Resolution.ForInShape.TryGetValue key with
-                | ValueSome shape -> shape
-                | ValueNone -> ForInEnumeratorG.Interface
+            // An integer-range source (`for i in a..b do`) lowers to a counted
+            // `ForTo` loop — F#'s own lowering. There is no enumerable object to
+            // walk (the range materialises no `seq`), so the enumerator path can't
+            // emit it; the counted form is also the efficient one. Only the
+            // unit-step range bound to a *simple* binder is lowered here; a stepped
+            // range (`a..s..b`) or a non-trivial pattern falls through to the
+            // enumerator path (which diagnoses an unsupported source cleanly).
+            // Inference already pinned the binder + bounds to `int`
+            // (`InferControlFlow.inferForIn`'s range arm).
+            let rangeBounds =
+                match src with
+                | Expr.Range(fromExpr = a; toExpr = b)
+                | Expr.EnclosedBlock(expr = Expr.Range(fromExpr = a; toExpr = b)) -> ValueSome(a, b)
+                | _ -> ValueNone
 
-            TExpr.ForIn(translatePat ctx pat, translateExpr ctx src, translateExpr ctx body, enumerator, ty, tok)
+            let tpat = translatePat ctx pat
+
+            match rangeBounds, tpat with
+            | ValueSome(a, b), TPat.NamedSimple(varKey, _, _) ->
+                TExpr.ForTo(varKey, translateExpr ctx a, translateExpr ctx b, translateExpr ctx body, ty, tok)
+            | _ ->
+                // How the source yields its enumerator was resolved by Unification
+                // and stashed by this node's key; absent ⇒ the §4.2 interface path.
+                let enumerator =
+                    match ctx.Resolution.ForInShape.TryGetValue key with
+                    | ValueSome shape -> shape
+                    | ValueNone -> ForInEnumeratorG.Interface
+
+                TExpr.ForIn(tpat, translateExpr ctx src, translateExpr ctx body, enumerator, ty, tok)
         | Expr.String _ -> translateString ctx e ty tok
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
             TExpr.Match(translateExpr ctx scrutinee, translateRules ctx rules, ty, tok)
