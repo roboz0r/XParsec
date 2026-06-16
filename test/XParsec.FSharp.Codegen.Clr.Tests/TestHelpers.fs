@@ -385,6 +385,24 @@ let private compileContract
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 
+/// Like `compileSource` but drives the **self-host** front end
+/// (`analyseForSelfHost`): a bare-program `[]` / `::` defaults to the Vesper
+/// cons-list, not FSharp.Core's `list` — the same posture a BCL-only package
+/// build (`buildPackage`) uses. Needed when a probe mixes `'T list`-annotated
+/// state (which resolves to the Vesper list via the `list` abbreviation) with
+/// bare `::` / `[]` construction: under the default (FSharp.Core) pipeline the two
+/// disagree on the list representation, but a real self-host package resolves both
+/// to the Vesper list consistently.
+let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
+    let provider = SymbolProviders.buildContract defaultManifests
+    let project = ProjectInfo.defaults assemblyName
+    let lexed, file = parseFile input
+
+    let tast =
+        Pipeline.analyseForSelfHost project.AssemblyName provider input lexed file
+
+    Codegen.compile provider (withCore project) tast
+
 /// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
 /// on-disk app build via `ProjectInfo.app`). `withCore` injects the compiled
 /// `Vesper.Core.dll` unless the project is `Vesper.Core` itself.
@@ -525,6 +543,24 @@ let runs (expected: string) (src: string) : unit =
 /// Like `runs` but for a multi-line expected block (joined with "\n"); spares
 /// callers the `\n` plumbing in the table.
 let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
+
+/// `runs` against the **self-host** front end (`compileSourceSelfHost`): bare
+/// `[]` / `::` default to the Vesper cons-list, matching a BCL-only package build.
+/// Use for probes that mix `'T list`-typed state with bare cons construction.
+let runsSelfHost (expected: string) (src: string) : unit =
+    let artifact = compileSourceSelfHost "Layer1SelfHost" src
+    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let actual = output.Replace("\r", "").Trim()
+
+    if exitCode <> 0 then
+        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
+
+    if actual <> expected then
+        failwithf "expected %A but got %A for:\n%s" expected actual src
+
+/// `runsSelfHost` for a multi-line expected block (joined with "\n").
+let runsSelfHostLines (expected: string list) (src: string) : unit =
+    runsSelfHost (String.concat "\n" expected) src
 
 /// Compile `src` as a bare program, run it in-process, and assert it threw a
 /// runtime exception whose type-name contains `expectedTypeFragment` (e.g.

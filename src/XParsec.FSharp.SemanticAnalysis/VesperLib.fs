@@ -335,6 +335,54 @@ module VesperLib =
                     }
             | _ -> ()
 
+    /// A best-effort, never-reparsed rendering of a parameter's `FrozenType` for a
+    /// `SymbolKey.MemberKey.argSig` entry — the same role `MetadataSymbols.openTyparSig`
+    /// fills for the metadata layer (it only disambiguates overloads, so an exotic
+    /// shape rendered by name is harmless). The contract layer left `argSig` empty,
+    /// which made `argSig.Length` (the codegen `ExternalMember` arg count + the
+    /// front-end optional-fill `fullCount`) read 0 for every parameter'd member — so
+    /// a `sink.Text(s)` call pushed no argument and underflowed the stack. Rebuilt
+    /// from the frozen signature in `finalizeDeferred` once the parameter type is
+    /// known.
+    let rec private argTypeName (t: FrozenType) : string =
+        match t with
+        | FTConst(n, args) ->
+            if args.IsEmpty then
+                n
+            else
+                n
+                + "<"
+                + (args |> EqArray.toList |> List.map argTypeName |> String.concat ",")
+                + ">"
+        | FTClass(key, _)
+        | FTRecord(key, _)
+        | FTUnion(key, _) -> SymbolKeyOps.qualifiedName key
+        | FTTuple items ->
+            "("
+            + (items |> EqArray.toList |> List.map argTypeName |> String.concat "*")
+            + ")"
+        | FTFun(a, b) -> argTypeName a + "->" + argTypeName b
+        | FTOr members ->
+            "("
+            + (members |> EqArray.toList |> List.map argTypeName |> String.concat "|")
+            + ")"
+        | FTTypar(axis, i) ->
+            (match axis with
+             | TyparAxis.Declaring -> "!"
+             | _ -> "!!")
+            + string i
+        | FTUnknown n -> n
+
+    /// The per-parameter `argSig` of a frozen method signature, flattening the
+    /// `.NET`-tupled parameter form: a `unit` parameter is zero arguments, a tuple
+    /// is one entry per element, anything else is a single argument. Mirrors the
+    /// `argCount` decode in codegen's `ExternalMember` arm.
+    let private argSigOfParameters (parameters: FrozenType) : EqArray<string> =
+        match parameters with
+        | FTConst("unit", args) when args.IsEmpty -> EqArray.empty
+        | FTTuple items -> items |> EqArray.toList |> List.map argTypeName |> EqArray.ofList
+        | single -> EqArray.singleton (argTypeName single)
+
     /// Freeze the deferred body / member / val CSTs stashed during extraction into
     /// `FrozenType` templates, in place, once the registry is complete.
     /// A body / val may forward-reference a type
@@ -393,7 +441,24 @@ module VesperLib =
                     let s = m.Signature
 
                     match freezeMemberSig ctx m.IsProperty s.DeclaringArity m.MethodArity deferred.[i] with
-                    | ValueSome sign -> kept.Add { m with Signature = sign }
+                    | ValueSome sign ->
+                        // Rebuild the member key's `argSig` from the now-frozen parameters
+                        // (extraction stamped it empty — the signature was still deferred).
+                        // A property has no parameters, so its key stays empty-`argSig`
+                        // (matching the metadata layer).
+                        let m' =
+                            if m.IsProperty then
+                                { m with Signature = sign }
+                            else
+                                let key' =
+                                    match m.Key with
+                                    | SymbolKey.MemberKey(decl, name, _, kind) ->
+                                        SymbolKey.MemberKey(decl, name, argSigOfParameters sign.Parameters, kind)
+                                    | other -> other
+
+                                { m with Signature = sign; Key = key' }
+
+                        kept.Add m'
                     | ValueNone -> ()
 
                 ctx.TypeMembers.[key] <- kept
@@ -889,6 +954,12 @@ module VesperLib =
                 let memberSig =
                     match elems.[i] with
                     | TypeSignatureElement.Member(signature = s) -> ValueSome(false, s)
+                    // An `abstract member` slot (the canonical interface-member form,
+                    // `type IFormatSink = abstract member Text: …`). The parser keeps
+                    // it as a distinct `Abstract` element; published as an ordinary
+                    // (non-static) instance member so a consumer's `sink.Text(…)` call
+                    // and `interface … with` conformance check resolve against it.
+                    | TypeSignatureElement.Abstract(signature = s) -> ValueSome(false, s)
                     | TypeSignatureElement.StaticMember(signature = s) -> ValueSome(true, s)
                     | _ -> ValueNone
 
@@ -966,6 +1037,31 @@ module VesperLib =
             if members.Count > 0 then
                 ctx.TypeMembers.[compiled] <- members
                 ctx.DeferredMembers.[compiled] <- memberCsts
+
+    /// F# infers an interface from a bodied type whose members are *all* abstract
+    /// (`type IFormatSink = abstract member …`, no `interface`/`class`/`begin`
+    /// keyword) — the parser hands this to us as `TypeSignature.Anon`/`Class`, so
+    /// the interface-ness can't be read off the keyword. A body with ≥1 abstract
+    /// member and no concrete member / ctor / field / inherit IS such an interface;
+    /// publish it as one so a consumer's `interface … with` impl resolves
+    /// (`resolveInterfaceImpls` rejects a non-interface shape, dropping the impl).
+    let private bodyIsInterface (elems: TypeElementsSignature<SyntaxToken>) : bool =
+        let mutable hasAbstract = false
+        let mutable hasConcrete = false
+
+        for e in elems do
+            match e with
+            | TypeSignatureElement.Abstract _ -> hasAbstract <- true
+            | TypeSignatureElement.Member _
+            | TypeSignatureElement.StaticMember _
+            | TypeSignatureElement.Constructor _
+            | TypeSignatureElement.Value _
+            | TypeSignatureElement.Inherit _
+            | TypeSignatureElement.Override _
+            | TypeSignatureElement.Default _ -> hasConcrete <- true
+            | _ -> ()
+
+        hasAbstract && not hasConcrete
 
     let private extractTypeSig
         (ctx: ExtractCtx)
@@ -1069,8 +1165,12 @@ module VesperLib =
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
+                // `type X = abstract member …` parses as an implicit-body `Anon`/`Class`
+                // (no `interface` keyword), but an all-abstract body IS an interface.
+                let isInterface = bodyIsInterface elements
+
                 ctx.TypeShapes.[compiled] <-
-                    ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
+                    ExternalTypeShape.Class(ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty))
 
                 extractTypeMembers ctx lexed input opens compiled arity typeName elements
 

@@ -491,14 +491,26 @@ module NameResolution =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ValueNone
 
-    /// G15/G16 pre-pass. Walk the *un-flattened* module tree and, for every named
-    /// `module Foo = …`, record (a) its directly-`let`-bound values/functions into
-    /// `LocalModules` (member name → binding-site `NodeKey`) and (b) each type it
-    /// nests into `TypeEnclosingModule` (type name → `Foo`). Both registries are
-    /// keyed by the innermost module short name. The subsequent flattened walk
-    /// erases these boundaries, so this is the only place the module structure is
-    /// captured for name resolution. Mirrors `Elaborate.translateModuleElem`'s
-    /// holder walk (which records the same boundaries for *emission*).
+    /// The implicit top-level module's stand-in name in `LocalModules` /
+    /// `TypeEnclosingModule`. `$` is not a legal F# identifier character, so this
+    /// never collides with a real `module Foo = …` short name. It lets a top-level
+    /// type's member body resolve a top-level `let` sibling unqualified — the same
+    /// G16 mechanism a *named*-module-nested type gets, extended to the anonymous
+    /// /file module (a top-level `RuntimeFormatState`-style sink calling top-level
+    /// `flatWidth` / `render`). Only the *unqualified* path uses it; no qualified
+    /// reference ever names this segment, so G15 is unaffected.
+    let private topLevelModuleSentinel = "$top"
+
+    /// G15/G16 pre-pass. Walk the *un-flattened* module tree and, for every
+    /// `module Foo = …` (and the implicit top-level module, keyed by
+    /// `topLevelModuleSentinel`), record (a) its directly-`let`-bound
+    /// values/functions into `LocalModules` (member name → binding-site `NodeKey`)
+    /// and (b) each type it nests into `TypeEnclosingModule` (type name → `Foo`).
+    /// Both registries are keyed by the innermost module short name. The subsequent
+    /// flattened walk erases these boundaries, so this is the only place the module
+    /// structure is captured for name resolution. Mirrors
+    /// `Elaborate.translateModuleElem`'s holder walk (which records the same
+    /// boundaries for *emission*).
     let private registerLocalModules (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let registerLet (moduleName: string) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
             let members =
@@ -534,14 +546,19 @@ module NameResolution =
                     | ValueNone -> ()
                 | _ -> ()
 
+        // The implicit top-level module is entered under the sentinel name (not
+        // `ValueNone`), so its direct `let`s register as resolvable siblings for a
+        // top-level type's member bodies (G16, extended to the file module).
+        let top = ValueSome topLevelModuleSentinel
+
         match file with
-        | ImplementationFile.AnonymousModule elems -> walk ValueNone elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walk ValueNone elems
+        | ImplementationFile.AnonymousModule elems -> walk top elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walk top elems
         | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
                 | NamespaceDeclGroup.Named(elements = elems)
-                | NamespaceDeclGroup.Global(elements = elems) -> walk ValueNone elems
+                | NamespaceDeclGroup.Global(elements = elems) -> walk top elems
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // G15/G16: capture local-module structure before the flattened walk erases it.

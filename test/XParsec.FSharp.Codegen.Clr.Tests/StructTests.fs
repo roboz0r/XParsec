@@ -1653,4 +1653,225 @@ let structTests =
                             "printfn \"%d\" (count total)"
                         ])
             }
+
+            // PP7b (printf-port-steps): `RuntimeFormatState : IFormatSink` — the
+            // concrete sink + frame stack, the second StructuralFormat.cs rung. This
+            // probe stitches the PP7a layout core (the `LDoc` DU + `flatWidth` +
+            // `render`/`layout`) to a *class* `LSink` implementing the Core-owned
+            // `Vesper.IFormatSink` — all 11 members — plus the frame-stack
+            // push / `PopWrap` (collapse a frame's children to a single child or a
+            // `LCat`, wrap in `LGroup`/`LNest`) and `Finish`. It exercises every
+            // sink capability PP7b owns:
+            //   * a reference class implementing an external Core interface, members
+            //     forwarding to private helpers (the forwarding the struct enumerator
+            //     CANNOT do — but a *class* `this` is a reference, so the mutation is
+            //     not lost on a copy);
+            //   * `val mutable` fields holding a frame stack as a Vesper cons-list
+            //     used as a stack (push = cons, pop = head/tail; `PopWrap` reverses
+            //     the per-frame child accumulator) — the plan's recommended deviation
+            //     over a BCL `List<Doc>`, avoiding mutable-collection support;
+            //   * the `_argPending` parens propagation (`FormatArg` → the next
+            //     `BeginApplication` parenthesizes; `FormatChild` clears it);
+            //   * a minimal `Dispatch` (`:? IStructuralFormattable` recurse + a
+            //     `ToString` fallback for leaves) — enough to drive `FormatChild` /
+            //     `FormatArg` recursion. The full type-test/atom surface (numeric
+            //     suffixes, quoting, `ITuple`, `IEnumerable`) is PP7c.
+            //
+            // The drivers are *classes* (`MyList` / `MyOpt`), not DUs: a hand-written
+            // union interface impl is unsupported front-to-back
+            // (project_union_interface_impls_unsupported); `RuntimeFormatState` is a
+            // class for the same reason, and these mirror it. `MyList` records the
+            // `[a; b; c]` enumerable shape and `MyOpt` the `Some payload`
+            // application — together they drive group / nest / soft-break / the
+            // parenthesised application, asserted flat (80), broken (5), and nested
+            // (`Some (Some 1)`, the inner `Some` parenthesised because it is in
+            // argument position).
+            test "PP7b: RuntimeFormatState : IFormatSink — sink + frame stack" {
+                runsSelfHostLines
+                    [
+                        "[1; 2; 3]" // width 80: the list group fits ⇒ flat
+                        "[" // width 5: the group breaks ⇒ soft breaks become newlines
+                        "  1;"
+                        "  2;"
+                        "  3"
+                        "]"
+                        "Some 1" // top-level application: not parenthesised
+                        "Some (Some 1)" // the inner Some is in arg position ⇒ parens
+                    ]
+                    (String.concat
+                        "\n"
+                        [
+                            // ---- PP7a layout core (LDoc + flatWidth + render + layout) ----
+                            "type LDoc ="
+                            "    | LText of string"
+                            "    | LLine of string"
+                            "    | LCat of LDoc list"
+                            "    | LNest of int * LDoc"
+                            "    | LGroup of LDoc * bool"
+                            "let rec flatWidth (d: LDoc) : int ="
+                            "    match d with"
+                            "    | LText s -> s.Length"
+                            "    | LLine flat -> flat.Length"
+                            "    | LCat kids -> catWidth kids"
+                            "    | LNest (_, inner) -> flatWidth inner"
+                            "    | LGroup (inner, parens) -> flatWidth inner + (if parens then 2 else 0)"
+                            "and catWidth (kids: LDoc list) : int ="
+                            "    match kids with"
+                            "    | [] -> 0"
+                            "    | k :: rest -> flatWidth k + catWidth rest"
+                            "let rec spaces (n: int) : string ="
+                            "    if n <= 0 then \"\" else \" \" + spaces (n - 1)"
+                            "type R = { Txt: string; Col: int }"
+                            "let rec render (d: LDoc) (indent: int) (broken: bool) (col: int) (width: int) : R ="
+                            "    match d with"
+                            "    | LText s -> { Txt = s; Col = col + s.Length }"
+                            "    | LLine flat ->"
+                            "        if broken then { Txt = \"\\n\" + spaces indent; Col = indent }"
+                            "        else { Txt = flat; Col = col + flat.Length }"
+                            "    | LNest (i, inner) -> render inner (indent + i) broken col width"
+                            "    | LCat kids -> renderCat kids indent broken col width"
+                            "    | LGroup (inner, parens) ->"
+                            "        let openCol = if parens then col + 1 else col"
+                            "        let groupBroken = width <> 0 && openCol + flatWidth inner > width"
+                            "        let r = render inner indent groupBroken openCol width"
+                            "        if parens then { Txt = \"(\" + r.Txt + \")\"; Col = r.Col + 1 }"
+                            "        else r"
+                            "and renderCat (kids: LDoc list) (indent: int) (broken: bool) (col: int) (width: int) : R ="
+                            "    match kids with"
+                            "    | [] -> { Txt = \"\"; Col = col }"
+                            "    | k :: rest ->"
+                            "        let r1 = render k indent broken col width"
+                            "        let r2 = renderCat rest indent broken r1.Col width"
+                            "        { Txt = r1.Txt + r2.Txt; Col = r2.Col }"
+                            "let layout (d: LDoc) (width: int) : string ="
+                            "    let r = render (LGroup(d, false)) 0 false 0 width"
+                            "    r.Txt"
+                            // Reverse a frame's child accumulator (built by consing, so
+                            // reversed) back into recording order. Hand-written to avoid a
+                            // dependency on a `List.rev` external static.
+                            "let rec revOnto (xs: LDoc list) (acc: LDoc list) : LDoc list ="
+                            "    match xs with"
+                            "    | [] -> acc"
+                            "    | h :: t -> revOnto t (h :: acc)"
+                            // ---- the sink + frame stack (RuntimeFormatState) ----
+                            "type FrameKind ="
+                            "    | Root"
+                            "    | Group"
+                            "    | Nest"
+                            "    | Application"
+                            // A layout frame: its child accumulator (`Kids`, consed ⇒
+                            // reversed) plus the scope kind / nest indent / parens flag.
+                            "type Frame ="
+                            "    val Kind: FrameKind"
+                            "    val NestIndent: int"
+                            "    val Parens: bool"
+                            "    val mutable Kids: LDoc list"
+                            "    new(kind: FrameKind, nestIndent: int, parens: bool) ="
+                            "        { Kind = kind; NestIndent = nestIndent; Parens = parens; Kids = [] }"
+                            "type LSink ="
+                            "    val Width: int"
+                            "    val mutable Frames: Frame list"
+                            "    val mutable ArgPending: bool"
+                            "    new(width: int) ="
+                            "        let root = Frame(Root, 0, false)"
+                            "        { Width = width; Frames = [ root ]; ArgPending = false }"
+                            "    member private this.Add(d: LDoc) ="
+                            "        match this.Frames with"
+                            "        | top :: _ -> top.Kids <- d :: top.Kids"
+                            "        | [] -> ()"
+                            "    member private this.Push(f: Frame) = this.Frames <- f :: this.Frames"
+                            "    member private this.PopWrap(expected: FrameKind) ="
+                            "        match this.Frames with"
+                            "        | f :: rest ->"
+                            "            this.Frames <- rest"
+                            "            let kids = revOnto f.Kids []"
+                            "            let inner ="
+                            "                match kids with"
+                            "                | [ single ] -> single"
+                            "                | _ -> LCat kids"
+                            "            let wrapped ="
+                            "                match f.Kind with"
+                            "                | Group -> LGroup(inner, false)"
+                            "                | Application -> LGroup(inner, f.Parens)"
+                            "                | Nest -> LNest(f.NestIndent, inner)"
+                            "                | Root -> inner"
+                            "            this.Add(wrapped)"
+                            "        | [] -> ()"
+                            "    member private this.Dispatch(value: obj) ="
+                            "        match value with"
+                            "        | :? Vesper.IStructuralFormattable as s -> s.Format(this :> Vesper.IFormatSink)"
+                            "        | null -> this.Add(LText \"null\")"
+                            "        | _ -> this.Add(LText(value.ToString()))"
+                            "    member this.Finish() : string ="
+                            "        match this.Frames with"
+                            "        | [ root ] ->"
+                            "            let kids = revOnto root.Kids []"
+                            "            let docRoot ="
+                            "                match kids with"
+                            "                | [ single ] -> single"
+                            "                | _ -> LCat kids"
+                            "            layout docRoot this.Width"
+                            "        | _ -> failwith \"Vesper.LSink: unbalanced layout scopes at Finish.\""
+                            "    interface Vesper.IFormatSink with"
+                            "        member this.Text(s: string) = this.Add(LText s)"
+                            "        member this.Line() = this.Add(LLine \" \")"
+                            "        member this.SoftBreak() = this.Add(LLine \"\")"
+                            "        member this.BeginGroup() = this.Push(Frame(Group, 0, false))"
+                            "        member this.EndGroup() = this.PopWrap(Group)"
+                            "        member this.BeginNest(indent: int) = this.Push(Frame(Nest, indent, false))"
+                            "        member this.EndNest() = this.PopWrap(Nest)"
+                            "        member this.BeginApplication() ="
+                            "            let parens = this.ArgPending"
+                            "            this.ArgPending <- false"
+                            "            this.Push(Frame(Application, 0, parens))"
+                            "        member this.EndApplication() = this.PopWrap(Application)"
+                            "        member this.FormatChild(value: obj) ="
+                            "            this.ArgPending <- false"
+                            "            this.Dispatch(value)"
+                            "        member this.FormatArg(value: obj) ="
+                            "            this.ArgPending <- true"
+                            "            this.Dispatch(value)"
+                            "            this.ArgPending <- false"
+                            // ---- the drivers (hand-written IStructuralFormattable on CLASSES) ----
+                            "let rec emitElems (sink: Vesper.IFormatSink) (xs: int list) (first: bool) : unit ="
+                            "    match xs with"
+                            "    | [] -> ()"
+                            "    | h :: t ->"
+                            "        if not first then"
+                            "            sink.Text \";\""
+                            "            sink.Line()"
+                            "        sink.FormatChild(box h)"
+                            "        emitElems sink t false"
+                            "type MyList(xs: int list) ="
+                            "    interface Vesper.IStructuralFormattable with"
+                            "        member this.Format(sink: Vesper.IFormatSink) ="
+                            "            sink.BeginGroup()"
+                            "            sink.Text \"[\""
+                            "            sink.BeginNest 2"
+                            "            sink.SoftBreak()"
+                            "            emitElems sink xs true"
+                            "            sink.EndNest()"
+                            "            sink.SoftBreak()"
+                            "            sink.Text \"]\""
+                            "            sink.EndGroup()"
+                            "type MyOpt(payload: obj, isSome: bool) ="
+                            "    interface Vesper.IStructuralFormattable with"
+                            "        member this.Format(sink: Vesper.IFormatSink) ="
+                            "            if isSome then"
+                            "                sink.BeginApplication()"
+                            "                sink.Text \"Some \""
+                            "                sink.FormatArg payload"
+                            "                sink.EndApplication()"
+                            "            else"
+                            "                sink.Text \"None\""
+                            "let print (v: obj) (width: int) : string ="
+                            "    let sink = LSink(width)"
+                            "    (sink :> Vesper.IFormatSink).FormatChild(v)"
+                            "    sink.Finish()"
+                            "printfn \"%s\" (print (MyList([ 1; 2; 3 ]) :> obj) 80)"
+                            "printfn \"%s\" (print (MyList([ 1; 2; 3 ]) :> obj) 5)"
+                            "printfn \"%s\" (print (MyOpt(box 1, true) :> obj) 80)"
+                            "printfn \"%s\" (print (MyOpt((MyOpt(box 1, true) :> obj), true) :> obj) 80)"
+                        ])
+            }
         ]
