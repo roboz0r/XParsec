@@ -19,8 +19,12 @@ module EmitMember =
     /// address-based member call. A method
     /// / property call on an *unboxed* struct needs the receiver **address**, not
     /// its value: a `let`/slot-bound local is addressed in place (`ldloca slot`)
-    /// so a mutating member persists; any other receiver expression (an arg, a
-    /// capture, a nested call) is spilled to a fresh temp and addressed there.
+    /// so a mutating member persists; the `this`/self receiver of a struct
+    /// instance method is *already* a managed pointer (`ldarg.0` is the byref
+    /// `this`), so it is loaded directly — spilling it would copy the struct and
+    /// a mutating self-call (`this.AppendLiteral …`) would not persist; any other
+    /// receiver expression (an arg, a capture, a nested call) is spilled to a
+    /// fresh temp and addressed there.
     /// Leaves the address on the stack; the caller pushes args then `constrained.
     /// <recvTy>` immediately before the `callvirt`.
     let private loadStructReceiverAddr
@@ -32,6 +36,7 @@ module EmitMember =
         : unit =
         match receiver with
         | TExprG.Var(binding, _, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
+        | TExprG.Var(binding, _, _) when env.SelfKey = ValueSome binding -> b.Add(ILInstr.Ldarg 0)
         | _ ->
             recur env b receiver
             let tmp = b.Local receiverTy

@@ -169,7 +169,14 @@ module Emit =
         | ValueNone -> ()
 
         prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
-        let env = EmitEnv.ofContext ctx args
+        // Carry `this` as the env's `SelfKey` too (it is already in `args` at 0,
+        // so this is inert for ordinary var loads — `buildVarLoad` consults `Args`
+        // first). It lets the struct-receiver address path recognise a `this`
+        // self-call (`this.AppendLiteral …`): `this` is *already* a managed
+        // pointer (`ldarg.0` is the byref receiver), so it must be loaded directly
+        // rather than spilled to a value temp — a spill copies the struct and a
+        // mutating self-call would not persist.
+        let env = EmitEnv.create ctx thisKey (Dictionary()) args
 
         buildExpr env b body
 

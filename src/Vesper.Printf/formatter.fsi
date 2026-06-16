@@ -58,9 +58,10 @@ type Formatter =
 
     /// Append an F# <c>%A</c> hole as copy-pasteable Vesper source, laid out
     /// within a column budget of <c>width</c> chars (0 ⇒ never break — the
-    /// <c>%0A</c> flat mode). Dedicated because <c>%A</c> drives the reflection-free
-    /// structural engine rather than an <c>IFormattable</c> call.
-    member AppendStructured: value: 'T * width: int -> unit
+    /// <c>%0A</c> flat mode) and a node budget of <c>size</c> (F# PrintSize —
+    /// nodes past it render as <c>...</c>). Dedicated because <c>%A</c> drives the
+    /// reflection-free structural engine rather than an <c>IFormattable</c> call.
+    member AppendStructured: value: 'T * width: int * size: int -> unit
 
     /// Flush buffered text to the write-through sink and release the buffer.
     member Flush: unit -> unit

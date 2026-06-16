@@ -1226,4 +1226,116 @@ let structTests =
                             "printfn \"%s\" (h.AppendFormatted \"hi\")"
                         ])
             }
+
+            // PP5f (printf-port-steps): the integration rung — the realisable
+            // `Formatter` core (`Handler`, a string-sink ref struct) ported
+            // front-to-back, proving the prior rungs compose AND the load-bearing
+            // codegen fix this rung surfaced. Stitches: the field block + ctor
+            // (PP4 / PP2a / PP3 — `ArrayPool.Rent`), `string.TryCopyTo` /
+            // `Span.CopyTo` / `Span.ToString` (PP5a), the single generic
+            // `AppendFormatted<'T>` `IFormattable` hole dispatch with the `null`
+            // pattern (PP5c / PP4), and a real grow (`GrowThenCopyString` → `Grow` →
+            // `GrowCore`) exercised by the 400-char case. **The point of the test:**
+            // every body mutates `this` through *self-calls* (`AppendFormatted` →
+            // `this.AppendLiteral`, `AppendLiteral` → `this.GrowThenCopyString` →
+            // `this.Grow` → `this.GrowCore`); these only persist because of the
+            // struct self-receiver in-place addressing fix this rung landed
+            // (`EmitMember.loadStructReceiverAddr` + the `thisKey`-as-`SelfKey`
+            // wiring in `Emit.buildMember`). Without it a struct self-call addresses
+            // a *defensive copy* of `this` — the mutation is lost (an immutable F#
+            // local would copy per `fsc`; the repo addresses in place, and now does
+            // so for self-calls too). See `docs/overload-resolution-bug.md` for the
+            // gaps that scoped this down (the four overloaded `AppendFormatted`, the
+            // write-through `Flush`, the dedicated `Append*` members) and
+            // printf-port-steps.md PP5f. The few deviations below (int grow vs PP5b
+            // `uint`, `TryCopyTo` vs `string.CopyTo`, `while` vs `for … in 1..n`,
+            // string sink only) each dodge one of those gaps and are byte-equivalent
+            // for the holes exercised.
+            test "PP5f: Formatter core — literal, generic hole, grow, string sink" {
+                runsLines
+                    [
+                        "x=42, pi=3.14" // literal + AppendFormatted int/float (invariant)
+                        "400" // 200 × "ab" forced repeated grows (GrowThenCopyString)
+                    ]
+                    (String.concat
+                        "\n"
+                        [
+                            "open System"
+                            "open System.Buffers"
+                            "open System.Globalization"
+                            "[<Struct; IsByRefLike>]"
+                            "type Handler ="
+                            "    static let MinimumArrayPoolLength = 256"
+                            "    static let MaxChars = 0x3FFFFFDF"
+                            "    static let provider : IFormatProvider = CultureInfo.InvariantCulture"
+                            "    val mutable private Pool: char[]"
+                            "    val mutable private Chars: Span<char>"
+                            "    val mutable private Pos: int"
+                            "    new(literalLength: int, formattedCount: int) ="
+                            "        let buf = ArrayPool<char>.Shared.Rent(Math.Max(256, literalLength + formattedCount * 11))"
+                            "        { Pool = buf; Chars = Span<char>(buf); Pos = 0 }"
+                            "    member this.AppendLiteral(value: string) ="
+                            "        if value.TryCopyTo(this.Chars.Slice(this.Pos, this.Chars.Length - this.Pos)) then"
+                            "            this.Pos <- this.Pos + value.Length"
+                            "        else"
+                            "            this.GrowThenCopyString(value)"
+                            "    member this.AppendFormatted(value: 'T) ="
+                            "        let o = box value"
+                            "        let s ="
+                            "            match o with"
+                            "            | :? IFormattable as f -> f.ToString(null, provider)"
+                            "            | null -> \"\""
+                            "            | _ -> o.ToString()"
+                            "        this.AppendLiteral(s)"
+                            "    member this.ToStringAndClear() : string ="
+                            "        let result = this.Chars.Slice(0, this.Pos).ToString()"
+                            "        this.Clear()"
+                            "        result"
+                            "    member private this.Clear() ="
+                            "        let toReturn = this.Pool"
+                            "        this.Pool <- null"
+                            "        this.Pos <- 0"
+                            "        match toReturn with | null -> () | arr -> ArrayPool<char>.Shared.Return(arr)"
+                            "    member private this.GrowThenCopyString(value: string) ="
+                            "        this.Grow(value.Length)"
+                            // string.CopyTo(Span) mis-resolves to the 4-param overload
+                            // (overload-resolution-bug.md); TryCopyTo (the bool form)
+                            // resolves and is equivalent once the buffer has grown.
+                            "        let _ok = value.TryCopyTo(this.Chars.Slice(this.Pos, this.Chars.Length - this.Pos))"
+                            "        this.Pos <- this.Pos + value.Length"
+                            "    member private this.Grow(additionalChars: int) ="
+                            "        this.GrowCore(this.Pos + additionalChars)"
+                            // The real Formatter clamps growth in `uint` (PP5b) to
+                            // dodge overflow at huge sizes; the `uint`→`int` array-size
+                            // conversion has no recipe in the test stack
+                            // (overload-resolution-bug.md), so this checkpoint uses int
+                            // arithmetic — equivalent for the small grow it exercises.
+                            "    member private this.GrowCore(requiredMinCapacity: int) ="
+                            "        let newCapacity = Math.Max(requiredMinCapacity, Math.Min(this.Chars.Length * 2, MaxChars))"
+                            "        let arraySize = Math.Max(newCapacity, MinimumArrayPoolLength)"
+                            "        let newArray = ArrayPool<char>.Shared.Rent(arraySize)"
+                            "        this.Chars.Slice(0, this.Pos).CopyTo(Span<char>(newArray))"
+                            "        let toReturn = this.Pool"
+                            "        this.Pool <- newArray"
+                            "        this.Chars <- Span<char>(newArray)"
+                            "        match toReturn with | null -> () | arr -> ArrayPool<char>.Shared.Return(arr)"
+                            "let basic () ="
+                            "    let mutable f = Handler(0, 2)"
+                            "    f.AppendLiteral(\"x=\")"
+                            "    f.AppendFormatted(42)"
+                            "    f.AppendLiteral(\", pi=\")"
+                            "    f.AppendFormatted(3.14)"
+                            "    f.ToStringAndClear()"
+                            "let grown () ="
+                            "    let mutable f = Handler(0, 1)"
+                            "    let mutable i = 0"
+                            "    while i < 200 do"
+                            "        f.AppendLiteral(\"ab\")"
+                            "        i <- i + 1"
+                            "    let s = f.ToStringAndClear()"
+                            "    s.Length"
+                            "printfn \"%s\" (basic())"
+                            "printfn \"%d\" (grown())"
+                        ])
+            }
         ]
