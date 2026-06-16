@@ -142,14 +142,16 @@ module EmitClosures =
         acc
 
     /// The shared classification shell behind `collectModuleValues` /
-    /// `collectGenericModuleValues`: a non-`inline`, non-`Lambda` `let name = value`
-    /// on a *named* module holder. `tyOk` selects which type shapes qualify (fully
-    /// ground vs. open-but-encodable); `project` builds the caller's row from the
-    /// resolved binding key, type, init value, and holder info.
+    /// `collectGenericModuleValues`: a non-`inline`, non-`Lambda` `let name = value`.
+    /// `tyOk` selects which type shapes qualify (fully ground vs. open-but-encodable);
+    /// `project` builds the caller's row from the resolved binding key, type, init
+    /// value, and the holder info — `Some` for a value on a *named* module holder,
+    /// `None` for a *top-level* (implicit-"Program"-module) value. A caller that only
+    /// wants named-holder values returns `None` on the holderless case.
     let private classifyModuleValues
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
         (tyOk: FrozenType -> bool)
-        (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleMemberInfo -> 'a)
+        (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleMemberInfo option -> 'a option)
         (decls: Frozen.TDecl list)
         : 'a list =
         decls
@@ -164,9 +166,7 @@ module EmitClosures =
                 )
                 && tyOk ty
                 ->
-                match Map.tryFind k.Raw moduleMembers with
-                | Some info -> Some(project k ty value info)
-                | None -> None
+                project k ty value (Map.tryFind k.Raw moduleMembers)
             | _ -> None
         )
 
@@ -190,13 +190,18 @@ module EmitClosures =
             moduleMembers
             ftIsGround
             (fun k ty value info ->
-                {
-                    Key = k
-                    Name = info.Name
-                    Ty = ty
-                    Init = value
-                    Holder = info.Namespace, info.Holder
-                }
+                // Only a *named*-holder ground value is a field here; a top-level
+                // (holderless) ground value is `collectProgramValues`' job.
+                info
+                |> Option.map (fun info ->
+                    {
+                        Key = k
+                        Name = info.Name
+                        Ty = ty
+                        Init = value
+                        Holder = info.Namespace, info.Holder
+                    }
+                )
             )
 
     /// True when `t` is free of leaked inference metavars (`FTUnknown`) — the
@@ -216,20 +221,52 @@ module EmitClosures =
         | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
         | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
 
+    /// The source name of a *top-level* (holderless) binding for its Program-holder
+    /// field/method. A *leading* standalone `ModuleElem.Let` had its name recorded by
+    /// `Elaborate` (`TopLevelNames`); a value *after* a top-level statement folds into
+    /// the preceding sequential (a nested `let`, not its own module element) and has no
+    /// recorded name — synthesise one fsc-style (`value@<offset>`), the field being
+    /// assembly-internal and resolved by `NodeKey`, never by name.
+    let private topLevelName (topLevelNames: Map<uint64, string>) (k: NodeKey) : string =
+        match Map.tryFind k.Raw topLevelNames with
+        | Some n -> n
+        | None -> sprintf "value@%d" k.Offset
+
+    /// `(ns, name)` of a `TypeKey` — used to match a value's type against the
+    /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
+    /// the decl key can carry different `asm` qualification.
+    let typeKeyNsName (k: SymbolKey) : (string * string) option =
+        match k with
+        | SymbolKey.TypeKey(_, ns, name) -> Some(ns, name)
+        | _ -> None
+
     /// Classify the *generic* module-level values (`let empty : SetTree<'T> = …`)
-    /// — a non-`inline`, non-`Lambda` `let` on a *named* holder whose type carries
-    /// an open typar (`FTTypar`, freeze-quantified to the method axis) and no
-    /// leaked `FTUnknown`. A non-generic module holder has no type parameter to
-    /// type a `SetTree<'T>` *field*, so — like real F#'s representation of a
-    /// generic value — each lowers to a **zero-arg generic static method** on its
-    /// holder, returning the initialiser; every reference `call`s its `MethodSpec`
-    /// (the instantiation recovered from the reference's own type). They are
-    /// returned as ordinary `StaticFn`s (0 params) so the layout / registry /
-    /// holder-method machinery picks them up uniformly; the only bespoke handling
-    /// is the value-position `call` at the reference site (`EmitExpr.buildExpr`).
-    /// A *function*-typed generic value (a stored closure) is still deferred.
+    /// — a non-`inline`, non-`Lambda` `let` whose type carries an open typar
+    /// (`FTTypar`, freeze-quantified to the method axis) and no leaked `FTUnknown`.
+    /// A non-generic module holder has no type parameter to type a `SetTree<'T>`
+    /// *field*, so — like real F#'s representation of a generic value — each lowers
+    /// to a **zero-arg generic static method** on its holder (a "generic property"
+    /// on the module's static class), returning the initialiser; every reference
+    /// `call`s its `MethodSpec` (the instantiation recovered from the reference's
+    /// own type). They are returned as ordinary `StaticFn`s (0 params) so the
+    /// layout / registry / holder-method machinery picks them up uniformly; the only
+    /// bespoke handling is the value-position `call` at the reference site
+    /// (`EmitExpr.buildExpr`). A *function*-typed generic value (a stored closure)
+    /// is still deferred.
+    ///
+    /// Both a value on a *named* holder (`module Foo`, §9) and a *top-level*
+    /// (implicit-"Program"-module) generic value (§10.5) classify: the latter records
+    /// no `ModuleMemberInfo`, so it gets `Holder = None` (the Program holder) and a
+    /// name from `TopLevelNames` (synthetic `value@<offset>` for a flattened nested
+    /// trailing value). Position-independent — a method is computed on demand, so the
+    /// §10.3 leading/trailing partition does not apply to it. A *non-generalisable*
+    /// generic value never reaches here: the front end's value restriction
+    /// (`InferGeneralize.shouldGeneralise`) keeps an expansive parameterless binding
+    /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
+    /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
     let collectGenericModuleValues
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (topLevelNames: Map<uint64, string>)
         (decls: Frozen.TDecl list)
         : StaticFn list =
         // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
@@ -249,14 +286,21 @@ module EmitClosures =
             moduleMembers
             tyOk
             (fun k ty value info ->
-                {
-                    Key = k
-                    Name = info.Name
-                    Holder = Some(info.Namespace, info.Holder)
-                    Params = []
-                    Body = value
-                    ResultTy = ty
-                }
+                let name, holder =
+                    match info with
+                    | Some info -> info.Name, Some(info.Namespace, info.Holder)
+                    // A top-level generic value: `None` holder ⇒ the Program holder.
+                    | None -> topLevelName topLevelNames k, None
+
+                Some
+                    {
+                        Key = k
+                        Name = name
+                        Holder = holder
+                        Params = []
+                        Body = value
+                        ResultTy = ty
+                    }
             )
 
     /// Classify the *top-level* (implicit-"Program"-module) ground values
@@ -268,14 +312,6 @@ module EmitClosures =
     /// `HolderPlan.create` (the §10.3 first-`do` partition). Generic top-level
     /// values are handled by `collectGenericModuleValues`' holderless fallback;
     /// function-typed values (a stored closure) are deferred, as for a named holder.
-    /// `(ns, name)` of a `TypeKey`, used to match a value's type against the
-    /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
-    /// the decl key can carry different `asm` qualification.
-    let typeKeyNsName (k: SymbolKey) : (string * string) option =
-        match k with
-        | SymbolKey.TypeKey(_, ns, name) -> Some(ns, name)
-        | _ -> None
-
     let collectProgramValues
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
         (programHolder: HolderKey)
@@ -299,48 +335,37 @@ module EmitClosures =
             | FTConst(n, _) when n = RuntimeNames.byrefName -> false
             | _ -> true
 
-        decls
-        |> List.choose (fun d ->
-            match d with
-            | TDeclG.Let(TPatG.NamedSimple(k, ty, _), value, isInline, _) when
-                not isInline
-                && (
-                    match value with
-                    | TExprG.Lambda _ -> false
-                    | _ -> true
-                )
-                && ftIsGround ty
-                && (
-                    match ty with
-                    | FTFun _ -> false
-                    | _ -> true
-                )
-                && isFieldEmittable ty
-                // A named-holder value (`module Foo`) takes the §7 path; a top-level
-                // (`holder = None`) value records no `ModuleMemberInfo`.
-                && not (Map.containsKey k.Raw moduleMembers)
-                ->
-                // A *leading* top-level value is a standalone `ModuleElem.Let`, so
-                // `Elaborate` recorded its source name. A value *after* a top-level
-                // statement folds into the preceding sequential (it is a nested `let`,
-                // not its own module element), so it has no recorded name — synthesise
-                // one fsc-style (`r@3`), the field being assembly-internal and resolved
-                // by `NodeKey`, never by name.
-                let name =
-                    match Map.tryFind k.Raw topLevelNames with
-                    | Some n -> n
-                    | None -> sprintf "value@%d" k.Offset
+        // Ground (a field, not a generic method), not a stored closure (`FTFun`), and
+        // storable as a static field.
+        let tyOk ty =
+            ftIsGround ty
+            && (
+                match ty with
+                | FTFun _ -> false
+                | _ -> true
+            )
+            && isFieldEmittable ty
 
-                Some
-                    {
-                        Key = k
-                        Name = name
-                        Ty = ty
-                        Init = value
-                        Holder = programHolder
-                    }
-            | _ -> None
-        )
+        decls
+        |> classifyModuleValues
+            moduleMembers
+            tyOk
+            (fun k ty value info ->
+                // A named-holder value (`module Foo`) takes the §7 path; only a
+                // top-level (`holder = None`) value — recording no `ModuleMemberInfo` —
+                // becomes a Program-holder field here.
+                match info with
+                | Some _ -> None
+                | None ->
+                    Some
+                        {
+                            Key = k
+                            Name = topLevelName topLevelNames k
+                            Ty = ty
+                            Init = value
+                            Holder = programHolder
+                        }
+            )
 
     /// A module value's initialiser runs in its holder's `.cctor`, where only
     /// other module values (`ldsfld`) and static-method functions (direct `call`)

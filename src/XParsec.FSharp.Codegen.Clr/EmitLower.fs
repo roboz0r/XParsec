@@ -453,17 +453,52 @@ module EmitLower =
             | TExprG.External(name, _, ty, tok) when isFunTy ty -> etaExpand name ty tok
             | _ -> mapChildren lowerExpr e
 
+        // Split a folded top-level statement sequence back into standalone decls
+        // in source order (module-representation §10.3 Stage 2). The parser folds
+        // consecutive top-level statements/lets into ONE `TDecl.Expression` whose
+        // expr is a `Sequential` / `let … in …` chain, so a value *after* a
+        // statement (a *trailing* value) arrives nested as a `TExpr.Let` the
+        // Program-value collector never sees and stays a `Main` local. Peeling the
+        // chain here lets each trailing `let` become its own `TDecl.Let`, which
+        // flows into the already-built `ProgramMainValues` / `stsfld` path.
+        //
+        // Only the outermost statement *spine* is peeled — `Sequential` items and
+        // the continuation (`body`) of a top-level `let … in …`. Sub-expressions
+        // (application args, lambda bodies, match arms) are NOT descended into, so
+        // a genuinely-local `let` nested inside an expression is left intact.
+        let rec flattenTopLevel (e: Frozen.TExpr) : Frozen.TDecl list =
+            match e with
+            | TExprG.Sequential(items, _, _) ->
+                [
+                    for it in EqArray.toList items do
+                        yield! flattenTopLevel it
+                ]
+            | TExprG.Let(pat, value, body, _, _) ->
+                // The bound value is itself an expression (not a statement spine) —
+                // keep it whole; only the `body` continuation is more top-level decls.
+                TDeclG.Let(pat, value, false, typeOfExpr value) :: flattenTopLevel body
+            | _ -> [ TDeclG.Expression(e, typeOfExpr e) ]
+
         // Eta lowering surfaces operator applications (an eta-reified `(+)`);
         // `expandBuiltinOps` then collapses every saturated one to inline IL — a
         // closing phase so it sees them all.
         let result = ResizeArray<Frozen.TDecl>()
 
-        for d in decls do
+        let lowerOne (d: Frozen.TDecl) =
             match d with
             | TDeclG.Let(_, _, true, _) -> ()
             | TDeclG.Let(p, value, false, t) -> result.Add(TDeclG.Let(p, expandBuiltinOps (lowerExpr value), false, t))
             | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(expandBuiltinOps (lowerExpr e), t))
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDeclG.Type _ -> ()
+
+        for d in decls do
+            match d with
+            // A top-level statement decl may be a folded sequence — split it first,
+            // so a trailing `let` reaches the collector as a standalone decl.
+            | TDeclG.Expression(e, _) ->
+                for fd in flattenTopLevel e do
+                    lowerOne fd
+            | _ -> lowerOne d
 
         List.ofSeq result

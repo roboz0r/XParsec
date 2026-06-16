@@ -874,6 +874,118 @@ let staticTests =
                 let m = readerTy.GetMethod("Get", declaredInstance, null, [||], null)
                 Expect.equal (m.Invoke(inst, [||]) :?> int) 42 "Reader().Get() reads the top-level value provider = 42"
             }
+
+            // module-representation-plan §10.5 / §10.8 Stage 3: a *generic* top-level
+            // value (`let empty : 'T list = []`) cannot be a static *field* (a
+            // non-generic Program holder has no type parameter to type it), so — as
+            // §9's named-holder generic values — it lowers to a **zero-arg generic
+            // static method** on the Program holder ("a generic property on the
+            // module's static class"), `call`ed at the use-site instantiation. The
+            // alternative outcome, a *non-generalisable* generic value, is a
+            // value-restriction error in the front end (`shouldGeneralise`), so it
+            // never reaches codegen. Before Stage 3 a top-level generic value became a
+            // `Main` local carrying a method-axis typar with no generic context →
+            // `BadImageFormatException` (invalid IL).
+            test "§10.5: a generic top-level value is a generic static method on Program (not a field)" {
+                let _, artifact =
+                    compileSource
+                        "TopLevelGeneric"
+                        (String.concat
+                            "\n"
+                            [
+                                "let empty : 'T list = []" // generic → zero-arg generic static method
+                                "let xs : int list = empty" // instantiates empty<int> (call MethodSpec)
+                                "printfn \"%d\" (List.length xs)"
+                            ])
+
+                let bytes = Codegen.toBytes artifact
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "the program exits 0"
+                Expect.stringContains output "0" "List.length of the empty list = 0"
+
+                let asm = loadAssembly bytes
+                let program = asm.GetType "Program"
+                Expect.isNotNull program "the Program holder is emitted"
+
+                // `empty` is a generic static METHOD, never a static field.
+                Expect.isNull
+                    (program.GetField("empty", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static))
+                    "a generic value is not a static field"
+
+                let emptyMethod =
+                    program.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
+                    |> Array.tryFind (fun m -> m.Name = "empty")
+
+                match emptyMethod with
+                | None -> failtest "the generic value `empty` is emitted as a static method on Program"
+                | Some m ->
+                    Expect.isTrue m.IsGenericMethodDefinition "`empty` is a generic method (one type parameter)"
+                    Expect.equal (m.GetGenericArguments().Length) 1 "`empty<'T>` has one type parameter"
+                    Expect.equal (m.GetParameters().Length) 0 "`empty` is a zero-arg method (a generic value)"
+            }
+
+            // module-representation-plan §10.3 Stage 2: a top-level value *after* a
+            // statement is a *trailing* value — a `public static` (mutable, NOT
+            // initonly) field written by `Main` via `stsfld` in source order, not
+            // hoisted to the pre-`Main` `.cctor`. The parser folds the trailing
+            // `let r = …` into the preceding statement's sequential; `EmitLower`
+            // flattens it back to a standalone decl so the Program-value collector
+            // sees it. Proof of the partition: `r`'s init side effect runs in `Main`
+            // *after* the leading value is printed (not pre-`Main`); `p` (leading) is
+            // initonly, `r` (trailing) is not. (A *member* reading a trailing value
+            // additionally needs `type`-after-statement, an orthogonal parser gap.)
+            test "§10.3: a top-level value after a statement is a Main-written mutable static field (trailing)" {
+                let _, artifact =
+                    compileSource
+                        "TopLevelTrailing"
+                        (String.concat
+                            "\n"
+                            [
+                                "let p = 10" // leading → .cctor, initonly
+                                "printfn \"%d\" p" // statement → Main
+                                "let r = (printfn \"r-init\"; p + 5)" // trailing → Main, mutable static
+                                "printfn \"%d\" r" // statement → Main, reads r (ldsfld)
+                            ])
+
+                let bytes = Codegen.toBytes artifact
+
+                // Runtime order proves the partition: "10" (leading, set in .cctor and
+                // printed first), THEN "r-init" (r's init side effect, run in Main —
+                // not hoisted ahead of the printf), THEN "15".
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "the program exits 0"
+                let iP = output.IndexOf "10"
+                let iInit = output.IndexOf "r-init"
+                let iR = output.IndexOf "15"
+                Expect.isGreaterThan iP -1 "the leading value p (= 10) is printed"
+
+                Expect.isGreaterThan
+                    iInit
+                    iP
+                    "r's init side effect runs AFTER p is printed (Main, not the pre-Main .cctor)"
+
+                Expect.isGreaterThan iR iInit "r (= 15) is printed after its init runs"
+
+                let asm = loadAssembly bytes
+                let program = asm.GetType "Program"
+                Expect.isNotNull program "the Program holder is emitted"
+
+                let statics = program.GetFields(BindingFlags.Public ||| BindingFlags.Static)
+
+                let pField = program.GetField("p", BindingFlags.Public ||| BindingFlags.Static)
+
+                Expect.isNotNull pField "the leading value p is a public static field on Program"
+                Expect.isTrue pField.IsInitOnly "p (leading) is initonly — set by the Program .cctor"
+
+                // The trailing value `r` is nested (folded into a sequential), so it
+                // carries no recorded source name and is field-named `value@<offset>`;
+                // it is the (sole) mutable Program static — `Main` `stsfld`s it.
+                let mutables = statics |> Array.filter (fun f -> not f.IsInitOnly) |> Array.toList
+
+                Expect.equal mutables.Length 1 "exactly one trailing (mutable) Program static field — r"
+                Expect.equal mutables.[0].FieldType typeof<int> "the trailing value r is an int field"
+            }
         ]
 
 [<Tests>]

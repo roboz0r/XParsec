@@ -102,7 +102,8 @@ module HolderPlan =
         // holder (real F#'s representation of a generic value); a reference `call`s
         // its `MethodSpec`. They join the static-method machinery as 0-param fns
         // (module-representation-plan).
-        let genericModuleValues = Emit.collectGenericModuleValues moduleMembers lowered
+        let genericModuleValues =
+            Emit.collectGenericModuleValues moduleMembers topLevelNames lowered
 
         let genericModuleValueKeys =
             HashSet<NodeKey>(genericModuleValues |> List.map (fun fn -> fn.Key))
