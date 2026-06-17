@@ -47,6 +47,7 @@ files = [
     "structural-format.fsi",
     "ops-platform.fsi",
     "ops-std.fsi",
+    "int-comparison.fsi",
 ]
 
 # The `.fs` files compiled into Vesper.Core.dll (the package's runtime DLL). These
@@ -70,6 +71,7 @@ impl = [
 inline-bodies = [
     "ops-platform.fs",
     "ops-std.fs",
+    "int-comparison.fs",
 ]
 
 # JS-target override (codegen-js-steps.md step F1), selected by the backend via

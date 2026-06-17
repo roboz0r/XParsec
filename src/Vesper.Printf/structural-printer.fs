@@ -5,6 +5,10 @@ open System.Buffers
 open System.Collections
 open System.Globalization
 open System.Runtime.CompilerServices
+// The primitive `int` ordering operators (`< > <= >=` on depth / size / index
+// budgets). The polymorphic family is in Vesper.Comparison, which this package
+// deliberately does not reference; see ../Vesper.Core/int-comparison.fsi.
+open Vesper.IntComparison
 
 // Vesper-compiled `%A` structural engine, ported from the C# `StructuralFormat.cs`.
 // Reflection-free pretty-printer: group-based layout where every composite renders

@@ -15,11 +15,10 @@ namespace = "Vesper"
 description = "printf / printfn / sprintf and the write-through format handler."
 
 # Depends on Vesper.Core for the language primitives (`string`, `uint`, `char[]`,
-# the arithmetic/equality operators), Vesper.Comparison for the ordering operators
-# (`<` / `>`, used by the alignment + grow arithmetic), and Vesper.List for the
-# cons-list (`[]` / `::`) the `%A` engine (`structural-printer.fs`) uses as its
-# `Doc` child lists + frame stack.
-depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison"]
+# the arithmetic/equality operators) and Vesper.List for the cons-list (`[]` / `::`)
+# the `%A` engine (`structural-printer.fs`) uses as its `Doc` child lists + frame
+# stack.
+depends-on = ["Vesper.Core", "Vesper.List"]
 
 # .fsi files in compile order. printf-format (PrintfFormat type) before printf
 # (its signatures reference PrintfFormat); formatter is independent.

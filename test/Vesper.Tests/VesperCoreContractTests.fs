@@ -36,6 +36,7 @@ let private contractFiles =
         "core-types.fsi"
         "ops-platform.fsi"
         "ops-std.fsi"
+        "int-comparison.fsi"
     ]
 
 /// Impl `.fs` files — our-backend target source, one companion per `prim-types-*`
@@ -59,6 +60,7 @@ let private implFiles =
         "core-types.fs"
         "ops-platform.fs"
         "ops-std.fs"
+        "int-comparison.fs"
     ]
 
 [<Tests>]

@@ -5,6 +5,8 @@ open System.Buffers
 open System.Globalization
 open System.IO
 
+open Vesper.IntComparison
+
 // Vesper-compiled implementation of `formatter.fsi`, ported from the C# `Formatter.cs`
 // (the printf write-through handler).
 //
