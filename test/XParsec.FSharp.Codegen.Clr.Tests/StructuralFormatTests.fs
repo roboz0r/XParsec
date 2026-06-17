@@ -2,18 +2,26 @@ module XParsec.FSharp.Codegen.Clr.Tests.StructuralFormatTests
 
 open Expecto
 open Vesper
+open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The `%A` layout engine in isolation —
 // no compiler. Hand-written `IStructuralFormattable` impls (compiled by fsc here)
-// drive `StructuralPrinter.Print`, the same declarative sink the backend
-// synthesises against. The oracle is the spec (copy-pasteable Vesper source), not
-// F#'s `sprintf "%A"` — we deliberately diverge.
+// drive the layout engine, the same declarative sink the backend synthesises
+// against. The oracle is the spec (copy-pasteable Vesper source), not F#'s
+// `sprintf "%A"` — we deliberately diverge.
+//
+// PP7 step 2: these drive the **Vesper-compiled** `StructuralPrinter`
+// (`structural-printer.fs`) via reflection (`structuralPrint` / `structuralPrintSized`
+// in `TestHelpers`), not the C# `Vesper.StructuralPrinter` that fsc would bind here.
+// The `Point`/`Opt` `IStructuralFormattable` impls still bind the Core interfaces at
+// compile time; only the engine entry point is now the self-hosted one. The
+// cycle-truncation test thus exercises the Vesper cons-list `ReferenceEquals` scan.
 
-/// `Print v 80` — the default 80-column budget (most values stay flat).
-let private flat (v: obj) = StructuralPrinter.Print(v, 80)
+/// `structuralPrint v 80` — the default 80-column budget (most values stay flat).
+let private flat (v: obj) = structuralPrint v 80
 
 /// Force breaking with a tiny budget.
-let private narrow (v: obj) = StructuralPrinter.Print(v, 5)
+let private narrow (v: obj) = structuralPrint v 5
 
 // A record with a hand-written Format: `{ X = <int>; Y = <string> }`.
 type Point =
@@ -69,7 +77,7 @@ let tests =
                     test "nan" { Expect.equal (flat (box (0.0 / 0.0))) "nan" "nan spelling" }
                     test "string is quoted" { Expect.equal (flat (box "hi")) "\"hi\"" "quoted string" }
                     test "char is quoted" { Expect.equal (flat (box 'c')) "'c'" "quoted char" }
-                    test "null" { Expect.equal (StructuralPrinter.Print(null, 80)) "null" "null" }
+                    test "null" { Expect.equal (structuralPrint null 80) "null" "null" }
                     test "string escapes" {
                         Expect.equal (flat (box "a\"b\nc")) "\"a\\\"b\\nc\"" "quote + newline escaped"
                     }
@@ -167,7 +175,7 @@ let tests =
                 [
                     test "width 0 never breaks" {
                         Expect.equal
-                            (StructuralPrinter.Print(box [ 1; 2; 3; 4; 5; 6; 7; 8; 9; 10 ], 0))
+                            (structuralPrint (box [ 1; 2; 3; 4; 5; 6; 7; 8; 9; 10 ]) 0)
                             "[1; 2; 3; 4; 5; 6; 7; 8; 9; 10]"
                             "the %0A flat mode"
                     }
@@ -186,25 +194,25 @@ let tests =
                 [
                     test "size 2 truncates a list after 2 leaves" {
                         Expect.equal
-                            (StructuralPrinter.Print(box [ 1; 2; 3; 4; 5 ], 80, 2))
+                            (structuralPrintSized (box [ 1; 2; 3; 4; 5 ]) 80 2)
                             "[1; 2; ...]"
                             "two elements then ..."
                     }
                     test "size 0 truncates immediately" {
-                        Expect.equal (StructuralPrinter.Print(box [ 1; 2; 3 ], 80, 0)) "..." "nothing fits"
+                        Expect.equal (structuralPrintSized (box [ 1; 2; 3 ]) 80 0) "..." "nothing fits"
                     }
                     test "size above the content prints in full" {
-                        Expect.equal (StructuralPrinter.Print(box [ 1; 2; 3 ], 80, 10)) "[1; 2; 3]" "budget not reached"
+                        Expect.equal (structuralPrintSized (box [ 1; 2; 3 ]) 80 10) "[1; 2; 3]" "budget not reached"
                     }
                     test "the budget is shared across a nested list" {
                         Expect.equal
-                            (StructuralPrinter.Print(box [ [ 1; 2 ]; [ 3; 4 ]; [ 5; 6 ] ], 80, 3))
+                            (structuralPrintSized (box [ [ 1; 2 ]; [ 3; 4 ]; [ 5; 6 ] ]) 80 3)
                             "[[1; 2]; [3; ...]; ...]"
                             "3 leaves spent, then nested + outer ..."
                     }
                     test "a tuple truncates per leaf (preserving arity)" {
                         Expect.equal
-                            (StructuralPrinter.Print(box (1, 2, 3), 80, 1))
+                            (structuralPrintSized (box (1, 2, 3)) 80 1)
                             "(1, ..., ...)"
                             "one leaf, the rest ... (matches F#)"
                     }

@@ -18,29 +18,26 @@ let private soleDecl (src: string) : TDecl =
     | EqList [ d ] -> d
     | _ -> failtestf "expected one decl for %s, got: %A" src tast.Decls
 
-// PP7f intent: re-green these drivers against the **Vesper-compiled** handler
-// (`withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)`). 74/85 already pass
-// there; the remaining 11 (`%u`, `%g` with width/precision, `%0w.pf` zero-pad) hit
-// a latent backend codegen bug — a struct method whose body is a single self-call
-// to another struct instance method (`Formatter.AppendUnsigned` /
-// `AppendZeroPaddedFloat`) throws `InvalidProgramException` (the inner `this` is a
-// defensive copy; fatal on a `ref struct`). See the `StructTests` PP7f gap ptest
-// "nested struct self-call loses the inner mutation". Until that lands, these stay
-// on the C# handler (`runEntryPoint`, the gated-off bootstrap); the Vesper handler
-// is already proven on the covered shapes by `PrintfDifferentialTests`.
+// PP7f (printf-port-steps.md step 1): these drivers now bind the **Vesper-compiled**
+// `Vesper.Printf.dll` (`withPrintfAlc Vesper`), not the C# host copy. The backend
+// blocker that made 11/85 throw `InvalidProgramException` — a struct method whose
+// body self-calls one of `Formatter`'s overloaded `AppendFormatted` members
+// (`AppendUnsigned` / `AppendZeroPaddedFloat`), where the inner `this` was a
+// defensive copy fatal on a `ref struct` — is fixed (`EmitResolve.pickOverload`
+// keying members by an overload list + arg types; see the `StructTests` PP7f tests).
+// `PrintfDifferentialTests` remains the C#↔Vesper byte-identity safety net; here the
+// Vesper handler is the sole runtime peer.
 let private runPrints (name: string) (src: string) (expected: string) =
-    let _, artifact = compileSource name src
-    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let exitCode, output = withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.Trim()) expected (sprintf "%s prints %s" src expected)
 
-/// Compile + run `src`, asserting output matches `expected`. Trims only the
-/// trailing newline (so leading/embedded alignment spaces survive) and pairs
-/// with an `expected` from the test process's own `sprintf` for byte-for-byte
-/// parity with real F#.
+/// Compile + run `src` against the Vesper handler, asserting output matches
+/// `expected`. Trims only the trailing newline (so leading/embedded alignment
+/// spaces survive) and pairs with an `expected` from the test process's own
+/// `sprintf` for byte-for-byte parity with real F#.
 let private runParity (name: string) (src: string) (expected: string) =
-    let _, artifact = compileSource name src
-    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+    let exitCode, output = withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.TrimEnd('\r', '\n')) expected (sprintf "%s == F# parity" src)
 
@@ -471,8 +468,9 @@ let tests =
             }
 
             test "`printfn \"%5d\"` right-justifies in a width-5 field" {
-                let _, artifact = compileSource "PHpAlign" "printfn \"%5d\" 42"
-                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                let exitCode, output =
+                    withPrintfAlc Vesper (fun alc -> runDriverInAlc alc "printfn \"%5d\" 42")
+
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.TrimEnd()) "   42" "right-justified in a width-5 field (3 leading spaces)"
             }

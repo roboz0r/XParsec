@@ -653,6 +653,58 @@ let runsDifferentialEq (expected: string) (src: string) : unit =
     if actual <> expected then
         failwithf "expected %A but both handlers produced %A for:\n%s" expected actual src
 
+// ---- PP7 step 2: drive the `%A` golden oracle on the VESPER engine ------------
+// `StructuralFormatTests` is fsc-compiled and used to bind the C#
+// `Vesper.StructuralPrinter.Print` at compile time. To exercise the
+// *Vesper-compiled* engine instead (`structural-printer.fs`, including its cons-list
+// `Object.ReferenceEquals` cycle scan rather than the C# `HashSet<obj>`), resolve
+// `StructuralPrinter` by reflection from the `buildPackage`-produced
+// `Vesper.Printf.dll`. It is loaded into a dedicated long-lived (non-collectible) ALC
+// with no `Load` override, so its `Vesper.Core` dependency resolves through the
+// runtime's Default fall-through — the same value-identity unification `withPrintfAlc`
+// does for drivers. The hand-written `Point`/`Opt` `IStructuralFormattable` impls
+// (bound to the test's `Vesper.Core`) and the engine's `RuntimeFormatState`
+// (`IFormatSink`) then meet on the single Default `Vesper.Core`, so the engine's
+// `value :? IStructuralFormattable` test succeeds across the ALC boundary.
+
+/// The Vesper-compiled `StructuralPrinter::Print(obj, int, int)` bound once.
+/// Forcing it builds `Vesper.Printf` (and its deps into Default) via
+/// `vesperPrintfPath`, then loads that DLL into its own ALC.
+let private vesperStructuralPrintMethod: Lazy<MethodInfo> =
+    lazy
+        (let path = vesperPrintfPath ()
+         // The engine's `RuntimeFormatState` references `Vesper.Core` (the `%A`
+         // interfaces) and `Vesper.List` (the cons-list its cycle scan walks). The
+         // dedicated ALC below has no `Load` override, so those resolve through the
+         // Default fall-through — force both Default-ALC copies first (exactly what a
+         // driver compile's `withCore` does for `withPrintfAlc`), or the cross-ALC
+         // load throws `FileNotFoundException`.
+         vesperCoreDll.Value |> ignore
+         vesperListDll.Value |> ignore
+         let alc = AssemblyLoadContext("xparsec-structural-printer", isCollectible = false)
+
+         let asm =
+             use ms = new IO.MemoryStream(IO.File.ReadAllBytes path)
+             alc.LoadFromStream ms
+
+         let sp = asm.GetType("Vesper.StructuralPrinter", true)
+         let m = sp.GetMethod("Print", [| typeof<obj>; typeof<int>; typeof<int> |])
+
+         if isNull m then
+             failwith "Vesper.StructuralPrinter has no Print(obj, int, int)"
+
+         m)
+
+/// Render `value` through the Vesper-compiled `StructuralPrinter` with an explicit
+/// column budget and PrintSize node budget (the `%.NA` mode).
+let structuralPrintSized (value: obj) (widthBudget: int) (sizeBudget: int) : string =
+    vesperStructuralPrintMethod.Value.Invoke(null, [| value; box widthBudget; box sizeBudget |]) :?> string
+
+/// Render `value` through the Vesper-compiled `StructuralPrinter` at the default
+/// node budget (F#'s 10000 — plain `%A`).
+let structuralPrint (value: obj) (widthBudget: int) : string =
+    structuralPrintSized value widthBudget 10000
+
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
 // The one-liners the suite was missing (docs/codegen-test-strategy-plan.md):
 // the dominant assertion — "run this source, get this stdout, exit 0" — had no
