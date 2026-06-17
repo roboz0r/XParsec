@@ -34,6 +34,37 @@ module TastConvert =
         | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty, tok)
         | TPatG.Null(ty, tok) -> TPatG.Null(f ty, tok)
 
+    let staticParam (f: 'a -> 'b) (sp: StaticParamG<'a, 'tok>) : StaticParamG<'b, 'tok> =
+        {
+            Slot = sp.Slot
+            Ty = f sp.Ty
+            Pat = Option.map (pat f) sp.Pat
+        }
+
+    let argGroup (f: 'a -> 'b) (g: ArgGroupG<'a, 'tok>) : ArgGroupG<'b, 'tok> =
+        match g with
+        | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(f ty)
+        | ArgGroupG.GSimple(k, ty) -> ArgGroupG.GSimple(k, f ty)
+        | ArgGroupG.GTuple p -> ArgGroupG.GTuple(pat f p)
+
+    let valRepr (f: 'a -> 'b) (vr: ValReprG<'a, 'tok>) : ValReprG<'b, 'tok> =
+        {
+            Typars = vr.Typars
+            Groups = List.map (argGroup f) vr.Groups
+            ResultTy = f vr.ResultTy
+        }
+
+    let compiledReturn (f: 'a -> 'b) (r: CompiledReturnG<'a>) : CompiledReturnG<'b> =
+        match r with
+        | CompiledReturnG.RVoid -> CompiledReturnG.RVoid
+        | CompiledReturnG.RValue ty -> CompiledReturnG.RValue(f ty)
+
+    let compiledForm (f: 'a -> 'b) (cf: CompiledFormG<'a, 'tok>) : CompiledFormG<'b, 'tok> =
+        {
+            Params = List.map (staticParam f) cf.Params
+            Return = compiledReturn f cf.Return
+        }
+
     let hole (f: 'a -> 'b) (h: HoleSpecG<'a>) : HoleSpecG<'b> =
         {
             Ty = f h.Ty
@@ -231,6 +262,8 @@ module TastConvert =
     let decl (f: 'a -> 'b) (d: TDeclG<'a, 'tok>) : TDeclG<'b, 'tok> =
         match d with
         | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f binding, expr f value, isInline, f ty)
+        | TDeclG.LetFn(binding, vr, cf, value, isInline, ty) ->
+            TDeclG.LetFn(pat f binding, valRepr f vr, compiledForm f cf, expr f value, isInline, f ty)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f e, f ty)
         | TDeclG.Type td -> TDeclG.Type(typeDecl f td)
 

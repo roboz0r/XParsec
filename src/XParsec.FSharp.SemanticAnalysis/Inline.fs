@@ -136,7 +136,7 @@ module Inline =
 
     /// Approximate `when ^T : struct` for the value-type primitives the operator
     /// surface can reach; anything else is treated as non-struct. Full struct
-    /// detection on user types awaits the attribute walker (C-Attr).
+    /// detection on user types awaits the attribute walker.
     let private isStructType (t: SemType) : bool =
         match t with
         | TyConst(("int" | "int32" | "int64" | "byte" | "uint8" | "float" | "double" | "float64" | "bool" | "char" | "decimal"),
@@ -247,6 +247,7 @@ module Inline =
     /// abstract.
     let inlineExpand (decl: TDecl) (typeArgs: SemType[]) : TExpr =
         match decl with
+        | TDecl.LetFn _ -> failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in inlineExpand"
         | TDecl.Let(_, value, _, declTy) ->
             let typars = quantifiedTypars declTy
             let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)

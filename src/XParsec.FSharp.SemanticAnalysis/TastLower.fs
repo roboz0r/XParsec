@@ -20,13 +20,10 @@ module TastLower =
     /// carries `Pat = Some …` and a synthetic `Slot`, whose value the backend
     /// spills to a local and `bindPattern`s into the leaf bindings. Platform-neutral
     /// (`Frozen.TPat` / `FrozenType` / `NodeKey` only); the CLR-shaped `StaticFn`
-    /// that carries it stays in `Codegen.Clr`.
-    type StaticParam =
-        {
-            Slot: NodeKey
-            Ty: FrozenType
-            Pat: Frozen.TPat option
-        }
+    /// that carries it stays in `Codegen.Clr`. The shape now lives in `Tast.fs`
+    /// (`StaticParamG`, generic) so a frozen `TDeclG.LetFn` can ride it; this is the
+    /// frozen instantiation.
+    type StaticParam = Frozen.StaticParam
 
     let typeOfExpr (e: Frozen.TExpr) : FrozenType =
         match e with
@@ -297,6 +294,121 @@ module TastLower =
             b
         | _ -> [], e
 
+    // ----------------------------------------------------------------------
+    // Compiled-form representation (function-method-compiled-form-plan.md, Step A)
+    //
+    // Two preserved artifacts for a function / method:
+    //   * `ValRepr`      — the SOURCE arity (the `ValReprInfo` analogue): the
+    //                      curried groups, each group's tuple structure, the typar
+    //                      arity, and the SOURCE (non-erased) result type. A caller
+    //                      reconciles its application spine against this.
+    //   * `CompiledForm` — the flat CLR/JS signature DERIVED from a `ValRepr`:
+    //                      tuple groups flattened (full F#, one level), a lone unit
+    //                      group erased, a unit result mapped to `void`.
+    //
+    // `peelValRepr` is `peelLambda` recast as the `ValRepr` builder (it walks the
+    // same curried lambda + tuple-pattern structure); `compiledOf` is the
+    // `GetValReprTypeInCompiledForm` analogue. Neither is reconstructed at the
+    // backend boundary — both are captured once at freeze and stored on the node.
+    // ----------------------------------------------------------------------
+
+    // The source-arity / compiled-form types now live in `Tast.fs` (`ArgGroupG`,
+    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic so a frozen
+    // `TDeclG.LetFn` rides them); these are the frozen instantiations the builders
+    // below produce.
+    type ArgGroup = Frozen.ArgGroup
+    type ValRepr = Frozen.ValRepr
+    type CompiledReturn = Frozen.CompiledReturn
+    type CompiledForm = Frozen.CompiledForm
+
+    let private isUnitFrozen (t: FrozenType) : bool =
+        match t with
+        | FTConst("unit", args) -> args.Length = 0
+        | _ -> false
+
+    /// Peel a curried `Lambda` chain into its source `ArgGroup`s and the residual
+    /// body (the `peelLambda` walk, recording groups rather than flattened params).
+    /// A tuple group keeps its whole pattern — flattening is `compiledOf`'s job, so
+    /// the source grouping survives here.
+    let rec peelValRepr (e: Frozen.TExpr) : ArgGroup list * Frozen.TExpr =
+        match e with
+        | TExprG.Lambda(TPatG.NamedSimple(k, pty, _), body, _, _) ->
+            let gs, b = peelValRepr body
+            ArgGroupG.GSimple(k, pty) :: gs, b
+        | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty, _), body, _, _) ->
+            let gs, b = peelValRepr body
+            ArgGroupG.GUnit pty :: gs, b
+        | TExprG.Lambda((TPatG.Tuple _ as pat), body, _, _) ->
+            let gs, b = peelValRepr body
+            ArgGroupG.GTuple pat :: gs, b
+        | _ -> [], e
+
+    /// Build the SOURCE `ValRepr` for a function value (`typars` = its generic
+    /// arity), returning the residual body the backend emits. `ResultTy` is the
+    /// residual body's type — the source result, before any unit→void normalisation.
+    let valReprOf (typars: int) (e: Frozen.TExpr) : ValRepr * Frozen.TExpr =
+        let groups, body = peelValRepr e
+
+        {
+            Typars = typars
+            Groups = groups
+            ResultTy = typeOfExpr body
+        },
+        body
+
+    /// Flatten one source tuple element to a compiled parameter (one level): a
+    /// simple binder becomes a direct arg slot the body references; a wildcard a
+    /// slotted-but-unnamed arg; anything else keeps its pattern for the backend to
+    /// destructure (a nested tuple element stays one `ValueTuple` param).
+    let private flattenTupleItem (p: Frozen.TPat) : StaticParam =
+        match p with
+        | TPatG.NamedSimple(k, ty, _) -> { Slot = k; Ty = ty; Pat = None }
+        | TPatG.Wildcard(ty, _) ->
+            {
+                Slot = mintSyntheticParamKey ()
+                Ty = ty
+                Pat = None
+            }
+        | other ->
+            {
+                Slot = mintSyntheticParamKey ()
+                Ty = typeOfPat other
+                Pat = Some other
+            }
+
+    /// Derive the flat `CompiledForm` from a source `ValRepr` — the
+    /// `GetValReprTypeInCompiledForm` analogue. Full F# tuple flattening (one
+    /// level); a LONE unit group (`[GUnit]`) erases to zero params (a unit group
+    /// among others stays a `ValueTuple` param); a unit result becomes `RVoid`.
+    let compiledOf (vr: ValRepr) : CompiledForm =
+        let flattenGroup (g: ArgGroup) : StaticParam list =
+            match g with
+            | ArgGroupG.GUnit ty ->
+                [
+                    {
+                        Slot = mintUnitParamKey ()
+                        Ty = ty
+                        Pat = None
+                    }
+                ]
+            | ArgGroupG.GSimple(k, ty) -> [ { Slot = k; Ty = ty; Pat = None } ]
+            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> [ for it in EqArray.toList items -> flattenTupleItem it ]
+            | ArgGroupG.GTuple _ -> failwith "peelValRepr: GTuple must carry a TPatG.Tuple pattern"
+
+        let ps =
+            match vr.Groups with
+            | [ ArgGroupG.GUnit _ ] -> [] // lone unit group erased (F#'s `[[]]` rule, off the arity)
+            | groups -> groups |> List.collect flattenGroup
+
+        {
+            Params = ps
+            Return =
+                (if isUnitFrozen vr.ResultTy then
+                     CompiledReturnG.RVoid
+                 else
+                     CompiledReturnG.RValue vr.ResultTy)
+        }
+
     let private isFunTy (t: FrozenType) : bool =
         match t with
         | FTFun _ -> true
@@ -411,6 +523,14 @@ module TastLower =
             match d with
             | TDeclG.Let(_, _, true, _) -> ()
             | TDeclG.Let(p, value, false, t) -> result.Add(TDeclG.Let(p, finishOps (lowerExpr value), false, t))
+            // A `LetFn` (a module FUNCTION binding, with its source `ValRepr` +
+            // compiled signature riding the frozen TAST) normalises back to a plain
+            // `Let(binding, Value, …)` for emission — every downstream consumer
+            // (closure discovery, `collectStaticFns`, emit) sees the familiar
+            // `Let` + curried `Lambda` shape unchanged (Step A). Step B will consume
+            // the `compiled` signature here instead of re-peeling `Value`.
+            | TDeclG.LetFn(_, _, _, _, true, _) -> ()
+            | TDeclG.LetFn(p, _, _, value, false, t) -> result.Add(TDeclG.Let(p, finishOps (lowerExpr value), false, t))
             | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(finishOps (lowerExpr e), t))
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDeclG.Type _ -> ()

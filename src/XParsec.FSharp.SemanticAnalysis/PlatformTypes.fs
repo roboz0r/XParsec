@@ -118,6 +118,7 @@ module PlatformTypes =
         let iter = buildIter ctx acc
 
         match d with
+        | TDecl.LetFn _ -> failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in PlatformTypes"
         | TDecl.Let(binding, value, _, ty) ->
             addUnrepresentable ctx acc ty
             TastWalk.iterPat iter binding

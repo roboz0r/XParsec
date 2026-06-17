@@ -383,6 +383,58 @@ and TStaticOptClauseG<'ty, 'tok> =
         Body: TExprG<'ty, 'tok>
     }
 
+// ----------------------------------------------------------------------------
+// Compiled-form representation (function-method-compiled-form-plan.md, Step A).
+// Two preserved artifacts a function / method carries: the SOURCE arity
+// (`ValReprG`, the `ValReprInfo` analogue) and the flat compiled signature
+// (`CompiledFormG`) derived from it. Generic over `'ty`/`'tok` so a frozen
+// `TDeclG.LetFn` can ride them; the builders (`peelValRepr`/`compiledOf`) live in
+// `TastLower`. See the `Frozen.*` aliases below for the instantiated names.
+// ----------------------------------------------------------------------------
+
+/// One flattened compiled parameter. A simple binder's `Slot` is referenced by
+/// the body directly; a destructuring leaf carries `Pat = Some …` and a synthetic
+/// `Slot` the backend spills + `bindPattern`s.
+and StaticParamG<'ty, 'tok> =
+    {
+        Slot: NodeKey
+        Ty: 'ty
+        Pat: TPatG<'ty, 'tok> option
+    }
+
+/// One curried argument group of a function's SOURCE signature — the distinction
+/// the flat compiled signature loses. `GUnit` (`fun () -> …`) erases to zero
+/// params when it is the sole group; `GSimple` is one non-tuple param; `GTuple`
+/// (`fun (a, b, …) -> …`) carries the whole tuple pattern, which full-F#
+/// flattening expands to one flat param per element.
+and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'tok> =
+    | GUnit of ty: 'ty
+    | GSimple of slot: NodeKey * ty: 'ty
+    | GTuple of pat: TPatG<'ty, 'tok>
+
+/// The SOURCE signature — the `ValReprInfo` analogue. `Groups.Length` is the
+/// number of applications a saturated call consumes; `ResultTy` is the source
+/// (NOT unit-erased) result type.
+and ValReprG<'ty, 'tok> =
+    {
+        Typars: int
+        Groups: ArgGroupG<'ty, 'tok> list
+        ResultTy: 'ty
+    }
+
+/// The compiled return: `RVoid` is a unit result (CLR `void` / JS no-value).
+and [<RequireQualifiedAccess>] CompiledReturnG<'ty> =
+    | RVoid
+    | RValue of 'ty
+
+/// The flat compiled signature derived from a `ValReprG`: tuple-flattened,
+/// lone-unit-erased parameters and the `void`-normalised return.
+and CompiledFormG<'ty, 'tok> =
+    {
+        Params: StaticParamG<'ty, 'tok> list
+        Return: CompiledReturnG<'ty>
+    }
+
 /// Whether a class declaration emits as a reference type, a `[<Struct>]` value
 /// type, or a `[<IsByRefLike>]` byref-like value type. Collapses the former
 /// `isStruct`/`isByRefLike` bool pair so the illegal `(isStruct = false,
@@ -400,6 +452,22 @@ type TDeclG<'ty, 'tok> =
     /// `isInline` lets codegen expand the body per call site via `Inline.inlineExpand`
     /// rather than emit a single callable.
     | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * isInline: bool * ty: 'ty
+    /// A module-level FUNCTION binding (`let f x y = …`), split from `Let` at
+    /// Freeze (function-method-compiled-form-plan.md, Step A). Carries BOTH the
+    /// source arity (`ValRepr`) and the derived flat compiled signature
+    /// (`Compiled`), preserved in the frozen TAST so a caller — including a
+    /// cross-assembly one — reconciles its application spine against the source
+    /// grouping. `Value` is the original curried-lambda expression (unchanged from
+    /// the `Let` it replaces); the backend's `EmitLower` normalises `LetFn` back to
+    /// `Let(binding, Value, …)`, so downstream emission is unaffected until Step B
+    /// consumes `Compiled`.
+    | LetFn of
+        binding: TPatG<'ty, 'tok> *
+        valRepr: ValReprG<'ty, 'tok> *
+        compiled: CompiledFormG<'ty, 'tok> *
+        value: TExprG<'ty, 'tok> *
+        isInline: bool *
+        ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok> * ty: 'ty
     | Type of TTypeDeclG<'ty, 'tok>
 
@@ -763,3 +831,8 @@ module Frozen =
     type TAbstractMethod = TAbstractMethodG<FrozenType>
     type TastFile = TastFileG<FrozenType, SyntaxToken>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
+    type StaticParam = StaticParamG<FrozenType, SyntaxToken>
+    type ArgGroup = ArgGroupG<FrozenType, SyntaxToken>
+    type ValRepr = ValReprG<FrozenType, SyntaxToken>
+    type CompiledReturn = CompiledReturnG<FrozenType>
+    type CompiledForm = CompiledFormG<FrozenType, SyntaxToken>

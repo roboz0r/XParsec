@@ -151,6 +151,7 @@ module HolderPlan =
 
             for d in lowered do
                 match d with
+                | TDeclG.LetFn _ -> failwith "HolderPlan.create: LetFn must be normalised to Let by lower"
                 | TDeclG.Expression _ -> seenMainCode <- true
                 | TDeclG.Let(TPatG.NamedSimple(k, _, _), _, _, _) ->
                     match programByKey.TryGetValue k with

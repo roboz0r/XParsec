@@ -443,6 +443,7 @@ module EmitClosures =
         for d in decls do
             match d with
             | TDeclG.Let(_, value, _, _) -> walkUses value
+            | TDeclG.LetFn _ -> failwith "discoverClosures: LetFn must be normalised to Let by lower"
             | TDeclG.Expression(e, _) -> walkUses e
             | TDeclG.Type _ -> ()
 
@@ -681,6 +682,7 @@ module EmitClosures =
 
         for d in decls do
             match d with
+            | TDeclG.LetFn _ -> failwith "collectStaticFns: LetFn must be normalised to Let by lower"
             // A static-method function's lambda is not a closure, but its body
             // may still construct inner closures — walk only the body. The
             // closures inherit the method's typars.
