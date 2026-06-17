@@ -304,46 +304,11 @@ let tests =
                         "tuple parens; list brackets with `; ` separators; empty list"
             }
 
-            test "`%A` renders options structurally (Some/None, nested parens)" {
-                let prog =
-                    "printfn \"%A\" (Some 3)\n"
-                    + "printfn \"%A\" (None: int option)\n"
-                    + "printfn \"%A\" (Some (Some 3))"
-
-                match runJs "step6-percenta-option" prog with
-                | None -> skiptest "node not found on PATH"
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-
-                    Expect.equal
-                        out
-                        "Some 3\nNone\nSome (Some 3)"
-                        "single-payload application; nullary bare; nested arg parens"
-            }
-
-            test "`%A` renders records flat in declaration order" {
-                let prog = "type Point = { X: int; Y: int }\nprintfn \"%A\" { X = 1; Y = 2 }"
-
-                match runJs "step6-percenta-record" prog with
-                | None -> skiptest "node not found on PATH"
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "{ X = 1; Y = 2 }" "single-line `{ F = v; … }`, fields in declaration order"
-            }
-
-            test "`%A` renders unions: nullary bare, single payload, multi-field tuple" {
-                let prog =
-                    "type Shape = Circle of int | Rect of int * int | Dot\n"
-                    + "printfn \"%A\" (Circle 5)\n"
-                    + "printfn \"%A\" (Rect(3, 4))\n"
-                    + "printfn \"%A\" Dot"
-
-                match runJs "step6-percenta-union" prog with
-                | None -> skiptest "node not found on PATH"
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "Circle 5\nRect (3, 4)\nDot" "`Case arg`; `Case (a, b)`; bare nullary"
-            }
+            // The record / union / option `%A` output forms are owned by the
+            // recipe-derived cross-target differential (`StructuralFormatRecipeTests`),
+            // which renders the expectation straight from `recordRecipe`/`unionCaseRecipe`.
+            // Step 6 keeps only the non-recipe shapes (primitives, tuples, lists) and
+            // the mixed-format integration below.
 
             test "`%A` works in a mixed format with literal text and other holes" {
                 let prog = "printfn \"x = %A, n = %d\" (Some 3) 7"

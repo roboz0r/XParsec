@@ -2,6 +2,7 @@
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common.StructuralFormatRecipe
 
 /// Synthesised `IStructuralFormattable.Format` body builders (`%A`). The
 /// `Format(IFormatSink sink)` body is straight-line `callvirt`s on the `sink` arg
@@ -82,35 +83,48 @@ module internal EmitStructuralFormat =
         b.Add(ILInstr.Box(boxToken fty))
         b.Add(ILInstr.Callvirt(recurse, 2, 0))
 
+    /// Lower one target-neutral `SinkOp` (the shared grammar recipe) to IL against
+    /// `sink`. `FormatChild`/`FormatArg` resolve their index into `fields`
+    /// (declaration order) to a field handle + type, then box + recurse. This is
+    /// the CLR half of the recipe seam — the grammar forms live in
+    /// `Codegen.Common.StructuralFormatRecipe`; only the emission is here.
+    let private lowerOp
+        (b: IlBuilder)
+        (sink: FormatSinkHandles)
+        (mk: string -> UserStringHandle)
+        (boxToken: FrozenType -> EntityHandle)
+        (fields: (EntityHandle * FrozenType)[])
+        (op: SinkOp)
+        : unit =
+        match op with
+        | Text s -> sinkText b sink mk s
+        | Line -> sinkCall0 b sink.Line
+        | SoftBreak -> sinkCall0 b sink.SoftBreak
+        | BeginGroup -> sinkCall0 b sink.BeginGroup
+        | EndGroup -> sinkCall0 b sink.EndGroup
+        | BeginNest n -> sinkBeginNest b sink n
+        | EndNest -> sinkCall0 b sink.EndNest
+        | BeginApplication -> sinkCall0 b sink.BeginApplication
+        | EndApplication -> sinkCall0 b sink.EndApplication
+        | FormatChild i ->
+            let (h, t) = fields.[i]
+            sinkFormatField b boxToken sink.FormatChild h t
+        | FormatArg i ->
+            let (h, t) = fields.[i]
+            sinkFormatField b boxToken sink.FormatArg h t
+
     /// `void Format(IFormatSink sink)` for a record. Flat ⇒ `{ X = 1; Y = "a" }`;
     /// broken (the C# sink decides) ⇒ the fields hang at +2 with the closer
-    /// dedented. The first label opens with `{ `; the `;`/`Line` separator and the
-    /// next label precede each subsequent field; `EndNest` then ` }` close.
+    /// dedented. The form is `StructuralFormatRecipe.recordRecipe`; this just lowers
+    /// it to IL.
     let buildRecordFormat (s: RecordFormatSupport) : ILBody =
         let b = IlBuilder()
-        let sink = s.Sink
-        let text = sinkText b sink s.MkString
-        let child = sinkFormatField b s.BoxToken sink.FormatChild
+        let fieldNames = s.Fields |> List.map (fun (n, _, _) -> n)
+        let fields = s.Fields |> List.map (fun (_, h, t) -> (h, t)) |> List.toArray
+        let lower = lowerOp b s.Sink s.MkString s.BoxToken fields
 
-        match s.Fields with
-        | [] ->
-            // F# records always have ≥1 field; keep this total for safety.
-            text "{ }"
-        | (name0, h0, t0) :: rest ->
-            sinkCall0 b sink.BeginGroup
-            text (sprintf "{ %s = " name0)
-            sinkBeginNest b sink 2
-            child h0 t0
-
-            for (name, h, t) in rest do
-                text ";"
-                sinkCall0 b sink.Line
-                text (sprintf "%s = " name)
-                child h t
-
-            sinkCall0 b sink.EndNest
-            text " }"
-            sinkCall0 b sink.EndGroup
+        for op in recordRecipe fieldNames do
+            lower op
 
         b.Add ILInstr.Ret
         b.Body
@@ -123,41 +137,16 @@ module internal EmitStructuralFormat =
     let buildUnionFormat (s: UnionFormatSupport) : ILBody =
         let b = IlBuilder()
         let sink = s.Sink
-        let text = sinkText b sink s.MkString
-        let child = sinkFormatField b s.BoxToken sink.FormatChild
-        let arg = sinkFormatField b s.BoxToken sink.FormatArg
 
+        // The per-case form is `StructuralFormatRecipe.unionCaseRecipe`; the
+        // tag-switch dispatch (below) stays here. `FormatChild`/`FormatArg` indices
+        // resolve into this case's declaration-order payload fields.
         let emitCase (c: UnionFormatCase) : unit =
-            match c.Fields with
-            | [] -> text c.Name
-            | [ (h, t) ] ->
-                sinkCall0 b sink.BeginApplication
-                text (c.Name + " ")
-                arg h t
-                sinkCall0 b sink.EndApplication
-            | many ->
-                // `Case (a, b)` — the application wraps a parenthesised tuple; the
-                // tuple parens already disambiguate, so the components are normal
-                // `FormatChild`ren (not args).
-                sinkCall0 b sink.BeginApplication
-                text (c.Name + " ")
-                sinkCall0 b sink.BeginGroup
-                text "("
-                sinkBeginNest b sink 1
+            let fields = c.Fields |> List.toArray
+            let lower = lowerOp b sink s.MkString s.BoxToken fields
 
-                many
-                |> List.iteri (fun i (h, t) ->
-                    if i > 0 then
-                        text ","
-                        sinkCall0 b sink.Line
-
-                    child h t
-                )
-
-                sinkCall0 b sink.EndNest
-                text ")"
-                sinkCall0 b sink.EndGroup
-                sinkCall0 b sink.EndApplication
+            for op in unionCaseRecipe c.Name (List.length c.Fields) do
+                lower op
 
         let cases = s.Cases
         let n = List.length cases
@@ -168,7 +157,7 @@ module internal EmitStructuralFormat =
             // `cases.[n - 1]` as the fall-through, so guard the empty case here
             // (mirrors the record `[]` arm — both unreachable in practice, total
             // for safety).
-            text "()"
+            sinkText b sink s.MkString "()"
         | _ ->
             let endLabel = b.Label()
             // One label per non-last case; the last case is the dispatch fall-through.
