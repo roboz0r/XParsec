@@ -86,7 +86,16 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
-                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                    // A `unit`-returning INSTANCE method is emitted `void` by the
+                    // producer (`NominalEmit`'s `returnsVoid`) and the external-ref path
+                    // — so this generic-type MemberRef must encode `void` too, or it
+                    // misses the void `MethodDef` (`MissingMethodException`). Static
+                    // `unit` methods keep the `unit`-as-`ValueTuple` convention.
+                    (fun (ret: ReturnTypeEncoder) ->
+                        match retTy with
+                        | FTConst("unit", _) when not isStatic -> ret.Void()
+                        | _ -> encodeType (ret.Type()) retTy
+                    ),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
                             encodeType (pars.AddParameter().Type()) p
@@ -208,7 +217,14 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
-                    (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
+                    // `unit`-returning INSTANCE method ⇒ `void` (see the union arm) —
+                    // matches the producer + external-ref encoding so a generic class's
+                    // intra-/cross-assembly instance call binds the void `MethodDef`.
+                    (fun (ret: ReturnTypeEncoder) ->
+                        match retTy with
+                        | FTConst("unit", _) when not isStatic -> ret.Void()
+                        | _ -> encodeType (ret.Type()) retTy
+                    ),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
                             encodeType (pars.AddParameter().Type()) p

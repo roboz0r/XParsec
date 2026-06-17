@@ -571,6 +571,31 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
+    /// A *generic method* whose return is genuine `void` — the generic counterpart
+    /// of `InstanceMethodSignatureVoid`. A `unit`-returning generic instance method
+    /// (e.g. `Formatter.AppendFormatted<'T> : 'T -> unit`) must encode `void` so a
+    /// cross-assembly consumer's member-ref (which maps `unit → void`) binds; the
+    /// `unit`-as-`ValueTuple` return would otherwise mismatch (a `MissingMethodException`
+    /// when the Vesper-compiled handler is bound in place of the C# one). The body is
+    /// emitted in void mode (the trailing `unit` value is popped).
+    member _.GenericMethodOnTypeSignatureVoid
+        (methodTyparCount: int, paramTys: FrozenType list, isInstanceMethod: bool)
+        : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = isInstanceMethod)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) (p)
+                )
+            )
+
+        s
+
     member _.NullaryCtorSignature() : BlobBuilder =
         let s = BlobBuilder()
 

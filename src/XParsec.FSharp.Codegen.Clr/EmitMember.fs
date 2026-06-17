@@ -62,6 +62,7 @@ module EmitMember =
         (receiverTy: FrozenType)
         (handle: EntityHandle)
         (args: EqArray<Frozen.TExpr>)
+        (returnsUnit: bool)
         : unit =
         let isStructSelf =
             match via, receiverTy with
@@ -80,9 +81,19 @@ module EmitMember =
 
         let operands = 1 + args.Length
 
+        // A `unit`-returning instance method is emitted `void` (`NominalEmit`'s
+        // `returnsVoid`): it pushes nothing, so the call declares 0 results and a
+        // `unit` value is reified afterward for a value-position consumer — the same
+        // `unit → void` convention the external-call path (`EmitCall`) uses. A
+        // property get is never `unit`, so `buildPropertyGet` passes `false`.
+        let resultCount = if returnsUnit then 0 else 1
+
         match via, receiverTy with
-        | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, 1))
-        | _ -> b.Add(ILInstr.Call(handle, operands, 1))
+        | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, resultCount))
+        | _ -> b.Add(ILInstr.Call(handle, operands, resultCount))
+
+        if returnsUnit then
+            EmitTypes.buildUnitValue env b
 
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
@@ -138,7 +149,8 @@ module EmitMember =
             // A property is never a generic method, so the resolved member metadata
             // is unused here (`MethodTyparCount` is always 0 for a `get_<name>`).
             let handle, _ = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
-            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty
+            // A property get is never `unit`-returning, so it always yields a value.
+            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
         | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
@@ -171,7 +183,14 @@ module EmitMember =
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
-            emitInstanceMember recur env b via receiver receiverTy handle args
+            // A `unit`-returning instance method is emitted `void` (`NominalEmit`):
+            // detect it from the call's result type so the call declares 0 results.
+            let returnsUnit =
+                match ty with
+                | FTConst("unit", _) -> true
+                | _ -> false
+
+            emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
         | _ -> failwith "EmitMember.buildMethodCall: unreachable"
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =

@@ -566,14 +566,22 @@ module internal NominalEmit =
             let methodTypars = mem.MethodTypeParams
             let isGenericMethod = not methodTypars.IsEmpty
 
-            // An interface-impl member conforming to a `void` BCL slot
-            // (`IDisposable.Dispose` / `IEnumerator.Reset`): its `unit` return must
-            // encode as genuine `void` to bind to the slot, and its body must `ret`
-            // empty-stacked (pop the residual `unit`-as-value). Only interface
-            // impls get this — a class's own `unit`-returning method keeps the
-            // `unit`-as-`ValueTuple` convention its callers expect.
+            // A `unit`-returning INSTANCE method (incl. an interface-impl member
+            // conforming to a `void` BCL slot, `IDisposable.Dispose` etc.) encodes as
+            // genuine `void`, and its body `ret`s empty-stacked (pop the residual
+            // `unit`-as-value). This matches the universal *consumer* convention: both
+            // the external-call path (`EmitCall`, `unit → void` member-refs) and the
+            // local instance-call path (`EmitMember.buildMethodCall`) treat a
+            // `unit`-returning instance call as void + a reified `unit`. Emitting the
+            // `unit`-as-`ValueTuple` return instead breaks cross-assembly binding — a
+            // consumer's void member-ref misses the `ValueTuple`-returning method
+            // (`MissingMethodException`), which is exactly what bit the Vesper-compiled
+            // `Vesper.Formatter` (its `AppendFormatted`/`AppendStructured` are
+            // generic `unit`-returning instance methods the printf recipe calls void).
+            // STATIC `unit` methods keep the `ValueTuple` convention (module functions
+            // are pervasively self-called that way; their consumer side is unchanged).
             let returnsVoid =
-                isIfaceImpl
+                (isIfaceImpl || not mem.IsStatic)
                 && (
                     match mem.ReturnTy with
                     | FTConst("unit", _) -> true
@@ -614,9 +622,14 @@ module internal NominalEmit =
             // `FTTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
             let signature =
                 try
-                    if returnsVoid then
-                        // Interface-impl member conforming to a `void` slot — `void`
-                        // return, not the `unit`-as-`ValueTuple` the general path emits.
+                    if returnsVoid && isGenericMethod then
+                        // A generic `unit`-returning instance method (e.g.
+                        // `Formatter.AppendFormatted<'T>`): `void` return + the `GENERIC`
+                        // header, so a consumer's generic void member-ref binds.
+                        provider.GenericMethodOnTypeSignatureVoid(methodTypars.Length, paramTys, not mem.IsStatic)
+                    elif returnsVoid then
+                        // A `unit`-returning instance method — `void` return, not the
+                        // `unit`-as-`ValueTuple` the general path emits.
                         provider.InstanceMethodSignatureVoid paramTys
                     elif isGenericMethod then
                         provider.GenericMethodOnTypeSignature(

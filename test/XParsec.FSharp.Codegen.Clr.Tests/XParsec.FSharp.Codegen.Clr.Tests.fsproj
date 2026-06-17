@@ -59,6 +59,7 @@
     <Compile Include="InferResolutionTests.fs" />
     <Compile Include="TupleTests.fs" />
     <Compile Include="StructuralFormatTests.fs" />
+    <Compile Include="PrintfDifferentialTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
