@@ -53,11 +53,17 @@ let tests =
                 // resolution moved out of the provider into the ambient open scope
                 // (O3), so the provider answers the qualified name. `int` is an
                 // `extern` paired with its `.fs` `(# "System.Int32" #)` binding, so
-                // the manifest layer surfaces it as an `Intrinsic` shape carrying the
-                // CLI repr — NOT an opaque `Class`.
+                // the manifest layer surfaces it as an `Intrinsic` shape: `canon` is
+                // the `.fsi` name `int`, `platform` is the CLI repr — NOT an opaque
+                // `Class`.
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Intrinsic repr) ->
-                    Expect.equal repr "System.Int32" "int surfaces its prim-types-min `.fs` representation"
+                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
+                    Expect.equal canon "int" "int's canon identity is the `.fsi` name"
+
+                    Expect.equal
+                        platform
+                        "System.Int32"
+                        "int's platform face is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape from the manifest layer, got %A" other
 
                 // Operators now resolve from the contract — but only under their

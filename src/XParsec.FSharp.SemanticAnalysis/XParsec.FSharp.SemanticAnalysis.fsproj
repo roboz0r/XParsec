@@ -65,6 +65,7 @@
     <Compile Include="Elaborate.fs" />
     <Compile Include="Passes\RefCellPromotion.fs" />
     <Compile Include="ResolvedTypes.fs" />
+    <Compile Include="PlatformTypes.fs" />
     <Compile Include="Freeze.fs" />
     <Compile Include="Pipeline.fs" />
     <None Include="README.md" />

@@ -345,13 +345,14 @@ module EmitJs =
 
     /// Walk an external type's contract `inherit` chain (`ExternalClassShape.FrozenBaseType`,
     /// extracted Step 8) up to the `exn` intrinsic root, then resolve `exn`'s
-    /// `(# "Error" #)` repr through the provider to the **native runtime class**
-    /// (`JsNativeSymbols.Error`) and return its compiled name — `Error` on JS. A
-    /// constructed exception (`raise (InvalidOperationException …)`) lowers to
-    /// `new <class>(message)` sourced from this chain, NOT a hardcoded `"Error"` / an
-    /// `EndsWith "Exception"` name heuristic (codegen-js-steps.md Step 8). Routing the
-    /// repr through `TryLookupType` makes the JS-native provider authoritative for the
-    /// runtime type: `ValueNone` (→ caller fails loudly) when the type is not an `exn`
+    /// `(# "Error" #)` repr to the **native runtime class** (`JsNativeSymbols.Error`)
+    /// via the shared `ExternalSymbols.tryRuntimeType` query and return its compiled
+    /// name — `Error` on JS. A constructed exception (`raise (InvalidOperationException …)`)
+    /// lowers to `new <class>(message)` sourced from this chain, NOT a hardcoded `"Error"`
+    /// / an `EndsWith "Exception"` name heuristic (codegen-js-steps.md Step 8). The
+    /// runtime-type resolution (the former second hop) now lives in `tryRuntimeType`
+    /// (intrinsic-runtime-type-plan.md), so this is just the genuine subtype climb plus
+    /// one shared call: `ValueNone` (→ caller fails loudly) when the type is not an `exn`
     /// subtype, when the repr names no provider class, or with no provider.
     let private exnReprOf (ctx: WalkCtx) (ty: FrozenType) : string voption =
         match ctx.Provider with
@@ -359,26 +360,14 @@ module EmitJs =
         | ValueSome provider ->
             // Resolve a base-chain `FrozenType` node to its shape: a nominal key looks
             // up directly; a bare `FTConst` name (how an intrinsic base such as `exn`
-            // freezes — `mkNominal` returns the short name for an `Intrinsic`) probes
-            // the bare name then each ambient open prefix (`Vesper` → `Vesper.exn`).
+            // freezes — `mkNominal` returns the short name for an `Intrinsic`) routes
+            // through the shared runtime-type query (bare name + ambient prefixes).
             let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
                 match ft with
                 | FTClass(key, _)
                 | FTUnion(key, _)
                 | FTRecord(key, _) -> ExternalSymbols.tryLookupType provider key
-                | FTConst(name, _) ->
-                    match provider.TryLookupType name with
-                    | ValueSome s -> ValueSome s
-                    | ValueNone ->
-                        provider.AmbientOpenPrefixes
-                        |> List.tryPick (fun p ->
-                            match provider.TryLookupType(p + "." + name) with
-                            | ValueSome s -> Some s
-                            | ValueNone -> None
-                        )
-                        |> function
-                            | Some s -> ValueSome s
-                            | None -> ValueNone
+                | FTConst(name, _) -> ExternalSymbols.tryRuntimeType provider name
                 | _ -> ValueNone
 
             // Bounded climb: every hop is a strict ancestor, so the chain is finite;
@@ -388,14 +377,18 @@ module EmitJs =
                     ValueNone
                 else
                     match shapeOf ft with
-                    | ValueSome(ExternalTypeShape.Intrinsic repr) ->
-                        // `exn`'s `(# "Error" #)` repr names a native runtime type;
-                        // resolve it through the provider to that class so we emit the
-                        // `JsNativeSymbols.Error` *definition*'s name (the provider is
-                        // authoritative for the runtime type), not a bare repr string.
-                        // No provider class for the repr ⇒ `ValueNone` → fail loudly.
-                        match shapeOf (FTConst(repr, EqArray.empty)) with
-                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome repr
+                    | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform)) ->
+                        // `exn`'s `platform` repr (`"Error"` on JS) names a native
+                        // runtime type; resolve it to that class through the shared
+                        // query so we emit the `JsNativeSymbols.Error` *definition*'s
+                        // name (the provider is authoritative for the runtime type),
+                        // not a bare repr string. We read the PLATFORM face, never
+                        // `canon` (`"System.Exception"`) — that is the unifier's
+                        // identity key and has no JS analogue. No provider class for
+                        // the platform repr (or no repr at all on this target) ⇒
+                        // `ValueNone` → fail loudly.
+                        match ExternalSymbols.tryRuntimeType provider platform with
+                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
                         | _ -> ValueNone
                     | ValueSome(ExternalTypeShape.Class shape) ->
                         match shape.FrozenBaseType with
@@ -981,6 +974,12 @@ module EmitJs =
     /// sites); the remaining decls are lowered (shared `TastLower.lower` with the
     /// JS `finishOps`) — inline `let inline` templates and `type` decls drop out,
     /// leaving top-level `let` values and effectful expressions.
+    ///
+    /// A type with no representation on the JS target (`decimal`, `nativeint`) is NOT
+    /// rejected here: that is a semantic verdict (the provider's
+    /// `Intrinsic(_, platform = None)`) and is reported up front, like an unresolved
+    /// generic, by `SemanticAnalysis.PlatformTypes` — so the frozen tree reaching the
+    /// emitter is already known-representable (intrinsic-runtime-type-plan.md).
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
         let classDecls, recordTable, unionTable, memberDefs = collectTypes tast
 

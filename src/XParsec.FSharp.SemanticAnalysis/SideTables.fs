@@ -1018,6 +1018,29 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// per-context cache keyed by name suffices. A name that is neither a local
     /// nor a provider intrinsic caches its own identity.
     member val IntrinsicCanonCache = Dictionary<string, string>() with get
+
+    /// The reverse intrinsic axis `{ platform-repr -> canon }` (`canonName`'s
+    /// counterpart to its forward read): a metadata-surfaced BCL/native runtime name
+    /// (`"System.Exception"`) -> the short `.fsi` identity (`"exn"`). Merges the
+    /// provider's `IntrinsicReverseCanon` (referenced contracts) with this unit's own
+    /// self-compiled intrinsics (`IntrinsicReprTypes`, inverted). `lazy` so it is
+    /// built once, on the first `canonName` reverse miss in Unification — AFTER
+    /// NameResolution has populated `IntrinsicReprTypes`. (intrinsic-runtime-type-plan.md)
+    member val IntrinsicReverseCanon: Lazy<Dictionary<string, string>> =
+        lazy
+            (let d = Dictionary<string, string>()
+
+             for KeyValue(platform, canon) in provider.IntrinsicReverseCanon do
+                 d.[platform] <- canon
+             // Local self-compiled intrinsics (short `.fsi` name -> platform repr):
+             // invert so a raw platform name reconciles with the short identity within
+             // a `--compiling-fslib` unit. Skips a degenerate `platform = short`.
+             for KeyValue(short, platform) in types.IntrinsicReprTypes do
+                 if platform <> short then
+                     d.[platform] <- short
+
+             d) with get
+
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get

@@ -125,6 +125,7 @@ let tests =
                         member _.AmbientOpenPrefixes = []
                         member _.TryLookupInlineBody _ = ValueNone
                         member _.TryLookupInlineBodyByName _ = ValueNone
+                        member _.IntrinsicReverseCanon = Map.empty
                     }
 
                 let input = "let r = let f = myId in f 1, f true"

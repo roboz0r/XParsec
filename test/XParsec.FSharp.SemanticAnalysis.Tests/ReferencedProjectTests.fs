@@ -98,13 +98,18 @@ let tests =
                 // (O3): they're resolved by the pipeline via the ambient prefix
                 // set. The provider answers the qualified name directly. `int` is an
                 // `extern` paired with its sibling `.fs` `(# "System.Int32" #)`
-                // binding, so it surfaces as an `Intrinsic` carrying the CLI repr —
-                // NOT an opaque `Class`. The repr is what codegen / `subsumes`
-                // consume; an intrinsic carries no `Origin` (it keys off the repr
-                // string, not an assembly ref).
+                // binding, so it surfaces as an `Intrinsic`: `canon` is the `.fsi`
+                // name `int` (the front-end identity `subsumes` consumes), `platform`
+                // is the CLI repr (what codegen consumes). An intrinsic carries no
+                // `Origin` (it keys off the name, not an assembly ref).
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Intrinsic repr) ->
-                    Expect.equal repr "System.Int32" "int carries its prim-types-min `.fs` representation"
+                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
+                    Expect.equal canon "int" "int's canon identity is the `.fsi` name"
+
+                    Expect.equal
+                        platform
+                        "System.Int32"
+                        "int's platform face is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 

@@ -375,78 +375,108 @@ module UnificationEngine =
         | Subtype
         | Unrelated
 
-    // Canonical nominal name for subtype comparison. A primitive intrinsic
-    // binding (`type exn = (# "System.Exception" #)`, prim-types-exn.fs) stays
-    // a *non-transparent* `TyConst "exn"` (Translate.fs) — it never expands to
-    // its RHS the way a plain abbreviation does. Its CLI representation is the
-    // BCL type name the external `inherit`-chain walk surfaces. Mapping through
-    // it makes a user-facing `exn` and a metadata-surfaced
-    // `TyClass("System.Exception", _)` the *same* nominal. The identity
-    // `exn === System.Exception` therefore originates from prim-types-exn.fs,
-    // not a literal baked into the unifier — retarget the core lib and this follows.
+    // Canonical nominal name for subtype comparison: the type's platform-INVARIANT
+    // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.
+    // A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
+    // prim-types-exn.fs) stays a *non-transparent* `TyConst "exn"` (Translate.fs);
+    // `canonName "exn"` is just `"exn"`. The reconciliation that used to live here —
+    // `exn === System.Exception` — now runs in the OTHER direction: a metadata-
+    // surfaced `TyClass("System.Exception", _)` (an `inherit`-chain element on CLR)
+    // is mapped BACK to `"exn"` through the reverse `{ platform -> canon }` map
+    // (`IExternalSymbolProvider.IntrinsicReverseCanon`), so the two still meet at
+    // `"exn"`. This keeps a JS build free of BCL names — the base `.fs` repr only
+    // ever marks primitive-ness on JS, never the `platform` face (intrinsic-runtime-
+    // type-plan.md).
     //
-    // Resolution order (local-first / provider-fallback):
-    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`,
-    //      keyed by the unqualified name it declared);
+    // Resolution order:
+    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`) — a
+    //      self-compiled `extern`'s key is its `.fsi` short name, which IS the canon;
     //   2. a *referenced* package's intrinsics, riding the provider as
-    //      `ExternalTypeShape.Intrinsic repr` (the self-compiled `exn` is local;
-    //      a consumer's `exn` comes from Vesper.Core through the provider).
-    // `n` here is the unqualified nominal (`translateType` strips an external
-    // intrinsic to its short name so `exn` unifies with literals), so the
-    // provider tier resolves it through the *same* ambient open scope
-    // `translateType` used — `exn` ⇒ `Vesper.exn` ⇒ `Intrinsic "System.Exception"`.
-    // Memoized per `PassContext`: `canonName` runs inside the subtype recursive
-    // walk, so without the cache every node would round-trip the composite
-    // provider / MetadataLoadContext through that ambient candidate list. A name
-    // that is neither a local nor a provider intrinsic caches its own identity.
+    //      `ExternalTypeShape.Intrinsic` (its `canon` face = the short name);
+    //   3. the reverse map, for an incoming BCL/native runtime name.
+    // `n` is usually the unqualified nominal (`translateType` strips an external
+    // intrinsic to its short name); the provider tier also collapses a qualified
+    // `Vesper.exn` to the short `exn` via its `canon` face. Memoized per
+    // `PassContext`: `canonName` runs inside the subtype recursive walk. A name that
+    // is none of the above caches its own identity.
     let private canonName (ctx: PassContext) (n: string) : string =
         match ctx.IntrinsicCanonCache.TryGetValue n with
         | true, repr -> repr
         | _ ->
-            let providerIntrinsicRepr (c: string) : string voption =
+            let providerCanon (c: string) : string voption =
                 match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic repr) -> ValueSome repr
+                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon)) -> ValueSome canon
                 | _ -> ValueNone
 
             let repr =
-                match ctx.Types.IntrinsicReprTypes.TryGetValue n with
-                | true, repr -> repr
-                | _ ->
-                    match OpenScope.tryResolve ctx.Resolution.OpenScope providerIntrinsicRepr n with
-                    | ValueSome repr -> repr
-                    | ValueNone -> n
+                if ctx.Types.IntrinsicReprTypes.ContainsKey n then
+                    // A self-compiled intrinsic: the short name it was declared under
+                    // is the canonical identity (the dict's value is the platform repr).
+                    n
+                else
+                    match OpenScope.tryResolve ctx.Resolution.OpenScope providerCanon n with
+                    | ValueSome canon -> canon
+                    | ValueNone ->
+                        // Reverse axis: `n` may be a `platform` repr (a metadata BCL/
+                        // native runtime name) whose front-end identity it reconciles
+                        // with — `System.Exception` ⇒ `exn`. Built lazily (on first
+                        // reverse miss) but in one shot — fully materialised AFTER
+                        // NameResolution has populated `IntrinsicReprTypes`, so there is
+                        // no ordering hazard with the forward-resolved names.
+                        match ctx.IntrinsicReverseCanon.Value.TryGetValue n with
+                        | true, canon -> canon
+                        | _ -> n
 
             ctx.IntrinsicCanonCache.[n] <- repr
             repr
 
-    /// Public view of `canonName`: map an intrinsic Vesper type name to the
-    /// canonical BCL representation its `(# "…" #)` binding records
-    /// (`"string"` ⇒ `"System.String"`, via `prim-types-string.fs`; local-first,
-    /// provider-fallback). Returns `n` unchanged for a name that is not a known
-    /// intrinsic (so a project-local / already-qualified name passes through).
-    /// Lets the dot-access resolvers (`resolveFieldStep`, the external
-    /// instance-method probe) route an intrinsic *receiver*'s instance members
-    /// through the provider without hard-coding the BCL name.
-    let intrinsicCanonName (ctx: PassContext) (n: string) : string = canonName ctx n
+    /// The **platform** face of an intrinsic name: the runtime/BCL repr its
+    /// `(# "…" #)` binding records (`"string"` ⇒ `"System.String"` on CLR,
+    /// `prim-types-*.fs`; local-first, provider-fallback). Returns `n` unchanged for
+    /// a name that is not a known intrinsic (so a project-local / already-qualified
+    /// name passes through). Lets the dot-access resolvers (`resolveFieldStep`, the
+    /// external instance-method probe) route an intrinsic *receiver*'s instance
+    /// members through the provider keyed on the platform type name — distinct from
+    /// `canonName`'s identity axis (which now stays on the short `.fsi` name).
+    let intrinsicPlatformName (ctx: PassContext) (n: string) : string =
+        match ctx.Types.IntrinsicReprTypes.TryGetValue n with
+        | true, platform -> platform
+        | _ ->
+            let providerPlatform (c: string) : string voption =
+                match ctx.Provider.TryLookupType c with
+                | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform)) -> ValueSome platform
+                // `platform = None`: a primitive with no repr on the compiling target
+                // (`decimal` on JS) has no platform type name to key a member lookup on.
+                | _ -> ValueNone
 
-    /// Resolve a *receiver* type to the external `(qualifiedBclName, typeArgs)` a
-    /// provider member lookup keys on: a non-project-local `TyClass` (a BCL /
-    /// contract class), or an *intrinsic* `TyConst` whose `(# "…" #)` binding
-    /// canonicalises to a BCL type (`intrinsicCanonName`, via `prim-types-*.fs`).
+            match OpenScope.tryResolve ctx.Resolution.OpenScope providerPlatform n with
+            | ValueSome platform -> platform
+            | ValueNone -> n
+
+    /// Resolve a *receiver* type to the external `(qualifiedPlatformName, typeArgs)`
+    /// a provider member lookup keys on: a non-project-local `TyClass` (a BCL /
+    /// contract class), or an *intrinsic* `TyConst` whose `(# "…" #)` binding gives
+    /// its platform type name (`intrinsicPlatformName`, via `prim-types-*.fs`).
     /// `ValueNone` for a project-local class (which routes through
     /// `resolveLocalInstanceMember`), an array (`"[]"`), or byref (`"&"`) — each
     /// keeps its own path. Shared by the dot-access resolver
     /// (`resolveFieldStep`) and the arg-aware external instance-method probe so
-    /// neither re-derives the receiver→BCL-name mapping.
+    /// neither re-derives the receiver→platform-name mapping.
     let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =
         match resolveStep ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
             ValueSome(struct (SymbolKeyOps.qualifiedName clsKey, typeArgs))
+        // A structural constructor (`'T []`/`byref`) is a generic intrinsic whose
+        // `platform` repr (`"!0[]"`) is an IL/codegen artefact, NOT a nominal receiver
+        // key — its members ride dedicated backend paths, so honour the documented
+        // "keeps its own path" and decline BEFORE consulting the platform name (which
+        // would otherwise differ from `name` and mis-route the lookup onto `"!0[]"`).
+        | TyConst(name, _) when RuntimeNames.isStructuralConstructorName name -> ValueNone
         | TyConst(name, typeArgs) ->
-            let canonQual = intrinsicCanonName ctx name
+            let platformQual = intrinsicPlatformName ctx name
 
-            if canonQual <> name then
-                ValueSome(struct (canonQual, typeArgs))
+            if platformQual <> name then
+                ValueSome(struct (platformQual, typeArgs))
             else
                 ValueNone
         | _ -> ValueNone

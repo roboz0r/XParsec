@@ -210,16 +210,28 @@ module VesperLibTyparCapture =
         /// first-registration-wins `ModuleSuffix` source-name alias keeps the same
         /// semantics the eager extraction had.
         member val DeferredVals = ResizeArray<DeferredVal>() with get
-        /// Intrinsic-representation index: *short* type name -> CLI repr string,
-        /// harvested from the package's per-target `.fs` companions
-        /// (`type exn = (# "System.Exception" #)` ⇒ `"exn" -> "System.Exception"`).
-        /// Populated BEFORE `.fsi` extraction so the `extern` arm of
-        /// `extractTypeSig` can publish a matching extern as
-        /// `ExternalTypeShape.Intrinsic repr` instead of an opaque `Class`
-        /// Empty for callers with no `.fs` companions
-        /// (e.g. `VesperLib.buildProvider` over the signature-only FSharp.Core
+        /// Intrinsic-representation index: *short* type name -> the **platform** repr
+        /// string for the COMPILING target, harvested from the package's per-target
+        /// `.fs` companion (`prim-types-int.js.fs` ⇒ `"int" -> "number"` on JS; the base
+        /// `.fs` itself on CLR, where it IS the platform repr). Populated BEFORE `.fsi`
+        /// extraction so the `extern` arm of `extractTypeSig` can publish the `platform`
+        /// face of an `ExternalTypeShape.Intrinsic(short, arity, platform)`. A primitive
+        /// ABSENT here on a non-base target (e.g. `decimal` on JS — no `.js.fs`) still
+        /// publishes as an `Intrinsic` (gated on `IntrinsicBaseReprs` below) but with
+        /// `platform = None` ("no representation on this target" — fatal only for a nullary
+        /// scalar; a generic constructor like `'T []` is representable structurally). Empty
+        /// for callers with no `.fs`
+        /// companions (e.g. `VesperLib.buildProvider` over the signature-only FSharp.Core
         /// port), so every extern stays a `Class` exactly as before.
         member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
+        /// Primitive *marker* index: *short* type name -> its BASE `.fs` `(# … #)` repr,
+        /// harvested from the base companion regardless of target. The presence of a
+        /// base repr is what makes an `extern` a primitive (publishes as `Intrinsic`,
+        /// not an opaque `Class`); the per-target `IntrinsicReprs` then supplies the
+        /// `platform` face (or `None` when this target ships no companion for it). Kept
+        /// SEPARATE from `IntrinsicReprs` so a target that omits a primitive does not
+        /// demote it to a `Class` and lose its `canon` identity in the unifier.
+        member val IntrinsicBaseReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
         /// Qualified names of `[<AutoOpen>]` modules encountered during
         /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
         /// referenced contract surfaces these as its ambient open-prefix set so a
@@ -335,6 +347,23 @@ module VesperLibTyparCapture =
 
                 d
 
+            // Reverse intrinsic axis `{ platform-repr -> canon }` (the `.fsi` name),
+            // so a metadata-surfaced BCL/native runtime name (`System.Exception`)
+            // reconciles back to the front-end identity (`exn`) in `canonName`. Built
+            // from the published `Intrinsic` shapes — the same source the forward
+            // `canon` axis reads — so the two can never drift. The two faces always
+            // differ for a real binding (`exn`/`System.Exception`); the guard skips a
+            // degenerate `canon = platform` entry (a primitive with no `.fs` repr).
+            let intrinsicReverse =
+                ctx.TypeShapes
+                |> Seq.choose (fun kv ->
+                    match kv.Value with
+                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when platform <> canon ->
+                        Some(platform, canon)
+                    | _ -> None
+                )
+                |> Map.ofSeq
+
             { new IExternalSymbolProvider with
                 member _.TryLookup(name) =
                     match ctx.Symbols.TryGetValue name with
@@ -382,4 +411,6 @@ module VesperLibTyparCapture =
                 // contract-stack wrapper that layers over this provider.
                 member _.TryLookupInlineBody _ = ValueNone
                 member _.TryLookupInlineBodyByName _ = ValueNone
+
+                member _.IntrinsicReverseCanon = intrinsicReverse
             }

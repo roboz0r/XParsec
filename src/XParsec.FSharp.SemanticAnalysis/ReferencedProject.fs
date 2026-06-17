@@ -423,15 +423,22 @@ module ReferencedProject =
     /// exists — the intrinsic-repr analogue of the manifest's `inline-bodies-<t>`
     /// override (codegen-js-steps.md Step 8). `None`, or a target with no override file,
     /// falls back to the base companion.
-    let private companionFs (target: string option) (dir: string) (fsiRel: string) : string =
-        let baseAbs = Path.Combine(dir, Path.ChangeExtension(fsiRel, ".fs"))
+    /// The base `.fs` companion (`prim-types-exn.fsi` ⇒ `prim-types-exn.fs`) — the
+    /// primitive *marker* + the CLR platform repr.
+    let private baseFs (dir: string) (fsiRel: string) : string =
+        Path.Combine(dir, Path.ChangeExtension(fsiRel, ".fs"))
 
+    /// The per-target override companion (`prim-types-exn.fsi`, target `js` ⇒
+    /// `prim-types-exn.js.fs`) — `Some` ONLY when a distinct file exists, so the
+    /// caller harvests the override without re-parsing the base as a fallback. `None`
+    /// on the base target (CLR) or when a primitive ships no companion for this target.
+    let private targetOverrideFs (target: string option) (dir: string) (fsiRel: string) : string option =
         match target with
         | Some t ->
             // `ChangeExtension("prim-types-exn.fsi", "js.fs")` → `prim-types-exn.js.fs`.
-            let targetAbs = Path.Combine(dir, Path.ChangeExtension(fsiRel, t + ".fs"))
-            if File.Exists targetAbs then targetAbs else baseAbs
-        | None -> baseAbs
+            let abs = Path.Combine(dir, Path.ChangeExtension(fsiRel, t + ".fs"))
+            if File.Exists abs then Some abs else None
+        | None -> None
 
     let buildProviderWith
         (target: string option)
@@ -449,27 +456,61 @@ module ReferencedProject =
             // the `Some manifest.Name` origin the `wrap` below stamps for consumers.
             ctx.HomeAssembly <- Some manifest.Name
 
-            // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the per-target
-            // intrinsic reprs from each contract's sibling `.fs` companion FIRST,
-            // so the `extern` arm of the `.fsi` extraction below publishes a
-            // matched primitive as `ExternalTypeShape.Intrinsic repr` rather than
-            // an opaque `Class`. The `.fs` is the only place the repr lives
-            // (the `.fsi` commits `type exn = extern`, no repr) —
-            // Moved here from the codegen-layer harvest.
+            // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the intrinsic reprs
+            // from each contract's sibling `.fs` companion FIRST, so the `extern`
+            // arm of the `.fsi` extraction below publishes a matched primitive as
+            // `ExternalTypeShape.Intrinsic` rather than an opaque `Class`. The `.fs`
+            // is the only place the repr lives (the `.fsi` commits `type exn =
+            // extern`, no repr) — moved here from the codegen-layer harvest.
+            //
+            // Two repr faces (intrinsic-runtime-type-plan.md):
+            //  - the BASE `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker* (its
+            //    presence is what publishes the `extern` as an `Intrinsic`, not a
+            //    `Class`) and, on CLR, the platform repr itself.
+            //  - the per-target `<base>.<target>.fs` override ⇒ `IntrinsicReprs`: the
+            //    `platform` face for THIS target (`prim-types-int.js.fs` ⇒ `number`).
+            //    On CLR there is no override, so the base repr also feeds `IntrinsicReprs`.
+            // A primitive the target OMITS (`decimal` ships no `.js.fs`) is in
+            // `IntrinsicBaseReprs` but NOT `IntrinsicReprs`, so it stays an `Intrinsic`
+            // with `platform = None` rather than falling back to a BCL repr that has no
+            // JS runtime. The `canon` face is the `.fsi` name itself (set at the `extern`
+            // arm), so the override never moves the unifier's identity key.
+            let harvestCompanion (dest: System.Collections.Generic.Dictionary<string, string>) (abs: string) =
+                let fsFile: VesperLib.LibFile =
+                    {
+                        BucketName = manifest.Name
+                        Relative = Path.GetFileName abs
+                        Absolute = abs
+                    }
+
+                match VesperLib.parseFileFull fsFile with
+                | Error _ -> ()
+                | Ok parsed -> VesperLib.harvestIntrinsicReprsInto dest parsed
+
             for rel in manifest.Files do
-                let abs = companionFs target dir rel
+                let baseAbs = baseFs dir rel
 
-                if File.Exists abs then
-                    let fsFile: VesperLib.LibFile =
-                        {
-                            BucketName = manifest.Name
-                            Relative = Path.GetFileName abs
-                            Absolute = abs
-                        }
+                if File.Exists baseAbs then
+                    harvestCompanion ctx.IntrinsicBaseReprs baseAbs
 
-                    match VesperLib.parseFileFull fsFile with
-                    | Error _ -> ()
-                    | Ok parsed -> VesperLib.harvestIntrinsicReprs ctx parsed
+                    match targetOverrideFs target dir rel with
+                    | Some overrideAbs -> harvestCompanion ctx.IntrinsicReprs overrideAbs
+                    | None ->
+                        // Base target (CLR), or no per-target companion: the base repr
+                        // IS the platform face. Reuse the just-harvested base marker
+                        // rather than re-parsing the file.
+                        ()
+
+            // CLR (and any target whose primitive has no override): the base repr is the
+            // platform face. Seed `IntrinsicReprs` from the base markers WITHOUT a
+            // second parse; a real per-target override (harvested above) already shadows
+            // its entry, so this only fills the gaps.
+            match target with
+            | None ->
+                for KeyValue(k, v) in ctx.IntrinsicBaseReprs do
+                    if not (ctx.IntrinsicReprs.ContainsKey k) then
+                        ctx.IntrinsicReprs.[k] <- v
+            | Some _ -> ()
 
             for rel in manifest.Files do
                 let file: VesperLib.LibFile =

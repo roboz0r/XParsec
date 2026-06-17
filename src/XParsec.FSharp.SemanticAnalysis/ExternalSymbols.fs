@@ -395,14 +395,55 @@ type ExternalTypeShape =
     | Class of shape: ExternalClassShape
     /// A *referenced* package's intrinsic-representation binding: an `extern`
     /// type whose sibling `.fs` carries `type x = (# "<repr>" #)`
-    /// (`type exn = (# "System.Exception" #)`, prim-types-exn.fs). `repr` is the
-    /// CLI representation string. NON-transparent (unlike `Abbrev`): a use site
-    /// resolves to the nominal `TyConst name`, never the expanded `repr`. The
-    /// repr is consumed only by codegen (`IntrinsicRepr`) and by `subsumes`'
-    /// `canonName` to reconcile the contract name with its metadata type. This
-    /// mirrors the *local* `IntrinsicReprTypes` semantics (SideTables.fs) for a
-    /// referenced package; arity is always 0 (primitives are non-generic).
-    | Intrinsic of repr: string
+    /// (`type exn = (# "System.Exception" #)`, prim-types-exn.fs). NON-transparent
+    /// (unlike `Abbrev`): a use site resolves to the nominal `TyConst name`, never
+    /// an expanded repr.
+    ///
+    /// `arity` — the type's generic parameter count. Usually `0` (the scalar
+    /// primitives `int`/`exn`/…), but NOT always: the structural type constructors
+    /// are intrinsics too (`type 'T [] = (# "!0[]" #)`, arity 1; `byref`, nd-array).
+    /// This is load-bearing for representability: a nullary intrinsic needs a
+    /// concrete per-target `platform` repr, so `platform = None` means it is
+    /// genuinely unrepresentable on this target (`decimal` on JS). A GENERIC
+    /// intrinsic is representable BY CONSTRUCTION — its repr is structural, built
+    /// from its argument's repr (`number[]`) by a dedicated backend path
+    /// (`FTConst("[]") → SZArray` on CLR, a JS array) — so a `None` platform on it
+    /// is benign (it never needed a repr string). `PlatformTypes` keys on this:
+    /// only an `arity = 0` intrinsic with `platform = None` is an error.
+    ///
+    /// **Two faces** (intrinsic-runtime-type-plan.md — the Step-8 option (A) split):
+    /// a single repr string used to do two unrelated jobs at once.
+    /// - `canon` — the platform-INVARIANT nominal-identity key: the **`.fsi` name**
+    ///   the type was declared under (`"int"`, `"float"`, `"exn"`), i.e. the
+    ///   front-end identity itself, NOT a BCL name. `subsumes`' `canonName` uses
+    ///   THIS face; it is distinct per nominal type so `int` ≠ `float`, and it is
+    ///   the SAME regardless of which backend is compiling — a JS build never needs
+    ///   to know what the BCL calls `int`.
+    /// - `platform` — the per-target runtime/codegen repr: the platform's *name*
+    ///   for the type, sourced from the `<base>.<target>.fs` companion's
+    ///   `type x = (# "<repr>" #)` (`Some "System.Int32"` on CLR, `Some "number"`/
+    ///   `Some "Error"` on JS). Codegen emission + the `exnReprOf`/`tryRuntimeType`
+    ///   runtime axis, and the intrinsic-receiver member probe (`tryExternalReceiver`),
+    ///   read THIS face. Many-to-one and directional — it must never drive unification.
+    ///   **`None` on a NULLARY intrinsic means the type is a known scalar primitive
+    ///   (so it stays an `Intrinsic`, not a `Class`, and keeps its `canon` identity)
+    ///   but has NO representation on the compiling target** — e.g. `decimal`/`nativeint`
+    ///   on JS, which ship no `.js.fs` companion. `SemanticAnalysis.PlatformTypes` rejects
+    ///   that up front (a graceful per-decl diagnostic) instead of limping a BCL name onto
+    ///   a JS runtime. `None` on a GENERIC intrinsic (`'T []` on JS, no `.js.fs` overlay)
+    ///   is benign — the structural backend path needs no repr string. On CLR every
+    ///   primitive's base `.fs` IS its platform repr, so `platform` is always `Some` there.
+    ///
+    /// The two **diverge on every target** (CLR: `int`/`Some "System.Int32"`): `canon`
+    /// is `.fsi`-defined, `platform` is `.fs`-defined. An incoming BCL/native runtime
+    /// name on the metadata seam (e.g. `System.Exception` surfaced by a metadata
+    /// `inherit` chain) is reconciled back to its `canon` through the reverse
+    /// `{ platform -> canon }` map (`IExternalSymbolProvider.IntrinsicReverseCanon`), so
+    /// `int`-as-metadata and `int`-as-contract still meet at `"int"`. The *local*
+    /// `IntrinsicReprTypes` twin (SideTables.fs) stays single-string: it holds a
+    /// self-compiled unit's own `platform` repr keyed by the `.fsi` short name (which
+    /// is the `canon`).
+    | Intrinsic of canon: string * arity: int * platform: string option
     /// A nominal type whose *name + arity* the extractor registered but whose
     /// body shape it does not (yet) model: an enum / delegate / type-extension
     /// (v1 defers the body), or a union / record / abbreviation whose body failed
@@ -506,6 +547,18 @@ type IExternalSymbolProvider =
     /// all do (and for providers with no inline bodies).
     abstract TryLookupInlineBodyByName: name: string -> InlineBody voption
 
+    /// The reverse intrinsic axis `{ platform-repr -> canon }`, so the unifier can
+    /// reconcile an incoming BCL/native *runtime* name (the `platform` face, e.g.
+    /// `"System.Exception"` surfaced by a metadata `inherit` chain on CLR) back to the
+    /// short front-end identity (`canon`, the `.fsi` name, e.g. `"exn"`). The forward
+    /// `canon` axis lives on `ExternalTypeShape.Intrinsic` and is reachable by name via
+    /// `TryLookupType`; the reverse axis cannot be (it is keyed by the platform repr,
+    /// which is not a provider type key), so it is published as data here. The
+    /// intrinsic-carrying providers (`ExtractCtx.toProvider`) and their composite
+    /// (`ExternalSymbols.stack`) build a real map; metadata / JS-native / test
+    /// providers carry no intrinsics and return `Map.empty`. (intrinsic-runtime-type-plan.md)
+    abstract IntrinsicReverseCanon: Map<string, string>
+
 /// The open signature of an external module-level function as the codegen
 /// boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as
@@ -564,6 +617,33 @@ module ExternalSymbols =
     /// `TryLookupMember`) keep projecting it directly.
     let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
         provider.TryLookupType(SymbolKeyOps.qualifiedName key)
+
+    /// The **runtime-type** axis of an intrinsic repr — distinct from `canonName`'s
+    /// nominal-identity read (intrinsic-runtime-type-plan.md). Resolve a bare runtime
+    /// repr string (`"Error"`) to the concrete `ExternalTypeShape` it names over the
+    /// *assembled* composite: probe the bare name, then each `AmbientOpenPrefixes` entry
+    /// (`Error` ⇒ `Vesper.Error`), exactly how an intrinsic base name freezes. The repr
+    /// is a layer-2 name (`JsNativeSymbols.Error` on JS, `MetadataSymbols` on CLR) only
+    /// in scope on the composite, so this resolves lazily there rather than at per-package
+    /// harvest. `ValueNone` when the repr is a JS *primitive tag* (`"number"`, `"boolean"`)
+    /// that names no class — the caller emits the bare tag — or when no provider models it.
+    /// Free function (not a new `IExternalSymbolProvider` member): it derives purely from
+    /// the existing `TryLookupType` / `AmbientOpenPrefixes` window, so it adds no interface
+    /// churn while keeping the provider the one seam to the outside.
+    let tryRuntimeType (provider: IExternalSymbolProvider) (repr: string) : ExternalTypeShape voption =
+        match provider.TryLookupType repr with
+        | ValueSome _ as s -> s
+        | ValueNone ->
+            provider.AmbientOpenPrefixes
+            |> List.tryPick (fun p ->
+                match provider.TryLookupType(p + "." + repr) with
+                | ValueSome s -> Some s
+                | ValueNone -> None
+            )
+            |> function
+                | Some s -> ValueSome s
+                | None -> ValueNone
+
 
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
@@ -682,6 +762,7 @@ module ExternalSymbols =
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
+            member _.IntrinsicReverseCanon = Map.empty
         }
 
     /// The single provider-shim primitive: first-hit-wins composition over
@@ -700,6 +781,13 @@ module ExternalSymbols =
         // Snapshot to an array so the hot lookup is an index loop, not list
         // traversal, on a provider hit from many parallel PassContexts.
         let sources = List.toArray sources
+
+        // Merge the sources' reverse `{ platform -> canon }` maps (intrinsic-carrying
+        // sources only; the rest contribute the empty map). First-source-wins on a
+        // platform-repr collision, matching the forward lookups' shadowing order.
+        let reverseCanon =
+            (Map.empty, Array.rev sources)
+            ||> Array.fold (fun acc s -> (acc, s.IntrinsicReverseCanon) ||> Map.fold (fun m k v -> Map.add k v m))
 
         // First-hit-wins fall-through shared by every singular (`voption`) lookup
         // below: scan `sources` in priority order, stop at the first `ValueSome`.
@@ -817,6 +905,8 @@ module ExternalSymbols =
 
             member _.TryLookupInlineBodyByName name =
                 firstHit (fun s -> s.TryLookupInlineBodyByName name)
+
+            member _.IntrinsicReverseCanon = reverseCanon
         }
 
     /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude

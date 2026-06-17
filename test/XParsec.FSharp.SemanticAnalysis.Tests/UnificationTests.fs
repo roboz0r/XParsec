@@ -86,6 +86,7 @@ let tests =
                         member _.AmbientOpenPrefixes = []
                         member _.TryLookupInlineBody _ = ValueNone
                         member _.TryLookupInlineBodyByName _ = ValueNone
+                        member _.IntrinsicReverseCanon = Map.empty
                     }
 
                 let provider = ExternalSymbols.composite [ brokenProvider; MockBuiltins.provider ]

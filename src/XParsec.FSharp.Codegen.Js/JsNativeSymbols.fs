@@ -132,6 +132,9 @@ module JsNativeSymbols =
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
+            // The JS-native layer publishes runtime classes (`Error`), not Vesper
+            // intrinsics — no `platform -> canon` reconciliation to contribute.
+            member _.IntrinsicReverseCanon = Map.empty
         }
 
     /// `SymbolProviders.buildContractFor` over a **JS-native** layer-2 stack: the

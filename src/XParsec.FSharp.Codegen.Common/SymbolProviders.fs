@@ -343,6 +343,11 @@ module SymbolProviders =
                 match Map.tryFind name byName with
                 | Some v -> ValueSome v
                 | None -> ValueNone
+
+            // Forward the reverse intrinsic axis from the wrapped composite — this
+            // wrapper is the provider the front end actually holds, so `canonName`'s
+            // `System.Exception` -> `exn` reconciliation must survive it.
+            member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
         }
 
     /// Build the provider stack AND load its cross-package inline bodies for a

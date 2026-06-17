@@ -131,4 +131,67 @@ let tests =
                     (neq |> List.exists (fun s -> s.Contains "equals"))
                     "the negated base wraps a call, not a bare-name IL template"
             }
+
+            // intrinsic-runtime-type-plan.md — the proof that the two-face `Intrinsic`
+            // split holds: the JS target repoints the *runtime* (`platform`) repr of
+            // the numeric primitives to a JS-native tag WITHOUT collapsing their
+            // *identity* (`canon`). If `int` and `float` shared one repr string (as
+            // before the split), `canonName` would conflate them — `5 : int` would
+            // unify with `5.0 : float` and `%d`/`%f`, integer division, etc. would rot.
+            test "JS numeric reprs: canon identities stay distinct while both platform-project to `number`" {
+                let js = SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+
+                let facesOf name =
+                    match js.TryLookupType name with
+                    | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) -> canon, platform
+                    | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
+
+                let intCanon, intPlat = facesOf "Vesper.int"
+                let floatCanon, floatPlat = facesOf "Vesper.float"
+
+                // Identity axis — the canon faces ARE the `.fsi` names, platform-
+                // INVARIANT (a JS build never sees a BCL name) and distinct, so the
+                // unifier never conflates `int` with `float`.
+                Expect.equal intCanon "int" "int canon identity is the `.fsi` name"
+                Expect.equal floatCanon "float" "float canon identity is the `.fsi` name"
+                Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
+
+                // Runtime axis — both numeric platform faces repoint to the JS `number`
+                // tag (from `prim-types-int.js.fs` / `prim-types-float.js.fs`).
+                Expect.equal intPlat "number" "int platform face repoints to JS `number`"
+                Expect.equal floatPlat "number" "float platform face repoints to JS `number`"
+                Expect.notEqual intCanon intPlat "the two faces genuinely diverge on JS (identity ≠ runtime repr)"
+            }
+
+            // The same provider on the CLR target keeps the `.fsi` name as canon and
+            // the BCL name as platform — the two faces diverge on EVERY target now
+            // (`canon` is `.fsi`-defined, `platform` is `.fs`-defined).
+            test "CLR target: canon is the `.fsi` name, platform is the BCL repr" {
+                let clr = SymbolProviders.buildContractFor None [ vesperCoreManifest ]
+
+                match clr.TryLookupType "Vesper.int" with
+                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
+                    Expect.equal canon "int" "int canon on CLR is the `.fsi` name"
+                    Expect.equal platform "System.Int32" "int platform face on CLR is the BCL repr"
+                    Expect.notEqual canon platform "the two faces diverge on CLR too (identity ≠ runtime repr)"
+                | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
+            }
+
+            // `unit` and the 64-bit ints can't use the `number` tag: `unit` is JS
+            // `undefined`, `int64`/`uint64` are JS `bigint` (a `number` loses precision
+            // past 53 bits). Their `.js.fs` companions repoint the platform face per-entry;
+            // the canon identity stays the `.fsi` name. (CLR keeps the BCL repr — the
+            // `.js.fs` overlay applies to the JS target only.)
+            test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
+                let js = SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+
+                let facesOf name =
+                    match js.TryLookupType name with
+                    | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) -> canon, platform
+                    | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
+
+                Expect.equal (facesOf "Vesper.unit") ("unit", "undefined") "unit -> undefined on JS"
+                Expect.equal (facesOf "Vesper.int64") ("int64", "bigint") "int64 -> bigint on JS"
+                Expect.equal (facesOf "Vesper.uint64") ("uint64", "bigint") "uint64 -> bigint on JS"
+            }
         ]

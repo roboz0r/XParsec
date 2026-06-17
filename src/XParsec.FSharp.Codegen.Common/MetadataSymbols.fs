@@ -800,6 +800,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
         // bodies — those ride the Vesper contract stack.
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
+        // Metadata (BCL) types carry no Vesper intrinsics — the reverse axis is empty.
+        member _.IntrinsicReverseCanon = Map.empty
 
 module MetadataSymbols =
 

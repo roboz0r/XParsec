@@ -146,6 +146,26 @@ module RuntimeNames =
     /// erases it to the element type at the value position (`inferIndexedLookup`).
     let byrefName: string = "&"
 
+    /// True iff `name` is the identity name of a *structural type constructor* — an
+    /// array of any rank (`arrayName`: `"[]"`, `"[,]"`, …) or a managed by-ref
+    /// (`byrefName`: `"&"`). These are generic intrinsics (`arity ≥ 1`) representable
+    /// by construction, lowered by dedicated backend paths (`SZArray`, the byref seam)
+    /// rather than as a nominal receiver — so a member/representability resolver keyed
+    /// on nominal BCL/contract types must let them keep their own path. Single source
+    /// so the producers (`arrayName`/`byrefName`) and this recogniser can't drift.
+    let isStructuralConstructorName (name: string) : bool =
+        name = byrefName
+        || (name.Length >= 2
+            && name.[0] = '['
+            && name.[name.Length - 1] = ']'
+            && (let mutable ok = true
+
+                for i in 1 .. name.Length - 2 do
+                    if name.[i] <> ',' then
+                        ok <- false
+
+                ok))
+
     /// The external head an `[| … |]` array literal lowers to (`FreezeExpr`):
     /// `ArrayModule.OfList` applied to the literal cons-chain. The FSharp.Core
     /// path resolves it as a real module call; the BCL-only path recognises this

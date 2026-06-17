@@ -102,4 +102,47 @@ let tests =
                     "const x = (BigInt.asIntN(64, (2n) + (3n)));\n"
                     "int64 BigInt-wrapped add"
             }
+
+            test "a type with no JS representation (decimal) is rejected as a semantic diagnostic" {
+                // `decimal` ships no `.js.fs` companion, so the JS-target provider hands it
+                // back as `Intrinsic(_, platform = None)`. The `SemanticAnalysis.PlatformTypes`
+                // pass flags that — the same class of error as an unresolved generic — as a
+                // per-decl `Severity.Error` diagnostic, NOT a `failwith` in the emitter
+                // (intrinsic-runtime-type-plan.md). `frozenOfJs` gates on error diagnostics
+                // (like the real `buildPackage`), so `emitJs` surfaces it as the failure.
+                let msg =
+                    try
+                        emitJs "let x = 1.0m" |> ignore
+                        None
+                    with e ->
+                        Some e.Message
+
+                match msg with
+                | None -> failtest "expected a platform-unsupported diagnostic for `decimal`"
+                | Some m ->
+                    Expect.stringContains m "no representation on the target platform" "names the platform verdict"
+                    Expect.stringContains m "decimal" "names the offending type"
+            }
+
+            test "a generic intrinsic (array) is NOT flagged unrepresentable on JS" {
+                // `'T []` is an `extern` intrinsic with a base repr (`!0[]`) but no `.js.fs`
+                // overlay, so its `platform` face is `None` — the same `None` `decimal` carries.
+                // The difference is arity: an array is a structural constructor (`FreezeExpr`
+                // lowers it to a JS array, no repr string), so `PlatformTypes` must skip it on
+                // `arity >= 1`. We assert the array path never raises the *platform* verdict —
+                // full array codegen is a separate Step-5b concern, so any OTHER failure is fine.
+                let msg =
+                    try
+                        emitJs "let x = [| 1; 2; 3 |]" |> ignore
+                        None
+                    with e ->
+                        Some e.Message
+
+                match msg with
+                | None -> ()
+                | Some m ->
+                    Expect.isFalse
+                        (m.Contains "no representation on the target platform")
+                        (sprintf "array must not trip the platform-unrepresentable verdict, got: %s" m)
+            }
         ]

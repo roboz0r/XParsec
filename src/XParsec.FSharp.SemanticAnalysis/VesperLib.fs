@@ -1211,9 +1211,29 @@ module VesperLib =
             | ValueSome(struct (compiled, arity)) ->
                 let short = shortNameOfTypeName lexed input typeName
 
-                match ctx.IntrinsicReprs.TryGetValue short with
-                | true, repr -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic repr
-                | _ ->
+                // Two repr faces (intrinsic-runtime-type-plan.md): `canon` is the
+                // `.fsi` name itself — the platform-invariant front-end identity that
+                // drives `canonName`. Whether this `extern` is a primitive at all is
+                // decided by the BASE `.fs` `(# … #)` companion (`IntrinsicBaseReprs`),
+                // NOT the per-target repr — so a target that omits a primitive
+                // (`decimal` ships no `.js.fs`) still publishes it as an `Intrinsic`
+                // and keeps its `canon` identity, just with `platform = None` ("no
+                // representation on this target"). The `platform` face itself is the
+                // compiling target's `(# … #)` repr (`IntrinsicReprs`). An `extern`
+                // with no base companion repr is a real opaque `Class`.
+                //
+                // `arity` rides along (NOT always 0): the structural constructors are
+                // intrinsics too (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is
+                // representable by construction, so `PlatformTypes` only treats a
+                // `platform = None` as fatal when `arity = 0` — see the shape's docs.
+                if ctx.IntrinsicBaseReprs.ContainsKey short then
+                    let platform =
+                        match ctx.IntrinsicReprs.TryGetValue short with
+                        | true, repr -> Some repr
+                        | _ -> None
+
+                    ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(short, arity, platform)
+                else
                     ctx.TypeShapes.[compiled] <-
                         ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
 
@@ -1508,19 +1528,24 @@ module VesperLib =
 
         sb.ToString()
 
-    /// Harvest the per-target intrinsic-representation bindings from a parsed
-    /// `.fs` companion (`type exn = (# "System.Exception" #)`) into
-    /// `ctx.IntrinsicReprs` (short name ⇒ repr). This is the `.fs` half of the
-    /// `.fsi`/`.fs` pairing: the `.fsi` `type exn = extern` deliberately omits
-    /// the repr, so the identity lives only here. Run BEFORE the `.fsi`
-    /// extraction so the `extern` arm of `extractTypeSig` can publish
-    /// `ExternalTypeShape.Intrinsic`.
+    /// Harvest the intrinsic-representation bindings from a parsed `.fs` companion
+    /// (`type exn = (# "System.Exception" #)`) into `dest` (short name ⇒ repr).
+    /// This is the `.fs` half of the `.fsi`/`.fs` pairing: the `.fsi` `type exn =
+    /// extern` deliberately omits the repr, so the identity lives only here. Run
+    /// BEFORE the `.fsi` extraction so the `extern` arm of `extractTypeSig` can
+    /// publish `ExternalTypeShape.Intrinsic`. The caller harvests the per-target
+    /// `<base>.<target>.fs` ⇒ `IntrinsicReprs` (the `platform` face); the `canon`
+    /// face is the `.fsi` name itself, so a target override repoints codegen WITHOUT
+    /// moving the unifier's identity key (intrinsic-runtime-type-plan.md).
     ///
     /// A direct CST scrape — NOT `Pipeline.analyse` — because (a) all we need is
     /// the `type <name> = (# "<repr>" #)` shape, and (b) the prim-types `.fs`
     /// carry cons-list augmentation members that trip unimplemented analysis
     /// paths (`CstKeys.firstTokenOfPat: TODO Cons`). A later binding wins a clash.
-    let harvestIntrinsicReprs (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
+    let harvestIntrinsicReprsInto
+        (dest: System.Collections.Generic.Dictionary<string, string>)
+        (parsed: ParsedFile)
+        : unit =
         let implFile =
             match parsed.Ast with
             | FSharpAst.ImplementationFile f -> Some f
@@ -1541,8 +1566,7 @@ module VesperLib =
                         | TypeDefn.Abbrev(typeName = TypeName(ident = li); typ = Type.ILIntrinsic(instrParts = parts)) when
                             li.Idents.Length = 1
                             ->
-                            ctx.IntrinsicReprs.[nameOf li.Idents.[0]] <-
-                                ilIntrinsicReprString parsed.Lexed parsed.Input parts
+                            dest.[nameOf li.Idents.[0]] <- ilIntrinsicReprString parsed.Lexed parsed.Input parts
                         | _ -> ()
                 | _ -> ()
 
