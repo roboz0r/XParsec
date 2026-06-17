@@ -1,6 +1,7 @@
 namespace Vesper
 
 open System
+open System.Buffers
 open System.Collections
 open System.Globalization
 open System.Runtime.CompilerServices
@@ -31,16 +32,32 @@ open System.Runtime.CompilerServices
 // Deviations from `StructuralFormat.cs` (each documented at its site):
 //   * The `Doc` tree recomputes `flatWidth` (the C# caches it per node). The trees
 //     are small; recomputation keeps the DU fully immutable with no cache field.
+//   * The render pass appends into a single pooled `char[]` buffer threaded on
+//     `RuntimeFormatState` (`RenderBuf`/`RenderPos`, `Emit`/`EmitSpaces`, grown via
+//     `ArrayPool<char>` exactly like `formatter.fs`); each `RenderDoc` returns only
+//     the end column (an `int`). The first port instead returned a `RenderResult`
+//     whose `Txt` field was the fully materialised subtree string, assembled by
+//     incremental `string + string` — that is O(n^2) in tree size (each `DocCat`
+//     re-copies the growing suffix; every group/nest hands its whole string up to
+//     be concatenated again). The buffer is the faithful analogue of the C#
+//     `StringBuilder` and restores O(n) layout.
 //   * The frame stack is a Vesper cons-list used as a stack (push = cons, pop =
 //     head/tail; `PopWrap` reverses each frame's `Kids` via `revOnto`) rather than
 //     a BCL mutable `List<Doc>` — the PP7 recommended deviation.
 //   * Cycle detection (the visited-set) is a Vesper cons-list of DFS-ancestor
 //     values scanned by `Object.ReferenceEquals` (`DocLayout.containsRef` +
 //     `RuntimeFormatState.Visited`), pushed on entering `Dispatch` and popped on
-//     exit — the proven cons-list deviation in place of the C# `HashSet<obj>` +
-//     `ReferenceEqualityComparer`. The path-set semantics are identical, so a
-//     self-referential value renders `...` at the back-edge exactly as the C#
-//     engine does (PP7f restored this; PP7c/PP7d had dropped it).
+//     exit — a deliberate deviation from the C# `HashSet<obj>` +
+//     `ReferenceEqualityComparer`, not a capability gap to retire: the path is
+//     bounded by the `PrintDepth = 100` guard, so a linear reference scan is as
+//     cheap as a hash lookup with none of the set allocation / boxing, and it needs
+//     no BCL generic-collection construction. (Constructing `HashSet<obj>(
+//     ReferenceEqualityComparer.Instance)` from Vesper additionally needs external
+//     generic-ctor overload resolution with interface assignability + `obj`/
+//     `System.Object` unification — the intrinsic-representation work happening on
+//     the `codegen-js` branch, kept out of here to avoid the overlap.) The path-set
+//     semantics are identical to the C#, so a self-referential value renders `...`
+//     at the back-edge exactly as the C# engine does (PP7f restored this).
 //   * The reflection-free `:?` chain is written as `if value :? T then … (value :?> T)`
 //     (test + downcast, no `as` binder); a large `match | :? T as x` in a member
 //     body drops a binder's slot in codegen. Same semantics, reads like the C#
@@ -63,12 +80,9 @@ type Doc =
     /// position), counted toward the flat width.
     | DocGroup of Doc * bool
 
-/// The result of laying a `Doc` out: the rendered text and the column it ends at.
-/// A record (not a `string * int` tuple) per the wide-tuple-→-record convention.
-type RenderResult = { Txt: string; Col: int }
-
-/// The `Doc` layout core + the atom-rendering helpers (the copy-pasteable source
-/// forms). Pure functions over the immutable `Doc` tree — no sink state.
+/// The `Doc` width + atom-rendering helpers (the copy-pasteable source forms).
+/// Pure functions over the immutable `Doc` tree — no sink state. The layout pass
+/// itself lives on `RuntimeFormatState` (it threads the pooled render buffer).
 module internal DocLayout =
 
     /// The flat (single-line) width of a `Doc`. Recomputed rather than cached; the
@@ -86,54 +100,6 @@ module internal DocLayout =
         | [] -> 0
         | k :: rest -> flatWidth k + catWidth rest
 
-    /// `n` spaces (the broken-line indent).
-    let rec spaces (n: int) : string =
-        if n <= 0 then "" else " " + spaces (n - 1)
-
-    /// Lay `d` out, threading the current indent / broken flag / column.
-    let rec render (d: Doc) (indent: int) (broken: bool) (col: int) (width: int) : RenderResult =
-        match d with
-        | DocText s -> { Txt = s; Col = col + s.Length }
-        | DocLine flat ->
-            if broken then
-                {
-                    Txt = "\n" + spaces indent
-                    Col = indent
-                }
-            else
-                { Txt = flat; Col = col + flat.Length }
-        | DocNest(i, inner) -> render inner (indent + i) broken col width
-        | DocCat kids -> renderCat kids indent broken col width
-        | DocGroup(inner, parens) ->
-            let openCol = if parens then col + 1 else col
-            // All-or-nothing: the group is flat iff its entire flat rendering fits
-            // the remaining budget from the current column. width 0 ⇒ an unbounded
-            // budget ⇒ always flat (the `%0A` "never break" mode).
-            let groupBroken = width <> 0 && openCol + flatWidth inner > width
-            let r = render inner indent groupBroken openCol width
-
-            if parens then
-                {
-                    Txt = "(" + r.Txt + ")"
-                    Col = r.Col + 1
-                }
-            else
-                r
-
-    and renderCat (kids: Doc list) (indent: int) (broken: bool) (col: int) (width: int) : RenderResult =
-        match kids with
-        | [] -> { Txt = ""; Col = col }
-        | k :: rest ->
-            let r1 = render k indent broken col width
-            let r2 = renderCat rest indent broken r1.Col width
-            { Txt = r1.Txt + r2.Txt; Col = r2.Col }
-
-    /// Lay the whole document out: an implicit top-level group so the top level can
-    /// break.
-    let layout (d: Doc) (width: int) : string =
-        let r = render (DocGroup(d, false)) 0 false 0 width
-        r.Txt
-
     /// Reverse `xs` onto `acc` — used to flip a frame's `Kids` accumulator (built by
     /// consing, so reversed) back into source order.
     let rec revOnto (xs: Doc list) (acc: Doc list) : Doc list =
@@ -144,11 +110,11 @@ module internal DocLayout =
     /// True if `v` is reference-identical to any element of `xs`. The visited-set
     /// scan for cycle detection (PP7f). A linear `Object.ReferenceEquals` walk over
     /// the current DFS-ancestor chain — small (bounded by the PrintDepth = 100 depth
-    /// guard, and popped on exit so only ancestors are present). This is the proven
-    /// cons-list deviation in place of the C# engine's `HashSet<obj>` +
-    /// `ReferenceEqualityComparer` (no BCL generic mutable collection needed); the
-    /// path-set semantics are identical, so a self-referential value renders `...`
-    /// at the back-edge exactly as the C# engine does.
+    /// guard, and popped on exit so only ancestors are present). The cons-list
+    /// deviation from the C# engine's `HashSet<obj>` + `ReferenceEqualityComparer`
+    /// (no BCL generic mutable collection needed); the path-set semantics are
+    /// identical, so a self-referential value renders `...` at the back-edge exactly
+    /// as the C# engine does.
     let rec containsRef (xs: obj list) (v: obj) : bool =
         match xs with
         | [] -> false
@@ -283,8 +249,15 @@ type RuntimeFormatState =
     /// being dispatched (top = head). Pushed on entering `Dispatch`, popped on exit,
     /// so it holds exactly the open path; a value reference-identical to an ancestor
     /// is a back-edge and renders `...`. A cons-list scanned by `Object.ReferenceEquals`
-    /// (the proven deviation from the C# `HashSet<obj>` + `ReferenceEqualityComparer`).
+    /// (the deliberate deviation from the C# `HashSet<obj>` + `ReferenceEqualityComparer`).
     val mutable Visited: obj list
+    /// The render buffer: the laid-out text accumulates here (the analogue of the C#
+    /// `StringBuilder`), grown via `ArrayPool<char>` exactly like `formatter.fs`. A
+    /// pooled `char[]` rather than a `Span<char>` field because `Span` cannot be a
+    /// field of a heap class; the layout members build `Span<char>` *locals* over it.
+    val mutable RenderBuf: char[]
+    /// Count of characters written into `RenderBuf` so far.
+    val mutable RenderPos: int
 
     new(width: int, printSize: int) =
         let root =
@@ -302,6 +275,8 @@ type RuntimeFormatState =
             Frames = [ root ]
             ArgPending = false
             Visited = []
+            RenderBuf = ArrayPool<char>.Shared.Rent(256)
+            RenderPos = 0
         }
 
     member private this.Add(d: Doc) =
@@ -456,6 +431,78 @@ type RuntimeFormatState =
             this.Size <- this.Size - 1
             this.Add(DocText(value.ToString()))
 
+    // ---- the layout pass: append into the pooled `RenderBuf` ----
+    // These mirror `formatter.fs`'s grow/copy surface (`ArrayPool<char>` + a
+    // `Span<char>` local over the field). Each `RenderDoc` returns the end column
+    // (an `int`); the rendered characters are pushed straight into `RenderBuf`.
+
+    /// Grow `RenderBuf` so at least `extra` more chars fit past `RenderPos`.
+    member private this.EnsureRoom(extra: int) =
+        let needed = this.RenderPos + extra
+
+        if needed > this.RenderBuf.Length then
+            let newLen = Math.Max(needed, this.RenderBuf.Length * 2)
+            let bigger = ArrayPool<char>.Shared.Rent(newLen)
+            Span<char>(this.RenderBuf).Slice(0, this.RenderPos).CopyTo(Span<char>(bigger))
+            ArrayPool<char>.Shared.Return(this.RenderBuf)
+            this.RenderBuf <- bigger
+
+    /// Append a literal run to the buffer.
+    member private this.Emit(s: string) =
+        this.EnsureRoom(s.Length)
+        s.CopyTo(Span<char>(this.RenderBuf).Slice(this.RenderPos, this.RenderBuf.Length - this.RenderPos))
+        this.RenderPos <- this.RenderPos + s.Length
+
+    /// Append `n` spaces (the broken-line indent) to the buffer.
+    member private this.EmitSpaces(n: int) =
+        if n > 0 then
+            this.EnsureRoom(n)
+            Span<char>(this.RenderBuf).Slice(this.RenderPos, n).Fill(' ')
+            this.RenderPos <- this.RenderPos + n
+
+    /// Lay `d` out into the buffer, threading the current indent / broken flag /
+    /// column; returns the column it ends at.
+    member private this.RenderDoc(d: Doc, indent: int, broken: bool, col: int, width: int) : int =
+        match d with
+        | DocText s ->
+            this.Emit(s)
+            col + s.Length
+        | DocLine flat ->
+            if broken then
+                this.Emit("\n")
+                this.EmitSpaces(indent)
+                indent
+            else
+                this.Emit(flat)
+                col + flat.Length
+        | DocNest(i, inner) -> this.RenderDoc(inner, indent + i, broken, col, width)
+        | DocCat kids -> this.RenderCat(kids, indent, broken, col, width)
+        | DocGroup(inner, parens) ->
+            // The opening paren advances the column the inner content lays out from.
+            let openCol = if parens then col + 1 else col
+            // All-or-nothing: the group is flat iff its entire flat rendering fits
+            // the remaining budget from the current column. width 0 ⇒ an unbounded
+            // budget ⇒ always flat (the `%0A` "never break" mode).
+            let groupBroken = width <> 0 && openCol + DocLayout.flatWidth inner > width
+
+            if parens then
+                this.Emit("(")
+
+            let endCol = this.RenderDoc(inner, indent, groupBroken, openCol, width)
+
+            if parens then
+                this.Emit(")")
+                endCol + 1
+            else
+                endCol
+
+    member private this.RenderCat(kids: Doc list, indent: int, broken: bool, col: int, width: int) : int =
+        match kids with
+        | [] -> col
+        | k :: rest ->
+            let col1 = this.RenderDoc(k, indent, broken, col, width)
+            this.RenderCat(rest, indent, broken, col1, width)
+
     /// Lay the recorded document out to a string.
     member this.Finish() : string =
         match this.Frames with
@@ -467,7 +514,14 @@ type RuntimeFormatState =
                 | [ single ] -> single
                 | _ -> DocCat kids
 
-            DocLayout.layout docRoot this.Width
+            // An implicit top-level group so the top level can break. The end column
+            // is discarded (a wildcard bind, not `|> ignore`: the latter would leave
+            // the `ignore` recipe as a bare value, which codegen can't eta-expand).
+            let _ = this.RenderDoc(DocGroup(docRoot, false), 0, false, 0, this.Width)
+
+            let result = Span<char>(this.RenderBuf).Slice(0, this.RenderPos).ToString()
+            ArrayPool<char>.Shared.Return(this.RenderBuf)
+            result
         | _ -> failwith "Vesper.RuntimeFormatState: unbalanced layout scopes at Finish."
 
     interface Vesper.IFormatSink with

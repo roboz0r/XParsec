@@ -760,6 +760,68 @@ let structuralPrintSized (value: obj) (widthBudget: int) (sizeBudget: int) : str
 let structuralPrint (value: obj) (widthBudget: int) : string =
     structuralPrintSized value widthBudget 10000
 
+/// Compile a STANDALONE `%A` structural-engine source string (defining
+/// `Vesper.StructuralPrinter`, depending only on Vesper.Core/List/Comparison) through
+/// THIS repo's backend and bind its `Print(obj, int, int)` as a typed `Func` delegate —
+/// the real Codegen.Clr-emitted IL, callable with no per-call reflection. Used by the
+/// `Codegen.Clr` structural-format benchmark to measure the live engine vs the frozen
+/// pre-buffer baseline on the *emitted* output (not the fsc rendering). Same compile
+/// path as `buildPackage`; only the source string + assembly name differ, so the live
+/// and baseline engines go through an identical backend for an apples-to-apples ratio.
+/// Each is loaded into its own dedicated (non-collectible) ALC whose `Vesper.Core` /
+/// `Vesper.List` dependencies resolve through the Default fall-through (forced first).
+let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, int, string> =
+    vesperCoreDll.Value |> ignore
+    vesperListDll.Value |> ignore
+
+    let deps = [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison" ]
+
+    let depDlls =
+        deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
+
+    let provider = SymbolProviders.buildContract (deps |> List.map srcManifest)
+
+    let outDir = tmpDir (sprintf "engine-%s" asmName)
+    let outPath = IO.Path.Combine(outDir, asmName + ".dll")
+
+    let project =
+        { ProjectInfo.library asmName with
+            OutputPath = Some outPath
+            References = depDlls
+        }
+
+    let lexed, file = parseFile source
+
+    let tast =
+        Pipeline.analyseForSelfHost project.AssemblyName provider source lexed file
+
+    let errs = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    if not (List.isEmpty errs) then
+        failwithf
+            "compileStructuralEngine %s: %d analysis error(s):\n%s"
+            asmName
+            (List.length errs)
+            (errs |> List.map (fun d -> d.Message) |> String.concat "\n")
+
+    let artifact = Codegen.compile provider project tast
+    Codegen.materialise artifact
+
+    let alc =
+        AssemblyLoadContext(sprintf "xparsec-engine-%s" asmName, isCollectible = false)
+
+    let asm =
+        use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
+        alc.LoadFromStream ms
+
+    let sp = asm.GetType("Vesper.StructuralPrinter", true)
+    let m = sp.GetMethod("Print", [| typeof<obj>; typeof<int>; typeof<int> |])
+
+    if isNull m then
+        failwithf "compileStructuralEngine %s: no Vesper.StructuralPrinter.Print(obj, int, int)" asmName
+
+    m.CreateDelegate(typeof<Func<obj, int, int, string>>) :?> Func<obj, int, int, string>
+
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
 // The one-liners the suite was missing (docs/codegen-test-strategy-plan.md):
 // the dominant assertion — "run this source, get this stdout, exit 0" — had no

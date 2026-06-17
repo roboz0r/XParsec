@@ -7,6 +7,11 @@
     <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The frozen pre-buffer `%A` engine, read as text + compiled through Codegen.Clr
+         by `StructuralFormatBench` (the bench-structural entry); NOT fsc-compiled. -->
+    <None Include="StructuralFormatBaseline.fs" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="..\XParsec.FSharp.SemanticAnalysis.Tests\MockBuiltins.fs" Link="MockBuiltins.fs" />
     <Compile Include="TestHelpers.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
@@ -60,6 +65,7 @@
     <Compile Include="TupleTests.fs" />
     <Compile Include="StructuralFormatTests.fs" />
     <Compile Include="PrintfDifferentialTests.fs" />
+    <Compile Include="StructuralFormatBench.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
