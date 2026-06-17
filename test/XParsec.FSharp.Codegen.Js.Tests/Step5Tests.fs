@@ -8,13 +8,13 @@ let tests =
     testList
         "Codegen.Js Step5"
         [
-            test "a tuple is a JS array; a tupled param destructures it" {
+            test "a tuple is a JS array; a tupled module-function group flattens to flat params" {
                 Expect.equal
                     (emitJs "let p = (1, 2)\nlet f (a, b) = a + b\nprintfn \"%d\" (f p)")
                     ("const p = [1, 2];\n"
-                     + "const f = ([a, b]) => (((a) + (b)) | 0);\n"
-                     + "console.log(f(p));\n")
-                    "tuple → array literal, tupled param → array destructuring"
+                     + "const f = (a, b) => (((a) + (b)) | 0);\n"
+                     + "console.log(f(p[0], p[1]));\n")
+                    "tuple → array literal; a tupled group flattens to N flat params, the tuple-value call flattening to positional reads"
             }
 
             test "a tupled function adds its destructured elements (f (2,3) → 5)" {

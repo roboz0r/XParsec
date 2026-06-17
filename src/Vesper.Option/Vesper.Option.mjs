@@ -63,7 +63,7 @@ export const isNone = (option) => ((_m2163) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const defaultValue = (value) => (option) => ((_m2299) => {
+export const defaultValue = (value, option) => ((_m2299) => {
   if ((_m2299.tag === 0)) {
     return value;
   }
@@ -73,7 +73,7 @@ export const defaultValue = (value) => (option) => ((_m2299) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const defaultWith = (defThunk) => (option) => ((_m2442) => {
+export const defaultWith = (defThunk, option) => ((_m2442) => {
   if ((_m2442.tag === 0)) {
     return defThunk(undefined);
   }
@@ -83,7 +83,7 @@ export const defaultWith = (defThunk) => (option) => ((_m2442) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const orElse = (ifNone) => (option) => ((_m2583) => {
+export const orElse = (ifNone, option) => ((_m2583) => {
   if ((_m2583.tag === 0)) {
     return ifNone;
   }
@@ -92,7 +92,7 @@ export const orElse = (ifNone) => (option) => ((_m2583) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const orElseWith = (ifNoneThunk) => (option) => ((_m2741) => {
+export const orElseWith = (ifNoneThunk, option) => ((_m2741) => {
   if ((_m2741.tag === 0)) {
     return ifNoneThunk(undefined);
   }
@@ -120,7 +120,7 @@ export const count = (option) => ((_m3049) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const fold = (folder) => (state) => (option) => ((_m3216) => {
+export const fold = (folder, state, option) => ((_m3216) => {
   if ((_m3216.tag === 0)) {
     return state;
   }
@@ -130,7 +130,7 @@ export const fold = (folder) => (state) => (option) => ((_m3216) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const exists = (predicate) => (option) => ((_m3368) => {
+export const exists = (predicate, option) => ((_m3368) => {
   if ((_m3368.tag === 0)) {
     return false;
   }
@@ -140,7 +140,7 @@ export const exists = (predicate) => (option) => ((_m3368) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const forall = (predicate) => (option) => ((_m3517) => {
+export const forall = (predicate, option) => ((_m3517) => {
   if ((_m3517.tag === 0)) {
     return true;
   }
@@ -150,7 +150,7 @@ export const forall = (predicate) => (option) => ((_m3517) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const iter = (action) => (option) => ((_m3660) => {
+export const iter = (action, option) => ((_m3660) => {
   if ((_m3660.tag === 0)) {
     return undefined;
   }
@@ -160,7 +160,7 @@ export const iter = (action) => (option) => ((_m3660) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const map = (mapping) => (option) => ((_m3796) => {
+export const map = (mapping, option) => ((_m3796) => {
   if ((_m3796.tag === 0)) {
     return new Option_None();
   }
@@ -170,7 +170,7 @@ export const map = (mapping) => (option) => ((_m3796) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const bind = (binder) => (option) => ((_m3948) => {
+export const bind = (binder, option) => ((_m3948) => {
   if ((_m3948.tag === 0)) {
     return new Option_None();
   }
@@ -190,7 +190,7 @@ export const flatten = (option) => ((_m4077) => {
   }
   throw new Error("The match cases were incomplete");
 })(option);
-export const filter = (predicate) => (option) => ((_m4215) => {
+export const filter = (predicate, option) => ((_m4215) => {
   if ((_m4215.tag === 0)) {
     return new Option_None();
   }

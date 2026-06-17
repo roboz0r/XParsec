@@ -8,6 +8,7 @@
     <Compile Include="IntrinsicRepr.fs" />
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="SymbolProviders.fs" />
+    <Compile Include="CompiledFns.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />

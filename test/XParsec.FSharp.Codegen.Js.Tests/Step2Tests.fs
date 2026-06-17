@@ -8,25 +8,25 @@ let tests =
     testList
         "Codegen.Js Step2"
         [
-            test "a curried function emits nested unary arrows" {
+            test "a module function emits one flat multi-arg arrow" {
                 Expect.equal
                     (emitJs "let add x y = x + y")
-                    "const add = (x) => (y) => (((x) + (y)) | 0);\n"
-                    "two-parameter curried arrow"
+                    "const add = (x, y) => (((x) + (y)) | 0);\n"
+                    "curried source groups flatten to one multi-arg arrow (Fable-style)"
             }
 
-            test "a saturated call emits one unary call per argument" {
+            test "a saturated call collapses the spine to one flat call" {
                 Expect.equal
                     (emitJs "let add x y = x + y\nprintfn \"%d\" (add 2 3)")
-                    "const add = (x) => (y) => (((x) + (y)) | 0);\nconsole.log(add(2)(3));\n"
-                    "f a b → f(a)(b)"
+                    "const add = (x, y) => (((x) + (y)) | 0);\nconsole.log(add(2, 3));\n"
+                    "f a b → f(a, b)"
             }
 
-            test "partial application is just a shorter call chain" {
+            test "a partial application wraps the flat function in a curried adapter" {
                 Expect.equal
                     (emitJs "let add x y = x + y\nlet add5 = add 5")
-                    "const add = (x) => (y) => (((x) + (y)) | 0);\nconst add5 = add(5);\n"
-                    "add 5 → add(5), a function value"
+                    "const add = (x, y) => (((x) + (y)) | 0);\nconst add5 = ((_c4_0) => (_c4_1) => add(_c4_0, _c4_1))(5);\n"
+                    "under-applied module function adapts to the source-shaped currying"
             }
 
             test "a self-tail-recursive function becomes a `while (true)` trampoline" {

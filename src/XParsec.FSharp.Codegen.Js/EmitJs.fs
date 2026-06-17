@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Js
 open System.Globalization
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
 
 /// The `TAST → JsAst` walker. Every un-handled node is an explicit `failwithf`,
@@ -95,6 +96,14 @@ module EmitJs =
             Imports: JsImports
             /// `true` in library mode: top-level `let` emits `export const …`.
             ExportTopLevel: bool
+            /// Top-level module functions keyed by binding, with their flat compiled
+            /// form (`CompiledFns.gather`). Drives the Fable-style FLAT emission: a
+            /// module function emits as one multi-arg arrow (tuple groups flattened,
+            /// lone unit erased) and a saturated call collapses its spine to a single
+            /// flat call; a value-use / under-application gets an inline curried adapter
+            /// (function-method-compiled-form-plan.md §D). Empty until `buildProgram`
+            /// populates it from the lowered decls.
+            CompiledFns: System.Collections.Generic.Dictionary<NodeKey, CompiledFns.CompiledFn>
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -315,6 +324,27 @@ module EmitJs =
 
             climb 0 ty
 
+    // ---- Flat module functions (Fable-style) ---------------------------------
+
+    /// `e[j]` — a positional read of a tuple value (a JS array), used to flatten a
+    /// tuple-group argument into its compiled flat parameters.
+    let private indexMember (e: JsExpr) (j: int) : JsExpr =
+        JsExpr.Member(e, JsExpr.Literal(JsLiteral.Number(string j), ValueNone), true, ValueNone)
+
+    /// Does a value-use of a module function with these source groups need a curried
+    /// adapter? Only when the flat call shape differs from the curried one: arity ≥ 2,
+    /// or a tuple group (one tuple arg vs N flat params). A single `GSimple` or a lone
+    /// `GUnit` is flat-==-curried (JS ignores the surplus `undefined`), so a bare alias
+    /// is enough.
+    let private needsAdapter (groups: Frozen.ArgGroup list) : bool =
+        List.length groups >= 2
+        || groups
+           |> List.exists (
+               function
+               | ArgGroupG.GTuple _ -> true
+               | _ -> false
+           )
+
     // ---- The walker ----------------------------------------------------------
 
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
@@ -323,12 +353,27 @@ module EmitJs =
         match e with
         | TExprG.Const(value, _, _) -> constExpr value loc
 
-        | TExprG.Var(k, _, _) -> JsExpr.Identifier(identName ctx.Source k, loc)
+        // A bare reference to a local module FUNCTION is a value-use (an escape): it
+        // wraps the flat function in an inline curried adapter so a higher-order
+        // consumer (or a partial application) sees the SOURCE-shaped currying. A simple
+        // single-arg / lone-unit function needs no adapter (flat == curried there).
+        | TExprG.Var(k, _, _) ->
+            let ident = JsExpr.Identifier(identName ctx.Source k, loc)
+
+            match ctx.CompiledFns.TryGetValue k with
+            | true, cf when needsAdapter cf.Groups -> curryAdapter ctx ident cf.Groups k.Offset loc
+            | _ -> ident
 
         // An external module function — imported from its package's JS runtime module.
-        // The reference is the import alias; `App` saturates it.
-        | TExprG.External(compiledName, key, _, _) ->
-            JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key, loc)
+        // A value-use of a multi-arg / tupled external function gets the same curried
+        // adapter (its producer emits flat); a saturated call flattens at the `App` arm.
+        | TExprG.External(compiledName, key, exTy, _) ->
+            let alias = JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key, loc)
+
+            match externalGroups ctx compiledName exTy with
+            | ValueSome groups when needsAdapter groups ->
+                curryAdapter ctx alias groups (TastWalk.exprTok e).StartIndex loc
+            | _ -> alias
 
         | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
             JsExpr.Conditional(buildExpr ctx cond, buildExpr ctx thenE, buildExpr ctx elseE, loc)
@@ -358,8 +403,39 @@ module EmitJs =
         // Anonymous lambda — no binder key, so no self-tail-call analysis applies.
         | TExprG.Lambda _ -> emitFunction ctx ValueNone e
 
-        // Curried application: `f a b` → `f(a)(b)` — one unary call per `App`.
-        | TExprG.App(fn, arg, _, _) -> JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
+        // Application. A SATURATED call to a module function (local or external)
+        // collapses its whole spine into a single FLAT call (`f(a, b)`, tuple groups
+        // flattened, lone unit dropped); any residual over-application folds on as unary
+        // calls. Everything else — closures, members, under-applied module functions —
+        // keeps the curried `f(a)(b)` shape (one unary call per `App`); an under-applied
+        // module function reaches its head's curried adapter through this fallback.
+        | TExprG.App(fn, arg, _, _) ->
+            let head, spine = TastWalk.collectSpine [] e
+
+            let fallback () =
+                JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
+
+            match head with
+            | TExprG.Var(k, _, _) ->
+                match ctx.CompiledFns.TryGetValue k with
+                | true, cf when List.length spine >= List.length cf.Groups ->
+                    let callee =
+                        JsExpr.Identifier(identName ctx.Source k, locOf ctx (TastWalk.exprTok head))
+
+                    emitFlatCall ctx callee cf.Groups spine loc
+                | _ -> fallback ()
+            | TExprG.External(compiledName, key, exTy, _) ->
+                match externalGroups ctx compiledName exTy with
+                | ValueSome groups when not (List.isEmpty groups) && List.length spine >= List.length groups ->
+                    let callee =
+                        JsExpr.Identifier(
+                            JsImports.addRef ctx.Imports compiledName key,
+                            locOf ctx (TastWalk.exprTok head)
+                        )
+
+                    emitFlatCall ctx callee groups spine loc
+                | _ -> fallback ()
+            | _ -> fallback ()
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
         // reordered from source order to the class's *declaration*-order
@@ -733,6 +809,197 @@ module EmitJs =
         EqArray.toList args
         |> List.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
+    /// One flat compiled parameter's JS name: a simple binder reads its own slot; a
+    /// destructuring leaf (a nested tuple element) renders as a `[a, b]` pattern.
+    and private paramNameOf (ctx: WalkCtx) (p: TastLower.StaticParam) : string =
+        match p.Pat with
+        | None -> identName ctx.Source p.Slot
+        | Some pat -> lambdaParamName ctx.Source pat
+
+    /// The SOURCE groups of an EXTERNAL module function, read off the provider's
+    /// recorded `ValRepr` (the cross-assembly compiled-form contract, Step C). `ValueNone`
+    /// when the symbol carries none — a value, a hand-authored runtime primitive, or a
+    /// metadata-layer symbol — in which case the call keeps the curried convention.
+    and private externalGroups (ctx: WalkCtx) (compiledName: string) (_ty: FrozenType) : Frozen.ArgGroup list voption =
+        match ctx.Provider with
+        | ValueNone -> ValueNone
+        | ValueSome provider ->
+            // The `External` node carries the SOURCE-written name (`List.map`), but the
+            // provider keys symbols by their fully-qualified name (`Vesper.Collections.
+            // List.map`). Resolve as the front-end does: the bare name first, then each
+            // ambient open prefix prepended — the first hit wins.
+            let resolved =
+                match provider.TryLookup compiledName with
+                | ValueSome s -> ValueSome s
+                | ValueNone ->
+                    provider.AmbientOpenPrefixes
+                    |> List.tryPick (fun pre ->
+                        match provider.TryLookup(pre + "." + compiledName) with
+                        | ValueSome s -> Some s
+                        | ValueNone -> None
+                    )
+                    |> function
+                        | Some s -> ValueSome s
+                        | None -> ValueNone
+
+            match resolved with
+            | ValueSome sym -> sym.ValRepr |> ValueOption.map (fun vr -> vr.Groups)
+            | ValueNone -> ValueNone
+
+    /// Flatten a saturated call's LEADING spine (one element per source group) to the
+    /// flat compiled argument list. A `GSimple` / non-lone `GUnit` pushes its argument;
+    /// a LONE `GUnit` (`f ()`) pushes nothing; a `GTuple` flattens to its elements — a
+    /// literal `Tuple` element-wise, a pure tuple value by positional reads, an impure
+    /// tuple value spilled to a temporary (returned in the snd, the caller binds it).
+    and private flattenGroupArgs
+        (ctx: WalkCtx)
+        (groups: Frozen.ArgGroup list)
+        (leading: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        : JsExpr list * (string * JsExpr) list =
+        let isLone =
+            match groups with
+            | [ ArgGroupG.GUnit _ ] -> true
+            | _ -> false
+
+        let flat = ResizeArray<JsExpr>()
+        let spills = ResizeArray<string * JsExpr>()
+
+        List.iter2
+            (fun (g: Frozen.ArgGroup) (a, _, _) ->
+                match g with
+                | ArgGroupG.GUnit _ when isLone -> () // lone unit erased — push nothing
+                | ArgGroupG.GUnit _
+                | ArgGroupG.GSimple _ -> flat.Add(buildExpr ctx a)
+                | ArgGroupG.GTuple _ ->
+                    match a with
+                    | TExprG.Tuple(elems, _, _) ->
+                        for el in EqArray.toList elems do
+                            flat.Add(buildExpr ctx el)
+                    | _ ->
+                        let n =
+                            match TastLower.typeOfExpr a with
+                            | FTTuple xs -> xs.Length
+                            | t -> failwithf "EmitJs: tuple-group argument is not a tuple type: %A" t
+
+                        if isPureValue a then
+                            let je = buildExpr ctx a
+
+                            for j in 0 .. n - 1 do
+                                flat.Add(indexMember je j)
+                        else
+                            let tmp = "_tg" + string (TastWalk.exprTok a).StartIndex
+                            spills.Add(tmp, buildExpr ctx a)
+
+                            for j in 0 .. n - 1 do
+                                flat.Add(indexMember (JsExpr.Identifier(tmp, ValueNone)) j)
+            )
+            groups
+            leading
+
+        List.ofSeq flat, List.ofSeq spills
+
+    /// Wrap a flat call in an IIFE binding each spilled tuple value once, so an impure
+    /// tuple argument flattened to N reads is still evaluated exactly once.
+    and private wrapSpills (spills: (string * JsExpr) list) (call: JsExpr) (loc: JsLoc voption) : JsExpr =
+        match spills with
+        | [] -> call
+        | _ ->
+            JsExpr.Call(
+                JsExpr.Arrow([ for (n, _) in spills -> n ], JsFnBody.Expr call, loc),
+                [ for (_, e) in spills -> e ],
+                loc
+            )
+
+    /// A saturated module-function call: collapse the leading spine (one element per
+    /// source group) into a single flat `callee(flatArgs…)`, then fold any residual
+    /// over-application on as unary calls.
+    and private emitFlatCall
+        (ctx: WalkCtx)
+        (callee: JsExpr)
+        (groups: Frozen.ArgGroup list)
+        (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (loc: JsLoc voption)
+        : JsExpr =
+        let leading, rest = List.splitAt (List.length groups) spine
+        let flatArgs, spills = flattenGroupArgs ctx groups leading
+        let flatCall = wrapSpills spills (JsExpr.Call(callee, flatArgs, loc)) loc
+
+        rest
+        |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) flatCall
+
+    /// Wrap a flat `callee` in a curried adapter matching its SOURCE arity, so a
+    /// value-use / partial application sees the same currying a curried consumer
+    /// expects: `(c0) => (c1) => callee(c0, c1)`. A tuple group's single curried
+    /// parameter is destructured into the flat call's positional reads; a lone unit
+    /// parameter is accepted and dropped. `off` disambiguates the synthetic names.
+    and private curryAdapter
+        (ctx: WalkCtx)
+        (callee: JsExpr)
+        (groups: Frozen.ArgGroup list)
+        (off: int)
+        (loc: JsLoc voption)
+        : JsExpr =
+        let isLone =
+            match groups with
+            | [ ArgGroupG.GUnit _ ] -> true
+            | _ -> false
+
+        let names = groups |> List.mapi (fun i _ -> "_c" + string off + "_" + string i)
+
+        let flatArgs =
+            List.zip names groups
+            |> List.collect (fun (pn, g) ->
+                match g with
+                | ArgGroupG.GUnit _ when isLone -> []
+                | ArgGroupG.GUnit _
+                | ArgGroupG.GSimple _ -> [ JsExpr.Identifier(pn, ValueNone) ]
+                | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) ->
+                    [
+                        for j in 0 .. items.Length - 1 -> indexMember (JsExpr.Identifier(pn, ValueNone)) j
+                    ]
+                | ArgGroupG.GTuple _ -> failwith "EmitJs: curryAdapter: GTuple must carry a tuple pattern"
+            )
+
+        nestUnaryArrows loc names (JsFnBody.Expr(JsExpr.Call(callee, flatArgs, ValueNone)))
+
+    /// Emit a local module FUNCTION as one FLAT arrow over its compiled parameters
+    /// (`let f x y` → `(x, y) => …`; tuple groups flattened, a lone unit erased to
+    /// `() => …`). When every group is a plain binder and the body makes a saturated
+    /// tail self-call, the body becomes a `while (true)` trampoline — the flat
+    /// parameters are the mutated slots (only the all-`GSimple` shape maps a self-call's
+    /// spine one-to-one onto them).
+    and private emitFlatModuleFn
+        (ctx: WalkCtx)
+        (k: NodeKey)
+        (cf: CompiledFns.CompiledFn)
+        (loc: JsLoc voption)
+        : JsExpr =
+        let names = [ for p in cf.Params -> paramNameOf ctx p ]
+
+        let allSimple =
+            cf.Groups
+            |> List.forall (
+                function
+                | ArgGroupG.GSimple _ -> true
+                | _ -> false
+            )
+
+        let arity = List.length cf.Groups
+
+        let innermost =
+            if allSimple && hasTailSelfCall k arity cf.Body then
+                JsFnBody.Block
+                    [
+                        JsStatement.While(
+                            JsExpr.Literal(JsLiteral.Boolean true, ValueNone),
+                            buildTailBody ctx k names cf.Body
+                        )
+                    ]
+            else
+                JsFnBody.Expr(buildExpr ctx cf.Body)
+
+        JsExpr.Arrow(names, innermost, loc)
+
     /// Emit a record/union member as a free, curried, receiver-first top-level function:
     /// `member this.Foo a b` → `<Type>__Foo = (this$) => (a) => (b) => <body>`.
     /// Static members drop the receiver; a static property emits as a plain value binding.
@@ -833,17 +1100,28 @@ module EmitJs =
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
         let classDecls, recordTable, unionTable, memberDefs = collectTypes tast
 
+        let lowered = TastLower.lower jsFinishOps tast.Decls
+
+        // The top-level module functions and their flat compiled form — the same
+        // `Codegen.Common.CompiledFns` analysis the CLR backend reads. Drives the FLAT
+        // (Fable-style) emission of every module function and the spine-collapsing of
+        // its saturated call sites.
+        let compiledFns =
+            System.Collections.Generic.Dictionary<NodeKey, CompiledFns.CompiledFn>()
+
+        for f in CompiledFns.gather lowered do
+            compiledFns.[f.Key] <- f
+
         let ctx =
             { ctx0 with
                 Records = recordTable
                 Unions = unionTable
+                CompiledFns = compiledFns
             }
 
         // Member functions emitted after the class decls (they reference the classes
         // via `new`/match, and `const` arrows are not hoisted) and before the body.
         let memberDecls = [ for (typeName, m) in memberDefs -> emitMemberFn ctx typeName m ]
-
-        let lowered = TastLower.lower jsFinishOps tast.Decls
 
         let body =
             [
@@ -851,7 +1129,14 @@ module EmitJs =
                     match decl with
                     | TDeclG.Expression(e, _) -> yield! buildStatements ctx e
                     | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                        topLevelBinding ctx (identName ctx.Source k) (emitBound ctx k value)
+                        // A module FUNCTION emits FLAT (Fable-style); a plain value
+                        // routes through `emitBound` (closures stay curried).
+                        let init =
+                            match ctx.CompiledFns.TryGetValue k with
+                            | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastWalk.exprTok value))
+                            | _ -> emitBound ctx k value
+
+                        topLevelBinding ctx (identName ctx.Source k) init
                     | other -> failwithf "EmitJs: unsupported declaration %A" other
             ]
 

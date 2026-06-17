@@ -24,8 +24,8 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "$Vesper_StructuralRuntime_structuralEquals(a)(b)"
-                    "the aggregate base emits a curried call to the runtime value"
+                    "$Vesper_StructuralRuntime_structuralEquals(a, b)"
+                    "the aggregate base emits a flat call to the runtime value"
             }
 
             test "`hash` imports the aliased `structuralHash` runtime value" {

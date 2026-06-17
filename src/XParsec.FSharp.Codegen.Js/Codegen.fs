@@ -109,6 +109,8 @@ module Codegen =
                     match project.Kind with
                     | Library -> true
                     | Script -> false
+                // Populated by `buildProgram` from the lowered decls.
+                CompiledFns = System.Collections.Generic.Dictionary()
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)

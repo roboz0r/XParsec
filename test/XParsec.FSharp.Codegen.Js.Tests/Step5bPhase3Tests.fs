@@ -23,11 +23,11 @@ let tests =
                     "top-level `let` → `export const` (vs script mode's `const`)"
             }
 
-            test "library mode exports a curried function binding" {
+            test "library mode exports a flat function binding" {
                 Expect.equal
                     (emitJsLibrary "let add x y = x + y")
-                    "export const add = (x) => (y) => (((x) + (y)) | 0);\n"
-                    "the binding name is the source identifier, the value the Step-2 arrow chain"
+                    "export const add = (x, y) => (((x) + (y)) | 0);\n"
+                    "the binding name is the source identifier, the value the flat multi-arg arrow"
             }
 
             test "script mode keeps top-level bindings as plain const" {
@@ -86,10 +86,12 @@ let tests =
                             "console.log(isEmpty(empty));"
                             "console.log(isEmpty(xs));"
                             "console.log(head(rev(xs)));"
-                            "console.log(head(map((x) => x * 10)(xs)));"
-                            "console.log(length(append(xs)(xs)));"
-                            "console.log(fold((s) => (x) => (s + x))(0)(xs));"
-                            "console.log(length(filter((x) => x > 1)(xs)));"
+                            // The exported functions are FLAT (Fable-style); the folder/mapping
+                            // closures stay curried (they are first-class function args).
+                            "console.log(head(map((x) => x * 10, xs)));"
+                            "console.log(length(append(xs, xs)));"
+                            "console.log(fold((s) => (x) => (s + x), 0, xs));"
+                            "console.log(length(filter((x) => x > 1, xs)));"
                             "try { head(empty); console.log(\"NO_THROW\"); } catch (e) { console.log(e.message); }"
                         ]
 

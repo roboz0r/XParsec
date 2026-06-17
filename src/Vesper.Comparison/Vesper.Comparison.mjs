@@ -44,5 +44,6 @@ function cmp(a, b) {
   return 0;
 }
 
-// Public, curried entry — the surface the backend imports (`structuralCompare(a)(b)`).
-export const structuralCompare = (a) => (b) => cmp(a, b);
+// Public entry — the surface the backend imports. The flat (Fable-style) compiled
+// form: a saturated structural `compare` / `<` collapses to `structuralCompare(a, b)`.
+export const structuralCompare = (a, b) => cmp(a, b);

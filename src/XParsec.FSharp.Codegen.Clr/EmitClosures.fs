@@ -2,22 +2,11 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open EmitTypes
 open EmitLower
 
 module EmitClosures =
-    /// A static-method candidate's preserved shape: the source groups (the
-    /// escape-analysis / spine arity) and the derived flat compiled signature
-    /// (tuple-expanded params + void), recomputed from the binding's lambda the way
-    /// Freeze built the `LetFn.compiled`.
-    type private StaticFnCandidate =
-        {
-            Groups: Frozen.ArgGroup list
-            Params: StaticParam list
-            Body: Frozen.TExpr
-            ReturnsVoid: bool
-        }
-
     let private patKeys (p: Frozen.TPat) : NodeKey list =
         let acc = ResizeArray<NodeKey>()
 
@@ -417,79 +406,23 @@ module EmitClosures =
         (moduleValueKeys: HashSet<NodeKey>)
         (decls: Frozen.TDecl list)
         : StaticFn list * HashSet<NodeKey> =
-        // A candidate carries BOTH the source groups (`ValRepr.Groups` — how many
-        // applications a saturated call collapses, the escape-analysis arity) and
-        // the derived flat compiled signature (`CompiledForm.Params` / void), so a
-        // tupled group `(x, y)` becomes N flat CLR params yet still consumes ONE
-        // application. These are recomputed here via the same `TastLower` builders
-        // Freeze ran on the `LetFn` node (the in-assembly equivalent of reading
-        // `LetFn.compiled`; cross-assembly export is Step C).
-        let candidates = Dictionary<NodeKey, StaticFnCandidate>()
+        // The backend-agnostic facts — each top-level function's flat compiled
+        // signature (source groups + tuple-expanded/void params) and which functions
+        // escape as a value / under-application — come from `Codegen.Common.CompiledFns`,
+        // shared with the JS backend. The CLR-specific POLICY layered on top (demote an
+        // escaping or capturing function to a closure rather than emit a flat method)
+        // stays here, in the capture fixpoint below.
+        let fns = CompiledFns.gather decls
+        let candidates = Dictionary<NodeKey, CompiledFns.CompiledFn>()
         let order = ResizeArray<NodeKey>()
 
-        for d in decls do
-            match d with
-            | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                match TastLower.peelValRepr value with
-                | (_ :: _ as groups), body ->
-                    let vr: TastLower.ValRepr =
-                        {
-                            Typars = 0 // unused by `compiledOf`; the real count is `staticFnTypars`
-                            Groups = groups
-                            ResultTy = typeOfExpr body
-                        }
+        for f in fns do
+            candidates.[f.Key] <- f
+            order.Add f.Key
 
-                    let cf = TastLower.compiledOf vr
-
-                    candidates.[k] <-
-                        {
-                            Groups = groups
-                            Params = cf.Params
-                            Body = body
-                            ReturnsVoid =
-                                match cf.Return with
-                                | CompiledReturnG.RVoid -> true
-                                | CompiledReturnG.RValue _ -> false
-                        }
-
-                    order.Add k
-                | [], _ -> ()
-            | _ -> ()
-
-        // The number of source applications a saturated call collapses — the
-        // escape-analysis arity (an under-applied use escapes). Tuple flattening
-        // does NOT change this: `let f (x, y)` is still saturated by ONE argument.
-        let arity k = List.length candidates.[k].Groups
-
-        // Escape analysis: a candidate used as a value or under-applied escapes.
-        let escapes = HashSet<NodeKey>()
-
-        let rec walkUses (e: Frozen.TExpr) =
-            match e with
-            | TExprG.Var(k, _, _) when candidates.ContainsKey k -> escapes.Add k |> ignore
-            | TExprG.App _ ->
-                let head, args = TastWalk.collectSpine [] e
-
-                match head with
-                | TExprG.Var(k, _, _) when candidates.ContainsKey k ->
-                    if List.length args < arity k then
-                        escapes.Add k |> ignore
-
-                    for (a, _, _) in args do
-                        walkUses a
-                | _ ->
-                    walkUses head
-
-                    for (a, _, _) in args do
-                        walkUses a
-            | _ -> iterChildren walkUses e
-
-        for d in decls do
-            match d with
-            | TDeclG.Let(_, value, _, _) -> walkUses value
-            | TDeclG.LetFn _ -> failwith "discoverClosures: LetFn must be normalised to Let by lower"
-            | TDeclG.Expression(e, _) -> walkUses e
-            | TDeclG.Type _ -> ()
+        // Escape: a candidate used as a value or under-applied (mirrors the JS
+        // boundary). On CLR an escaping function is demoted entirely to a closure.
+        let escapes = CompiledFns.escaping fns decls
 
         // Each candidate's capture set (free vars minus its own params), tested by rule 2.
         let bodyFree =
