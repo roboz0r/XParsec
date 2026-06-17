@@ -34,12 +34,13 @@ open System.Runtime.CompilerServices
 //   * The frame stack is a Vesper cons-list used as a stack (push = cons, pop =
 //     head/tail; `PopWrap` reverses each frame's `Kids` via `revOnto`) rather than
 //     a BCL mutable `List<Doc>` — the PP7 recommended deviation.
-//   * The visited-set (cycle detection: `HashSet<obj>` + `ReferenceEqualityComparer`)
-//     is DROPPED; only the `PrintDepth` depth guard bounds recursion. Every `%A`
-//     golden input is acyclic, so the output is byte-identical to the C# engine.
-//     Restoring reference-identity tracking is the staged PP7 follow-up (a cyclic
-//     graph then renders `...` at the back-edge instead of unwinding to the depth
-//     cap). See printf-port-steps.md PP7 cycle-detection row.
+//   * Cycle detection (the visited-set) is a Vesper cons-list of DFS-ancestor
+//     values scanned by `Object.ReferenceEquals` (`DocLayout.containsRef` +
+//     `RuntimeFormatState.Visited`), pushed on entering `Dispatch` and popped on
+//     exit — the proven cons-list deviation in place of the C# `HashSet<obj>` +
+//     `ReferenceEqualityComparer`. The path-set semantics are identical, so a
+//     self-referential value renders `...` at the back-edge exactly as the C#
+//     engine does (PP7f restored this; PP7c/PP7d had dropped it).
 //   * The reflection-free `:?` chain is written as `if value :? T then … (value :?> T)`
 //     (test + downcast, no `as` binder); a large `match | :? T as x` in a member
 //     body drops a binder's slot in codegen. Same semantics, reads like the C#
@@ -139,6 +140,23 @@ module internal DocLayout =
         match xs with
         | [] -> acc
         | h :: t -> revOnto t (h :: acc)
+
+    /// True if `v` is reference-identical to any element of `xs`. The visited-set
+    /// scan for cycle detection (PP7f). A linear `Object.ReferenceEquals` walk over
+    /// the current DFS-ancestor chain — small (bounded by the PrintDepth = 100 depth
+    /// guard, and popped on exit so only ancestors are present). This is the proven
+    /// cons-list deviation in place of the C# engine's `HashSet<obj>` +
+    /// `ReferenceEqualityComparer` (no BCL generic mutable collection needed); the
+    /// path-set semantics are identical, so a self-referential value renders `...`
+    /// at the back-edge exactly as the C# engine does.
+    let rec containsRef (xs: obj list) (v: obj) : bool =
+        match xs with
+        | [] -> false
+        | h :: t ->
+            if Object.ReferenceEquals(h, v) then
+                true
+            else
+                containsRef t v
 
     // ---- atom rendering (copy-pasteable source forms) ----
     // `CultureInfo.InvariantCulture` is used inline (matching the C# engine, which
@@ -261,6 +279,12 @@ type RuntimeFormatState =
     /// Set by FormatArg for the immediately-dispatched value; consumed by the first
     /// BeginApplication it produces (so only a top-level application parenthesizes).
     val mutable ArgPending: bool
+    /// The cycle-detection visited-set: the chain of DFS-ancestor values currently
+    /// being dispatched (top = head). Pushed on entering `Dispatch`, popped on exit,
+    /// so it holds exactly the open path; a value reference-identical to an ancestor
+    /// is a back-edge and renders `...`. A cons-list scanned by `Object.ReferenceEquals`
+    /// (the proven deviation from the C# `HashSet<obj>` + `ReferenceEqualityComparer`).
+    val mutable Visited: obj list
 
     new(width: int, printSize: int) =
         let root =
@@ -277,6 +301,7 @@ type RuntimeFormatState =
             Depth = 0
             Frames = [ root ]
             ArgPending = false
+            Visited = []
         }
 
     member private this.Add(d: Doc) =
@@ -386,10 +411,22 @@ type RuntimeFormatState =
                 this.Add(DocText "...")
             elif this.Size <= 0 then
                 this.Add(DocText "...")
+            elif DocLayout.containsRef this.Visited value then
+                // A back-edge: `value` is reference-identical to an ancestor still on
+                // the open path ⇒ a cycle. Render `...` rather than recurse forever.
+                this.Add(DocText "...")
             else
+                // Track `value` as an ancestor for the duration of its subtree, then
+                // pop it (so siblings — e.g. two equal interned strings — don't see
+                // each other as a cycle), mirroring the C# add-on-enter / remove-on-exit.
+                this.Visited <- value :: this.Visited
                 this.Depth <- this.Depth + 1
                 this.DispatchInner(value)
                 this.Depth <- this.Depth - 1
+
+                match this.Visited with
+                | _ :: rest -> this.Visited <- rest
+                | [] -> ()
 
     /// Resolution order (reflection-free): our own structural types, then BCL
     /// shapes, then a `ToString` fallback. Leaf cases spend one unit of the node

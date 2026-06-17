@@ -18,6 +18,16 @@ let private soleDecl (src: string) : TDecl =
     | EqList [ d ] -> d
     | _ -> failtestf "expected one decl for %s, got: %A" src tast.Decls
 
+// PP7f intent: re-green these drivers against the **Vesper-compiled** handler
+// (`withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)`). 74/85 already pass
+// there; the remaining 11 (`%u`, `%g` with width/precision, `%0w.pf` zero-pad) hit
+// a latent backend codegen bug — a struct method whose body is a single self-call
+// to another struct instance method (`Formatter.AppendUnsigned` /
+// `AppendZeroPaddedFloat`) throws `InvalidProgramException` (the inner `this` is a
+// defensive copy; fatal on a `ref struct`). See the `StructTests` PP7f gap ptest
+// "nested struct self-call loses the inner mutation". Until that lands, these stay
+// on the C# handler (`runEntryPoint`, the gated-off bootstrap); the Vesper handler
+// is already proven on the covered shapes by `PrintfDifferentialTests`.
 let private runPrints (name: string) (src: string) (expected: string) =
     let _, artifact = compileSource name src
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)

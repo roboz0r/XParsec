@@ -73,6 +73,20 @@ let tests =
                     "type R = { X: int }\nprintfn \"%A\" [ { X = 1 }; { X = 2 } ]"
             }
 
+            // PP7f: cycle detection restored in `structural-printer.fs`. A
+            // self-referential record (`n.Next` points back at `n`) is a CYCLIC
+            // input, so the dropped-visited-set output (depth-guard only) would
+            // unwind to 100 nested `{ Next = ... }` — but the restored visited-set
+            // (cons-list + `Object.ReferenceEquals`) renders `...` at the back-edge.
+            // This is the one input where the Vesper handler's cycle detection must
+            // match the C# `HashSet<obj>` engine; `runsDifferential` asserts the two
+            // agree (and exit 0), proving the restored detection byte-identical.
+            test "`%A` of a self-referential record (cycle truncated)" {
+                runsDifferential
+                    "type Node = { mutable Next: obj }\nlet n = { Next = null }\nn.Next <- (n :> obj)\nprintfn \"%A\" n"
+                |> ignore
+            }
+
             // ---- plain printf (formatter.fs) ----
             test "literal `printfn`" { runsDifferentialEq "hi" "printfn \"hi\"" }
 

@@ -1686,6 +1686,42 @@ let structTests =
             // parenthesised application, asserted flat (80), broken (5), and nested
             // (`Some (Some 1)`, the inner `Some` parenthesised because it is in
             // argument position).
+            // PP7f known gap (pending): a struct method's self-call to ANOTHER struct
+            // instance method loses the inner call's mutation — the second-level
+            // `this` is passed as a defensive copy, so `s.Acc` reads back `0`, not
+            // `2`. This is the latent backend bug the PP7f plain-printf reroute
+            // surfaced: `Formatter.AppendUnsigned` / `AppendZeroPaddedFloat` (which
+            // forward `this.AppendFormatted(...)`) throw `InvalidProgramException`
+            // under the Vesper handler (the same defect, fatal on a `ref struct`),
+            // blocking `PrintfHappyPathTests` / `RunnableAppTests` plain-printf slices
+            // from binding the Vesper handler. PP5f fixed the FIRST-level struct
+            // self-receiver (`ldarg.0` byref `this`); this is the missing SECOND
+            // level (a struct method that itself self-calls a mutating struct
+            // method). Class + unit-return variants pass, so the receiver's
+            // value-type-ness is the differentiator. The `%A` engine
+            // (`structural-printer.fs`) is a reference class, so it is unaffected and
+            // proven byte-identical (`PrintfDifferentialTests`). Flip to `test` to
+            // drive the fix (EmitMember.fs `loadStructReceiverAddr` / the self-call
+            // chain).
+            ptest "PP7f gap: nested struct self-call loses the inner mutation (Formatter.AppendUnsigned)" {
+                runsSelfHostLines
+                    [ "2" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type S ="
+                            "    val mutable Acc: int"
+                            "    new(a: int) = { Acc = a }"
+                            "    member this.G(x: int) : unit = this.Acc <- this.Acc + 1"
+                            "    member this.U(y: int) : unit = this.G(y)"
+                            "let mutable s = S(0)"
+                            "s.U 5"
+                            "s.U 5"
+                            "printfn \"%d\" s.Acc"
+                        ])
+            }
+
             test "PP7b: RuntimeFormatState : IFormatSink — sink + frame stack" {
                 runsSelfHostLines
                     [
