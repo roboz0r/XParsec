@@ -91,7 +91,7 @@ module Materialise =
             // that supplied it; for the one host-resolved fallback the provider still
             // allows — FSharp.Core (the cold-printf island) — the host-loaded copy,
             // unless a reference already overrides it. `Vesper.Printf` is now an
-            // ordinary referenced package (printf-port-steps.md step 3): its on-disk
+            // ordinary referenced package: its on-disk
             // path comes from `References`, never the host (the C# DLL is off the TPA).
             // A name with no source (the BCL) resolves from the shared framework and is
             // skipped. A reference the PE never bound against is absent from the set, so

@@ -4,16 +4,14 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Layer 1 behavioral corpus: closures. Slice5Tests + CapturedMutableTests hold
-// the deep anchors (closure-type emission, the generic-closure `GenericParam`
-// rows, the captured-`Vesper.Ref` cell). This is the broad net over the
-// observable runtime behaviours: a non-capturing lambda value, a value capture,
-// an inline lambda in argument position, a returned (generic) closure, and a
-// captured mutable surviving across invocations.
+// Behavioral corpus: closures. Covers the observable runtime behaviours: a
+// non-capturing lambda value, a value capture, an inline lambda in argument
+// position, a returned (generic) closure, and a captured mutable surviving
+// across invocations.
 //
-// `runs` already forces `Vesper.Core.dll` into the default load context (via
-// `withCore`, which the compile path injects), so the captured-`Ref` and
-// `Vesper.Fun` references resolve at load without an explicit force here.
+// `runs` forces `Vesper.Core.dll` into the default load context (via `withCore`,
+// which the compile path injects), so the captured-`Ref` and `Vesper.Fun`
+// references resolve at load without an explicit force here.
 
 [<Tests>]
 let tests =
@@ -54,9 +52,8 @@ let tests =
                             ])
                 }
 
-            // A closure inside a class member body: a mono class, a member whose body
-            // builds and applies a non-capturing lambda. `discoverClosures` must now
-            // walk member bodies, not just top-level decls.
+            // A closure inside a class member body: `discoverClosures` walks member
+            // bodies, not just top-level decls.
             yield
                 test "a non-capturing closure inside a mono class member body" {
                     runs
@@ -73,8 +70,8 @@ let tests =
                             ])
                 }
 
-            // The same, but the inner lambda captures a ctor-param backing field
-            // (`n`) — a ground (non-typar) capture, so a monomorphic closure.
+            // The same, but the inner lambda captures a ctor-param backing field (`n`)
+            // — a ground (non-typar) capture, so a monomorphic closure.
             yield
                 test "a closure inside a mono class member body capturing a ctor param" {
                     runs
@@ -91,10 +88,10 @@ let tests =
                             ])
                 }
 
-            // A closure inside a *generic* class member body, capturing a value
-            // typed by the class typar `'T` (declaring axis) and a function over
-            // it. The closure re-projects `'T` (`FTTypar(Declaring,0)`) onto its
-            // own class typar `!0` (the `Set.Fold` shape).
+            // A closure inside a *generic* class member body, capturing a value typed
+            // by the class typar `'T` (declaring axis) and a function over it. The
+            // closure re-projects `'T` (`FTTypar(Declaring,0)`) onto its own class
+            // typar `!0`.
             yield
                 test "a closure inside a generic class member body capturing a class-typar value" {
                     runs
@@ -112,9 +109,9 @@ let tests =
                 }
 
             // A closure inside a generic class member body that captures *both* a
-            // class-typar value (`'T`, declaring axis) and an implicit member-typar
-            // value (`'U`, method axis) — the mixed-axis projection (`'U` lands at
-            // the closure's `!(d + j)`). This is the `Set.map` shape.
+            // class-typar value (`'T`, declaring axis) and a member-typar value (`'U`,
+            // method axis) — the mixed-axis projection (`'U` lands at the closure's
+            // `!(d + j)`).
             yield
                 test "a closure inside a generic class member body capturing class + member typar values" {
                     runs
@@ -131,14 +128,13 @@ let tests =
                             ])
                 }
 
-            // The `Set.Fold` shape: a generic class member with *unannotated*
-            // params whose types are inferred (via a generic module fn call) to a
-            // fresh state typar. Because the member is never *called* in this
-            // assembly (a library API), those typars must be generalised into the
-            // member's own method typars — if generalisation fails they leak as
-            // `?ungrounded-operator` into the closure's capture field. The member
-            // is emitted regardless of being called, so the leak surfaces at
-            // emission.
+            // A generic class member with *unannotated* params whose types are
+            // inferred (via a generic module fn call) to a fresh state typar. Because
+            // the member is never *called* in this assembly (a library API), those
+            // typars must be generalised into the member's own method typars — if
+            // generalisation fails they leak as free TyVars into the closure's
+            // capture field. The member is emitted regardless of being called, so the
+            // leak surfaces at emission.
             yield
                 test "a generic class member with body-inferred (uncalled) method typars (Set.Fold shape)" {
                     runs
@@ -156,16 +152,13 @@ let tests =
                             ])
                 }
 
-            // A module function with a *recursive nested helper* (`let rec go`)
-            // that captures the outer function's params (the `SetTree.partitionWith`
-            // shape). The closure free-variable analysis must
-            // treat `go`'s recursive self-reference as bound (it lowers to the
+            // A module function with a *recursive nested helper* (`let rec go`) that
+            // captures the outer function's params. The closure free-variable analysis
+            // must treat `go`'s recursive self-reference as bound (it lowers to the
             // closure's `this`), not free — otherwise the enclosing module function
             // looks like it captures a non-static binding and is dropped from the
             // static-method-eligible set, so a call to it from a *class member body*
-            // (no `Main` local in scope) crashes emission with "no binding for
-            // variable". The member-body call is the faithful failure mode: a
-            // top-level call would silently fall back to a closure local.
+            // crashes emission with "no binding for variable".
             yield
                 test "a module fn with a recursive nested helper capturing outer params stays a static method" {
                     runs
@@ -186,7 +179,7 @@ let tests =
 
             // `(+)` resolves as a *value* — an `External op_Addition` the call site
             // references — before eta-reification gives it nested `Vesper.Fun`
-            // closures (the runtime shape lives in `SelfHostTests`). Former Slice5 M3.
+            // closures (the runtime shape lives in `SelfHostTests`).
             yield
                 test "`let add = (+)` analyses clean to an External op_Addition value" {
                     let tast = analyse "let add = (+)\nprintfn \"%d\" (add 40 2)"
@@ -209,12 +202,10 @@ let tests =
                     | other -> failtestf "unexpected (+)-as-value TAST: %A" other
                 }
 
-            // An *own-class static-operator member* used as a first-class value
-            // (the `Set.Union` shape): `(+)` resolves to the class's
-            // `static member (+)`, not a built-in operator, so its eta-reified
-            // closure body must `call` the static member — NOT collapse to inline IL
-            // the way a primitive `(+)` does. A mono class at module level isolates
-            // the value form.
+            // An *own-class static-operator member* used as a first-class value:
+            // `(+)` resolves to the class's `static member (+)`, not a built-in
+            // operator, so its eta-reified closure body must `call` the static member
+            // — NOT collapse to inline IL the way a primitive `(+)` does.
             yield
                 test "a mono own-class static-operator member passed as a value" {
                     runs
@@ -231,28 +222,16 @@ let tests =
                             ])
                 }
 
-            // The faithful `Set.Union` shape: a *generic* class whose `static member
-            // (+)` is passed by value to `List.fold` from inside another member body.
-            // The eta-reified closure is a member-body closure on a generic class
-            // (declaring-axis typar `'T`) whose body `call`s the class's own
-            // `op_Addition` static member (verified clean by ilverify). The fold runs
-            // inside an *instance* member so the driver dispatches it off the receiver
-            // value — sidestepping the orthogonal, pre-existing gap that a static
-            // method call on a generic class from a concrete (non-declaring) context
-            // emits an open `!0` receiver instead of the instantiation.
-            // The faithful `Set.Union` shape at the front end: a *generic* own-class
-            // `static member (+)` taken by value resolves to that member, so Freeze
-            // eta-expands it to `fun a b -> V<_>.op_Addition(a, b)` — a `Lambda` whose
-            // body is a `StaticMethodCall` keyed on the class's own `op_Addition` — not
-            // a bare `External`. This row pins the *front-end* shape; the generic
-            // end-to-end *runtime* run (once blocked by Outstanding-2 gaps A and B —
-            // both now closed) is gated by ClassTests
+            // A *generic* own-class `static member (+)` taken by value resolves to
+            // that member, so Freeze eta-expands it to `fun a b -> V<_>.op_Addition(a, b)`
+            // — a `Lambda` whose body is a `StaticMethodCall` keyed on the class's own
+            // `op_Addition`, not a bare `External`. This row pins the *front-end*
+            // shape; the generic end-to-end runtime run is gated by ClassTests
             // "gapA+B: generic own-op List.fold inside a generic member body".
             yield
                 test "a generic own-class static-operator value froze to a Lambda calling op_Addition" {
-                    // The default contract stack (not `MockBuiltins`) carries the
-                    // SRTP `(+)`, so the operator unifies with `V<int>` rather than
-                    // forcing `int`.
+                    // The default contract stack carries the SRTP `(+)`, so the
+                    // operator unifies with `V<int>` rather than forcing `int`.
                     let src =
                         String.concat
                             "\n"
@@ -293,16 +272,9 @@ let tests =
                     | other -> failtestf "expected a curried Lambda eta-expansion, got %A" other
                 }
 
-        // NOTE — "assess all operands": `Unification.resolveOperatorValues` scans
-        // *every* operand of an operator value for the declaring nominal (F#'s
-        // `(^T1 or ^T2)` rule), not just the first. A heterogeneous operator whose
-        // declaring type is the *second* operand (`static member (+) (a: int, b: V)`,
-        // used as `int -> V -> V`) would exercise the difference — but it is not yet
-        // reachable: the unifier collapses `(+)`'s `^T1 -> ^T2 -> ^T3` operand typars
-        // to one via the `default ^T1: ^T3` / `default ^T2: ^T3` chain, so `int -> V`
-        // operands fail to unify (`int vs V`) before resolution runs. Until SRTP
-        // operand-typar heterogeneity is supported, all-operand scanning is
-        // observationally equivalent to first-operand; the two tests above (both
-        // homogeneous) are the live coverage, and the scan is the correct general
-        // rule the moment heterogeneity lands.
+        // `Unification.resolveOperatorValues` scans *every* operand for the
+        // declaring nominal (F#'s `(^T1 or ^T2)` rule), not just the first.
+        // Until SRTP operand-typar heterogeneity is supported, all-operand scanning
+        // is observationally equivalent to first-operand; the two tests above (both
+        // homogeneous) are the live coverage.
         ]

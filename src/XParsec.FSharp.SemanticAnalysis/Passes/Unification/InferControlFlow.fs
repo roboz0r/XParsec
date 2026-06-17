@@ -143,7 +143,7 @@ module internal UnificationInferControlFlow =
         | other -> sprintf "%A" other
 
     /// Per-arm scrutinee narrowing for a closed anonymous-union match
-    /// (`match (x: A | B) with …`, anon-unions plan Stage 7). Pure over the arm
+    /// (`match (x: A | B) with …`). Pure over the arm
     /// *patterns* — it reads nothing from body typing — so it runs as a pre-pass
     /// ahead of `inferRules`'s typing loop. Returns the narrowed scrutinee each
     /// arm's binder should see (the residual union of members not yet caught by an
@@ -553,7 +553,7 @@ module internal UnificationInferControlFlow =
         // Closed anonymous-union scrutinee (`match (x: A | B) with …`): each arm's
         // binder narrows against the residual union — the members not yet caught by
         // an earlier unguarded arm — and an unguarded shortfall is a
-        // non-exhaustiveness warning (anon-unions plan Stage 7). The residual reads
+        // non-exhaustiveness warning. The residual reads
         // nothing from body typing, so it is a pure pre-pass and the loop below
         // stays a flat fold over arms (see `computeArmNarrowing`).
         let armScruts, residual = computeArmNarrowing ctx scrutineeTy rules

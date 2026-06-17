@@ -115,8 +115,7 @@ module internal UnificationInferTypeOps =
     /// type; it is translated only to record the verdict for `Inline.inlineExpand`
     /// to resolve at the call site. The typar resolves through `ctx.Resolution.TyparScope` —
     /// already seeded by the enclosing binding's parameters (`(x: ^T)`) — so the
-    /// recorded `SemType` carries the binding's quantified root. See
-    /// docs/operators-plan.md (the arithmetic/bitwise/unary task).
+    /// recorded `SemType` carries the binding's quantified root.
     and inferLibraryOnlyStaticOptimization
         (infer: Infer)
         (ctx: PassContext)

@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.SemanticAnalysis.Passes
+﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -253,7 +253,7 @@ module internal UnificationInferRecordAccess =
                 // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation
                 // members the contract provider publishes). Resolve through the
                 // provider and record it for Freeze, exactly as the external
-                // `TyClass` arm does (vesper-lib-test-plan Gap 2 Layer A).
+                // `TyClass` arm does.
                 let unionQual = SymbolKeyOps.qualifiedName unionKey
 
                 match ctx.Provider.TryLookupMember(unionQual, memberName) with

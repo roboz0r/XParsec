@@ -4,17 +4,6 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 5 Phase 3 (Option), completed by Step 7 — the library-mode recipe
-// applied to `Vesper.Option`: the full `option.fs` (type members + `[<Struct>]` + the
-// `raise (InvalidOperationException …)` in `Value`/`get`) compiles directly to the
-// committed `Vesper.Option.mjs` runtime asset, the member-stripped `option.js.fs` now
-// retired (Step 7 landed member emission and the external-`new` arm — `[<Struct>]` and
-// the `[<CompiledName>]`/equality attributes are inert on the JS target). The instance
-// members emit as free curried receiver-first exports (`Option__get_Value` &c.). Same
-// shape as the List Phase-3 tests: deps-only provider, regenerable golden, and a Node
-// exec where the consumer builds plain `{ tag, Value }` cells (proving the
-// `.tag`-not-`instanceof` interop the Step-6 runtime relies on).
-
 let private generated: Lazy<string> =
     lazy
         compileLibrary
@@ -53,9 +42,6 @@ let tests =
                     ] do
                     Expect.stringContains src (sprintf "export const %s = " name) (sprintf "exports %s" name)
 
-                // Step 7: the instance members compile directly from `option.fs` now,
-                // emitted as free curried receiver-first exports (the data class stays
-                // method-free). `Value` raises through the external-`new` arm.
                 for memberName in [ "Option__get_Value"; "Option__get_IsSome"; "Option__get_IsNone" ] do
                     Expect.stringContains
                         src
@@ -85,9 +71,7 @@ let tests =
                         "\n"
                         [
                             "import { isSome, isNone, defaultValue, defaultWith, orElse, get, count, fold, exists, forall, map, bind, flatten, filter } from \"./Vesper.Option.mjs\";"
-                            // Consumer-built option cells — `.tag` (0 = None, 1 = Some)
-                            // + `.Value`, the own-property shape the match compiler
-                            // reads (never `instanceof`).
+                            // Plain {tag,Value} consumer cells (never instanceof) are interchangeable with Option_Some.
                             "const some = (x) => ({ tag: 1, Value: x });"
                             "const none = { tag: 0 };"
                             "const s5 = some(5);"

@@ -162,14 +162,14 @@ type ExternalUnionCase =
         /// the bare case form (`Red`), accepting only the qualified `Color.Red`. The
         /// resolution-side suppression keys off this — a *bare* hit on an RQA case is
         /// rejected (treated as unresolved), while a qualified reference still
-        /// resolves (opens-overhaul-plan Gap 1). Providers that don't model unions
-        /// never return an `ExternalUnionCase`, so the default is moot for them.
+        /// resolves. Providers that don't model unions never return an
+        /// `ExternalUnionCase`, so the default is moot for them.
         IsRequireQualifiedAccess: bool
     }
 
     /// Does a reference written with `qualifier` resolve to this case? A *bare*
     /// (`ValueNone`) reference to an `[<RequireQualifiedAccess>]` union's case does
-    /// not — F# requires `Color.Red`, not `Red` (opens-overhaul-plan Gap 1). A
+    /// not — F# requires `Color.Red`, not `Red`. A
     /// *qualified* (`ValueSome q`) reference resolves only when `q` is the union's
     /// short name. The single home for the RQA + qualifier-match rule; the resolver,
     /// typer, and projector all defer here rather than re-deriving it inline.
@@ -383,8 +383,7 @@ type ExternalTypeShape =
     /// where the type lives (`ReferencedProject.wrap` from the manifest's
     /// assembly + namespace); the inner extractor records `SymbolOrigin.Empty`.
     /// Codegen reads it to mint a `TypeRef` for the case factories on a
-    /// cross-package `Some`/`None` construction (vesper-lib-test-plan Gap 2
-    /// Layer B), exactly as `Record` does for `RecordCons`.
+    /// cross-package `Some`/`None` construction exactly as `Record` does for `RecordCons`.
     | Union of arity: int * cases: ExternalCaseShape[] * origin: SymbolOrigin
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
     /// `ValueNone` today). The members / interfaces / base-type / flags ride
@@ -411,7 +410,7 @@ type ExternalTypeShape =
     /// is benign (it never needed a repr string). `PlatformTypes` keys on this:
     /// only an `arity = 0` intrinsic with `platform = None` is an error.
     ///
-    /// **Two faces** (intrinsic-runtime-type-plan.md — the Step-8 option (A) split):
+    /// **Two faces**:
     /// a single repr string used to do two unrelated jobs at once.
     /// - `canon` — the platform-INVARIANT nominal-identity key: the **`.fsi` name**
     ///   the type was declared under (`"int"`, `"float"`, `"exn"`), i.e. the
@@ -510,8 +509,7 @@ type IExternalSymbolProvider =
     /// mirror of `TryLookupMember` for union construction: it lets a consumer
     /// type `Some 5` / `None` against an external union without a type
     /// annotation, exactly as F# brings a non-`RequireQualifiedAccess` union's
-    /// cases into scope when its namespace is opened (vesper-lib-test-plan Gap 2
-    /// Layer B). v1 is first-declaration-wins on a name collision (the same rule
+    /// cases into scope when its namespace is opened v1 is first-declaration-wins on a name collision (the same rule
     /// the short-name type index uses); providers that don't model unions return
     /// `ValueNone`.
     abstract TryLookupUnionCase: caseName: string -> ExternalUnionCase voption
@@ -556,7 +554,7 @@ type IExternalSymbolProvider =
     /// which is not a provider type key), so it is published as data here. The
     /// intrinsic-carrying providers (`ExtractCtx.toProvider`) and their composite
     /// (`ExternalSymbols.stack`) build a real map; metadata / JS-native / test
-    /// providers carry no intrinsics and return `Map.empty`. (intrinsic-runtime-type-plan.md)
+    /// providers carry no intrinsics and return `Map.empty`.
     abstract IntrinsicReverseCanon: Map<string, string>
 
 /// The open signature of an external module-level function as the codegen
@@ -574,8 +572,7 @@ type CodegenOpenSignature =
         MethodArity: int
     }
 
-/// The **codegen-facing** view of the external-symbol contract (external-signature
-/// -plan: "dual view over one provider"). Where `IExternalSymbolProvider` exposes the
+/// The **codegen-facing** view of the external-symbol contract. Where `IExternalSymbolProvider` exposes the
 /// inference surface (the `SemType`-returning `Instantiate`, `Constraints`, inline
 /// bodies, the ambient-open scope), this exposes **only** what emission needs to mint
 /// references: the type/member shapes (whose `FrozenType` templates codegen reads — it
@@ -619,7 +616,7 @@ module ExternalSymbols =
         provider.TryLookupType(SymbolKeyOps.qualifiedName key)
 
     /// The **runtime-type** axis of an intrinsic repr — distinct from `canonName`'s
-    /// nominal-identity read (intrinsic-runtime-type-plan.md). Resolve a bare runtime
+    /// nominal-identity read. Resolve a bare runtime
     /// repr string (`"Error"`) to the concrete `ExternalTypeShape` it names over the
     /// *assembled* composite: probe the bare name, then each `AmbientOpenPrefixes` entry
     /// (`Error` ⇒ `Vesper.Error`), exactly how an intrinsic base name freezes. The repr

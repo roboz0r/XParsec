@@ -18,9 +18,6 @@ open VesperLibTypeTranslate
 /// plus the cached provider). External callers consume the public
 /// surface through `VesperLib.*` — type aliases / re-exports below.
 ///
-/// See `src/XParsec.FSharp.Lib/compiler-clr-project.md` for the manifest
-/// schema and bucket layout, and `docs/extract-symbols-plan.md` for the
-/// extraction design.
 module VesperLib =
 
     type BucketEntry = VesperLibManifest.BucketEntry
@@ -515,7 +512,7 @@ module VesperLib =
         // that loop nor is reprocessed. The `.ctor` member mirrors the metadata layer's
         // shape (`MetadataSymbols`): `Name = ".ctor"`, instance, `MemberKind.Method`,
         // `Parameters`/`Return` from the sig. This is what lets a BCL-free provider type
-        // `InvalidOperationException "msg"` without host metadata (codegen-js-steps.md Step 8).
+        // `InvalidOperationException "msg"` without host metadata.
         for k in shapeKeys do
             match ctx.DeferredBodies.TryGetValue k with
             | true, DeferredBody.Class(dc, _, ctors) when not (List.isEmpty ctors) ->
@@ -979,7 +976,7 @@ module VesperLib =
         | None ->
             // A `[<RequireQualifiedAccess>]` union's cases are NOT brought into scope
             // bare; record it so the reverse case-name index marks its cases, and the
-            // consumer's bare-name resolution rejects them (opens-overhaul-plan Gap 1).
+            // consumer's bare-name resolution rejects them.
             let (TypeName(attrs, _, _, _, _, _)) = typeName
 
             if isRequireQualifiedAccess lexed input attrs then
@@ -1008,10 +1005,9 @@ module VesperLib =
     /// (so `'T` substitutes through the enclosing type's args at a use site); the
     /// builder is stashed in `ctx.DeferredMembers` and the finalize pass freezes it
     /// into the member's `ExternalMember.Signature` template the consumer's
-    /// `resolveFieldStep` instantiates. Scope (vesper-lib-test-plan Gap 2 Layer
-    /// A): instance/static `member` property/method sigs with no own generic
-    /// parameters — a member that introduces its own typars, or whose signature
-    /// fails to translate, is skipped (not faked), exactly like the val path.
+    /// `resolveFieldStep` instantiates. Scope: instance/static `member` property/method sigs
+    /// with no own generic parameters — a member that introduces its own typars, or whose
+    /// signature fails to translate, is skipped (not faked), exactly like the val path.
     let private extractTypeMembers
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -1211,7 +1207,7 @@ module VesperLib =
             | ValueSome(struct (compiled, arity)) ->
                 let short = shortNameOfTypeName lexed input typeName
 
-                // Two repr faces (intrinsic-runtime-type-plan.md): `canon` is the
+                // Two repr faces: `canon` is the
                 // `.fsi` name itself — the platform-invariant front-end identity that
                 // drives `canonName`. Whether this `extern` is a primitive at all is
                 // decided by the BASE `.fs` `(# … #)` companion (`IntrinsicBaseReprs`),
@@ -1536,7 +1532,7 @@ module VesperLib =
     /// publish `ExternalTypeShape.Intrinsic`. The caller harvests the per-target
     /// `<base>.<target>.fs` ⇒ `IntrinsicReprs` (the `platform` face); the `canon`
     /// face is the `.fsi` name itself, so a target override repoints codegen WITHOUT
-    /// moving the unifier's identity key (intrinsic-runtime-type-plan.md).
+    /// moving the unifier's identity key.
     ///
     /// A direct CST scrape — NOT `Pipeline.analyse` — because (a) all we need is
     /// the `type <name> = (# "<repr>" #)` shape, and (b) the prim-types `.fs`

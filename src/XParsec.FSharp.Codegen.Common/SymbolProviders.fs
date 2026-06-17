@@ -5,87 +5,22 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 /// Builds the symbol-resolution provider stack.
-/// This is the **single declaration** consumed by *both* the front end and the
-/// back end (option A in the P1 handoff): a driver builds the stack once and
-/// threads the same `IExternalSymbolProvider` through `Pipeline.analyse` and
-/// `Codegen.compile`, replacing today's split where each phase reached for
-/// `MockBuiltins.provider` independently. Codegen still ignores the provider in;
-/// passing it now is what proves the wiring.
 module SymbolProviders =
 
-    /// The default layer-2 ("metadata") tail behind the layer-1 `.fsi` contracts:
-    /// host BCL reflection (`MetadataSymbols`, the CLR path). A non-CLR backend injects
-    /// its own tail through `buildContractWithMetadata` — the JS target supplies
-    /// `JsNativeSymbols` (`Codegen.Js`), which resolves `exn`'s `(# "Error" #)` repr to
-    /// the native `Error` class so its `Vesper.Exceptions` contract (`System.*Exception
-    /// : exn`) reconciles through the contract `inherit` chain without a same-named BCL
-    /// metadata type colliding on the home-assembly invariant (codegen-js-steps.md Step
-    /// 8). Common stays target-agnostic: it never names the JS provider.
+    /// Layer-2 tail: host BCL reflection. Non-CLR backends inject their own tail via
+    /// `buildContractWithMetadata`.
     let private bclMetaTail: IExternalSymbolProvider list = [ MetadataSymbols.provider ]
 
-    /// Compose the layer-1 referenced-project providers (each stood up from its
-    /// `manifest.toml`) ahead of the layer-2 referenced-assembly provider:
-    ///
-    ///   `composite [ layer-1 manifests… ; layer-2 metadata ]`
-    ///
-    /// Layer 2 (referenced assemblies via `MetadataLoadContext`) is P2: the shared
-    /// `MetadataSymbols.provider` reads the host runtime's BCL reflection-only, so a
-    /// type like `EqualityComparer`1` and its members resolve here when no manifest
-    /// owns them. It answers only namespace-qualified metadata names (and no values).
-    ///
-    /// **Contract-as-provider demotion is now total.**
-    /// `MockBuiltins` is GONE from this stack entirely — its bare-name registrations
-    /// (operators, `hash`, `failwith`, the printf family) used to shadow the contract
-    /// from behind, and the final `List.fold` backstop is retired too. Every symbol
-    /// resolves from the `Vesper.*` `.fsi` contracts via the ambient open scope:
-    /// operators + `hash` + `failwith` from `Vesper.Core`, the ordering operators
-    /// from `Vesper.Comparison`, the printf family from `Vesper.Printf`, and
-    /// `List.fold` from `Vesper.List` — the last needed the `ModuleSuffix` module's
-    /// members to be addressable by their *source* name (`List.fold`, not the
-    /// compiled `ListModule.fold`; `VesperLib.extractValSig`) and codegen to accept
-    /// the contract's `'T list` abbreviation name alongside the union name
-    /// (both resolve to the one cons-list `SymbolKey` — `RuntimeNames.isVesperListKey`).
-    ///
-    /// `ProjectInfo.References` is not yet classified (a flat DLL-path list with no
-    /// link to its source manifest), so the layer-1 manifests are supplied
-    /// explicitly by the driver (handoff §7), and layer 2 reads the host runtime
-    /// (`MetadataSymbols.runtimeAssemblyPaths`, a first cut — §6/§9). The
-    /// classification that lets a `forProject : ProjectInfo -> _` derive both the
-    /// layer-1 manifests and the layer-2 reference paths from the reference set is
-    /// the remaining pairing.
-    /// Close `manifestPaths` over `depends-on` and return them in dependency order
-    /// A dependency a root only names
-    /// transitively is pulled in, and every package is processed *after* the
-    /// packages it depends on. A `depends-on` cycle or a missing dependency
-    /// manifest is a hard error. Both `build` and `buildContract` thread the same
-    /// ordered list so the composite provider and the inline-body loader agree on
-    /// the package set.
-    /// Dependency-ordered manifests plus each package's transitive `depends-on`
-    /// closure (`transitiveDeps key` → its normalised dependency manifest paths).
-    /// `composeProviders` scopes a package's ambient to these declared dependencies
-    /// rather than all topological predecessors.
+    /// Dependency-ordered manifests and each package's transitive `depends-on` closure.
+    /// A cycle or missing dependency is a hard error.
     let private orderedManifestsWithDeps (manifestPaths: string list) : string list * (string -> string list) =
         match ReferencedProject.buildClosureWithDeps manifestPaths with
         | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
-    /// Compose the layer-1 providers for an *already dependency-ordered* manifest
-    /// list ahead of the layer-2 metadata provider. Each package is built bottom-up
-    /// with read access to the type shapes of the packages already built — its
-    /// dependencies, which dependency order guarantees precede it
-    /// This is what lets extraction kind a
-    /// cross-package nominal head at bake time, instead of leaving a
-    /// placeholder for the consumer to reconcile.
-    ///
-    /// Builds via `buildProviderWith` rather than the per-path `ReferencedProject.provider`
-    /// cache, because a package's extraction now depends on its dependency shapes;
-    /// the whole composite is still memoised per manifest set by `buildContract`'s
-    /// `contractCache`, so each set is built once.
-    /// `metaTail` is the layer-2 tail of the **front-end-facing** composite (BCL
-    /// reflection by default; a backend injects its own — see `bclMetaTail`). The
-    /// extraction-time ambient (`depComposite`) always keeps BCL metadata so a contract
-    /// naming a raw BCL nominal head still kinds at bake time; only the symbols the
-    /// compiler later queries follow `metaTail`.
+    /// Compose layer-1 providers (dependency order) ahead of the layer-2 metadata tail.
+    /// Each package is built with access to its declared `depends-on` closure + BCL
+    /// metadata, so cross-package nominal heads kind at bake time.
     let private composeProviders
         (metaTail: IExternalSymbolProvider list)
         (target: string option)
@@ -102,19 +37,7 @@ module SymbolProviders =
 
         for path in orderedManifestPaths do
             let key = Path.GetFullPath path
-            // The shapes in scope = the composite `TryLookupType` of *this package's
-            // transitive `depends-on` closure* and layer-2 metadata (the BCL
-            // via `MetadataSymbols.provider`). Scoping to declared dependencies — not
-            // every topological predecessor — keeps a package from silently kinding a
-            // cross-package head it never declared a `depends-on` for. The closure is
-            // dependency-ordered and every member is already built (dependency order),
-            // so this indexed lookup is O(closure). Layer-2 must be in scope too so a
-            // contract naming a raw BCL nominal head not aliased in its own package
-            // (e.g. `System.Text.StringBuilder` with no `extern` companion) kinds
-            // correctly at bake time, rather than baking a spurious `TyUnknown` for a
-            // type the consumer resolves through layer-2 anyway. So the ambient is
-            // literally "the same `TryLookupType` the consumer would see, restricted
-            // to this package's dependency closure".
+
             let depProviders =
                 transitiveDeps key
                 |> List.choose (fun dep ->
@@ -128,8 +51,7 @@ module SymbolProviders =
 
             let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
-            // `Result.Ok`/`Error` are qualified: `open ...SemanticAnalysis`
-            // brings `Severity.Error` into scope, shadowing the bare cases.
+            // Qualify `Result.Ok`/`Error`: `open ...SemanticAnalysis` shadows bare cases.
             match ReferencedProject.buildProviderWith target ambientShapes path with
             | Result.Ok(provider, _) ->
                 built.Add provider
@@ -142,32 +64,14 @@ module SymbolProviders =
         let ordered, transitiveDeps = orderedManifestsWithDeps manifestPaths
         composeProviders bclMetaTail None ordered transitiveDeps
 
-    /// The inline `val` bindings a referenced project contributes whose `.fs`
-    /// bodies must be *spliced* at the consumer's use site — a cross-package
-    /// inline (milestone M). Keyed by the binding's
-    /// source name (the same name the use-site `TExpr.External` carries); the
-    /// value is the frozen `TDecl.Let(isInline=true)` the pre-freeze
-    /// `Passes.InlineExpansion` pass expands in place of an `External(name)` call
-    /// head (served to it through the provider's `IInlineBodyProvider` channel).
-    ///
-    /// `hash` is the first such body: `let inline hash (obj: 'T) =
-    /// EqualityComparer<'T>.Default.GetHashCode obj` (`ops-platform.fs`). It is a
-    /// normal identifier, so it clears the operator-named-binding freeze gap that
-    /// still blocks `=`/`+`/… (operators-plan.md). The arithmetic/equality
-    /// operators have no `.fs` body yet and stay on the `Emit.BuiltinOps` stopgap.
+    /// Cross-package `let inline` bodies keyed by source name. Collected once here,
+    /// frozen against the same provider stack the consumer uses.
     let private collectInlineBodies (ctx: PassContext) (tast: TastFile) : (string * InlineBody) list =
         let acc = ResizeArray<string * InlineBody>()
 
-        // Pre-pass: every module-level inline binding's binder NodeKey → its
-        // source name. One inline body may reference *another* (failwith calls
-        // raise; both are sibling top-level `let inline` in `module Operators`),
-        // and the frozen body carries that reference as a plain `TExpr.Var`
-        // bound to the binder's source key. Spliced at a cross-package use site
-        // those keys aren't in scope; rewriting them to `TExpr.External(name,
-        // …)` here lets `Passes.InlineExpansion` route the inner call through the
-        // same per-name splice path as the outer
-        // one. `hash` is the only inline that pre-dates this case and has no
-        // sibling-inline calls, so it round-trips unchanged.
+        // Pre-pass: build NodeKey → source-name map. Inline bodies that reference a
+        // sibling inline carry `TExpr.Var` bound to a key not in scope at a consumer
+        // use site; rewrite those to `TExpr.External(name)` so the inliner can splice them.
         let inlineNames = System.Collections.Generic.Dictionary<uint64, string>()
 
         for d in tast.Decls do
@@ -200,17 +104,10 @@ module SymbolProviders =
 
         for d in tast.Decls do
             match d with
-            // A module-level `let inline` resolves its source name through
-            // `ModuleMembers` (the same map `Emit.collectStaticFns` names static
-            // methods from); a top-level inline with no named-module placement is
-            // unaddressable from a use site, so it is skipped.
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
                 match Map.tryFind k.Raw tast.ModuleMembers with
                 | Some info ->
-                    // The parameter attributes (`[<CallAtMostOnce>]` &c.) were
-                    // validated + recorded against this binder key while the body's
-                    // own package was analysed; carry them across the boundary so
-                    // the consumer's inliner honours them without re-decoding.
+                    // Carry param attrs so the consumer's inliner honours them without re-decoding.
                     let paramAttrs =
                         match ctx.InlineParamAttrs.TryGetValue k with
                         | true, a -> a
@@ -228,22 +125,9 @@ module SymbolProviders =
 
         List.ofSeq acc
 
-    /// Load the cross-package inline bodies declared by the manifests' `impl`
-    /// `.fs` files. Each body is type-checked + frozen ONCE here, against the same
-    /// `provider` stack the consumer uses, so its `EqualityComparer<'T>` access
-    /// already freezes to keyed `TExpr.ExternalMember` nodes (P3) the consumer
-    /// emits verbatim (P4) — the consumer never re-resolves them. `provider` MUST
-    /// be `build manifestPaths` (it resolves both the contract's own types — `int`
-    /// from `prim-types-min.fsi` — and the BCL members the bodies reach).
-    ///
-    /// A later body wins on a name clash (the manifests are processed in order),
-    /// matching `composite`'s first-listed-source priority for symbol lookup. A
-    /// parse / impl-file-shape failure contributes no body (it surfaces as the
-    /// emit-time "no inline body / no recipe" failure at the use site, not here).
-    /// `target` selects the per-target `inline-bodies-<t>` override
-    /// (`resolveInlineBodies`): `None` is the base list (the CLR path); `Some "js"`
-    /// picks `ops-platform.js.fs` &c. where a package declares it, falling back to
-    /// the base list per-package.
+    /// Load cross-package inline bodies from manifests' `impl` files. Type-checked
+    /// and frozen once against `provider`. A later body wins on a name clash.
+    /// `target` selects per-target `inline-bodies-<t>` overrides.
     let inlineBodies
         (target: string option)
         (provider: IExternalSymbolProvider)
@@ -279,15 +163,6 @@ module SymbolProviders =
                         match implFile with
                         | None -> ()
                         | Some f ->
-                            // The inline bodies belong to the referenced package, so its
-                            // own assembly name (`manifest.Name`) is the home assembly for
-                            // any local nominal keys minted while analysing them.
-                            // Cross-package inline bodies must re-enter the *SemType*
-                            // inline pass at the consumer, so collect them off the
-                            // pre-freeze (`analyseSemFor`) tree, not the frozen output.
-                            // With-context variant: `collectInlineBodies` reads the
-                            // run's `ctx.InlineParamAttrs` to bake each body's
-                            // parameter attributes into its `InlineBody`.
                             let ctx, tast =
                                 Pipeline.analyseSemWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
 
@@ -297,13 +172,8 @@ module SymbolProviders =
         acc
 
 
-    /// Lazy cache keyed by the normalised manifest set so a *suite* of compiles
-    /// parses + analyses each contract `.fsi`/`.fs` once, not once per compile
-    /// `ReferencedProject.provider` already caches each manifest's
-    /// `.fsi` parse and `MetadataSymbols.provider` is process-wide, so the only
-    /// previously-uncached cost was `inlineBodies` re-analysing each `impl` `.fs`
-    /// against the stack on every call — this caches that, plus the per-set
-    /// `composite`.
+    /// Cache keyed by normalised manifest set + target + metadata tag. Each set is
+    /// parsed, analysed, and composed once.
     let private contractCache =
         System.Collections.Concurrent.ConcurrentDictionary<
             string,
@@ -312,15 +182,9 @@ module SymbolProviders =
             System.StringComparer.Ordinal
         )
 
-    /// Wrap `inner` so it ALSO serves cross-package inline bodies
-    /// every `IExternalSymbolProvider` member delegates
-    /// to `inner`, and the two inline-body channels read the pre-built maps.
-    /// `byKey` is keyed by the inline value's resolved `SymbolKey` (the
-    /// identity-robust primary channel); `byName` is the source-name residue the
-    /// front-end pass falls back to for `External` heads still carrying
-    /// `key = ValueNone`. The front end reads these straight off `ctx.Provider`
-    /// (the `TryLookupInlineBody` / `…ByName` members are now part of
-    /// `IExternalSymbolProvider`, so no cast is needed).
+    /// Wrap `inner` to serve cross-package inline bodies. `byKey` is the primary
+    /// channel (resolved `SymbolKey`); `byName` is the source-name fallback for
+    /// `External` heads with `key = ValueNone`.
     let private withInlineBodies
         (inner: IExternalSymbolProvider)
         (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
@@ -344,18 +208,11 @@ module SymbolProviders =
                 | Some v -> ValueSome v
                 | None -> ValueNone
 
-            // Forward the reverse intrinsic axis from the wrapped composite — this
-            // wrapper is the provider the front end actually holds, so `canonName`'s
-            // `System.Exception` -> `exn` reconciliation must survive it.
             member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
         }
 
-    /// Build the provider stack AND load its cross-package inline bodies for a
-    /// manifest set, caching both. The provider and the inline `Map` are a matched
-    /// pair — the bodies were frozen against that exact stack. Production code
-    /// reaches the bodies through the provider's inline-body channel
-    /// (`buildContract`); the raw `Map` (`contractInlineBodies`) is an
-    /// introspection seam for the inline-body collection tests.
+    /// Build and cache the provider stack + inline bodies for a manifest set.
+    /// The raw `Map` is exposed via `contractInlineBodies` for tests.
     let private buildContractCached
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)
@@ -374,29 +231,10 @@ module SymbolProviders =
                 key,
                 fun _ ->
                     lazy
-                        // The base provider already surfaces referenced-package
-                        // intrinsic reprs as `ExternalTypeShape.Intrinsic` shapes
-                        // (the SA-layer `ReferencedProject` extractor pairs each
-                        // `.fsi` extern with its sibling `.fs` `(# … #)` binding);
-                        // no codegen-layer harvest wrap is needed.
-                        // Close + order the manifest set ONCE and thread
-                        // the same ordered list into the provider stack and the
-                        // inline-body loader, so both see the full `depends-on`
-                        // closure (a root's transitive dependency contributes its
-                        // contract symbols AND its cross-package inline bodies).
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
                          let provider = composeProviders metaTail target ordered transitiveDeps
                          let inlines = inlineBodies target provider ordered
-                         // Rekey the inline bodies by the resolved `SymbolKey` the
-                         // consumer's use-site `TExpr.External` carries — looked up
-                         // through this same `provider`, so the body's key is exactly
-                         // the key `Resolution.ExternalValue` stamps. A name with no
-                         // resolvable symbol contributes only to
-                         // the by-name residue. The wrapped provider serves both
-                         // channels to the front-end inline pass (the sole consumer
-                         // since beat (b) retired codegen's inline expansion); the raw
-                         // `inlines` map is cached alongside it for `contractInlineBodies`
-                         // (the inline-body collection tests).
+
                          let byKey =
                              System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
@@ -409,30 +247,17 @@ module SymbolProviders =
             )
             .Value
 
-    /// The provider stack for a manifest set, serving both the contract symbols
-    /// and (via its `IInlineBodyProvider` channel) the cross-package inline
-    /// bodies. The single entry point the default compile path uses once
-    /// `MockBuiltins` is demoted to the backstop.
+    /// Provider stack for a manifest set, including cross-package inline bodies.
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
         buildContractCached "bcl" bclMetaTail None manifestPaths |> fst
 
-    /// `buildContract` for a specific backend target (`Some Target.Js` selects the
-    /// `inline-bodies-js` `.fs` bodies via `ReferencedProject.resolveInlineBodies`),
-    /// so the provider's `IInlineBodyProvider` channel splices the target's
-    /// templated operator bodies (`($0 + $1) | 0` for int32 `+`) at the consumer's
-    /// use site. `None` is identical to `buildContract` (the CLR base list). The
-    /// matched inline `Map` is the target-keyed cache entry shared with
-    /// `contractInlineBodiesFor`.
+    /// `buildContract` for a specific target (`Some "js"` selects `inline-bodies-js`
+    /// overrides). `None` is identical to `buildContract`.
     let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
         buildContractCached "bcl" bclMetaTail target manifestPaths |> fst
 
-    /// `buildContractFor` with a backend-injected layer-2 `metaTail` in place of host
-    /// BCL reflection — the target-agnostic seam a non-CLR backend composes through.
-    /// `cacheTag` is a short, stable discriminator folded into the contract-cache key
-    /// (so a backend's stack never aliases the `"bcl"` entry for the same manifest set).
-    /// The JS target calls this from `Codegen.Js` with `JsNativeSymbols` as the tail
-    /// (codegen-js-steps.md Step 8); BCL metadata still serves the extraction-time
-    /// ambient regardless of the tail.
+    /// `buildContractFor` with a backend-injected layer-2 `metaTail`. `cacheTag`
+    /// prevents the backend's entry from aliasing the `"bcl"` entry.
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)
@@ -441,17 +266,11 @@ module SymbolProviders =
         : IExternalSymbolProvider =
         buildContractCached cacheTag metaTail target manifestPaths |> fst
 
-    /// The raw cross-package inline bodies collected for a manifest set, keyed by
-    /// source name — an introspection seam for the inline-body collection tests.
-    /// Production splices these through the provider's `IInlineBodyProvider`
-    /// channel (see `buildContract`), never this map. Shares `buildContract`'s
-    /// cache.
+    /// Raw cross-package inline bodies by source name — introspection seam for tests.
+    /// Production code uses the provider's inline-body channel.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
         buildContractCached "bcl" bclMetaTail None manifestPaths |> snd
 
-    /// `contractInlineBodies` for a specific target (`Some "js"` selects the
-    /// `inline-bodies-js` files via `ReferencedProject.resolveInlineBodies`). The
-    /// introspection seam the F1 / JS-target inline-body tests use to confirm a
-    /// target's bodies freeze with their `$N` templates intact.
+    /// `contractInlineBodies` for a specific target — introspection seam for target tests.
     let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
         buildContractCached "bcl" bclMetaTail target manifestPaths |> snd

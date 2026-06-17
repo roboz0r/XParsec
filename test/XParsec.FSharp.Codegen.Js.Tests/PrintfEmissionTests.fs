@@ -5,11 +5,6 @@ open Expecto
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Step 0a — the first vertical slice: `printfn "hi"` → runnable ESM `.js` that
-// prints `hi` under Node. Proves walker + printer + Node execution end-to-end.
-// Golden text snapshot PLUS execution under Node (the latter skips when `node`
-// is absent).
-
 [<Tests>]
 let tests =
     testList

@@ -3,12 +3,9 @@ namespace Vesper
 open System.IO
 open System.Runtime.CompilerServices
 
-// The write-through format handler (vesper-printf-plan P1): a stack-only ref
-// struct that accumulates formatted output into a pooled / stack buffer and
-// flushes to its sink. The backend emits construction + `AppendLiteral` /
-// `AppendFormatted` calls inline for a fully-applied literal format (P2); it is
-// shared with the `$"..."` interpolation surface.
-// Signature-only here (the contract); the impl lands with the self-host rungs.
+// The printf write-through format handler: a stack-only ref struct that accumulates
+// formatted output into a pooled buffer and flushes to its sink. Shared with the
+// `$"..."` interpolation surface.
 
 /// <summary>Stack-only handler that accumulates formatted text and flushes it to
 /// a sink. Constructed and driven by the backend; users never name it.</summary>

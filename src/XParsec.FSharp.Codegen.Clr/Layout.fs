@@ -68,7 +68,7 @@ module internal MethodAttrSets =
         ||| MethodAttributes.RTSpecialName
 
     // A closure derives from `System.Object` and *implements* the
-    // `Vesper.Fun\`2::Invoke` interface slot (R1) by name + signature; `Final`
+    // `Vesper.Fun\`2::Invoke` interface slot by name + signature; `Final`
     // because a sealed closure has no further overrides.
     let invokeAttrs =
         MethodAttributes.Public
@@ -85,7 +85,7 @@ module internal MethodAttrSets =
         | TMemberKind.Method -> mem.Name
 
 /// Identity of one `TypeDefinition` row in the layout. Reuses existing
-/// identities (§3.1): nominal types by `SymbolKey`, closures by their
+/// identities: nominal types by `SymbolKey`, closures by their
 /// synthesized unique name, holders by `Emit.HolderKey`. Structural equality;
 /// a collision is a bug that should fail loudly (dictionary add throws).
 [<RequireQualifiedAccess>]
@@ -107,18 +107,17 @@ type internal TypeSlotKind =
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs
     /// `[<Struct>]` value type (flips sequential layout + `Sealed` + the
     /// `ValueType` base) vs `[<IsByRefLike>]` byref-like (additionally stamps the
-    /// `IsByRefLikeAttribute` custom attribute, PP1).
+    /// `IsByRefLikeAttribute` custom attribute).
     | Class of isSealed: bool * valueKind: ClassValueKind
     | Closure
     /// A named module holder; `HasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
     | Holder of hasCctor: bool
-    /// The anonymous "Program" holder (holder-less fns + `Main`, and §10 the
-    /// top-level value fields). `hasCctor` ⇔ it owns leading-prefix values (drops
+    /// The anonymous "Program" holder (holder-less fns + `Main` + the top-level value fields). `hasCctor` ⇔ it owns leading-prefix values (drops
     /// `BeforeFieldInit`, its `.cctor` runs before `Main`).
     | Program of hasCctor: bool
 
-/// Identity of one `Field` row in the layout (§3.1) — who resolves this
+/// Identity of one `Field` row in the layout — who resolves this
 /// handle at `Bind` time. Structural; a collision fails loudly.
 [<RequireQualifiedAccess>]
 type internal FieldKey =
@@ -137,8 +136,7 @@ type internal FieldKey =
 
 /// One `Field` row: the i-th entry of `AssemblyLayout.Fields` is table row
 /// i+1. The layout stores only def-table rows; whether a *use site* routes
-/// through a `MemberRef` on an open self-`TypeSpec` (generic types/closures,
-/// G13) stays a `Bind`-time policy.
+/// through a `MemberRef` on an open self-`TypeSpec` (generic types/closures) stays a `Bind`-time policy.
 type internal FieldSlot =
     {
         Key: FieldKey
@@ -153,7 +151,7 @@ type internal FieldSlot =
         ClosureScope: int voption
     }
 
-/// Identity of one `MethodDef` row in the layout (§3.1). Indexed cases
+/// Identity of one `MethodDef` row in the layout. Indexed cases
 /// (`Member`, `SecondaryCtor`, `InterfaceMethod`) use the position in the
 /// declaring type's own list so same-named overloads can't collide; a class's
 /// interface-impl members continue the `Member` index past its own members.
@@ -173,12 +171,12 @@ type internal MethodKey =
     | EqEqualsTyped of SymbolKey
     | CmpCompareToTyped of SymbolKey
     | CmpCompareToObj of SymbolKey
-    /// The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`, P3).
+    /// The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`).
     | FmtFormat of SymbolKey
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
     | HolderCctor of Emit.HolderKey
-    /// The anonymous "Program" holder's `.cctor` (§10) — initialises the
+    /// The anonymous "Program" holder's `.cctor` — initialises the
     /// leading-prefix top-level values; at most one per assembly.
     | ProgramCctor
     | StaticFn of NodeKey
@@ -248,17 +246,16 @@ type internal AssemblyLayout =
     {
         /// Index 0 = `<Module>`; the i-th entry is TypeDef row i+1.
         Types: TypeSlot list
-        /// The full `Field` table in row order (§2): union `_tag` + case
+        /// The full `Field` table in row order: union `_tag` + case
         /// fields → record fields → class ctor-param / `val` / static-let
         /// fields → closure captures → module-value fields (holder order).
         Fields: FieldSlot list
-        /// The full `MethodDef` table in row order (§2): interface abstract
+        /// The full `MethodDef` table in row order: interface abstract
         /// methods → per union/record/class: ctor(s) + factories + members +
         /// [equality triple] + [comparison pair] → per closure: `.ctor` +
         /// `Invoke` → holder `.cctor`s + static fns (`HolderPlan.MethodPlan`
         /// order) → [`Main`].
         Methods: MethodRow list
-        // ---- Reused lowering products ----
         Lowered: Frozen.TDecl list
         Plan: HolderPlan
         Closures: EmitTypes.Closure list
@@ -416,7 +413,7 @@ module internal Layout =
             ]
         | _ -> []
 
-    /// The synthesised `IStructuralFormattable.Format` row (`%A`, P3). Emitted for
+    /// The synthesised `IStructuralFormattable.Format` row (`%A`). Emitted for
     /// *every* record / union — `%A` is orthogonal to the equality / comparison
     /// verdicts (it renders a value's structure, never depending on whether the type
     /// supports `=` / `<`). A new virtual slot bound to the `InterfaceImpl` by name +
@@ -449,7 +446,7 @@ module internal Layout =
             MethodCount = methodCount
         }
 
-    /// Enumerate the `TypeDefinition` rows in the canonical order (§2):
+    /// Enumerate the `TypeDefinition` rows in the canonical order:
     /// `<Module>` → interfaces → unions → records → classes → closures →
     /// named holders → the anonymous "Program" holder (present only when an
     /// exe or holder-less fns exist). Reuses the existing lowering/discovery
@@ -457,11 +454,11 @@ module internal Layout =
     let build (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
         let lowered = Emit.lower tast.Decls
         // The anonymous "Program" holder's key — `(None, project.ModuleName)` — owns
-        // the holder-less fns + `Main` + (§10) the top-level value fields / `.cctor`.
+        // the holder-less fns + `Main` + the top-level value fields / `.cctor`.
         let programHolder = None, project.ModuleName
 
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type — a top-level value of
-        // such a type can't be a static field (§10); computed from `tast.Decls` since
+        // such a type can't be a static field; computed from `tast.Decls` since
         // `Emit.lower` strips the type decls `lowered` would carry.
         let refStructNsNames =
             tast.Decls
@@ -892,7 +889,7 @@ module internal Layout =
         let closureSlots = List.map slotOf closureParts
         let holderSlots = List.map fst holderParts
 
-        // The full `MethodDef` table in §2 row order. Each nominal type's rows
+        // The full `MethodDef` table in row order. Each nominal type's rows
         // are the very list its slot's `MethodCount` counted, so the two can't
         // disagree; the holder `.cctor`s + static fns follow in
         // `HolderPlan.MethodPlan` order, then `Main`. `Assembler.WriteMethods`
@@ -939,7 +936,7 @@ module internal Layout =
                         }
             ]
 
-        // §10: the Program holder's top-level value fields — leading-prefix values
+        // The Program holder's top-level value fields — leading-prefix values
         // are `initonly` (written by the Program `.cctor`), values after a top-level
         // `do` are plain mutable `static` (written by `Main`). These are the trailing
         // field rows (the Program slot is the last type).

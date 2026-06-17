@@ -7,38 +7,23 @@ open System.IO
 open System.Reflection
 open XParsec.FSharp.SemanticAnalysis
 
-// Layer 2 of the symbol-resolution stack: the
-// referenced *assemblies* (BCL + binary deps), read through a
-// `System.Reflection.MetadataLoadContext` over a `PathAssemblyResolver`. This is
-// the ".NET provider" of the layered stack ([[project_dotnet_provider_stack]]):
-// reflection-only metadata, never FCS. It resolves a BCL type
-// (`System.Collections.Generic.EqualityComparer`1`) to an `ExternalTypeShape.Class`
-// and its members (`Default`, `GetHashCode`) to target-agnostic `FrozenType`
-// signature templates.
+// Resolves BCL types to `ExternalTypeShape` and their members to `FrozenType`
+// signature templates via `System.Reflection.MetadataLoadContext`.
 
-/// `System.Type` → `FrozenType` template mapping. Each template is written over
-/// the *declaring type's* generic parameters, baked as `FTTypar(Declaring,i)`
-/// (and method-owned typars as `FTTypar(Method,j)`): a consumer substitutes its
-/// declaring args (one per declared typar) through the placeholders. Shapes
-/// the milestone doesn't model (arrays, pointers, by-refs, a generic argument
-/// that itself can't map) yield `None`: the symbol is skipped, never faked into a
-/// wrong `TyConst`. The templates are inert data (typar positions, primitive
-/// names, type keys) — no live `Type` escapes, so building them is pure and safe
-/// off the `MetadataLoadContext` gate.
+/// `System.Type` → `FrozenType` template mapping. Each template is over the
+/// declaring type's generic parameters (`FTTypar(Declaring,i)`, method-owned as
+/// `FTTypar(Method,j)`). Shapes that don't map yield `None` — skipped, never
+/// faked. Templates are inert data; no live `Type` escapes.
 module private MetadataMapping =
 
-    /// IL representation full name → Vesper primitive name — the *reverse* of
-    /// `IntrinsicRepr.defaults` (`"System.Int32"` → `"int"`), so a metadata
-    /// `System.Int32` resolves to the same `TyConst "int"` the front end uses.
+    /// Reverse of `IntrinsicRepr.defaults`: `"System.Int32"` → `"int"`.
     let reprToName: Map<string, string> =
         IntrinsicRepr.defaults
         |> Map.toSeq
         |> Seq.map (fun (name, repr) -> repr, name)
         |> Map.ofSeq
 
-    /// The open-generic-definition name (`` EqualityComparer`1 ``) for a constructed
-    /// generic, else the plain full name. Used for both the `TyClass` name and a
-    /// member's `Origin.DeclaringType`.
+    /// Open-generic-definition name for a constructed generic, else `FullName`.
     let metadataName (t: Type) : string =
         if t.IsGenericType && not t.IsGenericTypeDefinition then
             t.GetGenericTypeDefinition().FullName
@@ -47,46 +32,21 @@ module private MetadataMapping =
 
     let rec tryBuildType (t: Type) : FrozenType option =
         if t.IsByRef then
-            // A managed by-ref (`T&`) maps onto the byref intrinsic
-            // `FTConst(byrefName, [elem])`, mirroring the array intrinsic below — so
-            // a byref-returning member (e.g. `Span<T>.get_Item : T&`) and a byref/
-            // `out`/`ref` *parameter* (`Int32.TryParse(string, int&)`, PP5d) resolve
-            // instead of being dropped. Legal only in param / return position; the
-            // encoder emits `ELEMENT_TYPE_BYREF` at that seam, never inside the
-            // recursive type encoder (PP2b).
-            //
-            // TODO(inref): direction-agnostic — `in`/`out`/`ref` all collapse to the
-            // same `T&` here. A C# `in` parameter additionally carries a *required
-            // custom modifier* `modreq(System.Runtime.InteropServices.InAttribute)`
-            // (via `t`'s declaring `ParameterInfo.GetRequiredCustomModifiers()`),
-            // which this drops. Since the CLR matches member-ref signatures
-            // including modreqs, calling a BCL method with an `in` parameter would
-            // fail to bind until that modifier is threaded through to the encoder
-            // (`mintMemberRef`, ClrExternalMembers.fs — paired TODO there). No
-            // current consumer (`Formatter`/printf) hits an `in` parameter, so it is
-            // unbuilt + untested rather than wrong.
+            // `in`/`out`/`ref` all collapse to `T&` here — direction-agnostic.
+            // A C# `in` param additionally carries `modreq(InAttribute)` which is
+            // dropped; calling such a member would fail CLR member-ref binding until
+            // the modifier is threaded through the encoder (paired TODO at
+            // `mintMemberRef`, ClrExternalMembers.fs).
             match tryBuildType (t.GetElementType()) with
             | Some elem -> Some(FTConst(RuntimeNames.byrefName, EqArray.singleton elem))
             | None -> None
         elif t.IsPointer then
-            // Unmanaged pointers stay unrepresentable — skip rather than fake (§6.1).
             None
         elif t.IsArray then
-            // A reflection array maps onto Vesper's generic array intrinsic
-            // `FTConst(arrayName rank, [elem])` (rank 1 → `"[]"`), the same repr the
-            // front end uses for `'T[]`. This lets array-returning BCL members (e.g.
-            // `List`1::ToArray() : T[]`) resolve instead of being dropped.
             match tryBuildType (t.GetElementType()) with
             | Some elem -> Some(FTConst(RuntimeNames.arrayName (t.GetArrayRank()), EqArray.singleton elem))
             | None -> None
         elif t.IsGenericParameter then
-            // A declaring-type typar bakes as `FTTypar(Declaring, pos)` (the
-            // consumer substitutes its pos-th declaring arg); a method-owned generic
-            // parameter (`DeclaringMethod` set) lives on the *method* axis —
-            // `FTTypar(Method, pos)`. The method axis is
-            // intrinsic to the member, so the position is fixed and the open node
-            // rides straight through. A consumer instantiates it to a fresh
-            // inference var per call site; codegen encodes it as `!!pos`.
             let pos = t.GenericParameterPosition
 
             if isNull t.DeclaringMethod then
@@ -94,11 +54,7 @@ module private MetadataMapping =
             else
                 Some(FTTypar(TyparAxis.Method, pos))
         elif t.IsGenericType then
-            // A generic type still *containing* a type parameter (e.g. the open
-            // `EqualityComparer<'T>` returned by the `Default` property) has a null
-            // `FullName`, so this branch must precede the `FullName` match — the
-            // open-generic-definition name is always present. Each argument is
-            // mapped recursively (a `'T` argument → `FTTypar(Declaring, i)`).
+            // Open generic has null `FullName`; this branch must precede the `FullName` match.
             let name = t.GetGenericTypeDefinition().FullName
             let args = t.GetGenericArguments() |> Array.map tryBuildType
 
@@ -106,9 +62,7 @@ module private MetadataMapping =
                 None
             else
                 let frozen = args |> Array.map Option.get
-                // Stamp the type's home assembly (its defining assembly's simple
-                // name) so this key unifies with the same BCL type resolved via a
-                // provider shape's origin.
+
                 let key =
                     SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name frozen.Length
 
@@ -123,24 +77,15 @@ module private MetadataMapping =
                     FTClass(SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0, EqArray.empty)
                 )
 
-    /// The `.NET`-tupled parameter template `(p1 * … * pN)` from the per-parameter
-    /// templates: `N = 0` → `unit`, `N = 1` → the bare parameter, `N ≥ 2` → one
-    /// `FTTuple` (the .NET calling convention — `m(a, b)` is one application to the
-    /// tuple `(a, b)`, not a curried `p1 → … → pN`). Modelling N ≥ 2 tupled makes
-    /// the front-end `unify` and the codegen `recoverOpenTypars` `Tuple` arms
-    /// recover the declaring typar from the element, not the whole tuple. (Equal,
-    /// by construction, to splitting a `TyFun(params, ret)` template's argument —
-    /// the contract layer does the same split when freezing a member signature.)
+    /// The tupled parameter template: 0 → `unit`, 1 → bare param, N≥2 → `FTTuple`
+    /// (.NET calling convention — not curried).
     let frozenParams (ps: FrozenType[]) : FrozenType =
         match ps.Length with
         | 0 -> FTConst("unit", EqArray.empty)
         | 1 -> ps.[0]
         | _ -> FTTuple(EqArray.ofArray ps)
 
-    /// The tupled member signature as `(Parameters, Return)` templates over the
-    /// declaring type's typars. `None` if any parameter or the return type doesn't
-    /// map. A generic method definition (`Take<TSource>`) is not skipped: its
-    /// method-owned typars bake as `FTTypar(Method, j)` through `tryBuildType`.
+    /// `(Parameters, Return)` templates for a method. `None` if any type doesn't map.
     let tryMethodSignature (m: MethodInfo) : (FrozenType * FrozenType) option =
         let paramTys =
             m.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
@@ -152,19 +97,14 @@ module private MetadataMapping =
         else
             Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
 
-    /// The method's own generic-parameter count — the method axis arity stamped
-    /// onto `ExternalMember.MethodArity`. `0` for a non-generic method.
+    /// Method-axis generic-parameter count; `0` for a non-generic method.
     let methodArityOf (m: MethodInfo) : int =
         if m.IsGenericMethodDefinition then
             m.GetGenericArguments().Length
         else
             0
 
-    /// The zero value of a primitive value type as a `TConstValue` — the default an
-    /// `[<Optional>]` parameter with no `[<DefaultParameterValue>]` receives
-    /// (`default(T)`). `None` for a reference type (its default is `null`, which has
-    /// no `TConstValue`) or a non-primitive struct (no representable constant), which
-    /// ends an optional-parameter run rather than being faked.
+    /// `default(T)` as a `TConstValue` for primitive value types; `None` otherwise.
     let private zeroOfValueType (t: Type) : TConstValue option =
         if not t.IsValueType then
             None
@@ -184,9 +124,8 @@ module private MetadataMapping =
             | "System.Double" -> Some(TConstValue.Float 0.0)
             | _ -> None
 
-    /// A boxed constant (a parameter's `RawDefaultValue`) as a `TConstValue`. The
-    /// unsigned forms fold onto the matching signed `TConstValue` — the IL constant
-    /// is bit-identical and only disambiguates an *omitted* argument, never re-typed.
+    /// Boxed `RawDefaultValue` → `TConstValue`. Unsigned forms fold onto their signed
+    /// counterpart (bit-identical; only used to fill omitted arguments).
     let private constOfBoxed (v: obj) : TConstValue option =
         match v with
         | :? bool as b -> Some(TConstValue.Bool b)
@@ -204,15 +143,8 @@ module private MetadataMapping =
         | :? string as s -> Some(TConstValue.String s)
         | _ -> None
 
-    /// The compile-time-constant defaults of a member's *trailing* optional
-    /// parameters, in declaration order — surfaced on `ExternalMember.OptionalDefaults`
-    /// so a call may omit any suffix of them. Walks parameters from the end: an
-    /// optional parameter contributes its explicit constant default
-    /// (`[<DefaultParameterValue>]`) or, lacking one, the zero of a primitive value
-    /// type (`[<Optional>]` alone ⇒ `default(T)`). The walk stops at the first
-    /// parameter that is not optional or whose default isn't a representable constant
-    /// (a `null` reference default, a non-primitive `default(struct)`), so the
-    /// surfaced list is exactly the omittable suffix.
+    /// Trailing omittable parameter defaults in declaration order. Walks from the end;
+    /// stops at the first non-optional or non-representable-constant parameter.
     let optionalDefaults (ps: ParameterInfo[]) : TConstValue list =
         let tryConstOf (p: ParameterInfo) : TConstValue option =
             if not p.IsOptional then
@@ -242,19 +174,11 @@ module private MetadataMapping =
 
         acc
 
-    /// A property reads as a value of its type (no leading arrow) — `Default` is a
-    /// `EqualityComparer<'T>`, not a function. `IsProperty` tells the consumer not
-    /// to expect a `TyFun`.
+    /// Property signature: value type only (no arrow). `IsProperty = true` on the member.
     let tryPropertySignature (p: PropertyInfo) : FrozenType option = tryBuildType p.PropertyType
 
-    /// A constructor reads as `(p1 * … * pN) → declType` — the .NET calling
-    /// convention, same tupling as `tryMethodSignature`. The return type is the
-    /// declaring type's open template (`tryBuildType`'s generic-parameter arm bakes
-    /// the typars positionally). `None` if any parameter or the declaring type
-    /// doesn't map. A zero-parameter ctor reads as `unit → declType`. Surfaced
-    /// through `extractMembers` as a member named `".ctor"`, picked up by
-    /// `inferNew` / `TryEmitCtor`'s overload resolution to lower
-    /// `new ExternalType(args)`.
+    /// Constructor as `(params) → declType`. Zero-param ctor reads as `unit → declType`.
+    /// `None` if any type doesn't map. Surfaced as member `".ctor"`.
     let tryCtorSignature (c: ConstructorInfo) : (FrozenType * FrozenType) option =
         let paramTys =
             c.GetParameters() |> Array.map (fun p -> tryBuildType p.ParameterType)
@@ -266,11 +190,8 @@ module private MetadataMapping =
         else
             Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
 
-    /// A type rendered in OPEN typars for a `SymbolKey.MemberKey.argSig`
-    /// the declaring type's i-th typar is `!i`, a
-    /// method-owned typar `!!i`, a constructed generic recurses, everything else is
-    /// its metadata full name. The argSig only *disambiguates overloads* and is
-    /// never re-parsed, so an exotic shape rendering by `Name` is harmless.
+    /// Render a type with open typars for an `argSig` overload key: `!i` / `!!i` for
+    /// declaring/method typars, `FullName` otherwise. Never re-parsed — only disambiguates.
     let rec openTyparSig (t: Type) : string =
         if t.IsGenericParameter then
             if isNull t.DeclaringMethod then
@@ -286,8 +207,7 @@ module private MetadataMapping =
             | null -> t.Name
             | fn -> fn
 
-    /// Assemble a property's two-axis `ExternalSignature` template: no parameters
-    /// (`Parameters = unit`), the value type in `Return`, no method axis.
+    /// Property `ExternalSignature`: `Parameters = unit`, value type in `Return`.
     let propertySignature (declaringArity: int) (valueTy: FrozenType) : ExternalSignature =
         {
             DeclaringArity = declaringArity
@@ -296,8 +216,7 @@ module private MetadataMapping =
             Return = valueTy
         }
 
-    /// Assemble a method / ctor's two-axis `ExternalSignature` template from its
-    /// `(Parameters, Return)` templates.
+    /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
     let methodSignature
         (declaringArity: int)
         (methodArity: int)
@@ -310,9 +229,7 @@ module private MetadataMapping =
             Return = ret
         }
 
-    /// The declaring type's `SymbolKey.TypeKey` — `(assembly, namespace,
-    /// name`arity)` with the namespace stripped off the metadata name so the key's
-    /// `name` is the simple `` EqualityComparer`1 ``.
+    /// `SymbolKey.TypeKey` for the declaring type.
     let declTypeKey (t: Type) : SymbolKey =
         let asm = t.Assembly.GetName().Name |> Option.ofObj
         let full = metadataName t
@@ -320,18 +237,13 @@ module private MetadataMapping =
         let simple = SymbolOrigin.StripNamespace ns full
         SymbolKey.TypeKey(asm, ns, simple)
 
-/// `IExternalSymbolProvider` over a set of reference assembly paths, read through a
-/// single shared `MetadataLoadContext`. `assemblyPaths` is the resolver's search
-/// set — supplied as a compiler input (like `fsc`'s `-r:`), see
-/// `MetadataSymbols.runtimeAssemblyPaths` for the current host-runtime first cut.
+/// `IExternalSymbolProvider` over reference assembly paths via a shared `MetadataLoadContext`.
 type MetadataSymbolProvider(assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
 
-    // `MetadataLoadContext` is NOT safe for concurrent loads; every metadata access
-    // serialises through `gate`. Results are immutable `FrozenType`-template
-    // descriptors (no live `Type` is captured — §6.1/§7.1), so the result caches
-    // are read lock-free and only a miss takes the gate.
+    // `MetadataLoadContext` is not thread-safe; metadata access serialises through
+    // `gate`. Result caches are read lock-free; only a miss takes the gate.
     let gate = obj ()
     let resolveCache = Dictionary<string, Type option>(StringComparer.Ordinal)
 
@@ -350,24 +262,16 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
         ||| BindingFlags.Instance
         ||| BindingFlags.DeclaredOnly
 
-    /// Resolve a type by full metadata name (`` Ns.Name`arity ``): the core assembly
-    /// first (where the BCL milestone types live), then — only for a
-    /// namespace-qualified name — the rest of the reference set. A bare short name
-    /// the core assembly doesn't define isn't a referenced-assembly type, so it
-    /// short-circuits without the load-every-path scan (keeps the front end's
-    /// primitive / user-type probes O(1)). Must hold `gate`.
+    /// Resolve a type by full metadata name. Checks core assembly first; scans the
+    /// reference set only for namespace-qualified names. Must hold `gate`.
     let resolveTypeLocked (name: string) : Type option =
         match resolveCache.TryGetValue name with
         | true, t -> t
         | _ ->
-            // Only surface types a consumer could actually reference: an external
-            // assembly's *internal* (or private-nested) types are invisible across
-            // the assembly boundary, so resolving them here is unsound — it lets an
-            // unrelated assembly's internal type shadow a locally-declared one of the
-            // same name (e.g. the C# `Vesper.Printf`'s `internal Vesper.Doc` family
-            // shadowing the Vesper-compiled `structural-printer.fs` `Doc` DU). `Type.IsVisible`
-            // is true iff the type is public top-level or public-nested in a visible
-            // chain — exactly the externally-referenceable set.
+            // Only surface types a consumer can actually reference; `Type.IsVisible`
+            // is true iff public top-level or public-nested in a visible chain.
+            // Resolving an external assembly's *internal* type is unsound — it lets it
+            // shadow a locally-declared one of the same name.
             let tryAsm (asm: Assembly) : Type option =
                 try
                     match asm.GetType(name, false) |> Option.ofObj with
@@ -411,13 +315,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             DeclaringType = declaring
         }
 
-    /// Enumerate the public declared methods + properties of `t` whose signatures
-    /// the §6.1 mapping can represent. Property accessors (`get_X` / `set_X`) are
-    /// modelled through the `IsProperty = true` member and filtered out of the
-    /// method walk — without this, a property `Default` would surface twice (once
-    /// as `Default` and once as `get_Default`). Members the mapping can't model
-    /// (open generic-method definitions, by-ref parameters, …) are skipped, not
-    /// faked. Must hold `gate`.
+    /// Public declared members of `t` whose signatures map. Accessors are modelled
+    /// through `IsProperty = true` and filtered from the method walk. Must hold `gate`.
     let enumerateClassMembers (t: Type) : ExternalMember[] =
         let origin = originOf t (Some(MetadataMapping.metadataName t))
         let declKey = MetadataMapping.declTypeKey t
@@ -450,8 +349,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
 
         let methods =
             t.GetMethods declaredFlags
-            // `IsSpecialName` covers property getters/setters and event add/remove —
-            // their first-class form is the property itself, already in `properties`.
+            // `IsSpecialName` covers property getters/setters and event add/remove.
             |> Array.filter (fun m -> not m.IsSpecialName)
             |> Array.choose (fun m ->
                 MetadataMapping.tryMethodSignature m
@@ -476,15 +374,9 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 )
             )
 
-        // Indexers (`this[i]`) surface under their accessor's CIL name `get_Item`
-        // as an ordinary *method* member carrying the index parameter(s) + the
-        // (possibly by-ref) element return — NOT as a parameterless property, whose
-        // `propertySignature` shape can't model the index argument. The `Item`
-        // property itself is skipped by the property walk above whenever its getter
-        // returns by-ref (`Span<T>.Item : T&`, unmappable as a value type), so this
-        // is the only surface for a ref-returning indexer; for a by-value indexer it
-        // is additive (the lookup names `get_Item` vs `Item` don't collide). The
-        // front-end indexer dispatch (`inferIndexedLookup`) probes `get_Item`.
+        // Indexers surface as `get_Item` method members (the property shape can't
+        // model index arguments). Ref-returning indexers (`Span<T>.Item : T&`) are
+        // skipped by the property walk above, so this is their only surface.
         let indexers =
             t.GetProperties declaredFlags
             |> Array.filter (fun p -> p.GetIndexParameters().Length > 0 && not (isNull p.GetMethod))
@@ -511,12 +403,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 )
             )
 
-        // Constructors surface under the canonical name `".ctor"` — the same
-        // name CIL uses, and the lookup key `inferNew` / `TryEmitCtor` probe
-        // when lowering `new ExternalType(args)`. `t.GetMethods` excludes them
-        // (an instance ctor isn't a `MethodInfo`), so a separate `GetConstructors`
-        // pass is required. `IsStatic = false` always — a static `.cctor`
-        // never resolves through `new`.
+        // Constructors surface as `".ctor"`. `GetMethods` excludes them, so a
+        // separate `GetConstructors` pass is required.
         let ctors =
             t.GetConstructors declaredFlags
             |> Array.choose (fun c ->
@@ -538,11 +426,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
 
         Array.concat [| properties; methods; indexers; ctors |]
 
-    /// Build the type's interface set as `(compiled-name, type-args)` template
-    /// pairs over the declaring type's typars. Each interface arg goes through
-    /// `tryBuildType` (it may reference the enclosing typars by position, baked as
-    /// `FTTypar(Declaring,i)`), and an interface whose args don't all map is
-    /// skipped — same posture as `tryMethodSignature`. Must hold `gate`.
+    /// Interface set as `(compiled-name, type-args)` templates. Unmappable interfaces
+    /// are skipped. Must hold `gate`.
     let buildClassInterfaces (t: Type) : (string * FrozenType[])[] =
         t.GetInterfaces()
         |> Array.choose (fun i ->
@@ -560,10 +445,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 Some(name, args |> Array.map Option.get)
         )
 
-    /// Decode the type's declared base type as a `FrozenType` template over the
-    /// declaring type's typars. Interfaces and `System.Object` itself read as
-    /// `ValueNone` (an interface has no real base; `Object`'s base is the implicit
-    /// root). Must hold `gate`.
+    /// Declared base type as a `FrozenType` template. `ValueNone` for interfaces and
+    /// `System.Object`. Must hold `gate`.
     let buildClassBaseType (t: Type) : FrozenType voption =
         if t.IsInterface || isNull t.BaseType then
             ValueNone
@@ -572,8 +455,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             | Some frozen -> ValueSome frozen
             | None -> ValueNone
 
-    /// `[<AllowNullLiteral>]` is F# `Microsoft.FSharp.Core.AllowNullLiteralAttribute`
-    /// (emitted into metadata so reflection-only code can see it without an FSharp.Core load).
+    /// `[<AllowNullLiteral>]` is emitted into metadata and visible in reflection-only loads.
     let hasAllowNullLiteral (t: Type) : bool =
         t.CustomAttributes
         |> Seq.exists (fun a ->
@@ -607,8 +489,6 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             Arity = arity
                             IsInterface = t.IsInterface
                             Members = enumerateClassMembers t
-                            // The interface / base-type templates carry the declaring
-                            // typars as `FTTypar(Declaring,i)` directly.
                             FrozenInterfaces = buildClassInterfaces t
                             FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
@@ -619,12 +499,8 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 | None -> ValueNone
             )
 
-    /// All overloads of `memberName` whose signature maps — the candidate set for
-    /// application-site overload resolution. A property
-    /// wins as a singleton (a property and a like-named method don't coexist as a
-    /// call group — `Default` is a property). Methods are sorted most-parameters
-    /// first so the singular `computeMember` reading (`Array.head`) keeps its
-    /// "most-params wins" tie-break.
+    /// All overloads of `memberName` whose signatures map. Methods sorted most-params
+    /// first; a property wins as a singleton over a like-named method.
     let computeMembers (typeName: string) (memberName: string) : ExternalMember[] =
         lock
             gate
@@ -632,22 +508,10 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 match resolveTypeLocked typeName with
                 | None -> [||]
                 | Some t ->
-                    // A property wins over a like-named method (`Default` is a property).
-                    // `.ctor` is asked of `GetConstructors`, not `GetMethods` — an
-                    // instance ctor isn't a `MethodInfo`, so it never appears in the
-                    // method walk. Most-params-wins ordering still applies.
-                    //
-                    // `declaredFlags` carries `DeclaredOnly`, correct for classes (a
-                    // class's `GetMethods` walks its inheritance chain, but the BCL
-                    // milestone types keep their members where queried). An *interface*,
-                    // though, does not inherit members through `DeclaredOnly`:
-                    // `IEnumerator`1` declares `Current` but inherits `MoveNext`/`Reset`
-                    // from the non-generic `IEnumerator` and `Dispose` from
-                    // `IDisposable`. So for an interface, search `t` then its full
-                    // transitive interface set, taking the first that has the member.
-                    // Each matched member's `declKey`/`origin` come from *its* declaring
-                    // interface (`IEnumerator` for `MoveNext`), so codegen mints the
-                    // `callvirt` against the correct interface slot.
+                    // Interfaces don't inherit members through `DeclaredOnly`
+                    // (e.g. `IEnumerator<T>` inherits `MoveNext` from `IEnumerator`),
+                    // so for an interface we walk `t` then its transitive base set.
+                    // Each member's `declKey`/`origin` come from its declaring interface.
                     let lookupOn (st: Type) : ExternalMember[] =
                         let origin = originOf st (Some(MetadataMapping.metadataName st))
                         let declKey = MetadataMapping.declTypeKey st
@@ -715,7 +579,6 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                         Signature = MetadataMapping.propertySignature arity valueTy
                                         MethodArity = 0
                                         Origin = origin
-                                        // A property carries no parameters → empty argSig.
                                         Key =
                                             SymbolKey.MemberKey(
                                                 declKey,
@@ -728,10 +591,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                                 |]
                             | None -> [||]
 
-                    // Classes: members live where queried (DeclaredOnly is correct).
-                    // Interfaces: union `t` with its transitive base interfaces and take
-                    // the first that resolves the member (`GetInterfaces` returns the
-                    // full set — `IEnumerator`1` → `IEnumerator` + `IDisposable`).
+                    // Interfaces: walk `t` then its transitive base set.
                     if t.IsInterface then
                         Array.append [| t |] (t.GetInterfaces())
                         |> Array.tryPick (fun st ->
@@ -744,17 +604,13 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                         lookupOn t
             )
 
-    /// The single best member by the legacy name + arity heuristic (most-params
-    /// wins). Kept for the bare member-as-value path and single-candidate access;
-    /// the call site resolves overloads through `computeMembers` instead.
+    /// Single best member (most-params wins). Call sites use `computeMembers` for overloads.
     let computeMember (typeName: string) (memberName: string) : ExternalMember voption =
         match computeMembers typeName memberName with
         | [||] -> ValueNone
         | arr -> ValueSome arr.[0]
 
     interface IExternalSymbolProvider with
-        // The BCL exposes no F#-style module values; type + member access is the P2
-        // surface. (Static fields / literals could resolve here in a later phase.)
         member _.TryLookup _ = ValueNone
 
         member _.TryLookupType name =
@@ -785,34 +641,17 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                 membersCache.[key] <- v
                 v
 
-        // The BCL models no F#-style discriminated unions whose cases we
-        // construct (FSharp.Core's `Option`/`Result`/`Choice` come from the
-        // Vesper contract layer, not from metadata), so there is nothing to
-        // index here — union construction is a contract-layer capability.
         member _.TryLookupUnionCase _ = ValueNone
-
-        // The BCL metadata layer contributes no implicit prelude — the ambient
-        // `[<AutoOpen>]` / namespace prefixes come from the contract layer
-        // (`ReferencedProject`), so this returns `[]`.
         member _.AmbientOpenPrefixes = []
-
-        // BCL metadata exposes compiled members, never spliceable F# `inline`
-        // bodies — those ride the Vesper contract stack.
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
-        // Metadata (BCL) types carry no Vesper intrinsics — the reverse axis is empty.
         member _.IntrinsicReverseCanon = Map.empty
 
 module MetadataSymbols =
 
-    /// The host runtime's trusted-platform assemblies — the BCL the codegen host
-    /// was launched with. **First-cut host-runtime fallback**
-    /// correct `AssemblyRef` identity wants the
-    /// *target* TFM's reference pack, not the host's implementation assemblies
-    /// (so `Origin.Assembly` here reads `System.Private.CoreLib`, the impl, not
-    /// `System.Runtime`, the ref). TODO: take the ref-pack / `ProjectInfo.References`
-    /// paths as a compiler input (a driver produces them — §9) instead of the
-    /// host's TPA.
+    /// Host runtime TPA. `Origin.Assembly` resolves to `System.Private.CoreLib`
+    /// (impl), not `System.Runtime` (ref); a future driver should supply the target
+    /// TFM's reference-pack paths instead.
     let runtimeAssemblyPaths () : string list =
         match AppContext.GetData "TRUSTED_PLATFORM_ASSEMBLIES" with
         | :? string as tpa when tpa.Length > 0 ->
@@ -822,11 +661,9 @@ module MetadataSymbols =
             Directory.GetFiles(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "*.dll")
             |> Array.toList
 
-    /// A provider over an explicit reference-assembly path set.
+    /// Provider over an explicit reference-assembly path set.
     let create (paths: string seq) : IExternalSymbolProvider =
         MetadataSymbolProvider paths :> IExternalSymbolProvider
 
-    /// The process-wide default: one `MetadataLoadContext` over the host runtime's
-    /// assemblies, caching resolved descriptors (§6/§7.1). Shared so
-    /// `SymbolProviders.build` doesn't stand up a fresh metadata context per compile.
+    /// Process-wide provider over the host runtime's assemblies. Shared across compiles.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())

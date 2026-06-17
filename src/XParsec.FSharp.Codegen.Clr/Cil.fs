@@ -16,8 +16,6 @@ open XParsec.FSharp.SemanticAnalysis
 [<RequireQualifiedAccess>]
 module Cil =
 
-    // ---- Untyped depth-tracked helpers (replayed by `IlIr.lower`) ----
-
     let emitLdstr (il: Il) (h: UserStringHandle) : unit =
         il.Encoder.LoadString(h)
         il.Adjust 1
@@ -146,7 +144,7 @@ module Cil =
 
     /// `constrained. <type>` — the prefix that makes the following `callvirt`
     /// dispatch on a value-type receiver (a managed pointer) without boxing. Used by
-    /// the duck-typed struct enumerator loop (`List`1+Enumerator`, §4.4) for
+    /// the duck-typed struct enumerator loop (`List`1+Enumerator`) for
     /// `MoveNext`/`Current`/`Dispose`. Net stack 0 (a prefix); the paired `callvirt`
     /// does the operand adjust.
     let emitConstrained (il: Il) (t: EntityHandle) : unit =
@@ -180,7 +178,7 @@ module Cil =
 
     /// `ldobj <type>` — load the value a managed pointer points to: pops the
     /// pointer, pushes the pointed-to value (net 0). The deref behind a by-ref
-    /// return (`span.[i]` = `call get_Item` → `ldobj T`, PP2b); the generic
+    /// return (`span.[i]` = `call get_Item` → `ldobj T`); the generic
     /// `ldobj` carries a type token, so it serves any element type.
     let emitLdobj (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Ldobj)
@@ -194,8 +192,6 @@ module Cil =
         il.Adjust 0
 
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
-
-    // ---- Inline-IL value ops (the value-level `(# "op" args : ty #)`) ----
 
     /// Map an F# inline-IL mnemonic (`"ceq"`, `"add"`, `"conv.i2"`) to its
     /// `ILOpCode`. The value-level sibling of the type-level intrinsic repr map
@@ -261,8 +257,6 @@ module Cil =
         il.Encoder.OpCode code
         il.Adjust(1 - argCount)
 
-    // ---- Branching ----
-
     /// `buildBody`'s `ControlFlowBuilder` resolves the offset once `markLabel` places the target.
     let defineLabel (il: Il) : LabelHandle = il.Encoder.DefineLabel()
 
@@ -302,8 +296,6 @@ module Cil =
     /// `endfinally` — terminator inside a finally handler. Depth at this point
     /// is 0 (CLI requirement); no adjustment needed.
     let emitEndFinally (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Endfinally)
-
-    // ---- Finalisation ----
 
     /// `maxStack` comes from the tracked peak depth — no separate pass.
     /// `encodeLocals` is invoked only when locals exist, so callers with no

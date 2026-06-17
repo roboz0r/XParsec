@@ -3,83 +3,6 @@ module XParsec.FSharp.Codegen.Clr.Tests.SetModuleTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The behavioral runtime suite for `Vesper.Set` — the §9.7 round-trip gate +
-// the Phase-9-exit operation table. The DLL
-// builds + links + loads BCL-only (`PackageBuildTriage`); this suite is the
-// *runtime* round-trip the §9.7 gate calls for, driven through `runsSet`.
-//
-// Status (the consumption path — a program that *uses* `Set` via its `.fsi`
-// contract — was never exercised before; standing it up surfaced a chain of
-// gaps, two now fixed and one still open):
-//   1. ✅ FIXED — the `Set` module resolved to nothing because the source-name
-//      alias for a `[<CompiledName>]`'d module val was built *with* the compiled
-//      name (`Set.empty` ⇒ wrongly `Set.Empty`). `VesperLib.sourceNameForVal`
-//      now keys the alias on the written ident, so `Set.empty`/`Set.add`/… all
-//      resolve to `SetModule.Empty`/`.Add` (the module's `ModuleSuffix` compiled
-//      class), matching the user's "module Set ⇒ static class SetModule" note.
-//   2. ✅ FIXED — a bare zero-arg external module value (`Set.empty`, a
-//      `[<GeneralizableValue>]` generic value ⇒ generic static method) reached
-//      `EmitExpr.buildExpr` as an unhandled `External` leaf; it now routes
-//      through `buildAppCall` as an empty-spine call.
-//   3. ✅ FIXED — `Set\`1` now type-loads. The real cause was NOT a single-param
-//      `Equals` (that diagnosis was wrong): both the `override Equals`/`GetHashCode`
-//      and the `IStructuralEquatable` members emitted as spurious *generic* methods
-//      (a leaked method typar) and the `override`s emitted *non-virtual*. Fixes:
-//      (a) `IsOverride` now flows Tast→codegen so an `override` of an Object virtual
-//      emits `overrideMethodAttrs` (virtual, reuse base slot); (b)
-//      `checkObjectOverrideConformance` pins an override's unannotated params to the
-//      Object slot (`Equals(obj)`, `GetHashCode()`, `ToString()`); (c)
-//      `generaliseMemberTypars` is skipped for override + interface-impl members
-//      (their slot fixes the signature) so no phantom method typar survives.
-//      Verified: `Set\`1`'s `Equals`/`GetHashCode`/`CompareTo` emit non-generic +
-//      virtual with the right `obj`/`IEqualityComparer` params.
-//
-//   4. ✅ FIXED — the producer-grounding wall. The real cause was NOT `Set.Add`'s
-//      `value` alone but the *whole* class typar `'T` grounding to `obj`: the
-//      `IStructuralEquatable.Equals`/`GetHashCode` members pass a `'T`-typed set
-//      element into a BCL `obj` parameter (`comparer.GetHashCode(x)` /
-//      `comparer.Equals(e1.Current, e2.Current)`), and the deferred dot-access drain
-//      *unified* `'T := obj` rather than treating it as F#'s implicit upcast — so
-//      every `Set\`1` member emitted `obj` for `'T`. Fix (general, not Set-specific):
-//      `obj` is now the universal supertype at argument-coercion sites
-//      (`Engine.isObjType` + the `obj` rule in `tryCoerceUpcast`; `unifyAppliedSig`
-//      coerces each parameter position of a whole-signature unify, used by the
-//      deferred drain + the overload-commit), so a typar/value-type argument flows
-//      into an `obj` slot WITHOUT grounding; `EmitCall` materialises the implied box
-//      (`box <T>` / `box !i`). `Set\`1` now emits `Add(!0):Set<!0>` etc. and the
-//      add/count/contains/fold round-trip runs end-to-end.
-//
-//   5. ✅ FIXED — the static-operator wall. `Set.union` / `Set.intersect` go through
-//      `set1 + set2` / `Set<'T>.Intersection(...)`. The infix `set1 + set2` reached
-//      codegen as a saturated `External("op_Addition")` and the closing
-//      `expandBuiltinOps` collapsed it to the primitive IL `add` opcode — INTEGER
-//      addition of two `Set` object references, yielding a garbage pointer that
-//      `AccessViolation`s on the next read. The real `(+)` must dispatch to the type's
-//      OWN static operator member (F#'s SRTP rule). Fix (ops-platform.fs + compiler):
-//      the arithmetic operators gained FSharp.Core's final
-//      `when ^T : ^T = (^T: (static member (+): ^T*^T->^T) (x,y))` static-opt clause —
-//      an SRTP member-trait call — now supported end-to-end (`Expr.StaticMemberInvocation`
-//      → `TExpr.TraitCall` → resolved to a `StaticMethodCall` at inline expansion when
-//      `^T` substitutes to a nominal; primitives keep the inline-IL base). `SetModule.Union`
-//      now emits `call Set\`1::op_Addition` and the union/intersect round-trip reads back
-//      correctly. See the `test "… union/intersect (static-operator wall)"` row.
-//
-//   6. ✅ FIXED — the `'T array` contract gap (`Set.ofArray` / `Set.toArray`). The
-//      `.fsi` `'T array` parsed as a `Type.SuffixedType` (`array` as a postfix type
-//      name) that `resolveTypeName` failed → `FTUnknown "array"` →
-//      "Type 'array' could not be resolved during contract extraction".
-//      `VesperLibTypeTranslate.translateType` now routes the `array` suffix to the
-//      rank-1 array intrinsic (`RuntimeNames.arrayName`), matching the `'T[]`
-//      (`ArrayType`) form. The `[| … |]` literal then needed a BCL-only emission:
-//      it lowers (`FreezeExpr`) to `ArrayModule.OfList <cons-chain>` — FSharp.Core's,
-//      absent here — so `EmitCall.tryEmitArrayLiteral` recognises that exact head
-//      (`RuntimeNames.arrayOfListName`) and emits `newarr` + `dup`/`stelem` directly.
-//      See the `ofArray deduplicates` / `toArray round-trips` rows.
-//
-// `runsSet` routes a driver through `packageAlc` (where `Vesper.Set` + its eight
-// transitive deps resolve); HOF arguments are written *curried* per the Freeze
-// posture.
-
 [<Tests>]
 let tests =
     let prelude = "open Vesper.Collections\n"
@@ -87,18 +10,6 @@ let tests =
     testList
         "SetModule"
         [
-            // §9.7 round-trip — the producer-grounding wall (gap #4) is CLOSED.
-            // `Set\`1` now emits its members generic in the declaring typar `'T`
-            // (`Add(!0) : Set<!0>`, `get_Comparer() : IComparer<!0>`, …) — the
-            // previous whole-class grounding to `obj` (`Add(obj) : Set<obj>`) came
-            // from the `IStructuralEquatable` members passing a `'T`-typed element
-            // into a BCL `obj` parameter (`comparer.GetHashCode(x)` /
-            // `comparer.Equals(e1.Current, e2.Current)`), which the unifier *ground*
-            // `'T := obj` instead of treating as the implicit upcast it is. Fix:
-            // `Engine.unifyAppliedSig` / the `obj` rule in `tryCoerceUpcast` make
-            // `obj` the universal supertype at argument-coercion sites (no grounding),
-            // and `EmitCall` boxes the typar/value-type argument into the `obj` slot.
-            // This round-trip (add → count → contains → fold) now runs end-to-end.
             test "Set round-trip (add/count/contains/fold)" {
                 runsSetLines
                     [ "3"; "true"; "false"; "6" ]
@@ -110,12 +21,6 @@ let tests =
                      + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)")
             }
 
-            // The static-operator wall (gap #5) is CLOSED. `Set.union` is `set1 + set2`,
-            // whose `(+)` now dispatches to `Set<'T>.op_Addition` via the
-            // `when ^T : ^T` SRTP member-trait clause in `ops-platform.fs` (`set1 + set2`
-            // previously collapsed to the primitive IL `add` opcode — integer addition of
-            // two object references — corrupting the `Set`). `SetModule.Union` emits a
-            // `call Set\`1::op_Addition`; the union/intersect round-trip reads back fine.
             test "Set round-trip union/intersect (static-operator wall)" {
                 runsSetLines
                     [ "4"; "1" ]
@@ -127,11 +32,6 @@ let tests =
                      + "printfn \"%d\" (Set.count i)")
             }
 
-            // `Set<'T>`'s `IStructuralEquatable` members (`set.fs:905`) pass a `'T`-typed
-            // element into the *non-generic* `System.Collections.IEqualityComparer`'s
-            // `GetHashCode(obj)` / `Equals(obj, obj)`. That is the gap-#4 boxing shape:
-            // codegen must resolve the non-generic overload and `box` the typar/value-type
-            // argument (an early draft emitted a `GetHashCode('T)` ref → MissingMethod).
             // The round-trip gates never *call* the structural path, so exercise it here
             // by reflectively invoking the interface slots on a loaded `Set\`1<int>` with a
             // real `StructuralEqualityComparer` — proving the boxed `IEqualityComparer`
@@ -179,18 +79,6 @@ let tests =
                 Expect.isFalse eq13 "structurally different sets compare unequal"
             }
 
-            // ---- Phase-9-exit operation table -------------------------------
-            // The golden round-trip table over the `Set` module's `.fsi` surface.
-            // Each row
-            // drives one or more `Set.*` operations through `runsSet` and pins the
-            // observed stdout. Sets are built via `Set.add` chains / `Set.ofArray`
-            // (the proven construction paths) and rendered to deterministic
-            // `int`/`bool` output through `count`/`contains`/`minElement`/etc. —
-            // never `%A`/`string`, so a row asserts the *operation*, not the
-            // printer. A `ptest` row is one whose operation is not yet supported,
-            // with the blocking diagnostic quoted in its comment (the
-            // `PackageBuildTriage` convention); flip → `test` when it lands.
-            //
             // `s` = {1; 2; 3}, `t` = {2; 3; 4} throughout (built fresh per driver).
             let s123 = "let s = Set.add 1 (Set.add 2 (Set.add 3 Set.empty))\n"
             let t234 = "let t = Set.add 2 (Set.add 3 (Set.add 4 Set.empty))\n"
@@ -240,15 +128,6 @@ let tests =
                              + "printfn \"%b\" (Set.isEmpty s)")
                     }
 
-                    // The `'T array` contract gap (gap #6) is CLOSED. `Set.ofArray`'s
-                    // `'T array` parameter parsed as a `Type.SuffixedType` (`array` as a
-                    // postfix type name) that resolved to no shape → `FTUnknown "array"`;
-                    // `VesperLibTypeTranslate.translateType` now routes the `array` suffix to
-                    // the rank-1 array intrinsic (`RuntimeNames.arrayName`), the same repr the
-                    // `'T[]` (`ArrayType`) form bakes. The `[| … |]` literal then needed a
-                    // BCL-only emission: it lowers to `ArrayModule.OfList <cons-chain>`, which
-                    // FSharp.Core owns — `EmitCall.tryEmitArrayLiteral` now recognises that
-                    // exact head and emits `newarr` + `dup`/`stelem` directly.
                     test "ofArray deduplicates" {
                         runsSet
                             "3"
@@ -297,25 +176,6 @@ let tests =
                              + "printfn \"%d\" (Set.maxElement i)")
                     }
 
-                    // Driver-level `s + t` / `s - t` dispatch to the imported `Set`'s
-                    // static operators — the *consumer*-side SRTP resolution (the
-                    // *internal* use inside `Set.union`/`Set.intersect`, gap #5, was
-                    // already CLOSED). Three fixes, all consumer-path:
-                    //   1. `Engine.drainSrtpBounds` only resolved a `when ^T : ^T`
-                    //      member-trait against a *project-local* class; an imported
-                    //      `Set` parked the bound forever, leaving the result element
-                    //      typar unresolved. It now falls back to the external provider
-                    //      (`openSignature` over `classArgs`).
-                    //   2. `VesperLib.extractTypeMembers` only ran for `Union` bodies,
-                    //      so a `Class` body's `static member (+)`/`(-)` were never
-                    //      published to consumers. The `Class`/`Anon` arms now extract
-                    //      members too.
-                    //   3. `Inline.resolveTraitCall` minted the call key with an empty
-                    //      `argSig`; codegen's external member-ref param-flatten reads
-                    //      its length, so a `.NET`-tupled `op_Addition(Set, Set)`
-                    //      collapsed to one `ValueTuple` param. The key now carries the
-                    //      operand arity, and `EmitMember.buildStaticMethodCall` routes
-                    //      a non-local declaring type through `ExternalMemberRef`.
                     test "(+) / (-) operators dispatch to the static members" {
                         runsSetLines
                             [ "4"; "1" ]
@@ -370,15 +230,9 @@ let tests =
             testList
                 "transforms"
                 [
-                    // `Set.map`'s `set.Map mapping` is a *generic instance method* call
-                    // (`member s.Map<'U> f : Set<'U>`). It previously emitted a non-generic
-                    // `Set`1::Map` member-ref whose `'U` mis-resolved to `Int32`
-                    // ("MissingMethod 'Set`1<Int32> Set`1.Map(Vesper.Fun`2<!0,Int32>)'").
-                    // Fix (B-12 call side): the member-ref now carries the GENERIC header
-                    // (`EmittedMember.MethodTyparCount` → `genericClassMemberRef`) and the
-                    // call wraps it in a `MethodSpec`, whose `'U` arg is recovered
-                    // (`RecoverOpenTypars`) by matching `Map`'s declared signature against the
-                    // call's actual arg/result types.
+                    // `set.Map` is a generic instance method (`member s.Map<'U> f : Set<'U>`);
+                    // the member-ref carries a generic header and the call site wraps it in a
+                    // `MethodSpec` with `'U` recovered by matching declared vs actual types.
                     test "map" {
                         runsSetLines
                             [ "3"; "12" ]
@@ -412,11 +266,9 @@ let tests =
                         runsSetLines [ "1"; "2"; "3" ] (prelude + s123 + "Set.iter (fun x -> printfn \"%d\" x) s")
                     }
 
-                    // `SetTree.partition1 comparer f k (acc1, acc2)` has a tuple-destructured
-                    // static-method parameter. `EmitLower.peelLambda` now peels the tuple
-                    // param (synthetic `Slot` + carried `Pat`); `StaticFn.Params` carries the
-                    // pattern so `Emit.buildStaticMethod` spills the `ldarg` `ValueTuple` to a
-                    // local and `bindPattern`s its leaves — mirroring `buildClosureInvoke`.
+                    // `SetTree.partition1` takes a tuple-destructured static-method parameter;
+                    // the lambda peeler handles the synthetic slot + carried pattern, mirroring
+                    // `buildClosureInvoke`.
                     test "partition" {
                         // {1,2,3,4} → evens {2,4} (count 2), odds {1,3} (count 2).
                         runsSetLines
@@ -432,20 +284,13 @@ let tests =
             testList
                 "conversions"
                 [
-                    // Same `'T array` contract fix as `ofArray deduplicates` (gap #6, CLOSED):
-                    // `Set.toArray`'s `'T array` return now resolves to the array intrinsic.
-                    // (This row uses no `[| … |]` literal — `Set.toArray s` is a real array —
-                    // so it exercises the contract fix alone, not the literal-emission half.)
                     test "toArray round-trips through ofArray" {
                         runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofArray (Set.toArray s)))")
                     }
 
-                    // `Set.ofList` calls `List.toSeq` internally, which Vesper.List did not
-                    // emit (the cons-list implemented no `IEnumerable`). `list.fs` now ships
-                    // `toSeq` via a `ListSeq` wrapper *class* + a `[<Struct>] ListEnumerator`
-                    // cursor (interface impls are proven for classes — mirroring `Set` /
-                    // `SetIterator` — but not yet for union types, so the enumerable surface
-                    // rides the wrapper rather than `List<'T>` directly).
+                    // `Set.ofList` calls `List.toSeq` internally; the `IEnumerable` surface
+                    // rides a `ListSeq` wrapper class + `[<Struct>] ListEnumerator` because
+                    // interface impls on union types are not yet supported.
                     test "toList round-trips through ofList" {
                         runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofList (Set.toList s)))")
                     }

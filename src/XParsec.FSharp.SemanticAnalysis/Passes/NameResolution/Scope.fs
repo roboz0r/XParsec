@@ -84,7 +84,7 @@ module NameResolutionScope =
     /// True if the *bare* (unqualified) `name` resolves to an external union case
     /// whose declaring union is NOT `[<RequireQualifiedAccess>]`. An RQA union's
     /// cases are reachable only through the qualified form (`Color.Red`), so a bare
-    /// hit on one is rejected here, matching F# (opens-overhaul-plan Gap 1). The
+    /// hit on one is rejected here, matching F#. The
     /// qualified paths (`isExternalQualifiedCase`, `tryExternalCtorType` with a
     /// qualifier) resolve RQA cases unchanged — this guard is bare-name only.
     let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
@@ -133,7 +133,7 @@ module NameResolutionScope =
                 // type names used as static-access receivers resolve via the
                 // provider in Unification; an external union *case* (`Some` /
                 // `None`) resolves via the provider's reverse case index in
-                // Unification/Freeze (vesper-lib-test-plan Gap 2 Layer B), so it is
+                // Unification/Freeze, so it is
                 // suppressed here the same way (it is ambient, like the `option`
                 // abbreviation, rather than open-gated in v1). Suppress the
                 // unresolved diagnostic for all four.
@@ -148,7 +148,7 @@ module NameResolutionScope =
                     || resolvesAsExternalType ctx name
                     // A bare external union case resolves only when its union is NOT
                     // `[<RequireQualifiedAccess>]` — F# rejects the short `Red` form
-                    // for an RQA `Color` (opens-overhaul-plan Gap 1).
+                    // for an RQA `Color`.
                     || resolvesAsBareExternalCase ctx name
                 then
                     ()
@@ -162,14 +162,14 @@ module NameResolutionScope =
     /// package) one resolves through the provider's reverse case index, so a
     /// cross-package `Some x` pattern treats `Some` as a ctor head (binding
     /// nothing) and its sub-patterns as binders, not the whole thing as a binder
-    /// (vesper-lib-test-plan Gap 2 Layer C). Empty strings (virtual tokens) never
+    /// Empty strings (virtual tokens) never
     /// match.
     let private isCtorName (ctx: PassContext) (name: string) : bool =
         name.Length > 0
         && System.Char.IsUpper name.[0]
         && (ctx.Types.CtorIndex.ContainsKey name
             // A bare RQA external case is not a ctor head in pattern position either
-            // (opens-overhaul-plan Gap 1) — only its qualified form is.
+            // — only its qualified form is.
             || resolvesAsBareExternalCase ctx name)
 
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
@@ -417,7 +417,7 @@ module NameResolutionScope =
             // segment to its compiled name (`(+)` → `op_Addition`) and route the
             // resulting `A.B.op_Addition` through the same `tryResolve` machinery a
             // value long-ident uses; the resolved key is stamped for Freeze, exactly
-            // as the multi-segment `LongIdent` arm does (opens-overhaul-plan Gap 4).
+            // as the multi-segment `LongIdent` arm does.
             // The bare-operator form already resolves via the prelude; only the
             // qualified form needs this translation.
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with

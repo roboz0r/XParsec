@@ -3,24 +3,11 @@ module XParsec.FSharp.Codegen.Js.Tests.Step2Tests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 2 — functions, currying, partial application, and
-// self-recursion. F# functions emit as nested *unary* arrows (`(x) => (y) => …`)
-// and applications as unary calls (`f a b` → `f(a)(b)`), so currying and partial
-// application fall out without call-site arity analysis. A function that makes a
-// saturated self-call in tail position is trampolined to a `while (true)` loop
-// with param-shadow mutation, so self-recursion runs in constant stack.
-// Golden-text plus execution under Node (the latter skips when `node` is absent).
-//
-// Tests stay on `= <>` + arithmetic (`+ - * /`): the ordering operators live in
-// `Vesper.Comparison`, which has no JS inline bodies yet (TestHelpers `jsManifests`).
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step2"
         [
-            // ---- golden text ----
-
             test "a curried function emits nested unary arrows" {
                 Expect.equal
                     (emitJs "let add x y = x + y")
@@ -59,8 +46,6 @@ let tests =
                     "tail self-call → temp + param write-back + continue"
             }
 
-            // ---- execution under Node ----
-
             test "a saturated curried call executes (add 2 3 = 5)" {
                 match runJs "step2-add" "let add x y = x + y\nprintfn \"%d\" (add 2 3)" with
                 | None -> skiptest "node not found on PATH"
@@ -88,8 +73,7 @@ let tests =
             }
 
             test "self-tail recursion runs in constant stack (loop 1000000 = 42)" {
-                // A million-deep tail recursion: without the trampoline this
-                // overflows the JS call stack (RangeError); with it, it returns 42.
+                // Without the trampoline this overflows the JS call stack (RangeError).
                 match
                     runJs
                         "step2-loop"
@@ -102,9 +86,7 @@ let tests =
             }
 
             test "multi-parameter tail recursion mutates params in lockstep (sum 10 0 = 55)" {
-                // `sum (n-1) (acc+n)`: the new `acc` reads the *old* `n`, so the
-                // arguments must be evaluated into temporaries before either param
-                // is written back.
+                // new `acc` reads the *old* `n`, so both must be captured before either is written back.
                 match
                     runJs
                         "step2-sum"

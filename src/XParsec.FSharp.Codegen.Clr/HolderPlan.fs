@@ -1,18 +1,18 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-/// One predicted method row of the holder plan (module-representation-plan §5):
+/// One predicted method row of the holder plan:
 /// a value-bearing holder's `.cctor`, a static-method function, or the anonymous
-/// "Program" holder's `.cctor` (§10 — initialises the leading-prefix top-level
+/// "Program" holder's `.cctor` (initialises the leading-prefix top-level
 /// values; sits immediately before the holder-less fns).
 type MethodSlot =
     | HolderCctor of Emit.HolderKey
     | HolderFn of Emit.StaticFn
     | ProgramCctor
 
-/// The module-level emission plan (module-representation-plan §5), computed
+/// The module-level emission plan, computed
 /// once — purely — from the lowered decls: which top-level bindings are module
 /// values vs static-method functions, the holder emission order, the method-row
 /// plan, and the module-value field-row order. The `Assembler` constructor
@@ -28,13 +28,13 @@ type HolderPlan =
         ModuleValues: Emit.ModuleValue list
         ModuleValueKeys: HashSet<NodeKey>
         /// Top-level (implicit-"Program"-module) ground values placed in the
-        /// Program holder's `.cctor` as `static initonly` fields — the §10.3 leading
+        /// Program holder's `.cctor` as `static initonly` fields — the leading
         /// prefix (no top-level `do` before them), in declaration order. Their
         /// initialisers run in the `.cctor` before `Main`.
         ProgramCctorValues: Emit.ModuleValue list
         /// Top-level ground values that follow a top-level `do` — written by `Main`
         /// via `stsfld` (plain mutable `static` fields), in declaration order
-        /// (§10.3). Their keys join `MainInitValues` at emit.
+        /// Their keys join `MainInitValues` at emit.
         ProgramMainValues: Emit.ModuleValue list
         /// Top-level functions lowered to static methods, in declaration order
         /// (see `collectStaticFns` for the eligibility rules).
@@ -85,8 +85,8 @@ module HolderPlan =
         let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 
         // Top-level (implicit-"Program"-module) ground values — holderless `let`s in
-        // an exe's last file (module-representation-plan §10). Collected unclassified
-        // here; the §10.3 leading/trailing partition runs below once `staticFnKeys`
+        // an exe's last file. Collected unclassified
+        // here; the leading/trailing partition runs below once `staticFnKeys`
         // is known. Their keys are real storage (Program-holder fields), so they
         // also join `resolvedTopLevel` (the capture/static-fn analysis treats them as
         // bound, never a captured local).
@@ -101,7 +101,7 @@ module HolderPlan =
         // type it — so it lowers to a zero-arg *generic static method* on its
         // holder (real F#'s representation of a generic value); a reference `call`s
         // its `MethodSpec`. They join the static-method machinery as 0-param fns
-        // (module-representation-plan).
+
         let genericModuleValues =
             Emit.collectGenericModuleValues moduleMembers topLevelNames lowered
 
@@ -112,7 +112,7 @@ module HolderPlan =
         // values are real top-level storage, never closure captures — exclude both
         // key sets from the capture/static-fn analysis so a function over them
         // stays a static method rather than capturing a non-existent local
-        // (module-representation-plan §4).
+        //.
         let resolvedTopLevel = HashSet<NodeKey>(moduleValueKeys)
         resolvedTopLevel.UnionWith genericModuleValueKeys
         resolvedTopLevel.UnionWith programValueKeys
@@ -130,11 +130,10 @@ module HolderPlan =
         let staticFnKeys = HashSet<NodeKey>(eligibleFnKeys)
         staticFnKeys.UnionWith genericModuleValueKeys
 
-        // §10.3 placement: partition the top-level program values into the leading
+        // Leading/trailing placement: partition the top-level program values into the leading
         // prefix (`.cctor`, `initonly`) vs the values that follow a top-level
         // statement (`Main`, mutable). The classifier is the *only* site this
-        // decision is made (a future effect-graph policy is a drop-in replacement,
-        // §10.3 forward-compat note): a value runs in the cctor iff no top-level code
+        // decision is made (a future effect-graph policy is a drop-in replacement): a value runs in the cctor iff no top-level code
         // that executes in `Main` precedes it — i.e. no `do` (`TDecl.Expression`) and
         // no residue `Main`-local `let` (one that is neither a module value, a static
         // fn, nor itself a program value). A named-holder value / static fn runs in a
@@ -231,7 +230,7 @@ module HolderPlan =
 
                     yield! fnsOf h |> List.map HolderFn
 
-                // The Program holder's `.cctor` (§10) sits immediately before its
+                // The Program holder's `.cctor` sits immediately before its
                 // holder-less fns, so the holder's methods (cctor, fns, then `Main`)
                 // form a contiguous `MethodDef` range.
                 if not (List.isEmpty programCctorValues) then
@@ -257,7 +256,7 @@ module HolderPlan =
                     for h in orderedNamedHolders do
                         yield! valuesOf h
                     // Program-holder value fields are the trailing field rows — the
-                    // Program slot is the last type (§5). `initonly` (cctor) ones
+                    // Program slot is the last type. `initonly` (cctor) ones
                     // first, then the `Main`-written mutable ones; both resolve to an
                     // `ldsfld` via `moduleValueFields`.
                     yield! programCctorValues

@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.SemanticAnalysis.Passes
+﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -89,7 +89,7 @@ module internal UnificationInferApp =
             |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
         )
 
-    /// Printf-family typing rule (front-end-gaps-plan §B). For a recognised
+    /// Printf-family typing rule. For a recognised
     /// printf entry point with a plain-literal format argument, the format spec
     /// — not the literal's apparent `string` type — drives the call's curried
     /// result type. The format argument types as `PrintfFormat<printer, …>`.
@@ -182,7 +182,7 @@ module internal UnificationInferApp =
         // generic/local ctor — as the spaced form, instead of skipping straight to
         // the generic-application fallback (which typed an external ctor head as a
         // function and leaked a fresh, unpinned result TyVar under a non-pinning sink
-        // like `raise`). Infer-resolution-gaps-plan.md Gap A.
+        // like `raise`).
         inferApp infer ctx key fn (ImmutableArray.Create arg)
 
     and inferRange

@@ -174,7 +174,7 @@ module RuntimeNames =
     /// (`FreezeExpr`) and the recogniser (`EmitCall`) can't drift.
     let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
 
-    // --- Anonymous-union reserved member names (anon-unions-plan.md Stage 3b) ---------
+    // --- Anonymous-union reserved member names ---------
     //
     // TypeScript-style literal types that are real *members* of an anonymous
     // structural union (`T | null`, `T | undefined`) rather than nominal types.

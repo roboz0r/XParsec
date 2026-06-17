@@ -1,12 +1,12 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
-/// Synthesised `IStructuralFormattable.Format` body builders (`%A`, P3). The
+/// Synthesised `IStructuralFormattable.Format` body builders (`%A`). The
 /// `Format(IFormatSink sink)` body is straight-line `callvirt`s on the `sink` arg
 /// (`ldarg.1`), mirroring the hand-written `Point`/`Opt` impls in
-/// `StructuralFormatTests.fs` (D-D — all the layout complexity lives in the C#
+/// `StructuralFormatTests.fs` (all the layout complexity lives in the C#
 /// sink). Every field/payload is `box`ed and handed to `FormatChild`/`FormatArg`;
 /// the reflection-free dispatcher classifies it at runtime. `box` on a reference
 /// type is a no-op (ECMA-335 III.4.1), so it is emitted uniformly — value fields,

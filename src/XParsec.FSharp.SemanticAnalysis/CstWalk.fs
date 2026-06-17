@@ -179,7 +179,7 @@ module CstWalk =
     /// `translateLet` call, so the failwith demotion once `use fixed` lands
     /// lifts in one place. (Regions handles `ValueNone` distinctly — `use
     /// fixed`'s region story is independent of typing — so it doesn't route
-    /// through here.) See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.14.
+    /// through here.)
     let requireLetBody (body: Expr<SyntaxToken> voption) : Expr<SyntaxToken> =
         match body with
         | ValueSome b -> b

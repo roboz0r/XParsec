@@ -7,30 +7,19 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Systematic, source-synthetic coverage of `Infer`'s *application / construction*
-// resolution surface — the area the Vesper.Set G5 work surfaced as buggy. Each
-// case is a minimal idiomatic F# program fed through the real analysis pipeline
-// (`buildContract defaultManifests` → `Pipeline.analyseSem`), asserting on the
-// error-severity diagnostics. Because the pipeline runs `ResolvedTypes`, an empty
-// error list is a strong claim: the program both type-checks (no `unify` mismatch)
-// AND leaves no free `TyVar` in the frozen TAST.
+// resolution surface. Each case is a minimal idiomatic F# program fed through the
+// real analysis pipeline (`buildContract defaultManifests` → `Pipeline.analyseSem`),
+// asserting on error-severity diagnostics. Because the pipeline runs `ResolvedTypes`,
+// an empty error list is a strong claim: the program both type-checks (no `unify`
+// mismatch) AND leaves no free `TyVar` in the frozen TAST.
 //
-// The matrix deliberately crosses the axes that `Infer` currently treats
-// inconsistently:
+// The matrix crosses the axes that `Infer` must handle consistently:
 //   * `new T(args)` (Expr.New)  vs  the `new`-less ctor sugar `T(args)` / `T args`
 //   * spaced `T (args)` (Expr.App)  vs  non-spaced `T(args)` (Expr.HighPrecedenceApp)
 //   * the constructed value used in a *pinning* context (bound / annotated) vs a
 //     *non-pinning* one (an argument to a generic-parameter sink like `raise`)
 //   * single-arg / multi-arg / nullary / generic constructors
 //   * external instance-method chains off a freshly-constructed receiver
-//
-// The three resolution gaps these rows pin (A: `inferApp` ≢ `inferHighPrecApp`
-// parser-form divergence; B: the generic-application fallback leaking an unpinned
-// external result; C: eager external instance-method overload mis-pick) are now
-// fixed — `inferHighPrecApp` delegates to `inferApp` (one shared probe chain) and
-// `tryInferExternalInstanceMethodCall` resolves instance overloads by the call-site
-// arg types. The rows below are all `test` and green; they stay as regression gates,
-// each name recording the gap it was a symptom of so a reintroduced divergence
-// points straight at the failure mode.
 
 let private errorsOf (src: string) : Diagnostic list =
     let provider = SymbolProviders.buildContract defaultManifests
@@ -88,8 +77,6 @@ let tests =
                 ]
 
             // ---- External ctor: `new`-less sugar, SPACED (Expr.App) -------------
-            // `inferApp` probes `tryInferExternalCtorApp` (Infer.fs), so the spaced
-            // form is grounded like `new`.
             testList
                 "CtorSugarSpaced"
                 [
@@ -99,26 +86,19 @@ let tests =
                     }
                 ]
 
-            // ---- External ctor: `new`-less sugar, NON-SPACED (HighPrecedenceApp)
-            // GAP A (fixed): `inferHighPrecApp` now routes through `inferApp`, so the
-            // non-spaced form probes `tryInferExternalCtorApp` exactly like the spaced
-            // form and grounds the constructed value to its class type instead of a
-            // fresh, unpinned `TyVar`. Before the fix a *pinning* context (bound /
-            // annotated) rescued it downstream but a non-pinning sink (`raise`'s
-            // fully-generic `'TException`) did not — the var leaked.
+            // ---- External ctor: `new`-less sugar, NON-SPACED (HighPrecedenceApp) ---
+            // Non-spaced `T(args)` and spaced `T (args)` must ground identically;
+            // a non-pinning sink (`raise`'s fully-generic `'TException`) is the
+            // distinguishing case — a leaked `TyVar` here stays free.
             testList
                 "CtorSugarNonSpaced"
                 [
                     test "non-spaced ctor `Exn(x)`, bound, is grounded [gap A/B]" {
                         clean "nonspaced-bound" "let e = System.Exception(\"x\")"
                     }
-                    // The single-ident form via an `open` must ground too — the gap
-                    // was not LongIdent-specific.
                     test "non-spaced ctor via `open` + single ident, bound [gap A/B]" {
                         clean "nonspaced-open" "open System\nlet e = Exception(\"x\")"
                     }
-                    // The headline G5 failure: a non-pinning sink no longer leaves the
-                    // result free.
                     test "non-spaced ctor under raise is grounded [gap A/B]" {
                         clean "nonspaced-raise" "let f () = raise (System.InvalidOperationException(\"x\"))"
                     }
@@ -146,8 +126,7 @@ let tests =
             // ---- App ≡ HighPrecedenceApp parity ---------------------------------
             // The same construction differing ONLY by a space before `(` must
             // produce identical diagnostics — the parser's associativity choice is
-            // not a semantic distinction. GAP A used to make these diverge; the
-            // shared `inferApp` body now keeps them identical.
+            // not a semantic distinction.
             testList
                 "AppHPAppParity"
                 [
@@ -163,12 +142,9 @@ let tests =
                 ]
 
             // ---- External instance-method chains --------------------------------
-            // A fluent chain off a freshly-constructed external receiver. Gap A
-            // grounds the `StringBuilder()` head eagerly, which on its own tripped
-            // gap C: the eager `.Append` overload pick consulted no argument types and
-            // grabbed `Append(char[], int, int)` for a single `string` arg
-            // ("string vs TyTuple"). `tryInferExternalInstanceMethodCall` now resolves
-            // the overload by the call-site arg types, so the whole chain type-checks.
+            // A fluent chain off a freshly-constructed external receiver. The overload
+            // pick must consult call-site arg types; otherwise `Append(string)` grabs
+            // `Append(char[], int, int)` ("string vs TyTuple").
             testList
                 "InstanceMethodChain"
                 [
@@ -201,23 +177,16 @@ let tests =
                     }
                 ]
 
-            // ---- Vesper.Set G5 roots 2-4 ----------------------------------------
-            // Regression gates for three of the four inference/extraction roots fixed
-            // while clearing the Vesper.Set G5 analysis wall (the four deferred
-            // interfaces). Each is a leaked-free-`TyVar` (or `unify` mismatch) that
-            // `ResolvedTypes` flags on otherwise-clean F#. Root 1 (`objnull` extracts
-            // to `obj`) is a contract-extraction gate and lives in
-            // SemanticAnalysis.Tests `VesperLibTests`; roots 2-4 are pure front-end
-            // resolution and gate here.
+            // ---- SetG5 roots 2-4 ------------------------------------------------
+            // Each is a leaked-free-`TyVar` (or `unify` mismatch) that `ResolvedTypes`
+            // flags on otherwise-clean F#.
             testList
                 "SetG5Roots"
                 [
                     // Root 2 — `inferNew` secondary-ctor lookup. A `[<Struct>]` with no
-                    // primary ctor has `CtorParams = [||]`; the `new T(arg)` keyword
-                    // path used to unify the arg against the *primary* params (i.e.
-                    // `unit`), clashing with the real arg type. It now falls back to a
-                    // matching-arity `SecondaryCtors` entry. Set's `new SetIterator<'T>(s)`
-                    // (set.fs:612) was the original site.
+                    // primary ctor has `CtorParams = [||]`; `new T(arg)` must fall back to
+                    // a matching-arity `SecondaryCtors` entry rather than unifying against
+                    // `unit` primary params.
                     test "struct, only an explicit ctor, `new T(arg)` [root 2: inferNew secondary-ctor]" {
                         clean
                             "struct-new-monomorphic"
@@ -245,22 +214,19 @@ let tests =
                                 ])
                     }
 
-                    // Root 3 — `inferILIntrinsic` pins each `Expr.Null` operand to the
-                    // first non-null operand. `isNull` is `inline` with body
-                    // `(# "ceq" value null : bool #)`; the `null` leaf used to mint its
-                    // own unpinned fresh `TyVar` that rode the spliced body into every
-                    // caller.
+                    // Root 3 — `inferILIntrinsic` must pin each `Expr.Null` operand to the
+                    // first non-null operand. `isNull` body is `(# "ceq" value null : bool #)`;
+                    // the `null` leaf must not mint an independent fresh `TyVar`.
                     test "`isNull` on a reference operand grounds the `null` leaf [root 3: ILIntrinsic null pinning]" {
                         clean "isnull-string" "let f (s: string) = isNull s"
                     }
 
-                    // Root 4 (the load-bearing one) — `InlineExpansion.expandLocalAt`
-                    // now always `deriveInlineTypeArgs`. A *generic* local `let inline`
-                    // expanded with zero type args left the callee's generalised typars
-                    // (here the `:?> 'T` result typar) free in the caller's frozen TAST,
-                    // because beta-reduction binds value params but not typars. Only
-                    // triggers when the callee is `inline` AND generic — monomorphic
-                    // locals derive `[||]` and were always fine.
+                    // Root 4 — `InlineExpansion.expandLocalAt` must always
+                    // `deriveInlineTypeArgs`. A generic `let inline` expanded with zero
+                    // type args leaves the callee's generalised typars (e.g. `:?> 'T`
+                    // result typar) free in the caller's frozen TAST: beta-reduction
+                    // binds value params but not typars. Only triggers when the callee is
+                    // `inline` AND generic — monomorphic locals derive `[||]` safely.
                     test
                         "local generic `let inline` cast helper from a non-inline fn [root 4: expandLocalAt derives type args]" {
                         clean
@@ -285,33 +251,16 @@ let tests =
                     }
                 ]
 
-            // ---- Arithmetic-operator `default` resolution ----------------------
-            // `(+)`'s contract carries a *chain* of `default` constraints ending in
-            // `default ^T1 : int` (ops-platform.fsi). When both operands are free
-            // (`a + b`, no literal to pin a type), the chain must ground EVERY
-            // participating typar to `int`. A prior bug in `applyDefaults`
-            // discarded an unfired chained default (`default ^T2 : ^T3`) before the
-            // fixpoint could retry it once `^T3` had defaulted, so `a`/result
-            // grounded but the second operand leaked (`int -> 'b -> int`) or, in a
-            // tuple param, froze to `?ungrounded-operator`. These pin the full
-            // grounding so a regression points straight back here.
             // ---- Typar grounding across nesting / module↔class boundaries -------
-            // Two `set.fs`-shaped grounding gaps that leak a bare inference `TyVar`
-            // past the front end (`ResolvedTypes` misses it) and surface only at
-            // codegen as `FTUnknown "?ungrounded-operator"`. Both compile a *library*
-            // end-to-end; the assertion is that codegen completes — pre-fix each
-            // threw at contract extraction.
+            // Grounding gaps that leak a bare inference `TyVar` past the front end
+            // (`ResolvedTypes` misses it) and surface only at codegen. Both compile a
+            // *library* end-to-end; the assertion is that codegen completes.
             testList
                 "TyparGroundingAcrossBoundaries"
                 [
-                    // A nested `let rec loop (t': Tree<'T>) acc` inside a generic
-                    // module function: the inner curried lambda (over `acc`) captures
-                    // the outer param `t' : Tree<'T>`. Pre-fix the nested binding minted
-                    // a *fresh* `'T` (a new typar scope per binding), generalised `loop`
-                    // over it independently, and left the closure-capture occurrence's
-                    // `'T` an ungrounded `TyVar`. Fixed by inheriting the enclosing
-                    // binding's typar scope (`inferBinding`), so nested `'T` *is* the
-                    // function's `'T` (F# lexical typar scoping).
+                    // Nested `let rec` inside a generic module function: inner bindings
+                    // must inherit the enclosing binding's typar scope (F# lexical typar
+                    // scoping), not mint an independent fresh `'T` per binding.
                     test "nested let-rec inner-lambda capture of an enclosing-typar value grounds" {
                         compileSourceTo
                             (ProjectInfo.library "NestedCaptureGrounds")
@@ -332,15 +281,10 @@ let tests =
                         |> ignore
                     }
 
-                    // A class member (`Box.Add`) calls an *earlier* sibling-module
-                    // function (`TreeM.add`) that has an *unannotated* parameter
-                    // (`k`, grounded `'T` only by its body). Pre-fix the member was
-                    // typed against `prebindModuleFunctionSchemes`' annotation-only
-                    // stand-in, which over-generalised `k` into a fresh typar; the
-                    // member's `value` argument bound it and never grounded, leaking
-                    // into the member signature. Fixed by typing bodies in declaration
-                    // order, so `TreeM.add`'s real scheme (`k : 'T`) exists when
-                    // `Box.Add` types and `value` pins to `'T`.
+                    // A class member calls an earlier sibling-module function with an
+                    // unannotated parameter. Bodies must be typed in declaration order so
+                    // the sibling's real scheme exists (and `k : 'T` is ground) when the
+                    // member types; an annotation-only stand-in over-generalises `k`.
                     test "class member calling an earlier module fn with an unannotated param grounds" {
                         compileSourceTo
                             (ProjectInfo.library "MemberCallsModuleFn")
@@ -364,6 +308,11 @@ let tests =
                     }
                 ]
 
+            // ---- Arithmetic-operator `default` resolution ----------------------
+            // `(+)`'s contract has a chain of `default` constraints ending in
+            // `default ^T1 : int`; with both operands free the chain must ground
+            // EVERY participating typar. Chained defaults must be retried at fixpoint,
+            // not discarded on the first pass.
             testList
                 "ArithmeticDefaults"
                 [

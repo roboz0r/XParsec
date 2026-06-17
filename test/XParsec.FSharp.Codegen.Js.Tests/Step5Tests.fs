@@ -3,24 +3,11 @@ module XParsec.FSharp.Codegen.Js.Tests.Step5Tests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 5 — tuples + Option (List is tracked separately: see
-// codegen-js-steps.md Step 5). A tuple `(a, b)` is a JS array `[a, b]`; a tupled
-// lambda parameter (`fun (a, b) -> …`) becomes an array-destructuring arrow param
-// (`([a, b]) => …`); a tuple *pattern* indexes the array positionally
-// (`scrut[0]`). `Option` is an *external* union the file references but does not
-// declare — its case shapes (`None` tag 0, `Some` tag 1 with a `Value` field) are
-// read off the symbol provider and emitted as honest nominal JS classes (the same
-// base-class + per-case-subclass shape a local union gets), so `Some`/`None`
-// construction and match ride the unchanged Step-4 union path. Golden-text plus
-// execution under Node.
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step5"
         [
-            // ---- tuples: golden text ----
-
             test "a tuple is a JS array; a tupled param destructures it" {
                 Expect.equal
                     (emitJs "let p = (1, 2)\nlet f (a, b) = a + b\nprintfn \"%d\" (f p)")
@@ -29,8 +16,6 @@ let tests =
                      + "console.log(f(p));\n")
                     "tuple → array literal, tupled param → array destructuring"
             }
-
-            // ---- tuples: execution under Node ----
 
             test "a tupled function adds its destructured elements (f (2,3) → 5)" {
                 match runJs "step5-tuple-add" "let f (a, b) = a + b\nprintfn \"%d\" (f (2, 3))" with
@@ -65,8 +50,6 @@ let tests =
                     Expect.equal out "6" "nested tuple destructuring [[a, b], c]"
             }
 
-            // ---- Option: golden text ----
-
             test "Option emits as honest nominal classes (None tag 0, Some tag 1)" {
                 Expect.equal
                     (emitJs "let x = Some 5")
@@ -92,8 +75,6 @@ let tests =
                      + "const x = new Option_Some(5);\n")
                     "external Option union → base class + None/Some subclasses, then the `new` site"
             }
-
-            // ---- Option: execution under Node ----
 
             test "Some binds its value in a match (Some 5 → 5)" {
                 match

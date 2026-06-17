@@ -84,7 +84,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let memberRef = ctx.MemberRef(ePrintfModule.Value, "PrintFormatLine", msig)
 
         // The printer is an FSharp.Core `FSharpFunc` (PrintFormatLine builds it), so its arrow encodes
-        // to `FSharpFunc`, not `Vesper.Fun` — this cold path is FSharp.Core interop (R9).
+        // to `FSharpFunc`, not `Vesper.Fun` — this cold path is FSharp.Core interop.
         let inst = BlobBuilder()
         let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
         encodeFSharpFunc (specEnc.AddArgument()) resultTy
@@ -96,7 +96,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// `Vesper.Fun`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a function value (R1/D3).
+    /// `Vesper.Fun`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a function value.
     /// `Fun` is an interface, so the dispatch stays `callvirt`.
     let funInvokeRef (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
@@ -134,7 +134,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
 
     /// `FSharpFunc`2<a,b>::Invoke(a) : b` — applying an FSharp.Core `FSharpFunc`, not a `Vesper.Fun`.
-    /// R1 left exactly one such island: the cold printf printer returned by `PrintFormatLine` (R9).
+    /// The only such island is the cold printf printer returned by `PrintFormatLine`.
     let emitFSharpFuncInvoke (funcTy: FrozenType) : CallRecipe =
         markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2.Invoke"
 
@@ -329,7 +329,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         toEntity (ctx.MemberRef(typeSpec, sprintf "Cons_%d" fieldIndex, s))
 
-    /// `Vesper.Fun`2<a,b>` as a `TypeSpec` — the interface a synthesised closure *implements* (R1/D3).
+    /// `Vesper.Fun`2<a,b>` as a `TypeSpec` — the interface a synthesised closure *implements*.
     /// A closure derives from `System.Object`, not `FSharpFunc`.
     let funInterfaceSpec (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
@@ -340,7 +340,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     /// `List.fold folder state xs` over the *Vesper* list — a `call` to `fold` compiled into
-    /// `Vesper.List.dll` (R3). Folder, state, list are already on the stack (ArgCount = 3); the call
+    /// `Vesper.List.dll`. Folder, state, list are already on the stack (ArgCount = 3); the call
     /// leaves the `'State` result. No FSharp.Core dep.
     let emitFold (fnTy: FrozenType) : CallRecipe =
         let elemTy, stateTy =
@@ -407,14 +407,14 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             scope
 
-    /// General external module-function call (vesper-lib-test-plan Gap 2 Layer D): a `call` to a static
-    /// method `<ns>::<name>` compiled into a referenced package by our own backend, generalised from
-    /// `emitFold`. `declFullName` is the declaring module's compiled holder name (the call key's `ns`,
-    /// e.g. `Vesper.OptionModule`), `name` the method, `fnTy` the *use-site* curried function type.
+    /// General external module-function call: a `call` to a static method `<ns>::<name>` compiled into
+    /// a referenced package by our own backend, generalised from `emitFold`. `declFullName` is the
+    /// declaring module's compiled holder name (the call key's `ns`, e.g. `Vesper.OptionModule`),
+    /// `name` the method, `fnTy` the *use-site* curried function type.
     ///
     /// The open method signature is reconstructed by the symbol layer's `Inline.openMethodSignature`
-    /// accessor (the §3A-precursor `instantiate` seam): it instantiates the symbol and hands back a
-    /// curried monotype whose method-own typars are already self-describing `FTTypar(Method, i)` nodes,
+    /// accessor: it instantiates the symbol and hands back a curried monotype whose method-own typars
+    /// are already self-describing `FTTypar(Method, i)` nodes,
     /// so codegen never authors a `TyVar`. The keystone `encodeType` arm maps those to `!!i`, matching
     /// the producer's emitted signature; the use-site type arguments are then recovered by structurally
     /// matching that open type against `fnTy` (`recoverOpenTypars`, method axis). A monomorphic method
@@ -675,8 +675,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendStructured = appendStructured
         }
 
-    // ---- Structural format (`%A`, P3): `IStructuralFormattable.Format` synthesis ----
-
     let eFormatSink = env.EFormatSink
     let eStructuralFormattable = env.EStructuralFormattable
 
@@ -734,8 +732,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             )
 
         s
-
-    // ---- Structural equality / hashing (C-Eq1) ----
 
     let equalityComparerTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
@@ -817,8 +813,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let g = te.GenericInstantiation(eEquatable1.Value, 1, false)
         encodeType (g.AddArgument()) selfTy
         toEntity (ctx.TypeSpec tsB)
-
-    // ---- Structural comparison ----
 
     let comparerTypeSpec (elem: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()

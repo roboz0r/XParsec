@@ -31,7 +31,7 @@ module EmitConstruct =
             // A project-local class is identified by the nominal `SymbolKey` on the
             // construction's `TyClass` result type; an external ctor (no `TyClass`
             // result, or a key not in `env.Classes`) routes through the provider by
-            // `className` (Phase 6D).
+            // `className`.
             let localClass =
                 match ty with
                 | FTClass(k, _) ->
@@ -74,10 +74,10 @@ module EmitConstruct =
                 let emitNewobj =
                     match localClass with
                     | ValueSome(classKey, c) ->
-                        // A user class emitted into this assembly (B-1). The primary ctor's
+                        // A user class emitted into this assembly. The primary ctor's
                         // arity equals its field count; a different arg count selects
-                        // a secondary ctor (B-11) by arity — F# forbids two ctors of
-                        // the same signature, so arity is a key. The `val`-field form
+                        // a secondary ctor by arity — F# forbids two ctors of the same
+                        // signature, so arity is a key. The `val`-field form
                         // (`type T = val …; new(…) = …`) has NO primary ctor
                         // (`HasPrimaryCtor = false`), so every construction — including
                         // a 0-arg `T()` that would otherwise match the (absent) primary
@@ -102,9 +102,7 @@ module EmitConstruct =
                             | Some(_, paramTys, h) ->
                                 // Generic secondary-ctor call site: a `MemberRef` on
                                 // the instantiated `TypeSpec` (`OnceEnum<int>::.ctor`),
-                                // keyed by the ctor's declared param signature — the
-                                // bodies already emit; this is the missing
-                                // construction-side ref.
+                                // keyed by the ctor's declared param signature.
                                 let ctorRef =
                                     memberRef
                                         env
@@ -168,14 +166,12 @@ module EmitConstruct =
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ ->
                 let qualName = SymbolKeyOps.qualifiedName key
-                // Records-handoff Phase 2 follow-up F2: the record lives in a
-                // referenced assembly (`Vesper.Ref\`1` in `Vesper.Core.dll`,
-                // routed here from `RefCellPromotion`). The provider mints a
+                // The record lives in a referenced assembly. The provider mints a
                 // `MemberRef` on its instantiated `TypeSpec`; field arguments are
-                // pushed in source order (the contract layer's field order is
-                // also the declaration order, which matches the ctor's parameter
-                // layout, so no reorder is required for the supported one-field
-                // `Ref<'T>` shape — multi-field external records will revisit).
+                // pushed in source order (the contract layer's field order is also
+                // the declaration order, which matches the ctor's parameter layout,
+                // so no reorder is required for the supported one-field `Ref<'T>`
+                // shape — multi-field external records will revisit).
                 let fieldNames = [ for (n, _) in srcFields -> n ]
 
                 match env.Provider.TryEmitRecordCons(key, tyArgs, fieldNames) with
@@ -293,15 +289,15 @@ module EmitConstruct =
         match e with
         | TExprG.Lambda _ ->
             // A function value: construct its closure. Captures are pushed via
-            // the *current* resolver (a local in `Main`, the param or a capture
+            // the current resolver (a local in `Main`, the param or a capture
             // inside an enclosing closure), then `newobj` its ctor.
             //
-            // A *generic* closure (C3) routes the `Newobj`
-            // through a `MemberRef` on `<closure>$n<args>`, where `args` is the
-            // closure's typars zonked at the call site (`!!i` inside the
-            // enclosing static method's body, `!i` inside an enclosing closure's
-            // `Invoke`) — both encodings reference the same TypeVar roots, and
-            // the parent's `TypeSpec` captures the use-site instantiation.
+            // A generic closure routes the `Newobj` through a `MemberRef` on
+            // `<closure>$n<args>`, where `args` is the closure's typars zonked at
+            // the call site (`!!i` inside the enclosing static method's body, `!i`
+            // inside an enclosing closure's `Invoke`) — both encodings reference
+            // the same TypeVar roots, and the parent's `TypeSpec` captures the
+            // use-site instantiation.
             match env.ClosureByNode.TryGetValue e with
             | true, closure ->
                 for (k, _) in closure.Captures do

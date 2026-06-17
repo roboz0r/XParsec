@@ -41,7 +41,7 @@ module Emit =
     let discoverClosures = EmitClosures.discoverClosures
 
     /// Build the `Main` body from the *lowered* decls. Each top-level `let`
-    /// binds a `Main` local — except a function lowered to a static method (P3b),
+    /// binds a `Main` local — except a function lowered to a static method,
     /// which has no value here; each effectful expression is emitted in source
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
     let buildMain (ctx: EmitContext) (decls: Frozen.TDecl list) : ILBody =
@@ -53,7 +53,7 @@ module Emit =
             | TDeclG.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
             | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
-            // A top-level ("Program") value that follows a top-level `do` (§10.3): its
+            // A top-level ("Program") value that follows a top-level `do`: its
             // `public static` field is written **here**, in `Main`, in source order —
             // not in the Program `.cctor` (which runs before `Main`). A reference reads
             // `ldsfld` via `ModuleValues`. (Checked before the `ModuleValues` skip,
@@ -62,8 +62,7 @@ module Emit =
                 buildExpr env b value
                 b.Add(ILInstr.Stsfld ctx.MainInitValues.[binding])
             // A module-level value is a `public static` field initialised by its
-            // holder's `.cctor` (module-representation-plan §3); a reference loads
-            // it with `ldsfld`, so it needs no Main local.
+            // holder's `.cctor`; a reference loads it with `ldsfld`, so it needs no Main local.
             | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.ModuleValues.ContainsKey binding -> ()
             | TDeclG.Let(TPatG.NamedSimple(binding, _, _), value, _, ty) ->
                 let slot = b.Local ty
@@ -102,7 +101,7 @@ module Emit =
 
         // A destructuring tuple parameter (`fun (a, b) -> …`): `ldarg.1` holds the
         // `ValueTuple`n` value; spill it to a local and `bindPattern` the leaf
-        // element bindings out of it before the body runs (Step 5). A
+        // element bindings out of it before the body runs. A
         // `NamedSimple` / unit param needs none of this — it resolves through
         // `args.[ParamKey] = 1` directly.
         match closure.ParamPat with
@@ -117,7 +116,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a static-method function's body (P3b): bind each flattened
+    /// Build a static-method function's body: bind each flattened
     /// parameter to its `ldarg` index (a static method has no `this`, so the
     /// first parameter is `ldarg.0`), evaluate the body leaving its result on the
     /// stack, then `ret`. A recursive self-call resolves to a direct `call`
@@ -147,7 +146,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a union augmentation member's body (P3d.3). An instance member's
+    /// Build a union augmentation member's body. An instance member's
     /// `this` is `ldarg.0` (`thisKey`), its parameters `ldarg.1…`; a static
     /// member's parameters start at `ldarg.0`. The body leaves its result on the
     /// stack, then `ret`. Member bodies don't synthesise closures (the closure
@@ -171,7 +170,7 @@ module Emit =
                 1
             | ValueNone -> 0
 
-        // `base` (B-4 Step 2.6) loads the same object reference as `this` —
+        // `base` loads the same object reference as `this` —
         // `ldarg.0`. The `CallVia.Base` discriminator on the member access, not
         // the receiver load, is what makes the dispatch non-virtual.
         match baseKey with
@@ -210,7 +209,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a secondary constructor body (B-11): run the `let`-preamble into locals,
+    /// Build a secondary constructor body: run the `let`-preamble into locals,
     /// then chain to the primary `.ctor`
     /// (`ldarg.0; <primaryArgs>; call instance void Self::.ctor`). There is no
     /// base-ctor call — the primary ctor performs it. `this` is `ldarg.0`; the
@@ -279,7 +278,7 @@ module Emit =
         b.Body
 
     /// Build a class primary `.ctor` body that chains to a *base* constructor
-    /// (B-4 `inherit Base(args)`): `ldarg.0;
+    /// (`inherit Base(args)`): `ldarg.0;
     /// <baseArgs>; call instance void Base::.ctor(…)`, then store each ctor param
     /// into its backing field. The base args reference the derived class's
     /// primary-ctor params (`ctorParams` → `ldarg.1…`); `this` is unusable until
@@ -315,7 +314,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a class `.cctor` body for its `static let`s (B-10): evaluate each
+    /// Build a class `.cctor` body for its `static let`s: evaluate each
     /// initialiser in declaration order and `stsfld`
     /// it into its backing field, then `ret`. The body sees no `this` / params
     /// (a `.cctor` is parameterless), so the env mirrors `buildMember`'s static
@@ -402,7 +401,7 @@ module Emit =
     /// factory (`emitUnionFactory`), which sets only its *own* case's payload
     /// fields; a DU is immutable, so a field belonging to any other case is
     /// always its default. So once the tags match, comparing / hashing *every*
-    /// field (not just the active case's) is equivalent to the §5.2 per-case
+    /// field (not just the active case's) is equivalent to a per-case
     /// walk, and needs no `_tag` switch — fewer branches, same result.
     type UnionEqualitySupport =
         {
@@ -427,13 +426,12 @@ module Emit =
             HashCodeToHashCode: EntityHandle
         }
 
-    /// The §5.2 tag-then-field comparison shared by both equality entry points
+    /// The tag-then-field comparison shared by both equality entry points
     /// (the `Equals(object)` override and the typed `IEquatable<Self>::Equals`):
     /// `this` is `ldarg.0`, `other` is pushed by `loadOther` (already a non-null
     /// `Self`). Tags must match, then each field via `EqualityComparer<F>.Default`
-    /// (the §3.2 rule — total, so a `float` field gets `NaN = NaN` in this
-    /// structural context, O7). Any mismatch branches to `falseLabel`; on
-    /// fall-through the operands are equal.
+    /// (total equality — a `float` field gets `NaN = NaN` in this structural context).
+    /// Any mismatch branches to `falseLabel`; on fall-through the operands are equal.
     let private buildTagAndFieldEquality
         (s: UnionEqualitySupport)
         (b: IlBuilder)
@@ -480,7 +478,7 @@ module Emit =
         b.Body
 
     /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` a
-    /// monomorphic union implements (C-Eq1). `other` (`ldarg.1`) is already `Self`,
+    /// monomorphic union implements. `other` (`ldarg.1`) is already `Self`,
     /// so no `isinst` — just a `null` guard, then the same tag/field walk. This is
     /// the boxing-free path `EqualityComparer<Self>.Default` (now a
     /// `GenericEqualityComparer`, since the union declares `IEquatable<Self>`)
@@ -504,8 +502,8 @@ module Emit =
 
     /// `override int GetHashCode()` for a monomorphic union: a `System.HashCode`
     /// accumulator seeded with the `_tag`, then every field added through it
-    /// (`HashCode.Add<T>` itself routes through `EqualityComparer<T>.Default`, so
-    /// it is the same §3.2 rule), then `ToHashCode()`. Equal values hash equal:
+    /// (`HashCode.Add<T>` itself routes through `EqualityComparer<T>.Default`),
+    /// then `ToHashCode()`. Equal values hash equal:
     /// the tag distinguishes cases and inactive-case fields are uniformly default.
     let buildUnionGetHashCode (s: UnionEqualitySupport) : ILBody =
         let b = IlBuilder()
@@ -533,8 +531,8 @@ module Emit =
     let buildRecordCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody = buildClosureCtor baseCtor fields
 
     /// The record-shaped analogue of `UnionEqualitySupport`: every field is
-    /// compared / hashed via `EqualityComparer<F>.Default` / `HashCode.Add<F>`
-    /// (the §3.2 rule), but there is **no `_tag`** to compare or seed — a record
+    /// compared / hashed via `EqualityComparer<F>.Default` / `HashCode.Add<F>`,
+    /// but there is **no `_tag`** to compare or seed — a record
     /// is one nameless "case", so the union walk minus the tag is the record
     /// triple. Fields are declaration-order (same store/read order the ctor
     /// uses). Both generic and monomorphic records share this support shape; the
@@ -641,7 +639,7 @@ module Emit =
     /// minus hashing, plus the `Comparer`/`IComparable` handles the `CompareTo`
     /// bodies need. Tags are compared first via `sub` (small case indices, so
     /// safe), then each field via `Comparer<F>.Default.Compare`, returning the
-    /// first non-zero result (lexicographic). Same flat walk as equality:
+    /// first non-zero result (lexicographic). Same flat walk as equality —
     /// inactive-case fields are always default (per the case factory).
     type UnionComparisonSupport =
         {
@@ -668,7 +666,7 @@ module Emit =
             MismatchMessage: UserStringHandle
         }
 
-    /// The §5.2 tag-then-field lex comparison shared by both entry points (the
+    /// The tag-then-field lex comparison shared by both entry points (the
     /// `CompareTo(object)` override and the typed `IComparable<Self>::CompareTo`):
     /// `this` is `ldarg.0`, `other` is loaded by `loadOther` (already non-null
     /// `Self`). The first non-zero result is left in `cLocal` and `brtrue`-ed to
@@ -702,11 +700,10 @@ module Emit =
 
     /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`
     /// the union implements. A `null` `other` sorts
-    /// before any non-null value (brainstorm-comparison §5.3, matching BCL
-    /// convention), so this returns `1` in that case; otherwise the shared tag/
-    /// field lex walk. The walk stores its current `c` in a local and branches
-    /// to a shared return label as soon as `c != 0`; on fall-through every
-    /// comparison was equal, so it returns `0`.
+    /// before any non-null value (matching BCL convention), so this returns `1`
+    /// in that case; otherwise the shared tag/field lex walk. The walk stores
+    /// its current `c` in a local and branches to a shared return label as soon
+    /// as `c != 0`; on fall-through every comparison was equal, so it returns `0`.
     let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
         let b = IlBuilder()
         let c = b.Local(FTConst("int", EqArray.empty))
@@ -776,7 +773,7 @@ module Emit =
         }
 
     /// The field-by-field lex comparison shared by both record `CompareTo`
-    /// entry points. Same shape as `buildTagAndFieldComparison` minus the
+    /// entry points. Same shape as the union tag-and-field comparison, minus the
     /// leading tag compare. The first non-zero result is stored in `cLocal`
     /// and branched to `returnLabel`; on fall-through every field was equal.
     let private buildRecordFieldComparison

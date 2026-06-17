@@ -4,34 +4,11 @@ open System
 open System.Collections
 open System.Collections.Generic
 
-// Vesper's cons-list — the compiled runtime impl of the `Vesper.List` package,
-// in the verbatim FSharp.Core `[]` / `::` operator-case form. This is the
-// *cutover* target `list-min.fs`'s `Nil` / `Cons` deviation was a placeholder
-// for the cons-pattern front-end gap: it is now buildable by our own backend because
-// the front end lowers cons patterns (`h :: t`), the empty-list pattern (`[]`),
-// and cons construction (`x :: xs`) through the same `TPat.Union` / `TExpr.UnionCons`
-// machinery the named cases used. The `[]` / `::` declarations compile to
-// FSharpList's exact shape: `[]` → a static `Empty` factory, `(::)` → a static
-// `Cons` factory + `Cons_0` / `Cons_1` payload fields, with a `_tag` discriminator
-// (so `match`/construction resolve the case names by arity, the `Empty`/`Cons`
-// pair `TypeRegistration.unionCaseName` mints for the operator heads).
-//
-// BCL-only, no FSharp.Core: `Head` / `Tail` raise via `failwith` (the backend
-// lowers it to a plain `System.Exception`, so the list type references no
-// `FSharp.Core`). `List.fold` is compiled *into* this DLL — its folder parameter
-// is a `Vesper.Fun`, so the DLL carries a `Vesper.Core` `AssemblyRef`; each
-// folder application lowers to `callvirt Fun::Invoke`.
-//
-// The module surface is the proven "grow" set (vesper-lib-test-plan Phase 2):
-// `fold`/`isEmpty`/`length`/`head`/`tail`/`map`/`filter`/`append`/`rev`, each
-// built only from cons patterns, `[]` / `::` construction, `Vesper.Fun`
-// application, `if`, and recursion. `ofSeq` / `toSeq` stay contract-only in
-// `list.fsi` — they ride Phase 4's `for x in IEnumerable` + seq comprehensions,
-// not yet compilable.
+// Vesper's cons-list. BCL-only; `List.fold` is compiled into this DLL so it
+// carries a `Vesper.Core` `AssemblyRef`.
 //
 // NOT Fantomas-formatted (this dir is in `.fantomasignore`): Fantomas strips the
-// `[]` / `::` operator-union-case payloads. Authored to a fixed shape; parser
-// coverage is the golden `list.fs.parsed` snapshot.
+// `[]` / `::` operator-union-case payloads.
 
 type List<'T> =
     | ([]): 'T list
@@ -54,22 +31,12 @@ type List<'T> =
 
 and 'T list = List<'T>
 
-// Enumeration support for the cons-list (`Set.ofList` calls `List.toSeq`, and the
-// Set ctor walks the resulting `IEnumerable<'T>`). Front-to-back interface-impl
-// support is proven for *classes* (mirroring `Vesper.Set`'s `Set` + `SetIterator`)
-// but not yet for *union* types, so the enumerable surface rides a wrapper class
-// `ListSeq` over the list rather than interfaces on `List<'T>` itself.
-//
-// The enumerator is a `[<Struct>]` cursor mirroring `SetIterator`: the advance /
-// read logic is *inlined* in the interface members (a struct member calling
-// another on `this` copies `this`, losing the mutation), and the struct is boxed
-// once at `GetEnumerator` (`:> IEnumerator<'T>`) so the interface dispatches mutate
-// the single boxed copy.
+// Enumeration wrapper class; union types cannot directly implement IEnumerable.
+// Struct enumerator: advance/read logic is inlined in interface members (a struct
+// member calling another on `this` copies `this`, losing the mutation).
 [<NoEquality; NoComparison>]
 [<Struct>]
 type ListEnumerator<'T> =
-    // The remaining suffix of the list (the cursor): `Current` reads its head, and
-    // `MoveNext` drops to its tail. `source` is kept immutable so `Reset` can rebuild.
     val mutable cursor: 'T list
     val mutable started: bool
     val source: 'T list
@@ -113,10 +80,6 @@ type ListSeq<'T>(source: 'T list) =
     interface IEnumerable with
         member _.GetEnumerator() = (new ListEnumerator<'T>(source) :> IEnumerator)
 
-// Compiles to the `Vesper.Collections.ListModule` static class (the
-// `ModuleSuffix` representation gives the module the holder name `ListModule`
-// because the type `List` shares its name in this namespace). The folder's arrow
-// desugars to `Vesper.Fun`; each application lowers to `callvirt Fun::Invoke`.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module List =

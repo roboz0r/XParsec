@@ -3,22 +3,11 @@ module XParsec.FSharp.Codegen.Js.Tests.Step4Tests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 4 — discriminated unions + match. A union `type` becomes a JS
-// base class (an integer `tag` + a `cases()` returning the case names) plus one
-// `extends`-subclass per case carrying its declaration-order fields (positional
-// fields synthesised as `Item` / `Item1` / `Item2`). `UnionCons` (`Circle 5`) →
-// `new Shape_Circle(5)`. A `match` lowers to an IIFE that tests each arm in order
-// (`scrut.tag === N`, `&&`-conjoined with nested tests; constant arms compare the
-// value; a guard gates the `return`) and `return`s the first match's body — an
-// unmatched value `throw`s. Golden-text plus execution under Node.
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step4"
         [
-            // ---- golden text ----
-
             test "a union type emits a base class + one subclass per case" {
                 Expect.equal
                     (emitJs "type Shape = Circle of int | Rect of int * int | Dot\nlet c = Circle 5")
@@ -51,8 +40,6 @@ let tests =
                      + "const c = new Shape_Circle(5);\n")
                     "base class + tagged subclasses, then the `new` site"
             }
-
-            // ---- execution under Node ----
 
             test "construction + match on a field-carrying case (Circle 5 → 5)" {
                 match

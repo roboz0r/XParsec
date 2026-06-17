@@ -1,22 +1,8 @@
 namespace Vesper
 
-// The `%A` structural-format contract. Two pure, BCL-only interfaces the
-// backend's `%A` rail binds:
-//
-//   * `IStructuralFormattable` — the `InterfaceImpl` the compiler synthesises on
-//     every record / union (mirroring the structural-equality / comparison rail).
-//     Its `Format` body declares the value's structure through `IFormatSink`.
-//   * `IFormatSink` — the declarative layout surface the synthesised `Format`
-//     `callvirt`s. The layout *engine* (`RuntimeFormatState : IFormatSink`) lives
-//     in `Vesper.Printf` (C#, the heavy BCL-interop path); it references these
-//     Core-owned interfaces so a record-bearing program links only `Vesper.Core`
-//     — never `Vesper.Printf`.
-//
-// The *interfaces* live here (not in `Vesper.Printf`'s C# `StructuralFormat.cs`,
-// where the engine lives) so the synthesised `Format` implements a Core type.
-// Every member returns `unit` (a `callvirt`-for-effect
-// surface), so they emit as `void` slots, and the `unit ->` members are nullary —
-// matching the `instance void` member refs `ClrRecipes.formatSinkHandles` calls.
+// The `%A` structural-format interfaces. The compiler synthesises `IStructuralFormattable`
+// on every record/union; the `IFormatSink` layout engine lives in `Vesper.Printf`.
+// Both interfaces live in `Vesper.Core` so a record-bearing program links only Core.
 
 /// <summary>The declarative layout surface the synthesised
 /// <c>IStructuralFormattable.Format</c> body drives. Calls record tokens that the

@@ -53,10 +53,10 @@ module EmitLoops =
             FTFun(FTConst("unit", EqArray.empty), FTConst("unit", EqArray.empty))
         )
 
-    /// The `MoveNext` / `Current` handles for an *external* enumerator `E` (the §4.4
-    /// duck-typed and Gap 3 hybrid arms): both members are declared on `E` itself, so
-    /// their refs come from `ExternalMemberRefOn` against the declaring instantiation
-    /// `enumeratorTy` (not recoverable from a T-free `MoveNext(): bool`).
+    /// The `MoveNext` / `Current` handles for an external enumerator `E` (the
+    /// duck-typed and Gap 3 hybrid arms): both members are declared on `E` itself,
+    /// so their refs come from `ExternalMemberRefOn` against the declaring
+    /// instantiation `enumeratorTy` (not recoverable from a T-free `MoveNext(): bool`).
     let private externalEnumMembers
         (env: EmitEnv)
         (enumeratorTy: FrozenType)
@@ -182,7 +182,7 @@ module EmitLoops =
 
                 b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
             else
-                // Reference enumerator: the §4.2 null-checked `callvirt` disposal.
+                // Reference enumerator: null-checked `callvirt` disposal.
                 let skipLabel = b.Label()
                 b.Add(ILInstr.Ldloc enumSlot)
                 b.Add(ILInstr.Brfalse skipLabel)
@@ -212,13 +212,12 @@ module EmitLoops =
 
             match enumerator with
             | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, isValueType, dispose) ->
-                // §4.4 / Gap 2-3 *pattern* (duck-typed) `GetEnumerator()` — C#'s
-                // non-boxing `foreach`. The source exposes a public `GetEnumerator()`
-                // returning a concrete enumerator `E` (`enumeratorTy`) with
-                // `MoveNext(): bool` and a `Current` property, *without* implementing
-                // `IEnumerable<'T>`. The loop walks `E` directly — by address with no
-                // allocation when `E` is a struct (`isValueType`). The two resolution
-                // axes are independent:
+                // Duck-typed `GetEnumerator()` — C#'s non-boxing `foreach`. The source
+                // exposes a public `GetEnumerator()` returning a concrete enumerator
+                // `E` (`enumeratorTy`) with `MoveNext(): bool` and a `Current`
+                // property, without implementing `IEnumerable<'T>`. The loop walks `E`
+                // directly — by address with no allocation when `E` is a struct
+                // (`isValueType`). The two resolution axes are independent:
                 //   • `getEnum`  — how to ref the source's `GetEnumerator`: `External`
                 //     mints it from the carried key (`ExternalMemberRef`, return
                 //     recovers the source instantiation); `Local` resolves it off the
@@ -267,9 +266,9 @@ module EmitLoops =
                     source
                     body
             | ForInEnumeratorG.Interface ->
-                // `for x in src do body` over an `IEnumerable<'T>` (B-6). Lowered to the standard enumerator
-                // loop through the *interface* slots, so the same shape drives any BCL
-                // collection (and, later, a user `seq`):
+                // `for x in src do body` over an `IEnumerable<'T>`. Lowered to the
+                // standard enumerator loop through the interface slots, so the same
+                // shape drives any BCL collection (and, later, a user `seq`):
                 //
                 //   let e = (src).GetEnumerator()            // IEnumerable<T>::GetEnumerator → IEnumerator<T>
                 //   try
@@ -280,11 +279,11 @@ module EmitLoops =
                 //     if e <> null then e.Dispose()          // IDisposable::Dispose
                 //
                 // The four member refs are minted from hand-built `SymbolKey`s against
-                // the well-known interface types — the *declaring* type of each slot,
+                // the well-known interface types — the declaring type of each slot,
                 // not the source's concrete type — so a `callvirt` dispatches to the
                 // collection's implementation. `ExternalMemberRef` recovers the
                 // instantiation (`!0` → `elemTy`) from the supplied member type. The
-                // IL-IR exception region (H5) is the same `Try` / `BeginFinally` /
+                // IL-IR exception region is the same `Try` / `BeginFinally` /
                 // `EndFinally` shape as `TExprG.Use`'s disposal.
                 let enumTy =
                     FTClass(
@@ -333,9 +332,8 @@ module EmitLoops =
                 // always `IDisposable` — so `IsValueType = false` and `Disposable = true`
                 // (the null-checked disposal `emitEnumeratorLoop` emits for a reference
                 // enumerator, through the `System.IDisposable::Dispose` slot it mints).
-                // That `Dispose` returns a real `void` (the §4.2 void-return fix encoded
-                // in `ClrExternalMembers`), so the callvirt consumes only the receiver —
-                // exactly what the shared emitter expects.
+                // That `Dispose` returns a real `void`, so the callvirt consumes only
+                // the receiver — exactly what the shared emitter expects.
                 emitEnumeratorLoop
                     recur
                     env

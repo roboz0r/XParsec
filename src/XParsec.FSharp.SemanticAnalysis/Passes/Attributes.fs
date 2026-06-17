@@ -4,8 +4,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// C-Attr: decode the small set of
-// attributes that govern a record / union's equality AND comparison postures,
+// Decode the small set of attributes that govern a record / union's equality AND comparison postures,
 // off the type's `TypeName.attributes` CST node. The decoder is intentionally
 // syntactic — F# attributes resolve by short name (with the `Attribute` suffix
 // optional) and a fully qualified path collapses to the same leaf, so matching

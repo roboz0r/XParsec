@@ -1,11 +1,6 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
-// Adapted from FSharp.Core/set.fs — runtime impl mirroring FSharp.Core's FSharpSet`1.
-// This file was rewritten from the FSharp.Core idioms this self-host rung cannot carry:
-// OptimizedClosures.FSharpFunc.Adapt + f.Invoke(a,b) became direct `f a b` calls;
-// LanguagePrimitives.FastGenericComparer<'T> became Comparer<'T>.Default;
-// LanguagePrimitives.anyToStringShowingNull became `sprintf "%O"`; and the SR.* string-resource
-// indirection was inlined to English literals. The struct enumerator (SetIterator<'T>) already
-// replaced the original IEnumerator object expression.
+// Adapted from FSharp.Core/set.fs. Adaptations: OptimizedClosures → direct calls;
+// FastGenericComparer → Comparer<'T>.Default; SR.* strings → English literals.
 
 namespace Vesper.Collections
 

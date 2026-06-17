@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -35,7 +35,7 @@ module EmitPattern =
                     | false, _ ->
                         // A module-level value (`let x = e` at module scope) is a
                         // `public static` field on its module holder; load it with
-                        // `ldsfld` (module-representation-plan §3). Last arm: a
+                        // `ldsfld`. Last arm: a
                         // module value is never an arg/self/capture/local.
                         match env.ModuleValues.TryGetValue key with
                         | true, field -> b.Add(ILInstr.Ldsfld field)
@@ -134,7 +134,7 @@ module EmitPattern =
         | TPatG.Null _ ->
             // `null` pattern: match only a null scrutinee. A non-null value
             // (`brtrue`) skips the arm; null falls through to the body. Binds
-            // nothing (printf-port-steps.md PP4, the `?.` replacement).
+            // nothing.
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Brtrue nextLabel)
         | TPatG.Const(value, _, _) ->
@@ -151,7 +151,7 @@ module EmitPattern =
             b.Add(ILInstr.BneUn nextLabel)
         | TPatG.Union(caseName, subPats, ty, _) ->
             // Local union table keys by the nominal `SymbolKey`; the external union
-            // provider lookups take the qualified compiled name derived from it (Phase 6D).
+            // provider lookups take the qualified compiled name derived from it.
             let key, tyArgs = nominalShape "union pattern" ty
             let qualName = SymbolKeyOps.qualifiedName key
 

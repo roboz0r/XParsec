@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Lexer
 
-// Printf format-string analysis — see docs/front-end-gaps-plan.md §B.
+// Printf format-string analysis.
 //
 // The format grammar itself is NOT re-implemented here: the lexer already
 // classifies each `%[flags][width][.precision][type]` placeholder into a
@@ -54,7 +54,7 @@ module PrintfSpec =
 
     /// Target-agnostic classification of a printf entry point's output sink,
     /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
-    /// for the calls P1 lowers inline; see docs/vesper-printf-plan.md.
+    /// for the calls P1 lowers inline.
     [<RequireQualifiedAccess>]
     type PrintfSink =
         | StdOut of newline: bool

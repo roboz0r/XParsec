@@ -9,7 +9,6 @@ open XParsec.FSharp.SemanticAnalysis
 /// referencing each other). Existing CLR call sites keep using `EmitLower.*`.
 module EmitLower =
 
-    // ---- Re-exports of the platform-neutral utilities (now in TastLower) ----
     let typeOfExpr = TastLower.typeOfExpr
     let typeOfPat = TastLower.typeOfPat
     // `inline` so the call sites keep `TastLower.receiverShape`'s inlining (a plain

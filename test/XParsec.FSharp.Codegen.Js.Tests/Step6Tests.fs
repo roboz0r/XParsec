@@ -3,32 +3,11 @@ module XParsec.FSharp.Codegen.Js.Tests.Step6Tests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 6 (equality + hashing half) — the structural runtime core.
-// The `ops-platform.js.fs` `(=)` / `(<>)` aggregate base calls `structuralEquals`
-// and `hash` calls `structuralHash`: non-inline `Vesper.Core` runtime values, so a
-// use site lowers to an ordinary external call that rides the standard runtime
-// import (`JsImports.addRef`) — `$`-aliased like any other Vesper module function,
-// and curried (`f(a)(b)`). `materialise` writes `Vesper.Core.mjs` beside the
-// output. Both walkers dispatch on value SHAPE — primitives, tuples (arrays),
-// records / unions (objects with a numeric `tag`) — so a value built inline and one
-// built by a structural runtime module (the Step 5b list interop) compare and hash
-// identically.
-//
-// Compare / ordering (this commit): the four bare ordering operators (`< > <= >=`)
-// resolve through `Vesper.Comparison` — primitives inline, aggregates through the
-// imported `structuralCompare` (see `Vesper.Comparison.mjs` for the wiring).
-//
-// Scope: equality + hashing + compare / ordering. `toString` / `%A` rides the parallel
-// Printf track. Golden text for the core-import wiring, plus execution under Node (skips
-// when `node` is absent).
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step6"
         [
-            // ---- golden text: the structural-core import wiring ----
-
             test "aggregate `=` imports the aliased `structuralEquals` runtime value" {
                 let src =
                     emitJs (
@@ -68,8 +47,6 @@ let tests =
                 let src = emitJs "printfn \"%b\" (2 = 2)"
                 Expect.isFalse (src.Contains "Vesper.Core.mjs") "int `=` lowers to `===`, never the structural base"
             }
-
-            // ---- execution under Node: equality ----
 
             test "record equality is structural" {
                 let prog =
@@ -142,9 +119,7 @@ let tests =
             }
 
             test "inline-built and runtime-built lists compare equal (Step 5b interop)" {
-                // `List.map` builds plain `{ tag, Head, Tail }` cells in the runtime
-                // module; the literal builds `List_Cons` class instances. Structural
-                // `equals` ignores the class identity, so they are equal.
+                // Structural `equals` dispatches on shape, not class identity.
                 let prog = "printfn \"%b\" (List.map (fun x -> x) [1; 2; 3] = [1; 2; 3])"
 
                 match runJs "step6-list-interop-eq" prog with
@@ -153,8 +128,6 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "true" "runtime cons cells equal inline cons instances"
             }
-
-            // ---- execution under Node: hashing (consistency with equality) ----
 
             test "equal records hash equal" {
                 let prog =
@@ -195,8 +168,6 @@ let tests =
                     Expect.equal out "true" "shape-based hash ignores cons-cell vs class identity"
             }
 
-            // ---- golden text: the structural-comparator import wiring ----
-
             test "an aggregate `<` imports the aliased `structuralCompare` runtime value" {
                 let src = emitJs ("printfn \"%b\" ((1, 2) < (1, 3))")
 
@@ -218,8 +189,6 @@ let tests =
                     (src.Contains "Vesper.Comparison.mjs")
                     "int `<` lowers to a direct JS `<`, never the structural base"
             }
-
-            // ---- execution under Node: ordering ----
 
             test "primitive ordering is the direct JS relational operator" {
                 let prog =
@@ -251,10 +220,7 @@ let tests =
             }
 
             test "record ordering compares fields in declaration order" {
-                // Comparison is opt-in for user types (`[<StructuralComparison>]`);
-                // equality is default-on. With the attribute the front end admits the
-                // ordering use site and the JS aggregate base routes through
-                // `structuralCompare`.
+                // `[<StructuralComparison>]` is required — ordering is not default for user types.
                 let prog =
                     "[<StructuralComparison>] type Point = { X: int; Y: int }\n"
                     + "printfn \"%b\" ({ X = 1; Y = 2 } < { X = 1; Y = 3 })\n"
@@ -295,12 +261,8 @@ let tests =
                     Expect.equal out "true\ntrue\ntrue" "elementwise, then a shorter prefix orders first"
             }
 
-            // The load-bearing cross-package contract: `Vesper.Comparison.mjs`'s `cmp`
-            // must agree with `Vesper.Core.mjs`'s `eq` — `(x = y)` exactly when
-            // `compare x y = 0`, i.e. neither `<` nor `>` holds. Exercised over every
-            // emitted shape (tuple, record, union — including the `tag`-first path — and
-            // list) so a drift between the two structural walkers fails here.
             test "structural `compare` agrees with structural `=` across every shape" {
+                // `compare x y = 0` must agree with `x = y` — drift between the two walkers fails here.
                 let prog =
                     "[<StructuralComparison>] type Point = { X: int; Y: int }\n"
                     + "[<StructuralComparison>] type Shape = Circle of int | Rect of int * int\n"

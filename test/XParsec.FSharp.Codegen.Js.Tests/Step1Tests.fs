@@ -4,23 +4,12 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 1 — scalars + control flow + the `ILIntrinsic` `$N`-template
-// path, all going through the relocated `TastLower.lower` (JS `finishOps`). The
-// operator templates are spliced pre-freeze from `ops-platform.js.fs` (Step F1):
-// a ground `2 + 2` freezes to `ILIntrinsic("($0 + $1) | 0", …)`, which the
-// **(a\*)** `JsRaw` path emits with universal parenthesization. Golden-text plus
-// execution under Node (the latter skips when `node` is absent).
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step1"
         [
-            // ---- golden text: the template path's universal parenthesization ----
-
             test "int32 `+` emits the masked `| 0` template, operands parenthesised" {
-                // `($0 + $1) | 0` with operands `2`,`2`; (a*) wraps the whole node
-                // and each operand in parens.
                 Expect.equal
                     (emitJs "printfn \"%d\" (2 + 2)")
                     "console.log((((2) + (2)) | 0));\n"
@@ -40,8 +29,6 @@ let tests =
                     "console.log((true ? 1 : 2));\n"
                     "conditional expression"
             }
-
-            // ---- execution under Node ----
 
             test "int32 arithmetic executes (2 + 2 = 4)" {
                 match runJs "step1-add" "printfn \"%d\" (2 + 2)" with
@@ -92,11 +79,8 @@ let tests =
             }
 
             test "int64 add emits the BigInt-wrap template over BigInt literals" {
-                // int64 `Const`s are `bigint` literals (`2n`); the `+` selects the
-                // `BigInt.asIntN(64, …)` clause. Observing the *value* under Node
-                // needs print/conversion infrastructure not in Step 1 (`%d` is
-                // typed int32; `=` on int64 falls to the un-bootstrapped structural
-                // `equals`), so Step 1 checks the emitted template.
+                // Observing the runtime value needs int64 print/conversion infra not yet wired;
+                // check the emitted template instead.
                 Expect.equal
                     (emitJs "let x = 2L + 3L")
                     "const x = (BigInt.asIntN(64, (2n) + (3n)));\n"
@@ -104,12 +88,8 @@ let tests =
             }
 
             test "a type with no JS representation (decimal) is rejected as a semantic diagnostic" {
-                // `decimal` ships no `.js.fs` companion, so the JS-target provider hands it
-                // back as `Intrinsic(_, platform = None)`. The `SemanticAnalysis.PlatformTypes`
-                // pass flags that — the same class of error as an unresolved generic — as a
-                // per-decl `Severity.Error` diagnostic, NOT a `failwith` in the emitter
-                // (intrinsic-runtime-type-plan.md). `frozenOfJs` gates on error diagnostics
-                // (like the real `buildPackage`), so `emitJs` surfaces it as the failure.
+                // `decimal` has no `.js.fs` companion, so its `platform` face is `None` and
+                // `PlatformTypes` flags it as a per-decl error (not a failwith in the emitter).
                 let msg =
                     try
                         emitJs "let x = 1.0m" |> ignore
@@ -125,12 +105,8 @@ let tests =
             }
 
             test "a generic intrinsic (array) is NOT flagged unrepresentable on JS" {
-                // `'T []` is an `extern` intrinsic with a base repr (`!0[]`) but no `.js.fs`
-                // overlay, so its `platform` face is `None` — the same `None` `decimal` carries.
-                // The difference is arity: an array is a structural constructor (`FreezeExpr`
-                // lowers it to a JS array, no repr string), so `PlatformTypes` must skip it on
-                // `arity >= 1`. We assert the array path never raises the *platform* verdict —
-                // full array codegen is a separate Step-5b concern, so any OTHER failure is fine.
+                // Array shares `platform = None` with `decimal` but has arity >= 1, so
+                // `PlatformTypes` skips the platform-repr check. Any other failure is fine.
                 let msg =
                     try
                         emitJs "let x = [| 1; 2; 3 |]" |> ignore

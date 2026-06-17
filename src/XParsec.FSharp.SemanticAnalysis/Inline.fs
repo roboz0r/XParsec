@@ -165,8 +165,7 @@ module Inline =
     /// Build the typar-substituting mapper for one inline expansion. The
     /// `StaticOptimization` override is the only customisation: at call-site
     /// expansion the typars have been pinned, so pick the first clause whose
-    /// constraints hold and keep only its (substituted) body (prereq 3 — see
-    /// docs/operators-plan.md). Everything else falls through to the default
+    /// constraints hold and keep only its (substituted) body. Everything else falls through to the default
     /// rewrite, which threads `substType subst` through every embedded `ty`.
     let rec private substMapper (subst: Dictionary<TypeVar, SemType>) : TastWalk.Mapper =
         let sub = substType subst

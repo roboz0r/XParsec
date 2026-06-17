@@ -3,17 +3,14 @@ module XParsec.FSharp.Codegen.Clr.Tests.PrintfDifferentialTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// PP7e — the ALC-separable differential test (printf-port-steps.md). Each driver
-// is run through BOTH `Vesper.Printf.dll` handlers — the committed C# one and the
-// `buildPackage`-produced fully-Vesper one — each in its own collectible ALC, and
-// their stdout is asserted byte-identical (and, where pinned, equal to the
-// structural spec). This is the bring-up safety net that proves the Vesper handler
-// matches the C# one before PP7f drops the C# `.csproj`.
+// Each driver is run through BOTH `Vesper.Printf.dll` handlers — the committed
+// C# one and the `buildPackage`-produced fully-Vesper one — each in its own
+// collectible ALC, and their stdout is asserted byte-identical (and, where
+// pinned, equal to the structural spec). This is the bring-up safety net that
+// proves the Vesper handler matches the C# one.
 //
-// Every input here is ACYCLIC, so the dropped visited-set (cycle detection, PP7f)
-// makes no difference — the depth-guard output is byte-identical to the C# engine.
-// The `%A` cases exercise the `structural-printer.fs` port (the part being
-// self-hosted); the plain printf cases exercise `formatter.fs`.
+// Every input here is ACYCLIC. The `%A` cases exercise the `structural-printer.fs`
+// port; the plain printf cases exercise `formatter.fs`.
 
 [<Tests>]
 let tests =
@@ -73,14 +70,10 @@ let tests =
                     "type R = { X: int }\nprintfn \"%A\" [ { X = 1 }; { X = 2 } ]"
             }
 
-            // PP7f: cycle detection restored in `structural-printer.fs`. A
-            // self-referential record (`n.Next` points back at `n`) is a CYCLIC
-            // input, so the dropped-visited-set output (depth-guard only) would
-            // unwind to 100 nested `{ Next = ... }` — but the restored visited-set
-            // (cons-list + `Object.ReferenceEquals`) renders `...` at the back-edge.
-            // This is the one input where the Vesper handler's cycle detection must
-            // match the C# `HashSet<obj>` engine; `runsDifferential` asserts the two
-            // agree (and exit 0), proving the restored detection byte-identical.
+            // A self-referential record (`n.Next` points back at `n`) is a CYCLIC
+            // input. The visited-set (cons-list + `Object.ReferenceEquals`) renders
+            // `...` at the back-edge. `runsDifferential` asserts the two handlers
+            // agree, proving cycle detection is byte-identical.
             test "`%A` of a self-referential record (cycle truncated)" {
                 runsDifferential
                     "type Node = { mutable Next: obj }\nlet n = { Next = null }\nn.Next <- (n :> obj)\nprintfn \"%A\" n"

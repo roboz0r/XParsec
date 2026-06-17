@@ -24,7 +24,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     // Referenced assemblies' identities read off their files and keyed by simple
     // name, so an emitted `AssemblyRef` matches the exact artifact, not whatever
-    // the host loaded (R4).
+    // the host loaded.
     let references =
         project.References
         |> List.map (fun path ->
@@ -44,7 +44,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // `AddMethodBody` realigns per body internally, so reuse is correct.
     let bodyStream = ctx.BodyStream
 
-    // ---- The assembly layout ----
     // One enumeration of every ranged-table row; every forward handle below is
     // a lookup into the prefix-sum derivation, not arithmetic. The layout also
     // carries the lowering products (lowered decls, holder plan, closures,
@@ -66,7 +65,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let recordDecls = partitionedDecls.Records
     let classDecls = partitionedDecls.Classes
 
-    // ---- Forward-reference registration ----
     // Register each nominal type's layout-derived `TypeDefinition` handle so a
     // field / factory / local signature can `encodeType` it before the row
     // exists. A *generic* type also registers its shape so the provider can
@@ -121,7 +119,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 // member-body `ldfld`/`stfld` reference the `val` fields by name
                 // through a `MemberRef` on the open self-`TypeSpec`, and a generic
                 // `static let` read/store (`ldsfld`/`stsfld`) goes through the same
-                // `ClassMember.Field` `MemberRef` (G13) — an unregistered field fails
+                // `ClassMember.Field` `MemberRef` — an unregistered field fails
                 // resolution ("generic class … has no field").
                 let ctorParamFields = [ for p in cd.CtorParams -> p.Name, p.Type ]
 
@@ -165,7 +163,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 )
         )
 
-    // ---- Field table: the writer's field pass ----
     // Tables are independent (only intra-table order matters), so the whole
     // field table is written up front, straight off the layout; every later
     // phase resolves def handles by `FieldKey` instead of adding rows. A
@@ -226,16 +223,15 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
         )
 
-    // Module-value bindings resolve to their already-written field rows
-    // (module-representation-plan §3) — any body encodes the `ldsfld` token
-    // straight off the def handle.
+    // Module-value bindings resolve to their already-written field rows —
+    // any body encodes the `ldsfld` token straight off the def handle.
     let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
 
     do
         plan.ModuleValueFieldOrder
         |> List.iter (fun mv -> moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.Key])
 
-    // The §10.3 trailing top-level values: their `public static` field is written in
+    // The trailing top-level values: their `public static` field is written in
     // `Main` (`buildMain` `stsfld`), not a `.cctor`. Same field handles, a separate
     // map so `buildMain` knows to emit the store (vs the cctor-initialised values it
     // skips).
@@ -259,14 +255,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             MainInitValues = mainInitValues
         }
 
-    // ---- Prepared methods ----
     // The Prepare phase binds every layout method row to its signature + body
     // offset + param names; `WriteMethods` walks `layout.Methods` and writes
     // them mechanically. Keyed adds throw on a duplicate — collisions are bugs
-    // that should be loud (§3.1).
+    // that should be loud.
     let prepared = Dictionary<MethodKey, PreparedMethod>()
 
-    // ---- Attribute sets ----
     // Method attribute sets live in `MethodAttrSets` (shared with the
     // layout's method enumeration); only the type-level sets remain here.
     let closureAttrs =
@@ -277,11 +271,10 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         ||| TypeAttributes.AnsiClass
         ||| TypeAttributes.BeforeFieldInit
 
-    // A user class opts in to `Sealed` via `[<Sealed>]` (B-8); without it the
-    // class is open (Phase 2 / B-4 wires inheritance). Unions / records reuse
-    // this with `isSealed = true`. A `[<Struct>]` value type is always sealed
-    // and uses sequential layout (the F# default for value types) instead of
-    // auto layout.
+    // A user class opts in to `Sealed` via `[<Sealed>]`; without it the
+    // class is open. Unions / records reuse this with `isSealed = true`.
+    // A `[<Struct>]` value type is always sealed and uses sequential layout
+    // (the F# default for value types) instead of auto layout.
     let classAttrsOf (isSealed: bool) (isValueType: bool) =
         let layoutAttr =
             if isValueType then
@@ -301,7 +294,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         else
             baseAttrs
 
-    // G8: route every emitted method through a real `Param` list. `Param` rows
+    // Route every emitted method through a real `Param` list. `Param` rows
     // are a global table referenced by each `MethodDefinition.ParamList`, so
     // they must be added in method order; the writer calls this immediately
     // before each `AddMethodWithParamList`. Returns the method's first `Param`
@@ -321,7 +314,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // everything else a `TypeDefinition` row needs comes from the layout.
     let typeRowExtras = Dictionary<TypeKey, TypeRowExtras>()
 
-    // ---- State exposed to `NominalEmit` and the `Codegen` orchestrator ----
     member _.Provider = provider
     member _.Icodegen = icodegen
     member _.Ctx = ctx
@@ -352,7 +344,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     /// A field's def-table handle, resolved from the layout's field pass.
     /// Whether a use site routes through a `MemberRef` instead (generic
-    /// types/closures, G13) stays the caller's policy.
+    /// types/closures) stays the caller's policy.
     member _.FieldDef(key: FieldKey) : FieldDefinitionHandle = fieldDefHandles.[key]
 
     /// A method's layout-derived def-table handle.
@@ -366,7 +358,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     /// for `Finalise`'s `TypeDefinition` row.
     member _.AddTypeRowExtras(key: TypeKey, extras: TypeRowExtras) = typeRowExtras.Add(key, extras)
 
-    // ---- Bind: monomorphic closure ctors ----
     // The construction-site `Newobj` targets the ctor's `Def` directly via
     // this dict. Generic closures mint a fresh `MemberRef` at the use site
     // instead (dict left unpopulated).
@@ -375,7 +366,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             if c.Typars = 0 then
                 ctorHandleByNode.[c.Node] <- toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
 
-    // ---- Prepare: interfaces (bodyless abstract methods) ----
     member this.PrepareInterfaces() =
         for (td, methods) in interfaceDecls do
             methods
@@ -391,17 +381,16 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                         Signature = abstractMethodSignature provider m
                         BodyOffset = -1
                         ParamNames = argNames (List.length paramTys)
-                        // The method's own typars are owned by this MethodDef
-                        // (metadata name drops the F# leading quote).
+                        // The method's own typars are owned by this MethodDef;
+                        // the metadata name drops the F# leading quote.
                         MethodTypars = [ for n in m.MethodTypeParams -> n.TrimStart('\'') ]
                     }
                 )
             )
 
-    // ---- Prepare: closures (leaves-first) ----
-    // A *generic* closure (C3) enters closure-typar mode around every
-    // signature/body build, so the body's `FTTypar(Method, i)` (the enclosing
-    // method's typars) re-project onto this closure class's `!i`.
+    // A *generic* closure enters closure-typar mode around every signature/body
+    // build, so the body's `FTTypar(Method, i)` (the enclosing method's typars)
+    // re-project onto this closure class's `!i`.
     member this.PrepareClosures() =
         for c in closures do
             let captureFields = Dictionary<NodeKey, EntityHandle>()
@@ -484,12 +473,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
-    // ---- Prepare: holder `.cctor`s + static methods (P3b) ----
     member this.PrepareStaticMethods() =
         let prepareStaticFn (fn: Emit.StaticFn) =
-            // A *generic* static method (`fold`, R3): its body / signature / locals
-            // embed `FTTypar(Method, i)` (freeze-quantified),
-            // which the encoder maps to `!!i` directly — no ambient typar window.
+            // A *generic* static method: its body / signature / locals embed
+            // `FTTypar(Method, i)` (freeze-quantified), which the encoder maps to
+            // `!!i` directly — no ambient typar window.
             let typarCount = staticMethods.[fn.Key].Typars
 
             let bodyOffset =
@@ -534,7 +522,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
-        // The anonymous "Program" holder's `.cctor` (§10): the same value-store
+        // The anonymous "Program" holder's `.cctor`: the same value-store
         // recipe as a named holder's, over the leading-prefix top-level values.
         let prepareProgramCctor () =
             let lets =
@@ -559,7 +547,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             | HolderFn fn -> prepareStaticFn fn
             | ProgramCctor -> prepareProgramCctor ()
 
-    // ---- Prepare: Main (executable only; presence is a layout decision) ----
     member this.PrepareMain() =
         if layout.EmitEntryPoint then
             let mainBodyOffset =
@@ -575,7 +562,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
-    // ---- Write: the MethodDef table, one mechanical loop ----
     // Per row: `Param` rows, then the `MethodDef` row, then the method-owned
     // `GenericParam` rows (collected; emitted sorted in `Finalise`). The only
     // "decision" is the prepared lookup — everything else came from the layout.
@@ -609,7 +595,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 prepared.Count
                 layoutHandles.TotalMethods
 
-    // ---- TypeDefinition rows (one walk over the layout) + serialise ----
     member this.Finalise() : ClrArtifact =
         let rowOf (h: EntityHandle) = MetadataTokens.GetRowNumber h
 
@@ -646,9 +631,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             verifyTypeHandle slot typeHandle
 
             // A `[<IsByRefLike>]` value type carries the `IsByRefLikeAttribute`
-            // marker (PP1) — a parameterless custom attribute (blob = prolog
-            // `0x0001` + zero named args = `01 00 00 00`). The CLR reads this to
-            // confine the type to the stack; there is no `TypeAttributes` bit.
+            // marker — a parameterless custom attribute (blob = prolog `0x0001`
+            // + zero named args = `01 00 00 00`). The CLR reads this to confine
+            // the type to the stack; there is no `TypeAttributes` bit.
             if isByRefLike then
                 let blob = BlobBuilder()
                 blob.WriteUInt16(1us)
@@ -667,8 +652,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             match slot.Kind with
             | TypeSlotKind.ModulePseudo ->
                 // `<Module>` points at method row 1 — the first real method, or
-                // past-the-end of the empty table in a degenerate no-method
-                // library (both are the layout's first-method prefix sum).
+                // past-the-end of the empty table in a degenerate no-method library
+                // (both are the layout's first-method prefix sum).
                 ctx.AddModuleType(layoutHandles.FirstMethodOf slot.Key)
 
             | TypeSlotKind.Interface ->
@@ -698,9 +683,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 addNominalRow slot (classAttrsOf isSealed isValueType) isByRefLike
 
             // Each closure derives from `System.Object` and implements its
-            // `Vesper.Fun\`2<param, result>` interface (R1). Its `GenericParam`
-            // rows were collected during `PrepareClosures` (closure-typar
-            // ambient), so none are added here.
+            // `Vesper.Fun\`2<param, result>` interface. Its `GenericParam` rows
+            // were collected during `PrepareClosures` (closure-typar ambient),
+            // so none are added here.
             | TypeSlotKind.Closure ->
                 let extras =
                     match typeRowExtras.TryGetValue slot.Key with
@@ -722,11 +707,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 for iface in extras.Interfaces do
                     ctx.AddInterfaceImplementation(closureHandle, iface)
 
-            // Named-module holders (R3 deferred): one static class per
-            // `module Foo`. A holder owning module values takes its own
-            // `FieldList` and drops `BeforeFieldInit` (its `.cctor` runs before
-            // first access); a value-less holder's empty field range points past
-            // the previous owner's range (the prefix sum).
+            // Named-module holders: one static class per `module Foo`. A holder
+            // owning module values takes its own `FieldList` and drops
+            // `BeforeFieldInit` (its `.cctor` runs before first access); a
+            // value-less holder's empty field range points past the previous
+            // owner's range (the prefix sum).
             | TypeSlotKind.Holder hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(
@@ -740,11 +725,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
                 verifyTypeHandle slot typeHandle
 
-            // The anonymous "Program" holder owns the holder-less static
-            // methods (and `Main`, when an executable), and §10 the top-level
-            // value fields. `hasCctor` ⇔ it owns leading-prefix values, dropping
-            // `BeforeFieldInit` so its `.cctor` runs before `Main`. Its presence is
-            // a layout decision (`Layout.build`).
+            // The anonymous "Program" holder owns the holder-less static methods
+            // (and `Main`, when an executable) and the top-level value fields.
+            // `hasCctor` ⇔ it owns leading-prefix values, dropping `BeforeFieldInit`
+            // so its `.cctor` runs before `Main`. Its presence is a layout decision
+            // (`Layout.build`).
             | TypeSlotKind.Program hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(

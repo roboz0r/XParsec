@@ -6,11 +6,11 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// Per-generic-closure registry entry (function-representation-plan §Generic closures, C2): the typar
-/// *count* inherited from the enclosing static method, the capture-field types in declaration order,
-/// the `Invoke` parameter / result types, and the closure's predicted `TypeDefinition` handle. All
-/// `FrozenType` fields embed the enclosing method's `FTTypar(Method, i)`; `ClrEnv.ClosureTyparMode`
-/// re-projects them onto the closure class's `!i` during the closure's own emission.
+/// Per-generic-closure registry entry: the typar *count* inherited from the enclosing static method,
+/// the capture-field types in declaration order, the `Invoke` parameter / result types, and the
+/// closure's predicted `TypeDefinition` handle. All `FrozenType` fields embed the enclosing method's
+/// `FTTypar(Method, i)`; `ClrEnv.ClosureTyparMode` re-projects them onto the closure class's `!i`
+/// during the closure's own emission.
 type internal GenericClosureShape =
     {
         TyparCount: int
@@ -31,9 +31,9 @@ type internal GenericClosureShape =
 /// state, and the env-only helpers (external *type* refs, typar leaves). The encoders and
 /// recipe builders are layered on top of this in their own files.
 ///
-/// Reference identities are resolved by *simple name*: `references` (read off a file, R4) wins;
+/// Reference identities are resolved by *simple name*: `references` (read off a file) wins;
 /// `FSharp.Core` falls back to the host-loaded copy; `Vesper.Core` / `Vesper.List` / `Vesper.Printf`
-/// are required (forcing one without its reference is a hard error). Every ref is `lazy` (G6) so the
+/// are required (forcing one without its reference is a hard error). Every ref is `lazy` so the
 /// metadata row is added only when first forced during emission — constructing the provider emits
 /// nothing, and a PE whose IL never touches an assembly carries no `AssemblyRef` for it.
 type internal ClrEnv
@@ -80,10 +80,9 @@ type internal ClrEnv
     // Vesper-compiled `Vesper.Printf.dll`). `lazy`, so only a happy-path `printf` / `%A`
     // program — one that forces `eFormatter` (`Vesper.Formatter`) — requires it; a
     // printf-free program adds no `Vesper.Printf` `AssemblyRef`. The former host-loaded
-    // C# fallback (`typeof<Vesper.PrintfRuntime>`) is gone (printf-port-steps.md step 3):
-    // the C# `Vesper.Printf.dll` is off the backend's TPA, so a printf program with no
-    // `Vesper.Printf` reference now fails to encode rather than silently binding the C#
-    // handler off the host.
+    // C# fallback (`typeof<Vesper.PrintfRuntime>`) is gone: the C# `Vesper.Printf.dll`
+    // is off the backend's TPA, so a printf program with no `Vesper.Printf` reference
+    // now fails to encode rather than silently binding the C# handler off the host.
     let vesperRef =
         lazy
             (toEntity (ctx.AssemblyRef(refRequired "Vesper.Printf" "a printf / %A format call needs Vesper.Formatter")))
@@ -165,7 +164,7 @@ type internal ClrEnv
     let eValueType = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueType")))
 
     // `System.Runtime.CompilerServices.IsByRefLikeAttribute` — stamped on a
-    // `[<IsByRefLike>]` value type so the CLR confines it to the stack (PP1).
+    // `[<IsByRefLike>]` value type so the CLR confines it to the stack.
     let eIsByRefLikeAttr =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Runtime.CompilerServices", "IsByRefLikeAttribute")))
 
@@ -188,13 +187,13 @@ type internal ClrEnv
     let eFormatter =
         lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
 
-    // The `%A` structural-format interfaces (P3). Owned by `Vesper.Core`: the
-    // synthesised `Format` implements a Core-owned interface, so a record-bearing
-    // program links only `Vesper.Core` — never
-    // `Vesper.Printf` (where only the layout *engine*, `RuntimeFormatState`, lives,
-    // implementing this same Core `IFormatSink`). `IStructuralFormattable` is the
-    // `InterfaceImpl` a synthesised record/DU declares; `IFormatSink` is its
-    // `Format` param type. Both resolve against `vesperCoreRef`, like `Vesper.Fun`.
+    // The `%A` structural-format interfaces. Owned by `Vesper.Core`: the synthesised
+    // `Format` implements a Core-owned interface, so a record-bearing program links
+    // only `Vesper.Core` — never `Vesper.Printf` (where only the layout *engine*,
+    // `RuntimeFormatState`, lives, implementing this same Core `IFormatSink`).
+    // `IStructuralFormattable` is the `InterfaceImpl` a synthesised record/DU declares;
+    // `IFormatSink` is its `Format` param type. Both resolve against `vesperCoreRef`,
+    // like `Vesper.Fun`.
     let eStructuralFormattable =
         lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "IStructuralFormattable")))
 
@@ -336,8 +335,7 @@ type internal ClrEnv
     let genericClasses =
         Dictionary<SymbolKey, string list * int * (string * FrozenType) list>()
     // Closures have no `SymbolKey` (synthetic names), so they stay string-keyed —
-    // the "closures wrinkle" (Phase 6D); the nominal seam is key-based, closures
-    // ride their own provider methods.
+    // the nominal seam is key-based, closures ride their own provider methods.
     let genericClosures = Dictionary<string, GenericClosureShape>()
 
     let arityOfMetaName (name: string) : int =
@@ -454,9 +452,8 @@ type internal ClrEnv
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
 
     /// Referenced-assembly union shape by `SymbolKey` + arity — the mirror of
-    /// `externalRecordShape` for cross-package case construction (`Some` / `None`,
-    /// vesper-lib-test-plan Gap 2 Layer B). The bare-vs-arity-suffixed registration
-    /// split is reconciled once inside `lookupTypeByKey`.
+    /// `externalRecordShape` for cross-package case construction (`Some` / `None`).
+    /// The bare-vs-arity-suffixed registration split is reconciled once inside `lookupTypeByKey`.
     let externalUnionShape (key: SymbolKey) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.Union(a, cases, origin)) when a = arity && origin.Assembly.IsSome ->

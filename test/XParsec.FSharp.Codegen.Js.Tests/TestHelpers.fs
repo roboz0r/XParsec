@@ -25,10 +25,7 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
             lexed, ImplementationFile.AnonymousModule elems
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
-/// Front-end a program to a `Frozen.TastFile`, the JS backend's input. Resolves
-/// through `MockBuiltins.provider` (printf is special-cased in the front end, so no
-/// real `Vesper.Printf` contract is needed) and fails on any error diagnostic so a
-/// degraded TAST never reaches the walker.
+/// Front-end a program to a `Frozen.TastFile`. Fails on any error diagnostic.
 let frozenOf (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
     let tast = Pipeline.analyseSem MockBuiltins.provider input lexed file
@@ -45,30 +42,25 @@ let emit (input: string) : string =
     Codegen.compile (JsProjectInfo.defaults "Test") (frozenOf input)
     |> Codegen.toSource
 
-/// `src/<pkg>/manifest.toml` — a layer-1 contract manifest.
+/// `src/<pkg>/manifest.toml`.
 let srcManifest (pkg: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
 
-/// `src/Vesper.Core/manifest.toml` — the layer-1 contract manifest the F1 JS
-/// inline-body tests resolve against (its `inline-bodies-js` key swaps in
-/// `ops-platform.js.fs`).
+/// `src/Vesper.Core/manifest.toml`.
 let vesperCoreManifest: string = srcManifest "Vesper.Core"
 
 /// A file beside a package's `manifest.toml` (e.g. `srcFile "Vesper.List" "list.js.fs"`).
 let srcFile (pkg: string) (file: string) : string =
     IO.Path.Combine(IO.Path.GetDirectoryName(srcManifest pkg), file)
 
-/// `src/Vesper.Printf/manifest.toml` — gives `printfn`/`eprintfn`/… a resolvable
-/// symbol. The actual lowering to a `Format` node is front-end special-casing
-/// (no inline body is emitted), so no `inline-bodies-js` is needed here.
+/// `src/Vesper.Printf/manifest.toml`.
 let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
-/// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
-/// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable.
+/// `<repo-root>/tmp/<name>`, created on demand.
 let tmpDir (name: string) : string =
     let rec up (dir: string) =
         if isNull dir then
-            failwith "repo root not found (no claude_tools.cmd above the test binary)"
+            failwith "repo root not found"
         elif IO.File.Exists(IO.Path.Combine(dir, "claude_tools.cmd")) then
             dir
         else
@@ -78,9 +70,7 @@ let tmpDir (name: string) : string =
     IO.Directory.CreateDirectory d |> ignore
     d
 
-/// Run a `.mjs` file under Node, returning `Some(exitCode, output)`. Returns
-/// `None` when `node` is absent (the exec test then skips rather than fails), so a
-/// CI box without Node still passes the golden-text half of the suite.
+/// Run a `.mjs` file under Node. Returns `None` when `node` is absent (exec tests skip).
 let runNode (jsPath: string) : (int * string) option =
     let psi = ProcessStartInfo "node"
     psi.ArgumentList.Add jsPath
@@ -97,53 +87,25 @@ let runNode (jsPath: string) : (int * string) option =
     with :? System.ComponentModel.Win32Exception ->
         None
 
-// ---- Step 1: JS-target front end (operator templates spliced from F1) --------
-
-/// The manifests a Step-1 program resolves against: `Vesper.Core` owns the
-/// primitives (`int`/`float`/…) plus the arithmetic / equality operators whose
-/// `inline-bodies-js` `.fs` bodies (`ops-platform.js.fs`, Step F1) carry the `$N`
-/// JS templates; `Vesper.Printf` gives `printfn` a resolvable symbol;
-/// `Vesper.Comparison` owns the ordering operators (`< > <= >=`), whose
-/// `inline-bodies-js` `comparison.js.fs` + `runtime-js` `Vesper.Comparison.mjs`
-/// landed in Step 6's compare half.
+/// The manifests the JS-target program resolves against.
 let jsManifests: string list =
     [
         vesperCoreManifest
         srcManifest "Vesper.Comparison"
         vesperPrintfManifest
-        // Step 8: the common BCL exceptions as Vesper contract types inheriting
-        // `exn` (under `namespace System`), so `raise (InvalidOperationException …)`
-        // resolves through the contract `inherit` chain on a BCL-free JS build and
-        // lowers to a native `new Error`. JS-target only — CLR builds reach these
-        // names through `System.Private.CoreLib`.
+        // BCL exceptions as Vesper contracts (inherit exn → Error); must precede Vesper.Option.
         srcManifest "Vesper.Exceptions"
-        // Step 5: `Option` (`Some`/`None`) and `List` (`[]`/`::`) are external
-        // union types the backend emits as honest nominal JS classes — their case
-        // shapes are read off the provider. `Vesper.List`'s contract forward-refs
-        // `int option`, so `Vesper.Option` precedes it.
         srcManifest "Vesper.Option"
         srcManifest "Vesper.List"
     ]
 
-/// The JS-target provider: built with `Some Target.Js` so its inline-body channel
-/// splices the JS operator templates at the consumer's use site (a ground
-/// `2 + 2` freezes to `ILIntrinsic("($0 + $1) | 0", …)`). Lazily built once — the
-/// `SymbolProviders` cache also memoises the contract per target.
+/// The JS-target provider (BCL-free; resolves exceptions through Vesper.Exceptions).
 let jsProvider: Lazy<IExternalSymbolProvider> =
-    // JS-native layer-2 (Step 8): the JS target resolves against `JsNativeSymbols`
-    // (`Error` &c., the future `tsc`-metadata seam), not host BCL reflection — so the
-    // exceptions resolve through `Vesper.Exceptions`'s contract `inherit exn` chain and
-    // no same-named BCL metadata type collides on the home-assembly invariant.
     lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) jsManifests
 
-/// Front-end a program to a `Frozen.TastFile` through the **JS-target** contract
-/// provider, so operator use sites carry the JS templates (vs `frozenOf`'s
-/// `MockBuiltins`, which has no JS bodies). Fails on any error diagnostic.
+/// Front-end a program through the JS-target provider. Fails on any error diagnostic.
 let frozenOfJs (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
-    // Self-host list default: the JS target has no FSharp.Core, so an unpinned
-    // `[]`/`::` resolves to the Vesper cons-list (`Vesper.Collections.List`1`),
-    // emitted as honest nominal JS classes via the same provider path as `Option`.
     let tast = Pipeline.analyseSemForSelfHost jsProvider.Value input lexed file
 
     let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
@@ -153,11 +115,7 @@ let frozenOfJs (input: string) : Frozen.TastFile =
 
     Freeze.run tast
 
-/// Compile a Step-1 `input` (JS-target front end) to JS source text. The source
-/// is supplied so `let`-bound names are the real source identifiers; the trailing
-/// `//# sourceMappingURL` comment that supplying `Source` also emits is stripped
-/// so golden assertions see just the code (map emission itself is covered by the
-/// Step 0b / exec tests).
+/// Compile a JS-target `input` to JS source text (strips `//# sourceMappingURL`).
 let emitJs (input: string) : string =
     let project =
         { JsProjectInfo.defaults "Test" with
@@ -171,9 +129,7 @@ let emitJs (input: string) : string =
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
 
-/// Compile a Step-1 `input` in **library** mode (top-level `let`s become
-/// `export const …`, Step 5b Phase 3) to JS source text. Same source-driven naming
-/// + `sourceMappingURL` stripping as `emitJs`; only `Kind = Library` differs.
+/// Like `emitJs` but in library mode (top-level `let` → `export const`).
 let emitJsLibrary (input: string) : string =
     let project =
         { JsProjectInfo.defaults "Test" with
@@ -188,29 +144,15 @@ let emitJsLibrary (input: string) : string =
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
 
-// ---- Step 5b Phase 3: compile a package *impl* (`list.js.fs`) to a runtime .mjs --
-
-/// Deps-only JS provider for compiling a package impl whose only dependency is
-/// `Vesper.Core` (both `Vesper.List` and `Vesper.Option`). The package's OWN contract
-/// must be ABSENT — the impl declares its type in-file, so a provider that also
-/// declared it would collide — mirroring CLR `buildPackage`'s "provider = `depends-on`
-/// only". `Vesper.Core` carries the primitives + `Fun` + the `+` JS inline body; built
-/// with `Some Target.Js` so use sites carry the JS templates.
+/// Deps-only JS provider for compiling a package impl (own contract absent to avoid collision).
 let coreDepsJsProvider: Lazy<IExternalSymbolProvider> =
     lazy
         JsNativeSymbols.buildJsNativeContractFor
             (Some Target.Js)
-            // `Vesper.Exceptions` rides alongside `Vesper.Core`: `option.fs`'s
-            // `raise (InvalidOperationException …)` resolves the exception through the
-            // contract `inherit exn` chain (Step 8), so its `:> exn` argument
-            // type-checks under the JS `exn → Error` repr (a BCL `System.Exception`
-            // chain no longer reconciles once `exn` canonicalises to `Error`).
             [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 
-/// Front-end + freeze a JS-target package *impl* through a deps-only `provider`.
-/// Like `frozenOfJs` (self-host list default on, JS target) but the provider carries
-/// only the package's dependencies, so the impl's own in-file type declarations are
-/// the resolution authority (the `buildPackage` self-compile shape).
+/// Front-end + freeze a JS-target package impl. The provider carries only the package's
+/// dependencies — the impl's own in-file types are the resolution authority.
 let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
     let tast = Pipeline.analyseSemForSelfHost provider input lexed file
@@ -222,12 +164,7 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : Frozen.Ta
 
     Freeze.run tast
 
-/// Compile a package impl in **library** mode (top-level `let`s → `export const …`)
-/// to its runtime-module source text. `Source` is supplied so the exported bindings
-/// take their real source names (`length`, `map`, …); the trailing
-/// `//# sourceMappingURL` comment that enables is stripped (a committed runtime asset
-/// ships map-free, like the hand-authored predecessor). No runtime imports are
-/// resolved (`manifestPaths = []`) — the List subset imports nothing.
+/// Compile a package impl in library mode to runtime-module source text (strips sourceMappingURL).
 let compileLibrary (provider: IExternalSymbolProvider) (moduleName: string) (input: string) : string =
     let project =
         { JsProjectInfo.defaults moduleName with
@@ -247,10 +184,7 @@ let compileLibrary (provider: IExternalSymbolProvider) (moduleName: string) (inp
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
 
-/// Run a `.mjs` source string under Node by writing it (plus any sibling modules) to
-/// a fresh tmp dir and executing `entry`. `files` is `(fileName, source)` pairs; the
-/// first is the entry point. Returns `Some(exitCode, trimmed-output)` or `None` when
-/// `node` is absent.
+/// Write `files` to a tmp dir and run the first as entry point under Node.
 let runNodeFiles (name: string) (files: (string * string) list) : (int * string) option =
     let dir = tmpDir name
 
@@ -263,8 +197,7 @@ let runNodeFiles (name: string) (files: (string * string) list) : (int * string)
         |> Option.map (fun (code, out) -> code, out.Replace("\r", "").Trim())
     | [] -> failwith "runNodeFiles: no files"
 
-/// Compile a Step-1 `input` and run it under Node, returning `Some(exitCode,
-/// trimmed-stdout)` or `None` when `node` is absent (the test then skips).
+/// Compile `input` and run under Node. Returns `None` when `node` is absent (test skips).
 let runJs (name: string) (input: string) : (int * string) option =
     let outDir = tmpDir name
     let jsPath = IO.Path.Combine(outDir, name + ".mjs")

@@ -91,8 +91,7 @@ module internal UnificationInferResolve =
     /// per declared arity, so two uses of `Some` don't share a `'a`) and
     /// returning the union type plus the per-field types in that instantiation —
     /// the union to return as the pattern's type, and the field types to unify
-    /// the sub-patterns against (vesper-lib-test-plan Gap 2 Layer C). `qualifier`
-    /// is the optionally-written declaring type (`Option.Some` ⇒ `ValueSome
+    /// the sub-patterns against. `qualifier` is the optionally-written declaring type (`Option.Some` ⇒ `ValueSome
     /// "Option"`): when present, the case is accepted only if the resolved
     /// union's short name matches it; the bare form (`ValueNone`) skips that
     /// guard. `ValueNone` when no external union declares `caseName`.
@@ -104,7 +103,7 @@ module internal UnificationInferResolve =
         match ctx.Provider.TryLookupUnionCase caseName with
         // A bare (unqualified) reference to an `[<RequireQualifiedAccess>]` union's
         // case never resolves — F# requires `Color.Red`, not `Red`
-        // (opens-overhaul-plan Gap 1); `ResolvesWith` also enforces the qualifier
+        // `ResolvesWith` also enforces the qualifier
         // match for the qualified leg.
         | ValueSome uc when uc.ResolvesWith qualifier ->
             let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))

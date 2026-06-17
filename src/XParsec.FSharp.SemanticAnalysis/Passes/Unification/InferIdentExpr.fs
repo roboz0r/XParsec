@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.SemanticAnalysis.Passes
+﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -140,8 +140,7 @@ module internal UnificationInferIdentExpr =
                             // referenced package, in scope via `open`): typed as
                             // `field… → TyUnion(union, …)` so `inferApp` flows the
                             // application through the normal function arm and the
-                            // bare nullary form (`None`) lands as the union value
-                            // (vesper-lib-test-plan Gap 2 Layer B).
+                            // bare nullary form (`None`) lands as the union value.
                             match tryExternalCtorType ctx ValueNone n with
                             | ValueSome t -> t
                             | ValueNone ->
@@ -167,7 +166,7 @@ module internal UnificationInferIdentExpr =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
         // `A.B.(+)` — the qualified operator form NameResolution resolved through
-        // the provider (opens-overhaul-plan Gap 4); rebuild the same compiled name
+        // the provider; rebuild the same compiled name
         // (`A.B.op_Addition`) so the provider round-trip here matches its key.
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with

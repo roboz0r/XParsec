@@ -21,21 +21,19 @@ type ProjectInfo =
         /// Paths to the assemblies this build references that are *not* resolved off
         /// the codegen host. Each path's identity is read off the file, so the
         /// emitted `AssemblyRef` matches that exact artifact rather than whatever the
-        /// compiler happens to have loaded (R4 — the "host build dep" no longer leaks
-        /// into the emitted program). The backend resolves which referenced assembly
+        /// compiler happens to have loaded. The backend resolves which referenced assembly
         /// provides a given type by simple name:
         ///   - `Vesper.Core` owns `Vesper.Fun\`2` (every function value implements it
-        ///     — R1 / D3); a function value with no `Vesper.Core` reference fails to
+        ///     — a function value with no `Vesper.Core` reference fails to
         ///     encode (`Fun` is unreferenceable).
         ///   - `Vesper.List` owns `Vesper.Collections.List\`1` (a list literal /
-        ///     `List.fold` — package-split-plan PS2); a list with no `Vesper.List`
+        ///     `List.fold`); a list with no `Vesper.List`
         ///     reference fails to encode.
         ///   - `Vesper.Printf` owns `Vesper.Formatter` (the happy-path `printf` / `%A`
         ///     handler); a printf-bearing program with no `Vesper.Printf` reference
-        ///     fails to encode (printf-port-steps.md step 3 — the C# DLL is off the
-        ///     backend's TPA, so there is no host fallback).
+        ///     fails to encode (the C# DLL is off the backend's TPA, so there is no host fallback).
         ///   - `FSharp.Core` is *optional* here: when not listed, the provider falls
-        ///     back to the host-loaded copy (so the R9 cold-printf island resolves
+        ///     back to the host-loaded copy (so the cold-printf island resolves
         ///     without the caller wiring a path); when listed, that file's identity wins.
         /// A package never references itself (`Vesper.Core` lists no core, etc.).
         /// `materialiseApp` copies the referenced assemblies the emitted PE actually

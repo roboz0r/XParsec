@@ -11,7 +11,7 @@ open System.Collections.Generic
 // be a quantified typar of the enclosing generalised `let`. Anything else is
 // an inference bug — codegen would later fail in much less informative ways.
 //
-// Stays on indefinitely (see docs/front-end-gaps-plan.md §D). Turning it off
+// Stays on indefinitely. Turning it off
 // lets latent generalisation bugs surface as broken IL much later.
 
 module ResolvedTypes =

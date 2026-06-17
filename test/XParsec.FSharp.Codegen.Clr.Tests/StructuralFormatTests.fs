@@ -4,18 +4,17 @@ open Expecto
 open Vesper
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The `%A` layout engine in isolation —
-// no compiler. Hand-written `IStructuralFormattable` impls (compiled by fsc here)
-// drive the layout engine, the same declarative sink the backend synthesises
-// against. The oracle is the spec (copy-pasteable Vesper source), not F#'s
-// `sprintf "%A"` — we deliberately diverge.
+// The `%A` layout engine in isolation — no compiler. Hand-written
+// `IStructuralFormattable` impls (compiled by fsc here) drive the layout engine,
+// the same declarative sink the backend synthesises against. The oracle is the
+// spec (copy-pasteable Vesper source), not F#'s `sprintf "%A"` — we deliberately
+// diverge.
 //
-// PP7 step 2: these drive the **Vesper-compiled** `StructuralPrinter`
-// (`structural-printer.fs`) via reflection (`structuralPrint` / `structuralPrintSized`
-// in `TestHelpers`), not the C# `Vesper.StructuralPrinter` that fsc would bind here.
-// The `Point`/`Opt` `IStructuralFormattable` impls still bind the Core interfaces at
-// compile time; only the engine entry point is now the self-hosted one. The
-// cycle-truncation test thus exercises the Vesper cons-list `ReferenceEquals` scan.
+// These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.fs`)
+// via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`), not
+// the C# `Vesper.StructuralPrinter` that fsc would bind here. The `Point`/`Opt`
+// `IStructuralFormattable` impls still bind the Core interfaces at compile time;
+// only the engine entry point is the self-hosted one.
 
 /// `structuralPrint v 80` — the default 80-column budget (most values stay flat).
 let private flat (v: obj) = structuralPrint v 80

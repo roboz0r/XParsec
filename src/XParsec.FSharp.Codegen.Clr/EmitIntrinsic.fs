@@ -54,7 +54,7 @@ module EmitIntrinsic =
         | TExprG.ILIntrinsic("ldobj", operand, args, _, _) ->
             // `span.[i]` byref-return deref — emit the arg (the `call get_Item`,
             // which leaves a managed pointer `T&` on the stack), then `ldobj <elem>`
-            // to load the pointed-to element value (PP2b). The element type rides
+            // to load the pointed-to element value. The element type rides
             // `typeOperand` (Freeze set it to the value-position result type).
             for a in args do
                 recur env b a
@@ -63,11 +63,11 @@ module EmitIntrinsic =
             | ValueSome elem -> b.Add(ILInstr.Ldobj(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'ldobj' without an element type operand"
         | TExprG.ILIntrinsic("ldloca", _, args, _, _) ->
-            // `&local` (managed address-of, PP5d) — push the *address* of the
-            // mutable local so a BCL `out`/`ref` parameter can write through it.
-            // The sole operand is the local `Var`; emit `ldloca <slot>` rather than
-            // recurring (which would `ldloc` the value). Mirrors the PP2a
-            // struct-receiver address dispatch in `EmitCall`.
+            // `&local` (managed address-of) — push the address of the mutable local
+            // so a BCL `out`/`ref` parameter can write through it. The sole operand
+            // is the local `Var`; emit `ldloca <slot>` rather than recurring (which
+            // would `ldloc` the value). Mirrors the struct-receiver address dispatch
+            // in `EmitCall`.
             match EqArray.toList args with
             | [ TExprG.Var(binding, _, _) ] when env.Slots.ContainsKey binding ->
                 b.Add(ILInstr.Ldloca env.Slots.[binding])
@@ -96,7 +96,7 @@ module EmitIntrinsic =
             // Push each operand, then append the mapped opcode. The dispatch
             // (which opcode for which operator/primitive) lives in the operator
             // `.fs` body this node was lowered from, not here — codegen only
-            // interprets the IL. See docs/operators-plan.md.
+            // interprets the IL.
             for a in args do
                 recur env b a
 

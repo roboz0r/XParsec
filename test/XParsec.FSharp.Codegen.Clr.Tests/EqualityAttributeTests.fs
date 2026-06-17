@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// C-Attr: the equality-triple emission gate on a
+// The equality-triple emission gate on a
 // record / union comes from the type's attributes (filled by
 // `NameResolution.registerRecordTypeDefn` / `registerUnionTypeDefn` via the
 // `Passes.Attributes` decoder). These tests pin every verdict path against
@@ -36,7 +36,7 @@ let tests =
         tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     testList
-        "C-Attr equality verdicts"
+        "Equality verdicts"
         [
             test "[<StructuralEquality>] on a mutable record emits the triple + IEquatable<Self>" {
                 let src =

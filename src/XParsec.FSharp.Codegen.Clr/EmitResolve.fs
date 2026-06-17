@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
@@ -110,8 +110,7 @@ module EmitResolve =
                 | None -> List.head multi
 
     /// Resolve the member-call handle for an instance access on `receiverTy`
-    /// (P3d.3, generalised to generic unions in R2 and to classes in Phase 1 /
-    /// B-1). A monomorphic union/class uses the member's `Def` token directly;
+    /// A monomorphic union/class uses the member's `Def` token directly;
     /// a *generic* one goes through a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
     /// The implicit value→`obj` box is now synthesised at Freeze as an explicit
@@ -129,7 +128,7 @@ module EmitResolve =
         : EntityHandle * EmittedMember =
         // This resolver only serves project-local receivers (external instance
         // members route through `externalInstanceMemberRef`), so the table key is
-        // the receiver's nominal `SymbolKey` directly (Phase 6D).
+        // the receiver's nominal `SymbolKey` directly
         let key, tyArgs = nominalShape (sprintf "member '%s' access" name) receiverTy
 
         match env.Unions.TryGetValue key with
@@ -176,8 +175,7 @@ module EmitResolve =
     /// only a `Class` — so the recover-by-signature `ExternalMemberRef` fails on
     /// it (`… did not resolve at emit`). Route a union/record receiver through
     /// `ExternalMemberRefOn`, which reads the parent `TypeSpec` and the marker
-    /// count straight off the receiver type (Gap 2 Layer A — `(Some 5).IsSome` /
-    /// `o.Value` at runtime). A class receiver keeps the existing, tested recover
+    /// count straight off the receiver type. A class receiver keeps the existing, tested recover
     /// path.
     let externalInstanceMemberRef
         (env: EmitEnv)
@@ -306,14 +304,12 @@ module EmitResolve =
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key
 
-    /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle
-    /// (B-10). The handle was chosen at emit time
-    /// (`NominalEmit`): a mono class stores the field's `Def` token, a *generic*
-    /// class stores a `MemberRef` on the open self-`TypeSpec` (`Set\`1<!0>::empty`,
-    /// G13). Either way this is a direct dictionary read.
+    /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle.
+    /// The handle was chosen at emit time (`NominalEmit`): a mono class stores the field's `Def` token, a *generic*
+    /// class stores a `MemberRef` on the open self-`TypeSpec` (`Set\`1<!0>::empty`). Either way this is a direct dictionary read.
     let resolveStaticField (env: EmitEnv) (declKey: SymbolKey) (name: string) : EntityHandle =
         // `declKey` is the declaring class's nominal `SymbolKey.TypeKey`, carried on
-        // the `StaticFieldGet` node (Phase 4) — the emitted class table is keyed by
+        // the `StaticFieldGet` node — the emitted class table is keyed by
         // it directly.
         match env.Classes.TryGetValue declKey with
         | true, c ->
@@ -329,11 +325,10 @@ module EmitResolve =
     /// `resolveInstanceMember`. A referenced-assembly record
     /// goes through the provider's `TryResolveExternalRecordField`. Classes reach
     /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
-    /// name)` by `Freeze.translateClassMember` (B-1).
+    /// name)` by `Freeze.translateClassMember`.
     let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
         // Project-local tables key by the receiver's nominal `SymbolKey`; the
         // external record-field lookup derives the qualified compiled name from it
-        // (Phase 6D).
         let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) receiverTy
 
         match env.Records.TryGetValue key with

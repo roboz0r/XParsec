@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.SemanticAnalysis.Passes
+﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -116,8 +116,8 @@ module internal UnificationInferExternalCall =
     /// e.g. `Append(char[], int, int)` for a single `string` arg
     /// (`string vs TyTuple`). Resolving by the call-site argument types here makes
     /// the grounded pick match the overload a correct call intends.
-    /// Infer-resolution-gaps-plan.md Gap C. Declines (so the old path runs) on any
-    /// shape it can't confidently resolve, so it never *introduces* an error.
+    /// Declines (so the old path runs) on any shape it can't confidently resolve,
+    /// so it never *introduces* an error.
     and tryInferExternalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)

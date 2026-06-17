@@ -48,10 +48,9 @@ module EmitBindings =
                 | TPatG.Wildcard(ty, _) -> mintUseBinderKey (), ty
                 | _ -> failwith "Emit: unreachable — outer match admits only NamedSimple / Wildcard"
             // `use x = value in body` → `let x = value in try body finally if x <> null
-            // then x.Dispose()` (B-5). The IL-IR
-            // exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`,
-            // H5) carry the region; `IlIr.lower` replays them into a proper
-            // `try`/`finally`.
+            // then x.Dispose()`. The IL-IR exception-region pseudo-marks (`Try` /
+            // `BeginFinally` / `EndFinally`) carry the region; `IlIr.lower` replays
+            // them into a proper `try`/`finally`.
             //
             // A protected region can't carry an evaluation-stack value across its
             // `leave`, so the body's result is parked in a local inside the `try`
@@ -128,12 +127,11 @@ module EmitBindings =
 
                 b.Add ILInstr.Pop
             | ValueSome key ->
-                // External (BCL) binder (§4.3): dispose through the keyed `Dispose`
-                // the front end resolved (the type's own `Dispose`, or
-                // `System.IDisposable`'s), minted as an `ExternalMemberRef` `callvirt`
-                // — the same machinery the §4.2 for-in disposal uses. The external
-                // member carries a real `void` return (the §4.2 fix), so it pushes
-                // nothing: a receiver-only `callvirt`, no `pop`.
+                // External (BCL) binder: dispose through the keyed `Dispose` the front
+                // end resolved (the type's own `Dispose`, or `System.IDisposable`'s),
+                // minted as an `ExternalMemberRef` `callvirt`. The external member
+                // carries a real `void` return, so it pushes nothing: a receiver-only
+                // `callvirt`, no `pop`.
                 let dispHandle =
                     env.Provider.ExternalMemberRef(
                         key,

@@ -161,7 +161,7 @@ module NameResolutionTypeRegistration =
                     let info =
                         RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, key)
 
-                    // C-Attr: explicit equality attribute wins; absent, the default
+                    // Explicit equality attribute wins; absent, the default
                     // ⇒ Structural when every field is immutable,
                     // Reference otherwise. Feeds Unification.checkConstraint and the
                     // codegen triple gate (Freeze copies it onto EqualitySupport).
@@ -174,8 +174,7 @@ module NameResolutionTypeRegistration =
                             else
                                 EqualityVerdict.Reference
 
-                    // C-Attr (Phase 3): comparison defaults to NoComparison
-                    // (brainstorm-comparison §9, opt-in); explicit attribute overrides.
+                    // Comparison defaults to NoComparison, explicit attribute overrides.
                     info.ComparisonSupport <-
                         match Attributes.decodeComparisonAttributes ctx (Attributes.attributesOfTypeName tn) with
                         | ValueSome v -> v
@@ -311,15 +310,13 @@ module NameResolutionTypeRegistration =
                     let info =
                         UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, key)
 
-                    // C-Attr: union equality defaults to Structural
-                    // (brainstorm §8); explicit attribute overrides.
+                    // Union equality defaults to Structural, explicit attribute overrides.
                     info.EqualitySupport <-
                         match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
                         | ValueSome v -> v
                         | ValueNone -> EqualityVerdict.Structural
 
-                    // C-Attr (Phase 3): comparison defaults to NoComparison
-                    // (brainstorm-comparison §9, opt-in); explicit attribute overrides.
+                    // Comparison defaults to NoComparison, explicit attribute overrides.
                     info.ComparisonSupport <-
                         match Attributes.decodeComparisonAttributes ctx (Attributes.attributesOfTypeName tn) with
                         | ValueSome v -> v

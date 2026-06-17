@@ -6,62 +6,25 @@ open System.Collections
 open System.Globalization
 open System.Runtime.CompilerServices
 
-// structural-printer.fs — the Vesper-compiled `%A` structural engine, ported from
-// the hand-written C# `StructuralFormat.cs` (printf-port-steps PP7). This is the
-// reflection-free pretty-printer: a group-based layout where every composite
-// renders ALL-flat (if its flat form fits the width budget) or ALL-broken — no
-// node is ever half-broken. It pairs with `formatter.fs` (the printf write-through
-// handler, PP6): `Formatter.AppendStructured` calls `StructuralPrinter.Print`, an
-// in-assembly call now that both halves are Vesper-compiled into `Vesper.Printf`.
+// Vesper-compiled `%A` structural engine, ported from the C# `StructuralFormat.cs`.
+// Reflection-free pretty-printer: group-based layout where every composite renders
+// ALL-flat (if its flat form fits the width budget) or ALL-broken.
+// `Formatter.AppendStructured` calls `StructuralPrinter.Print`. Output is
+// copy-pasteable Vesper source (`5L`, `3.0`, `nan`, `[1; 2; 3]`).
 //
-// PP7d: this file is listed in `manifest.toml`'s `impl` BEFORE `formatter.fs` so
-// `StructuralPrinter` is in scope at the `AppendStructured` use site (a
-// single-package compile is declaration-ordered). The whole `Vesper.Printf.dll` is
-// now Vesper-compiled + BCL-only.
-//
-// The output oracle is the SPEC — copy-pasteable Vesper source (`5L`, `3.0`,
-// `nan`, `[1; 2; 3]`) — not F#'s `sprintf "%A"`. The engine never calls
-// `sprintf`/`%A` itself (that would self-recurse): it builds its output with
-// direct string operations.
-//
-// The implemented interfaces (`Vesper.IStructuralFormattable` / `Vesper.IFormatSink`)
-// are owned by `Vesper.Core` (`structural-format.fsi`/`.fs`); the backend
-// synthesises every record/DU's `IStructuralFormattable.Format` against them, and
-// `RuntimeFormatState` below is the concrete sink those bodies drive.
-//
-// Deviations from `StructuralFormat.cs` (each documented at its site):
-//   * The `Doc` tree recomputes `flatWidth` (the C# caches it per node). The trees
-//     are small; recomputation keeps the DU fully immutable with no cache field.
-//   * The render pass appends into a single pooled `char[]` buffer threaded on
-//     `RuntimeFormatState` (`RenderBuf`/`RenderPos`, `Emit`/`EmitSpaces`, grown via
-//     `ArrayPool<char>` exactly like `formatter.fs`); each `RenderDoc` returns only
-//     the end column (an `int`). The first port instead returned a `RenderResult`
-//     whose `Txt` field was the fully materialised subtree string, assembled by
-//     incremental `string + string` — that is O(n^2) in tree size (each `DocCat`
-//     re-copies the growing suffix; every group/nest hands its whole string up to
-//     be concatenated again). The buffer is the faithful analogue of the C#
-//     `StringBuilder` and restores O(n) layout.
-//   * The frame stack is a Vesper cons-list used as a stack (push = cons, pop =
-//     head/tail; `PopWrap` reverses each frame's `Kids` via `revOnto`) rather than
-//     a BCL mutable `List<Doc>` — the PP7 recommended deviation.
-//   * Cycle detection (the visited-set) is a Vesper cons-list of DFS-ancestor
-//     values scanned by `Object.ReferenceEquals` (`DocLayout.containsRef` +
-//     `RuntimeFormatState.Visited`), pushed on entering `Dispatch` and popped on
-//     exit — a deliberate deviation from the C# `HashSet<obj>` +
-//     `ReferenceEqualityComparer`, not a capability gap to retire: the path is
-//     bounded by the `PrintDepth = 100` guard, so a linear reference scan is as
-//     cheap as a hash lookup with none of the set allocation / boxing, and it needs
-//     no BCL generic-collection construction. (Constructing `HashSet<obj>(
-//     ReferenceEqualityComparer.Instance)` from Vesper additionally needs external
-//     generic-ctor overload resolution with interface assignability + `obj`/
-//     `System.Object` unification — the intrinsic-representation work happening on
-//     the `codegen-js` branch, kept out of here to avoid the overlap.) The path-set
-//     semantics are identical to the C#, so a self-referential value renders `...`
-//     at the back-edge exactly as the C# engine does (PP7f restored this).
-//   * The reflection-free `:?` chain is written as `if value :? T then … (value :?> T)`
-//     (test + downcast, no `as` binder); a large `match | :? T as x` in a member
-//     body drops a binder's slot in codegen. Same semantics, reads like the C#
-//     `switch`.
+// Deviations from `StructuralFormat.cs`:
+//   * `Doc` tree recomputes `flatWidth` (the C# caches it per node); trees are small.
+//   * Render pass appends into a single pooled `char[]` buffer (`RenderBuf`/`RenderPos`,
+//     `Emit`/`EmitSpaces`); each `RenderDoc` returns only the end column (an `int`).
+//     The C# `StringBuilder` analogue; O(n) vs the naive O(n²) `string + string` port.
+//   * Frame stack is a cons-list (push = cons, pop = head/tail; `PopWrap` reverses
+//     via `revOnto`) rather than a BCL mutable `List<Doc>`.
+//   * Cycle detection uses a cons-list of DFS-ancestor values scanned by
+//     `Object.ReferenceEquals` (`DocLayout.containsRef` + `RuntimeFormatState.Visited`)
+//     rather than `HashSet<obj>` + `ReferenceEqualityComparer`. Bounded by the
+//     `PrintDepth = 100` guard; path-set semantics identical to the C#.
+//   * The `:?` chain is `if value :? T then … (value :?> T)` (test + downcast, no
+//     `as` binder) — a large `match | :? T as x` in a member body drops a binder slot.
 
 /// The recorded layout document. A group renders all-flat or all-broken; nesting
 /// governs the indent broken lines hang at.
@@ -107,14 +70,8 @@ module internal DocLayout =
         | [] -> acc
         | h :: t -> revOnto t (h :: acc)
 
-    /// True if `v` is reference-identical to any element of `xs`. The visited-set
-    /// scan for cycle detection (PP7f). A linear `Object.ReferenceEquals` walk over
-    /// the current DFS-ancestor chain — small (bounded by the PrintDepth = 100 depth
-    /// guard, and popped on exit so only ancestors are present). The cons-list
-    /// deviation from the C# engine's `HashSet<obj>` + `ReferenceEqualityComparer`
-    /// (no BCL generic mutable collection needed); the path-set semantics are
-    /// identical, so a self-referential value renders `...` at the back-edge exactly
-    /// as the C# engine does.
+    /// True if `v` is reference-identical to any element of `xs`.
+    /// Linear walk over the DFS-ancestor chain (bounded by PrintDepth = 100).
     let rec containsRef (xs: obj list) (v: obj) : bool =
         match xs with
         | [] -> false
@@ -215,9 +172,6 @@ type FrameKind =
     | Application
 
 /// A Doc-building frame: it collects children; closing a group/nest pops and wraps.
-/// A mutable record (the plan's sanctioned alternative to a class): `Kids` is
-/// accumulated by consing across the frame's lifetime, so it must be a `mutable`
-/// field read/written cross-instance from `RuntimeFormatState`.
 type Frame =
     {
         Kind: FrameKind
@@ -231,8 +185,6 @@ type Frame =
 /// runs the reflection-free dispatcher for children, and lays the document out to a
 /// string. Carries the depth + size (PrintSize) counters.
 type RuntimeFormatState =
-    // F#'s FormatOptions.Default limits (sformat.fs), adopted as-is.
-    // PrintDepth = 100, PrintLength = 100; both inlined at their use sites.
 
     /// 0 ⇒ never break (always flat); else the column budget.
     val Width: int
@@ -245,16 +197,11 @@ type RuntimeFormatState =
     /// Set by FormatArg for the immediately-dispatched value; consumed by the first
     /// BeginApplication it produces (so only a top-level application parenthesizes).
     val mutable ArgPending: bool
-    /// The cycle-detection visited-set: the chain of DFS-ancestor values currently
-    /// being dispatched (top = head). Pushed on entering `Dispatch`, popped on exit,
-    /// so it holds exactly the open path; a value reference-identical to an ancestor
-    /// is a back-edge and renders `...`. A cons-list scanned by `Object.ReferenceEquals`
-    /// (the deliberate deviation from the C# `HashSet<obj>` + `ReferenceEqualityComparer`).
+    /// DFS-ancestor chain for cycle detection (top = head). A value reference-identical
+    /// to an ancestor is a back-edge and renders `...`.
     val mutable Visited: obj list
-    /// The render buffer: the laid-out text accumulates here (the analogue of the C#
-    /// `StringBuilder`), grown via `ArrayPool<char>` exactly like `formatter.fs`. A
-    /// pooled `char[]` rather than a `Span<char>` field because `Span` cannot be a
-    /// field of a heap class; the layout members build `Span<char>` *locals* over it.
+    /// Pooled render buffer (`Span<char>` cannot be a field of a heap class; layout
+    /// members build `Span<char>` locals over it).
     val mutable RenderBuf: char[]
     /// Count of characters written into `RenderBuf` so far.
     val mutable RenderPos: int

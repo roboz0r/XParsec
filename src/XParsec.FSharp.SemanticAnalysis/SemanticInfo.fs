@@ -2,16 +2,10 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Numerics
 
-// See docs/typevar.md for the 3-axis design.
-
-// --- Symbol identity ---------------------------------------------------------
-//
 // `SymbolOrigin` / `SymbolKey` / `MemberKind` live here (ahead of `SemType`)
-// because the nominal `SemType` cases (`TyUnion` / `TyRecord` / `TyClass`) now
-// carry a `SymbolKey` as their identity. They
-// are pure string/EqArray records with no `SemType` dependency, so the ordering
-// is one-way: identity first, then the type graph that references it.
-// `ExternalSymbols.fs` (which mints/decomposes these) compiles after this file.
+// because the nominal `SemType` cases (`TyUnion` / `TyRecord` / `TyClass`) carry
+// a `SymbolKey` as their identity — pure string/EqArray records with no `SemType`
+// dependency. `ExternalSymbols.fs` (which mints/decomposes these) compiles after.
 
 /// Where a resolved symbol physically lives — enough for codegen to mint a ref
 /// without re-resolving. `Assembly` is a simple name keyed into a `ProjectInfo`'s
@@ -189,8 +183,7 @@ type Rational =
 /// target's vocabulary, in widest-escape-first order. `EscapeState`
 /// coarsens onto these via `EscapeState.toClrRefSafe`. The C# compiler and
 /// the CLR verifier enforce exactly this relation and the .NET 9 `allows ref
-/// struct` rules are layered on top, so matching it is an acceptance
-/// criterion (ref-struct-emit-plan §Axis 1).
+/// struct` rules are layered on top.
 [<RequireQualifiedAccess>]
 type SafeContext =
     /// Roslyn's "beyond the lattice": must live on the heap, never a
@@ -207,9 +200,7 @@ type SafeContext =
     | CurrentMethod
 
 /// Tofte–Talpin coarsening of `EscapeState` for a future native backend
-/// (MLIR / LLVM). Named so the lattice is understood as a *source* that
-/// targets coarsen, not a CLR artifact (ref-struct-emit-plan §Future native
-/// target). Not consumed yet.
+/// (MLIR / LLVM). Not consumed yet.
 [<RequireQualifiedAccess>]
 type NativeRegionTier =
     /// `alloca` + `nocapture` / `noalias` parameter attributes.
@@ -220,12 +211,10 @@ type NativeRegionTier =
     /// shared, `Rc` / `Arc` / GC.
     | Heap
 
-/// Maps to Phase 4.6 target lowering: LocalStack -> `ref struct` (.NET) / `&T`
-/// (Rust); HeapShared -> `Rc<T>` / `Arc<T>` (Rust). Ordered (widest escape
-/// first) `HeapShared > CallerStack > ReturnOnly > LocalStack`; the two
-/// coarsening maps (`toClrRefSafe`, `toNativeRegionTier`) live on the
-/// companion module so neither target bakes its semantics into the bare
-/// cases (ref-struct-emit-plan §Axis 1).
+/// `LocalStack` → `ref struct` (.NET) / `&T` (Rust); `HeapShared` → `Rc<T>` /
+/// `Arc<T>` (Rust). Ordered widest-escape-first: `HeapShared > CallerStack >
+/// ReturnOnly > LocalStack`; the two coarsening maps (`toClrRefSafe`,
+/// `toNativeRegionTier`) live on the companion module.
 type EscapeState =
     | LocalStack
     /// May be returned *by value* but not captured by a caller's refs —
@@ -239,8 +228,6 @@ type EscapeState =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module EscapeState =
 
-    /// CLR coarsening — the ratified-C# safe-context table
-    /// (ref-struct-emit-plan §Axis 1).
     let toClrRefSafe (s: EscapeState) : SafeContext =
         match s with
         | LocalStack -> SafeContext.CurrentMethod
@@ -248,8 +235,6 @@ module EscapeState =
         | CallerStack -> SafeContext.CallingMethod
         | HeapShared -> SafeContext.Heap
 
-    /// Native-backend coarsening — the Tofte–Talpin tiering
-    /// (ref-struct-emit-plan §Future native target).
     let toNativeRegionTier (s: EscapeState) : NativeRegionTier =
         match s with
         | LocalStack -> NativeRegionTier.Stack
@@ -257,15 +242,14 @@ module EscapeState =
         | CallerStack -> NativeRegionTier.ReturnSlot
         | HeapShared -> NativeRegionTier.Heap
 
-/// Axis-2 representation requirement for a region (ref-struct-emit-plan §Axis 2),
-/// orthogonal to the `EscapeState` *lifetime* axis. A closure can be
-/// frame-confined by lifetime yet still pinned to a heap representation by a
-/// containment / boxing channel — held in a non-`ref struct` aggregate
-/// (including a `System.ValueTuple`, which cannot carry a ref-struct field),
-/// captured by a heap-class closure, escaping to the heap, or upcast to
-/// `Vesper.Fun<_,_>` / `obj`. The ref-struct-closure eligibility predicate is
-/// the conjunction `LocalStack ∧ StackOnlyEligible`; this axis supplies the
-/// second conjunct, computed by a forward fixpoint over the same region graph.
+/// Axis-2 representation requirement for a region, orthogonal to the
+/// `EscapeState` *lifetime* axis. A closure can be frame-confined by lifetime
+/// yet still pinned to a heap representation by a containment / boxing channel —
+/// held in a non-`ref struct` aggregate (including a `System.ValueTuple`, which
+/// cannot carry a ref-struct field), captured by a heap-class closure, escaping
+/// to the heap, or upcast to `Vesper.Fun<_,_>` / `obj`. The ref-struct-closure
+/// eligibility predicate is `LocalStack ∧ StackOnlyEligible`; this axis supplies
+/// the second conjunct, computed by a forward fixpoint over the same region graph.
 [<RequireQualifiedAccess>]
 type RegionRepr =
     /// No heap-repr channel reaches this region — eligible for the deferred
@@ -275,15 +259,11 @@ type RegionRepr =
     /// reference-type representation.
     | RequiresHeapRepr
 
-/// Codegen-facing stack-vs-heap verdict for one closure (ref-struct-emit-plan
-/// RS3 §Carrying the verdict), the conjunction of Axis 1
-/// (`EscapeState.LocalStack`) and Axis 2 (`RegionRepr.StackOnlyEligible`).
-/// Snapshotted per closure binder onto `TastFile.ClosureReprs` and surfaced on
-/// `Emit.Closure.Repr`. `Heap` is the only shape emitted today (the
-/// reference-type `Vesper.Fun<_,_>` subclass); `Stack` flags a closure the
-/// deferred readonly-struct work (brainstorm-closures) may lower onto a
-/// `valuetype`. The field is inert in v1 — emission still forces heap, so a
-/// `Stack` verdict changes no IL until that gate flips (RS4).
+/// Codegen-facing stack-vs-heap verdict for one closure: the conjunction of
+/// `EscapeState.LocalStack` (Axis 1) and `RegionRepr.StackOnlyEligible` (Axis 2).
+/// Snapshotted per closure binder onto `TastFile.ClosureReprs`. `Heap` is the only
+/// shape emitted today; `Stack` flags a closure the deferred readonly-struct work
+/// may lower onto a `valuetype`. Inert in v1 — emission still forces heap.
 [<RequireQualifiedAccess>]
 type ClosureRepr =
     /// The reference-type closure shape emitted today; the only verdict acted on.
@@ -294,12 +274,11 @@ type ClosureRepr =
 
 /// Per-type decision on whether the structural-equality triple
 /// (`GetHashCode()` / `Equals(object)` / `IEquatable<Self>::Equals(Self)`) ships
-/// on a record / union. Driven by C-Attr (`Passes/Attributes.fs`) off the
-/// type's `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<NoEquality>]`
-/// declarations and, when no attribute is present, the default rule
-/// (brainstorm-structural-equality §8): an all-immutable
-/// record or any union ⇒ `Structural`; a record with any mutable field ⇒
-/// `Reference`. An interface ignores it (no triple is ever synthesised).
+/// on a record / union. Computed by `Passes/Attributes.fs` off
+/// `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<NoEquality>]`
+/// declarations. Default: an
+/// all-immutable record or any union ⇒ `Structural`; a record with any mutable
+/// field ⇒ `Reference`. An interface ignores it (no triple is ever synthesised).
 [<RequireQualifiedAccess>]
 type EqualityVerdict =
     /// Emit the structural-equality triple + the `IEquatable<Self>`
@@ -316,13 +295,12 @@ type EqualityVerdict =
 
 /// Per-type decision on whether the structural-comparison pair
 /// (`int CompareTo(Self)` / `int CompareTo(object)` + `IComparable<Self>` /
-/// `IComparable` `InterfaceImpl`s) ships on a record / union. Driven by C-Attr
-/// (`Passes/Attributes.fs`) off the type's `[<StructuralComparison>]` /
-/// `[<NoComparison>]` declarations. Per brainstorm-comparison §9 the default
-/// is **opt-in**: an unannotated record / union is `NoComparison`, so
-/// ordering use sites (`r1 < r2`) are rejected unless the author writes
-/// `[<StructuralComparison>]`. See
-/// [`docs/brainstorm-comparison.md`](docs/brainstorm-comparison.md) §9.
+/// `IComparable` `InterfaceImpl`s) ships on a record / union. Computed by
+/// `Passes/Attributes.fs` off `[<StructuralComparison>]` /
+/// `[<NoComparison>]` declarations. Default is
+/// **opt-in**: an unannotated record / union is `NoComparison`, so ordering
+/// use sites (`r1 < r2`) are rejected unless `[<StructuralComparison>]` is
+/// present.
 [<RequireQualifiedAccess>]
 type ComparisonVerdict =
     /// Emit the structural-comparison pair + the `IComparable<Self>` /
@@ -686,11 +664,10 @@ and MemberSignature =
 /// Type-parameter constraint attached to a `TypeVar`. Built from
 /// `Constraint<'T>` CST nodes by `Unification.translateConstraints` and
 /// drained by `Unification.unify` when the TyVar is linked to a concrete
-/// shape. See `docs/constraints-plan.md`. v1 covers the trait-table
-/// subset (`equality`, `comparison`, `struct`, `not struct`, `: null`,
-/// `: not null`) plus `Coercion` (`:> T` subtype bounds, checked via
-/// `subsumes`); `MemberTrait`, `DefaultConstructor`, `Enum`, `Unmanaged`,
-/// `Delegate`, and `Default` are deferred.
+/// shape. v1 covers the trait-table subset (`equality`, `comparison`, `struct`,
+/// `not struct`, `: null`, `: not null`) plus `Coercion` (`:> T` subtype bounds,
+/// checked via `subsumes`); `MemberTrait`, `DefaultConstructor`, `Enum`,
+/// `Unmanaged`, `Delegate`, and `Default` are deferred.
 and [<RequireQualifiedAccess>] SemanticConstraintKind =
     | Equality
     | Comparison
@@ -854,8 +831,6 @@ module FrozenTypeBridge =
     let ofFrozen (ft: FrozenType) : SemType =
         instantiateWith (fun i -> TyTypar(TyparAxis.Declaring, i)) (fun j -> TyTypar(TyparAxis.Method, j)) ft
 
-    // --- Template freshening ----------------
-    //
     // A `FrozenType` template is an external descriptor's body with its open
     // typars baked as `FTTypar(Declaring,i)` / `FTTypar(Method,j)` placeholders.
     // The realiser family below resolves declaring placeholders to the caller's
@@ -1019,7 +994,6 @@ type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar *
 /// rebuilt by Freeze, not stored. The typar is a `TyVar` over the inline
 /// binding's quantified root, so `Inline.inlineExpand`'s typar substitution
 /// turns it into the call site's concrete type before the clause is tested.
-/// See docs/operators-plan.md (prereq 3).
 [<RequireQualifiedAccess>]
 type TStaticOptConstraint =
     /// `when ^T : SomeType` — holds when the type substituted for `typar` equals

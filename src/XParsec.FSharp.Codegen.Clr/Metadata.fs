@@ -40,7 +40,6 @@ type MetadataContext() =
     /// Cheap to recreate per body — the struct just wraps `ilBuilder`.
     member _.BodyStream = MethodBodyStreamEncoder(ilBuilder)
 
-    // ---- Def-table row cursors ----
     // Handle = row number = add order, so the next row's handle derives from
     // the builder's own row count. Callers must read these rather than maintain
     // a parallel count — a hand-kept counter can silently drift from the adds,
@@ -230,8 +229,7 @@ type MetadataContext() =
     /// The `abstract sealed` (static) holder for top-level members. `firstField`
     /// points past any preceding closure fields (the holder owns none), so its
     /// field range stays empty. `ns` is empty for the anonymous "Program" holder
-    /// and `Some "Vesper.Collections"` for a compiled F# module (`ListModule`,
-    /// R3 deferred) — both are the same `abstract sealed` static-class shape.
+    /// and `Some "Vesper.Collections"` for a compiled F# module (`ListModule`) — both are the same `abstract sealed` static-class shape.
     member _.AddProgramType
         (
             ns: string,
@@ -243,7 +241,7 @@ type MetadataContext() =
         ) : TypeDefinitionHandle =
         // A holder owning module-value fields has a side-effecting `.cctor`; drop
         // `BeforeFieldInit` so it runs before first member access
-        // (module-representation-plan §2.4). This is *first-access* (lazy,
+        // This is *first-access* (lazy,
         // per-holder) initialisation — real F# runs file-scope bindings eagerly
         // in file order via startup code, so a side-effecting initialiser could
         // observe a different order; the pure values in this slice's scope can't

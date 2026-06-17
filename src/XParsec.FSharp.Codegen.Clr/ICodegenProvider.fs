@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
@@ -50,7 +50,7 @@ type UnionMember =
     | Field of caseName: string * fieldIndex: int
     | Factory of caseName: string
     /// An augmentation member (`get_Head` instance property, `Single` static
-    /// method) of a generic union (R2). `metaName` is the emitted method name
+    /// method) of a generic union. `metaName` is the emitted method name
     /// (a property is `get_<name>`); the signature (`paramTys` / `retTy`) is in
     /// the type's declaring-typar markers, written into the member ref as `!0`
     /// with the parent `TypeSpec` supplying the instantiation — same shape as
@@ -74,8 +74,7 @@ type UnionMember =
 /// externally, `<closure>$n<!0>` from inside the closure's own `Invoke`). The
 /// member-ref *signature* is written in terms of the closure's own generic
 /// parameters (`!i`), with the instantiation riding the parent `TypeSpec`.
-/// Monomorphic closures keep using their `Def` tokens directly
-/// (function-representation-plan §Generic closures, C2).
+/// Monomorphic closures keep using their `Def` tokens directly.
 [<RequireQualifiedAccess>]
 type ClosureMember =
     /// The closure's `.ctor(capture0, capture1, …)`.
@@ -100,18 +99,18 @@ type RecordMember =
     | Field of fieldName: string
 
 /// Which member of an emitted *generic* class a `UserGenericMemberRef`
-/// resolves to (B-1). A class is shaped
+/// resolves to. A class is shaped
 /// like a record at the metadata level — one ctor taking the primary-ctor
 /// parameters in declaration order, one backing field per ctor parameter
-/// (keyed by source name) — plus the augmentation `members` (B-1 adds the
-/// instance / static method/property surface unions already carry). A
+/// (keyed by source name) — plus the augmentation `members` (instance / static
+/// method/property surface unions already carry). A
 /// monomorphic class skips this entirely (its `Def` tokens suffice).
 [<RequireQualifiedAccess>]
 type ClassMember =
     /// The primary `instance void .ctor(p0, p1, …)` — parameter types are
     /// the ctor params in declaration order.
     | Ctor
-    /// A secondary `instance void .ctor(p0, …)` (B-11) selected by its parameter
+    /// A secondary `instance void .ctor(p0, …)` selected by its parameter
     /// signature — F# forbids two ctors of the same signature, so `paramTys`
     /// (the ctor params in declaration order, written in the type's declaring-typar
     /// markers) keys the overload. Distinct from `Ctor` because the param types are
@@ -139,8 +138,7 @@ type ClassMember =
 /// Discriminator across the user-emitted generic-type-member families
 /// (`UserGenericMemberRef`). Each variant wraps the family's specific
 /// member info, preserving the case data (a record's field name, a union
-/// case's payload index, …) that a pure ordinal couldn't carry. Phase 1
-/// adds `ClassMember` alongside the existing three families;
+/// case's payload index, …) that a pure ordinal couldn't carry.
 /// `ClrProvider.userGenericMemberRef`'s dispatch grows one arm — no fourth
 /// `Abstract` sibling on `ICodegenProvider`.
 [<RequireQualifiedAccess>]
@@ -182,11 +180,11 @@ type FormatHandles =
     }
 
 /// The `Vesper.IFormatSink` member refs the synthesised `IStructuralFormattable.Format`
-/// body `callvirt`s (P3 backend synthesis). One handle per declarative layout
+/// body `callvirt`s. One handle per declarative layout
 /// primitive; the `Format` body interleaves them around the type's fields exactly
 /// as the hand-written `Point`/`Opt` impls do (`StructuralFormatTests.fs`). All are
 /// `instance void` on the `IFormatSink` interface — the sink builds a `Doc` tree and
-/// lays it out, so the synthesised IL stays straight-line (D-D).
+/// lays it out, so the synthesised IL stays straight-line.
 type FormatSinkHandles =
     {
         /// `void Text(string)` — a literal run that never breaks.
@@ -255,7 +253,7 @@ type ICodegenProvider =
     /// A `MemberRef` to one member of an emitted *generic* closure `name`
     /// (a synthetic `<closure>$n` name — closures carry no `SymbolKey`, so they
     /// ride their own seam rather than `UserGenericMemberRef`), instantiated at
-    /// `args` (function-representation-plan §Generic closures C2/C3).
+    /// `args`.
     abstract UserClosureMemberRef: name: string * args: FrozenType list * which: ClosureMember -> EntityHandle
 
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated
@@ -287,8 +285,7 @@ type ICodegenProvider =
     /// The `_tag : int` discriminator field `MemberRef` on a *referenced-package*
     /// union, instantiated at `tyArgs`, plus `caseName`'s tag value (its
     /// zero-based index in declaration order). The cross-package `match` arm reads
-    /// `scrut._tag` and compares it against this value (vesper-lib-test-plan Gap 2
-    /// Layer C); the union emitter (`NominalEmit.fs`) fixes both the field name and
+    /// `scrut._tag` and compares it against this value; the union emitter (`NominalEmit.fs`) fixes both the field name and
     /// the declaration-order tagging. `ValueNone` ⇒ unknown union / case.
     abstract ExternalUnionTag:
         key: SymbolKey * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
@@ -302,7 +299,7 @@ type ICodegenProvider =
             (EntityHandle * FrozenType) voption
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a
-    /// call site (R3). `handle` is the method's (predicted) `MethodDefinition`;
+    /// call site. `handle` is the method's (predicted) `MethodDefinition`;
     /// `instTypes` the per-typar instantiation recovered by matching the method's
     /// declared parameter types against the call's actual argument types. A
     /// recursive self-call passes the method's own typars (encoded `!!i` via the
@@ -320,14 +317,13 @@ type ICodegenProvider =
         declArity: int * methodArity: int * openT: FrozenType * instT: FrozenType -> FrozenType list * FrozenType list
 
     /// Apply a function *value* of type `funcTy` to one argument —
-    /// `Vesper.Fun\`2::Invoke` (R1). Receiver and argument are both already on the
+    /// `Vesper.Fun\`2::Invoke`. Receiver and argument are both already on the
     /// stack (receiver beneath), so the recipe's `ArgCount` is 2.
     abstract TryEmitInvoke: funcTy: FrozenType -> CallRecipe voption
 
     /// Apply a value that is an FSharp.Core `FSharpFunc` (not a `Vesper.Fun`) —
     /// `FSharpFunc\`2::Invoke`. R1's one remaining caller is the cold printf
-    /// printer returned by `PrintFormatLine`; the printf engine retargets it
-    /// (handoff §R9).
+    /// printer returned by `PrintFormatLine`; the printf engine retargets it.
     abstract TryEmitFSharpFuncInvoke: funcTy: FrozenType -> CallRecipe voption
 
     /// `EqualityComparer<'T>.Default` getter and its `GetHashCode(!0)` — the
@@ -339,7 +335,7 @@ type ICodegenProvider =
     abstract EqualityComparerGetHashCode: elem: FrozenType -> EntityHandle
 
     /// Mint a `MemberRef` for a `TExpr.ExternalMember` from its interned
-    /// `SymbolKey` (the P4 identity bridge). The key
+    /// `SymbolKey`. The key
     /// pins the declaring type + member (assembly/namespace/name + member name +
     /// overload `argSig`); `memberTy` is the access's *instantiated* type (a
     /// property's type, or a method's curried `arg → … → ret`), from which the

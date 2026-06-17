@@ -1,30 +1,30 @@
 namespace        'namespace'       KWNamespace         tok=   0  pos=   0
                  'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Record:
-    [<           '[<'              KWLAttrBracket      tok=  27  pos= 539
+    [<           '[<'              KWLAttrBracket      tok=  19  pos= 263
     NamedType:
-      Ident      'ReferenceE...'   Identifier          tok=  28  pos= 541
-    >]           '>]'              KWRAttrBracket      tok=  29  pos= 558
-    [<           '[<'              KWLAttrBracket      tok=  31  pos= 561
+      Ident      'ReferenceE...'   Identifier          tok=  20  pos= 265
+    >]           '>]'              KWRAttrBracket      tok=  21  pos= 282
+    [<           '[<'              KWLAttrBracket      tok=  23  pos= 285
     NamedType:
-      Ident      'NoComparis...'   Identifier          tok=  32  pos= 563
-    >]           '>]'              KWRAttrBracket      tok=  33  pos= 575
-    TypeName     'Ref'             Identifier          tok=  37  pos= 583
+      Ident      'NoComparis...'   Identifier          tok=  24  pos= 287
+    >]           '>]'              KWRAttrBracket      tok=  25  pos= 299
+    TypeName     'Ref'             Identifier          tok=  29  pos= 307
     TyparDefns:
-      <          '<'               op_LessThan         tok=  38  pos= 586
+      <          '<'               op_LessThan         tok=  30  pos= 310
       Typar.Named:
-                 ''T'              TypeParameter       tok=  39  pos= 587
-      >          '>'               op_GreaterThan      tok=  40  pos= 589
-    =            '='               OpEquality          tok=  42  pos= 591
-    {            '{'               KWLBrace            tok=  44  pos= 593
+                 ''T'              TypeParameter       tok=  31  pos= 311
+      >          '>'               op_GreaterThan      tok=  32  pos= 313
+    =            '='               OpEquality          tok=  34  pos= 315
+    {            '{'               KWLBrace            tok=  36  pos= 317
       Field:
-        mutable  'mutable'         KWMutable           tok=  46  pos= 595
-        ident    'contents'        Identifier          tok=  48  pos= 603
-        :        ':'               OpColon             tok=  49  pos= 611
+        mutable  'mutable'         KWMutable           tok=  38  pos= 319
+        ident    'contents'        Identifier          tok=  40  pos= 327
+        :        ':'               OpColon             tok=  41  pos= 335
         VarType:
           Typar.Named:
-                 ''T'              TypeParameter       tok=  51  pos= 613
-    }            '}'               KWRBrace            tok=  53  pos= 616
+                 ''T'              TypeParameter       tok=  43  pos= 337
+    }            '}'               KWRBrace            tok=  45  pos= 340
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

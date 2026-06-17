@@ -5,39 +5,16 @@ open System.Buffers
 open System.Globalization
 open System.IO
 
-// formatter.fs — the Vesper-compiled implementation of `formatter.fsi`, ported
-// from the hand-written C# `Formatter.cs` (the printf write-through handler,
-// vesper-printf-plan §P1). This is the PP5f integration of the printf-port-steps
-// rungs: the field block (PP4 / PP2a), the buffer-copy surface (PP5a), unsigned
-// grow arithmetic (PP5b), the `IFormattable` hole dispatch (PP5c), and the
-// `null` pattern (PP4).
-//
-// STATUS (2026-06-15): PP6 compile milestone landed. This full port now compiles
-// end-to-end through this repo's backend to a BCL-only `Vesper.Printf.dll` — it is
-// listed in `manifest.toml`'s `impl` and guarded by `PackageBuildTriage`
-// "Vesper.Printf builds BCL-only (formatter.fs, PP6)". The front-end gaps PP5f
-// surfaced (overload-resolution-bug.md Gaps A–F) plus the parameterless
-// `Span<char>()` ctor (fixed in `InferCtor.inferExternalCtorOn` — a 0-arg external
-// value-type construction is `default(T)`) are all closed. The *runtime swap* —
-// removing the C# `Formatter.cs` from the compile and binding printf golden /
-// RunnableAppTests against this handler — is deferred: it needs `StructuralFormat.cs`
-// (the still-C# `%A` engine, PP7) split into its own assembly, since the
-// Vesper-compiled `Formatter` and the C# `StructuralPrinter` can't share the
-// `Vesper.Printf` assembly name. See printf-port-steps.md PP6.
+// Vesper-compiled implementation of `formatter.fsi`, ported from the C# `Formatter.cs`
+// (the printf write-through handler).
 //
 // Deviations from `Formatter.cs`, each byte-identical:
 //   * `AppendFormatted` uses the `IFormattable.ToString(format, provider)` path
-//     rather than the no-alloc `ISpanFormattable.TryFormat` span fast-path. The
-//     fast-path is the PP5d optimization (proven independently); the ToString
-//     path produces identical text (same culture, same format string) and keeps
-//     the hot member free of the grow-retry loop. printf-port-steps PP5f
-//     sanctions this ("without [PP5d] AppendFormatted uses the PP5c
-//     IFormattable.ToString path — still byte-identical").
-//   * `Flush` writes `this.Chars.Slice(0, this.Pos).ToString()` via
-//     `TextWriter.Write(string)` rather than `TextWriter.Write(ReadOnlySpan<char>)`
-//     — F# has no implicit `Span<char>` → `ReadOnlySpan<char>` conversion; the
-//     string overload is byte-identical (printf-port-steps PP5f).
-//   * C#'s `?.` / `??` become explicit `null` matches (PP4).
+//     rather than the no-alloc `ISpanFormattable.TryFormat` span fast-path; same
+//     text output (same culture, same format string).
+//   * `Flush` uses `TextWriter.Write(string)` rather than `Write(ReadOnlySpan<char>)`
+//     — F# has no implicit `Span<char>` → `ReadOnlySpan<char>` conversion.
+//   * C#'s `?.` / `??` become explicit `null` matches.
 
 /// Stack-only handler that accumulates formatted text and flushes it to a sink.
 /// Constructed and driven by the backend; users never name it.
@@ -199,8 +176,7 @@ type Formatter =
 
     /// Writes `value` as copy-pasteable Vesper source for an F# `%A` hole, laid
     /// out within a column budget of `width` chars (0 ⇒ never break) and a node
-    /// budget of `size` (F# PrintSize). Drives the reflection-free structural
-    /// engine (`StructuralPrinter`, still C# — PP7).
+    /// budget of `size` (F# PrintSize).
     member this.AppendStructured(value: 'T, width: int, size: int) =
         this.AppendLiteral(StructuralPrinter.Print(value, width, size))
 
@@ -280,10 +256,6 @@ type Formatter =
         let newCapacity =
             Math.Max(requiredMinCapacity, Math.Min(uint this.Chars.Length * 2u, MaxChars))
 
-        // `Int32.MaxValue` (a CLR `const` field) is written as its literal value:
-        // the metadata provider surfaces no fields, so a `const`-field read has no
-        // lowering (a general gap, off the printf-port path). Byte-identical —
-        // `int.MaxValue` *is* `2147483647`.
         let arraySize =
             int (Math.Clamp(newCapacity, uint MinimumArrayPoolLength, 2147483647u))
 

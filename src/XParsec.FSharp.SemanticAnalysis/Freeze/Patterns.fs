@@ -18,12 +18,12 @@ module internal FreezePatterns =
     /// *external* (referenced-package) union the provider knows? Mirrors the
     /// Unification recogniser (`tryExternalCasePattern`) for the Freeze pattern
     /// path, so a cross-package `match o with Some x -> …` lowers to `TPat.Union`
-    /// exactly as the local-union arm does (vesper-lib-test-plan Gap 2 Layer C).
+    /// exactly as the local-union arm does.
     /// The lowering is identical to the local case — only the recognition differs.
     let private isExternalUnionCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : bool =
         // Mirror `tryExternalCasePattern`: a bare reference to an RQA union's case
         // is not recognised, so it lowers as a binder, not `TPat.Union`
-        // (opens-overhaul-plan Gap 1). The qualified form still resolves.
+        // (bare RQA case). The qualified form still resolves.
         ctx.Provider.TryLookupUnionCase caseName
         |> ValueOption.exists (fun uc -> uc.ResolvesWith qualifier)
 

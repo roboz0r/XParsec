@@ -3,28 +3,21 @@ module XParsec.FSharp.Codegen.Clr.Tests.SeqModuleTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The behavioral runtime suite for `Vesper.Seq` (vesper-lib-test-plan Phase 3) —
-// the `Seq` module over `seq<'T>` (= `IEnumerable<'T>`). The four minimal
-// reference impls are eager explicit-enumerator terminals (`fold`/`reduce`/
-// `toArray`, each driving `source.GetEnumerator()` / `MoveNext` / `Current`) plus
-// the lazy `truncate` (delegating to the generic external
-// `System.Linq.Enumerable.Take<TSource>`).
+// The behavioral runtime suite for `Vesper.Seq` — the `Seq` module over
+// `seq<'T>` (= `IEnumerable<'T>`). The four minimal reference impls are eager
+// explicit-enumerator terminals (`fold`/`reduce`/`toArray`, each driving
+// `source.GetEnumerator()` / `MoveNext` / `Current`) plus the lazy `truncate`
+// (delegating to `System.Linq.Enumerable.Take<TSource>`).
 //
-// Two test groups, both DRIVER PROGRAMS (the reflection route the pure-data
-// packages use does not fit here — every function takes a real `seq<'T>`, which
-// is impractical to mint by reflection, and the HOFs take `Vesper.Fun`s):
+// Both test groups use DRIVER PROGRAMS (the reflection route does not fit here —
+// every function takes a real `seq<'T>`):
 //   * `SeqModuleRuntime` — `fold` / `reduce` / `toArray` / `truncate` over a
 //     concrete `seq<int>`.
 //   * `SeqFrontEnd` — the cheap analysis-only regression guard.
 //
-// The `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)`, a real
-// BCL `IEnumerable<int>` already proven end-to-end (ControlFlowTests/ForInTests).
-// The Vesper cons-list *declares* `IEnumerable<'T>` in `list.fsi` but does not
-// implement it in `list.fs`, so a list value is not a runtime seq
-// (get-enumerator-gaps.md Gap 2) — `Range` sidesteps that, giving a genuine
-// enumerable without depending on the user-source enumeration gap. Folders /
-// reducers are *curried* (`fun s -> fun x -> …`) per the Freeze multi-arg-lambda
-// gap the plan documents.
+// The `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` — a real
+// BCL `IEnumerable<int>`. Folders / reducers are *curried* (`fun s -> fun x -> …`)
+// because Freeze emits multi-arg lambdas as curried.
 
 // ---- driver programs: fold / reduce / toArray / truncate --------------------
 
@@ -123,8 +116,8 @@ let runtimeTests =
         ]
 
 // ---- front-end regression guard (analysis only) ------------------------------
-// The cheap probe: `Seq.fold` / `reduce` / `truncate` / `toArray` type-check
-// through the Seq contract stack (Core + List + Seq) without running.
+// `Seq.fold` / `reduce` / `truncate` / `toArray` type-check through the Seq
+// contract stack without running.
 
 [<Tests>]
 let frontEndTests =

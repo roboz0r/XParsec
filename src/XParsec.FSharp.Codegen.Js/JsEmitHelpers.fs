@@ -4,13 +4,9 @@ open System.Globalization
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-/// The walker's recur-free leaf helpers — the JS analogue of the CLR backend's
-/// `EmitPattern` / `EmitResolve` / `EmitLower` modules, which are factored out of
-/// the `buildExpr` clique and compiled *before* it precisely because they never
-/// call back into expression emission. None of these touch `WalkCtx` either, so
-/// they depend only on `JsAst` + the frozen TAST: identifier naming, scalar-literal
-/// formatting, the pure-`let` substitution, and the curried-arrow / tail-self-call
-/// shaping. `EmitJs` `open`s this module, so its arms reference these unqualified.
+/// Leaf helpers for the walker — no `WalkCtx`, no back-calls into expression
+/// emission. Covers identifier naming, literal formatting, pure-`let` substitution,
+/// and curried-arrow / tail-self-call shaping. `EmitJs` opens this module.
 module JsEmitHelpers =
 
     // ---- Variable names ------------------------------------------------------
@@ -20,10 +16,8 @@ module JsEmitHelpers =
     let isIdentCont (c: char) =
         System.Char.IsLetterOrDigit c || c = '_' || c = '\''
 
-    /// JS reserved words that are legal F# identifiers and could be recovered as a
-    /// binder name — most notably `this` (the `member this.X` receiver). A collision
-    /// is suffixed with `$` (illegal in F#, so collision-free); binder and uses share
-    /// the key and both go through `identName`, so the rewrite stays consistent.
+    /// JS reserved words that are legal F# identifiers. A collision is suffixed with `$`
+    /// (illegal in F#, so collision-free); binder and uses both go through `identName`.
     let jsReserved =
         Set.ofList
             [
@@ -70,15 +64,9 @@ module JsEmitHelpers =
     let jsSafe (name: string) =
         if Set.contains name jsReserved then name + "$" else name
 
-    /// A `Var` / binder `NodeKey` → its JS identifier. Binder and uses share the key,
-    /// so a key-derived name lines them up. A *real* binder's `Offset` indexes the
-    /// source identifier, recovered verbatim (apostrophes → `_`); otherwise `_v<off>`.
-    ///
-    /// A *synthetic* key (`IsSynthetic` — e.g. `InlineExpansion`'s operand `let`s)
-    /// carries a per-build counter in `Offset`, NOT a source position, so it must NOT
-    /// index the source (that once recovered `"amespace"` from the `namespace` header).
-    /// It gets `_s<off>` — disjoint from real binders' `_v<off>`, so the counter can't
-    /// collide with a real offset.
+    /// `NodeKey` → JS identifier. Real binders recover the source name from `Offset`
+    /// (apostrophes → `_`). Synthetic keys (`IsSynthetic`) carry a per-build counter,
+    /// NOT a source position — they get `_s<off>` to stay disjoint from `_v<off>`.
     let identName (source: string voption) (k: NodeKey) : string =
         match source with
         | ValueSome s when
@@ -105,9 +93,7 @@ module JsEmitHelpers =
         elif System.Double.IsNegativeInfinity d then "-Infinity"
         else d.ToString("R", CultureInfo.InvariantCulture)
 
-    /// A scalar `Const` value → its JS expression. Shared by the expression arm
-    /// (`buildExpr`) and a `Const` *pattern* (whose equality test compares the
-    /// scrutinee against this literal).
+    /// A scalar `Const` value → its JS expression. Shared by `buildExpr` and `Const` patterns.
     let constExpr (value: TConstValue) (loc: JsLoc voption) : JsExpr =
         match value with
         | TConstValue.Int n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
@@ -125,24 +111,19 @@ module JsEmitHelpers =
         // The unit value is `undefined` — JS has no unit, and `undefined` is the
         // harmless value a discarded effectful expression yields.
         | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
-        | TConstValue.Decimal _ -> failwithf "EmitJs (Step 1): decimal literals are not yet supported"
+        | TConstValue.Decimal _ -> failwithf "EmitJs: decimal literals are not supported"
 
     // ---- Pure-`let` substitution ---------------------------------------------
 
-    /// A value safe to splice at its use site(s): no side effects and no
-    /// evaluation-order dependence, so moving it (even duplicating it) preserves
-    /// semantics. Covers the operands `Passes.InlineExpansion` `let`-binds when it
-    /// splices an operator body (`2 + 2` → `let a = 2 in let b = 2 in (# … a b #)`):
-    /// `Const`/`Var`, and a pure `ILIntrinsic` (the operator templates) over pure
-    /// args.
+    /// A value safe to duplicate at use sites: no side effects, no evaluation-order
+    /// dependence. Covers `Const`/`Var` and `ILIntrinsic` templates over pure args.
     let rec isPureValue (e: Frozen.TExpr) : bool =
         match e with
         | TExprG.Const _
         | TExprG.Var _ -> true
         | TExprG.ILIntrinsic(_, _, args, _, _) -> EqArray.toList args |> List.forall isPureValue
-        // A pure `let` chain (the nested operand lets of a composite operator body,
-        // `a + b + c`) is pure when both value and body are — so the recursive collapse
-        // reduces it to a clean template instead of an IIFE over a nameless synthetic.
+        // A pure `let` chain is pure when both value and body are — the recursive
+        // collapse reduces it to a clean template rather than an IIFE.
         | TExprG.Let(TPatG.NamedSimple _, value, body, _, _) -> isPureValue value && isPureValue body
         | _ -> false
 
@@ -155,16 +136,10 @@ module JsEmitHelpers =
 
     // ---- Functions -----------------------------------------------------------
 
-    /// A lambda parameter's JS binding form. `NamedSimple` reuses `identName`; `unit`
-    /// and `Wildcard` get fresh unused names (the latter because JS array holes shift
-    /// later positions); a tuple becomes an array-destructuring pattern (`[a, b]`),
-    /// recursing for nesting — its leaf binders carry the same `NodeKey`s the body's
-    /// `Var`s use, so they line up. Lambda params are irrefutable, so no `Const` /
-    /// `Union` leaf appears here.
-    //
-    // TODO (boundary): a tuple leaf smuggles a destructuring pattern through this
-    // `string` (emitted verbatim into `Arrow`'s `string list` params). The seam wants
-    // a real `JsPattern` on `Arrow.parameters` once object-destructuring params arrive.
+    /// A lambda parameter → its JS binding form. Wildcards get fresh unused names (JS
+    /// array holes shift later positions); a tuple becomes `[a, b]` destructuring.
+    // TODO: tuple leaves smuggle a destructuring pattern through a `string` (emitted
+    // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
     let rec lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
         match p with
         | TPatG.NamedSimple(k, _, _) -> identName source k
@@ -173,7 +148,7 @@ module JsEmitHelpers =
         | TPatG.Tuple(items, _, _) ->
             let parts = EqArray.toList items |> List.map (lambdaParamName source)
             "[" + System.String.Join(", ", parts) + "]"
-        | other -> failwithf "EmitJs (Step 5): unsupported lambda parameter pattern %A" other
+        | other -> failwithf "EmitJs: unsupported lambda parameter pattern %A" other
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.
@@ -184,21 +159,15 @@ module JsEmitHelpers =
             lambdaParamName source p :: names, inner
         | _ -> [], e
 
-    /// Nest a non-empty parameter-name list into a chain of *unary* arrows around
-    /// `innermost` (`["a"; "b"]` → `(a) => (b) => <innermost>`). The shared shape of
-    /// `emitFunction`'s lambda emission and a member function's receiver-then-params
-    /// chain.
+    /// `["a"; "b"]` → `(a) => (b) => <innermost>`. Shared by lambda and member emission.
     let rec nestUnaryArrows (loc: JsLoc voption) (names: string list) (innermost: JsFnBody) : JsExpr =
         match names with
         | [ last ] -> JsExpr.Arrow([ last ], innermost, loc)
         | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nestUnaryArrows loc rest innermost), loc)
         | [] -> failwith "EmitJs: nestUnaryArrows on an empty parameter list"
 
-    /// `e` is a fully-saturated self-call of the function bound to `selfKey` at
-    /// `arity`; yields its argument expressions in source order. The single
-    /// definition of "tail self-call" shared by the detector (`hasTailSelfCall`)
-    /// and the rewriter (`buildTailBody`), so the two can't drift and the spine is
-    /// walked once.
+    /// Active pattern for a fully-saturated tail self-call — shared by the detector
+    /// (`hasTailSelfCall`) and rewriter (`buildTailBody`) so they can't drift.
     let (|TailSelfCall|_|) (selfKey: NodeKey) (arity: int) (e: Frozen.TExpr) : Frozen.TExpr list option =
         match e with
         | TExprG.App _ ->

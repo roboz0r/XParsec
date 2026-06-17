@@ -183,7 +183,7 @@ module VesperLibTypeTranslate =
     /// union's cases (and a module's members) are NOT in scope unqualified, so a
     /// bare `Red` for `[<RequireQualifiedAccess>] type Color = Red | …` must NOT
     /// resolve (F# forbids the short form). Drives the resolution-side suppression
-    /// of bare RQA case names (opens-overhaul-plan Gap 1).
+    /// of bare RQA case names.
     let isRequireQualifiedAccess (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed input attrs [ "RequireQualifiedAccess" ]
         |> ValueOption.isSome

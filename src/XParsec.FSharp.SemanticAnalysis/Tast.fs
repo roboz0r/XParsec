@@ -87,9 +87,7 @@ type TPatG<'ty, 'tok> =
     | TypeTestAs of testTy: 'ty * inner: TPatG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `null` literal pattern (`match x with null -> …`). Refutable, binds
     /// nothing: codegen lowers it to a `ldloc; brtrue nextLabel` (a non-null
-    /// scrutinee skips the arm). `ty` is the scrutinee's (reference) type. The
-    /// explicit-null-match shape the `Formatter` port replaces C#'s `?.` with
-    /// (printf-port-steps.md PP4).
+    /// scrutinee skips the arm). `ty` is the scrutinee's (reference) type.
     | Null of ty: 'ty * tok: 'tok
 
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
@@ -125,12 +123,11 @@ type HoleSpecG<'ty> =
         | Some s -> Some(int s)
         | None -> None
 
-/// How an instance member access dispatches (inheritance-plan §Subtle
-/// migrations). `Self` is the normal virtual dispatch (`callvirt`); `Base`
-/// is a `base.M(...)` / `base.X` access, which must target the *parent's*
-/// method slot non-virtually (`call`) so an `override` doesn't recurse into
-/// itself. Set by Freeze when the receiver's head binding site is a class's
-/// `BaseKey`; read by codegen to pick the call opcode.
+/// How an instance member access dispatches. `Self` is the normal virtual
+/// dispatch (`callvirt`); `Base` is a `base.M(...)` / `base.X` access, which
+/// must target the *parent's* method slot non-virtually (`call`) so an
+/// `override` doesn't recurse into itself. Set by Freeze when the receiver's
+/// head binding site is a class's `BaseKey`; read by codegen to pick the call opcode.
 [<RequireQualifiedAccess>]
 type CallVia =
     | Self
@@ -294,7 +291,7 @@ type TExprG<'ty, 'tok> =
         isProperty: bool *
         ty: 'ty *
         tok: 'tok
-    /// Lowered printf / string-interpolation (vesper-printf-plan P1, D9):
+    /// Lowered printf / string-interpolation:
     /// `segments` is the interleaved literal / hole sequence in source order,
     /// each hole carrying its argument expression inline (codegen folds left to
     /// right, evaluating each arg at its hole). NOT a generic saturated call —
@@ -309,7 +306,6 @@ type TExprG<'ty, 'tok> =
     /// The value-level sibling of the type-level `(# "..." #)` intrinsic carried
     /// in `TastFile.IntrinsicReprTypes`; operator `.fs` bodies (`(=)` → `ceq`,
     /// `(+)` → `add`, …) lower to this so codegen owns no per-operator dispatch.
-    /// See docs/operators-plan.md.
     ///
     /// `typeOperand` carries the single type token a tokenful array opcode needs
     /// (`newarr`/`ldelem` → the element type); `ValueNone` for the balanced
@@ -354,7 +350,7 @@ type TExprG<'ty, 'tok> =
     /// the named static member, rewrites the whole node to a `StaticMethodCall` on it
     /// (the F# "^T is a nominal type" static-optimization condition). It is therefore
     /// resolved — or its clause discarded by static-opt selection — during
-    /// `InlineExpansion` and never reaches codegen. See docs/operators-plan.md.
+    /// `InlineExpansion` and never reaches codegen.
     | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
 
 and TMatchArmG<'ty, 'tok> =
@@ -401,13 +397,10 @@ type ClassValueKind =
 
 [<RequireQualifiedAccess>]
 type TDeclG<'ty, 'tok> =
-    /// The `value` body is retained verbatim regardless; when `isInline` is set
-    /// the flag tells codegen it may expand the body per call site (via
-    /// `Inline.inlineExpand`) rather than emit a single callable. See
-    /// [front-end-gaps-plan](docs/front-end-gaps-plan.md) §C.
+    /// `isInline` lets codegen expand the body per call site via `Inline.inlineExpand`
+    /// rather than emit a single callable.
     | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * isInline: bool * ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok> * ty: 'ty
-    /// Emits only the interface shape; records / unions / classes came later.
     | Type of TTypeDeclG<'ty, 'tok>
 
 and TTypeDeclG<'ty, 'tok> =
@@ -531,7 +524,7 @@ and TUnionCaseG<'ty> =
 /// type — with the declaring type's typar markers (`TyConst "'T"`) for a
 /// generic record, exactly like `TUnionCase.Fields`. `IsMutable` is the
 /// source-level `mutable` annotation; downstream consumers (the equality
-/// triple's "all-immutable record" gate, C-Attr) read it from here rather
+/// triple's "all-immutable record" gate) read it from here rather
 /// than re-querying `ctx.Types.Record`.
 and TRecordFieldG<'ty> =
     {
@@ -707,27 +700,22 @@ type TastFileG<'ty, 'tok> =
         /// A *top-level* (implicit-"Program"-module) binding's `NodeKey.Raw` → its
         /// source name. Top-level bindings (an exe's last file, FS0222) record no
         /// `ModuleMemberInfo`; this names a top-level value lowered to a
-        /// Program-holder static field (module-representation-plan §10). Empty for a
-        /// library or a file led by a `module`/`namespace` declaration.
+        /// Program-holder static field. Empty for a library or a file led by a
+        /// `module`/`namespace` declaration.
         TopLevelNames: Map<uint64, string>
-        /// A closure binder's `NodeKey.Raw` → its RS3 stack-vs-heap verdict
+        /// A closure binder's `NodeKey.Raw` → its stack-vs-heap verdict
         /// (the `EscapeState.LocalStack ∧ RegionRepr.StackOnlyEligible`
         /// conjunction), snapshotted from `ctx.Bindings.Escape` /
         /// `ctx.Bindings.ClosureRepr` after `Regions.run`. Read by codegen's
         /// `discoverClosures` to set `Emit.Closure.Repr`; a binder absent here
         /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
-        /// still forces heap (ref-struct-emit-plan RS3).
+        /// still forces heap.
         ClosureReprs: Map<uint64, ClosureRepr>
     }
 
-// ---------------------------------------------------------------------------
-// Central monomorphic SemType aliases (no-op parameterization over the type field).
-// Every consumer today speaks `SemType`; these aliases let the bare TAST names
-// continue to mean exactly that, so parameterizing the cluster above is a pure
-// additive change ([[feedback_additive_changes_with_aliases]]). The
-// cutover introduces a parallel `FrozenType` instantiation (`freeze : TExprG<SemType>
-// -> TExprG<FrozenType>`) without re-touching every annotation here.
-// ---------------------------------------------------------------------------
+// Central monomorphic SemType aliases. Every consumer today speaks `SemType`;
+// these aliases keep the bare TAST names stable as an additive change. The
+// cutover adds a parallel `FrozenType` instantiation without re-touching annotations.
 
 type TPat = TPatG<SemType, SyntaxToken>
 type HoleSpec = HoleSpecG<SemType>
@@ -750,13 +738,8 @@ type TBaseCtorCall = TBaseCtorCallG<SemType, SyntaxToken>
 type TAbstractMethod = TAbstractMethodG<SemType>
 type TastFile = TastFileG<SemType, SyntaxToken>
 
-// ---------------------------------------------------------------------------
-// Parallel frozen aliases. The `SemType → FrozenType`
-// freeze (the final pipeline step; `Pipeline.analyse`'s output) and codegen speak
-// these. The bare names above STAY `SemType` (inference, the SemType-domain passes
-// `Regions` / `RefCellPromotion` / `ResolvedTypes`, tests, any non-codegen API).
-// `SemType` becomes codegen-irrelevant, not gone.
-// ---------------------------------------------------------------------------
+// Parallel frozen aliases. Codegen and the freeze step speak these; the bare names
+// above STAY `SemType` (inference, Regions, tests, any non-codegen API).
 
 module Frozen =
     type TPat = TPatG<FrozenType, SyntaxToken>

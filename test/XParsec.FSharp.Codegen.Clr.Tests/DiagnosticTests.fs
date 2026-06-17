@@ -3,12 +3,11 @@ module XParsec.FSharp.Codegen.Clr.Tests.DiagnosticTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Layer 1, the negative direction (docs/codegen-test-strategy-plan.md): the
-// suite is almost entirely happy-path, so a regression that *accepts* bad input
-// — or silently changes a diagnostic — goes unseen. This table pins a handful of
-// errors the front end already emits, asserting on a stable substring of the
-// message (the analysis carries no diagnostic *codes* to key off yet). Each row
-// is a `failsWith` over a program that must be rejected, for the stated reason.
+// The negative direction: the suite is almost entirely happy-path, so a
+// regression that *accepts* bad input — or silently changes a diagnostic — goes
+// unseen. This table pins a handful of errors the front end emits, asserting on
+// a stable substring of the message. Each row is a `failsWith` over a program
+// that must be rejected, for the stated reason.
 
 [<Tests>]
 let tests =
@@ -50,10 +49,8 @@ let tests =
                     "let notInline (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else false\nprintfn \"%b\" (notInline true true)"
                 ] -> test src { failsWith fragment src }
 
-            // a front-end-only positive: the duck-typed `for-in` over a source
-            // that implements only the non-generic IEnumerable type-checks (its
-            // codegen is deferred), so `typeChecks` — not `runs` — is the right
-            // assertion. Mirrors the ForInTests §4.4 anchor.
+            // The duck-typed `for-in` over a source that implements only the
+            // non-generic IEnumerable type-checks but is not run here.
             yield
                 test "duck-typed for-in over BitArray type-checks (codegen deferred)" {
                     typeChecks "let f (ba: System.Collections.BitArray) =\n    for x in ba do\n        ()"

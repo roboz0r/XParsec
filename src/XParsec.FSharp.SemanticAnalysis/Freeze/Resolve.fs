@@ -436,7 +436,7 @@ module internal FreezeResolve =
     /// through the provider's reverse index; the case name alone is returned (the
     /// CtorRef arms read the declaring union off the node's resolved `TyUnion`
     /// type), so the local and external paths emit `TExpr.UnionCons` identically
-    /// (vesper-lib-test-plan Gap 2 Layer B).
+
     let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
@@ -445,7 +445,7 @@ module internal FreezeResolve =
         else
             // A local *or* external union declares `n` as a case. A bare reference
             // to an RQA external case is excluded — only its qualified form (the
-            // length-2 arms below) is a ctor ref (opens-overhaul-plan Gap 1).
+            // length-2 arms below) is a ctor ref.
             let isCase (n: string) =
                 ctx.Types.CtorIndex.ContainsKey n
                 || (ctx.Provider.TryLookupUnionCase n
@@ -551,8 +551,7 @@ module internal FreezeResolve =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Dispatch discriminator for an instance member access (inheritance-plan
-    /// §Subtle migrations). A `base.M(...)` / `base.X` receiver translates to a
+    /// Dispatch discriminator for an instance member access. A `base.M(...)` / `base.X` receiver translates to a
     /// `TExpr.Var` whose binding site is some class's `BaseKey`; that must
     /// dispatch non-virtually so an `override` calling `base.M()` doesn't recurse
     /// into itself. The check is O(classes) per access — the gap doc accepts this

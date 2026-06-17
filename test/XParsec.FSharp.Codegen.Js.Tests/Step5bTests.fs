@@ -3,26 +3,11 @@ module XParsec.FSharp.Codegen.Js.Tests.Step5bTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 5b (Phase 1) — the cons-list *literals* + `[]`/`::` *patterns*.
-// On the JS target there is no FSharp.Core, so `DefaultListIsVesper` is always on
-// (the front end runs through `Pipeline.analyseSemForSelfHost`): an unpinned
-// `[]`/`::` freezes to the Vesper cons-list `TyUnion(Vesper.Collections.List`1)`.
-// That union is *external* (the program references but does not declare it), so it
-// resolves through the symbol provider exactly like `Option` (Step 5) — `Empty`
-// tag 0, `Cons` tag 1 with `Head`/`Tail` fields — and is emitted as honest nominal
-// JS classes. A `[1;2;3]` literal freezes as nested `UnionCons("Cons", …)` ending
-// in `UnionCons("Empty", …)`, so construction + `[]`/`::` match ride the unchanged
-// Step-4 union path with NO list-awareness in the JS backend and NO runtime import
-// (the List *module* functions — `List.map`/`length` — are Phase 2). Golden-text
-// plus execution under Node.
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step5b"
         [
-            // ---- golden text: the cons-list emits as honest nominal classes ----
-
             test "the cons-list emits as base + Empty/Cons subclasses (tag 0 / tag 1)" {
                 Expect.equal
                     (emitJs "let xs = [1; 2; 3]")
@@ -50,8 +35,6 @@ let tests =
                     "external cons-list union → base + Empty/Cons subclasses, literal → nested Cons ending in Empty"
             }
 
-            // ---- execution under Node ----
-
             test "a `[1;2;3]` literal sums via []/:: match recursion (→ 6)" {
                 match
                     runJs
@@ -69,10 +52,7 @@ let tests =
             }
 
             test "`::` constructs a cons cell; head reads back through a match" {
-                // Monomorphic (`int list`) on purpose: a *generic* element-typed
-                // consumer function over an external cons-list match
-                // (`'a list -> 'a`) is a known front-end gap
-                // (project_cons_patterns_and_list_cutover), out of Phase-1 scope.
+                // Monomorphic on purpose: generic element-typed consumer of an external cons-list is out of scope.
                 match
                     runJs
                         "step5b-cons"
@@ -124,8 +104,6 @@ let tests =
                     Expect.equal out "7\n0" "two-deep cons pattern binds a+b; a 1-element list falls through"
             }
 
-            // ---- Phase 2: List module functions (the first real runtime import) ----
-
             test "List.length imports from the Vesper.List runtime module and calls it" {
                 Expect.equal
                     (emitJs "let n = List.length [1; 2; 3]")
@@ -171,9 +149,6 @@ let tests =
             }
 
             test "List.map transforms values into a consumer-matchable list (sum → 60)" {
-                // map runs in the runtime module (curried `map(f)(xs)`), building
-                // cons cells of the same `{tag,Head,Tail}` shape; the monomorphic
-                // consumer `sum` then folds the result through a `[]`/`::` match.
                 match
                     runJs
                         "step5b-map-sum"

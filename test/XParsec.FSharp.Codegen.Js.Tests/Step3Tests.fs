@@ -3,21 +3,11 @@ module XParsec.FSharp.Codegen.Js.Tests.Step3Tests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 3 — records. A record `type` becomes a JS `class` with a
-// positional constructor (`constructor(X, Y) { this.X = X; … }`); a record
-// literal `{ X = …; Y = … }` constructs it with `new R(…)` (arguments reordered
-// from source order to the class's declaration-order constructor); `r.X` is a
-// plain member access; `{ r with X = v }` reconstructs `new R(…)` taking each
-// field from its override or copying `r.field`.
-// Golden-text plus execution under Node (the latter skips when `node` is absent).
-
 [<Tests>]
 let tests =
     testList
         "Codegen.Js Step3"
         [
-            // ---- golden text ----
-
             test "a record type emits a class with a positional constructor" {
                 Expect.equal
                     (emitJs "type Point = { X: int; Y: int }\nlet p = { X = 7; Y = 9 }")
@@ -32,8 +22,7 @@ let tests =
             }
 
             test "a record literal reorders fields to declaration order" {
-                // Source order `Y = 9; X = 7` must still construct `new Point(7, 9)`
-                // — the class constructor is positional in declaration order.
+                // The constructor is positional in declaration order regardless of source order.
                 Expect.equal
                     (emitJs "type Point = { X: int; Y: int }\nlet p = { Y = 9; X = 7 }")
                     ("class Point {\n"
@@ -73,8 +62,6 @@ let tests =
                      + "const p2 = new Point(p.X, 99);\n")
                     "{ p with Y = 99 } → new Point(p.X, 99)"
             }
-
-            // ---- execution under Node ----
 
             test "record construction + field-get executes (p.X = 7)" {
                 match

@@ -4,25 +4,8 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js Step 7 — instance / static type members. A member declared on a
-// record / union is emitted as a *free, curried, receiver-first* function under a
-// shared mangled name (mirroring Fable): an instance method → `<Type>__<member>`, an
-// instance property getter → `<Type>__get_<Prop>`, a static member →
-// `<Type>_<member>`. The data-carrying class stays exactly as Steps 3–4 emit it
-// (constructor + fields, no methods), so the Step-5b/6 structural-interop invariant
-// (`.tag` + own data keys, never a prototype method / `instanceof`) is untouched: a
-// free function reads `this$.X` and works on a plain runtime cell and a class
-// instance alike. The call arms (`PropertyGet` / `MethodCall` / `StaticPropertyGet`
-// / `StaticMethodCall`) lower to a `Call` of the mangled name, curried over
-// receiver-then-args; `ExternalMember` imports the mangled member from the
-// declaring type's `runtime-js` module. Golden text plus execution under Node.
-
 let private lines xs = String.concat "\n" xs
 
-// The proven union-with-members shape (mirrors the CLR backend's `memberUnionSrc`):
-// instance properties (`IsEmpty`/`Head`/`Length`), an instance method (`Add`), and
-// static members (`Empty`/`Single`). `Head`'s `Nil` arm yields `0` rather than
-// `failwith` (the `raise`/`throw` arm is a separate adjacent slice).
 let private memberUnion =
     lines
         [
@@ -64,11 +47,6 @@ let tests =
             test "members emit as mangled free functions (instance props/method, static)" {
                 let src = emitJs memberUnion
 
-                // Instance property getter: a single receiver-first arrow, named under
-                // the double-underscore + `get_` mangling. (The `this` binder is
-                // synthetic in the frozen TAST, so the receiver name is a stable
-                // `_s<n>` rather than `this$` — the body's `this` refs carry the same
-                // key, so they line up regardless.)
                 Expect.stringContains src "const Lst__get_IsEmpty = (" "instance property getter, mangled name"
                 Expect.stringContains src "const Lst__get_Length = (" "recursive instance property getter"
                 // Instance method: receiver, then one curried arrow per argument.
@@ -151,8 +129,6 @@ let tests =
                     Expect.equal out "42" "Lst_Single(x) = Cons(x, Nil)"
             }
 
-            // ---- failwith / raise (the FFI `throw` ops-platform bodies) ----
-
             test "failwith lowers to a throwing IIFE (a non-thrown branch returns)" {
                 match
                     runJs "step7-failwith-ok" "let f b = if b then 7 else failwith \"boom\"\nprintfn \"%d\" (f true)"
@@ -175,13 +151,10 @@ let tests =
                     Expect.stringContains out "boom" "the Error carries the failwith message"
             }
 
-            // ---- raise of a constructed BCL exception (the external-`new` arm) ----
-
             test "raise of a constructed exception emits `new Error(msg)`" {
                 let src =
                     emitJs "let f (b: bool) = if b then 7 else raise (System.InvalidOperationException \"boom\")"
-                // The BCL exception erases to a native JS `Error`; the `raise` template
-                // (`(() => { throw $0; })()`) throws it, the message carried through.
+
                 Expect.stringContains src "new Error(" "the exception construction lowers to `new Error`"
                 Expect.stringContains src "throw" "the `raise` template throws the constructed error"
             }

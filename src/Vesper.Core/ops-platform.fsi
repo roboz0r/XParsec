@@ -199,34 +199,18 @@ module BitwiseOperators =
         /// 
         val inline (~~~): value: ^T -> ^T when ^T: (static member (~~~): ^T -> ^T) and default ^T: int
 
-// The structural-runtime entries the JS backend imports from `Vesper.Core.mjs`
-// (the committed `runtime-js` asset). Unlike every other binding in this contract
-// these are NOT `inline`: they are real runtime functions referenced by *call*, so
-// an aggregate `=` / `<>` / `hash` lowers to an ordinary external call that rides
-// the standard runtime-import path (`JsImports.addRef`) — aliased like any other
-// Vesper module function, with no bare-name template side-channel. The `=` / `<>` /
-// `hash` *base* arms delegate here for aggregate operands; the primitive
-// `when ^T : …` arms stay inline `===`, so a program over primitives pulls in no
-// runtime import. The CLR target keeps its own `EqualityComparer` bodies and never
-// references these, so they carry a JS body only (the `.mjs`) and no CLR footprint —
-// a `val` whose body is supplied per-target is the established Vesper.Core pattern.
+// Non-inline runtime entries for the JS backend (imported from `Vesper.Core.mjs`).
+// The `=` / `<>` / `hash` base arms delegate here for aggregate operands; primitive
+// arms stay inline. The CLR target uses `EqualityComparer` bodies and never references these.
 [<AutoOpen>]
 module StructuralRuntime =
 
-        /// Structural equality of two values — the runtime entry the JS `=` / `<>`
-        /// base arms call for aggregate operands. JS body: `Vesper.Core.mjs`'s
-        /// curried `structuralEquals` (a shape-keyed walk; agrees with
-        /// `structuralHash` by construction, so equal values hash equal).
+        /// Structural equality of two values (JS runtime entry for aggregate operands).
         val structuralEquals: x: 'T -> y: 'T -> bool when 'T: equality
 
-        /// Structural hash of a value — the runtime entry the JS `hash` base arm
-        /// calls for an aggregate operand. JS body: `Vesper.Core.mjs`'s curried
-        /// `structuralHash`.
+        /// Structural hash of a value (JS runtime entry for aggregate operands).
         val structuralHash: obj: 'T -> int when 'T: equality
 
-// Equality (`=` / `<>`) and `hash` stay in Vesper.Core. The four ordering
-// operators (`<` / `>` / `<=` / `>=`) moved to `Vesper.Comparison`
-// (operators-plan.md O2); `compare` / `min` / `max` join them there in C-Cmp1.
 [<AutoOpen>]
 module EqualityOperators =
         
@@ -268,9 +252,7 @@ module EqualityOperators =
 [<AutoOpen>]
 module Operators =
 
-        /// <summary>Generate a hash value for the given value. Part of the equality
-        /// family (operators-plan.md O6): no runtime member — codegen dispatches it
-        /// to a primitive hash or the structural hash of a generated type.</summary>
+        /// <summary>Generate a hash value for the given value.</summary>
         ///
         /// <param name="obj">The input value.</param>
         ///
@@ -290,14 +272,6 @@ module Operators =
         ///
         /// <returns><c>true</c> if the input is <c>false</c>, otherwise <c>false</c>.</returns>
         ///
-        /// <remarks>Inline — lowers to <c>ceq(value, false)</c>, the same
-        /// <c>(# "ceq" … false : bool #)</c> shape the <c>(&lt;&gt;)</c> base uses to
-        /// negate a comparison. A plain identifier (not operator-named), so it
-        /// resolves through the ambient open scope like <c>hash</c> /
-        /// <c>failwith</c>; the cross-package inline-body splice
-        /// (<c>SymbolProviders.inlineBodies</c>) delivers the body to each use site,
-        /// so this pins no Vesper runtime dependency.</remarks>
-        ///
         /// <example id="not-example">
         /// <code lang="fsharp">
         /// not true    // Evaluates to false
@@ -313,13 +287,6 @@ module Operators =
         /// <param name="value">The value to ignore.</param>
         ///
         /// <returns><c>unit</c>.</returns>
-        ///
-        /// <remarks>Inline — the body is <c>()</c>, so the argument is evaluated
-        /// (for its effects) then discarded. A plain identifier, resolved through
-        /// the ambient open scope like <c>not</c> / <c>hash</c>; the cross-package
-        /// inline-body splice (<c>SymbolProviders.inlineBodies</c>) delivers the
-        /// body to each use site, so this pins no Vesper runtime dependency. Used
-        /// by <c>set.fs</c>'s <c>ICollection.Add</c> / <c>.Remove</c>.</remarks>
         ///
         /// <example id="ignore-example">
         /// <code lang="fsharp">
@@ -337,14 +304,6 @@ module Operators =
         /// <returns><c>true</c> when the value is <c>null</c>, otherwise
         /// <c>false</c>.</returns>
         ///
-        /// <remarks>Inline — lowers to a CIL <c>ceq</c> of the value against
-        /// <c>null</c> (the same reference-equality shape <c>nativeptr.isNullPtr</c>
-        /// uses, in place of FSharp.Core's <c>match box value with null</c>). The
-        /// <c>when 'T: null</c> constraint restricts it to reference types. The
-        /// cross-package inline-body splice delivers the body to each use site, so
-        /// this pins no Vesper runtime dependency. Used by <c>set.fs</c>'s
-        /// <c>SetTree.isEmpty</c>.</remarks>
-        ///
         /// <example id="isNull-example">
         /// <code lang="fsharp">
         /// isNull null        //  Evaluates to true
@@ -361,12 +320,6 @@ module Operators =
         ///
         /// <returns>The value boxed as <c>obj</c>.</returns>
         ///
-        /// <remarks>Inline; the <c>(# "box !0" … #)</c> body splices at each use
-        /// site so the box is emitted inline (no call). The boxed element type
-        /// rides the <c>!0</c> placeholder — Freeze recovers it from the
-        /// argument's static type and codegen emits <c>box &lt;T&gt;</c>. The
-        /// platform mnemonic lives in <c>ops-platform.fs</c>, not the
-        /// target-agnostic Semantic Analysis layer.</remarks>
         val inline box: value: 'T -> obj
 
         /// <summary>Convert a value to <c>uint32</c> (mirroring FSharp.Core's
@@ -376,12 +329,6 @@ module Operators =
         ///
         /// <returns>The converted <c>uint32</c>.</returns>
         ///
-        /// <remarks>Inline static-optimization over inline IL — each source width
-        /// picks its own conversion at the use site (a same-width
-        /// <c>int32</c>→<c>uint32</c> is a sign-only reinterpret, a stack no-op).
-        /// The platform mnemonics live in <c>ops-platform.fs</c>. Drives
-        /// <c>GrowCore</c>'s <c>(uint)</c> clamp arithmetic (printf-port-steps.md
-        /// PP5b).</remarks>
         val inline uint32: value: ^T -> uint32
 
         /// <summary>Convert a value to <c>uint32</c> — the <c>uint</c> abbreviation
@@ -399,12 +346,6 @@ module Operators =
         ///
         /// <returns>The converted <c>int32</c>.</returns>
         ///
-        /// <remarks>Inline static-optimization over inline IL — each source width
-        /// picks its own conversion at the use site (a same-width
-        /// <c>uint32</c>→<c>int32</c> is a sign-only reinterpret, a stack no-op).
-        /// The platform mnemonics live in <c>ops-platform.fs</c>. Narrows
-        /// <c>GrowCore</c>'s clamped <c>uint</c> size back to the <c>int</c> array
-        /// length (printf-port-steps.md Gap E).</remarks>
         val inline int32: value: ^T -> int32
 
         /// <summary>Convert a value to <c>int32</c> — the <c>int</c> abbreviation
@@ -424,10 +365,6 @@ module Operators =
         ///
         /// <returns>The element at the given index.</returns>
         ///
-        /// <remarks>Inline; the <c>(# "ldelem.any" … #)</c> body splices at each use
-        /// site so the element load is emitted inline (no call). The platform
-        /// mnemonic lives in <c>ops-platform.fs</c>, not the target-agnostic
-        /// Semantic Analysis layer.</remarks>
         val inline GetArray: array: 'T[] -> index: int -> 'T
 
         /// <summary>Indexed write of a single-dimensional, zero-based array — the
@@ -440,11 +377,6 @@ module Operators =
         ///
         /// <returns>Unit; the store has no result.</returns>
         ///
-        /// <remarks>Inline; the <c>(# "stelem.any" … #)</c> body splices at each use
-        /// site so the element store is emitted inline (no call) — the write mirror
-        /// of <c>GetArray</c>. The platform mnemonic lives in
-        /// <c>ops-platform.fs</c>, not the target-agnostic Semantic Analysis
-        /// layer.</remarks>
         val inline SetArray: array: 'T[] -> index: int -> value: 'T -> unit
 
         /// <summary>Length of a single-dimensional, zero-based array — the lowering
@@ -454,10 +386,6 @@ module Operators =
         ///
         /// <returns>The number of elements.</returns>
         ///
-        /// <remarks>Inline; the <c>(# "ldlen" … #)</c> body splices at each use site
-        /// so the length read is emitted inline (codegen narrows the native int with
-        /// <c>conv.i4</c>, matching F#'s <c>ldlen; conv.i4</c>). The platform mnemonic
-        /// lives in <c>ops-platform.fs</c>, not Semantic Analysis.</remarks>
         val inline GetArrayLength: array: 'T[] -> int
 
         /// <summary>Raise the given exception.</summary>
@@ -465,19 +393,6 @@ module Operators =
         /// <param name="exn">The exception to raise.</param>
         ///
         /// <returns>Never returns normally; the result type unifies with any context.</returns>
-        ///
-        /// <remarks>Inline IL — lowers to <c>throw</c>. Same shape as
-        /// FSharp.Core's <c>raise</c> (<c>prim-types.fs:547</c>): the parameter
-        /// is a typar bounded by <c>:> exn</c>, so only an exception type can be
-        /// raised. The contract extractor captures the coercion constraint and
-        /// the unifier enforces it via <c>subsumes</c>, which reconciles
-        /// <c>exn</c> with the BCL <c>System.Exception</c> through the
-        /// intrinsic-repr binding in <c>prim-types-exn.fs</c> and walks external
-        /// <c>inherit</c> chains (so <c>InvalidOperationException :&gt; exn</c>
-        /// holds). The inline-body splice machinery
-        /// (<c>SymbolProviders.inlineBodies</c>) reads the body from
-        /// <c>ops-platform.fs</c> and emits it at each use site, so this pins no
-        /// Vesper runtime dependency.</remarks>
         ///
         /// <example id="raise-example">
         /// <code lang="fsharp">
@@ -492,14 +407,6 @@ module Operators =
         /// <param name="message">The exception message.</param>
         ///
         /// <returns>Never returns normally; the result type unifies with any context.</returns>
-        ///
-        /// <remarks>Inline — desugars to <c>raise (new System.Exception(message))</c>;
-        /// the cross-package inline-body splice
-        /// (<c>SymbolProviders.inlineBodies</c>) delivers the body to each use
-        /// site, where it lowers through the standard
-        /// <c>TExpr.New</c> + <c>TExpr.ILIntrinsic "throw"</c> paths. No
-        /// dedicated codegen recipe — the previous <c>Emit.isFailwith</c>
-        /// name-suffix probe is gone.</remarks>
         ///
         /// <example id="failwith-example">
         /// <code lang="fsharp">
@@ -516,13 +423,8 @@ module Operators =
         ///
         /// <returns>Never returns normally; the result type unifies with any context.</returns>
         ///
-        /// <remarks>Inline — desugars to
-        /// <c>raise (new System.ArgumentException(message, argumentName))</c>; the
-        /// cross-package inline-body splice delivers the body to each use site,
-        /// where the two-string BCL ctor is selected by the external-ctor
-        /// overload pick in <c>Infer.inferNew</c>. Argument order follows
-        /// FSharp.Core: the user-facing argument name comes first, the message
-        /// second, but the BCL ctor takes <c>(message, paramName)</c>.</remarks>
+        /// <remarks>Argument order follows FSharp.Core: name first, message second;
+        /// the BCL ctor takes <c>(message, paramName)</c>.</remarks>
         ///
         /// <example id="invalidArg-example">
         /// <code lang="fsharp">

@@ -29,7 +29,7 @@ open XParsec.FSharp.SemanticAnalysis
 //
 // Regions are inequality-only (NOT used to drive type-class dispatch); feeding
 // them back into Unification would make the pipeline a fixpoint. See
-// docs/architecture.md "Pass order is strictly forward" and docs/regions-plan.md.
+// docs/architecture.md "Pass order is strictly forward".
 
 module Regions =
 
@@ -46,12 +46,12 @@ module Regions =
             /// True for the cell region of a `let mutable` binding. Lowers the
             /// lambda-reach threshold from 2 to 1: any closure capture forces
             /// HeapShared (.NET hoists captured mutables into a ref cell, Rust
-            /// requires Rc<RefCell<…>>). See docs/mutable-plan.md.
+            /// requires Rc<RefCell<…>>).
             IsMutableCell: bool
             /// Force-seed: the conservative fallback uses it to mark unhandled
             /// constructs HeapShared without the level / lambda-count heuristics.
             InitialState: EscapeState voption
-            /// Axis-2 seed (ref-struct-emit-plan §Axis 2): this region is itself a
+            /// Axis-2 seed: this region is itself a
             /// heap-repr *sink* — a non-`ref struct` aggregate container (tuple /
             /// record / union / `new`) or the source of a box / interface upcast.
             /// The representation fixpoint flows `RequiresHeapRepr` DOWN this
@@ -198,7 +198,7 @@ module Regions =
 
     let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
 
-    /// Is an `Upcast` to `t` a heap-repr sink (ref-struct-emit-plan §Axis 2)?
+    /// Is an `Upcast` to `t` a heap-repr sink (Axis-2)?
     /// `obj` boxes (`TyConst("obj", _)` — what `translateType` produces, see
     /// `RuntimeNames`), and the `Vesper.Fun<_,_>` interface upcast (`TyFun`)
     /// materialises a reference-typed function value. Either pins the upcast
@@ -215,7 +215,7 @@ module Regions =
     /// Every such composite is a non-`ref struct` aggregate (a `ValueTuple`
     /// cannot carry a ref-struct field either), so the region is an Axis-2
     /// heap-repr sink: a held closure is pinned to a heap representation even
-    /// when it is frame-local by lifetime (ref-struct-emit-plan §Axis 2).
+    /// when it is frame-local by lifetime.
     let private holds (s: State) (children: RegionId seq) : RegionId =
         let r = freshValue s
         s.Graph.MarkHeapSink r
@@ -631,7 +631,7 @@ module Regions =
                 // `let mutable x = rhs`: the cell is distinct from the rhs value.
                 // The cell outlives every value stored into it; the rhs lubs up
                 // to match if the cell is later classified wider. See
-                // docs/mutable-plan.md §Why mutable cells need a separate region.
+                // Mutable cells need a separate region from the initial rhs value.
                 let cell = freshCell s
                 s.Graph.AddEdge(rhsR, cell)
                 recordBindingRegion s ctx p cell
@@ -686,7 +686,7 @@ module Regions =
     // Linear order `HeapShared > CallerStack > ReturnOnly > LocalStack`; lub
     // picks the wider (more-escaping) state. `ReturnOnly` slots between
     // `CallerStack` and `LocalStack` — additive, so every existing verdict is
-    // unchanged (ref-struct-emit-plan §Axis 1).
+    // unchanged.
     let private lub (a: EscapeState) (b: EscapeState) : EscapeState =
         match a, b with
         | HeapShared, _
@@ -729,7 +729,7 @@ module Regions =
                 // captures itself indirectly isn't promoted spuriously.
                 // Threshold is 2 for ordinary regions and 1 for mutable cells —
                 // any closure capture of a mutable forces heap allocation (.NET
-                // ref-cell hoisting / Rust Rc<RefCell<_>>). See docs/mutable-plan.md.
+                // ref-cell hoisting / Rust Rc<RefCell<_>>).
                 if not node.IsLambda then
                     let reach = countReachableLambdas g (RegionId(i))
                     let threshold = if node.IsMutableCell then 1 else 2
@@ -755,7 +755,7 @@ module Regions =
 
         state
 
-    /// Axis-2 representation fixpoint (ref-struct-emit-plan §Axis 2): a second
+    /// Axis-2 representation fixpoint: a second
     /// forward pass over the SAME `Outlives` edges as `solve`, with a different
     /// seed/sink set. A region requires a heap representation if it escapes to
     /// the heap (Axis-1 `HeapShared`) or is itself a `HeapReprSink` — a
@@ -854,7 +854,7 @@ module Regions =
     /// binders, not only closures — codegen's `discoverClosures` only ever looks up
     /// closure `Closure.SelfKey`s, so non-closure entries are inert. Must run after
     /// `run` has populated both side tables; the Pipeline snapshots the result onto
-    /// `TastFile.ClosureReprs` (ref-struct-emit-plan RS3).
+    /// `TastFile.ClosureReprs`.
     let closureReprSnapshot (ctx: PassContext) : Map<uint64, ClosureRepr> =
         ctx.Bindings.Escape.AsDictionary()
         |> Seq.map (fun kv ->

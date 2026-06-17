@@ -1,26 +1,14 @@
 namespace Vesper
 
-// ops-std.fs — the runtime *implementation* of `ops-std.fsi` (the `.fsi` is the
-// target-agnostic contract, this `.fs` is the binding). Like `ops-platform.fs`,
-// each `let inline` body here is read across the package boundary by the
-// inline-body loader (`SymbolProviders.inlineBodies`) and spliced at each use
-// site by the pre-freeze `Passes.InlineExpansion` pass — so the logical /
-// composition / pipe operators flow through the same cross-package-inline
-// machinery as the arithmetic / equality families, with NO operator hard-coded
-// into the compiler.
+// Implementation of `ops-std.fsi`. Each inline body is read across the package
+// boundary by `SymbolProviders.inlineBodies` and spliced at each use site by
+// `Passes.InlineExpansion`.
 //
-// `&&` / `||` SHORT-CIRCUIT: the right operand is marked `[<CallAtMostOnce>]`, so
-// the inliner splices it at its single use (call-by-name for that one validated-
-// linear use) inside the `if`-body rather than eager `let`-binding it — the right
-// operand is then evaluated at most once and only on demand, exactly as the `.fsi`
-// documents. The laziness is DECLARED here (the attribute), not inferred from the
-// body shape and not special-cased in the compiler: these are plain `val inline`
-// bindings, the same machinery any library lazy combinator would use. (F# instead
-// special-cases the `&&`/`||` intrinsic vals by identity; we keep the knowledge in
-// the library contract.)
+// `&&` / `||`: the right operand is `[<CallAtMostOnce>]` so the inliner splices it
+// inside the `if`-body rather than eager-binding it — short-circuit is declared by
+// the attribute, not special-cased in the compiler.
 //
-// NOT Fantomas-formatted (this dir is in `.fantomasignore`): authored to a fixed
-// shape, parser coverage is the golden `.parsed` snapshot.
+// NOT Fantomas-formatted (this dir is in `.fantomasignore`).
 
 [<AutoOpen>]
 module LogicalOperators =

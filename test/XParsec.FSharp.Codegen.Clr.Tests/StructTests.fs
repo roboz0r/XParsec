@@ -11,11 +11,6 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // `[<Struct>]` value-type emission. These tests reflect over the emitted PE so
 // a runtime fault (bad IL, wrong base type, lost mutation) surfaces through
 // `loadAssembly` / `Activator.CreateInstance`.
-//
-// The boxed-interface path is the one `Vesper.Set`'s struct enumerator needs:
-// construct a struct, coerce it to an interface (box), dispatch through the
-// boxed reference (callvirt). Value-type method dispatch on an unboxed local is
-// also covered below (address-based `call` on the receiver).
 
 [<Tests>]
 let structTests =
@@ -184,10 +179,9 @@ let structTests =
                 Expect.equal (run.Invoke(null, [||]) :?> int) 2 "two Bump()s on the same local leave N = 2"
             }
 
-            // A parameterless struct construction (`Counter()`)
-            // lowers to `ldloca; initobj; ldloc` on a scratch local, not a `newobj`
-            // against the synthesised parameterless `.ctor`. The field reads back as
-            // its zero-init default, proving `initobj` produced a usable zeroed value.
+            // A parameterless struct construction lowers to `ldloca; initobj; ldloc`
+            // on a scratch local, not a `newobj` against the synthesised parameterless
+            // `.ctor`. The field reads back as its zero-init default.
             test "a parameterless struct construction zero-inits its fields via initobj" {
                 let _, artifact =
                     compileSource
@@ -239,9 +233,6 @@ let structTests =
                 Expect.equal (cmp.CompareTo(null)) 9 "the boxed struct keeps its field value through `:>`"
             }
 
-            // The natural shape `SumOf(a, b)` that the unboxed-dispatch test above had
-            // to sidestep. A tupled static member now flattens to two scalar params,
-            // so it can take its own args and forward them to the struct ctor.
             test "a two-parameter static member on a struct binds both args (SumOf(3,4) returns 7)" {
                 let _, artifact =
                     compileSource
@@ -265,9 +256,8 @@ let structTests =
                 Expect.equal (sumOf.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "SPoint(3,4).Sum() returns 7"
             }
 
-            // A secondary ctor of the explicit field-init form
-            // `new(args) = { f = e; … }`. Unlike a chain-form `new`, it stores
-            // directly into the declared `val` fields (no primary-`.ctor` chain).
+            // A secondary ctor of the explicit field-init form `new(args) = { f = e; … }`.
+            // Unlike a chain-form `new`, it stores directly into `val` fields (no primary-`.ctor` chain).
             test "a struct secondary ctor with an explicit field-init block initialises val fields" {
                 let _, artifact =
                     compileSource
@@ -332,10 +322,8 @@ let structTests =
                 Expect.equal (fieldB.GetValue boxed :?> int) 10 "B = the let-bound a + a"
             }
 
-            // An immutable `val x: T` (no `mutable`) emits as
-            // `InitOnly`. Validation forbids `this.x <- …` on it, so it is only ever
-            // written by a ctor — here the field-init secondary ctor's `stfld`, which
-            // InitOnly permits. The field still round-trips its ctor-stored value.
+            // An immutable `val x: T` (no `mutable`) emits as `InitOnly`.
+            // `stfld` in a ctor is legal on InitOnly; writes elsewhere are forbidden.
             test "an immutable struct val field emits as InitOnly and is set by a field-init ctor" {
                 let _, artifact =
                     compileSource
@@ -364,8 +352,6 @@ let structTests =
                 Expect.equal (fieldB.GetValue boxed :?> int) 4 "mutable field initialised from the ctor"
             }
 
-            // The shape `Vesper.Set`'s hand-written enumerator needs: a field from a
-            // ctor param plus a bool-literal field (`new(s) = { stack = s; started = false }`).
             test "a field-init ctor mixes a param-sourced field and a bool-literal field" {
                 let _, artifact =
                     compileSource
@@ -394,11 +380,8 @@ let structTests =
                 Expect.equal (fieldStarted.GetValue boxed :?> bool) false "Started initialised from the bool literal"
             }
 
-            // Generic structs. `SetIterator<'T>` is generic, so
-            // the value-type flag must ride the generic self-`TypeSpec` (base type,
-            // ctor field `MemberRef`s, signature encoding). These prove a generic
-            // value type constructs, reflects as a generic value type, and reads a
-            // ctor-param field back through a member.
+            // A generic value type's self-`TypeSpec` (base type, ctor field `MemberRef`s,
+            // signature encoding) must carry the VALUETYPE tag throughout.
             test "a generic `[<Struct>]` type emits as a generic value type" {
                 let _, artifact =
                     compileSource
@@ -445,9 +428,6 @@ let structTests =
                 Expect.equal (get.Invoke(boxed, [||]) :?> int) 99 "Get() reads the generic ctor-param field"
             }
 
-            // The `SetIterator<'T>` shape: a generic struct with a `val mutable`
-            // field plus an explicit field-init secondary ctor, boxed to an
-            // interface — the full prerequisite for phase-6's hand-written enumerator.
             test "a generic struct with a val field + field-init ctor round-trips boxed to an interface" {
                 let _, artifact =
                     compileSource
@@ -486,13 +466,6 @@ let structTests =
                 Expect.equal (get.Invoke(boxed, [||]) :?> int) 7 "Get() reads the val field back"
             }
 
-            // B-3-alt — the struct *enumerator* shape. A generic struct that IS the
-            // enumerator: it implements
-            // `IEnumerator<'T>` (generic `Current`) + the non-generic `IEnumerator`
-            // (`Current : obj`, `MoveNext`, `Reset`) + `IDisposable`, mutating its
-            // own `val mutable` state through the byref `this` across `MoveNext`
-            // calls on the *boxed* struct. This is `SetTree.SetIterator<'T>` minus
-            // the AVL stack — the object expression `mkIEnumerator` is replaced by.
             test "a generic struct enumerator implements the three IEnumerator interfaces and advances boxed" {
                 let _, artifact =
                     compileSource
@@ -541,23 +514,8 @@ let structTests =
                 Expect.equal (ng.Current :?> int) 7 "non-generic Current boxes the item"
             }
 
-            // NOTE (B-3-alt limitation): a struct enumerator must inline its advance
-            // / read logic *directly* in the interface members (as the test above
-            // does), not factor it into a public member the interface forwards to.
-            // Two gaps block the forwarded shape and keep `set.fs`'s `SetIterator`
-            // on the inlined form:
-            //   * same name (`member this.MoveNext() = this.MoveNext()`) resolves the
-            //     inner call to the interface method ⇒ infinite recursion;
-            //   * distinct name (`… = this.Advance()`) calls the helper by *value*
-            //     ⇒ the mutation to `this` happens on a copy and is lost.
-            // Both are separate from this phase's struct-enumerator support; the
-            // inlined form is the supported shape.
-
-            // The full B-3-alt wiring: a class whose `GetEnumerator()` *constructs*
-            // the struct enumerator and returns it `:>`-upcast (boxed) to the
-            // interface — exactly `Set<'T>.GetEnumerator()` ⇒ `SetTree.mkIEnumerator`.
-            // Phase 5's codegen test stored a ctor-supplied enumerator; here the
-            // enumerator is built in-method from a struct value type.
+            // A class `GetEnumerator()` constructs the struct enumerator in-method
+            // and returns it `:>`-upcast (boxed) to the interface.
             test "a class GetEnumerator constructs a struct enumerator and returns it boxed (yields the element)" {
                 let _, artifact =
                     compileSource
@@ -604,11 +562,9 @@ let structTests =
                     "enumerating the seq via its struct enumerator yields the single element"
             }
 
-            // The `set.fs` construction shape: an *explicit* type application at the
-            // construction site (`SetIterator<'T>(s.Tree)` → here `OnceEnum<'T>(x)`).
-            // The secondary-ctor type args ground from both the explicit `<'T>` and
-            // the value arg; without the local-secondary-ctor inference path the
-            // result type's arg leaks as a free `TyVar` (`?ungrounded-operator`).
+            // An explicit type application at the construction site (`OnceEnum<'T>(x)`):
+            // the secondary-ctor type args must ground from both the explicit `<'T>` and
+            // the value arg, not leak as a free `TyVar`.
             test "a class GetEnumerator constructs the struct enumerator with explicit type args (Set<'T> shape)" {
                 let _, artifact =
                     compileSource
@@ -652,26 +608,16 @@ let structTests =
                 Expect.equal (s |> Seq.toList) [ 5 ] "explicit-type-app construction enumerates to the single element"
             }
 
-            // A `[<Struct>]` declared in a *referenced package*
-            // and consumed by name. The contract `.fsi` publishes a `struct … end`
-            // value type; a consumer compiled against that contract must encode the
-            // referenced type as `ELEMENT_TYPE_VALUETYPE` (0x11), not `CLASS` (0x12) —
-            // a wrong tag faults the loader "value type mismatch". This is the
-            // cross-package twin of the project-local struct-signature path: it stands
-            // up a synthetic producer package (manifest + `.fsi`, no DLL needed — the
-            // emitted *signature* is the encoder's decisive output) and reads the
-            // consumer's emitted MethodDef signature straight off the metadata.
+            // A struct declared in a referenced package: the consumer must encode
+            // `ELEMENT_TYPE_VALUETYPE` (0x11) not `CLASS` (0x12) — a wrong tag faults
+            // the loader. The package directory name IS the package identity
+            // (`buildClosure` resolves `depends-on` against it), so it must equal
+            // the manifest `name` — hence `Vesper.PointPkg`, not a descriptive slug.
             test "a struct declared in a referenced package encodes as VALUETYPE in a consumer signature" {
-                // The package directory name IS the package identity (`buildClosure`
-                // resolves `depends-on` against it), so it must equal the manifest
-                // `name` — hence `Vesper.PointPkg`, not a descriptive slug.
                 let outDir = tmpDir "Vesper.PointPkg"
                 let manifestPath = System.IO.Path.Combine(outDir, "manifest.toml")
                 let fsiPath = System.IO.Path.Combine(outDir, "point.fsi")
 
-                // `depends-on = []`: the `int` field type resolves from the
-                // `Vesper.Core` manifest we pass explicitly in the flat stack below,
-                // so no sibling-package closure resolution is triggered.
                 System.IO.File.WriteAllText(
                     manifestPath,
                     "[core]\nname = \"Vesper.PointPkg\"\nnamespace = \"Vesper\"\ndepends-on = []\nfiles = [\"point.fsi\"]\n"
@@ -684,8 +630,7 @@ let structTests =
 
                 let provider = SymbolProviders.buildContract [ vesperCoreManifest; manifestPath ]
 
-                // Identity over the referenced struct: forces `Point` into the
-                // emitted method's signature (return + param) without constructing it.
+                // Identity function forces `Point` into the emitted signature (return + param).
                 let src =
                     "namespace App\n\nopen Vesper\n\nmodule Consumer =\n    let echo (p: Point) : Point = p\n"
 
@@ -701,8 +646,6 @@ let structTests =
                 let artifact = Codegen.compile provider project tast
                 let bytes = Codegen.toBytes artifact
 
-                // Find `echo`'s declaring (module) type without hard-coding the
-                // emitted module-type name.
                 let declType =
                     match peMethodNames bytes |> List.filter (fun (_, m) -> m = "echo") with
                     | (t, _) :: _ -> t
@@ -710,20 +653,14 @@ let structTests =
 
                 let elem = peMethodReturnElementType bytes declType "echo"
 
-                // 0x11 = ELEMENT_TYPE_VALUETYPE, 0x12 = ELEMENT_TYPE_CLASS.
+                // ELEMENT_TYPE_VALUETYPE = 0x11, ELEMENT_TYPE_CLASS = 0x12.
                 Expect.notEqual elem 0x12uy "the referenced struct must NOT encode as ELEMENT_TYPE_CLASS"
                 Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE"
             }
 
-            // G4 — `set.fs`'s `SetIterator.MoveNext` shape: an infix operator
-            // (`t.Height = 1`) *inside a struct interface member body*, where `t` is
-            // a class instance popped from a list-typed `val` field (`match
-            // this.Stack with | t :: rest -> …`). Desugar only walked the type's
-            // *own* members, never `interface … with member …` bodies, so the `=`
-            // node got no `DesugaredForm.OpName` entry and Freeze threw
-            // `InfixApp … missing DesugaredForm entry`. None of the enumerator tests
-            // above caught it: their interface members contain no infix operator.
-            // This drives the boxed enumerator over the true `=` branch.
+            // An infix operator inside an `interface … with member …` body: desugar
+            // must walk interface member bodies, not only the type's own members,
+            // or the operator gets no `DesugaredForm.OpName` entry and Freeze throws.
             test "an infix operator inside a struct interface member resolves (SetIterator.MoveNext shape)" {
                 let _, artifact =
                     compileSource
@@ -774,15 +711,11 @@ let structTests =
                 Expect.isFalse (e.MoveNext()) "second MoveNext hits the empty-stack arm"
             }
 
-            // Regression: a chained property access `this.field.Prop` where `field`
-            // is a `val`/ctor-param *instance field* (not a member) and `Prop`'s
-            // type differs from the field's. Freeze's `recoverFieldStepTy` resolves
-            // each intermediate chain segment's type; its `TyClass` arm used to scan
-            // only the class's *members*, missing `val`/ctor-param fields — so it
-            // fell back to the chain's *final* type and mis-typed the receiver
-            // (`this.Stack : List<int>` collapsed to `bool`, the type of `.IsEmpty`).
-            // Codegen then routed the receiver through the wrong member-ref path and
-            // faulted. This is exactly set.fs's `not this.stack.IsEmpty` shape.
+            // A chained property access `this.field.Prop` where `field` is a
+            // `val`/ctor-param instance field: `recoverFieldStepTy` must scan val
+            // fields (not just members) when resolving intermediate chain types,
+            // otherwise the receiver gets the final property's type instead of the
+            // field's type.
             test "a chained property on a struct val field types the receiver as the field, not the property" {
                 let _, artifact =
                     compileSource
@@ -817,11 +750,9 @@ let structTests =
                 Expect.isTrue (notEmpty.Invoke(fullWrap, [||]) :?> bool) "non-empty stack ⇒ NotEmpty() is true"
             }
 
-            // PP1 (ref-struct-emit / printf-port-steps): a `[<Struct; IsByRefLike>]`
-            // type emits the `IsByRefLikeAttribute` marker so the CLR confines it
-            // to the stack. The runtime surfaces this directly as
-            // `Type.IsByRefLike`; this is the first custom attribute the backend
-            // ever emits.
+            // `[<Struct; IsByRefLike>]` emits the `IsByRefLikeAttribute` marker so
+            // the CLR confines the type to the stack. The runtime surfaces this as
+            // `Type.IsByRefLike`.
             test "a `[<Struct; IsByRefLike>]` type emits a byref-like value type" {
                 let _, artifact =
                     compileSource
@@ -842,8 +773,7 @@ let structTests =
                 Expect.isTrue ty.IsByRefLike "RPoint is byref-like (ref struct)"
             }
 
-            // The marker is opt-in: a plain `[<Struct>]` stays non-byref-like, so
-            // the new attribute can't leak onto every value type.
+            // The marker is opt-in: `IsByRefLikeAttribute` must not leak onto plain `[<Struct>]` types.
             test "a plain `[<Struct>]` type is not byref-like" {
                 let _, artifact =
                     compileSource
@@ -863,16 +793,10 @@ let structTests =
                 Expect.isFalse ty.IsByRefLike "a plain [<Struct>] is not byref-like"
             }
 
-            // PP2 (printf-port-steps): a ref struct with a `Span<char>` field, a ctor
-            // that fills it from a `char[]`, and members that read `.Length` and
-            // `.Slice` it, round-trip through compile + run. Exercises three things the
-            // backend lacked: an external generic *value-type* TypeSpec parent (the
-            // `Span`1<char>` ctor / member refs must be tagged `VALUETYPE`, not
-            // `CLASS`), and address-based (`ldloca` + non-virtual `call`) dispatch of
-            // an external struct receiver's method (`Slice`) and property (`Length`) —
-            // a by-value `callvirt` is verifier-illegal on a ref struct. (The
-            // `ref T`-returning indexer `chars.[i]` needs byref support and is tracked
-            // separately.)
+            // An external generic value type (`Span<char>`): ctor/member refs must be
+            // tagged `VALUETYPE` not `CLASS`, and dispatch must be address-based
+            // (`ldloca` + non-virtual `call`) — a by-value `callvirt` is verifier-illegal
+            // on a ref struct.
             test "PP2: ref struct with a Span<char> field — ctor, Length, Slice round-trip" {
                 runsLines
                     [ "5"; "3" ]
@@ -891,17 +815,10 @@ let structTests =
                         ])
             }
 
-            // PP2b (printf-port-steps): the byref-return indexer `chars.[i]`, the one
-            // piece PP2a deferred. `Span<T>`'s only element accessor is
-            // `get_Item(i) : T&` (a managed-pointer return, no by-value form), so this
-            // exercises the whole byref stack: resolving a by-ref-returning BCL member
-            // (`tryBuildType` no longer drops `T&`; the indexer surfaces as
-            // `get_Item` carrying a `FTConst("&", [elem])` return), encoding
-            // `ELEMENT_TYPE_BYREF` at the member-ref return seam, and dereferencing the
-            // result (`call get_Item` → `ldobj <elem>`). `At 1 = 'e'` is the checkpoint
-            // assertion. (The 1-arg `Slice(int)` the plan also lists is blocked on an
-            // orthogonal gap — folded-`LongIdent` instance-method overload resolution,
-            // not byref — see printf-port-steps.md PP2b.)
+            // `Span<T>`'s element accessor is `get_Item(i) : T&` (byref return, no
+            // by-value form). This exercises the full byref stack: resolving
+            // `get_Item` as carrying `FTConst("&",[elem])`, encoding
+            // `ELEMENT_TYPE_BYREF` in the member-ref, and dereferencing via `ldobj`.
             test "PP2b: ref struct Span<char> byref indexer read — chars.[i]" {
                 runsLines
                     [ "e"; "o" ]
@@ -919,18 +836,9 @@ let structTests =
                         ])
             }
 
-            // PP3 (printf-port-steps): `ArrayPool<char>.Shared.Rent/Return` — generic
-            // external static-property access (`.Shared` on the constructed generic
-            // `ArrayPool<char>`) plus instance method calls on the result. `Rent(int)`
-            // is the plan's stated checkpoint; `Return(arr)` is the load-bearing
-            // addition — it omits `Return`'s trailing optional `clearArray = false`
-            // parameter. Optional-argument omission is the real PP3 gap (the generic
-            // two-axis signature build already landed): the provider surfaces the
-            // member's `OptionalDefaults`, Unification permits the under-applied arity
-            // and records the omitted constant, and Freeze synthesises it as a literal
-            // so codegen sees the full tupled call. Both the bound-receiver form
-            // (`pool.Return`) and the chained static form (`ArrayPool<char>.Shared.Return`,
-            // as `Formatter.cs` writes it) are exercised.
+            // `ArrayPool<char>.Shared.Return` omits its optional `clearArray = false`
+            // trailing parameter. The provider surfaces `OptionalDefaults`; Freeze
+            // synthesises the omitted constant so codegen sees the full call.
             test "PP3: ArrayPool<char>.Shared Rent + Return (omitted optional arg)" {
                 runsLines
                     [ "ok" ]
@@ -948,12 +856,9 @@ let structTests =
                         ])
             }
 
-            // PP4 (printf-port-steps): the `null` literal *pattern* (`match x with
-            // null -> …`), the explicit-null-match shape the `Formatter` port uses
-            // to replace C#'s `?.` / `??`. It binds nothing and lowers to a non-null
-            // test (`ldloc; brtrue` skips the arm), so a null scrutinee falls to the
-            // body and any other value to the next arm. New front-to-back: a
-            // `TPatG.Null` case threaded through Freeze + the pattern emitter.
+            // The `null` literal pattern binds nothing and lowers to a non-null test
+            // (`ldloc; brtrue` skips the arm), so a null scrutinee falls to the body
+            // and any other value to the next arm.
             test "PP4: a `null` literal pattern matches a null reference, binds nothing" {
                 runsLines
                     [ "null"; "value" ]
@@ -969,26 +874,8 @@ let structTests =
                         ])
             }
 
-            // PP4 checkpoint: the `Formatter` field block declares + initialises
-            // cleanly. Mirrors `Formatter.cs`'s fields front-to-back — `const int`
-            // ported as module-level `let`s, `static readonly Provider` as a
-            // `static let` (a static field + the type `.cctor`), the nullable ref
-            // fields (`TextWriter?`, `char[]?`) as their underlying ref types with
-            // explicit `null` handling (the `?.` replacement), the `Span<char>`
-            // buffer (PP2a) and the `int` position. Two construction shapes — a
-            // write-through sink (a real writer + a pooled buffer) and a string sink
-            // (both null) — prove each field declares and initialises, and the
-            // null-matching members prove the explicit-null handling.
-            // PP5a (printf-port-steps): `Span<char>` passed as a *by-value argument*
-            // plus the buffer-copy method surface every `Formatter` body uses —
-            // `string.CopyTo(Span<char>)`, `Span<char>.CopyTo(Span<char>)`,
-            // `Span<char>.Fill(char)`, `Span<char>.ToString()`, and
-            // `string.TryCopyTo(Span<char>) : bool`. Rides PP2a (Span as a value), but
-            // each call passes / produces a `Span<char>` in *argument* position (where
-            // PP2a only proved the receiver/field/return), so the member-ref parent for
-            // a Span parameter must encode `VALUETYPE`. The slices use the 2-arg
-            // `Slice(int,int)` form throughout — the 1-arg `Slice(int)` folds into a
-            // LongIdent head and hits the orthogonal overload-resolution gap PP2b noted.
+            // `Span<char>` passed as a by-value argument: the member-ref parent for a
+            // Span parameter must encode `VALUETYPE`, not just the receiver/field/return.
             test "PP5a: Span<char> by-value args — string.CopyTo, span CopyTo, Fill, ToString, TryCopyTo" {
                 runsLines
                     [ "ab---cd"; "ab---cdab"; "true"; "false" ]
@@ -1054,7 +941,6 @@ let structTests =
                         ])
             }
 
-            // PP5b (printf-port-steps): unsigned literals + the `uint` cast.
             test "PP5b: hex uint32 literal reads back; radix literals" {
                 runsLines
                     [ "true"; "true"; "true"; "true" ]
@@ -1089,19 +975,11 @@ let structTests =
                         ])
             }
 
-            // PP5c (printf-port-steps): the hole-formatting dispatch
-            // `AppendFormatted<'T>` via `IFormattable`. `box value` once, then a
-            // 3-way match: `:? IFormattable` (the invariant-culture
-            // `ToString(null, provider)` — value types like int / float), the
-            // `null` literal pattern (PP4), and the `o.ToString()` fallback for a
-            // non-`IFormattable` reference (string). The member is generic and
-            // *called within the defining assembly at three distinct types* (int,
-            // float, string), which forced the inference fix: a project-local
-            // generic member's own method typars are now freshened per call site
-            // (`Engine.instantiateMemberCall`) instead of the one prototype typar
-            // grounding to the first call's type — without it the member emitted
-            // as a single mono method specialised to `int` and the `float` call
-            // passed a wrong-typed argument (`InvalidProgramException` at JIT).
+            // A project-local generic member called at multiple distinct types within
+            // the same assembly: method typars must be freshened per call site
+            // (`Engine.instantiateMemberCall`), not grounded to the first call's type.
+            // Without freshening the member emits as a mono method and the second
+            // call passes a wrong-typed arg (`InvalidProgramException` at JIT).
             test "PP5c: AppendFormatted<'T> IFormattable dispatch (int/float/ref), same-assembly multi-instantiation" {
                 runsLines
                     [ "42"; "3.14"; "hi" ]
@@ -1126,11 +1004,9 @@ let structTests =
                         ])
             }
 
-            // Regression for the same inference fix at module scope: a project-local
-            // *generic free function* called at two distinct types must stay one
-            // generic method, not ground to the first call. (A generic free function
-            // that *captures a module value* is lifted to a generic closure, a
-            // separate still-open gap — this one captures nothing.)
+            // Same typar-freshening invariant at module scope: a generic free function
+            // (capturing nothing) called at two distinct types must stay generic,
+            // not ground to the first call.
             test "PP5c: generic free function, same-assembly multi-instantiation" {
                 runsLines
                     [ "42"; "3.14" ]
@@ -1150,15 +1026,10 @@ let structTests =
                         ])
             }
 
-            // PP5d (printf-port-steps): byref `out`/`ref` *arguments* — the
-            // genuinely-new compiler feature. `&local` (managed address-of) is the
-            // byref intrinsic `TyConst("&", [T])` (`inferPrefix`), lowered at Freeze
-            // to an `ldloca` of the operand's slot; the member-ref encodes the
-            // parameter with the `ELEMENT_TYPE_BYREF` prefix (`mintMemberRef`), so a
-            // BCL method writes back through the local. `Int32.TryParse(string,
-            // out int)` is the clean non-`Span` `out` probe: the local must be a
-            // function-local mutable (a module-level mutable is a static field, not a
-            // slot-addressable local).
+            // `&local` (managed address-of) lowers to `ldloca` of the operand's slot;
+            // the member-ref encodes the parameter with `ELEMENT_TYPE_BYREF`. The local
+            // must be a function-local mutable — a module-level mutable is a static
+            // field, not a slot-addressable local.
             test "PP5d: Int32.TryParse(s, &r) writes the out local through a byref arg" {
                 runsLines
                     [ "123"; "-1" ]
@@ -1175,22 +1046,10 @@ let structTests =
                         ])
             }
 
-            // PP5d part 4 (printf-port-steps): the `ISpanFormattable.TryFormat`
-            // span fast-path — the no-alloc branch the `Formatter` prefers over the
-            // `IFormattable.ToString` fallback. `box value` once, then
-            // `:? ISpanFormattable as sf -> sf.TryFormat(dest, &cw,
-            // ReadOnlySpan<char>.Empty, provider)` writes the formatted chars
-            // straight into the `Span<char>` buffer (no intermediate string),
-            // reading the count back through the `&cw` out arg (PP5d's byref-arg
-            // machinery) and slicing the dest to materialise the result. The two
-            // earlier-deferred ingredients now compile: the empty
-            // `ReadOnlySpan<char>.Empty` format arg (the `TODO TypeApp` blocker is
-            // gone — an external generic-type static-property receiver resolves
-            // through `ExternalAccess`) and the `Span<char>` by-value `dest`
-            // (PP5a). `int` / `float` implement `ISpanFormattable` (the fast path);
-            // `string` implements neither, so it falls to the `o.ToString()` arm —
-            // and every fast-path result is byte-identical to the `IFormattable`
-            // path PP5c delivers.
+            // `ISpanFormattable.TryFormat` writes formatted chars straight into a
+            // `Span<char>` buffer (no intermediate string), reading the count back
+            // through the `&cw` out arg. `int`/`float` implement `ISpanFormattable`;
+            // `string` falls to the `o.ToString()` arm.
             test "PP5d part 4: AppendFormatted span fast-path via ISpanFormattable.TryFormat" {
                 runsLines
                     [ "42"; "3.14"; "hi" ]
@@ -1227,36 +1086,14 @@ let structTests =
                         ])
             }
 
-            // PP5f (printf-port-steps): the integration rung — the realisable
-            // `Formatter` core (`Handler`, a string-sink ref struct) ported
-            // front-to-back, proving the prior rungs compose AND the load-bearing
-            // codegen fix this rung surfaced. Stitches: the field block + ctor
-            // (PP4 / PP2a / PP3 — `ArrayPool.Rent`), `string.TryCopyTo` /
-            // `Span.CopyTo` / `Span.ToString` (PP5a), the single generic
-            // `AppendFormatted<'T>` `IFormattable` hole dispatch with the `null`
-            // pattern (PP5c / PP4), and a real grow (`GrowThenCopyString` → `Grow` →
-            // `GrowCore`) exercised by the 400-char case. **The point of the test:**
-            // every body mutates `this` through *self-calls* (`AppendFormatted` →
-            // `this.AppendLiteral`, `AppendLiteral` → `this.GrowThenCopyString` →
-            // `this.Grow` → `this.GrowCore`); these only persist because of the
-            // struct self-receiver in-place addressing fix this rung landed
-            // (`EmitMember.loadStructReceiverAddr` + the `thisKey`-as-`SelfKey`
-            // wiring in `Emit.buildMember`). Without it a struct self-call addresses
-            // a *defensive copy* of `this` — the mutation is lost (an immutable F#
-            // local would copy per `fsc`; the repo addresses in place, and now does
-            // so for self-calls too). See `docs/overload-resolution-bug.md` for the
-            // gaps that scoped this down (the four overloaded `AppendFormatted`, the
-            // write-through `Flush`, the dedicated `Append*` members) and
-            // printf-port-steps.md PP5f. The few deviations below (int grow vs PP5b
-            // `uint`, `TryCopyTo` vs `string.CopyTo`, `while` vs `for … in 1..n`,
-            // string sink only) each dodge one of those gaps and are byte-equivalent
-            // for the holes exercised.
+            // Every body mutates `this` through self-calls (`AppendFormatted` →
+            // `AppendLiteral` → `GrowThenCopyString` → `Grow` → `GrowCore`). These
+            // only persist because struct self-calls address `this` in place
+            // (`EmitMember.loadStructReceiverAddr`); a defensive copy per call would
+            // lose each mutation.
             test "PP5f: Formatter core — literal, generic hole, grow, string sink" {
                 runsLines
-                    [
-                        "x=42, pi=3.14" // literal + AppendFormatted int/float (invariant)
-                        "400" // 200 × "ab" forced repeated grows (GrowThenCopyString)
-                    ]
+                    [ "x=42, pi=3.14"; "400" ]
                     (String.concat
                         "\n"
                         [
@@ -1298,18 +1135,13 @@ let structTests =
                             "        match toReturn with | null -> () | arr -> ArrayPool<char>.Shared.Return(arr)"
                             "    member private this.GrowThenCopyString(value: string) ="
                             "        this.Grow(value.Length)"
-                            // string.CopyTo(Span) mis-resolves to the 4-param overload
-                            // (overload-resolution-bug.md); TryCopyTo (the bool form)
-                            // resolves and is equivalent once the buffer has grown.
+                            // `string.CopyTo(Span)` mis-resolves to the 4-param overload
+                            // at this call site; `TryCopyTo` (bool form) resolves correctly
+                            // and is equivalent once the buffer has grown.
                             "        let _ok = value.TryCopyTo(this.Chars.Slice(this.Pos, this.Chars.Length - this.Pos))"
                             "        this.Pos <- this.Pos + value.Length"
                             "    member private this.Grow(additionalChars: int) ="
                             "        this.GrowCore(this.Pos + additionalChars)"
-                            // The real Formatter clamps growth in `uint` (PP5b) to
-                            // dodge overflow at huge sizes; the `uint`→`int` array-size
-                            // conversion has no recipe in the test stack
-                            // (overload-resolution-bug.md), so this checkpoint uses int
-                            // arithmetic — equivalent for the small grow it exercises.
                             "    member private this.GrowCore(requiredMinCapacity: int) ="
                             "        let newCapacity = Math.Max(requiredMinCapacity, Math.Min(this.Chars.Length * 2, MaxChars))"
                             "        let arraySize = Math.Max(newCapacity, MinimumArrayPoolLength)"
@@ -1339,14 +1171,10 @@ let structTests =
                         ])
             }
 
-            // overload-resolution-bug.md Gap A: same-name overloaded *generic*
-            // members. Each `Fmt` overload carries its own method typar `'T`;
-            // `Elaborate.methodTypeParams` recovered them by *name* (`Array.tryFind`),
-            // so all three overloads took the first one's typars and the others' own
-            // `'T` was never generalised → froze as `?ungrounded-operator`. Fixed by
-            // matching the exact overload through its registration `DeclKey`. The
-            // backend emits all four `AppendFormatted` overloads of `formatter.fs`
-            // this way, so this unblocks PP6.
+            // Same-name overloaded generic members: each overload carries its own
+            // method typar `'T`. Elaboration must match the exact overload by `DeclKey`,
+            // not by name — otherwise all overloads share the first one's typars and
+            // the others' `'T` freezes as `?ungrounded-operator`.
             test "Gap A: same-name overloaded generic members each generalise their own 'T" {
                 runsLines
                     [ "42" ]
@@ -1381,35 +1209,23 @@ let structTests =
                         ])
             }
 
-            // overload-resolution-bug.md Gap B: external *instance* method overload
-            // resolution on a *variable/property* receiver. `w.Write("hi")` parses
-            // with `fn = LongIdent [w; Write]` (the parser folds the dot when the
-            // head is a plain ident), which bypassed the `DotLookup`-only arg-aware
-            // probe and fell to the single-pick field walk — grabbing the widest
-            // `Write(string, object, object, object)` overload for one `string` arg.
-            // Fixed by routing the folded-LongIdent value receiver through the same
-            // `pickBestOverload` path. (A *literal* receiver `"ab".CopyTo` already
-            // worked — it stays a `DotLookup`.) Unblocks `formatter.fs`'s `Flush`.
+            // External instance method overload resolution on a variable/property
+            // receiver: `w.Write("hi")` parses with `fn = LongIdent [w; Write]`
+            // (the parser folds the dot). This must go through `pickBestOverload`,
+            // not the single-pick field walk (which would grab the widest overload).
             test "Gap B: external instance overload pick on a folded-LongIdent receiver" {
                 runsLines [ "hi" ] (String.concat "\n" [ "open System"; "let w = Console.Out"; "w.Write(\"hi\")" ])
             }
 
-            // overload-resolution-bug.md Gap C: binary `+` on `string` must lower
-            // to `System.String.Concat`, not a numeric `add` on two string
-            // references (a garbage pointer → AccessViolation). The `(+)` operator
-            // (Vesper.Core/ops-platform.fs) gained a `when ^T : string` static-opt
-            // clause mirroring FSharp.Core. Independent correctness bug; the
-            // Formatter never uses string `+`, but it crashed an early PP5f probe.
+            // Binary `+` on `string` must lower to `String.Concat`, not a numeric
+            // `add` on two string references (a garbage pointer → AccessViolation).
             test "Gap C: binary + on string concatenates (String.Concat), not numeric add" {
                 runsLines
                     [ "xy" ]
                     (String.concat "\n" [ "let f (a: string) (b: string) = a + b"; "printfn \"%s\" (f \"x\" \"y\")" ])
             }
 
-            // overload-resolution-bug.md Gap D: the parameterless `Span<char>()`
-            // ctor (`default(Span<char>)`). An *external* value type with 0 ctor
-            // args now lowers to `initobj` (the same path a project-local struct
-            // takes), not a missing `newobj` ctor recipe.
+            // An external value type with 0 ctor args lowers to `initobj`, not `newobj`.
             test "Gap D: parameterless Span<char>() (external value-type default ctor)" {
                 runsLines
                     [ "0" ]
@@ -1424,10 +1240,6 @@ let structTests =
                         ])
             }
 
-            // overload-resolution-bug.md Gap E: the `int` (`ToInt32`) conversion
-            // *from* a `uint` — the signed sibling of PP5b's `uint`/`uint32`, now
-            // in Vesper.Core/ops-platform.fs. `GrowCore` narrows its clamped `uint`
-            // size back to the `int` array length.
             test "Gap E: int conversion of a uint (Math.Clamp narrowing)" {
                 runsLines
                     [ "50" ]
@@ -1440,10 +1252,8 @@ let structTests =
                         ])
             }
 
-            // overload-resolution-bug.md Gap F: `for i in a..b do` over an integer
-            // range. Freeze lowers a unit-step range source to a counted `ForTo`
-            // loop (F#'s own lowering) instead of trying to walk a non-existent
-            // range enumerable (`Emit: unsupported expression: Range`).
+            // `for i in a..b do` over an integer range lowers to a counted `ForTo`
+            // loop, not a range enumerable walk.
             test "Gap F: for i in 1..n range loop (lowers to counted ForTo)" {
                 runsLines
                     [ "15" ]
@@ -1459,17 +1269,11 @@ let structTests =
                         ])
             }
 
-            // PP7a regression guard 1: chained string concatenation. `a + b` (one
-            // `+`) already lowered to `String.Concat` (overload-resolution-bug Gap C),
-            // but `a + b + c` = `(a + b) + c` mis-dispatched: the *outer* `+`'s `^T`
-            // was pinned (first) to the inner `+`-App's still-abstract result type, so
-            // the operator failed the inline splice gate and fell to its numeric `add`
-            // base — `add` on two string references (an AccessViolation, not a wrong
-            // string). Fixed in `InlineExpansion.deriveInlineTypeArgs`: a ground
-            // sibling operand (here `c : string`, and the `string` return position)
-            // upgrades the abstract candidate so `^T` grounds to `string` and the
-            // `when ^T : string` clause fires. `surround` exercises the literal-edged
-            // form (`"(" + s + ")"`) the `%A` engine's parens wrapping uses.
+            // `a + b + c` = `(a + b) + c`: the outer `+`'s `^T` must be grounded by
+            // a sibling ground operand (`c : string` or the `string` return position),
+            // not pinned to the inner App's still-abstract result type. Without this,
+            // the operator falls to its numeric `add` base — `add` on string refs is
+            // an AccessViolation.
             test "Chained string concat a + b + c lowers to String.Concat (not numeric add)" {
                 runsLines
                     [ "abc"; "(x)" ]
@@ -1483,12 +1287,8 @@ let structTests =
                         ])
             }
 
-            // PP7a regression guard 2: escape sequences in a string-literal *value*.
-            // The parser folds a `\n` / `\t` / `\"` fragment into a `StringPart.Text`
-            // carrying its raw 2-char span; `FreezeLiterals.foldStringParts` used to
-            // append that span verbatim, so a `"\n"` value emitted a literal
-            // backslash-n. Now it decodes an escape-sequence-token fragment to the
-            // char it denotes. The `%A` broken layout depends on real `"\n"` newlines.
+            // String escape sequences must decode to the char they denote: `FreezeLiterals`
+            // must not append the raw 2-char span verbatim.
             test "string literal escape sequences decode in the emitted value" {
                 runsLines
                     [ "a"; "b"; "x\ty"; "q\"r" ]
@@ -1504,39 +1304,10 @@ let structTests =
                         ])
             }
 
-            // PP7a (printf-port-steps): the `%A` engine's layout core — the `Doc`
-            // DU, the recursive `flatWidth`, and the recursive `Render` — ported
-            // pure, with NO `IFormatSink` / dispatch (those are PP7b/PP7c). This
-            // isolates the recursion / DU / string-building surface `StructuralFormat.cs`
-            // needs before stitching the whole engine. Deviations from the C# (each
-            // sanctioned by the plan's capability survey): `flatWidth` is recomputed
-            // recursively instead of cached eagerly per node (the trees are small,
-            // fully immutable); `render` accumulates functionally — it returns a
-            // record `{ Txt; Col }` of the rendered text + resulting column rather
-            // than appending to a `StringBuilder` (the StringBuilder probe is PP7c;
-            // a record sidesteps the wide-tuple convention and the mixed ref/value
-            // ValueTuple path), and the broken-line indent is built by a recursive
-            // `spaces` concat rather than `Append(char, int)`. The all-or-nothing
-            // group rule is the load-bearing logic: a group is flat iff
-            // `col + inner.flatWidth <= width` (`width = 0` ⇒ always flat — the `%0A`
-            // "never break" mode), so a composite renders all-flat or all-broken,
-            // never half-broken.
-            //
-            // The driver hand-builds the exact `Doc` shapes `RuntimeFormatState`
-            // would record for `[1; 2; 3]` (a group over text / soft-break / cat /
-            // nest) and a parenthesised DU application `(Some 1)` (a `parens=true`
-            // group), and asserts the laid-out string flat (width 80), never-break
-            // (width 0), and broken (width 5 forces the group open, hanging the
-            // elements at the nest indent).
-            //
-            // Two backend gaps surfaced + fixed building this probe (regression
-            // guards immediately below): chained string concat `a + b + c`
-            // mis-dispatched to numeric `add` on string refs (an AccessViolation) —
-            // `InlineExpansion.deriveInlineTypeArgs` now lets a ground sibling
-            // operand pin the operator's `^T`; and a string literal's `\n` escape
-            // emitted a literal backslash-n — `FreezeLiterals.foldStringParts` now
-            // decodes escape-sequence fragments. A third gap is routed around
-            // (see the `listKids`/`elems` `let`-binding note below), not yet fixed.
+            // The `%A` layout core: a group is all-flat iff
+            // `col + inner.flatWidth <= width` (`width = 0` ⇒ always flat), never
+            // half-broken. `render` returns a record `{ Txt; Col }` rather than
+            // threading a `StringBuilder` (avoids mixed ref/value-field path).
             test "PP7a: Doc layout core — flatWidth + Render (flat / never-break / broken)" {
                 runsLines
                     [
@@ -1549,12 +1320,10 @@ let structTests =
                         "]"
                         "(Some 1)" // a parens group (DU application) renders its `(`/`)`
                     ]
-                    // The DU + cases are named `LDoc`/`LText`/… (not the C# port's
-                    // `Doc`/`DocText`/…) on purpose: the still-C# `StructuralFormat.cs`
-                    // already defines `Vesper.Doc`/`Vesper.DocGroup`/… and the default
-                    // test stack resolves `Vesper.Printf`, so a local `DocGroup(…)`
-                    // binds the external C# class (no ctor recipe) instead of the
-                    // local union case. PP7e drops the C# and frees the names.
+                    // The DU cases are named `LDoc`/`LText`/… to avoid clashing with the
+                    // external C# `Vesper.Doc`/`Vesper.DocGroup`/… already in scope from
+                    // the default test stack; a local `DocGroup(…)` would otherwise bind
+                    // the external class (no ctor recipe) instead of the local union case.
                     (String.concat
                         "\n"
                         [
@@ -1577,13 +1346,6 @@ let structTests =
                             "    | k :: rest -> flatWidth k + catWidth rest"
                             "let rec spaces (n: int) : string ="
                             "    if n <= 0 then \"\" else \" \" + spaces (n - 1)"
-                            // `render` mirrors the C# `Render` — it produces the laid-out
-                            // text and the resulting column. The C# threads a
-                            // `StringBuilder` + an `int` return; here `render` returns a
-                            // record `{ Txt; Col }`. (A `(string * int)` tuple return is
-                            // the natural F# shape, but the project's wide-tuple-→-record
-                            // convention applies, and a record sidesteps the mixed
-                            // ref/value-field path cleanly.)
                             "type R = { Txt: string; Col: int }"
                             "let rec render (d: LDoc) (indent: int) (broken: bool) (col: int) (width: int) : R ="
                             "    match d with"
@@ -1609,11 +1371,6 @@ let structTests =
                             "let layout (d: LDoc) (width: int) : string ="
                             "    let r = render (LGroup(d, false)) 0 false 0 width"
                             "    r.Txt"
-                            // List literals are now passed *directly* as union-case
-                            // arguments (`LCat [ … ]`, even nested): the gap #3 that
-                            // mis-lowered such a cons-list to empty is fixed (see
-                            // docs/printf-port-steps.md PP7a; `peelCtorArgs` only
-                            // collapses round-paren grouping, never a `[ … ]` literal).
                             "let listDoc = LGroup(LCat [ LText \"[\"; LNest(2, LCat [ LLine \"\"; LText \"1\"; LText \";\"; LLine \" \"; LText \"2\"; LText \";\"; LLine \" \"; LText \"3\" ]); LLine \"\"; LText \"]\" ], false)"
                             "let appDoc = LGroup(LCat [ LText \"Some\"; LLine \" \"; LText \"1\" ], true)"
                             "printfn \"%s\" (layout listDoc 80)"
@@ -1623,15 +1380,9 @@ let structTests =
                         ])
             }
 
-            // PP7a gap #3 (now FIXED): a cons-list *literal* passed DIRECTLY as a
-            // union-case argument — `LCat [ a; b; c ]` — used to lower the list to
-            // empty (so a `Doc list` field read back `[]` and folds over it
-            // returned 0). The cause: `peelCtorArgs`/`peelOneArg` matched the
-            // `[ … ]` literal's `EnclosedBlock` and unwrapped it to its inner
-            // `Sequential`, dropping the `ParenKind.List` literal lowering. Fixed
-            // by only collapsing round-paren / begin-end grouping (`ValueParen`)
-            // into the argument list. The probe above let-binds every list to dodge
-            // this; here we pass the literal inline and assert the field round-trips.
+            // A list literal passed directly as a union-case argument `LCat [ a; b; c ]`:
+            // `peelCtorArgs` must only collapse round-paren/begin-end grouping, never
+            // unwrap a `[ … ]` literal's `EnclosedBlock` (which would drop the list lowering).
             test "PP7a gap #3: list literal as a direct union-case argument round-trips" {
                 runsLines
                     [ "3"; "6" ]
@@ -1646,7 +1397,6 @@ let structTests =
                             "let count (b: Bag) : int ="
                             "    match b with"
                             "    | Items xs -> sumList xs"
-                            // inline literal as the sole ctor arg (the formerly-broken shape)
                             "let direct = Items [ 1; 1; 1 ]"
                             "let total = Items [ 1; 2; 3 ]"
                             "printfn \"%d\" (count direct)"
@@ -1654,69 +1404,16 @@ let structTests =
                         ])
             }
 
-            // PP7b (printf-port-steps): `RuntimeFormatState : IFormatSink` — the
-            // concrete sink + frame stack, the second StructuralFormat.cs rung. This
-            // probe stitches the PP7a layout core (the `LDoc` DU + `flatWidth` +
-            // `render`/`layout`) to a *class* `LSink` implementing the Core-owned
-            // `Vesper.IFormatSink` — all 11 members — plus the frame-stack
-            // push / `PopWrap` (collapse a frame's children to a single child or a
-            // `LCat`, wrap in `LGroup`/`LNest`) and `Finish`. It exercises every
-            // sink capability PP7b owns:
-            //   * a reference class implementing an external Core interface, members
-            //     forwarding to private helpers (the forwarding the struct enumerator
-            //     CANNOT do — but a *class* `this` is a reference, so the mutation is
-            //     not lost on a copy);
-            //   * `val mutable` fields holding a frame stack as a Vesper cons-list
-            //     used as a stack (push = cons, pop = head/tail; `PopWrap` reverses
-            //     the per-frame child accumulator) — the plan's recommended deviation
-            //     over a BCL `List<Doc>`, avoiding mutable-collection support;
-            //   * the `_argPending` parens propagation (`FormatArg` → the next
-            //     `BeginApplication` parenthesizes; `FormatChild` clears it);
-            //   * a minimal `Dispatch` (`:? IStructuralFormattable` recurse + a
-            //     `ToString` fallback for leaves) — enough to drive `FormatChild` /
-            //     `FormatArg` recursion. The full type-test/atom surface (numeric
-            //     suffixes, quoting, `ITuple`, `IEnumerable`) is PP7c.
-            //
-            // The drivers are *classes* (`MyList` / `MyOpt`), not DUs: a hand-written
-            // union interface impl is unsupported front-to-back
-            // (project_union_interface_impls_unsupported); `RuntimeFormatState` is a
-            // class for the same reason, and these mirror it. `MyList` records the
-            // `[a; b; c]` enumerable shape and `MyOpt` the `Some payload`
-            // application — together they drive group / nest / soft-break / the
-            // parenthesised application, asserted flat (80), broken (5), and nested
-            // (`Some (Some 1)`, the inner `Some` parenthesised because it is in
-            // argument position).
-            // PP7f known gap (pending): a struct method's self-call to ANOTHER struct
-            // instance method loses the inner call's mutation — the second-level
-            // `this` is passed as a defensive copy, so `s.Acc` reads back `0`, not
-            // `2`. This is the latent backend bug the PP7f plain-printf reroute
-            // surfaced: `Formatter.AppendUnsigned` / `AppendZeroPaddedFloat` (which
-            // forward `this.AppendFormatted(...)`) throw `InvalidProgramException`
-            // under the Vesper handler (the same defect, fatal on a `ref struct`),
-            // blocking `PrintfHappyPathTests` / `RunnableAppTests` plain-printf slices
-            // from binding the Vesper handler. PP5f fixed the FIRST-level struct
-            // self-receiver (`ldarg.0` byref `this`); this is the missing SECOND
-            // level (a struct method that itself self-calls a mutating struct
-            // method). Class + unit-return variants pass, so the receiver's
-            // value-type-ness is the differentiator. The `%A` engine
-            // (`structural-printer.fs`) is a reference class, so it is unaffected and
-            // proven byte-identical (`PrintfDifferentialTests`). Flip to `test` to
-            // drive the fix (EmitMember.fs `loadStructReceiverAddr` / the self-call
-            // chain).
-            // PP7f: overloaded instance members on a struct, where one overload
-            // self-calls another. `EmittedClass/Union.Members` used to key by name
-            // only (first writer wins), so every `S.G` call resolved to the FIRST
-            // overload's handle — a 2-arg call against the arity-1 method's
-            // member-ref → `InvalidProgramException`. This is the exact shape of
-            // `Vesper.Formatter.AppendUnsigned(value, alignment) =
-            // this.AppendFormatted(value, alignment)` (a tail self-call to one of the
-            // four `AppendFormatted` overloads), which threw under the Vesper handler
-            // and blocked the plain-printf reroute. Fixed by keying `Members` to an
-            // overload *list* and picking by argument types at the call site
-            // (ECMA-335 §I.10.2 — CLS overloading is by number + types of
-            // parameters; `EmitResolve.pickOverload`). Two arity-2 overloads
-            // (`G(x:'T, k:int)` / `G(x:'T, k:string)`) prove arity alone is
-            // insufficient — the `int` arg must select the right one.
+            // `IFormatSink` class sink + frame stack: `FormatArg` sets `ArgPending`
+            // so the next `BeginApplication` parenthesises its content; `FormatChild`
+            // clears it. Drivers are classes (`MyList`/`MyOpt`) because union
+            // interface impls are unsupported front-to-back.
+
+            // Overloaded instance members on a struct, where one overload self-calls
+            // another: `Members` must key to an overload list and pick by argument
+            // types at the call site (ECMA-335 §I.10.2). Keying by name only makes
+            // every call resolve to the first overload's handle, causing
+            // `InvalidProgramException` when the arity or types mismatch.
             test "PP7f: overloaded struct self-call resolves the right overload by arg types" {
                 runsSelfHostLines
                     [ "2" ]
@@ -1740,12 +1437,6 @@ let structTests =
                         ])
             }
 
-            // PP7f: the real printf holes that threw `InvalidProgramException` under
-            // the Vesper-compiled handler before the overloaded-member fix — `%u`
-            // (`AppendUnsigned` → 2-arg `AppendFormatted`), an aligned `%Nu`, and the
-            // zero-padded float `%0w.pf` (`AppendZeroPaddedFloat` → 2-arg
-            // `AppendFormatted`). Asserted byte-identical between the C# and Vesper
-            // handlers (the PP7e differential safety net), so this guards the reroute.
             test "PP7f: %u / aligned / zero-padded-float holes match the C# handler" {
                 runsDifferentialEq "42" "printfn \"%u\" 42"
                 runsDifferentialEq "   42" "printfn \"%5u\" 42"
@@ -1768,7 +1459,7 @@ let structTests =
                     (String.concat
                         "\n"
                         [
-                            // ---- PP7a layout core (LDoc + flatWidth + render + layout) ----
+                            // ---- layout core ----
                             "type LDoc ="
                             "    | LText of string"
                             "    | LLine of string"
@@ -1813,21 +1504,18 @@ let structTests =
                             "let layout (d: LDoc) (width: int) : string ="
                             "    let r = render (LGroup(d, false)) 0 false 0 width"
                             "    r.Txt"
-                            // Reverse a frame's child accumulator (built by consing, so
-                            // reversed) back into recording order. Hand-written to avoid a
-                            // dependency on a `List.rev` external static.
+                            // `revOnto` reverses the per-frame child accumulator (built by
+                            // consing) back into recording order, without a `List.rev` external dep.
                             "let rec revOnto (xs: LDoc list) (acc: LDoc list) : LDoc list ="
                             "    match xs with"
                             "    | [] -> acc"
                             "    | h :: t -> revOnto t (h :: acc)"
-                            // ---- the sink + frame stack (RuntimeFormatState) ----
+                            // ---- sink + frame stack ----
                             "type FrameKind ="
                             "    | Root"
                             "    | Group"
                             "    | Nest"
                             "    | Application"
-                            // A layout frame: its child accumulator (`Kids`, consed ⇒
-                            // reversed) plus the scope kind / nest indent / parens flag.
                             "type Frame ="
                             "    val Kind: FrameKind"
                             "    val NestIndent: int"
@@ -1899,7 +1587,6 @@ let structTests =
                             "            this.ArgPending <- true"
                             "            this.Dispatch(value)"
                             "            this.ArgPending <- false"
-                            // ---- the drivers (hand-written IStructuralFormattable on CLASSES) ----
                             "let rec emitElems (sink: Vesper.IFormatSink) (xs: int list) (first: bool) : unit ="
                             "    match xs with"
                             "    | [] -> ()"
@@ -1942,12 +1629,6 @@ let structTests =
                         ])
             }
 
-            // PP7c capability probe 1: the numeric `:?` type-test surface + the
-            // `ISpanFormattable`/`IFormattable` invariant render + the suffix switch
-            // (FormatPrimitive's integral arm). Boxes each numeric literal, type-tests
-            // it on `obj`, and renders `<invariant>+<suffix>`. The suffixes are the
-            // lexer's canonical spellings (round-trip). Probes the encodability gaps
-            // (PP5b made only `uint32` testable; the rest need IntrinsicRepr entries).
             test "PP7c probe: numeric type-tests + suffix render" {
                 runsSelfHostLines
                     [ "5y"; "5uy"; "5s"; "5us"; "5u"; "5L"; "5UL"; "5M" ]
@@ -1985,12 +1666,6 @@ let structTests =
                         ])
             }
 
-            // PP7c capability probe 2: the float `.0` fixup (`FixFloat`) — needs
-            // `double.IsFinite` / `float.IsFinite` (static BCL) + char-by-index
-            // iteration over the invariant string to detect an existing `.`/`e`/`E`,
-            // and the non-finite `nan`/`infinity` spellings — plus the string/char
-            // quoting (`QuoteString`/`QuoteChar`/`AppendEscaped`), built with string
-            // concat (no StringBuilder).
             test "PP7c probe: float fixup + string/char quoting" {
                 runsSelfHostLines
                     [
@@ -2010,8 +1685,7 @@ let structTests =
                             "open System"
                             "open System.Globalization"
                             "let provider : IFormatProvider = CultureInfo.InvariantCulture"
-                            // Does the invariant string already read as a float (has a
-                            // `.`/`e`/`E`)? Scan by index — no char enumerator.
+                            // Scan by index: no char enumerator available.
                             "let rec hasDot (s: string) (i: int) : bool ="
                             "    if i >= s.Length then false"
                             "    else"
@@ -2031,7 +1705,6 @@ let structTests =
                             "    | :? double as d -> fixFloat (d.ToString(null, CultureInfo.InvariantCulture)) (Double.IsFinite d) \"\""
                             "    | :? single as f -> fixFloat (f.ToString(null, provider)) (Single.IsFinite f) \"f\""
                             "    | _ -> value.ToString()"
-                            // `AppendEscaped`: append one (possibly escaped) char to acc.
                             "let appendEscaped (acc: string) (c: char) (quote: char) : string ="
                             "    if c = '\\\\' then acc + \"\\\\\\\\\""
                             "    elif c = '\\n' then acc + \"\\\\n\""
@@ -2058,12 +1731,6 @@ let structTests =
                         ])
             }
 
-            // PP7c capability probe 3: the composite-walk type-tests — `:? ITuple`
-            // (`.Length` + the `t.[i] : obj` indexer, a by-value `get_Item` on `obj`)
-            // and `:? IEnumerable` (the non-generic `for item in xs do` enumerator
-            // walk over a BCL array, the shape the golden oracle's `FSharpList` input
-            // takes). Both accumulate into a local mutable string (no sink), isolating
-            // the dispatch capability from the frame stack.
             test "PP7c probe: ITuple + IEnumerable walk" {
                 runsSelfHostLines
                     [ "(1, 2)"; "[1; 2; 3]" ]
@@ -2097,20 +1764,9 @@ let structTests =
                         ])
             }
 
-            // PP7c checkpoint (printf-port-steps): the full `Dispatch` + atom rendering
-            // — `StructuralFormat.cs`'s `RuntimeFormatState` reflection-free `:?` chain
-            // (`IStructuralFormattable` / `string` / `char` / `bool` / `ITuple` /
-            // `ISpanFormattable`(here `IFormattable`) / `IEnumerable` / `ToString`
-            // fallback, in that order), the atom helpers (`formatPrimitive` / `fixFloat`
-            // / `quoteString` / `quoteChar` / `appendEscaped`), and the depth + `_size`
-            // (PrintSize) budget — stitched onto the PP7a layout core + PP7b sink/frame
-            // stack. The visited-set (cycle detection) is dropped (depth-guard only);
-            // every input here is acyclic, so the output is byte-identical to the C#
-            // engine. Drives one value per dispatch arm: each atom kind, a tuple
-            // (`ITuple`), a BCL array (`IEnumerable`, the golden `FSharpList` shape), a
-            // nested DU application (`Some (Some 1)` — inner parenthesised via the
-            // `_argPending` propagation), and a size-budget collection truncation
-            // (`[1; 2; ...]`). Compiled under the self-host front end.
+            // The full `%A` dispatch + atom rendering: the reflection-free `:?` chain,
+            // atom helpers (`formatPrimitive`/`fixFloat`/`quoteString`/`quoteChar`),
+            // and the depth+size budget. Drives one value per dispatch arm.
             test "PP7c: Dispatch + atom rendering (the %A engine, depth+size budget)" {
                 runsSelfHostLines
                     [
@@ -2133,7 +1789,7 @@ let structTests =
                             "open System.Collections"
                             "open System.Globalization"
                             "open System.Runtime.CompilerServices"
-                            // ---- PP7a layout core (LDoc + flatWidth + render + layout) ----
+                            // ---- layout core ----
                             "type LDoc ="
                             "    | LText of string"
                             "    | LLine of string"
@@ -2182,12 +1838,11 @@ let structTests =
                             "    match xs with"
                             "    | [] -> acc"
                             "    | h :: t -> revOnto t (h :: acc)"
-                            // ---- atom rendering (copy-pasteable source forms) ----
-                            // `CultureInfo.InvariantCulture` is used inline (not bound to
-                            // a module `let`): a class member — or a module function
-                            // inlined into one (`formatPrimitive` reached from the sink's
-                            // `DispatchInner`) — can't reference a module-level *value*
-                            // (its `ldsfld` is unresolved in the member emit env).
+                            // ---- atom rendering ----
+                            // `CultureInfo.InvariantCulture` is used inline (not bound to a
+                            // module `let`) because a module-level value referenced from a
+                            // class member body emits an `ldsfld` that is unresolved in the
+                            // member emit environment.
                             "let rec hasDot (s: string) (i: int) : bool ="
                             "    if i >= s.Length then false"
                             "    else"
@@ -2202,9 +1857,9 @@ let structTests =
                             "        else s"
                             "    elif hasDot s 0 then s + suffix"
                             "    else s + \".0\" + suffix"
-                            // `if/elif` on `:?` + `:?>` rather than `match | :? T as x`
-                            // (same `as`-binder codegen gap the sink's `DispatchInner`
-                            // routes around).
+                            // `if/elif` on `:?` + `:?>` rather than `match | :? T as x`:
+                            // a large `as`-binding type-test match in a member body drops a
+                            // binder slot in codegen; test/cast form is equivalent.
                             "let formatPrimitive (value: obj) : string ="
                             "    if value :? double then"
                             "        let d = value :?> double"
@@ -2241,7 +1896,7 @@ let structTests =
                             "    \"\\\"\" + escapeInto \"\" s 0 '\\\"' + \"\\\"\""
                             "let quoteChar (c: char) : string ="
                             "    \"'\" + appendEscaped \"\" c '\\'' + \"'\""
-                            // ---- sink + frame stack + dispatch (RuntimeFormatState) ----
+                            // ---- sink + frame stack + dispatch ----
                             "type FrameKind ="
                             "    | Root"
                             "    | Group"
@@ -2326,11 +1981,6 @@ let structTests =
                             "        this.Add(LLine \"\")"
                             "        this.Add(LText \"]\")"
                             "        this.PopWrap(Group)"
-                            // The depth/size budget guard; the type-switch lives in
-                            // `DispatchInner` (a top-level match per member — the shape
-                            // the backend's match compiler handles cleanly; a large
-                            // type-test match nested in sequential position drops a
-                            // binder's slot).
                             "    member private this.Dispatch(value: obj) ="
                             "        match value with"
                             "        | null -> this.Add(LText \"null\")"
@@ -2341,11 +1991,6 @@ let structTests =
                             "                this.Depth <- this.Depth + 1"
                             "                this.DispatchInner(value)"
                             "                this.Depth <- this.Depth - 1"
-                            // The reflection-free `:?` chain, as `if/elif` on the `:?`
-                            // TEST + `:?>` downcast rather than `match | :? T as x`. A
-                            // large `as`-binding type-test match in a member body drops
-                            // a binder's slot in codegen; the test/cast form is the same
-                            // semantics (and reads like the C# `switch`).
                             "    member private this.DispatchInner(value: obj) ="
                             "        if value :? Vesper.IStructuralFormattable then"
                             "            (value :?> Vesper.IStructuralFormattable).Format(this :> Vesper.IFormatSink)"
@@ -2393,7 +2038,6 @@ let structTests =
                             "        member this.EndApplication() = this.PopWrap(Application)"
                             "        member this.FormatChild(value: obj) = this.FormatChildP(value)"
                             "        member this.FormatArg(value: obj) = this.FormatArgP(value)"
-                            // ---- driver: option-shaped DU as a CLASS ----
                             "type MyOpt(payload: obj, isSome: bool) ="
                             "    interface Vesper.IStructuralFormattable with"
                             "        member this.Format(sink: Vesper.IFormatSink) ="
@@ -2422,14 +2066,10 @@ let structTests =
                         ])
             }
 
-            // A `val`-field reference class whose only constructor is a parameterless
-            // `new() = { … }` (the form `RuntimeFormatState` would take if it dropped
-            // its width/size params). The backend used to synthesise an empty primary
-            // `.ctor()` ALONGSIDE the `new()` — two identical `.ctor()` rows — and
-            // construction (`S()`) bound the empty one, leaving every field
-            // uninitialised. Fixed: the val-field form (parser `pcOpt = ValueNone`)
-            // emits NO synthesised primary; the secondaries are the only ctors and
-            // `EmitConstruct.buildNew` resolves `S()` to the `new()` secondary.
+            // A val-field class whose only ctor is a parameterless `new() = { … }`:
+            // no synthesised empty primary `.ctor()` must be emitted alongside it
+            // (two identical `.ctor()` rows would leave construction binding the empty
+            // one and every field uninitialised).
             test "a val-field class with only a parameterless new() initialises its fields" {
                 runsLines
                     [ "42"; "7" ]

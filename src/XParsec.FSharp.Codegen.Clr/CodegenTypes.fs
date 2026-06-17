@@ -64,7 +64,7 @@ type internal NominalEmissionInput =
     /// explicit `val [mutable] x: T` instance fields (each a `FieldDefinition`).
     /// `isSealed` reflects `[<Sealed>]` (a struct is always sealed). Each
     /// `staticLets` entry becomes a private static field + an entry in the
-    /// synthesised `.cctor`. `interfaces` (B-2, §5.3) pairs each implemented
+    /// synthesised `.cctor`. `interfaces` pairs each implemented
     /// interface type with its already-typed member bodies: codegen emits one
     /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member
     /// (implicit impl). `isStruct` ⇒ value-type emission.

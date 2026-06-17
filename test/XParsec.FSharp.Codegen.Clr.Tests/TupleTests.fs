@@ -1,11 +1,10 @@
 module XParsec.FSharp.Codegen.Clr.Tests.TupleTests
 
-// Tuple representation — every tuple, at every
-// arity, is a `System.ValueTuple`n` (no `System.Tuple`). The three testLists
-// below track the layers: `ValueTuple`n` family resolution
-// (`ClrProvider`/`ClrEncoder`); encoding a bare `FTTuple` to a generic
-// instantiation TypeSpec — both pure metadata-resolution checks. Then the
-// first *behavioural* gate: emit + reflect a constructed tuple value.
+// Tuple representation — every tuple, at every arity, is a `System.ValueTuple`n`
+// (no `System.Tuple`). The testLists below cover: `ValueTuple`n` family
+// resolution (`ClrProvider`/`ClrEncoder`); encoding a bare `FTTuple` to a generic
+// instantiation TypeSpec (pure metadata); emit + reflect a constructed tuple
+// value (behavioural); destructuring; and tuple lambda parameters.
 
 open System.Reflection
 open Expecto
@@ -60,10 +59,9 @@ let tests =
             }
         ]
 
-/// Step 2 gate: a bare `FTTuple` encodes (it used to `failwithf`) to a
-/// `ValueTuple`n` generic-instantiation TypeSpec via `encodeType`. Pure
-/// metadata-resolution checks — that the encoder no longer rejects the
-/// structural tuple and mints a non-nil spec for each in-range arity.
+/// A bare `FTTuple` encodes to a `ValueTuple`n` generic-instantiation TypeSpec
+/// via `encodeType`. Pure metadata-resolution checks — the encoder mints a
+/// non-nil spec for each in-range arity.
 [<Tests>]
 let encodeTests =
     let ftTuple (tys: FrozenType list) = FTTuple(EqArray.ofList tys)
@@ -93,12 +91,10 @@ let encodeTests =
             }
         ]
 
-/// Step 3 gate: a standalone `TExprG.Tuple` is built into a value
-/// (`newobj ValueTuple`n::.ctor`) rather than flattened as an argument list. A
-/// top-level function returning a tuple is emitted as a static method; invoking
-/// it by reflection yields a live `System.ValueTuple`n` whose `Item` fields hold
-/// the constructed elements. This is the first *behavioural* tuple gate (Steps
-/// 1–2 were pure metadata resolution).
+/// A standalone `TExprG.Tuple` is built into a value (`newobj ValueTuple`n::.ctor`)
+/// rather than flattened as an argument list. A top-level function returning a
+/// tuple is emitted as a static method; invoking it by reflection yields a live
+/// `System.ValueTuple`n` whose `Item` fields hold the constructed elements.
 [<Tests>]
 let constructTests =
     /// The single `fn$…`-mangled static method an emitted bare program carries.
@@ -146,12 +142,12 @@ let constructTests =
             }
         ]
 
-/// Step 4 gate: tuple *destructuring* through the shared irrefutable `bindPattern`
-/// (let / for-in) and the match compiler's new `TPatG.Tuple` arm. Each program is
-/// a one-arg static function returning an int; reflecting the invoke result proves
+/// Tuple *destructuring* through the shared irrefutable `bindPattern`
+/// (let / for-in) and the match compiler's `TPatG.Tuple` arm. Each program is a
+/// one-arg static function returning an int; reflecting the invoke result proves
 /// the leaf bindings were pulled out of the `ValueTuple`n` `Item` fields. A
-/// wildcard sub-pattern must bind nothing (and skip the field load), a nested
-/// tuple must recurse.
+/// wildcard sub-pattern must bind nothing (skip the field load); a nested tuple
+/// must recurse.
 [<Tests>]
 let destructureTests =
     let invokeIntFn (source: string) (arg: int) : int =
@@ -193,11 +189,9 @@ let destructureTests =
             }
         ]
 
-/// Step 5 gate: a tuple lambda *parameter* (`fun (a, b) -> …`), the original
-/// blocker. The lambda is emitted as a closure whose `Invoke` receives the
-/// `ValueTuple`n` at `ldarg.1` and `bindPattern`s the element bindings out of it
-/// before running the body. Reusing the Step-4 `invokeIntFn` harness (a one-arg
-/// static fn returning int), each program builds such a closure and applies it.
+/// A tuple lambda *parameter* (`fun (a, b) -> …`). The lambda is emitted as a
+/// closure whose `Invoke` receives the `ValueTuple`n` at `ldarg.1` and
+/// `bindPattern`s the element bindings out of it before running the body.
 [<Tests>]
 let lambdaParamTests =
     let invokeIntFn (source: string) (arg: int) : int =

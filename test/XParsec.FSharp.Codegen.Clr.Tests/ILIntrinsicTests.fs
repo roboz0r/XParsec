@@ -8,8 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Value-level inline IL `(# "op" args : ty #)` — the general IL-interpretation
 // machinery the operator surface (`=`/`<`/`+`/…) lowers onto: an operator `.fs`
 // body supplies the per-primitive opcode and codegen interprets it via
-// `TExpr.ILIntrinsic`, owning no per-operator dispatch. See
-// docs/operators-plan.md (C-Eq1 backend, prereqs 1+2).
+// `TExpr.ILIntrinsic`, owning no per-operator dispatch.
 
 [<Tests>]
 let tests =

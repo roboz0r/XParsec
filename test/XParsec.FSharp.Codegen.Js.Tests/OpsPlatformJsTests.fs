@@ -5,19 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// codegen-js step F1: `Vesper.Core/ops-platform.js.fs` re-authors the operator
-// inline bodies with `$N`-template JS expressions, selected over the CLR
-// `ops-platform.fs` by the `inline-bodies-js` manifest key
-// (`ReferencedProject.resolveInlineBodies (Some "js")`). No JS backend exists yet,
-// so these tests validate what is checkable pre-backend: the JS bodies are
-// SELECTED by target, PARSE, and FREEZE with their templates intact into
-// `TExprG.ILIntrinsic` opCode strings (the front end carries the template
-// opaquely — operators-plan / codegen-js-steps §"Template → ESTree"). Execution
-// under Node is backend Step 1's concern.
-
-/// All `ILIntrinsic` opCode (template) strings reachable in an inline body — the
-/// front end stitches the `(# "…" #)` string into `opCode`, so this is exactly
-/// the set of templates that survived parse + freeze.
+/// All `ILIntrinsic` opCode (template) strings reachable in an inline body.
 let private ilOpCodes (body: InlineBody) : string list =
     let acc = ResizeArray<string>()
 
@@ -34,11 +22,7 @@ let private ilOpCodes (body: InlineBody) : string list =
 
             walkExpr dflt
         | TExpr.Lambda(_, b, _, _) -> walkExpr b
-        | _ ->
-            // The operator bodies nest IL only through Lambda / StaticOptimization
-            // clauses / ILIntrinsic args (handled above); the SRTP `when ^T : ^T`
-            // fallback is a TraitCall with no IL, so stop here.
-            ()
+        | _ -> ()
 
     match body.Decl with
     | TDecl.Let(_, v, _, _) -> walkExpr v
@@ -99,9 +83,7 @@ let tests =
                 Expect.contains neg "-$0" "unary-neg float base"
                 Expect.contains neg "(-$0) | 0" "unary-neg int32 clause"
 
-                // The `%` in the modulus template is NOT a printf placeholder: it
-                // must survive parse + freeze verbatim (parsePlainStringLiteral
-                // keeps format-scanned chars as literal text in plain/IL strings).
+                // The `%` in the modulus template is NOT a printf placeholder — must survive freeze verbatim.
                 let modOps = ilOpCodes js.["op_Modulus"]
                 Expect.contains modOps "$0 % $1" "modulus `%` carried through verbatim"
                 Expect.contains modOps "($0 % $1) | 0" "modulus int32 clause keeps the bare `%`"
@@ -111,11 +93,8 @@ let tests =
                 let js =
                     SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
-                // The aggregate base is now a CALL to the non-inline `structuralEquals`
-                // runtime value, not a bare-name IL template — so `ilOpCodes` (which
-                // captures only IL intrinsics) sees the `===` primitive clauses but no
-                // `equals(` opcode. `(<>)` still wraps the call in a `!$0` IL template,
-                // so that one opcode survives.
+                // The aggregate base is a CALL to `structuralEquals`, not an IL template;
+                // `ilOpCodes` sees the `===` clauses but no `equals(` opcode.
                 let eq = ilOpCodes js.["op_Equality"]
                 Expect.contains eq "$0 === $1" "primitive `===` clause"
 
@@ -132,13 +111,9 @@ let tests =
                     "the negated base wraps a call, not a bare-name IL template"
             }
 
-            // intrinsic-runtime-type-plan.md — the proof that the two-face `Intrinsic`
-            // split holds: the JS target repoints the *runtime* (`platform`) repr of
-            // the numeric primitives to a JS-native tag WITHOUT collapsing their
-            // *identity* (`canon`). If `int` and `float` shared one repr string (as
-            // before the split), `canonName` would conflate them — `5 : int` would
-            // unify with `5.0 : float` and `%d`/`%f`, integer division, etc. would rot.
             test "JS numeric reprs: canon identities stay distinct while both platform-project to `number`" {
+                // `int` and `float` must keep distinct canon faces; a shared repr would conflate %d/%f
+                // and integer division.
                 let js = SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let facesOf name =
@@ -156,16 +131,11 @@ let tests =
                 Expect.equal floatCanon "float" "float canon identity is the `.fsi` name"
                 Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
 
-                // Runtime axis — both numeric platform faces repoint to the JS `number`
-                // tag (from `prim-types-int.js.fs` / `prim-types-float.js.fs`).
                 Expect.equal intPlat "number" "int platform face repoints to JS `number`"
                 Expect.equal floatPlat "number" "float platform face repoints to JS `number`"
                 Expect.notEqual intCanon intPlat "the two faces genuinely diverge on JS (identity ≠ runtime repr)"
             }
 
-            // The same provider on the CLR target keeps the `.fsi` name as canon and
-            // the BCL name as platform — the two faces diverge on EVERY target now
-            // (`canon` is `.fsi`-defined, `platform` is `.fs`-defined).
             test "CLR target: canon is the `.fsi` name, platform is the BCL repr" {
                 let clr = SymbolProviders.buildContractFor None [ vesperCoreManifest ]
 
@@ -177,12 +147,8 @@ let tests =
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
-            // `unit` and the 64-bit ints can't use the `number` tag: `unit` is JS
-            // `undefined`, `int64`/`uint64` are JS `bigint` (a `number` loses precision
-            // past 53 bits). Their `.js.fs` companions repoint the platform face per-entry;
-            // the canon identity stays the `.fsi` name. (CLR keeps the BCL repr — the
-            // `.js.fs` overlay applies to the JS target only.)
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
+                // `number` loses precision past 53 bits, so int64/uint64 must use `bigint`.
                 let js = SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let facesOf name =

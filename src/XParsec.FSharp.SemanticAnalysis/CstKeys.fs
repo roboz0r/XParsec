@@ -54,7 +54,7 @@ module CstKeys =
         | Expr.HighPrecedenceApp(funcExpr = funcExpr) -> firstTokenOfExpr funcExpr
         // Use the operator token (not the left expr) so nested same-kind
         // InfixApps in left-assoc chains and operator-precedence stacks
-        // don't collide on NodeKey. See docs/nodekey.md.
+        // don't collide on NodeKey.
         | Expr.InfixApp(_, op, _) -> op
         | Expr.PrefixApp(op, _) -> op
         | Expr.Range(fromExpr = fromE) -> firstTokenOfExpr fromE

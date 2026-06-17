@@ -27,20 +27,13 @@ module internal JsEscape =
         sb.ToString()
 
 /// `JsProgram → source text + V3 source map`. The printer builds an intermediate
-/// layout document (`Doc`) from the AST, then renders it once: rendering tracks
-/// the generated line/column and emits a mapping for every `Mark` node (the
-/// in-data successor to Step 0b's imperative cursor pokes). `JsSourceMap.build`
-/// then turns the collected mappings into a V3 JSON document (VLQ-encoded
-/// `mappings`, embedded `sourcesContent`). One statement per line, each
-/// `;`-terminated.
+/// layout `Doc` from the AST and renders it in one pass: rendering tracks the
+/// generated line/column and emits a mapping for every `Mark` node.
 ///
 /// `Doc` is the structural subset of a Wadler/Leijen pretty-printer —
-/// `Text`/`Cat`/`Line`/`Nest` with a source-position `Mark`, but *no* width-driven
-/// `group`/best-fit: generated code lays out deterministically (blocks always
-/// break, argument lists always inline), so the only layout decisions are
-/// structural. The win over an imperative cursor is that indentation is carried by
-/// `Nest` (no hand-balanced `Indent +/- 1` bookkeeping) and source mappings fall
-/// out of the `Mark` nodes during a single render pass.
+/// `Text`/`Cat`/`Line`/`Nest` + a source-position `Mark`, with no width-driven
+/// `group`/best-fit (blocks always break, argument lists always inline). Indentation
+/// is carried by `Nest`; source mappings fall out of `Mark` during the render pass.
 module JsPrint =
 
     /// One generated→source correspondence. `Src*` are 0-based source coordinates;
@@ -70,11 +63,8 @@ module JsPrint =
 
     // ---- The layout document -------------------------------------------------
 
-    /// A break-only layout document. `Text` carries a run with no embedded newline
-    /// (string literals are escaped, so none arises); `Line` is a hard break
-    /// (newline + the current indentation); `Nest` widens the indentation of the
-    /// `Line`s inside it; `Cat` is sequencing; `Mark` records a source mapping at
-    /// the generated position the document reaches during rendering.
+    /// A break-only layout document. `Line` is a hard break (newline + current
+    /// indentation); `Nest` widens indentation; `Mark` records a source mapping.
     type private Doc =
         | Nil
         | Text of string
@@ -90,9 +80,7 @@ module JsPrint =
     /// One indentation level = two spaces.
     let private indent (d: Doc) = Nest(2, d)
 
-    /// Wrap a doc in a source `Mark` when its node carries a `loc` (the mapping is
-    /// recorded at the position the doc starts, matching the prior printer's
-    /// "mark immediately before the node's first character").
+    /// Wrap a doc in a source `Mark` when the node carries a `loc`.
     let private marked (loc: JsLoc voption) (d: Doc) =
         match loc with
         | ValueSome l -> Mark(l, d)
@@ -121,10 +109,8 @@ module JsPrint =
                      else
                          text "." ++ expr property))
         | JsExpr.Call(callee, args, loc) ->
-            // A callee that is not a plain reference / call needs parenthesising
-            // so the `(args)` binds to it and not to a sub-expression — notably an
-            // arrow (`((x) => …)(v)`, the IIFE), whose body would otherwise extend
-            // rightward and swallow the argument list.
+            // An arrow callee must be parenthesised so `(args)` doesn't extend the
+            // arrow body — `((x) => …)(v)`, not `(x) => …(v)`.
             let calleeDoc =
                 match callee with
                 | JsExpr.Identifier _
@@ -134,8 +120,6 @@ module JsPrint =
 
             marked loc (calleeDoc ++ text "(" ++ commaList (List.map expr args) ++ text ")")
         | JsExpr.New(callee, args, loc) ->
-            // The callee is a class-name `Identifier` (record construction), so it
-            // self-delimits — no parenthesising needed as `Call` requires.
             marked
                 loc
                 (text "new "
@@ -144,8 +128,6 @@ module JsPrint =
                  ++ commaList (List.map expr args)
                  ++ text ")")
         | JsExpr.Conditional(test, consequent, alternate, loc) ->
-            // Parenthesised whole so the ternary composes safely wherever it lands
-            // (it is the lowest-precedence JS operator).
             marked
                 loc
                 (text "("
@@ -158,10 +140,8 @@ module JsPrint =
         | JsExpr.Sequence(exprs, loc) -> marked loc (text "(" ++ commaList (List.map expr exprs) ++ text ")")
         | JsExpr.Array(elements, loc) -> marked loc (text "[" ++ commaList (List.map expr elements) ++ text "]")
         | JsExpr.Raw(segments, loc) ->
-            // (a*) universal parenthesization: wrap the whole template, and each
-            // substituted operand, in `(…)` — precedence-correct by construction
-            // with zero JS-grammar knowledge (codegen-js-steps §"Template →
-            // ESTree").
+            // Universal parenthesization: wrap the whole template and each operand hole
+            // in `(…)` — precedence-correct by construction, zero JS-grammar knowledge.
             let seg s =
                 match s with
                 | JsRawSeg.Verbatim v -> text v
@@ -169,19 +149,13 @@ module JsPrint =
 
             marked loc (text "(" ++ cat (List.map seg segments) ++ text ")")
         | JsExpr.Arrow(parameters, body, loc) ->
-            // A concise body composes safely as-is (arrow / call / `new` / ternary
-            // / `Raw` all self-delimit). A bare object-*literal* body (`() => ({…})`)
-            // would need wrapping, but records construct via `new R(…)`, which
-            // self-delimits, so none is needed.
             let bodyDoc =
                 match body with
                 | JsFnBody.Expr e -> expr e
                 | JsFnBody.Block stmts -> block stmts
 
             marked loc (text "(" ++ commaList (List.map text parameters) ++ text ") => " ++ bodyDoc)
-        // `Binary` / `Logical` both print `(left <op> right)` — the whole node
-        // parenthesised (the (a*) universal-parenthesization discipline), so no
-        // precedence table is needed and they compose safely wherever they land.
+        // Both `Binary` and `Logical` print `(left <op> right)` — whole node parenthesised.
         | JsExpr.Binary(op, left, right, loc)
         | JsExpr.Logical(op, left, right, loc) ->
             marked
@@ -258,16 +232,8 @@ module JsPrint =
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"
         | JsStatement.Block body -> block body
         | JsStatement.Throw e -> text "throw " ++ expr e ++ text ";"
-        | JsStatement.Class(name, fields) ->
-            // The canonical record class: one positional constructor storing each
-            // declaration-order field into the like-named property, so `new R(a, b)`
-            // and `r.X` line up. No structural methods yet (Step 6).
-            classDecl name None [ ctorDecl fields [] fields ]
+        | JsStatement.Class(name, fields) -> classDecl name None [ ctorDecl fields [] fields ]
         | JsStatement.Union(baseName, cases) ->
-            // The base class — a `tag`-storing constructor plus `cases()` returning
-            // the declaration-order case names (the hand-stub Step 6 grows the
-            // structural triple onto) — then one `extends`-subclass per case storing
-            // its named fields after `super(tag)`.
             let baseClass =
                 classDecl
                     baseName
@@ -293,9 +259,8 @@ module JsPrint =
 
     // ---- Rendering -----------------------------------------------------------
 
-    /// Render a `Doc` to text + V3 mappings in one pass, tracking the generated
-    /// cursor so each `Mark` records the (line, col) it lands at. `Nest` carries
-    /// the indentation a `Line` re-emits, so there is no mutable indent to balance.
+    /// Render a `Doc` to text + V3 mappings in one pass. `Nest` carries indentation
+    /// to each `Line`, so there is no mutable indent to balance.
     let private render (doc: Doc) : PrintResult =
         let sb = StringBuilder()
         let maps = ResizeArray<Mapping>()
@@ -340,11 +305,9 @@ module JsPrint =
         render (cat [ for s in program.Body -> statement s ++ Line ])
 
 
-/// The V3 source-map document: base64-VLQ `mappings` + embedded
-/// `sourcesContent`. Hand-rolled JSON (no serializer dependency); the mappings
-/// grammar is `;`-per-generated-line, `,`-per-segment, each segment a VLQ tuple
-/// `[genColΔ, srcIndexΔ, srcLineΔ, srcColΔ]` (the optional name index is never
-/// emitted — Step 0b carries no `names`).
+/// V3 source-map document: base64-VLQ `mappings` + embedded `sourcesContent`.
+/// Hand-rolled JSON. Each segment is `[genColΔ, srcIndexΔ, srcLineΔ, srcColΔ]`;
+/// the optional name index is never emitted.
 module JsSourceMap =
 
     [<Literal>]
@@ -369,14 +332,12 @@ module JsSourceMap =
 
         sb.ToString()
 
-    /// Encode the collected mappings into the V3 `mappings` field. `maps` arrives
-    /// in generated order (`JsPrint.print` records them as it advances the cursor,
-    /// so they are already ascending by line then column).
+    /// Encode the collected mappings into the V3 `mappings` field.
+    /// `maps` is already in ascending generated order.
     let private encodeMappings (maps: JsPrint.Mapping list) : string =
         let sb = StringBuilder()
-        // Generated column resets each line; the source line/column deltas are
-        // cumulative across the whole file. There is a single source, so the
-        // source-index field is always 0 (its delta never changes).
+        // Generated column resets each line; source line/column deltas are cumulative.
+        // Source index is always 0 (single source file — delta never changes).
         let mutable curLine = 0
         let mutable prevGenCol = 0
         let mutable prevSrcLine = 0

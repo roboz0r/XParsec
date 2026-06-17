@@ -177,7 +177,7 @@ let monoTests =
                 Expect.equal (hash.Invoke(p1, [||]) :?> int) (hash.Invoke(p2, [||]) :?> int) "equal records hash equal"
             }
 
-            test "a record with a mutable field does NOT declare its own equality triple (gated to C-Attr)" {
+            test "a record with a mutable field does NOT declare its own equality triple" {
                 let _, artifact =
                     compileSource
                         "RecEqMutSkip"

@@ -2,8 +2,7 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open XParsec.FSharp.SemanticAnalysis
 
-// Entry points: the `compile` / `materialise` pair from
-// [backend-design-plan](../XParsec.FSharp.SemanticAnalysis/docs/backend-design-plan.md).
+// Entry points: the `compile` / `materialise` pair.
 // `compile` is deterministic given the same inputs; `materialise` (re-exported
 // from `Materialise`) is the only side effect. `Layout.build` enumerates every
 // ranged-table row as data; the Bind phase pre-fills the registries from the

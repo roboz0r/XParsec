@@ -6,7 +6,6 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // Side tables hold all in-flight semantic information. CST is never mutated.
-// See docs/architecture.md.
 
 /// Project-local nominal identity for a type definition. `asm` is the type's **home assembly** — `Some <thisAsm>`
 /// when the compilation knows its target assembly (`PassContext.AssemblyName`),
@@ -100,10 +99,9 @@ type RecordTypeInfo
     /// `TTypeDecl.EqualitySupport` for codegen.
     member val EqualitySupport = EqualityVerdict.Structural with get, set
     /// Comparison posture for this record. Filled during
-    /// `NameResolution.registerRecordTypeDefn` from the
-    /// type's attributes. Defaults to `NoComparison` (brainstorm-comparison §9
-    /// opt-in). `Unification.checkConstraint` reads it to reject `<` / `>` /
-    /// `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `NameResolution.registerRecordTypeDefn` from the type's attributes. Defaults
+    /// to `NoComparison` (opt-in). `Unification.checkConstraint` reads it to reject
+    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 
@@ -137,8 +135,7 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// as prototype TyVars keyed by source name. Empty for a non-generic member.
     member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
     /// `true` when the source declares the member with `MemberKeyword.Override`
-    /// or `MemberKeyword.Default` (the inheritance-plan §Registration flag).
-    /// Inert in Phase 1 (B-1) — stamped by Phase 2's `registerInheritedSlots`
+    /// or `MemberKeyword.Default`. Stamped by Phase 2's `registerInheritedSlots`
     /// post-pass; consumed by Freeze/Codegen to choose `call` vs `callvirt`.
     member val IsOverride: bool = false with get, set
 
@@ -199,17 +196,15 @@ type UnionTypeInfo
     /// Synthetic NodeKey for the `this` binder shared across every instance
     /// member body in this union. Set during registration when there are members.
     member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
-    /// Equality posture for this union.
-    /// Filled during `NameResolution.registerUnionTypeDefn`; defaults to
-    /// `Structural` (the brainstorm §8 rule for unions).
+    /// Equality posture for this union. Filled during
+    /// `NameResolution.registerUnionTypeDefn`; defaults to `Structural`.
     /// `Unification.checkConstraint` short-circuits on `NoEquality`; `Freeze`
     /// projects it onto `TTypeDecl.EqualitySupport` for codegen.
     member val EqualitySupport = EqualityVerdict.Structural with get, set
     /// Comparison posture for this union. Filled during
-    /// `NameResolution.registerUnionTypeDefn` from the
-    /// type's attributes. Defaults to `NoComparison` (brainstorm-comparison §9
-    /// opt-in). `Unification.checkConstraint` reads it to reject `<` / `>` /
-    /// `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `NameResolution.registerUnionTypeDefn` from the type's attributes. Defaults
+    /// to `NoComparison` (opt-in). `Unification.checkConstraint` reads it to reject
+    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 
@@ -434,10 +429,9 @@ type ClassTypeInfo
     /// `System.ValueType`-based value type. A struct is implicitly sealed.
     member val IsValueType: bool = false with get, set
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type. Stamped by
-    /// `registerClassTypeDefn` (implies `IsValueType`); `Freeze` projects it
-    /// onto `TTypeKind.Class.isByRefLike` so codegen stamps
-    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute` (PP1,
-    /// `docs/printf-port-steps.md`).
+    /// `registerClassTypeDefn` (implies `IsValueType`); `Freeze` projects it onto
+    /// `TTypeKind.Class.isByRefLike` so codegen stamps
+    /// `System.Runtime.CompilerServices.IsByRefLikeAttribute`.
     member val IsByRefLike: bool = false with get, set
     /// Explicit `val [mutable] x: T` instance fields in declaration order.
     /// Stamped by `registerClassTypeDefn`; field
@@ -447,10 +441,8 @@ type ClassTypeInfo
     member val InstanceFields: ClassFieldInfo[] = [||] with get, set
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
-/// paired with the matching `TypeMemberInfo`. Promoted from a 2-tuple ahead of
-/// the interface-impl sprint so a third field (e.g. the interface the impl
-/// satisfies) lands by extending the record rather than churning every caller.
-/// See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.12.
+/// paired with the matching `TypeMemberInfo`. A record rather than a 2-tuple so
+/// a third field (e.g. the interface the impl satisfies) extends cleanly.
 [<Struct; NoEquality; NoComparison>]
 type ClassMemberIndexEntry =
     {
@@ -532,8 +524,7 @@ type SideTable<'V>() =
 /// Type-definition side tables: the project-wide registry of records, unions,
 /// classes, and abbreviations plus their reverse / member indexes. Populated by
 /// `NameResolution.registerXxx`, filled in by `Unification`, read everywhere
-/// downstream. Grouped here so the class sprint can add new tables in one
-/// place. See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.3.
+/// downstream.
 type PassContextTypes =
     {
         /// Field types are filled in by Unification after the registry is populated.
@@ -765,7 +756,7 @@ type PassContextBindings =
         /// from the second (representation) fixpoint; folded with `Escape` into the
         /// per-closure `ClosureRepr` verdict. Orthogonal to `Escape` (lifetime): a
         /// frame-local closure held in an aggregate is `LocalStack` here yet
-        /// `RequiresHeapRepr` there (ref-struct-emit-plan §Axis 2).
+        /// `RequiresHeapRepr` there.
         Repr: SideTable<RegionRepr>
         /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
         /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
@@ -776,9 +767,8 @@ type PassContextBindings =
         /// A *top-level* (implicit-"Program"-module, `holder = None`) binding's
         /// `NodeKey.Raw` → its source name. Top-level bindings record no
         /// `ModuleMemberInfo`, so this is the only name source for a top-level value
-        /// lowered to a Program-holder static field (module-representation-plan §10).
-        /// Consulted only by the value collector, so top-level functions keep their
-        /// `fn$<off>` holderless path.
+        /// lowered to a Program-holder static field. Consulted only by the value
+        /// collector, so top-level functions keep their `fn$<off>` holderless path.
         TopLevelNames: Dictionary<uint64, string>
     }
 
@@ -817,8 +807,7 @@ type PassContextResolution =
         mutable AmbientOpenScope: OpenScope
         /// Per-signature type-parameter scope: each signature opens its own scope
         /// and restores the prior one on exit. Anonymous typars (`_`) never enter
-        /// the scope — they're fresh per occurrence. See docs/generics-plan.md
-        /// §"Typar scope".
+        /// the scope — they're fresh per occurrence.
         mutable TyparScope: Dictionary<string, TypeVar>
         /// Prototype TyVars (keyed by source name) for the *next* binding's own
         /// `<'C, …>` typars. `inferBinding` mints a fresh scope for a binding's
@@ -888,8 +877,7 @@ type PassContextResolution =
         /// tested-against type (`Expr.DynamicTypeTest`'s target). The node's own
         /// inferred type is `bool` (the result), so the target type — which
         /// codegen needs for the `isinst` operand — is stashed here by
-        /// Unification and read by Freeze to populate `TExpr.TypeTest.testTy`
-        /// (inheritance-plan §`:?`).
+        /// Unification and read by Freeze to populate `TExpr.TypeTest.testTy`.
         TypeTestTargets: SideTable<SemType>
         /// Keyed by a `use` binding's head-pattern `NodeKey`: the `SymbolKey` of the
         /// `Dispose` member to call when the binder's type is *external* (a BCL
@@ -966,12 +954,11 @@ module PassContextResolution =
 /// happens at file granularity by allocating one `PassContext` per file
 /// and analysing them concurrently; the shared `IExternalSymbolProvider`
 /// is the only object that crosses thread boundaries (and its contract
-/// requires thread-safe `TryLookup`). See [`docs/architecture.md`](docs/architecture.md#parallelism).
+/// requires thread-safe `TryLookup`).
 ///
 /// The bulk of the per-file state lives in three sub-records grouped by
-/// concern: [`Types`](#Types) (project type registry), [`Bindings`](#Bindings)
-/// (per-binder side tables), [`Resolution`](#Resolution) (name-resolution
-/// scopes). See [`docs/pre-sprint-cleanup.md`](docs/pre-sprint-cleanup.md) P2.3.
+/// concern: `Types` (project type registry), `Bindings` (per-binder side
+/// tables), `Resolution` (name-resolution scopes).
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
     // Seed the ambient (implicit-open) prelude from the provider's
@@ -1025,7 +1012,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// provider's `IntrinsicReverseCanon` (referenced contracts) with this unit's own
     /// self-compiled intrinsics (`IntrinsicReprTypes`, inverted). `lazy` so it is
     /// built once, on the first `canonName` reverse miss in Unification — AFTER
-    /// NameResolution has populated `IntrinsicReprTypes`. (intrinsic-runtime-type-plan.md)
+    /// NameResolution has populated `IntrinsicReprTypes`.
     member val IntrinsicReverseCanon: Lazy<Dictionary<string, string>> =
         lazy
             (let d = Dictionary<string, string>()
@@ -1044,19 +1031,17 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get
-    /// Keyed by an `Expr.App` NodeKey; present only for the printf calls P1
-    /// lowers inline (literal format, fully applied, a
-    /// `StdOut`/`StdErr`/`StringResult` sink, every specifier in
-    /// `PrintfSpec.tryHoleFormat`). Absence keeps the existing FSharp.Core path.
-    /// See docs/vesper-printf-plan.md.
+    /// Keyed by an `Expr.App` NodeKey; present only for printf calls lowered
+    /// inline (literal format, fully applied, a `StdOut`/`StdErr`/`StringResult`
+    /// sink, every specifier in `PrintfSpec.tryHoleFormat`). Absence keeps the
+    /// existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar
     /// scope is live. Freeze reads it to build each `TExpr.StaticOptimization`
     /// clause; the typar carries the inline binding's quantified root so
-    /// `Inline.inlineExpand` can substitute it at the call site. See
-    /// docs/operators-plan.md (prereq 3).
+    /// `Inline.inlineExpand` can substitute it at the call site.
     member val StaticOpt = SideTable<EqArray<TStaticOptConstraint>>() with get
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as

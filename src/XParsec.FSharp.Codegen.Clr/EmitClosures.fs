@@ -170,17 +170,17 @@ module EmitClosures =
             | _ -> None
         )
 
-    /// Classify which top-level bindings are **module values**
-    /// (module-representation-plan): a non-inline `let name = <plain value>` (no
-    /// lambda parameters) on a *named* module holder, whose type is fully ground —
-    /// no open typar (a generic value compiles to a generic method, not a field)
-    /// and no `FTUnknown` (a leaked inference metavar the front end never
-    /// resolved; such a value keeps its current treatment rather than crashing
-    /// contract extraction). Each becomes a `public static` field on its holder,
-    /// initialised by the holder's `.cctor`, and every reference is an `ldsfld` —
-    /// never a `Main` local or a closure capture. Generic values, function
-    /// values (lambdas), and anonymous top-level ("Program") values are out of
-    /// scope for this slice and keep their current treatment.
+    /// Classify which top-level bindings are **module values**: a non-inline
+    /// `let name = <plain value>` (no lambda parameters) on a *named* module
+    /// holder, whose type is fully ground — no open typar (a generic value
+    /// compiles to a generic method, not a field) and no `FTUnknown` (a leaked
+    /// inference metavar the front end never resolved; such a value keeps its
+    /// current treatment rather than crashing contract extraction). Each becomes
+    /// a `public static` field on its holder, initialised by the holder's
+    /// `.cctor`, and every reference is an `ldsfld` — never a `Main` local or a
+    /// closure capture. Generic values, function values (lambdas), and anonymous
+    /// top-level ("Program") values are out of scope and keep their current
+    /// treatment.
     let collectModuleValues
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
         (decls: Frozen.TDecl list)
@@ -245,21 +245,20 @@ module EmitClosures =
     /// (`FTTypar`, freeze-quantified to the method axis) and no leaked `FTUnknown`.
     /// A non-generic module holder has no type parameter to type a `SetTree<'T>`
     /// *field*, so — like real F#'s representation of a generic value — each lowers
-    /// to a **zero-arg generic static method** on its holder (a "generic property"
-    /// on the module's static class), returning the initialiser; every reference
+    /// to a zero-arg generic static method on its holder (a "generic property" on
+    /// the module's static class), returning the initialiser; every reference
     /// `call`s its `MethodSpec` (the instantiation recovered from the reference's
     /// own type). They are returned as ordinary `StaticFn`s (0 params) so the
     /// layout / registry / holder-method machinery picks them up uniformly; the only
     /// bespoke handling is the value-position `call` at the reference site
-    /// (`EmitExpr.buildExpr`). A *function*-typed generic value (a stored closure)
-    /// is still deferred.
+    /// (`EmitExpr.buildExpr`). A function-typed generic value (a stored closure) is
+    /// still deferred.
     ///
-    /// Both a value on a *named* holder (`module Foo`, §9) and a *top-level*
-    /// (implicit-"Program"-module) generic value (§10.5) classify: the latter records
-    /// no `ModuleMemberInfo`, so it gets `Holder = None` (the Program holder) and a
-    /// name from `TopLevelNames` (synthetic `value@<offset>` for a flattened nested
-    /// trailing value). Position-independent — a method is computed on demand, so the
-    /// §10.3 leading/trailing partition does not apply to it. A *non-generalisable*
+    /// Both a value on a named holder and a top-level (implicit-"Program"-module)
+    /// generic value classify: the latter records no `ModuleMemberInfo`, so it gets
+    /// `Holder = None` (the Program holder) and a name from `TopLevelNames`
+    /// (synthetic `value@<offset>` for a flattened nested trailing value).
+    /// Position-independent — a method is computed on demand. A non-generalisable
     /// generic value never reaches here: the front end's value restriction
     /// (`InferGeneralize.shouldGeneralise`) keeps an expansive parameterless binding
     /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
@@ -303,15 +302,15 @@ module EmitClosures =
                     }
             )
 
-    /// Classify the *top-level* (implicit-"Program"-module) ground values
-    /// (module-representation-plan §10): a non-`inline`, non-`Lambda`, non-function
-    /// `let name = <value>` with **no** enclosing named module (it records a
-    /// `TopLevelNames` entry but no `ModuleMemberInfo`) whose type is fully ground.
-    /// Each becomes a `public static` field on the anonymous "Program" holder; the
-    /// leading/trailing `.cctor`-vs-`Main` **placement** is decided later in
-    /// `HolderPlan.create` (the §10.3 first-`do` partition). Generic top-level
-    /// values are handled by `collectGenericModuleValues`' holderless fallback;
-    /// function-typed values (a stored closure) are deferred, as for a named holder.
+    /// Classify the *top-level* (implicit-"Program"-module) ground values: a
+    /// non-`inline`, non-`Lambda`, non-function `let name = <value>` with no
+    /// enclosing named module (it records a `TopLevelNames` entry but no
+    /// `ModuleMemberInfo`) whose type is fully ground. Each becomes a `public
+    /// static` field on the anonymous "Program" holder; the leading/trailing
+    /// `.cctor`-vs-`Main` placement is decided later in `HolderPlan.create`.
+    /// Generic top-level values are handled by `collectGenericModuleValues`'
+    /// holderless fallback; function-typed values (a stored closure) are deferred,
+    /// as for a named holder.
     let collectProgramValues
         (moduleMembers: Map<uint64, ModuleMemberInfo>)
         (programHolder: HolderKey)
@@ -351,9 +350,9 @@ module EmitClosures =
             moduleMembers
             tyOk
             (fun k ty value info ->
-                // A named-holder value (`module Foo`) takes the §7 path; only a
-                // top-level (`holder = None`) value — recording no `ModuleMemberInfo` —
-                // becomes a Program-holder field here.
+                // A named-holder value (`module Foo`) takes the named-holder path;
+                // only a top-level (`holder = None`) value — recording no
+                // `ModuleMemberInfo` — becomes a Program-holder field here.
                 match info with
                 | Some _ -> None
                 | None ->
@@ -382,7 +381,7 @@ module EmitClosures =
             for free in freeVarKeys [] mv.Init do
                 if not (moduleValueKeys.Contains free || staticFnKeys.Contains free) then
                     failwithf
-                        "Emit: module value '%s' references top-level binding %O, which is neither a module value nor a static method, so its initialiser cannot run in the holder's .cctor (module-representation-plan)"
+                        "Emit: module value '%s' references top-level binding %O, which is neither a module value nor a static method, so its initialiser cannot run in the holder's .cctor"
                         mv.Name
                         free
 
@@ -455,8 +454,7 @@ module EmitClosures =
                         let ps, body = candidates.[k]
                         // A reference to a module value is an `ldsfld`, not a captured
                         // module-level local — treat those keys as bound so a function
-                        // over them stays static-method eligible (rule 2,
-                        // module-representation-plan §4).
+                        // over them stays static-method eligible (rule 2).
                         // The keys a parameter binds: a simple/unit param binds its
                         // own `Slot`; a tuple param binds each leaf the pattern names
                         // (not the placeholder slot), so the body's references to those
@@ -496,9 +494,9 @@ module EmitClosures =
                         let ps, body = candidates.[k]
 
                         // A binding inside a named module emits with its source
-                        // name on its holder type (R3 deferred); a top-level
-                        // function keeps the anonymous `fn$<offset>` name on the
-                        // "Program" holder (`Holder = None`).
+                        // name on its holder type; a top-level function keeps the
+                        // anonymous `fn$<offset>` name on the "Program" holder
+                        // (`Holder = None`).
                         let name, holder =
                             match Map.tryFind k.Raw moduleMembers with
                             | Some info -> info.Name, Some(info.Namespace, info.Holder)
@@ -517,14 +515,14 @@ module EmitClosures =
 
         staticFns, eligible
 
-    /// A generic static method's type-parameter *count* (R3):
-    /// `freeze` quantified the module-`let`'s free typars to `FTTypar(Method, i)`
-    /// (Edge A order: params left-to-right, then return), so the count is `max i + 1`
-    /// over the method's parameter + result types — those positions reconstruct the
-    /// declared type freeze indexed, so every index `0..n-1` appears. `0` ⇒ a
-    /// monomorphic method, emitted unchanged. The backend's `FTTypar(Method, i)`
-    /// encoder maps these to `!!i` directly (no ambient window). A closure walked
-    /// from this fn's body inherits the count on its `Closure.Typars`.
+    /// A generic static method's type-parameter count: `freeze` quantified the
+    /// module-`let`'s free typars to `FTTypar(Method, i)` (params left-to-right,
+    /// then return), so the count is `max i + 1` over the method's parameter +
+    /// result types — those positions reconstruct the declared type freeze indexed,
+    /// so every index `0..n-1` appears. `0` ⇒ a monomorphic method, emitted
+    /// unchanged. The backend's `FTTypar(Method, i)` encoder maps these to `!!i`
+    /// directly (no ambient window). A closure walked from this fn's body inherits
+    /// the count on its `Closure.Typars`.
     let staticFnTypars (fn: StaticFn) : int =
         let mutable maxIx = -1
 
@@ -593,8 +591,8 @@ module EmitClosures =
         let mutable counter = 0
 
         // A module-level value is a `public static` field (`ldsfld`), so — like a
-        // static-method reference — it is resolved without a capture
-        // (module-representation-plan §4). Fold both into the non-captured set.
+        // static-method reference — it is resolved without a capture. Fold both
+        // into the non-captured set.
         let nonCaptured = HashSet<NodeKey>(staticFnKeys)
         nonCaptured.UnionWith moduleValueKeys
 
@@ -623,9 +621,9 @@ module EmitClosures =
                     | FTFun(_, r) -> r
                     | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
 
-                // RS3 verdict, keyed by the closure's binder (`let f = …`). An
-                // anonymous lambda (no `SelfKey`) or a binder the snapshot didn't
-                // reach defaults to `Heap` — the only shape emitted today.
+                // Keyed by the closure's binder (`let f = …`). An anonymous lambda
+                // (no `SelfKey`) or a binder the snapshot didn't reach defaults to
+                // `Heap` — the only shape emitted today.
                 let repr =
                     match selfKey with
                     | ValueSome k ->
@@ -670,8 +668,8 @@ module EmitClosures =
                 // A tuple-param lambda (`fun (a, b) -> …`). The single `ldarg.1`
                 // carries the `ValueTuple`n` value; mint a synthetic placeholder
                 // for that slot — `buildClosureInvoke` `bindPattern`s the leaf
-                // element bindings out of it (Step 5). `pty` is the param's
-                // `FTTuple`, which the closure's `Invoke` signature encodes.
+                // element bindings out of it. `pty` is the param's `FTTuple`,
+                // which the closure's `Invoke` signature encodes.
                 registerClosure (mintTupleParamKey ()) pty pat body lamTy
             | TExprG.Lambda(p, _, _, _) -> failwithf "Emit: closure parameter destructuring is out of scope: %A" p
             | _ -> ()

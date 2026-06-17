@@ -72,7 +72,7 @@ module TastWalk =
 
     /// Project the `tok` source-anchor field embedded in any `TExpr`. Every case
     /// carries one. Lets a construction/synthesis site reuse a sub-expression's
-    /// token when no more precise one is at hand (rule 4/5 of tast-tokens-plan).
+    /// token when no more precise one is at hand.
     let exprTok (e: TExprG<'ty, 'tok>) : 'tok =
         match e with
         | TExprG.Const(tok = tok)

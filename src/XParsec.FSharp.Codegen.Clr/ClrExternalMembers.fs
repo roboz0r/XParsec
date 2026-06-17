@@ -46,7 +46,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let typeSpecOf ty = enc.TypeSpecOf ty
 
     /// `SymbolKey` (+ instantiation) → minted `MemberRef`, so a member is reified once across a
-    /// compilation (mechanism B's codegen memo, §7.2).
+    /// compilation.
     let externalMemberCache = Dictionary<ExternalMemberCacheKey, EntityHandle>()
 
     /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
@@ -95,8 +95,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
-                    // A `System.Void` return maps to `TyConst "unit"`
-                    // (MetadataSymbols §6.1), but a BCL method's `void` is a
+                    // A `System.Void` return maps to `TyConst "unit"`,
+                    // but a BCL method's `void` is a
                     // genuine `void` slot — encoding it as `FSharp.Core.Unit`
                     // (the value-position `unit` encoding) mints a `MemberRef`
                     // whose signature no external void method matches, so the
@@ -108,8 +108,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         // A by-ref return (`Span<T>.get_Item : T&`) emits the
                         // `ELEMENT_TYPE_BYREF` prefix via the *return* encoder's
                         // `isByRef` flag, then the element — byref is not a standalone
-                        // `SignatureTypeEncoder` shape, it rides the param/return seam
-                        // (PP2b). The member-ref signature must match the BCL method's
+                        // `SignatureTypeEncoder` shape, it rides the param/return seam.
+                        // The member-ref signature must match the BCL method's
                         // by-ref return exactly or it fails to bind at JIT.
                         | FTConst(n, args) when n = RuntimeNames.byrefName && args.Length = 1 ->
                             encodeType (ret.Type(true)) args.[0]
@@ -122,9 +122,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                             // int&)`, `ISpanFormattable.TryFormat(…, int&, …)`) emits the
                             // `ELEMENT_TYPE_BYREF` prefix via the *parameter* encoder's
                             // `isByRef` flag, then the element — symmetric with the byref
-                            // *return* arm above (PP2b). The signature must match the BCL
+                            // *return* arm above. The signature must match the BCL
                             // method's by-ref parameter exactly or it fails to bind at JIT;
-                            // the caller pushes the argument's *address* (`ldloca`, PP5d).
+                            // the caller pushes the argument's *address* (`ldloca`).
                             //
                             // TODO(inref): a C# `in` parameter is `T&` plus a
                             // `modreq(System.Runtime.InteropServices.InAttribute)` the CLR
@@ -171,7 +171,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         else
             FTFun(s.Parameters, s.Return)
 
-    /// Mint the `MemberRef` for a `TExpr.ExternalMember` (P4). The member's *open* signature is read
+    /// Mint the `MemberRef` for a `TExpr.ExternalMember`. The member's *open* signature is read
     /// from the (key-pinned, provider-cached) lookup over `FTTypar(Declaring, i)` markers — and, for a
     /// generic method, with `FTTypar(Method, j)` baked into the member's `ExternalSignature` template.
     /// Both axes' use-site instantiations are recovered by matching that open form against `memberTy`:
@@ -228,8 +228,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             handle
 
     /// `externalMemberRef` for a member whose declaring type's instantiation cannot be recovered from
-    /// the member's *open* signature — a T-free member like `MoveNext(): bool` on a generic enumerator
-    /// (§4.4). Instead of recovering it by signature match, the declaring instantiation is read off `declTy`
+    /// the member's *open* signature — a T-free member like `MoveNext(): bool` on a generic enumerator.
+    /// Instead of recovering it by signature match, the declaring instantiation is read off `declTy`
     /// (the resolved `enumeratorTy`, e.g. `List`1+Enumerator<int>`); its `args` length sets the marker
     /// count (NOT `arityOfMetaName`, which yields 0 for a nested `…List`1+Enumerator` name). The parent
     /// `TypeSpec` is encoded through `enc.TypeSpecOf`, so a struct enumerator's parent lands as a
@@ -320,8 +320,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint the `MemberRef` for a referenced-assembly union's case factory — the static method
     /// `<caseName>(fields…) : Union<…>` the union emitter writes (`NominalEmit.fs`). The mirror of
-    /// `externalRecordCtor` for cross-package case construction (`Some` / `None`, vesper-lib-test-plan
-    /// Gap 2 Layer B): parameter types are the case's declared fields in their *open* typar form and the
+    /// `externalRecordCtor` for cross-package case construction (`Some` / `None`): parameter types are
+    /// the case's declared fields in their *open* typar form and the
     /// return type is the union itself, both written over fresh marker typars so the signature matches the
     /// emitted generic factory. Returns the handle + the field count. `ValueNone` ⇒ the union (or the case)
     /// is unknown to the provider, in which case the caller falls back to its hard error.
@@ -369,10 +369,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint the `_tag : int` field `MemberRef` on a referenced-package union, instantiated at `args`, and
     /// return it with the discriminator value for `caseName` (its zero-based index in declaration order).
-    /// The discriminator a cross-package `match` reads (vesper-lib-test-plan Gap 2 Layer C): the field name
-    /// + type mirror the union emitter (`NominalEmit.fs`: a public `_tag` of type `int`, and tags assigned
-    /// by case declaration order). `_tag` is non-generic, so its signature needs no marker typars even on a
-    /// generic union. `ValueNone` ⇒ the union (or the case) is unknown to the provider.
+    /// The discriminator a cross-package `match` reads: the field name + type mirror the union emitter
+    /// (`NominalEmit.fs`: a public `_tag` of type `int`, and tags assigned by case declaration order).
+    /// `_tag` is non-generic, so its signature needs no marker typars even on a generic union.
+    /// `ValueNone` ⇒ the union (or the case) is unknown to the provider.
     let externalUnionTag (key: SymbolKey) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
         let arity = List.length args
 
@@ -548,6 +548,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalRecordField(key, args, fieldName) = externalRecordField key args fieldName
 
-    /// `MethodSpec` instantiating a generic static method (R3) — a call site (`fold<int,int>`) or a
+    /// `MethodSpec` instantiating a generic static method — a call site (`fold<int,int>`) or a
     /// recursive self-call (`fold<!!0,!!1>`).
     member _.StaticFnMethodSpec(handle, instTypes) = methodSpec handle instTypes

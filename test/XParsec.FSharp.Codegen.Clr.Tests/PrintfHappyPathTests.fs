@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Vesper.Printf happy path: fully-applied literal printf lowered to the
 // `Vesper.Formatter` write-through handler. The lowering is additive — any
 // specifier the happy path doesn't handle keeps the existing FSharp.Core cold
-// path. See docs/vesper-printf-plan.md.
+// path.
 
 let private soleDecl (src: string) : TDecl =
     let tast = analyse src
@@ -18,15 +18,6 @@ let private soleDecl (src: string) : TDecl =
     | EqList [ d ] -> d
     | _ -> failtestf "expected one decl for %s, got: %A" src tast.Decls
 
-// PP7f (printf-port-steps.md step 1): these drivers now bind the **Vesper-compiled**
-// `Vesper.Printf.dll` (`withPrintfAlc Vesper`), not the C# host copy. The backend
-// blocker that made 11/85 throw `InvalidProgramException` — a struct method whose
-// body self-calls one of `Formatter`'s overloaded `AppendFormatted` members
-// (`AppendUnsigned` / `AppendZeroPaddedFloat`), where the inner `this` was a
-// defensive copy fatal on a `ref struct` — is fixed (`EmitResolve.pickOverload`
-// keying members by an overload list + arg types; see the `StructTests` PP7f tests).
-// `PrintfDifferentialTests` remains the C#↔Vesper byte-identity safety net; here the
-// Vesper handler is the sole runtime peer.
 let private runPrints (name: string) (src: string) (expected: string) =
     let exitCode, output = withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
@@ -295,9 +286,6 @@ let tests =
             }
 
             test "`%010g` (zero-pad) stays on the cold path" {
-                // G-format zero-pad parity is subtle (integer-valued %g isn't
-                // '0'-padded; exponent forms interact with the width) — deferred
-                // like 0-on-%e.
                 match soleDecl "printfn \"%010g\" 1.5" with
                 | TDecl.Expression(TExpr.Format _, _) -> failtest "%010g must stay on the cold path"
                 | TDecl.Expression(TExpr.App _, _) -> ()
@@ -333,20 +321,15 @@ let tests =
             }
 
             test "`%08e` (zero-pad on exponential) is NOT lowered" {
-                // B2 lowers `0`-on-`%f` only; `%e` exponent zero-pad parity is
-                // subtle, so it stays on the cold path (additive).
+                // `%e` exponent zero-pad parity is subtle; stays on the cold path.
                 match soleDecl "printfn \"%08e\" 1234.5" with
                 | TDecl.Expression(TExpr.Format _, _) -> failtest "%08e must stay on the cold path"
                 | TDecl.Expression(TExpr.App _, _) -> ()
                 | other -> failtestf "unexpected TAST for %%08e: %A" other
             }
 
-            // ---- `%A` structural format (P3 step 2) ----
-            // The engine handles primitives / string / char / bool / tuple / list /
-            // array faithfully today; those lower to a `Structured` hole. Records /
-            // DUs hit the runtime `ToString` fallback (wrong by our spec) until
-            // step-3 synthesis, so they keep the FSharp.Core cold path (the type
-            // gate). The print-width budget rides in the `Alignment` slot.
+            // ---- `%A` structural format ----
+            // The print-width budget rides in the `Alignment` slot.
 
             test "`%A` of an int lowers to a Structured hole (default width budget)" {
                 match soleDecl "printfn \"%A\" 42" with
@@ -448,14 +431,10 @@ let tests =
                 | other -> failtestf "unexpected TAST for %% A: %A" other
             }
 
-            // NOTE on the record/DU type-gate: a project-local record / DU is
-            // engine-faithful only once step-3 synthesis attaches its `Format` — and
-            // "project-local" is keyed on the compilation's target assembly. The bare
-            // `analyse` harness compiles with no assembly name (home = `None`), so a
-            // record there is still treated external (cold); the *real* codegen path
-            // (`compileSource`, a named assembly) lowers it on the engine. The
-            // runtime tests below prove that end-to-end. The `%.NA` / `%+A` / `%-A`
-            // flag forms all lower (shape tests above); only `% A` stays cold.
+            // The bare `analyse` harness has no assembly name (home = `None`), so a
+            // record there is treated external (cold path); `compileSource` (named
+            // assembly) lowers it on the engine. The runtime tests below prove that
+            // end-to-end. Only `% A` stays cold.
 
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
 
@@ -483,8 +462,8 @@ let tests =
                 runPrints "PHpSprintf" "printfn \"%s\" (sprintf \"%d!\" 42)" "42!"
             }
 
-            // `%A` runtime — oracle is the structural spec (copy-pasteable source),
-            // not `sprintf "%A"`; small values coincide with F# (re-greening slice 4).
+            // `%A` runtime oracle is the structural spec (copy-pasteable source), not
+            // `sprintf "%A"`; small values coincide with F#.
             test "`%A` of a list prints the copy-pasteable literal (slice 4)" {
                 runPrints "PHpStructList" "printfn \"%A\" [ 1; 2; 3 ]" "[1; 2; 3]"
             }
@@ -500,10 +479,9 @@ let tests =
             }
 
             // ---- `%A` flag forms: `%.NA` (PrintSize), `%+A`, `%-A` ----
-            // Oracle is the structural spec, not `sprintf "%A"`. `%.NA` is a global
-            // *node* budget: after N leaves the engine truncates with `...` — matching
-            // F# for collections (the dominant truncation case). `%+A` (non-public
-            // fields) and `%-A` (left-justify) are no-ops here, identical to plain `%A`.
+            // `%.NA` is a global node budget: after N leaves the engine truncates with
+            // `...`. `%+A` (non-public fields) and `%-A` (left-justify) are no-ops,
+            // identical to plain `%A`.
 
             test "`%.2A` truncates a list after 2 nodes (PrintSize)" {
                 runPrints "PHpStructSize2" "printfn \"%.2A\" [ 1; 2; 3; 4; 5 ]" "[1; 2; ...]"
@@ -531,10 +509,9 @@ let tests =
                 runPrints "PHpStructMinus" "printfn \"%-A\" [ 1; 2; 3 ]" "[1; 2; 3]"
             }
 
-            // ---- `%A` of a record / DU: step-3 synthesised `Format` (the engine) ----
-            // The backend now synthesises `IStructuralFormattable.Format` on every
-            // record / DU, so a project-local one renders on the engine (no cold
-            // path). Oracle is the copy-pasteable spec, not `sprintf "%A"`.
+            // ---- `%A` of a record / DU ----
+            // The backend synthesises `IStructuralFormattable.Format` on every
+            // record / DU. Oracle is the copy-pasteable spec, not `sprintf "%A"`.
 
             test "`%A` of a record prints the copy-pasteable record literal" {
                 runPrints
@@ -583,12 +560,10 @@ let tests =
                     "[{ X = 1 }; { X = 2 }]"
             }
 
-            // ---- `%A` of an EXTERNAL Vesper-package union (the gate widening) ----
+            // ---- `%A` of an external Vesper-package union ----
             // A referenced Vesper package's record / DU carries the same synthesised
-            // `IStructuralFormattable.Format`, so `%A` of one lowers on the engine
-            // (not the FSharp.Core cold path) — `structuredArgFaithful` admits it via
-            // its `.Union` / `.Record` resolved shape. The value is bound to a local
-            // first (the constructor-as-direct-printf-arg parse quirk is orthogonal).
+            // `IStructuralFormattable.Format`, so `%A` of one lowers on the engine via
+            // `.Union` / `.Record` resolved shape (not the FSharp.Core cold path).
             test "`%A` of an external Vesper union (Result) renders `Ok 5` on the engine" {
                 runsResult "Ok 5" "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
             }
@@ -623,9 +598,8 @@ let tests =
             }
 
             // `%g`/`%G` parity — the oracle IS F#'s `sprintf "%g"` (byte-for-byte,
-            // unlike `%A`). Matrix from the plan: integer-valued, exponent
-            // boundaries, trailing-zero stripping, negatives, -0, non-finite,
-            // precision/width forms, and float32.
+            // unlike `%A`): integer-valued, exponent boundaries, trailing-zero
+            // stripping, negatives, -0, non-finite, precision/width forms, float32.
             test "`%g` prints an integer-valued float without a point" {
                 runParity "PHpG1" "printfn \"%g\" 1.0" (sprintf "%g" 1.0)
             }
@@ -726,8 +700,7 @@ let tests =
             }
 
             test "`%.2M` (precision) stays on the cold path" {
-                // F# %M precision semantics are unusual — the const subset unblocks
-                // bare %M, but `%.2M` keeps the FSharp.Core path (additive).
+                // F# `%M` precision semantics are unusual; only bare `%M` is lowered.
                 match soleDecl "printfn \"%.2M\" 3.14159M" with
                 | TDecl.Expression(TExpr.Format _, _) -> failtest "%.2M must stay on the cold path"
                 | TDecl.Expression(TExpr.App _, _) -> ()

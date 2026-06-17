@@ -72,7 +72,7 @@ module NameResolutionMemberRegistration =
         | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declKey p
 
     /// `ClassSecondaryCtorInfo` placeholders for a class body's `new(...)`
-    /// overloads (B-11). Each overload's params start as placeholder TyVars
+    /// overloads. Each overload's params start as placeholder TyVars
     /// (filled by Unification); the synthetic `DeclKey` keys it from the `new`
     /// token so distinct overloads don't collide.
     let private extractSecondaryCtors
@@ -140,9 +140,9 @@ module NameResolutionMemberRegistration =
     /// Free typar names in a member's *signature* (argument-pattern annotations
     /// then return type, source order) that are neither an enclosing-type typar
     /// nor one of the member's own explicit `<'C>` typars — the *implicit*
-    /// member-level generic params (G12). In real F# `member s.Map f : Set<'U>` /
+    /// member-level generic params. In real F# `member s.Map f : Set<'U>` /
     /// `s.PartitionWith(p: 'T -> Choice<'T1,'T2>)` generalise `'U` / `'T1`,`'T2`
-    /// as method generic parameters; registering them here lets the B-12 machinery
+    /// as method generic parameters; registering them here lets the machinery
     /// (inference scope seed + Freeze `GenericMethodParameters`) carry them through
     /// rather than the strict member scope diagnosing them as free. No off-the-shelf
     /// free-typar walker over `Type<SyntaxToken>` exists at this layer, so this
@@ -269,13 +269,13 @@ module NameResolutionMemberRegistration =
             match memberNameOf ctx b with
             | ValueSome(mName, mKey) ->
                 let cmi = addMember mName kind isStatic isOverride mKey
-                // A concrete generic method (`member this.Map<'C> …`, B-12) carries
+                // A concrete generic method (`member this.Map<'C> …`) carries
                 // its own typars on the binding's `typarDefns`. Stamp prototype
                 // TyVars so Unification scopes the signature against them and Freeze
                 // surfaces them as GenericMethodParameters — mirroring the abstract
                 // path. A property's `typarDefns` is absent ⇒ empty.
                 //
-                // Then append the member's *implicit* signature typars (G12) — a
+                // Then append the member's *implicit* signature typars — a
                 // `'U` that appears only in a param/return annotation, never as a
                 // class typar or explicit `<'a>`. F# generalises these as method
                 // generic params; without registration the strict member scope
@@ -317,8 +317,7 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
                 let isStatic = s.IsSome
 
-                // `override`/`default` members carry the inheritance-plan §Registration
-                // flag; plain `member` and `abstract` stay `false`.
+                // `override`/`default` members set the override flag; plain `member` and `abstract` stay `false`.
                 let isOverride =
                     match kw with
                     | MemberKeyword.Override _
@@ -339,31 +338,31 @@ module NameResolutionMemberRegistration =
                     // (`abstract Item : int with get`).
                     diagnose "Abstract property signatures are not yet supported"
             | TypeDefnElement.Member(MemberDefn.Value _) ->
-                // `val [mutable] x: T` explicit instance fields (B-7-adjacent) are
+                // `val [mutable] x: T` explicit instance fields are
                 // *not* `TypeMemberInfo`s — class registration extracts them
                 // separately via `extractInstanceFields`.
                 ()
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
-                // Secondary constructors (B-11) aren't `TypeMemberInfo`s — class
+                // Secondary constructors aren't `TypeMemberInfo`s — class
                 // registration extracts them separately via `extractSecondaryCtors`.
                 // A union augmentation has no primary ctor to chain to, so one here
                 // is meaningless and silently dropped (the parser permits it).
                 ()
             | TypeDefnElement.InterfaceImpl _ ->
-                // `interface IFace with member …` blocks (B-2) are *not* part of
+                // `interface IFace with member …` blocks are *not* part of
                 // the class's own member set — they're collected separately by
                 // `extractInterfaceImpls` and resolved against the external
                 // interface in Unification's `fillClassMembers`.
                 ()
             | TypeDefnElement.InterfaceSpec _ ->
                 // A bare `interface IFace` spec (no inline members) carries no
-                // bodies to register. B-2's spec-only conformance is deferred.
+                // bodies to register. Spec-only conformance is deferred.
                 ()
             | TypeDefnElement.Inherit _ -> diagnose "Inheritance is not yet supported"
 
         memberInfos.ToArray()
 
-    /// Collect the `interface IFace with member …` blocks (B-2) declared in a class body. Each interface
+    /// Collect the `interface IFace with member …` blocks declared in a class body. Each interface
     /// member is re-wrapped as a `TypeDefnElement.Member` so the existing member
     /// machinery (`extractMembers`, plus the NameResolution / Unification
     /// member-body walks) consumes it unchanged. The interface *type* is kept as
@@ -394,7 +393,7 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// Collect `val [mutable] x: T` explicit instance fields (B-7-adjacent) declared in a class / struct body. Each becomes
+    /// Collect `val [mutable] x: T` explicit instance fields declared in a class / struct body. Each becomes
     /// a `ClassFieldInfo` with a placeholder TyVar (linked by Unification from the
     /// annotation `TypeCst`) and the source `mutable` flag. `static val` is not a
     /// thing F# accepts here, so a `staticToken` is ignored.
@@ -416,12 +415,12 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// `ClassStaticLetInfo` placeholders for a class body's `static let` preamble
-    /// (B-10). Only simple `static let x = …` (single named binder) is supported.
+    /// `ClassStaticLetInfo` placeholders for a class body's `static let` preamble. Only simple `static let x = …` (single named binder) is supported.
+    /// A generic class's `static let` lowers to a per-instantiation static field
     /// A generic class's `static let` lowers to a per-instantiation static field
     /// (one field on the open generic `TypeDefinition`, its `.cctor` running once
     /// per closed instantiation — codegen mints the read/store as a `MemberRef` on
-    /// the self-`TypeSpec`, G13). Instance `let` and `[static] do` preamble entries
+    /// the self-`TypeSpec`). Instance `let` and `[static] do` preamble entries
     /// are not yet modelled (silently skipped).
     let private extractStaticLets
         (ctx: PassContext)
@@ -517,7 +516,7 @@ module NameResolutionMemberRegistration =
                     // so codegen must not synthesise a colliding primary `.ctor`.
                     info.HasPrimaryCtor <- pc.IsSome
 
-                    // B-8: `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
+                    // `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
                     // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's
                     // Expr.Null arm unify against this class.
                     let classAttrs =
@@ -558,8 +557,7 @@ module NameResolutionMemberRegistration =
                 registerClassTypeDefn ctx declNs td
         | _ -> ()
 
-    // --- Phase 2 / B-4: inheritance registration (`registerInheritedSlots`) -----
-    // See [`docs/inheritance-plan.md` §Registration]. A post-pass after
+    // A post-pass after
     // `registerClassTypes` so a derived class can name a parent declared later in
     // the file.
 
@@ -626,7 +624,7 @@ module NameResolutionMemberRegistration =
         | "byte" -> BuiltinTypes.tyByte
         | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(name, args)
         | _ ->
-            // Nominal heads carry their resolved `SymbolKey` (Phase 5.4); take it
+            // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
             match TypeRegistry.tryRecord ctx.Types name with
             | ValueSome info -> TyRecord(info.Key, args)
@@ -642,8 +640,7 @@ module NameResolutionMemberRegistration =
     /// class's typar scope. Diagnoses (and returns `ValueNone`) when the parent is
     /// a non-class type, an unknown name, or a multi-segment / external name — v1
     /// routes only single-segment project-local classes (multi-segment / BCL base
-    /// classes land with the provider catalogue; see inheritance-plan §Open
-    /// questions).
+    /// classes land with the provider catalogue).
     let private resolveInheritParent
         (ctx: PassContext)
         (typarScope: Map<string, TypeVar>)
@@ -773,7 +770,7 @@ module NameResolutionMemberRegistration =
             walk (Set.singleton start.Name) start
 
     /// Stamp augmentation members onto an already-registered `UnionTypeInfo`
-    /// (P3d.3). Must run after registerUnionTypes; reads the union's
+    ///. Must run after registerUnionTypes; reads the union's
     /// `extensions.elements`. A v1 union has no primary ctor / `as` alias, so
     /// `this` is always `"this"`.
     let registerUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =

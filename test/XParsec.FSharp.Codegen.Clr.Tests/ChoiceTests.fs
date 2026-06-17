@@ -5,29 +5,21 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-lib-test-plan Phase 2 — the behavioral runtime suite for `Vesper.Choice`,
-// the read-across from `Vesper.Result`. Choice is the *thinnest* of the pure-data
-// unions: a `[<Struct>]` two-case union (`Choice1Of2` of `'T1`, `Choice2Of2` of
-// `'T2`) with NO module — its sole consumer `set.fs` constructs a Choice and
-// consumes it in the next `match`, never escaping (choice.fsi). So unlike Option /
-// Result there is no `ChoiceModule` to reflect, and the two routes are:
+// The behavioral runtime suite for `Vesper.Choice` — a `[<Struct>]` two-case
+// union (`Choice1Of2` of `'T1`, `Choice2Of2` of `'T2`) with no module. Choice
+// has no instance members and no module, so a constructed value is observed only
+// by a `match`.
 //
-//   * REFLECTION-INVOKE for the pure-data surface (construction + the two
-//     discriminators). `buildPackage "Vesper.Choice"` emits a real
-//     `Vesper.Choice.dll`; we construct `Choice1Of2`/`Choice2Of2` through the
-//     union's emitted static case factories and read the discriminating `_tag`
-//     field (declaration order: `Choice1Of2` = 0, `Choice2Of2` = 1) and the
-//     per-case payload fields (`Choice1Of2_0` / `Choice2Of2_0`) directly — there
-//     is no `isChoice1Of2` module function, so the tag IS the discriminator.
+//   * REFLECTION-INVOKE for the pure-data surface: `buildPackage "Vesper.Choice"`
+//     emits `Vesper.Choice.dll`; we construct cases through the emitted static
+//     case factories and read the discriminating `_tag` field (declaration order:
+//     `Choice1Of2` = 0, `Choice2Of2` = 1) and per-case payload fields directly.
 //   * DRIVER PROGRAMS for construction + `match` across the package boundary
-//     (`open Vesper`), through the now-general cross-package machinery (Gap 2
-//     Layers B/C). Choice has no instance members and no module, so a constructed
-//     value is observed only by a `match`.
+//     (`open Vesper`).
 //
-// Like `Result<'T,'TError>`, `Choice<'T1,'T2>` has *two* type parameters and each
-// case constrains only one — `Choice1Of2 5` is `Choice<int, '_>`; F# generalises
-// the free one, so every standalone value is annotated `: Choice<int, string>` to
-// pin both parameters and keep each row's instantiation explicit.
+// `Choice<'T1,'T2>` has *two* type parameters and each case constrains only one
+// — `Choice1Of2 5` is `Choice<int, '_>`; every standalone value is annotated
+// `: Choice<int, string>` to pin both parameters.
 
 /// The built `Vesper.Choice.dll` (cached). `buildPackage` loads it into its own
 /// ALC and returns the loaded assembly; every type/value below is reflected from
@@ -39,9 +31,7 @@ let private intTy = typeof<int>
 let private strTy = typeof<string>
 
 /// `Vesper.Choice`2` closed over <int, string> — the receiver type for the case
-/// factories and field reads. (The `[<CompiledName("FSharpChoice`2")>]` on the
-/// contract is a C#-interop alias the backend does not apply to the emitted type
-/// name, same as `Vesper.Result`2` carries `FSharpResult`2`.)
+/// factories and field reads.
 let private choiceIntStr: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`2").MakeGenericType(intTy, strTy))
 
@@ -89,13 +79,11 @@ let tests =
             }
         ]
 
-// Higher-arity `Choice<'T1, …, 'T7>` (arity-overload follow-up).
-// These are *distinct* emitted types `Vesper.Choice`3`…`Vesper.Choice`7` — the
-// proof that the whole pipeline (front-end type registry, codegen `userTypes` /
-// `genericUnions`, the external contract provider) is keyed by `(name, arity)`,
-// not the bare short name "Choice". Same reflection idiom as the arity-2 suite:
-// construct each case through its emitted static factory and read the `_tag`
-// discriminator + per-case payload field.
+// Higher-arity `Choice<'T1, …, 'T7>` (arity overloads). These are *distinct*
+// emitted types `Vesper.Choice`3`…`Vesper.Choice`7` — the whole pipeline
+// (front-end type registry, codegen `userTypes` / `genericUnions`, the external
+// contract provider) is keyed by `(name, arity)`, not the bare short name
+// "Choice". Same reflection idiom as the arity-2 suite.
 
 let private boolTy = typeof<bool>
 
@@ -160,8 +148,7 @@ let higherArity =
 
 // Cross-package higher-arity consumption (`open Vesper`): construction + a 3-arm
 // `match` on `Choice<int, string, bool>`, exercising the external contract
-// provider's arity-keyed resolution end-to-end (the arity-3 case index + the
-// arity-3 type shape, distinct from arity-2).
+// provider's arity-keyed resolution end-to-end.
 [<Tests>]
 let higherArityRuntime =
     testList
@@ -188,11 +175,10 @@ let higherArityRuntime =
             }
         ]
 
-// Construction (Layer B) + pattern matching (Layer C) of `Choice`'s cases across
-// the package boundary (`open Vesper`). Choice has no nullary case (both cases
-// carry a field), no instance members, and no module, so the constructed value is
-// read back only through a `match` — which drives each case's field extract
-// (`Choice1Of2_0` at tag 0, `Choice2Of2_0` at tag 1).
+// Construction + pattern matching of `Choice`'s cases across the package boundary
+// (`open Vesper`). Both cases carry a field; the constructed value is observed
+// only by a `match`, which drives each case's field extract (`Choice1Of2_0` at
+// tag 0, `Choice2Of2_0` at tag 1).
 [<Tests>]
 let ctorAndMatchRuntime =
     testList
@@ -244,8 +230,7 @@ let ctorAndMatchRuntime =
         ]
 
 // Front-end regression guard (analysis only): the cross-package Choice surface
-// type-checks through the contract provider's ambient open scope. The cheap A/B/C
-// guard the plan calls for (Choice has no module, so no Layer D).
+// type-checks through the contract provider's ambient open scope.
 [<Tests>]
 let frontEndTests =
     testList

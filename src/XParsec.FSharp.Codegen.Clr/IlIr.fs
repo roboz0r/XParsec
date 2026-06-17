@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
@@ -39,7 +39,7 @@ type ILInstr =
     | Ldfld of EntityHandle
     | Stfld of EntityHandle
     /// `ldsfld` — load a static field (net +1). Used for class `static let`
-    /// backing fields (B-10).
+    /// backing fields.
     | Ldsfld of EntityHandle
     /// `stsfld` — store a static field (net −1). Emitted in a synthesised
     /// `.cctor` to seed each `static let` field.
@@ -58,7 +58,7 @@ type ILInstr =
     | Initobj of EntityHandle
     /// `constrained. <type>` — prefix on the next `callvirt`, dispatching a value-type
     /// receiver (managed pointer) without boxing. Net 0 (the `callvirt` adjusts). The
-    /// duck-typed struct enumerator's member calls (§4.4).
+    /// duck-typed struct enumerator's member calls.
     | Constrained of EntityHandle
     /// `newarr <elem>` — allocate a 1-D zero-based array of `elem`; pops the
     /// element count, pushes the array reference (net 0).
@@ -78,7 +78,7 @@ type ILInstr =
     /// `ldobj <type>` — load the value a managed pointer points to; pops the
     /// pointer, pushes the pointed-to value (net 0). The deref behind a by-ref
     /// return — `span.[i]` is `call get_Item` (yields `T&`) followed by
-    /// `ldobj T` (PP2b). The generic `ldobj` carries a type token, so it serves
+    /// ``ldobj T``. The generic ``ldobj`` carries a type token, so it serves
     /// any element type (including structs); the sized `ldind.*` forms are an
     /// unused optimisation.
     | Ldobj of EntityHandle
@@ -139,9 +139,8 @@ type ILInstr =
 // instruction is a heap allocation and the scan pointer-chases. If this buffer
 // proves hot, benchmark a `[<Struct>]` `ILInstr` in `ResizeArray<struct-ILInstr>`
 // (contiguous, alloc-free) — but this project's DU→struct spikes have regressed
-// before (see [[feedback_errortype_spike_failed]],
-// [[feedback_struct_union_aux_not_worth_it]], [[feedback_struct_value_size_cost]]),
-// so measure against a real workload, don't assume. See ilir-migration-plan.md.
+// before,
+// so measure against a real workload, don't assume.
 type ILBody =
     {
         Locals: ResizeArray<FrozenType>

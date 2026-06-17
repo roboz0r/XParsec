@@ -262,8 +262,7 @@ module UnificationInfer =
                         let bodyTy = infer ctx b.expr
                         // Annotation reconciliation: `unifyAnnotation` admits the
                         // value→union assignability (`let x: int | string = 1`) while
-                        // staying symmetric `unify` for every nominal/`obj` annotation
-                        // (anon-unions plan Stage 5).
+                        // staying symmetric `unify` for every nominal/`obj` annotation.
                         unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy
                         annTy
                     | ValueNone -> infer ctx b.expr
@@ -276,7 +275,7 @@ module UnificationInfer =
                             let annTy = translateType ctx t
                             let bodyTy = infer ctx b.expr
                             // Annotation reconciliation against the written return type
-                            // — see the no-arg twin above (Stage 5).
+                            // — see the no-arg twin above.
                             unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy
                             annTy
                         | ValueNone -> infer ctx b.expr

@@ -104,13 +104,13 @@ type ClrProvider
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
-    /// `interface IEnumerable<'T>` (B-2) carries its `'T` arg as a
-    /// `TyTypar(Declaring, i)` the encoder resolves to the declaring type's `!i`
-    /// directly. Drives each class `InterfaceImpl` row's interface handle.
+    /// `interface IEnumerable<'T>` carries its `'T` arg as a `TyTypar(Declaring, i)`
+    /// the encoder resolves to the declaring type's `!i` directly. Drives each class
+    /// `InterfaceImpl` row's interface handle.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
     /// The `InterfaceImpl.Interface` handle for a user class's implemented
-    /// interface (B-2). A *generic* interface (`IEnumerable<int>`) needs a
+    /// interface. A *generic* interface (`IEnumerable<int>`) needs a
     /// `TypeSpec` carrying its instantiation; a *non-generic* one (`IEnumerable`,
     /// `IComparable`) references its `TypeRef` directly — the runtime rejects a
     /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
@@ -219,7 +219,7 @@ type ClrProvider
 
     member _.CompareToTypedSignature(selfTy: FrozenType) : BlobBuilder = enc.CompareToTypedSignature selfTy
 
-    /// `%A` structural-format synthesis (P3). The `IStructuralFormattable`
+    /// `%A` structural-format synthesis. The `IStructuralFormattable`
     /// `InterfaceImpl` a synthesised record/DU declares; the `IFormatSink` member
     /// refs its `Format` body calls; and the `Format(IFormatSink) : void` signature.
     member _.StructuralFormattableInterface: EntityHandle =
@@ -266,8 +266,8 @@ type ClrProvider
                 if isCanonicalPrintfn then
                     ValueSome(recipes.EmitPrintfn(fnTy))
                 else
-                    // General external module-function call (Gap 2 Layer D): route
-                    // by the Freeze-stamped key to the declaring module (`ns`) + method (`name`), and mint
+                    // General external module-function call: route by the Freeze-stamped key to the
+                    // declaring module (`ns`) + method (`name`), and mint
                     // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
                     // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
                     // function; a bare key (an operator-as-value) is not, and operators are expanded to
@@ -311,8 +311,8 @@ type ClrProvider
             else
                 // A referenced-package union case (`Some` / `None`): `call` the
                 // emitted static case factory `<caseName>(fields…) : Union<…>` on
-                // the instantiated `TypeSpec` (Gap 2 Layer B).
-                // The fields are already on the stack in declaration order, so the
+                // the instantiated `TypeSpec`. The fields are already on the stack
+                // in declaration order, so the
                 // recipe is a static `call` pushing the one union value back.
                 match ext.ExternalUnionFactory(key, caseName, tyArgs) with
                 | ValueSome(handle, argCount) ->

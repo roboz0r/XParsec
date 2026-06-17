@@ -143,7 +143,7 @@ module internal NominalEmit =
             // The handle every `ldsfld`/`stsfld` *references*. A generic class
             // reaches its own `static let` field through a `MemberRef` on the
             // open self-`TypeSpec` (`Set\`1<!0>::empty`), the static analogue of
-            // the ctor-field `MemberRef`s (G13); a mono class uses the `Def`
+            // the ctor-field `MemberRef`s; a mono class uses the `Def`
             // token directly.
             let staticFieldsDict = Dictionary<string, EntityHandle>()
 
@@ -229,7 +229,7 @@ module internal NominalEmit =
 
         // A reference to one of *this* type's own members (field / tag / ctor).
         // A generic type reaches it through a `MemberRef` on the open
-        // self-`TypeSpec` (`Box\`1<!0>::n`, G13);
+        // self-`TypeSpec` (`Box\`1<!0>::n`);
         // a monomorphic type uses the resolved `Def` token. The mono handle is a
         // cheap registry/layout lookup, so eager evaluation in the generic branch
         // is free.
@@ -246,7 +246,7 @@ module internal NominalEmit =
 
         // The IL base type for this `TypeDefinition`. Defaults to `Object`; the
         // class arm overwrites it with the parent's `TypeSpec` for an `inherit`
-        // clause (B-4 Step 2.5). Resolved here (not in `Finalise`) so a generic
+        // clause. Resolved here (not in `Finalise`) so a generic
         // parent encodes against this class's typars while they are ambient.
         let mutable baseTypeHandle = provider.ObjectType
 
@@ -315,7 +315,7 @@ module internal NominalEmit =
                     for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
                 ]
 
-            // Generic records share the §1.11 / B-1 ctor-store hazard with
+            // Generic records share the ctor-store hazard with
             // classes: a raw `FieldDefinition` token in `stfld` resolves to the
             // wrong slot for a field at index >= 1 of a generic type. `selfMemberRef`
             // routes each generic store through the field's `MemberRef` on the open
@@ -354,7 +354,7 @@ module internal NominalEmit =
                                      isStruct,
                                      hasPrimaryCtor) ->
             // Resolve the parent handle for the IL `TypeDefinition.BaseType`
-            // (B-4 Step 2.5). A non-generic parent (`Shape`) is the parent's
+            // A non-generic parent (`Shape`) is the parent's
             // `TypeDefinition` token directly — the base-type column rejects a
             // `TypeSpec` that merely wraps a plain class. An instantiated generic
             // parent (`Box<int>` / `SetTree\`1<!0>`) needs a `GENERICINST`
@@ -397,7 +397,7 @@ module internal NominalEmit =
             // generic-union/record field paths already do this. The single-
             // field case happened to work with the raw `Def` token because
             // field 0 aliases the type's first slot, but a field at index >= 1
-            // resolves to the wrong slot at runtime (B-1). Member-body `FieldGet`/`FieldSet` already route
+            // resolves to the wrong slot at runtime. Member-body `FieldGet`/`FieldSet` already route
             // through `EmitResolve.resolveRecordField`'s `MemberRef`; `selfMemberRef`
             // closes the matching gap on the ctor stores.
             let ctorFieldRefs =
@@ -409,7 +409,7 @@ module internal NominalEmit =
                 ]
 
             // The primary `.ctor` body. Without an `inherit` clause it chains to
-            // `Object` (the record/closure recipe). With one (B-4 Step 2.5) it
+            // `Object` (the record/closure recipe). With an `inherit` clause it
             // chains to the parent's `.ctor` with the `inherit Base(args)` args
             // before the field stores; the parent's primary `.ctor` is its `Def`
             // token (mono parent) or a `MemberRef` on the parent's `TypeSpec`
@@ -491,7 +491,7 @@ module internal NominalEmit =
                     }
                 )
 
-            // Secondary constructors (B-11). Each is a `.ctor` overload whose
+            // Secondary constructors. Each is a `.ctor` overload whose
             // body runs its `let`-preamble then chains to the primary `.ctor`
             // (or stores explicit field inits); the chain target is the primary
             // ctor's `Def` token (monomorphic) or a `MemberRef` on the open
@@ -555,7 +555,7 @@ module internal NominalEmit =
                     )
                 )
 
-        // Interface implementations (B-2, §5.3): each `(ifaceTy, members)` entry's
+        // Interface implementations: each `(ifaceTy, members)` entry's
         // member bodies are already-typed `Frozen.TTypeMember`s, flattened here. They
         // emit as virtual methods (`ifaceEqualsAttrs` — a new slot, `Final` since
         // classes are sealed) that the runtime binds to the `InterfaceImpl` row by
@@ -571,7 +571,7 @@ module internal NominalEmit =
         // `isIfaceImpl` selects the `void`-return conformance below; the row's
         // attrs were fixed by the layout's enumeration.
         let prepareMember (index: int) (isIfaceImpl: bool) (mem: Frozen.TTypeMember) =
-            // A *generic* member (B-12). Both its declaring-type typars and its own
+            // A *generic* member. Both its declaring-type typars and its own
             // method typars now ride self-describing `TyTypar` nodes in the signature /
             // locals / body (Freeze.remapMemberTypes remaps both axes), so no ambient
             // typar window is installed; the encoder resolves them by
@@ -631,7 +631,7 @@ module internal NominalEmit =
 
             // The declaring type's typars (if any) ride `FTTypar(Declaring, i)` nodes
             // the encoder resolves to `!i` directly, so a generic and a monomorphic
-            // type share one signature builder. A generic *method* (B-12) additionally
+            // type share one signature builder. A generic *method* additionally
             // needs the `GENERIC` calling-convention header count; its own typars ride
             // `FTTypar(Method, i)` nodes the encoder resolves to `!!i` (no window).
             let signature =
@@ -881,7 +881,7 @@ module internal NominalEmit =
                     (Emit.buildRecordCompareToObj cmpSupport typedCompareTo)
             | NominalEmissionInput.Class _ -> ()
 
-        // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`, P3) —
+        // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`) —
         // emitted for *every* record / union (orthogonal to the equality /
         // comparison verdicts). The body is straight-line `callvirt`s on the `sink`
         // arg, threading the type's fields through `EmitStructuralFormat.buildRecordFormat` /
@@ -962,7 +962,7 @@ module internal NominalEmit =
 
         // One `InterfaceImpl` entity handle per implemented interface — the
         // synthesised structural-equality / comparison interfaces (unions /
-        // records) and the user-declared `interface … with` impls (B-2, §5.3,
+        // records) and the user-declared `interface … with` impls,
         // classes). A generic interface arg (`IEnumerable<'T>`) carries its `'T`
         // as a `FTTypar(Declaring, i)` (emitted by Freeze; `selfTyMarkers` for
         // the synthesised interfaces), encoded `!i` straight off the node — no

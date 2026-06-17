@@ -1,9 +1,6 @@
 namespace Vesper
 
-// Front-end symbol contract for the `%A` structural-format interfaces — the
-// signature peer of `structural-format.fs`. See that file's header for the
-// rationale; the backend's `%A` rail binds these via `ClrEnv.eFormatSink` /
-// `eStructuralFormattable`.
+// Front-end symbol contract for the `%A` structural-format interfaces.
 
 /// <summary>The declarative layout surface the synthesised
 /// <c>IStructuralFormattable.Format</c> body drives.</summary>

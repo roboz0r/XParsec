@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.SemanticAnalysis.Passes
+﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -95,7 +95,7 @@ module internal UnificationInferPat =
             // which treats a bare uppercase RQA name in a pattern as a fresh variable.)
             // Nullary case of an *external* (referenced-package) union (`None`),
             // resolved through the provider's reverse case index — the cross-
-            // package analogue of the local nullary-ctor arm above (Gap 2 Layer C).
+            // package analogue of the local nullary-ctor arm above.
             let n = ctx.NameOf t
 
             match tryExternalCasePattern ctx ValueNone n with
@@ -223,7 +223,7 @@ module internal UnificationInferPat =
             ->
             // A case (with fields) of an *external* union (`Some x`), bare or
             // qualified — the cross-package analogue of the local-ctor `Pat.Named`
-            // arm above (Gap 2 Layer C). Sub-patterns unify against the case's
+            // arm above. Sub-patterns unify against the case's
             // declared field types in the union's fresh instantiation.
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
@@ -330,7 +330,7 @@ module internal UnificationInferPat =
             let annTy = translateType ctx t
             // Annotation reconciliation (`x: int | string`): admits value→union but
             // stays symmetric `unify` for a nominal/`obj` annotation, so the binder
-            // still grounds to its written type (anon-unions plan Stage 5).
+            // still grounds to its written type.
             unifyAnnotation ctx key innerTy annTy
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome annTy

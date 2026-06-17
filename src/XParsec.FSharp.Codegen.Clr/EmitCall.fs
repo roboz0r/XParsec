@@ -63,7 +63,7 @@ module EmitCall =
 
     /// Apply a curried FSharp.Core `FSharpFunc` value (the cold printf printer)
     /// argument by argument via `FSharpFunc::Invoke` — the FSharpFunc twin of
-    /// `foldInvoke` (R1; retargeted with the printf engine, handoff §R9).
+    /// `foldInvoke` retargeted with the printf engine.
     let private foldInvokeFSharpFunc
         (recur: Recur)
         (env: EmitEnv)
@@ -126,22 +126,18 @@ module EmitCall =
             | None -> false
         | _ -> false
 
-    /// Lower a `TExprG.App` chain. Split out of `buildExpr` so the upcoming
-    /// class-spine work (B-1 `New(className, args)`, B-9 `Raise`, B-4
-    /// `:>`/`:?`/`:?>`) can grow App-head shapes near here instead of inside a
-    /// 600-line `buildExpr` match. The head dispatch is shape-by-shape:
+    /// Lower a `TExprG.App` chain. The head dispatch is shape-by-shape:
     /// - `TExprG.External(name, key, _)` — a provider-resolved call. The
     ///   recipe's generic instantiation is read from the head's full curried
     ///   type. `key` (the Freeze-stamped `SymbolKey.ValueKey`) lets codegen
-    ///   route by identity, not name (Phase 0 §0.1).
+    ///   route by identity, not name.
     /// - `TExprG.Var k` where `env.StaticMethods.ContainsKey k` — a top-level
-    ///   function emitted as a static method (P3b); generic instantiations are
-    ///   recovered by matching declared param types against the actual arg
-    ///   types (R3).
+    ///   function emitted as a static method; generic instantiations are
+    ///   recovered by matching declared param types against the actual arg types.
     /// - `TExprG.ExternalMember(receiver, key, name, false, memberTy)` — an
-    ///   external method call (P4); tupled per .NET convention, so the call
-    ///   consumes one spine element (the arg list) and the param count comes
-    ///   from the key's `argSig` length.
+    ///   external method call; tupled per .NET convention, so the call consumes
+    ///   one spine element (the arg list) and the param count comes from the
+    ///   key's `argSig` length.
     /// - otherwise — the head is itself a function value (a closure local or a
     ///   partially applied result); emit it, then `Invoke` each arg.
     let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
@@ -159,11 +155,10 @@ module EmitCall =
             // builds; any other shape falls through to the recipe path below.
             ()
         | TExprG.External(name, key, _, _) ->
-            // The recipe reads its generic instantiation from the head's
-            // full curried type (`fnTy`). `key` is the resolved
-            // `SymbolKey.ValueKey` stamped by Freeze when the front-end
-            // resolved the name through the symbol provider — codegen
-            // routes by identity, not name suffix.
+            // The recipe reads its generic instantiation from the head's full
+            // curried type. `key` is the resolved `SymbolKey.ValueKey` stamped
+            // by Freeze when the front-end resolved the name through the symbol
+            // provider — codegen routes by identity, not name suffix.
             match env.Provider.TryEmitCall(name, key, typeOfExpr head) with
             | ValueSome recipe ->
                 let leading, rest = List.splitAt recipe.ArgCount spineArgs
@@ -182,7 +177,7 @@ module EmitCall =
 
                 // The cold printf printer is an FSharp.Core `FSharpFunc`, so it
                 // is applied via `FSharpFunc::Invoke`; every other recipe result
-                // is a native `Vesper.Fun` (R1).
+                // is a native `Vesper.Fun`.
                 if isColdPrintf key name then
                     foldInvokeFSharpFunc recur env b funcTy rest
                 else
@@ -190,13 +185,13 @@ module EmitCall =
             | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
         | TExprG.Var(k, _, _) when env.StaticMethods.ContainsKey k ->
-            // A top-level function emitted as a static method (P3b): `call`
-            // it with the first `Arity` args (always present — a non-saturated
-            // use would have escaped to a closure, see `collectStaticFns`),
-            // then `Invoke` the result with any remainder. A *generic* static
-            // method (R3) `call`s a `MethodSpec` instantiating it — recovered
-            // by matching its declared parameter types against the actual
-            // argument types (recursion yields the method's own typars ⇒ `!!i`).
+            // A top-level function emitted as a static method: `call` it with
+            // the first `Arity` args (always present — a non-saturated use would
+            // have escaped to a closure, see `collectStaticFns`), then `Invoke`
+            // the result with any remainder. A generic static method `call`s a
+            // `MethodSpec` instantiating it — recovered by matching its declared
+            // parameter types against the actual argument types (recursion yields
+            // the method's own typars ⇒ `!!i`).
             let sm = env.StaticMethods.[k]
             let leading, rest = List.splitAt sm.Arity spineArgs
 
@@ -234,16 +229,15 @@ module EmitCall =
             foldInvoke recur env b sm.ResultTy rest
 
         | TExprG.ExternalMember(receiver, key, name, false, memberTy, _) ->
-            // An external instance/static *method* call (P4): push the receiver
-            // (instance only) beneath the arguments, then `call` (static) /
-            // `callvirt` (instance) the keyed member ref. A .NET method is
-            // **tupled** (`m(a, b)` = one application to `(a, b)`), so the call
-            // consumes a single spine element — the argument list — and the
-            // parameter count comes from the chosen key's `argSig` length
-            // (authoritative: `memberTy` alone can't tell a flattened 2-param
-            // method from a genuine single `(int*int)` param). A literal
-            // `TExprG.Tuple` argument is pushed element-wise
-            // (no tuple object is constructed).
+            // An external instance/static method call: push the receiver (instance
+            // only) beneath the arguments, then `call` (static) / `callvirt`
+            // (instance) the keyed member ref. A .NET method is tupled
+            // (`m(a, b)` = one application to `(a, b)`), so the call consumes a
+            // single spine element — the argument list — and the parameter count
+            // comes from the chosen key's `argSig` length (authoritative: `memberTy`
+            // alone can't tell a flattened 2-param method from a genuine single
+            // `(int*int)` param). A literal `TExprG.Tuple` argument is pushed
+            // element-wise (no tuple object is constructed).
             let isStatic = ValueOption.isNone receiver
 
             let argSig =
@@ -260,8 +254,8 @@ module EmitCall =
                 | first :: more -> ValueSome first, more
                 | [] -> ValueNone, []
 
-            // An instance method on an *unboxed* value-type receiver (a `Span`1<char>`
-            // field/local, any external struct) must be reached by **address** + a
+            // An instance method on an unboxed value-type receiver (a `Span<char>`
+            // field/local, any external struct) must be reached by address + a
             // non-virtual `call`, not by value + `callvirt` (which the verifier
             // rejects — a ref struct can't even be boxed). Mirrors the local-struct
             // dispatch in `EmitMember.emitInstanceMember`: a slot-bound local is

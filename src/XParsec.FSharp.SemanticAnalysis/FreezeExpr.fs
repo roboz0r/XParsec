@@ -158,7 +158,7 @@ module internal FreezeExpr =
             mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg) tok
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
         // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
-        // projection below ever runs (vesper-printf-plan P1).
+        // projection below ever runs.
         | Expr.App(fn, args) when ctx.PrintfApp.ContainsKey key ->
             // The marker may still decline (a `%A` of a record / DU — gated until
             // step-3 synthesis); fall back to the standard external-call path,
@@ -765,8 +765,7 @@ module internal FreezeExpr =
                     match Desugar.symbolicOpCompiledName op.Token with
                     | ValueSome n -> n
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
-                // `A.B.(+)` — qualified operator form (opens-overhaul-plan Gap 4):
-                // carry the same `A.B.op_Addition` key NameResolution resolved and
+                // `A.B.(+)` — qualified operator form: carry the same `A.B.op_Addition` key NameResolution resolved and
                 // the provider keys on.
                 | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
                     match OperatorNames.qualifiedOpName ctx.NameOf li idOp with

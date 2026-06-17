@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -101,7 +101,7 @@ module EmitMember =
             // `r.X` — load the receiver and `ldfld` the field. The field handle is
             // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
             // `TypeSpec` for a generic one (`resolveRecordField`). A
-            // referenced-assembly record (F2) routes through the provider.
+            // referenced-assembly record routes through the provider.
             let handle = resolveRecordField env (typeOfExpr receiver) name
             recur env b receiver
             b.Add(ILInstr.Ldfld handle)
@@ -132,7 +132,7 @@ module EmitMember =
             // — every consumer (`Sequential` middle items, the body of a
             // unit-returning closure / static method) expects a unit value to be
             // present. Reify the `unit` value to keep the IL verifier happy when
-            // the body is just a FieldSet (`fun () -> n <- n + 1`, F3 §1).
+            // the body is just a FieldSet.
             let handle = resolveRecordField env (typeOfExpr receiver) name
             recur env b receiver
             recur env b value
@@ -167,7 +167,7 @@ module EmitMember =
             let handle0, m =
                 resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key) argTys
 
-            // A *generic instance method* (`member s.Map<'U> f`, B-12 call side): the
+            // A *generic instance method*: the
             // member-ref already carries the `GENERIC` header (its `'U` rides `!!i`),
             // so the call must wrap it in a `MethodSpec`. The node carries no method
             // type args, so recover them by structurally matching the member's declared
@@ -254,7 +254,7 @@ module EmitMember =
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.ExternalMember(receiver, key, _, true, ty, _) ->
-            // A standalone external *property* get (P4): a static one (`call
+            // A standalone external *property* get: a static one (`call
             // get_<name>()`) or an instance one reached as the receiver of an outer
             // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
             // minted from the node's `SymbolKey`; an instance access on an external

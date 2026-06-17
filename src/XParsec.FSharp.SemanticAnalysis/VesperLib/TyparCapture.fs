@@ -89,8 +89,7 @@ module VesperLibTyparCapture =
         /// constructor signatures — frozen by the finalize pass into the shape's
         /// `FrozenBaseType` and into `.ctor` `ExternalMember`s. The base lets a
         /// consumer's subtype walk reconcile through the *contract* inherit chain
-        /// (the JS exception hierarchy, `InvalidOperationException : exn`;
-        /// codegen-js-steps.md Step 8) independent of BCL metadata; the ctors let a
+        /// (the JS exception hierarchy, `InvalidOperationException : exn`) independent of BCL metadata; the ctors let a
         /// BCL-free provider type the constructor-as-function application
         /// (`InvalidOperationException "msg"`). Each ctor is `(param-type CSTs,
         /// return-type CST)`. `ValueNone` base ⇒ no declared base; `[]` ctors ⇒ none.
@@ -187,8 +186,7 @@ module VesperLibTyparCapture =
         /// type's qualified compiled name (the same key `TypeShapes` uses);
         /// each list preserves declaration order. Surfaced through `toProvider`'s
         /// `TryLookupMember` / `TryLookupMembers` so a cross-package use site can
-        /// type `o.IsSome` against the contract (vesper-lib-test-plan Gap 2
-        /// Layer A). Empty for types with no augmentation members.
+        /// type `o.IsSome` against the contract. Empty for types with no augmentation members.
         member val TypeMembers = Dictionary<string, ResizeArray<ExternalMember>>(StringComparer.Ordinal) with get
         /// The deferred body **CST** for each `TypeShapes` body
         /// (`Record` / `Union` / `Abbrev`), keyed by the same qualified compiled
@@ -243,7 +241,7 @@ module VesperLibTyparCapture =
         /// encountered during extraction. The reverse case-name index reads this to
         /// stamp `ExternalUnionCase.IsRequireQualifiedAccess`, so a consumer's bare
         /// (unqualified) reference to an RQA case is rejected the way F# rejects it
-        /// (opens-overhaul-plan Gap 1).
+
         member val RqaTypes = HashSet<string>(StringComparer.Ordinal) with get
         /// Type shapes contributed by already-extracted dependency packages (dependency-ordered).
         /// Read-only here: extraction never writes a dependency's shape, only
@@ -310,7 +308,7 @@ module VesperLibTyparCapture =
         /// translation is in scope). The `VesperLib.ExtractCtx.toProvider` wrapper
         /// chains the two; nothing else calls this directly.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
-            // Reverse case-name index for `TryLookupUnionCase` (Gap 2 Layer B):
+            // Reverse case-name index for `TryLookupUnionCase`:
             // bare case name -> (declaring union compiled name, arity, case
             // shape). Built once here, after extraction has fully populated
             // `ctx.TypeShapes`. First declaration wins on a name collision (the

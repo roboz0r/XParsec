@@ -385,8 +385,7 @@ module UnificationEngine =
     // is mapped BACK to `"exn"` through the reverse `{ platform -> canon }` map
     // (`IExternalSymbolProvider.IntrinsicReverseCanon`), so the two still meet at
     // `"exn"`. This keeps a JS build free of BCL names — the base `.fs` repr only
-    // ever marks primitive-ness on JS, never the `platform` face (intrinsic-runtime-
-    // type-plan.md).
+    // ever marks primitive-ness on JS, never the `platform` face.
     //
     // Resolution order:
     //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`) — a
@@ -596,7 +595,7 @@ module UnificationEngine =
     /// coerce to the statically-known type `tgt`? A **pure read** of
     /// `ctx.Types.Class` — never mutates `Link` / `Constraints`, so it's safe
     /// to call from the read-only coercion site (`:?`) without an undo trace
-    /// (inheritance-plan §"Why subsumes being read-only is load-bearing").
+    ///
     /// Reflexivity is `Equal` (callers distinguish a redundant cast from a real
     /// one); the parent-chain / interface walk yields `Subtype`. Args are
     /// invariant in v1 — `List<Circle>` does not subsume `List<Shape>`. The
@@ -1196,13 +1195,12 @@ module UnificationEngine =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(recKey, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types recKey with
             | ValueSome info ->
-                // C-Attr verdict overrides the field-walk. Equality: a
+                // Verdict overrides the field-walk. Equality: a
                 // `[<NoEquality>]` record at a `=` / `<>` use site is a
                 // diagnostic; a `[<ReferenceEquality>]` record satisfies the
                 // equality predicate via BCL `Object.Equals`. Comparison
-                // (brainstorm-comparison §9) is opt-in, so an unannotated
-                // record is `NoComparison` ⇒ ordering use site rejected;
-                // `[<StructuralComparison>]` falls through to the field-walk.
+                // is opt-in, so an unannotated record is `NoComparison` ⇒ ordering
+                // use site rejected; `[<StructuralComparison>]` falls through to the field-walk.
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
                 | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
@@ -1234,20 +1232,18 @@ module UnificationEngine =
                     fields |> EqArray.ofResizeArray |> reduceOutcome (checkConstraint ctx c)
             | ValueNone -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass _ ->
-            // Per docs/classes-plan.md §Open questions: F# classes are
-            // reference-equal by default; structural equality / comparison
+            // F# classes are reference-equal by default; structural equality / comparison
             // for classes requires the attribute walker. Defer in v1.
             Defer
         | SemanticConstraintKind.Equality, TyOr members ->
-            // Anonymous union (anon-unions-plan §Constraints): the union satisfies
+            // An anonymous union satisfies
             // EQUALITY iff EVERY member does — the all-members-or-defer reduction used
             // for tuple/record/union fields. Sound because F#'s generic equality is
             // *total* on the union's `obj`+`isinst` (CLR) / bare-value (JS) repr:
             // cross-member `=` returns `false` (different runtime types), never throws
             // — and `false` is the semantically correct answer (an int is not a
             // string). A non-equatable member (e.g. a `TyFun` arm) still fails the
-            // reduction. (Stage 6's gate exercises this; reachable only once the
-            // Stage 3 front door builds a `TyOr`.)
+            // reduction.
             reduceOutcome (checkConstraint ctx c) members.Members
         | SemanticConstraintKind.Comparison, TyOr members ->
             // COMPARISON does NOT reduce member-wise, unlike equality above. F#'s
@@ -1379,11 +1375,11 @@ module UnificationEngine =
                 "op_GreaterThanOrEqual"
             ]
 
-    // Split per operators-plan.md O4: equality stays in Vesper.Core, ordering in
-    // Vesper.Comparison. Both families synthesise the same primitive trait shape
-    // (`prim*prim → bool`), so `tryPrimitiveTraitCandidate` checks the union; the
-    // split is what lets the decline-fallthrough diverge by family once the .fsi
-    // contracts become the live provider (today they resolve identically).
+    // Equality stays in Vesper.Core, ordering in Vesper.Comparison. Both families
+    // synthesise the same primitive trait shape (`prim*prim → bool`), so
+    // `tryPrimitiveTraitCandidate` checks the union; the split is what lets the
+    // decline-fallthrough diverge by family once the .fsi contracts become the live
+    // provider (today they resolve identically).
     and private comparisonBinaryOps = Set.union equalityBinaryOps orderingBinaryOps
 
     and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
@@ -1391,7 +1387,7 @@ module UnificationEngine =
             // String concatenation: `string * string -> string`. `string` is not a
             // numeric primitive, but the `(+)` inline's `when ^T : string` clause
             // makes `string + string` valid (codegen lowers it to
-            // `System.String.Concat`, overload-resolution-bug.md Gap C). Resolve the
+            // `System.String.Concat`). Resolve the
             // SRTP trait here so a `(+)`-on-string bound drains cleanly instead of
             // erroring "string has no op_Addition" — the spurious diagnostic that
             // surfaced compiling `structural-printer.fs` (the first library to use
@@ -1553,9 +1549,7 @@ module UnificationEngine =
             // accepts any value that subsumes into one of its members, with the *same*
             // no-pin discipline as `obj` above. `subsumes` is a pure read (no `Link`),
             // so a generic value threaded through a union-typed parameter is not wrongly
-            // grounded — exactly the `acceptsByAssignability` generalisation of
-            // `absorbsAsObj` the anon-unions plan (Stage 5) calls for. The box / `isinst`
-            // materialises at codegen via the existing `obj` machinery.
+            // grounded — the `acceptsByAssignability` generalisation of `absorbsAsObj`.
             match resolveStep tgt with
             | TyOr _ -> subsumes ctx src tgt <> SubsumeOutcome.Unrelated
             | _ ->
@@ -1593,8 +1587,8 @@ module UnificationEngine =
     /// type, a parameter `Pat.Typed`). Checking-mode, but narrower than `unifyArg`:
     /// the ONLY assignability admitted is value→union — when the annotation is a
     /// `TyOr` the actual subsumes into, accept *without* unifying, so `let x: int |
-    /// string = 1` checks and the actual's typar stays free (the no-pin discipline,
-    /// anon-unions plan Stage 5). Every other annotation — `obj`, a base class, a
+    /// string = 1` checks and the actual's typar stays free (the no-pin discipline).
+    /// Every other annotation — `obj`, a base class, a
     /// plain nominal — falls through to symmetric `unify`, so a binder annotated
     /// `obj` still GROUNDS to `obj` (unlike `unifyArg`, whose `absorbsAsObj` accept
     /// would leave the binder's var unresolved and break signature encoding). The

@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.Codegen.Clr
+﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open System.Reflection.Metadata
@@ -29,7 +29,7 @@ module EmitTypes =
             /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
             /// it is not captured. `ValueNone` for an anonymous lambda.
             SelfKey: NodeKey voption
-            /// `> 0` ⇒ a *generic* closure (C3): the *total* number of typars this
+            /// `> 0` ⇒ a *generic* closure: the *total* number of typars this
             /// closure's `TypeDefinition` carries (`GenericParam` rows `T0…`). For a
             /// static-fn closure this is the enclosing method's typar count, all
             /// method-axis. For a *member-body* closure it is `DeclaringTypars` (the
@@ -49,10 +49,8 @@ module EmitTypes =
             /// (Axis 1 `LocalStack` ∧ Axis 2 `StackOnlyEligible`) and snapshotted
             /// onto `TastFile.ClosureReprs`. `Heap` = the v1 reference-type
             /// `Vesper.Fun<_,_>` subclass (the only shape emitted today); `Stack` =
-            /// eligible for the deferred readonly-struct closure shape
-            /// (brainstorm-closures). Inert in v1 — emission ignores it, so a
-            /// `Stack` verdict changes no IL until the struct-closure gate flips
-            /// (ref-struct-emit-plan RS3/RS4).
+            /// eligible for the deferred readonly-struct closure shape. Inert in v1 — emission ignores it, so a
+            /// `Stack` verdict changes no IL until the struct-closure gate flips.
             Repr: ClosureRepr
         }
 
@@ -79,7 +77,7 @@ module EmitTypes =
             RetTy: FrozenType
             /// The member's *own* generic-method typar count (`member s.Map<'U> …`).
             /// 0 for the common non-generic member. > 0 ⇒ the member-ref must carry
-            /// the `GENERIC` header and the call site a `MethodSpec` (B-12 call side).
+            /// the `GENERIC` header and the call site a `MethodSpec`.
             MethodTyparCount: int
         }
 
@@ -118,7 +116,7 @@ module EmitTypes =
             Ctor: EntityHandle
         }
 
-    /// A class emitted into this assembly (B-1). Same `Members` shape as
+    /// A class emitted into this assembly. Same `Members` shape as
     /// `EmittedUnion`, so `resolveInstanceMember` / `resolveStaticMember` extend to
     /// classes unchanged. `Typars` empty ⇒ monomorphic; non-empty ⇒ generic,
     /// reached via `ICodegenProvider.UserGenericMemberRef (ClassMember _)`.
@@ -153,12 +151,12 @@ module EmitTypes =
             /// (`EmitResolve.pickOverload`). A single-element list is the common,
             /// non-overloaded case.
             Members: Dictionary<string, EmittedMember list>
-            /// `static let` backing fields keyed by source name (B-10); a
+            /// `static let` backing fields keyed by source name; a
             /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. A mono class
             /// stores the field `Def` token, a generic class a `MemberRef` on the
-            /// open self-`TypeSpec` (G13).
+            /// open self-`TypeSpec`.
             StaticFields: Dictionary<string, EntityHandle>
-            /// Secondary constructors (B-11) keyed by arity → (declared param types,
+            /// Secondary constructors keyed by arity → (declared param types,
             /// `.ctor` handle). A `TExpr.New` whose arg count differs from the
             /// primary's selects the matching overload here. A monomorphic class
             /// uses the `Def` handle directly; a generic one mints a `MemberRef` on
@@ -200,7 +198,7 @@ module EmitTypes =
 
     /// A module-level value (`let x = e` at module scope) lowered to a `public
     /// static` field on its module holder, initialised by the holder's `.cctor`
-    /// (module-representation-plan). Only values on a *named* module classify
+    ///. Only values on a *named* module classify
     /// (anonymous "Program" values keep their `Main`-local treatment, see
     /// `collectModuleValues`), so the holder is always known. `Init` is the
     /// initialiser the `.cctor` evaluates and `stsfld`s — taken from the lowered
@@ -248,10 +246,10 @@ module EmitTypes =
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
             /// Module-level value bindings → their emitted `public static` field
             /// (`ldsfld`). Shared by every body builder so a module value resolves
-            /// uniformly in any method/ctor/cctor (module-representation-plan §3).
+            /// uniformly in any method/ctor/cctor.
             ModuleValues: Dictionary<NodeKey, EntityHandle>
             /// The subset of top-level ("Program") values that are **initialised in
-            /// `Main`** via `stsfld` (the §10.3 trailing values, after a top-level
+            /// `Main`** via `stsfld` (the trailing values, after a top-level
             /// `do`) → their field handle. `buildMain` emits the store here instead of
             /// allocating a `Main` local; references still read `ldsfld` via
             /// `ModuleValues`. Leading-prefix values are absent (their `.cctor`
@@ -281,8 +279,7 @@ module EmitTypes =
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
             /// Module-level values (`let x = e` at module scope), lowered to a
             /// `public static` field on their module holder and resolved here by
-            /// binding `NodeKey` → field handle (`ldsfld`). See
-            /// [module-representation-plan](../XParsec.FSharp.SemanticAnalysis/docs/module-representation-plan.md).
+            /// binding `NodeKey` → field handle (`ldsfld`).
             ModuleValues: Dictionary<NodeKey, EntityHandle>
         }
 

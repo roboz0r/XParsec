@@ -5,35 +5,27 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open JsEmitHelpers
 
-/// The `TAST → JsAst` walker — the JS analogue of `Emit*` in `Codegen.Clr`, grown
-/// one step at a time (codegen-js-steps.md; `EmitExpr.buildExpr` is the CLR
-/// checklist each step tracks). Every un-handled node is an explicit `failwithf`,
+/// The `TAST → JsAst` walker. Every un-handled node is an explicit `failwithf`,
 /// so an unsupported arm fails loudly rather than dropping silently.
 ///
-/// Durable conventions the arms assume:
+/// Durable conventions:
 ///   * Functions are **curried unary arrows** — `Lambda` → nested `(a) => (b) => …`,
-///     `App` → unary calls (`f a b` → `f(a)(b)`); no call-site arity analysis. Tail
-///     self-recursion is trampolined to `while (true)` with param-shadow mutation
-///     (`emitFunction` / `buildTailBody`) for constant stack.
-///   * Operator bodies arrive pre-spliced as `ILIntrinsic` `$N`-templates (from
-///     `ops-platform.js.fs` via `Passes.InlineExpansion`); the JS `finishOps` is
-///     identity (JS keeps operators as emit-able templates). `TastLower.lower` drops
-///     `type` decls, so record/union/member shapes are read off the *un-lowered*
-///     decls (`collectTypes`).
+///     `App` → unary calls (`f a b` → `f(a)(b)`). Tail self-recursion trampolines to
+///     `while (true)` with param-shadow mutation for constant stack.
+///   * Operator bodies arrive pre-spliced as `ILIntrinsic` `$N`-templates;
+///     `finishOps` is identity (templates are already JS-emit-able). `TastLower.lower`
+///     drops `type` decls — record/union/member shapes are read off the un-lowered
+///     decls in `collectTypes`.
 ///   * Records/unions emit as data-only JS `class`es (positional ctor; union = base
 ///     `tag` + one `extends`-subclass per case). Members emit as free, curried,
-///     *receiver-first* functions under a mangled name (`module Members`), never
-///     prototype methods — so the structural-interop invariant holds (match + the
-///     structural runtime read `.tag`/own-keys, never `instanceof`).
-///   * `Match` lowers to an IIFE testing each arm in order (`compileMatchPattern` →
-///     `&&`-conjoined test + path-projection `const`s), an unmatched value `throw`ing.
+///     *receiver-first* functions — never prototype methods (match + the structural
+///     runtime read `.tag`/own-keys, never `instanceof`).
+///   * `Match` lowers to an IIFE testing each arm in order, an unmatched value throwing.
 module EmitJs =
 
-    /// Maps a source char offset (a `SyntaxToken.StartIndex`) to 0-based
-    /// (line, column) — V3 source-map coordinates. Built once per compile from
-    /// the raw source text: `Starts.[n]` is the char offset at which line `n`
-    /// begins. A trailing `\r` rides its line; columns count UTF-16 code units,
-    /// which V3 maps require.
+    /// Maps a source char offset to 0-based (line, column) — V3 source-map
+    /// coordinates. `Starts.[n]` is the char offset at which line `n` begins.
+    /// Columns count UTF-16 code units, as V3 maps require.
     type LineIndex = { Starts: int[]; Length: int }
 
     module LineIndex =
@@ -50,9 +42,7 @@ module EmitJs =
                 Length = source.Length
             }
 
-        /// Resolve a char offset to a `JsLoc`. Offsets past end-of-source clamp
-        /// to the last line (defensive — a virtual token can anchor at the spawn
-        /// offset, which is in range, but synthetic ends-of-input may not be).
+        /// Resolve a char offset to a `JsLoc`. Clamps past-end offsets to the last line.
         let resolve (idx: LineIndex) (offset: int) : JsLoc =
             let offset = max 0 (min offset idx.Length)
             let starts = idx.Starts
@@ -74,58 +64,36 @@ module EmitJs =
     /// (no source text supplied); `ValueSome` carries the line index.
     type Resolver = LineIndex voption
 
-    /// A record type's JS shape (Step 3): the emitted class `Name` and its `Fields`
-    /// in *declaration* order — the authority `RecordCons`/`RecordClone` order their
-    /// `new Name(…)` args against (the literal's source order is reordered to match).
+    /// A record type's JS shape: the emitted class `Name` and its `Fields` in
+    /// *declaration* order — `RecordCons`/`RecordClone` reorder source args to match.
     type JsRecordInfo = { Name: string; Fields: string list }
 
-    /// A union type's JS shape (Step 4): the emitted base-class `Name` and its cases
-    /// keyed by F# case name. `UnionCons` looks a case up to pick its subclass + field
-    /// order; a union *pattern* to compare the scrutinee's `tag` and read fields.
+    /// A union type's JS shape: the emitted base-class `Name` and its cases keyed by
+    /// F# case name. `UnionCons` and union patterns look up subclass + field order here.
     type JsUnionInfo =
         {
             Name: string
             Cases: System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>
         }
 
-    /// The walker's ambient context: the source-map resolver, the raw source text
-    /// (for recovering a `let`-bound variable's *source* name from its binder token
-    /// offset), and the record table (`SymbolKey` → `JsRecordInfo`, for ordering
-    /// `RecordCons` / `RecordClone` arguments against the class's positional
-    /// constructor). The resolver/source come from `JsProjectInfo.Source` (absent
-    /// it, maps are off and variable names fall back to `_v<offset>`); the record
-    /// table is built from the file's type declarations by `buildProgram`.
+    /// The walker's ambient context.
     type WalkCtx =
         {
             Resolver: Resolver
             Source: string voption
             Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
             Unions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
-            /// The external-symbol provider (`Some` once a program references a
-            /// library union/record). External union types — `Option`, `List` —
-            /// are not in the file's `tast.Decls`, so their case shapes (tag +
-            /// field names) are read off the provider on first use and emitted as
-            /// honest nominal JS classes (Step 5), exactly the base-class +
-            /// per-case-subclass shape a local union gets.
+            /// External union types (`Option`, `List`) not in the file's `tast.Decls`;
+            /// their case shapes are read off the provider on first use and emitted as
+            /// nominal JS classes (same base-class + subclass shape a local union gets).
             Provider: IExternalSymbolProvider voption
-            /// External unions resolved on demand during the walk, keyed by the
-            /// same `SymbolKey` the `Unions` table uses. Shared mutable state: a
-            /// miss in `Unions` falls back here, resolving + caching the shape and
-            /// recording its emission order in `ExternalUnionDecls` so `buildProgram`
-            /// can prepend the classes (JS classes are not hoisted).
+            /// External unions resolved on demand, keyed by `SymbolKey`. A miss in
+            /// `Unions` falls back here; `ExternalUnionDecls` tracks emission order
+            /// so `buildProgram` can prepend the classes (JS classes are not hoisted).
             ExternalUnions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
-            /// The `Union` statements for the external unions resolved during the
-            /// walk, in discovery order — `buildProgram` prepends them to the body
-            /// (deterministic given a deterministic walk; JS classes are not hoisted).
             ExternalUnionDecls: ResizeArray<JsStatement>
-            /// Runtime-module imports discovered during the walk (`addRef` /
-            /// `addMemberRef`). `buildProgram` reads `importStatements` (the leading
-            /// `import …` block); `Codegen.compileWith` reads `modules` off this same
-            /// accumulator to materialise the runtime files.
             Imports: JsImports
-            /// `true` in *library* mode: a top-level `let` emits `export const …` (a
-            /// compiled runtime module's public surface); `false` (script default)
-            /// keeps it a plain `const`. The single decision lives in `topLevelBinding`.
+            /// `true` in library mode: top-level `let` emits `export const …`.
             ExportTopLevel: bool
         }
 
@@ -136,30 +104,25 @@ module EmitJs =
 
     // ---- Records -------------------------------------------------------------
 
-    /// The nominal `SymbolKey` of a record/union construct's receiver type — the key
-    /// its `type` decl filled the lookup table under. `what` names the construct for
-    /// the diagnostic; a non-nominal receiver is an invariant break.
+    /// The nominal `SymbolKey` of a record/union construct's receiver type.
+    /// A non-nominal receiver is an invariant break.
     let private nominalKey (what: string) (ty: FrozenType) : SymbolKey =
         match TastLower.receiverShape ty with
         | ValueSome(key, _) -> key
         | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
 
-    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver type to its
-    /// emitted `JsRecordInfo`. An absent entry means the record's `type` decl never
-    /// reached this file.
+    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver to its `JsRecordInfo`.
     let private recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
         let key = nominalKey what ty
 
         match ctx.Records.TryGetValue key with
         | true, info -> info
-        | _ -> failwithf "EmitJs (Step 3): %s on record with no emitted type (key %A)" what key
+        | _ -> failwithf "EmitJs: %s on record with no emitted type (key %A)" what key
 
     // ---- Unions --------------------------------------------------------------
 
-    /// A union case's declaration-order field names, to F#'s compiled convention: a
-    /// *named* field keeps its name; a *positional* field becomes `Item` (lone) or
-    /// `Item1`/`Item2`/… (several), so `UnionCons` args and a pattern's sub-patterns
-    /// address the same properties. Shared by the local and external paths.
+    /// A union case's declaration-order field names: named fields verbatim; a lone
+    /// positional becomes `Item`; multiple positionals become `Item1`/`Item2`/….
     let private synthFieldNames (fieldNames: string voption list) : string list =
         match fieldNames with
         | [ ValueSome n ] -> [ n ]
@@ -172,10 +135,8 @@ module EmitJs =
                 | ValueNone -> "Item" + string (i + 1)
             )
 
-    /// Build a `JsUnionInfo` (+ case-name → `JsUnionCaseDecl` table) for `baseName`
-    /// whose cases are `(caseName, fieldNames)` in declaration order. Shared by the
-    /// local (`collectTypes`) and external (`resolveExternalUnion`) emission: tag =
-    /// declaration index, subclass = `<baseName>_<case>`, fields via `synthFieldNames`.
+    /// Build a `JsUnionInfo` for `baseName` with `(caseName, fieldNames)` in declaration
+    /// order: tag = declaration index, subclass = `<baseName>_<case>`.
     let private buildUnionInfo
         (baseName: string)
         (cases: (string * string voption list) list)
@@ -198,11 +159,9 @@ module EmitJs =
 
         { Name = baseName; Cases = table }, caseDecls
 
-    /// Resolve an *external* union (`Option`, `List`) to a `JsUnionInfo`, reading its
-    /// case shapes off the provider and emitting the same base+subclass shape a local
-    /// union gets (queued in `ctx.ExternalUnionDecls`, cached in `ctx.ExternalUnions`
-    /// so classes emit once). `ValueNone` with no provider or non-union type — the
-    /// caller then fails loudly.
+    /// Resolve an external union to a `JsUnionInfo` via the provider, queuing its class
+    /// decl in `ExternalUnionDecls` and caching in `ExternalUnions`. `ValueNone` when
+    /// no provider or the type is not a union — caller fails loudly.
     let private resolveExternalUnion (ctx: WalkCtx) (key: SymbolKey) : JsUnionInfo voption =
         match ctx.ExternalUnions.TryGetValue key with
         | true, info -> ValueSome info
@@ -222,12 +181,8 @@ module EmitJs =
                     ValueSome info
                 | _ -> ValueNone
 
-    /// Resolve a `UnionCons` / union-pattern receiver type + case name to the
-    /// emitted `JsUnionCaseDecl` (subclass name, tag, field names). A type not in
-    /// the file's own `Unions` table is resolved as an *external* union (`Option`,
-    /// `List`) through the provider; an absent case — or a type that resolves to
-    /// neither — is an invariant break (the front end admitted a construct the
-    /// declaration lacks).
+    /// Resolve a `UnionCons` / union-pattern receiver type + case name to the emitted
+    /// `JsUnionCaseDecl`. Falls through to the external-union provider on a local miss.
     let private unionInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsUnionInfo =
         let key = nominalKey what ty
 
@@ -236,44 +191,36 @@ module EmitJs =
         | _ ->
             match resolveExternalUnion ctx key with
             | ValueSome info -> info
-            | ValueNone -> failwithf "EmitJs (Step 4): %s on union with no emitted type (key %A)" what key
+            | ValueNone -> failwithf "EmitJs: %s on union with no emitted type (key %A)" what key
 
     let private unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
         let info = unionInfoOf ctx what ty
 
         match info.Cases.TryGetValue caseName with
         | true, c -> c
-        | _ -> failwithf "EmitJs (Step 4): %s on union '%s' has no case '%s'" what info.Name caseName
+        | _ -> failwithf "EmitJs: %s on union '%s' has no case '%s'" what info.Name caseName
 
     // ---- Members -------------------------------------------------------------
 
-    /// The member subsystem (Step 7): the name-mangling convention and key→name
-    /// resolution shared by member emission (`emitMemberFn`), the call-site lowerings,
-    /// and the deferred `.d.ts` emitter. The `buildExpr`-independent pieces — the
-    /// lowerings themselves stay in the walker nest (they recurse through `buildExpr`).
+    /// Name-mangling and key→name resolution for member calls, shared between
+    /// `emitMemberFn` and the call-site lowerings in the walker.
     module private Members =
 
-        /// The shared name-mangling convention, mirroring Fable's: instance method →
-        /// `<Type>__<member>`; instance property getter → `<Type>__get_<Prop>`; static
-        /// member → `<Type>_<member>`. Static property and static method share the
-        /// single-underscore form (the call site distinguishes read vs apply).
+        /// Instance method → `<Type>__<member>`; instance property getter →
+        /// `<Type>__get_<Prop>`; static member → `<Type>_<member>`.
         let mangledName (typeName: string) (isStatic: bool) (isProperty: bool) (memberName: string) : string =
             if isStatic then typeName + "_" + memberName
             elif isProperty then typeName + "__get_" + memberName
             else typeName + "__" + memberName
 
-        /// The declaring type's `SymbolKey` from a member-call node's `key`. An
-        /// `ExternalMember` `key` may be a non-member key (a static access folded to
-        /// the type), so the fallthrough returns it verbatim.
+        /// The declaring type's `SymbolKey` from a member-call node's `key`.
         let declKey (key: SymbolKey) : SymbolKey =
             match key with
             | SymbolKey.MemberKey(decl, _, _, _) -> decl
             | _ -> key
 
-        /// The home assembly of an *external* type, for selecting its `runtime-js`
-        /// module. A nominal `TypeKey` still carries `asm = None` (codegen rekey
-        /// pending), so the assembly is recovered off the provider's type-shape
-        /// `origin`, falling back to the key's own assembly when present.
+        /// The home assembly of an external type, for selecting its runtime-js module.
+        /// Falls back to the provider's type-shape `origin` when the key has no assembly.
         let assemblyOf (ctx: WalkCtx) (key: SymbolKey) (what: string) : string =
             match SymbolKeyOps.keyAsm key with
             | Some a -> a
@@ -292,9 +239,7 @@ module EmitJs =
                 | Some a -> a
                 | None -> failwithf "EmitJs (Step 7): %s has no resolvable home assembly (key %A)" what key
 
-        /// The emitted type name a member's mangled name is built from: the local
-        /// `JsUnionInfo`/`JsRecordInfo` `Name` when the declaring type is in this file,
-        /// else the key's bare simple name (an external type — the consumer half).
+        /// The emitted type name for mangling: local union/record `Name`, else the key's simple name.
         let typeName (ctx: WalkCtx) (key: SymbolKey) : string =
             match ctx.Unions.TryGetValue key with
             | true, info -> info.Name
@@ -303,17 +248,12 @@ module EmitJs =
                 | true, info -> info.Name
                 | _ -> SymbolKeyOps.simpleName key
 
-        /// The callable identifier of a *local* member's emitted function, resolved off
-        /// the call node's `key`. The single place type-name lookup + mangling compose,
-        /// shared by all four local member-call arms.
+        /// The callable identifier of a local member's emitted function.
         let localFn (ctx: WalkCtx) (key: SymbolKey) (isStatic: bool) (isProperty: bool) (loc: JsLoc voption) : JsExpr =
             let dk = declKey key
             JsExpr.Identifier(mangledName (typeName ctx dk) isStatic isProperty (SymbolKeyOps.simpleName key), loc)
 
-    /// The fallthrough a `match` reaches when no arm matched — `throw new
-    /// Error("…")`. An exhaustive match never reaches it at runtime, but it gives
-    /// a non-exhaustive one defined behaviour (mirrors the CLR backend's
-    /// `buildMatchFailure`).
+    /// `throw new Error("…")` — the fallthrough for a non-exhaustive match.
     let private matchFailure: JsStatement =
         JsStatement.Throw(
             JsExpr.New(
@@ -332,36 +272,20 @@ module EmitJs =
         | [] -> None
         | t :: rest -> Some(List.fold (fun acc x -> JsExpr.Logical("&&", acc, x, ValueNone)) t rest)
 
-    /// Emit a top-level `name = init` binding, picking the statement form from the
-    /// compile mode: `export const` in *library* mode (a runtime module's public
-    /// surface, Step 5b Phase 3), a plain `const` in *script* mode. The single home
-    /// of the `ExportTopLevel` decision — every top-level binder (`emitMemberFn`,
-    /// `buildProgram`'s module values) routes through here rather than re-branching.
+    /// Emit a top-level binding as `export const` (library) or `const` (script).
     let private topLevelBinding (ctx: WalkCtx) (name: string) (init: JsExpr) : JsStatement =
         if ctx.ExportTopLevel then
             JsStatement.Export(name, init)
         else
             JsStatement.Const(name, init)
 
-    /// Walk an external type's contract `inherit` chain (`ExternalClassShape.FrozenBaseType`,
-    /// extracted Step 8) up to the `exn` intrinsic root, then resolve `exn`'s
-    /// `(# "Error" #)` repr to the **native runtime class** (`JsNativeSymbols.Error`)
-    /// via the shared `ExternalSymbols.tryRuntimeType` query and return its compiled
-    /// name — `Error` on JS. A constructed exception (`raise (InvalidOperationException …)`)
-    /// lowers to `new <class>(message)` sourced from this chain, NOT a hardcoded `"Error"`
-    /// / an `EndsWith "Exception"` name heuristic (codegen-js-steps.md Step 8). The
-    /// runtime-type resolution (the former second hop) now lives in `tryRuntimeType`
-    /// (intrinsic-runtime-type-plan.md), so this is just the genuine subtype climb plus
-    /// one shared call: `ValueNone` (→ caller fails loudly) when the type is not an `exn`
-    /// subtype, when the repr names no provider class, or with no provider.
+    /// Walk a type's `inherit` chain up to the `exn` intrinsic root and resolve its
+    /// `(# "Error" #)` repr to the native runtime class name (`Error` on JS). Returns
+    /// `ValueNone` when the type is not an `exn` subtype or the repr names no provider class.
     let private exnReprOf (ctx: WalkCtx) (ty: FrozenType) : string voption =
         match ctx.Provider with
         | ValueNone -> ValueNone
         | ValueSome provider ->
-            // Resolve a base-chain `FrozenType` node to its shape: a nominal key looks
-            // up directly; a bare `FTConst` name (how an intrinsic base such as `exn`
-            // freezes — `mkNominal` returns the short name for an `Intrinsic`) routes
-            // through the shared runtime-type query (bare name + ambient prefixes).
             let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
                 match ft with
                 | FTClass(key, _)
@@ -370,23 +294,16 @@ module EmitJs =
                 | FTConst(name, _) -> ExternalSymbols.tryRuntimeType provider name
                 | _ -> ValueNone
 
-            // Bounded climb: every hop is a strict ancestor, so the chain is finite;
-            // the depth cap only backstops a malformed cyclic `inherit`.
+            // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict
+            // ancestor so the chain is finite in practice.
             let rec climb (depth: int) (ft: FrozenType) : string voption =
                 if depth > 16 then
                     ValueNone
                 else
                     match shapeOf ft with
                     | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform)) ->
-                        // `exn`'s `platform` repr (`"Error"` on JS) names a native
-                        // runtime type; resolve it to that class through the shared
-                        // query so we emit the `JsNativeSymbols.Error` *definition*'s
-                        // name (the provider is authoritative for the runtime type),
-                        // not a bare repr string. We read the PLATFORM face, never
-                        // `canon` (`"System.Exception"`) — that is the unifier's
-                        // identity key and has no JS analogue. No provider class for
-                        // the platform repr (or no repr at all on this target) ⇒
-                        // `ValueNone` → fail loudly.
+                        // Read the PLATFORM repr, not `canon` — `canon` is the unifier's
+                        // identity key (`"System.Exception"`) and has no JS class analogue.
                         match ExternalSymbols.tryRuntimeType provider platform with
                         | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
                         | _ -> ValueNone
@@ -408,9 +325,8 @@ module EmitJs =
 
         | TExprG.Var(k, _, _) -> JsExpr.Identifier(identName ctx.Source k, loc)
 
-        // An external module function (`List.length`) — imported from its package's
-        // JS runtime module (Step 5b). The reference is the import alias; `App`
-        // saturates it (`List.map f xs` ≡ `$…map(f)(xs)`).
+        // An external module function — imported from its package's JS runtime module.
+        // The reference is the import alias; `App` saturates it.
         | TExprG.External(compiledName, key, _, _) ->
             JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key, loc)
 
@@ -421,19 +337,15 @@ module EmitJs =
         // expands to statements via `buildStatements`).
         | TExprG.Sequential(xs, _, _) -> JsExpr.Sequence([ for x in xs -> buildExpr ctx x ], loc)
 
-        // A tuple `(a, b, …)` is a JS array `[a, b, …]` (Step 5); a pattern reads each
-        // element back by positional index.
+        // A tuple `(a, b, …)` is a JS array `[a, b, …]`; a pattern reads elements by index.
         | TExprG.Tuple(items, _, _) -> JsExpr.Array([ for x in items -> buildExpr ctx x ], loc)
 
-        // A pure `let` in expression position (the operand lets `InlineExpansion`
-        // splices around an operator body) substitutes into its uses, collapsing back
-        // to the clean template.
+        // Pure `let` in expression position: substitute into uses (collapse operator templates).
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
             buildExpr ctx (substVar k value body)
 
-        // A non-pure `let` in expression position (e.g. `n * fact (n - 1)`). JS has no
-        // let-expression, so it lowers to an IIFE `((x) => <body>)(<value>)` — the
-        // binder evaluated once, then the body.
+        // Non-pure `let` in expression position: JS has no let-expression, so lowers
+        // to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
             let name = identName ctx.Source k
 
@@ -443,16 +355,10 @@ module EmitJs =
                 loc
             )
 
-        // An anonymous function value. Named bindings route through `emitBound`
-        // (which knows the binder key, so it can recognise — and trampoline —
-        // self-recursion); an anonymous lambda has no name to call itself by, so
-        // no self-tail-call analysis applies.
+        // Anonymous lambda — no binder key, so no self-tail-call analysis applies.
         | TExprG.Lambda _ -> emitFunction ctx ValueNone e
 
-        // Curried application: `f a b` emits one unary call per `App` (`f(a)(b)`) —
-        // correct for saturated calls, partial application, and higher-order values
-        // alike, since functions emit as nested unary arrows. (The flat-call
-        // optimisation needs sound boundary curry/uncurry adaptation; deferred.)
+        // Curried application: `f a b` → `f(a)(b)` — one unary call per `App`.
         | TExprG.App(fn, arg, _, _) -> JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
@@ -516,15 +422,9 @@ module EmitJs =
 
             JsExpr.New(JsExpr.Identifier(c.ClassName, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
 
-        // Construction of an *external* exception (`raise (InvalidOperationException
-        // msg)`) → `new <exn repr>(msg)`. The repr is sourced from the type's contract
-        // `inherit` chain (`exnReprOf` walks to the `exn` intrinsic — `Error` on JS),
-        // NOT a hardcoded `"Error"` or an `EndsWith "Exception"` name heuristic
-        // (Step 8). Every `exn` subtype erases to the one `exn` root, carrying the
-        // leading message arg; further args (`paramName`, …) have no `Error` slot and
-        // drop. A non-`exn`-subtype external construction has no JS analogue and fails
-        // loudly (project-local classes never reach `New` — records/unions use
-        // `RecordCons`/`UnionCons`).
+        // External exception construction → `new <exn repr>(msg)`. The repr is sourced
+        // from the `inherit` chain via `exnReprOf`; only the leading message arg is kept
+        // (`Error` has no slot for further args). Non-`exn`-subtype external `New` fails loudly.
         | TExprG.New(className, args, ty, _) ->
             match exnReprOf ctx ty with
             | ValueSome repr ->
@@ -539,10 +439,7 @@ module EmitJs =
                     "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
                     className
 
-        // Member calls on a *local* record/union (Step 7): each member is a free,
-        // curried, receiver-first function (`emitMemberFn`), so a call is just a
-        // `Call` of `Members.localFn` — no `.member` access path. `applyArgs` curries
-        // the (receiver-first) base over the args, matching the unary-arrow emission.
+        // Member calls on a local record/union: each member is a free receiver-first function.
         | TExprG.PropertyGet(receiver, key, _, _, _) ->
             JsExpr.Call(Members.localFn ctx key false true ValueNone, [ buildExpr ctx receiver ], loc)
 
@@ -552,17 +449,12 @@ module EmitJs =
 
             applyArgs ctx withRecv args
 
-        | TExprG.StaticPropertyGet(key, _, _) ->
-            // A static property reads the module-level value binding directly (no call).
-            Members.localFn ctx key true true loc
+        | TExprG.StaticPropertyGet(key, _, _) -> Members.localFn ctx key true true loc
 
         | TExprG.StaticMethodCall(key, args, _, _) -> applyArgs ctx (Members.localFn ctx key true false loc) args
 
-        // A member on an *external* type (the consumer half) — `o.IsSome` where
-        // `Option` is imported. The mangled member is imported from the declaring
-        // type's `runtime-js` module (`JsImports.addMemberRef`, the member analogue
-        // of the `External`-value `addRef` path), then applied receiver-first; an
-        // instance method's arguments arrive through the enclosing `App` chain.
+        // A member on an external type — imported from its runtime-js module and applied
+        // receiver-first; instance method arguments arrive through the enclosing `App`.
         | TExprG.ExternalMember(receiver, key, memberName, isProperty, _, _) ->
             let declKey = Members.declKey key
             let isStatic = (receiver = ValueNone)
@@ -600,24 +492,18 @@ module EmitJs =
             let arg = buildFormatArg ctx segments
 
             match sink with
-            // `console.log` / `console.error` append the trailing newline
-            // themselves, matching `printfn` / `eprintfn`. The no-newline
-            // `printf` / `eprintf` sinks (a `process.stdout.write`) await a later
-            // step, as do the `sprintf` (`ToString`) / `fprintf` (`ToWriter`) sinks.
             | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
             | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
-            | other -> failwithf "EmitJs (Step 1): unsupported format sink %A" other
+            | other -> failwithf "EmitJs: unsupported format sink %A" other
 
-        | other -> failwithf "EmitJs (Step 1): unsupported expression %A" other
+        | other -> failwithf "EmitJs: unsupported expression %A" other
 
     and private console (method: string) : JsExpr =
         JsExpr.Member(JsExpr.Identifier("console", ValueNone), JsExpr.Identifier(method, ValueNone), false, ValueNone)
 
-    /// Expand a `$N` JS-expression template (the `ILIntrinsic` opCode) into
-    /// `JsRawSeg`s: verbatim chunks interleaved with the operand expressions the
-    /// `$N` holes index (zero-based, source order). `$$` is a literal `$`. A CLR
-    /// CIL mnemonic that slipped through (no `$` hole though operands exist) is a
-    /// hard error — only `$N` templates may reach the JS backend (F0).
+    /// Expand a `$N` JS-expression template into `JsRawSeg`s: verbatim chunks
+    /// interleaved with operand expressions. `$$` is a literal `$`. A bare CIL
+    /// mnemonic with operands but no `$N` hole is a hard error.
     and private expandTemplate (ctx: WalkCtx) (template: string) (args: Frozen.TExpr list) : JsRawSeg list =
         let segs = ResizeArray<JsRawSeg>()
         let buf = System.Text.StringBuilder()
@@ -662,19 +548,14 @@ module EmitJs =
 
         flush ()
 
-        // A template carrying operands but no hole is a bare CIL mnemonic
-        // (`ceq`, `add`) that escaped the CLR-only finish pass — it can't be
-        // emitted as JS.
+        // Operands present but no hole → bare CIL mnemonic escaped the CLR-only finish pass.
         if not (List.isEmpty args) && not sawHole then
             failwithf "EmitJs: non-template ILIntrinsic opcode '%s' reached the JS backend" template
 
         List.ofSeq segs
 
-    /// Build the single argument a `console.log`/`error` call prints from a
-    /// printf-family format's segments. An all-literal format is one string; a
-    /// lone hole is its operand value (Node stringifies); a mixed format is a
-    /// string concatenation seeded with `""` so every `+` is string-valued
-    /// (printf width/precision fidelity — `%5.2f` &c. — is deferred).
+    /// Build the single argument a `console.log`/`error` call prints from format segments.
+    /// Mixed formats are concatenations seeded with `""` so every `+` is string-valued.
     and private buildFormatArg (ctx: WalkCtx) (segments: EqArray<Frozen.FormatSeg>) : JsExpr =
         match EqArray.toList segments with
         | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
@@ -683,6 +564,8 @@ module EmitJs =
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
             // when the format opens with two adjacent holes (`%d%d`).
+            // Seed with `""` so the first `+` already concatenates strings even when
+            // the format opens with two adjacent holes (`%d%d`).
             pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String "", ValueNone)))
 
             for seg in segs do
@@ -694,12 +577,10 @@ module EmitJs =
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
 
-    /// Compile a pattern against a (pure) scrutinee-access expression `access` into a
-    /// refutability *test* (`None` ⇒ irrefutable, the `&&`-conjunction of every
-    /// tag/constant comparison) and the `const` bindings its named sub-patterns
-    /// introduce. JS analogue of `EmitPattern`'s `buildMatchTest`. Valid because
-    /// `access` is a pure scrutinee projection — duplicable across test and bindings,
-    /// and the test short-circuits so a sub-field is read only once its tag matched.
+    /// Compile a pattern against a pure scrutinee-access expression `access` into a
+    /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named
+    /// sub-patterns introduce. `access` must be pure — it is duplicated across test
+    /// and bindings; the short-circuit ensures a sub-field is read only after its tag matched.
     and private compileMatchPattern
         (ctx: WalkCtx)
         (access: JsExpr)
@@ -723,9 +604,7 @@ module EmitJs =
                     ValueNone
                 )
 
-            // Each sub-pattern matches a field by name; tests conjoin under the
-            // (short-circuiting) tag test. `map2` asserts the front-end invariant of
-            // one sub-pattern per field (a mismatch fails here, attributably).
+            // `map2` asserts the front-end invariant of one sub-pattern per field.
             let childTests, childBinds =
                 List.map2
                     (fun fld sub -> compileMatchPattern ctx (memberAccess fld) sub)
@@ -735,9 +614,8 @@ module EmitJs =
 
             conjoin (Some tagTest :: childTests), List.concat childBinds
         | TPatG.Record(fields, ty, _) ->
-            // A record pattern never fails on shape (no tag): only sub-patterns
-            // refute, each matching `access.<fieldName>`. Validate each field against
-            // the emitted record so a stale name fails here, not as silent `undefined`.
+            // Validate each field name against the emitted record so a stale name
+            // fails here rather than silently reading `undefined`.
             let info = recordInfoOf ctx "record pattern" ty
             let known = Set.ofList info.Fields
 
@@ -745,19 +623,14 @@ module EmitJs =
                 EqArray.toList fields
                 |> List.map (fun (fieldName, sub) ->
                     if not (Set.contains fieldName known) then
-                        failwithf
-                            "EmitJs (Step 4): record pattern on '%s' names unknown field '%s'"
-                            info.Name
-                            fieldName
+                        failwithf "EmitJs: record pattern on '%s' names unknown field '%s'" info.Name fieldName
 
                     compileMatchPattern ctx (memberAccess fieldName) sub
                 )
                 |> List.unzip
 
             conjoin tests, List.concat binds
-        // A tuple pattern never fails on shape (fixed-arity array, no tag): each
-        // element matches its positional index `access[i]` (a pure projection, like
-        // the union/record field accesses).
+        // Tuple pattern: each element matches its positional index `access[i]`.
         | TPatG.Tuple(items, _, _) ->
             let indexAccess i =
                 JsExpr.Member(access, JsExpr.Literal(JsLiteral.Number(string i), ValueNone), true, ValueNone)
@@ -768,10 +641,8 @@ module EmitJs =
                 |> List.unzip
 
             conjoin tests, List.concat binds
-        | TPatG.TypeTestAs _ -> failwithf "EmitJs (Step 4): type-test patterns are out of MVP scope"
-        // `null` pattern: refutable, binds nothing. JS loose `== null` matches both
-        // `null` and `undefined` (the latter being how a unit/absent value emits),
-        // mirroring the CLR `brtrue`-skips-non-null lowering.
+        | TPatG.TypeTestAs _ -> failwithf "EmitJs: type-test patterns are not supported"
+        // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | TPatG.Null _ -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,
@@ -862,14 +733,9 @@ module EmitJs =
         EqArray.toList args
         |> List.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
-    /// Emit one record/union member as a free, curried, receiver-first top-level
-    /// function (Step 7): `member this.Foo a b` → `<Type>__Foo = (this$) => (a) => (b)
-    /// => <body>`; a static member drops the receiver; a static property (no params)
-    /// emits as a plain value binding. The body is walked by `buildExpr` with the
-    /// member's `ThisKey` + `Params` as parameters — `Var`/`identName` resolves them
-    /// with no new machinery (the receiver shares its key, so body refs line up; a
-    /// source `this` binder maps to `this$` via the reserved-word guard). `export`ed
-    /// in library mode, else `const` — via `topLevelBinding`.
+    /// Emit a record/union member as a free, curried, receiver-first top-level function:
+    /// `member this.Foo a b` → `<Type>__Foo = (this$) => (a) => (b) => <body>`.
+    /// Static members drop the receiver; a static property emits as a plain value binding.
     and emitMemberFn (ctx: WalkCtx) (typeName: string) (m: Frozen.TTypeMember) : JsStatement =
         let isProperty = (m.Kind = TMemberKind.Property)
         let name = Members.mangledName typeName m.IsStatic isProperty m.Name
@@ -902,10 +768,8 @@ module EmitJs =
         | TExprG.Lambda _ -> emitFunction ctx (ValueSome k) value
         | _ -> buildExpr ctx value
 
-    /// An expression in *statement* position (a top-level `do`, or a `let … in …`
-    /// body). `Sequential` flattens to one statement per element (the trailing
-    /// value is discarded); a `let` binder becomes a `const` then the body
-    /// continues. Anything else is one `ExpressionStatement` over `buildExpr`.
+    /// An expression in statement position. `Sequential` flattens; a `let` binder
+    /// becomes a `const`; anything else is one `ExpressionStatement`.
     and buildStatements (ctx: WalkCtx) (e: Frozen.TExpr) : JsStatement list =
         match e with
         | TExprG.Sequential(xs, _, _) ->
@@ -913,8 +777,7 @@ module EmitJs =
                 for x in xs do
                     yield! buildStatements ctx x
             ]
-        // A pure binder substitutes away (mirrors `buildExpr`); the synthetic
-        // operand lets `InlineExpansion` leaves never surface as named `const`s.
+        // Pure binder: substitute away so synthetic operand lets don't surface as `const`s.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
             buildStatements ctx (substVar k value body)
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
@@ -922,17 +785,12 @@ module EmitJs =
             :: buildStatements ctx body
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
-    /// JS `finishOps` (`TastLower.lower`'s knob): identity — JS has no stack-machine
-    /// intrinsic to collapse saturated operators into (ground operators were already
-    /// templated pre-freeze by `InlineExpansion`; un-ground residue fails loudly in
-    /// `buildExpr`).
+    /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.
     let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
 
-    /// Collect the file's nominal `type` decls (in source order) into the emission
-    /// list (a `Class` per record, a `Union` per union), the two lookup tables the
-    /// walker keys record/union nodes through, and the member list (paired with the
-    /// declaring type's emitted name, emitted by `buildProgram` once the tables are
-    /// built). Read off the *un-lowered* decls — `TastLower.lower` drops `type` decls.
+    /// Collect the file's nominal `type` decls (in source order) into the emission list,
+    /// the two lookup tables, and the member list. Read off the un-lowered decls —
+    /// `TastLower.lower` drops `type` decls.
     let private collectTypes (tast: Frozen.TastFile) =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
@@ -969,17 +827,9 @@ module EmitJs =
 
         List.ofSeq ordered, records, unions, List.ofSeq members
 
-    /// The whole frozen file → a `Program`. Record `type` declarations become JS
-    /// `class`es first (classes are not hoisted, so they must precede their `new`
-    /// sites); the remaining decls are lowered (shared `TastLower.lower` with the
-    /// JS `finishOps`) — inline `let inline` templates and `type` decls drop out,
-    /// leaving top-level `let` values and effectful expressions.
-    ///
-    /// A type with no representation on the JS target (`decimal`, `nativeint`) is NOT
-    /// rejected here: that is a semantic verdict (the provider's
-    /// `Intrinsic(_, platform = None)`) and is reported up front, like an unresolved
-    /// generic, by `SemanticAnalysis.PlatformTypes` — so the frozen tree reaching the
-    /// emitter is already known-representable (intrinsic-runtime-type-plan.md).
+    /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
+    /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
+    /// and `type` decls drop out, leaving module values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
         let classDecls, recordTable, unionTable, memberDefs = collectTypes tast
 
@@ -989,9 +839,8 @@ module EmitJs =
                 Unions = unionTable
             }
 
-        // Each record/union member is a free, curried, receiver-first function
-        // (Step 7), emitted after the class decls (they reference the classes via
-        // `new`/match, and `const` arrows are not hoisted) and before the main body.
+        // Member functions emitted after the class decls (they reference the classes
+        // via `new`/match, and `const` arrows are not hoisted) and before the body.
         let memberDecls = [ for (typeName, m) in memberDefs -> emitMemberFn ctx typeName m ]
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
@@ -1001,18 +850,13 @@ module EmitJs =
                 for decl in lowered do
                     match decl with
                     | TDeclG.Expression(e, _) -> yield! buildStatements ctx e
-                    // A top-level module value. In *library* mode it is `export`ed
-                    // (a compiled runtime module's public surface, Step 5b Phase 3);
-                    // in *script* mode it stays a plain `const`.
                     | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
                         topLevelBinding ctx (identName ctx.Source k) (emitBound ctx k value)
-                    | other -> failwithf "EmitJs (Step 1): unsupported declaration %A" other
+                    | other -> failwithf "EmitJs: unsupported declaration %A" other
             ]
 
-        // Runtime-module imports (`Vesper.List`) are also discovered during the
-        // walk; they lead the program (an `import` must precede every reference).
-        // External union classes (`Option`, …) and local classes follow — both must
-        // precede every `new`/match site (JS classes are not hoisted).
+        // Imports lead the program; external + local class decls follow — classes
+        // are not hoisted and must precede every `new`/match site.
         {
             Body =
                 JsImports.importStatements ctx.Imports

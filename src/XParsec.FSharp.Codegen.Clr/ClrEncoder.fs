@@ -61,7 +61,7 @@ type internal ClrEncoder(env: ClrEnv) =
         match t with
         | FTClass(key, args) ->
             match externalClassRef key with
-            // A struct external type (`List`1+Enumerator`, §4.4) must encode as a
+            // A struct external type (`List`1+Enumerator`) must encode as a
             // `VALUETYPE` element; every reference type stays `false`.
             | ValueSome tref -> Some(tref, externalIsValueType key, args)
             | ValueNone -> None
@@ -94,14 +94,13 @@ type internal ClrEncoder(env: ClrEnv) =
         // aren't in `reprs`. `unit` is NOT special-cased here: it falls through to the repr arm and
         // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
         // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
-        // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly), R9.
+        // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly).
         // `obj` → `ELEMENT_TYPE_OBJECT`, not `class System.Object`. This matters
         // for interface-impl / override matching: an interface method declared as
         // `CompareTo(object)` / `GetEnumerator()`-returning-`object` is encoded by
         // the BCL metadata with the primitive `object` token, so a user member
         // implementing it must match that encoding (see the `.Object()` recipes the
-        // synthesised structural-equality triple already uses, and
-        // [[reference_object_override_elementtype]]).
+        // synthesised structural-equality triple already uses).
         | FTConst(n, _) when n = RuntimeNames.objAbbrevName -> te.Object()
         // `System.Object` arriving as an external CLASS — a BCL method's `object`
         // parameter read from metadata as a class `TypeRef` rather than the primitive
@@ -111,8 +110,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // compact `ELEMENT_TYPE_OBJECT`, not `class System.Object`: the BCL signature
         // uses the primitive token, so a member-ref whose parameter is `class
         // System.Object` fails signature match at JIT time (`MissingMethodException`).
-        // Mirrors the `obj` arm + the `.Object()` override recipes
-        // ([[reference_object_override_elementtype]]).
+        // Mirrors the `obj` arm + the `.Object()` override recipes.
         | FTClass(key, _) when RuntimeNames.isSystemObjectKey key -> te.Object()
         | FTConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
         | FTConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
@@ -123,7 +121,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // the catch-all "cannot encode" error — the green suite proves none reaches here.
         | FTConst(name, args) when args.IsEmpty && reprs.ContainsKey name ->
             // Key the IL type off the representation string the name maps to (`"int"` →
-            // `"System.Int32"` → `i4`), not the Vesper name (G7).
+            // `"System.Int32"` → `i4`), not the Vesper name.
             let repr = reprs.[name]
 
             if IntrinsicRepr.tryEncodeValueType te repr then
@@ -168,7 +166,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 for a in args do
                     encodeType (g.AddArgument()) a
         | FTUnion(key, args) when RuntimeNames.isVesperListKey key && args.Length = 1 ->
-            // The Vesper cons-list (R3) ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
+            // The Vesper cons-list ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
             // This arm follows the project-local arm above so a referenced (not self-host)
             // cons-list maps to the cached `eVesperList1` handle directly.
             let elem = args.[0]
@@ -186,7 +184,7 @@ type internal ClrEncoder(env: ClrEnv) =
                     encodeType (g.AddArgument()) a
         | FTClass(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
             // Checked *before* the external-class arm so a project-local class wins over an
-            // accidental same-named external one (asm-discrimination, Phase 6D).
+            // accidental same-named external one (asm-discrimination).
             let handle = userTypes.[key]
             // A `[<Struct>]` value type must encode as `ELEMENT_TYPE_VALUETYPE`
             // so a signature referencing it matches the value-type `TypeDefinition`;
@@ -275,7 +273,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // (`mintMemberRef`'s return encoder, the local-sig encoder). Reaching the
         // recursive type encoder means it appears as a field / generic argument —
         // illegal in CLR metadata — so flag it explicitly rather than via the opaque
-        // catch-all (PP2b).
+        // catch-all.
         | FTConst(n, _) when n = RuntimeNames.byrefName ->
             failwithf
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
@@ -285,8 +283,8 @@ type internal ClrEncoder(env: ClrEnv) =
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
     /// Encode mapping each function arrow to FSharp.Core's `FSharpFunc`2` (curried, nested), not
-    /// `Vesper.Fun` — for the FSharp.Core interop islands R1 leaves on the old representation (the cold
-    /// printf printer, R9). Non-function leaves delegate to `encodeType`.
+    /// `Vesper.Fun` — for the FSharp.Core interop islands that leave the old representation (the cold
+    /// printf printer). Non-function leaves delegate to `encodeType`.
     let rec encodeFSharpFunc (te: SignatureTypeEncoder) (t: FrozenType) : unit =
         match t with
         | FTFun(a, b) ->
@@ -295,7 +293,7 @@ type internal ClrEncoder(env: ClrEnv) =
             encodeFSharpFunc (g.AddArgument()) a
             encodeFSharpFunc (g.AddArgument()) b
         | FTConst("unit", _) ->
-            // This encoder is exclusively the FSharp.Core interop island (the cold-printf printer, R9):
+            // This encoder is exclusively the FSharp.Core interop island (the cold-printf printer):
             // FSharp.Core's printf machinery types its result/state slots in `FSharp.Core.Unit`, so a
             // `unit` here must stay `Unit` — NOT the general `System.ValueTuple` the rest of the backend
             // uses (which would mint a `PrintfFunc`4<…,ValueTuple,…>` the runtime can't cast to its
@@ -451,7 +449,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// A `TypeSpec` token for an arbitrary `FrozenType`, encoded through the full
     /// `encodeType` path — so a struct external type lands as a `VALUETYPE`
-    /// generic-inst (the duck-typed enumerator's member-ref parent, §4.4). Equivalent
+    /// generic-inst (the duck-typed enumerator's member-ref parent). Equivalent
     /// to `externalTypeSpec` once its caller supplies the right `isValueType`, but
     /// reads the tag straight off the type rather than from a separate flag. Mirrors
     /// `ClrRecipes.typeToken`.
@@ -548,7 +546,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    /// A *generic method* (B-12: `member this.Map<'C> …`) whose body may also be inside
+    /// A *generic method* (`member this.Map<'C> …`) whose body may also be inside
     /// a generic type. The declaring type's typars ride `TyTypar(Declaring, i)` nodes
     /// (`!i`) and the method's own typars ride `TyTypar(Method, i)` nodes (`!!i`); the
     /// structural `encodeType` match resolves both by index, so no ambient window is
@@ -792,7 +790,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    /// Encode an abstract interface-method signature (the library path, G5). The signature's open
+    /// Encode an abstract interface-method signature. The signature's open
     /// typars are self-describing `TyTypar` nodes — `Declaring` → `!i`, `Method` → `!!j` — that the
     /// structural `encodeType` match resolves directly.
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = encodeType te t

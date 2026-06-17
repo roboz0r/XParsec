@@ -1,44 +1,44 @@
 namespace          'namespace'       KWNamespace         tok=   0  pos=   0
                    'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type           'type'            KWType              tok=  33  pos= 583
+    type           'type'            KWType              tok=  31  pos= 534
     TypeSig.Record:
-      [<           '[<'              KWLAttrBracket      tok=  25  pos= 544
+      [<           '[<'              KWLAttrBracket      tok=  23  pos= 495
       NamedType:
-        Ident      'ReferenceE...'   Identifier          tok=  26  pos= 546
-      >]           '>]'              KWRAttrBracket      tok=  27  pos= 563
-      [<           '[<'              KWLAttrBracket      tok=  29  pos= 566
+        Ident      'ReferenceE...'   Identifier          tok=  24  pos= 497
+      >]           '>]'              KWRAttrBracket      tok=  25  pos= 514
+      [<           '[<'              KWLAttrBracket      tok=  27  pos= 517
       NamedType:
-        Ident      'NoComparis...'   Identifier          tok=  30  pos= 568
-      >]           '>]'              KWRAttrBracket      tok=  31  pos= 580
-      TypeName     'Ref'             Identifier          tok=  35  pos= 588
+        Ident      'NoComparis...'   Identifier          tok=  28  pos= 519
+      >]           '>]'              KWRAttrBracket      tok=  29  pos= 531
+      TypeName     'Ref'             Identifier          tok=  33  pos= 539
       TyparDefns:
-        <          '<'               op_LessThan         tok=  36  pos= 591
+        <          '<'               op_LessThan         tok=  34  pos= 542
         Typar.Named:
-                   ''T'              TypeParameter       tok=  37  pos= 592
-        >          '>'               op_GreaterThan      tok=  38  pos= 594
-      =            '='               OpEquality          tok=  40  pos= 596
-      {            '{'               KWLBrace            tok=  43  pos= 602
+                   ''T'              TypeParameter       tok=  35  pos= 543
+        >          '>'               op_GreaterThan      tok=  36  pos= 545
+      =            '='               OpEquality          tok=  38  pos= 547
+      {            '{'               KWLBrace            tok=  41  pos= 553
         Field:
-          mutable  'mutable'         KWMutable           tok=  48  pos= 657
-          ident    'contents'        Identifier          tok=  50  pos= 665
-          :        ':'               OpColon             tok=  51  pos= 673
+          mutable  'mutable'         KWMutable           tok=  46  pos= 608
+          ident    'contents'        Identifier          tok=  48  pos= 616
+          :        ':'               OpColon             tok=  49  pos= 624
           VarType:
             Typar.Named:
-                   ''T'              TypeParameter       tok=  53  pos= 675
-      }            '}'               KWRBrace            tok=  55  pos= 678
-    and            'and'             KWAnd               tok=  62  pos= 807
+                   ''T'              TypeParameter       tok=  51  pos= 626
+      }            '}'               KWRBrace            tok=  53  pos= 629
+    and            'and'             KWAnd               tok=  60  pos= 758
     TypeSig.Abbrev:
       PrefixTypar:
         Typar.Named:
-                   ''T'              TypeParameter       tok=  64  pos= 811
-      TypeName     'ref'             Identifier          tok=  66  pos= 814
-      =            '='               OpEquality          tok=  68  pos= 818
+                   ''T'              TypeParameter       tok=  62  pos= 762
+      TypeName     'ref'             Identifier          tok=  64  pos= 765
+      =            '='               OpEquality          tok=  66  pos= 769
         GenericType:
-          Ident    'Ref'             Identifier          tok=  70  pos= 820
-          <        '<'               op_LessThan         tok=  71  pos= 823
+          Ident    'Ref'             Identifier          tok=  68  pos= 771
+          <        '<'               op_LessThan         tok=  69  pos= 774
           TypeArg.Type:
             VarType:
               Typar.Named:
-                   ''T'              TypeParameter       tok=  72  pos= 824
-          >        '>'               op_GreaterThan      tok=  73  pos= 826
+                   ''T'              TypeParameter       tok=  70  pos= 775
+          >        '>'               op_GreaterThan      tok=  71  pos= 777

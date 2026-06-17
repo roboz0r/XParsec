@@ -2,33 +2,19 @@ namespace XParsec.FSharp.Codegen.Common
 
 open System.Reflection.Metadata.Ecma335
 
-/// The intrinsic-representation rekey: a Vesper primitive resolves to
-/// `TyConst name`, and the backend keys the emitted IL type off the
-/// *representation string* `name` maps to (`"int"` → `"System.Int32"` → `i4`)
-/// rather than the Vesper name. The map flows from each file's
-/// `type x = (# "..." #)` intrinsics (`TastFile.IntrinsicReprTypes`) overlaid on
-/// the built-in `defaults`, so a platform author retargets a primitive by
-/// editing one `.fs` line.
-///
-/// Lives in `Codegen.Common` because both the CLR backend (emission) and the
-/// shared `MetadataSymbols` resolver (mapping a BCL nominal back to its Vesper
-/// primitive — the reverse direction) read this one map.
+/// Maps Vesper primitive names to their IL representation strings (`"int"` →
+/// `"System.Int32"`). A file's `(# "..." #)` intrinsics overlay `defaults`, so
+/// retargeting a primitive is a single `.fs` edit.
 module IntrinsicRepr =
 
-    /// `unit` maps to the zero-field BCL struct `System.ValueTuple` — its
-    /// `prim-types-min.fs` binding. Listed in `defaults` (not only that file's own
-    /// `IntrinsicReprTypes`) so a package that merely *mentions* `unit` without
-    /// redeclaring it — every consumer of `Vesper.Core` — still resolves it,
-    /// exactly as `int`/`bool` do. `FSharp.Core.Unit` is gone from the general
-    /// path (it lingers only on the cold-printf interop island).
+    /// `unit` is in `defaults` (not only `prim-types-min.fs`'s own intrinsics) so
+    /// packages that don't redeclare it still resolve it.
     let defaults: Map<string, string> =
         Map
             [
                 "int", "System.Int32"
-                // `uint`/`uint32` both abbreviate `System.UInt32`; only the
-                // canonical `uint32` is listed — the front end expands the `uint`
-                // abbreviation to it, and `MetadataSymbols.reprToName` (this map
-                // inverted) needs one name per repr.
+                // Canonical `uint32`; the front end expands the `uint` abbreviation.
+                // `reprToName` (this map inverted) needs one name per repr.
                 "uint32", "System.UInt32"
                 "int64", "System.Int64"
                 "uint64", "System.UInt64"
@@ -45,13 +31,12 @@ module IntrinsicRepr =
                 "unit", "System.ValueTuple"
             ]
 
-    /// A file entry wins over the defaults, so retargeting is one `.fs` edit.
+    /// File entries win over defaults.
     let merge (fileMap: Map<string, string>) : Map<string, string> =
         Map.fold (fun acc k v -> Map.add k v acc) defaults fileMap
 
-    /// Value types needing no external reference (every primitive except
-    /// `System.Decimal`, whose `TypeRef` only the provider holds). `false` when
-    /// `repr` isn't one of these — the caller decides whether that's an error.
+    /// Encode a primitive value type directly onto `te`. Returns `false` for
+    /// `System.Decimal` (needs a `TypeRef` the provider holds) and unknown reprs.
     let tryEncodeValueType (te: SignatureTypeEncoder) (repr: string) : bool =
         match repr with
         | "System.Int32" ->
