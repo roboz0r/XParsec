@@ -623,7 +623,7 @@ module EmitJs =
     and private buildFormatArg (ctx: WalkCtx) (segments: EqArray<Frozen.FormatSeg>) : JsExpr =
         match EqArray.toList segments with
         | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
-        | [ FormatSegG.Hole(_, operand) ] -> buildExpr ctx operand
+        | [ FormatSegG.Hole(hole, operand) ] -> buildHole ctx hole operand
         | segs ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
@@ -637,9 +637,44 @@ module EmitJs =
 
                 match seg with
                 | FormatSegG.Lit s -> pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
-                | FormatSegG.Hole(_, operand) -> pieces.Add(JsRawSeg.Hole(buildExpr ctx operand))
+                | FormatSegG.Hole(hole, operand) -> pieces.Add(JsRawSeg.Hole(buildHole ctx hole operand))
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
+
+    /// The runtime entry for a `%A` (`Structured`) hole: the shape-keyed structural
+    /// formatter in `Vesper.Printf.mjs` (Printf owns `%A`; the JS analogue of the
+    /// Vesper.Printf CLR DLL), imported + `$`-aliased through the ordinary external-call
+    /// path (like `structuralEquals`). No front-end symbol resolves to it — `%A` is
+    /// front-end special-cased — so the backend synthesises its key, the codegen-owned
+    /// analogue of the CLR backend's `AppendStructured<T>` member ref.
+    and private structuralFormatKey: SymbolKey voption =
+        ValueSome(SymbolKey.ValueKey(Some "Vesper.Printf", "Vesper.StructuralPrinter", "structuralFormat"))
+
+    /// Build the JS expression a format hole's argument contributes. A `%A`
+    /// (`Structured`) hole renders the value as copy-pasteable source through the
+    /// `structuralFormat` runtime, curried over `(value)(width)(size)` — the width
+    /// (`PercentAWidthBudget`, default 80) and node-size (`PercentASizeBudget`,
+    /// default 10000) budgets mirror the CLR `AppendStructured` defaults. Every other
+    /// hole kind is its value verbatim (the surrounding format builds the string).
+    and private buildHole (ctx: WalkCtx) (hole: Frozen.HoleSpec) (operand: Frozen.TExpr) : JsExpr =
+        match hole.Kind with
+        | PrintfSpec.HoleKind.Structured ->
+            let fmtRef =
+                JsExpr.Identifier(JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey, ValueNone)
+
+            let numLit (n: int) =
+                JsExpr.Literal(JsLiteral.Number(string n), ValueNone)
+
+            let width = numLit (defaultArg hole.PercentAWidthBudget 80)
+            let size = numLit (defaultArg hole.PercentASizeBudget 10000)
+            let value = buildExpr ctx operand
+
+            JsExpr.Call(
+                JsExpr.Call(JsExpr.Call(fmtRef, [ value ], ValueNone), [ width ], ValueNone),
+                [ size ],
+                ValueNone
+            )
+        | _ -> buildExpr ctx operand
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named

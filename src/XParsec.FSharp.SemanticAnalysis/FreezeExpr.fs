@@ -1033,6 +1033,15 @@ module internal FreezeExpr =
             // Local types match the compilation's target assembly outright.
             if localAsm.IsSome && SymbolKeyOps.keyAsm key = localAsm then
                 true
+            // A self-host build (no FSharp.Core — the JS in-memory front end runs with
+            // an empty `AssemblyName`, so `localAsm` is `None`) has no reflective cold
+            // path to fall back to, and a locally-declared record / DU is unambiguously
+            // Vesper-compiled — its key carries no home assembly (an *external* type's
+            // key always does), so a `None` home marks it local. The structural runtime
+            // (the CLR synthesised `Format`, or the JS shape-keyed `structuralFormat`)
+            // renders it faithfully, so it stays on the engine path.
+            elif ctx.DefaultListIsVesper && (SymbolKeyOps.keyAsm key).IsNone then
+                true
             else
                 // An *external* record / DU is faithful iff it too was Vesper-compiled
                 // — the engine needs no codegen change for it: the emitted

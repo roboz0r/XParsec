@@ -45,3 +45,11 @@ impl = [
 # (codegen-js-steps.md Step 8). An explicit empty override keeps `resolveInlineBodies
 # (Some "js")` from falling back to the BCL-heavy base `impl`.
 inline-bodies-js = []
+
+# JS-target runtime asset: the committed `%A` structural formatter (`Vesper.Printf.mjs`),
+# the JS analogue of the Vesper.Printf CLR DLL. The backend's `%A` (`Structured`) format
+# holes import `structuralFormat` from here (codegen-js-steps.md Step 6). Hand-authored
+# and shape-keyed (the CLR `structural-printer.fs` is interface-dispatch + BCL-heavy, so
+# it is not the same artifact); a shared-core `.js.fs` is the tracked successor
+# (printf-shared-core-plan.md).
+runtime-js = ["Vesper.Printf.mjs"]
