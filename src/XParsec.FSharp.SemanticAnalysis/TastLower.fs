@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 /// Platform-neutral TAST lowering, shared by both codegen backends (CLR and JS).
@@ -407,6 +408,45 @@ module TastLower =
                      CompiledReturnG.RVoid
                  else
                      CompiledReturnG.RValue vr.ResultTy)
+        }
+
+    /// A virtual token for the wildcard leaves of a contract-reconstructed tuple
+    /// group (below): a `.fsi` `val` has no source position for the synthesised
+    /// pattern, so anchor it at offset 0 — the analogue of the synthetic `NodeKey`s.
+    let private contractPatTok =
+        SyntaxToken.virtualToken (PositionedToken.Create(Token.VirtualApp, 0))
+
+    /// Build the SOURCE `ValRepr` for an EXTERNAL (contract-extracted) function. A
+    /// `.fsi` `val` gives each curried group's arity (`CurriedSig`/`ArgsSpec`) but
+    /// has no lambda tree to `peelValRepr`, so the groups are reconstructed from
+    /// `(arity, paramTy)` pairs (arity = the `*`-separated width within the group):
+    /// arity ≥ 2 → `GTuple` over the group's `FTTuple` param, its elements rebuilt
+    /// as anonymous `Wildcard` leaves (a contract names them, but the compiled form
+    /// does not); arity-1 `unit` → `GUnit` (the `let f () = …` lone-erasable shape);
+    /// arity-1 other → `GSimple`. Feeding the result to `compiledOf` keeps the
+    /// flatten / lone-unit-erase / unit→void rule single-sourced — the cross-assembly
+    /// consumer derives the same compiled form an in-assembly `LetFn` carries
+    /// (function-method-compiled-form-plan.md Step C, decision 1).
+    let externalValRepr (typars: int) (groups: (int * FrozenType) list) (resultTy: FrozenType) : ValRepr =
+        let groupOf (arity: int, pty: FrozenType) : ArgGroup =
+            if arity >= 2 then
+                match pty with
+                | FTTuple elems ->
+                    let items = elems |> EqArray.map (fun e -> TPatG.Wildcard(e, contractPatTok))
+                    ArgGroupG.GTuple(TPatG.Tuple(items, pty, contractPatTok))
+                | _ ->
+                    // A ≥2-width group is always an `FTTuple` (translateArgsSpec); keep a
+                    // single param defensively rather than fabricate one.
+                    ArgGroupG.GSimple(mintSyntheticParamKey (), pty)
+            elif isUnitFrozen pty then
+                ArgGroupG.GUnit pty
+            else
+                ArgGroupG.GSimple(mintSyntheticParamKey (), pty)
+
+        {
+            Typars = typars
+            Groups = groups |> List.map groupOf
+            ResultTy = resultTy
         }
 
     let private isFunTy (t: FrozenType) : bool =

@@ -476,6 +476,115 @@ let tests =
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
 
+            test "Step C: module-function ValRepr / CompiledForm captured from the .fsi arity" {
+                // The cross-assembly preserved-signatures path
+                // (function-method-compiled-form-plan.md Step C, decision 1): a
+                // `.fsi` `val`'s `CurriedSig`/`ArgsSpec` already encodes the source
+                // arity the bare curried type erases, so `finalizeVal` records BOTH
+                // the source `ValRepr` and the derived flat `CompiledForm` on the
+                // symbol. The crux is `tupleGroup` vs `singleTuple`: identical bare
+                // type `int * int -> int`, but the first is a tupled GROUP (flattens
+                // to two CLR params) and the second a single tuple PARAM (stays one) —
+                // a distinction only the recorded `ValRepr` carries.
+                let input =
+                    "module TestC\n"
+                    + "val curried: int -> int -> int\n"
+                    + "val tupleGroup: int * int -> int\n"
+                    + "val singleTuple: (int * int) -> int\n"
+                    + "val loneUnit: unit -> int\n"
+                    + "val voidRet: int -> unit\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "testc.fsi"
+                                Absolute = "testc.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let symOf (suffix: string) : ExternalSymbol =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.Symbols do
+                        if found.IsNone && kv.Key.EndsWith("." + suffix) then
+                            found <- ValueSome kv.Value
+
+                    match found with
+                    | ValueSome s -> s
+                    | ValueNone -> failtestf "val '%s' not extracted. Symbols: %A" suffix (Seq.toList ctx.Symbols.Keys)
+
+                let intF = FTConst("int", EqArray.empty)
+                let pairF = FTTuple(EqArray.ofList [ intF; intF ])
+
+                // The flat compiled parameter TYPES the member-ref would encode.
+                let compiledParamTys (suffix: string) : FrozenType list =
+                    match (symOf suffix).Compiled with
+                    | ValueSome cf -> cf.Params |> List.map (fun p -> p.Ty)
+                    | ValueNone -> failtestf "val '%s' carries no CompiledForm" suffix
+
+                let compiledReturn (suffix: string) : Frozen.CompiledReturn =
+                    match (symOf suffix).Compiled with
+                    | ValueSome cf -> cf.Return
+                    | ValueNone -> failtestf "val '%s' carries no CompiledForm" suffix
+
+                // A terse rendering of the source group shape (the `ValRepr` arity).
+                let groupTags (suffix: string) : string list =
+                    match (symOf suffix).ValRepr with
+                    | ValueSome vr ->
+                        vr.Groups
+                        |> List.map (fun g ->
+                            match g with
+                            | ArgGroupG.GUnit _ -> "unit"
+                            | ArgGroupG.GSimple _ -> "simple"
+                            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> sprintf "tuple%d" items.Length
+                            | ArgGroupG.GTuple _ -> "tuple?"
+                        )
+                    | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
+
+                // Curried: two single-arg groups, two flat params, value return.
+                Expect.equal (groupTags "curried") [ "simple"; "simple" ] "curried source arity"
+                Expect.equal (compiledParamTys "curried") [ intF; intF ] "curried flat params"
+                Expect.equal (compiledReturn "curried") (Frozen.CompiledReturn.RValue intF) "curried return"
+
+                // Tupled group: one width-2 group flattens to TWO flat params.
+                Expect.equal (groupTags "tupleGroup") [ "tuple2" ] "tupled-group source arity"
+                Expect.equal (compiledParamTys "tupleGroup") [ intF; intF ] "tupled group flattens to 2 params"
+
+                // Single tuple param: SAME bare type, but stays ONE param.
+                Expect.equal (groupTags "singleTuple") [ "simple" ] "single-tuple-param source arity"
+                Expect.equal (compiledParamTys "singleTuple") [ pairF ] "single tuple param stays one ValueTuple param"
+
+                // Lone unit param erases to a parameterless method.
+                Expect.equal (groupTags "loneUnit") [ "unit" ] "lone-unit source arity"
+                Expect.equal (compiledParamTys "loneUnit") [] "lone unit param erased (parameterless)"
+                Expect.equal (compiledReturn "loneUnit") (Frozen.CompiledReturn.RValue intF) "lone-unit return"
+
+                // Unit return → RVoid.
+                Expect.equal (compiledParamTys "voidRet") [ intF ] "void fn keeps its real param"
+                Expect.equal (compiledReturn "voidRet") Frozen.CompiledReturn.RVoid "unit return → RVoid"
+            }
+
             test "A body-less type registers an Opaque residue shape, not absence" {
                 // An `enum` carries no front-end-modelled body shape
                 // (enum/delegate kinds are deferred). The

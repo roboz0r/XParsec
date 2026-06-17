@@ -324,6 +324,7 @@ type ClrProvider
                             Emit = fun il -> il.Encoder.Call handle
                             ArgCount = argCount
                             Pushes = 1
+                            Groups = ValueNone
                         }
                 | ValueNone -> ValueNone
 

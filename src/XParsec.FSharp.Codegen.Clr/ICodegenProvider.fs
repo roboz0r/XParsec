@@ -17,6 +17,14 @@ type CallRecipe =
         Emit: Il -> unit
         ArgCount: int
         Pushes: int
+        /// The callee's SOURCE argument grouping, when known (an external module
+        /// function carrying a captured `ValRepr` — Step C). `ArgCount` is then the
+        /// number of application-spine elements consumed (one per source group), and
+        /// the walker flattens each group's argument to its pushed CLR values
+        /// (a tupled group → N pushes; a lone `()` group → none), mirroring the
+        /// in-assembly static-fn arm. `ValueNone` for every other recipe: the walker
+        /// pushes `ArgCount` spine elements one-to-one.
+        Groups: Frozen.ArgGroup list voption
     }
 
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }

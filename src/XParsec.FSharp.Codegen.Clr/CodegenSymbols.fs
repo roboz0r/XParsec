@@ -39,5 +39,7 @@ module CodegenSymbols =
                                 Origin = sym.Origin
                                 Signature = os.Signature
                                 MethodArity = os.MethodArity
+                                ValRepr = sym.ValRepr
+                                Compiled = sym.Compiled
                             }
         }

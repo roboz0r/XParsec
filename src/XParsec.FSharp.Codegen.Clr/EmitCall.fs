@@ -163,8 +163,53 @@ module EmitCall =
             | ValueSome recipe ->
                 let leading, rest = List.splitAt recipe.ArgCount spineArgs
 
-                for (a, _, _) in leading do
-                    recur env b a
+                // When the recipe carries the callee's SOURCE grouping (an external
+                // module function with a captured `ValRepr`, Step C), `leading` holds
+                // one spine element per source group; flatten each group to its pushed
+                // CLR values exactly as the in-assembly static-fn arm does (a tupled
+                // group → push each element; a lone `()` group → push nothing). Without
+                // `Groups`, every leading element is pushed one-to-one.
+                match recipe.Groups with
+                | ValueSome groups ->
+                    let isLoneUnit =
+                        match groups with
+                        | [ ArgGroupG.GUnit _ ] -> true
+                        | _ -> false
+
+                    List.iter2
+                        (fun (g: Frozen.ArgGroup) (a, _, _) ->
+                            match g with
+                            | ArgGroupG.GUnit _ when isLoneUnit -> () // erased — push nothing
+                            | ArgGroupG.GUnit _
+                            | ArgGroupG.GSimple _ -> recur env b a
+                            | ArgGroupG.GTuple _ ->
+                                match a with
+                                | TExprG.Tuple(elems, _, _) ->
+                                    for el in EqArray.toList elems do
+                                        recur env b el
+                                | _ ->
+                                    let elemTys =
+                                        match typeOfExpr a with
+                                        | FTTuple xs -> EqArray.toList xs
+                                        | other -> failwithf "Emit: tuple-group argument is not a tuple type: %A" other
+
+                                    let refs = env.Provider.ValueTupleRefs elemTys
+                                    let slot = b.Local(typeOfExpr a)
+
+                                    recur env b a
+                                    b.Add(ILInstr.Stloc slot)
+
+                                    elemTys
+                                    |> List.iteri (fun i _ ->
+                                        b.Add(ILInstr.Ldloc slot)
+                                        b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                                    )
+                        )
+                        groups
+                        leading
+                | ValueNone ->
+                    for (a, _, _) in leading do
+                        recur env b a
 
                 b.Add(ILInstr.Recipe recipe)
 

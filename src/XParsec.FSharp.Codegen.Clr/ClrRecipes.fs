@@ -94,6 +94,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Emit = fun il -> il.Encoder.Call spec
             ArgCount = 1
             Pushes = 1
+            Groups = ValueNone
         }
 
     /// `Vesper.Fun`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a function value.
@@ -130,6 +131,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                         il.Encoder.Token invokeRef
                 ArgCount = 2
                 Pushes = 1
+                Groups = ValueNone
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
 
@@ -166,6 +168,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                         il.Encoder.Token invokeRef
                 ArgCount = 2
                 Pushes = 1
+                Groups = ValueNone
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
 
@@ -227,6 +230,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Emit = fun il -> il.Encoder.Call consRef
             ArgCount = 2
             Pushes = 1
+            Groups = ValueNone
         }
 
     let emitListNil (elem: FrozenType) : CallRecipe =
@@ -248,6 +252,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Emit = fun il -> il.Encoder.Call emptyRef
             ArgCount = 0
             Pushes = 1
+            Groups = ValueNone
         }
 
     /// `Vesper.Collections.List`1<elem>` as a member-ref parent `TypeSpec`.
@@ -283,6 +288,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Emit = fun il -> il.Encoder.Call consRef
             ArgCount = 2
             Pushes = 1
+            Groups = ValueNone
         }
 
     let emitVesperListEmpty (elem: FrozenType) : CallRecipe =
@@ -299,6 +305,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Emit = fun il -> il.Encoder.Call emptyRef
             ArgCount = 0
             Pushes = 1
+            Groups = ValueNone
         }
 
     /// The `_tag : int32` discriminator field `MemberRef` on the referenced cons-list
@@ -386,6 +393,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Emit = fun il -> il.Encoder.Call foldSpec
             ArgCount = 3
             Pushes = 1
+            Groups = ValueNone
         }
 
     /// The member-ref parent `TypeRef` for an external module's compiled holder type — `declFullName`
@@ -437,19 +445,86 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // `Instantiate`). Its nominal heads are already kind-correct (`'T option` ⇒
             // `FTUnion`), so they encode + recover against the producer's emitted signature unchanged.
             let methodArity = openSig.MethodArity
-            let openParamTys, openRetTy = decurryFrozen openSig.Signature
 
-            // A `unit`-returning module function is now emitted as genuine CLR `void`
-            // by the producer (function-method-compiled-form-plan.md Step B,
-            // "void everywhere"), so the consumer's member-ref must encode `void`
-            // too — a `System.ValueTuple` return would miss the void method
-            // (`MissingMethodException`). The `call` then leaves nothing on the stack
-            // (`Pushes = 0`); the recipe consumer reifies a `unit` for the
-            // value-position result, exactly as the external instance-member path.
-            let returnsVoid =
-                match openRetTy with
-                | FTConst("unit", _) -> true
-                | _ -> false
+            // Peel exactly `n` top-level `->` groups off the open template — one per
+            // SOURCE argument group. Unlike `decurryFrozen` (which peels every arrow),
+            // this stops at the source arity, so a function-typed RESULT stays whole.
+            let rec peelN n t =
+                if n <= 0 then
+                    [], t
+                else
+                    match t with
+                    | FTFun(a, b) ->
+                        let ps, r = peelN (n - 1) b
+                        a :: ps, r
+                    | _ -> [], t
+
+            // The flat parameter vector + `void`-vs-value decision come from the two
+            // PRESERVED signatures the symbol carries (Step C): the SOURCE `ValRepr`
+            // groups drive the tuple-flatten / lone-`unit`-erase (mirroring the
+            // producer's `compiledOf`), and `Compiled.Return` decides `void`. The
+            // parameter TYPES come from peeling the open template (its method typars
+            // are already `FTTypar(Method, i)`, matching the producer's `!!i` slots),
+            // not from the captured `Compiled.Params` (whose contract typars carry a
+            // different axis/order). Without a captured `ValRepr` (a value, a
+            // metadata-layer symbol), fall back to the bare-`decurryFrozen`
+            // reconstruction — which is the curried calling convention, correct for
+            // an all-`GSimple` signature.
+            let flatParamTys, openRetTy, argCount, returnsVoid, recipeGroups =
+                match openSig.ValRepr, openSig.Compiled with
+                | ValueSome vr, ValueSome cf ->
+                    let groups = vr.Groups
+                    let n = List.length groups
+                    let groupParamTys, retTy = peelN n openSig.Signature
+
+                    if List.length groupParamTys <> n then
+                        // Open template had fewer arrows than source groups (malformed
+                        // contract); degrade to the curried reconstruction.
+                        let ps, r = decurryFrozen openSig.Signature
+
+                        let rv =
+                            match r with
+                            | FTConst("unit", _) -> true
+                            | _ -> false
+
+                        ps, r, List.length ps, rv, ValueNone
+                    else
+                        let flat =
+                            match groups with
+                            | [ ArgGroupG.GUnit _ ] -> [] // lone unit group erased (parameterless method)
+                            | _ ->
+                                List.zip groups groupParamTys
+                                |> List.collect (fun (g, pt) ->
+                                    match g with
+                                    | ArgGroupG.GUnit _
+                                    | ArgGroupG.GSimple _ -> [ pt ]
+                                    | ArgGroupG.GTuple _ ->
+                                        // A tupled group flattens to its N elements (full
+                                        // F#, one level); the open param is the `FTTuple`.
+                                        match pt with
+                                        | FTTuple xs -> EqArray.toList xs
+                                        | _ -> [ pt ]
+                                )
+
+                        let rv =
+                            match cf.Return with
+                            | CompiledReturnG.RVoid -> true
+                            | _ -> false
+
+                        flat, retTy, n, rv, ValueSome groups
+                | _ ->
+                    // A `unit`-returning module function is emitted as genuine CLR `void`
+                    // by the producer (Step B, "void everywhere"); the member-ref must
+                    // encode `void` too or a `System.ValueTuple` return misses the void
+                    // method (`MissingMethodException`).
+                    let ps, r = decurryFrozen openSig.Signature
+
+                    let rv =
+                        match r with
+                        | FTConst("unit", _) -> true
+                        | _ -> false
+
+                    ps, r, List.length ps, rv, ValueNone
 
             // The open method-ref signature: parameters + return encoded with the method typars as
             // `!!i`, as the producer's static-method emit uses.
@@ -459,7 +534,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 BlobEncoder(s)
                     .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
                     .Parameters(
-                        List.length openParamTys,
+                        List.length flatParamTys,
                         (fun (ret: ReturnTypeEncoder) ->
                             if returnsVoid then
                                 ret.Void()
@@ -467,7 +542,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                                 encodeType (ret.Type()) openRetTy
                         ),
                         (fun (pars: ParametersEncoder) ->
-                            for p in openParamTys do
+                            for p in flatParamTys do
                                 encodeType (pars.AddParameter().Type()) p
                         )
                     )
@@ -492,10 +567,14 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             ValueSome
                 {
                     Emit = fun il -> il.Encoder.Call callHandle
-                    ArgCount = List.length openParamTys
+                    // The spine consumes one element per SOURCE group (the flat CLR
+                    // arg count can exceed this when a tupled group flattens); the
+                    // walker reads `Groups` to flatten each group's argument.
+                    ArgCount = argCount
                     // A `void` call leaves nothing; the recipe consumer reifies the
                     // `unit` value (a value-position result still needs one).
                     Pushes = if returnsVoid then 0 else 1
+                    Groups = recipeGroups
                 }
 
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the
