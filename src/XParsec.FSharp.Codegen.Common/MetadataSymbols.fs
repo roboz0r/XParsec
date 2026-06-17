@@ -360,9 +360,19 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
         match resolveCache.TryGetValue name with
         | true, t -> t
         | _ ->
+            // Only surface types a consumer could actually reference: an external
+            // assembly's *internal* (or private-nested) types are invisible across
+            // the assembly boundary, so resolving them here is unsound — it lets an
+            // unrelated assembly's internal type shadow a locally-declared one of the
+            // same name (e.g. the C# `Vesper.Printf`'s `internal Vesper.Doc` family
+            // shadowing the Vesper-compiled `structural-printer.fs` `Doc` DU). `Type.IsVisible`
+            // is true iff the type is public top-level or public-nested in a visible
+            // chain — exactly the externally-referenceable set.
             let tryAsm (asm: Assembly) : Type option =
                 try
-                    asm.GetType(name, false) |> Option.ofObj
+                    match asm.GetType(name, false) |> Option.ofObj with
+                    | Some t when t.IsVisible -> Some t
+                    | _ -> None
                 with _ ->
                     None
 

@@ -464,6 +464,28 @@ module VesperLib =
                 ctx.TypeMembers.[key] <- kept
             | _ -> ()
 
+        // A contract INTERFACE carries its (now-finalized) members in the shape too.
+        // A nominal class serves its members only through `TryLookupMember` (the
+        // shape stays the bodiless `basic`), but `interface … with` conformance
+        // (`Unification.checkInterfaceConformance`) reads `shape.Members` directly —
+        // matching the metadata layer, where an interface's shape carries its
+        // members. Without this an `IFormatSink` impl in a package build saw zero
+        // required members and reported every implemented member as undefined.
+        let interfaceShapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
+
+        for k in interfaceShapeKeys do
+            match ctx.TypeShapes.[k] with
+            | ExternalTypeShape.Class shape when shape.IsInterface && Array.isEmpty shape.Members ->
+                match ctx.TypeMembers.TryGetValue k with
+                | true, members when members.Count > 0 ->
+                    ctx.TypeShapes.[k] <-
+                        ExternalTypeShape.Class
+                            { shape with
+                                Members = members.ToArray()
+                            }
+                | _ -> ()
+            | _ -> ()
+
         // Vals last: a val signature / constraint target may name an abbreviation,
         // record, or union whose template the loops above just filled. Source order
         // is preserved so the `ModuleSuffix` source-name alias stays first-wins.
