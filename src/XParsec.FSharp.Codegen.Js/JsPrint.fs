@@ -155,6 +155,10 @@ module JsPrint =
                 | JsFnBody.Block stmts -> block stmts
 
             marked loc (text "(" ++ commaList (List.map text parameters) ++ text ") => " ++ bodyDoc)
+        // `(target = value)` — whole node parenthesised, like `Binary`, so it is
+        // safe in a comma sequence / expression-statement position.
+        | JsExpr.Assign(target, value, loc) ->
+            marked loc (text "(" ++ expr target ++ text " = " ++ expr value ++ text ")")
         // Both `Binary` and `Logical` print `(left <op> right)` — whole node parenthesised.
         | JsExpr.Binary(op, left, right, loc)
         | JsExpr.Logical(op, left, right, loc) ->
@@ -215,6 +219,7 @@ module JsPrint =
         match s with
         | JsStatement.Expression e -> expr e ++ text ";"
         | JsStatement.Const(name, init) -> text "const " ++ text name ++ text " = " ++ expr init ++ text ";"
+        | JsStatement.Let(name, init) -> text "let " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Export(name, init) -> text "export const " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Import(specifiers, source) ->
             text (sprintf "import { %s } from %s;" (String.concat ", " specifiers) (JsEscape.quoted source))

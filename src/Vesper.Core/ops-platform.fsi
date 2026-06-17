@@ -433,3 +433,16 @@ module Operators =
         /// </example>
         ///
         val inline invalidArg: argumentName: string -> message: string -> 'T
+
+/// String indexing intrinsics — the desugaring target for `s.[i]` on a
+/// `string` receiver, mirroring `Operators.GetArray` for `arr.[i]`. The front
+/// end routes here only when the BCL `get_Chars` accessor does NOT resolve (the
+/// JS target, whose `string` carries no BCL metadata); the CLR target keeps its
+/// metadata `get_Chars` path, so this intrinsic is effectively JS-only.
+[<AutoOpen>]
+module StringIntrinsics =
+
+    /// <summary>Indexed read of a UTF-16 code unit — the lowering target the front
+    /// end desugars <c>s.[i]</c> to on a <c>string</c> receiver (the `string`
+    /// analogue of <c>GetArray</c>).</summary>
+    val inline GetString: s: string -> index: int -> char

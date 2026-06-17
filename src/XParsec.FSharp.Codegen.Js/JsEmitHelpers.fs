@@ -121,6 +121,11 @@ module JsEmitHelpers =
         match e with
         | TExprG.Const _
         | TExprG.Var _ -> true
+        // The array intrinsics touch allocated / mutable state, so duplicating one at
+        // a use site (what substitution does) is unsound — `newarr` would re-allocate
+        // a fresh array each time, and `ldelem`/`ldlen` would re-read after an
+        // intervening `stelem`. The scalar `$N` templates remain pure.
+        | TExprG.ILIntrinsic(("newarr" | "ldelem" | "stelem" | "ldlen" | "ldobj" | "ldloca"), _, _, _, _) -> false
         | TExprG.ILIntrinsic(_, _, args, _, _) -> EqArray.toList args |> List.forall isPureValue
         // A pure `let` chain is pure when both value and body are — the recursive
         // collapse reduces it to a clean template rather than an IIFE.
@@ -133,6 +138,27 @@ module JsEmitHelpers =
         match e with
         | TExprG.Var(vk, _, _) when vk.Raw = k.Raw -> value
         | _ -> TastLower.mapChildren (substVar k value) e
+
+    /// Is the binder `k` ever assigned (`k <- …`) within `e`? A `let mutable` whose
+    /// cell stays a stack local surfaces as a `Let` binder plus `Assignment(Var k, …)`
+    /// writes (a closure-captured one is promoted to a ref cell by `RefCellPromotion`
+    /// and never reaches here). A mutable binder must NOT be pure-substituted away —
+    /// the substitution would replace its reads with the initial value and corrupt the
+    /// assignment lhs — and emits as a reassignable `let`, not a `const`.
+    let rec isAssignedIn (k: NodeKey) (e: Frozen.TExpr) : bool =
+        match e with
+        | TExprG.Assignment(TExprG.Var(vk, _, _), _, _, _) when vk.Raw = k.Raw -> true
+        | _ ->
+            let mutable found = false
+
+            TastLower.iterChildren
+                (fun c ->
+                    if not found then
+                        found <- isAssignedIn k c
+                )
+                e
+
+            found
 
     // ---- Functions -----------------------------------------------------------
 

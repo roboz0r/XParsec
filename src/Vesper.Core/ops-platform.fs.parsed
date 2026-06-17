@@ -3319,4 +3319,45 @@ namespace                                              'namespace'       KWNames
                           Ident                        'argumentNa...'   Identifier          tok=3679  pos=10528
                                                        ')'               KWRParen            tok=3680  pos=10540
                                                        ')'               KWRParen            tok=3681  pos=10541
-    end                                                <virt>            KWEnd               tok=virt  pos=10543
+    end                                                <virt>            KWEnd               tok=virt  pos=10601
+  Module:
+    [<                                                 '[<'              KWLAttrBracket      tok=3686  pos=10601
+    NamedType:
+      Ident                                            'AutoOpen'        Identifier          tok=3687  pos=10603
+    >]                                                 '>]'              KWRAttrBracket      tok=3688  pos=10611
+    module                                             'module'          KWModule            tok=3690  pos=10614
+    ident                                              'StringIntr...'   Identifier          tok=3692  pos=10621
+    =                                                  '='               OpEquality          tok=3694  pos=10638
+    begin                                              <virt>            KWBegin             tok=virt  pos=10960
+      FunctionOrValue:
+        let                                            'let'             KWLet               tok=3710  pos=10960
+          inline                                       'inline'          KWInline            tok=3712  pos=10964
+          Pat.NamedSimple                              'GetString'       Identifier          tok=3714  pos=10971
+          Pats:
+            ParenBlock                                 '('               KWLParen            tok=3716  pos=10981
+              Pat.Typed:
+                Pat.NamedSimple                        's'               Identifier          tok=3717  pos=10982
+                Colon                                  ':'               OpColon             tok=3718  pos=10983
+                NamedType:
+                  Ident                                'string'          Identifier          tok=3720  pos=10985
+                                                       ')'               KWRParen            tok=3721  pos=10991
+            ParenBlock                                 '('               KWLParen            tok=3723  pos=10993
+              Pat.Typed:
+                Pat.NamedSimple                        'index'           Identifier          tok=3724  pos=10994
+                Colon                                  ':'               OpColon             tok=3725  pos=10999
+                NamedType:
+                  Ident                                'int'             Identifier          tok=3727  pos=11001
+                                                       ')'               KWRParen            tok=3728  pos=11004
+          ReturnColon                                  ':'               OpColon             tok=3730  pos=11006
+          NamedType:
+            Ident                                      'char'            Identifier          tok=3732  pos=11008
+          =                                            '='               OpEquality          tok=3734  pos=11013
+            IndexedLookup:
+              Expr:
+                Ident                                  's'               Identifier          tok=3736  pos=11015
+              .                                        '.'               OpDot               tok=3737  pos=11016
+              [                                        '['               KWLBracket          tok=3738  pos=11017
+              Index:
+                Ident                                  'index'           Identifier          tok=3739  pos=11018
+                                                       ']'               KWRBracket          tok=3740  pos=11023
+    end                                                <virt>            KWEnd               tok=virt  pos=11025

@@ -25,6 +25,7 @@
     <Compile Include="Step6Tests.fs" />
     <Compile Include="Step7Tests.fs" />
     <Compile Include="Step8Tests.fs" />
+    <Compile Include="ArrayLoopTests.fs" />
     <Compile Include="StructuralFormatRecipeTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

@@ -517,7 +517,17 @@ module internal FreezeExpr =
                 let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
                 let partialTy = TyFun(idxTy, ty)
                 let getTy = TyFun(arrTy, partialTy)
-                let getExpr = TExpr.External("GetArray", ValueNone, getTy, tok)
+
+                // A `string` receiver lowers through `GetString` (its inline body emits
+                // the native `s[i]` on JS); every other receiver through `GetArray`
+                // (`ldelem`). The inference picked the matching intrinsic (`inferIndexedLookup`
+                // → `getStringIndex`/`getArrayIndex`), so the names line up.
+                let getName =
+                    match Unification.zonk arrTy with
+                    | TyConst("string", _) -> "GetString"
+                    | _ -> "GetArray"
+
+                let getExpr = TExpr.External(getName, ValueNone, getTy, tok)
                 let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy, tok)
                 TExpr.App(app1, translateExpr ctx idx, ty, tok)
         | Expr.ILIntrinsic(instrParts = parts; args = args) ->

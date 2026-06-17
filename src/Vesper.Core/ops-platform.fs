@@ -208,3 +208,13 @@ module Operators =
     /// the BCL ctor takes `(message, paramName)`.
     let inline invalidArg (argumentName: string) (message: string) : 'T =
         raise (new System.ArgumentException(message, argumentName))
+
+/// String indexing intrinsics — see `ops-platform.fsi`.
+[<AutoOpen>]
+module StringIntrinsics =
+
+    /// String indexing. On CLR the front end never routes here (the BCL
+    /// `get_Chars` path wins whenever it resolves), so this body exists only to
+    /// satisfy the contract; its `s.[i]` resolves to `get_Chars`, NOT recursively
+    /// to GetString (the front end prefers `get_Chars` over this intrinsic).
+    let inline GetString (s: string) (index: int) : char = s.[index]

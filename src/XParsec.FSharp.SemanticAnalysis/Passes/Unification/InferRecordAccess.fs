@@ -372,6 +372,27 @@ module internal UnificationInferRecordAccess =
                 resultTy
             | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
 
+        // String indexing (`s.[i]`) on a target with no BCL `string` metadata (JS):
+        // `get_Chars` does not resolve, so route to the `GetString` inline intrinsic —
+        // the string analogue of `GetArray`, with scheme `string -> int -> char`. It
+        // unifies the receiver against `string` (NOT `'T[]`), so the spurious
+        // string-vs-array mismatch the `GetArray` fallback would raise never happens.
+        // On CLR `get_Chars` resolves first, so a string never reaches here.
+        let getStringIndex () =
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetString" with
+            | ValueSome sym ->
+                let resultTy = TyVar(freshTyVar ctx)
+                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(recvTy, TyFun(idxTy, resultTy)))
+                resultTy
+            | ValueNone -> getArrayIndex ()
+
+        // A non-class, non-`get_Chars` receiver: a `string` routes to `GetString`,
+        // everything else (arrays, still-free metavars) to `GetArray`.
+        let stringOrArrayIndex () =
+            match resolveStep recvTy with
+            | TyConst("string", _) -> getStringIndex ()
+            | _ -> getArrayIndex ()
+
         // An indexer on an *external* receiver is its BCL `get_Item` (or, for a
         // `string` intrinsic, `get_Chars`) accessor — it can't go through
         // `GetArray`/`ldelem`. Resolve it through the provider, record it in
@@ -425,13 +446,16 @@ module internal UnificationInferRecordAccess =
             | ValueNone -> getArrayIndex ()
         | _ ->
             // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose
-            // indexer accessor is `System.String.get_Chars(int) : char`.
+            // indexer accessor is `System.String.get_Chars(int) : char`. When that does
+            // not resolve (the JS target — `string`'s platform repr is the bare
+            // `"string"`, so `tryExternalReceiver` declines), a `string` falls to the
+            // `GetString` intrinsic, anything else to `GetArray`.
             match tryExternalReceiver ctx recvTy with
             | ValueSome(clsQual, clsArgs) ->
                 match resolveExternalIndexer clsQual (clsArgs.AsSpan().ToArray()) "get_Chars" with
                 | ValueSome resultTy -> resultTy
-                | ValueNone -> getArrayIndex ()
-            | ValueNone -> getArrayIndex ()
+                | ValueNone -> stringOrArrayIndex ()
+            | ValueNone -> stringOrArrayIndex ()
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// head segment NameResolution resolved as a local binding; the remaining

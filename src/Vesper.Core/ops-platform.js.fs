@@ -47,9 +47,12 @@ namespace Vesper
 // `raise` / `failwith` ARE re-authored here (a
 // Step 7 adjacent slice) as FFI `throw` templates: `failwith` builds its own native
 // `Error`, so a `failwith` use site (e.g. `list.fs`'s `head`/`tail`) lowers with no
-// per-call template. `box`, the array ops, and `invalidArg` are not re-authored here
-// yet (the last needs external-`new`); a use site needing one simply finds no JS
-// inline body until its F-step lands.
+// per-call template. The array ops (`GetArray`/`SetArray`/`GetArrayLength`) ARE
+// re-authored here — verbatim from the CLR file, the `ldelem`/`stelem`/`ldlen`
+// mnemonics being target-neutral (the JS backend emits `arr[i]` / `arr[i] = v` /
+// `arr.length`; printf-shared-core-plan Phase 2). `box` and `invalidArg` are not
+// re-authored yet (the latter needs external-`new`); a use site needing one simply
+// finds no JS inline body until its F-step lands.
 
 [<AutoOpen>]
 module ArithmeticOperators =
@@ -202,6 +205,21 @@ module Operators =
     /// `int` abbreviation of `int32`.
     let inline int (value: ^T) : int = int32 value
 
+    /// Indexed array read — desugaring target for `arr.[i]`. The `ldelem.any`
+    /// mnemonic is target-neutral (Freeze drops the element-type operand on JS); the
+    /// JS backend emits the computed member read `arr[i]`. Identical to the CLR body.
+    let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
+
+    /// Indexed array write — desugaring target for `arr.[i] <- value`. `stelem.any`
+    /// is target-neutral; the JS backend emits the computed-member assignment
+    /// `arr[i] = value`. Identical to the CLR body.
+    let inline SetArray (array: 'T[]) (index: int) (value: 'T) : unit =
+        (# "stelem.any !0" type ('T) array index value : unit #)
+
+    /// Array length — desugaring target for `arr.Length`. `ldlen` is target-neutral;
+    /// the JS backend emits `arr.length`. Identical to the CLR body.
+    let inline GetArrayLength (array: 'T[]) : int = (# "ldlen" array : int #)
+
     /// Raise the given exception. The CLR body is the bare `(# "throw" e #)`
     /// mnemonic (the terminal `throw` arm leaves no balanced stack value); the JS
     /// form is an expression-position IIFE that `throw`s the operand
@@ -221,3 +239,12 @@ module Operators =
     /// thrown `Error`'s `.message`, surfaced by Node as the uncaught-error text.
     let inline failwith (message: string) : 'T =
         (# "(() => { throw new Error($0); })()" message : 'T #)
+
+/// String indexing intrinsics — see `ops-platform.fsi`.
+[<AutoOpen>]
+module StringIntrinsics =
+
+    /// String indexing — `s.[i]` → the native bracket index `s[i]` (a JS string is
+    /// indexable; F# `char` is a length-1 string). The desugaring target for `s.[i]`
+    /// on the JS target, where `string` carries no BCL `get_Chars`. Mirrors `GetArray`.
+    let inline GetString (s: string) (index: int) : char = (# "$0[$1]" s index : char #)

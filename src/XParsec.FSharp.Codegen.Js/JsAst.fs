@@ -62,6 +62,11 @@ and [<RequireQualifiedAccess>] JsExpr =
     /// `left <op> right` for the short-circuiting `&&` / `||`. Kept distinct from
     /// `Binary` for ESTree exactness; the printer treats them identically.
     | Logical of operator: string * left: JsExpr * right: JsExpr * loc: JsLoc voption
+    /// `(target = value)` — an assignment *expression* (unit-typed in F#, so its
+    /// yielded value is unused). `target` is a mutable-local `Identifier` (`x <- v`)
+    /// or a computed `Member` (`arr.[i] <- v`). Distinct from the trampoline's
+    /// `JsStatement.Assign`, whose target is a bare name only.
+    | Assign of target: JsExpr * value: JsExpr * loc: JsLoc voption
 
 /// An arrow function's body: a concise expression (`=> e`) or a brace-delimited
 /// statement block (`=> { … }`) — the latter is the self-tail-call loop form.
@@ -73,6 +78,9 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// An expression evaluated for effect.
     | Expression of JsExpr
     | Const of name: string * init: JsExpr
+    /// `let <name> = <init>;` — a *reassignable* local binding for a `let mutable`
+    /// (a binder the body mutates via `Assignment`); an immutable binder stays `Const`.
+    | Let of name: string * init: JsExpr
     /// `export const <name> = <init>;` — top-level binding in library compile mode.
     | Export of name: string * init: JsExpr
     | Import of specifiers: string list * source: string

@@ -1484,4 +1484,31 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
         VarType:
           Typar.Named:
                           ''T'              TypeParameter       tok=2764  pos=17883
-    end                   <virt>            KWEnd               tok=virt  pos=17886
+    end                   <virt>            KWEnd               tok=virt  pos=18273
+  Module:
+    [<                    '[<'              KWLAttrBracket      tok=2777  pos=18273
+    NamedType:
+      Ident               'AutoOpen'        Identifier          tok=2778  pos=18275
+    >]                    '>]'              KWRAttrBracket      tok=2779  pos=18283
+    module                'module'          KWModule            tok=2781  pos=18286
+    ident                 'StringIntr...'   Identifier          tok=2783  pos=18293
+    =                     '='               OpEquality          tok=2785  pos=18310
+    begin                 <virt>            KWBegin             tok=virt  pos=18528
+      Val:
+        val               'val'             KWVal               tok=2798  pos=18528
+        inline            'inline'          KWInline            tok=2800  pos=18532
+        Ident             'GetString'       Identifier          tok=2802  pos=18539
+        :                 ':'               OpColon             tok=2803  pos=18548
+        arg               's'               Identifier          tok=2805  pos=18550
+        :                 ':'               OpColon             tok=2806  pos=18551
+        NamedType:
+          Ident           'string'          Identifier          tok=2808  pos=18553
+        ->                '->'              OpArrowRight        tok=2810  pos=18560
+        arg               'index'           Identifier          tok=2812  pos=18563
+        :                 ':'               OpColon             tok=2813  pos=18568
+        NamedType:
+          Ident           'int'             Identifier          tok=2815  pos=18570
+        ->                '->'              OpArrowRight        tok=2817  pos=18574
+        NamedType:
+          Ident           'char'            Identifier          tok=2819  pos=18577
+    end                   <virt>            KWEnd               tok=virt  pos=18582

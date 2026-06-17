@@ -370,12 +370,16 @@ module EmitJs =
         // A tuple `(a, b, …)` is a JS array `[a, b, …]`; a pattern reads elements by index.
         | TExprG.Tuple(items, _, _) -> JsExpr.Array([ for x in items -> buildExpr ctx x ], loc)
 
-        // Pure `let` in expression position: substitute into uses (collapse operator templates).
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
+        // Pure `let` in expression position: substitute into uses (collapse operator
+        // templates). A *mutable* binder (assigned in the body) is excluded — it must
+        // stay a real binding so its writes land; it falls to the IIFE arm, where the
+        // arrow parameter is the (reassignable) mutable cell.
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value && not (isAssignedIn k body) ->
             buildExpr ctx (substVar k value body)
 
-        // Non-pure `let` in expression position: JS has no let-expression, so lowers
-        // to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once.
+        // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
+        // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
+        // and (for a mutable binder) reassignable as the arrow parameter.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
             let name = identName ctx.Source k
 
@@ -549,6 +553,60 @@ module EmitJs =
                 ]
 
             JsExpr.Call(JsExpr.Arrow([ mv ], JsFnBody.Block body, loc), [ buildExpr ctx scrutinee ], loc)
+
+        // A mutable-local / array-element write `lhs <- rhs` → the JS assignment
+        // expression `(lhs = rhs)`. Unit-typed in F#, so its yielded value is unused;
+        // in statement position `buildStatements` wraps it as an expression statement.
+        | TExprG.Assignment(lhs, rhs, _, _) -> JsExpr.Assign(buildExpr ctx lhs, buildExpr ctx rhs, loc)
+
+        // `while cond do body` in expression position. JS `while` is a statement, so it
+        // lowers to a zero-arg IIFE `(() => { while (<cond>) { <body> } })()` that yields
+        // `undefined` (the F# `unit` result). Statement position keeps the bare loop —
+        // see `buildStatements`.
+        | TExprG.While(cond, body, _, _) ->
+            let loop = JsStatement.While(buildExpr ctx cond, buildStatements ctx body)
+            JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ loop ], loc), [], loc)
+
+        // The tokenful array intrinsics — `Array.zeroCreate` / `arr.[i]` / `arr.[i] <- v`
+        // / `arr.Length`, desugared to `newarr`/`ldelem`/`stelem`/`ldlen` (the same
+        // mnemonics the CLR backend reads; they are target-neutral, the element-type
+        // operand is dropped on JS). They reach the backend because their inline bodies
+        // live in `ops-platform.js.fs` (`array.fs`'s `zeroCreate` for `newarr`).
+        | TExprG.ILIntrinsic("newarr", _, args, _, _) ->
+            // `Array.zeroCreate count` → `Array(count).fill(null)`: a *dense* array (not
+            // the sparse `new Array(count)`), so `Object.keys` / iteration observe every
+            // slot. Unset slots read as `null`, not the element type's zero — the JS
+            // zero-init erasure corner (callers fill before reading).
+            match EqArray.toList args with
+            | [ count ] ->
+                let alloc =
+                    JsExpr.Call(JsExpr.Identifier("Array", ValueNone), [ buildExpr ctx count ], ValueNone)
+
+                let fill =
+                    JsExpr.Member(alloc, JsExpr.Identifier("fill", ValueNone), false, ValueNone)
+
+                JsExpr.Call(fill, [ JsExpr.Identifier("null", ValueNone) ], loc)
+            | _ -> failwith "EmitJs: 'newarr' expects one operand (the element count)"
+
+        // `arr.[i]` → `arr[i]` (a computed member read).
+        | TExprG.ILIntrinsic("ldelem", _, args, _, _) ->
+            match EqArray.toList args with
+            | [ arr; idx ] -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
+            | _ -> failwith "EmitJs: 'ldelem' expects two operands (array, index)"
+
+        // `arr.[i] <- v` → `(arr[i] = v)` (a computed-member assignment expression).
+        | TExprG.ILIntrinsic("stelem", _, args, _, _) ->
+            match EqArray.toList args with
+            | [ arr; idx; value ] ->
+                let target = JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, ValueNone)
+                JsExpr.Assign(target, buildExpr ctx value, loc)
+            | _ -> failwith "EmitJs: 'stelem' expects three operands (array, index, value)"
+
+        // `arr.Length` → `arr.length`.
+        | TExprG.ILIntrinsic("ldlen", _, args, _, _) ->
+            match EqArray.toList args with
+            | [ arr ] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
+            | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
         | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
@@ -809,10 +867,19 @@ module EmitJs =
         match e with
         | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
             [ JsStatement.If(buildExpr ctx cond, recur thenE, recur elseE) ]
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value && not (isAssignedIn k body) ->
             recur (substVar k value body)
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            JsStatement.Const(identName ctx.Source k, buildExpr ctx value) :: recur body
+            let name = identName ctx.Source k
+            let init = buildExpr ctx value
+
+            let binding =
+                if isAssignedIn k body then
+                    JsStatement.Let(name, init)
+                else
+                    JsStatement.Const(name, init)
+
+            binding :: recur body
         | TExprG.Sequential(xs, _, _) when xs.Length > 0 ->
             let items = EqArray.toList xs
             let init = items.[.. items.Length - 2]
@@ -906,12 +973,24 @@ module EmitJs =
                 for x in xs do
                     yield! buildStatements ctx x
             ]
-        // Pure binder: substitute away so synthetic operand lets don't surface as `const`s.
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value ->
+        // Pure, immutable binder: substitute away so synthetic operand lets don't
+        // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value && not (isAssignedIn k body) ->
             buildStatements ctx (substVar k value body)
+        // A mutable binder emits a reassignable `let`; an immutable one a `const`.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            JsStatement.Const(identName ctx.Source k, emitBound ctx k value)
-            :: buildStatements ctx body
+            let name = identName ctx.Source k
+            let init = emitBound ctx k value
+
+            let binding =
+                if isAssignedIn k body then
+                    JsStatement.Let(name, init)
+                else
+                    JsStatement.Const(name, init)
+
+            binding :: buildStatements ctx body
+        // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
+        | TExprG.While(cond, body, _, _) -> [ JsStatement.While(buildExpr ctx cond, buildStatements ctx body) ]
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
     /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.
