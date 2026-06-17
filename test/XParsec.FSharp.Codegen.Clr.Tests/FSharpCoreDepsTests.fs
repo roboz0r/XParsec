@@ -143,7 +143,11 @@ let tests =
 
             test "`materialiseApp` omits FSharp.Core.dll for a zero-dependency app, which still runs" {
                 let outDir = tmpDir "no-fsharpcore-app"
-                let project = ProjectInfo.app "XParsecNoCoreApp" outDir
+                // `withCore`: the happy-path `printfn` binds `Vesper.Printf` (and its
+                // `Vesper.Core` / `Vesper.List` deps), so their on-disk paths must be
+                // resolvable reference sources for the bundle's transitive-closure copy
+                // (printf-port-steps.md step 3 — no host fallback ships the handler now).
+                let project = withCore (ProjectInfo.app "XParsecNoCoreApp" outDir)
 
                 // Deterministic regardless of a prior run leaving the dll behind.
                 let coreDst = IO.Path.Combine(outDir, "FSharp.Core.dll")

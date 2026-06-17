@@ -485,12 +485,14 @@ let tests =
                 Expect.equal (output.Trim()) "15" "the FSharp.Core-free bundle runs"
             }
 
-            // A happy-path bundle binds Vesper.Printf but no list / function value.
-            // Since step 3.2 `Vesper.Printf` references `Vesper.Core` (its
-            // `RuntimeFormatState` implements the Core-owned `IFormatSink`), so the
-            // bundle's transitive closure ships `Vesper.Core` too — but still no
-            // `Vesper.List` (the program has no list).
-            test "a happy-path bundle ships Vesper.Printf + Vesper.Core (its dep) but not Vesper.List" {
+            // A happy-path bundle binds Vesper.Printf even with no list / function value
+            // of its own. The Vesper-compiled `Vesper.Printf.dll` references `Vesper.Core`
+            // (its `RuntimeFormatState` implements the Core-owned `IFormatSink`, step 3.2)
+            // AND `Vesper.List` (the self-hosted `%A` engine `structural-printer.fs` uses
+            // the Vesper cons-list as its `Doc` child lists + frame stack — printf-port-
+            // steps.md step 3, where the C# handler shipped only Vesper.Core). So the
+            // bundle's transitive closure ships both deps even for a `%d`-only program.
+            test "a happy-path bundle ships Vesper.Printf + its Vesper.Core / Vesper.List deps, no FSharp.Core" {
                 let outDir = tmpDir "selfhost-happy-bundle"
                 let project = withCore (ProjectInfo.app "XParsecHappy" outDir)
                 let artifact = compileSourceTo project "printfn \"%d\" 42"
@@ -510,9 +512,9 @@ let tests =
                     (File.Exists(Path.Combine(outDir, "Vesper.Core.dll")))
                     "Vesper.Core.dll shipped — Vesper.Printf references it (step 3.2)"
 
-                Expect.isFalse
+                Expect.isTrue
                     (File.Exists(Path.Combine(outDir, "Vesper.List.dll")))
-                    "no Vesper.List.dll — the program has no list"
+                    "Vesper.List.dll shipped — the self-hosted %A engine references the Vesper cons-list"
             }
 
             // R4: the emitted FSharp.Core reference identity comes from the referenced

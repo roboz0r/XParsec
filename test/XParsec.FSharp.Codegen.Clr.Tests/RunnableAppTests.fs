@@ -41,7 +41,11 @@ let tests =
 
             test "a recursive static-method program runs as a standalone `dotnet <dll>` app (prints 15)" {
                 let outDir = tmpDir "runnable-static-app"
-                let project = ProjectInfo.app "XParsecStaticApp" outDir
+                // `withCore`: the `printfn "%d"` binds `Vesper.Printf` (+ its
+                // `Vesper.Core` / `Vesper.List` deps), so their paths must be resolvable
+                // reference sources for `materialiseApp` to copy beside the PE
+                // (printf-port-steps.md step 3 — no host fallback ships the handler now).
+                let project = withCore (ProjectInfo.app "XParsecStaticApp" outDir)
 
                 let src =
                     "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"

@@ -48,10 +48,6 @@
     <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr`, `MetadataSymbols`
          (layer-2 BCL metadata reader), and the target-generic `SymbolProviders`. -->
     <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
-    <!-- Bootstrap printf runtime (Vesper.Printf.dll). Referenced so `ClrProvider`
-         can read its live-assembly identity (like FSharp.Core) and so it lands in
-         the output dir for `materialiseApp` to copy beside emitted PEs. -->
-    <ProjectReference Include="..\Vesper.Printf\Vesper.Printf.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />

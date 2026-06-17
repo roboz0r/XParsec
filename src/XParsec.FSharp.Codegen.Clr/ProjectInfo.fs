@@ -30,10 +30,13 @@ type ProjectInfo =
         ///   - `Vesper.List` owns `Vesper.Collections.List\`1` (a list literal /
         ///     `List.fold` — package-split-plan PS2); a list with no `Vesper.List`
         ///     reference fails to encode.
-        ///   - `FSharp.Core` / `Vesper.Printf` are *optional* here: when not listed,
-        ///     the provider falls back to the host-loaded copy (so the R9 cold-printf
-        ///     island and the happy-path formatter resolve without the caller wiring
-        ///     a path); when listed, that file's identity wins.
+        ///   - `Vesper.Printf` owns `Vesper.Formatter` (the happy-path `printf` / `%A`
+        ///     handler); a printf-bearing program with no `Vesper.Printf` reference
+        ///     fails to encode (printf-port-steps.md step 3 — the C# DLL is off the
+        ///     backend's TPA, so there is no host fallback).
+        ///   - `FSharp.Core` is *optional* here: when not listed, the provider falls
+        ///     back to the host-loaded copy (so the R9 cold-printf island resolves
+        ///     without the caller wiring a path); when listed, that file's identity wins.
         /// A package never references itself (`Vesper.Core` lists no core, etc.).
         /// `materialiseApp` copies the referenced assemblies the emitted PE actually
         /// binds against beside it (so a happy-path bundle, referencing no

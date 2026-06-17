@@ -180,30 +180,6 @@ let vesperListDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
 
-/// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1) and `Vesper.List.dll`
-/// (for `Vesper.Collections.List`, package-split-plan PS2) to a project's
-/// `References`, so a program's function values + list literals resolve. Each path
-/// is added only when absent, and never into the package that *defines* the type (a
-/// package must not reference itself): `Vesper.Core` gets no core ref, `Vesper.List`
-/// no list ref. Forcing each lazy loads the DLL into the Default ALC before any
-/// in-process run.
-let withCore (project: ProjectInfo) : ProjectInfo =
-    let ensure (asmName: string) (dll: Lazy<string>) (refs: string list) =
-        if
-            project.AssemblyName = asmName
-            || refs |> List.exists (fun p -> IO.Path.GetFileNameWithoutExtension p = asmName)
-        then
-            refs
-        else
-            refs @ [ dll.Value ]
-
-    { project with
-        References =
-            project.References
-            |> ensure "Vesper.Core" vesperCoreDll
-            |> ensure "Vesper.List" vesperListDll
-    }
-
 /// The other contract packages that round out the default resolution stack.
 let vesperListManifest: string = vesperListSource "manifest.toml"
 
@@ -355,6 +331,60 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      packageAlc.Register(manifest.Name, asm)
                      asm, artifact)
     )
+
+/// The Vesper-compiled `Vesper.Printf.dll` (`structural-printer.fs` + `formatter.fs`),
+/// built by the `buildPackage` harness and loaded into the *Default*
+/// `AssemblyLoadContext` — the in-process runtime printf/`%A` handler a driver binds
+/// (printf-port-steps.md step 3: the C# DLL is off the TPA, so the Vesper handler is
+/// the one a fresh-ALC `runEntryPoint` driver resolves through the Default
+/// fall-through). Forcing it builds `Vesper.Printf` (and its `Vesper.Core` /
+/// `Vesper.List` deps) and loads the on-disk DLL into Default; the printf assembly's
+/// `Vesper.Core` / `Vesper.List` references resolve by simple name to the
+/// `vesperCoreDll` / `vesperListDll` copies (forced first), the same value-identity
+/// unification `withPrintfAlc` relies on. (`buildPackage` itself loads `Vesper.Printf`
+/// only into a throwaway context — see its `manifest.Name = "Vesper.Printf"` case — so
+/// this is the Default-ALC copy the driver path needs.)
+let vesperPrintfDll: Lazy<string> =
+    lazy
+        (vesperCoreDll.Value |> ignore
+         vesperListDll.Value |> ignore
+
+         let path =
+             match ((buildPackage "Vesper.Printf").Value |> snd).OutputPath with
+             | Some p -> p
+             | None -> failwith "buildPackage Vesper.Printf produced no OutputPath"
+
+         AssemblyLoadContext.Default.LoadFromAssemblyPath path |> ignore
+         path)
+
+/// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1), `Vesper.List.dll` (for
+/// `Vesper.Collections.List`, package-split-plan PS2), and the Vesper-compiled
+/// `Vesper.Printf.dll` (for `Vesper.Formatter`, the happy-path printf/`%A` handler —
+/// printf-port-steps.md step 3) to a project's `References`, so a program's function
+/// values, list literals, and `printf` calls resolve. Each path is added only when
+/// absent, and never into the package that *defines* the type (a package must not
+/// reference itself): `Vesper.Core` gets no core ref, `Vesper.List` no list ref,
+/// `Vesper.Printf` no printf ref. Forcing each lazy loads the DLL into the Default ALC
+/// before any in-process run. The printf ref is `lazy`-forced and unused-by-the-PE
+/// when the program has no `printf` (an unforced `AssemblyRef` emits nothing), so a
+/// non-printf program neither gains a `Vesper.Printf` `AssemblyRef` nor ships the DLL.
+let withCore (project: ProjectInfo) : ProjectInfo =
+    let ensure (asmName: string) (dll: Lazy<string>) (refs: string list) =
+        if
+            project.AssemblyName = asmName
+            || refs |> List.exists (fun p -> IO.Path.GetFileNameWithoutExtension p = asmName)
+        then
+            refs
+        else
+            refs @ [ dll.Value ]
+
+    { project with
+        References =
+            project.References
+            |> ensure "Vesper.Core" vesperCoreDll
+            |> ensure "Vesper.List" vesperListDll
+            |> ensure "Vesper.Printf" vesperPrintfDll
+    }
 
 /// Build the symbol-resolution stack + its cross-package inline bodies once
 /// (cached per manifest set by `SymbolProviders.buildContract`) and run *both*
@@ -547,17 +577,42 @@ type PrintfHandler =
     /// The `buildPackage`-produced, fully Vesper-compiled `Vesper.Printf.dll`.
     | Vesper
 
-/// The C# `Vesper.Printf.dll` beside the test binary — the copy
-/// `Codegen.Clr.fsproj`'s `ProjectReference` lands in the output dir (and on the
-/// process TPA). Read by path so this doesn't depend on a compile-time reference
-/// to the `Vesper.PrintfRuntime` type.
-let private csharpPrintfPath: string =
-    let p = IO.Path.Combine(AppContext.BaseDirectory, "Vesper.Printf.dll")
+/// The C# `Vesper.Printf.dll`, built on demand for the differential safety net.
+/// `Codegen.Clr` no longer references `Vesper.Printf.csproj` (printf-port-steps.md
+/// step 3), so the C# DLL is neither copied beside the test binary nor on the process
+/// TPA — that is what keeps the C# handler off the Default ALC so the in-process
+/// drivers bind the *Vesper*-compiled handler. The differential suite (its only
+/// consumer) builds the `.csproj` via `dotnet build` and reads the produced DLL by
+/// path. `lazy`, so the build runs once and only when a `CSharp`-handler run forces it.
+let private csharpPrintfPath: Lazy<string> =
+    lazy
+        (let csproj =
+            IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Printf", "Vesper.Printf.csproj")
 
-    if IO.File.Exists p then
-        p
-    else
-        failwithf "C# Vesper.Printf.dll not found beside the test binary (%s)" p
+         let psi = Diagnostics.ProcessStartInfo "dotnet"
+         psi.ArgumentList.Add "build"
+         psi.ArgumentList.Add csproj
+         psi.ArgumentList.Add "-c"
+         psi.ArgumentList.Add "Release"
+         psi.RedirectStandardOutput <- true
+         psi.RedirectStandardError <- true
+         psi.UseShellExecute <- false
+
+         use p = Diagnostics.Process.Start psi
+         let out = p.StandardOutput.ReadToEnd()
+         let err = p.StandardError.ReadToEnd()
+         p.WaitForExit()
+
+         if p.ExitCode <> 0 then
+             failwithf "dotnet build of the C# Vesper.Printf.csproj failed (exit %d):\n%s\n%s" p.ExitCode out err
+
+         let dll =
+             IO.Path.Combine(IO.Path.GetDirectoryName csproj, "bin", "Release", "net8.0", "Vesper.Printf.dll")
+
+         if IO.File.Exists dll then
+             dll
+         else
+             failwithf "C# Vesper.Printf.dll not found after build (%s)\n--- dotnet build output ---\n%s" dll out)
 
 /// The Vesper-compiled `Vesper.Printf.dll` path (built + materialised to disk by
 /// the `buildPackage` harness). Forcing the lazy also builds its `Vesper.Core` /
@@ -586,7 +641,7 @@ type private PrintfLoadContext(printfPath: string) as this =
 let withPrintfAlc (handler: PrintfHandler) (run: AssemblyLoadContext -> 'a) : 'a =
     let path =
         match handler with
-        | CSharp -> csharpPrintfPath
+        | CSharp -> csharpPrintfPath.Value
         | Vesper -> vesperPrintfPath ()
 
     let alc = PrintfLoadContext path

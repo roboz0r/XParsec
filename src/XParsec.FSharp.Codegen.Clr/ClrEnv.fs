@@ -32,7 +32,7 @@ type internal GenericClosureShape =
 /// recipe builders are layered on top of this in their own files.
 ///
 /// Reference identities are resolved by *simple name*: `references` (read off a file, R4) wins;
-/// `FSharp.Core` / `Vesper.Printf` fall back to the host-loaded copy; `Vesper.Core` / `Vesper.List`
+/// `FSharp.Core` falls back to the host-loaded copy; `Vesper.Core` / `Vesper.List` / `Vesper.Printf`
 /// are required (forcing one without its reference is a hard error). Every ref is `lazy` (G6) so the
 /// metadata row is added only when first forced during emission — constructing the provider emits
 /// nothing, and a PE whose IL never touches an assembly carries no `AssemblyRef` for it.
@@ -75,11 +75,18 @@ type internal ClrEnv
     let coreRef =
         lazy (toEntity (ctx.AssemblyRef(typeof<System.Object>.Assembly.GetName())))
 
+    // `Vesper.Printf` is a referenced package like `Vesper.Core` / `Vesper.List`: its
+    // identity comes from the `ProjectInfo.References` path the caller wires (the
+    // Vesper-compiled `Vesper.Printf.dll`). `lazy`, so only a happy-path `printf` / `%A`
+    // program — one that forces `eFormatter` (`Vesper.Formatter`) — requires it; a
+    // printf-free program adds no `Vesper.Printf` `AssemblyRef`. The former host-loaded
+    // C# fallback (`typeof<Vesper.PrintfRuntime>`) is gone (printf-port-steps.md step 3):
+    // the C# `Vesper.Printf.dll` is off the backend's TPA, so a printf program with no
+    // `Vesper.Printf` reference now fails to encode rather than silently binding the C#
+    // handler off the host.
     let vesperRef =
         lazy
-            (toEntity (
-                ctx.AssemblyRef(refOrHost "Vesper.Printf" (fun () -> typeof<Vesper.PrintfRuntime>.Assembly.GetName()))
-            ))
+            (toEntity (ctx.AssemblyRef(refRequired "Vesper.Printf" "a printf / %A format call needs Vesper.Formatter")))
 
     let consoleRef =
         lazy (toEntity (ctx.AssemblyRef(typeof<System.Console>.Assembly.GetName())))

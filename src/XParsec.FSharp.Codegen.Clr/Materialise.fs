@@ -88,13 +88,14 @@ module Materialise =
             )
 
             // The source for a simple name is the `ProjectInfo.References` entry
-            // that supplied it; for the two host-resolved fallbacks the provider
-            // allows — FSharp.Core (the cold-printf island) and Vesper.Printf (the
-            // happy-path formatter) — the host-loaded copy, unless a reference
-            // already overrides it. A name with no source (the BCL) resolves from
-            // the shared framework and is skipped. A reference the PE never bound
-            // against is absent from the set, so a happy-path bundle stays
-            // FSharp.Core-free.
+            // that supplied it; for the one host-resolved fallback the provider still
+            // allows — FSharp.Core (the cold-printf island) — the host-loaded copy,
+            // unless a reference already overrides it. `Vesper.Printf` is now an
+            // ordinary referenced package (printf-port-steps.md step 3): its on-disk
+            // path comes from `References`, never the host (the C# DLL is off the TPA).
+            // A name with no source (the BCL) resolves from the shared framework and is
+            // skipped. A reference the PE never bound against is absent from the set, so
+            // a happy-path bundle stays FSharp.Core-free.
             let referenceSources =
                 let fromProject =
                     project.References
@@ -109,7 +110,6 @@ module Materialise =
 
                 fromProject
                 |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
-                |> withFallback "Vesper.Printf" (fun () -> typeof<Vesper.PrintfRuntime>.Assembly.Location)
 
             // Close the ship set over transitive references: starting from the PE's
             // own `AssemblyRef`s, pull in every assembly a shipped (resolvable) one
