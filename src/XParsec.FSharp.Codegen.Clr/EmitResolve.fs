@@ -59,6 +59,56 @@ module EmitResolve =
         let instT = List.foldBack (fun a acc -> FTFun(a, acc)) argTys resultTy
         env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
 
+    /// The head identity of a `FrozenType` for overload-candidate matching: the
+    /// nominal name (arity suffix / namespace dropped to the comparable key), or a
+    /// structural tag. An open typar (`FTTypar`) is never compared — a generic
+    /// parameter accepts any argument — so it has no head here.
+    let private headOf (t: FrozenType) : string =
+        match t with
+        | FTConst(n, _) -> SymbolKeyOps.bareName n
+        | FTClass(k, _)
+        | FTUnion(k, _)
+        | FTRecord(k, _) -> SymbolKeyOps.qualifiedName k
+        | FTFun _ -> "->"
+        | FTTuple _ -> "tuple"
+        | FTOr _ -> "obj"
+        | FTTypar _ -> "!typar"
+        | FTUnknown n -> n
+
+    /// Does a candidate's declared (open) parameter accept a call argument of type
+    /// `arg`? A method-/declaring-typar parameter (`FTTypar`) is a generic hole and
+    /// accepts anything; a concrete parameter matches by head identity. Heads, not
+    /// full structure — two overloads differing only in a generic argument tie and
+    /// fall to declaration order, which is acceptable (the front end already
+    /// type-checked the call).
+    let private paramAccepts (param: FrozenType) (arg: FrozenType) : bool =
+        match param with
+        | FTTypar _ -> true
+        | _ -> headOf param = headOf arg
+
+    /// Pick the overload of `name` whose signature matches the call's argument
+    /// types (ECMA-335 §I.10.2: CLS overloading is by number + types of
+    /// parameters). The candidates are in declaration order (the type's own members
+    /// first, interface-impl members last — see `NominalEmit`), so the *first*
+    /// equally-good match wins, which keeps an own member ahead of an interface-impl
+    /// member of the same signature (`Set.Add`). The common, non-overloaded case is
+    /// a single candidate and short-circuits.
+    let pickOverload (name: string) (candidates: EmittedMember list) (argTys: FrozenType list) : EmittedMember =
+        match candidates with
+        | [] -> failwithf "Emit: no emitted member '%s'" name
+        | [ single ] -> single
+        | many ->
+            let arity = List.length argTys
+            let sameArity = many |> List.filter (fun m -> List.length m.ParamTys = arity)
+
+            match sameArity with
+            | [] -> List.head many // arity mismatch (unexpected) — first, fail later
+            | [ single ] -> single
+            | multi ->
+                match multi |> List.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys) with
+                | Some m -> m
+                | None -> List.head multi
+
     /// Resolve the member-call handle for an instance access on `receiverTy`
     /// (P3d.3, generalised to generic unions in R2 and to classes in Phase 1 /
     /// B-1). A monomorphic union/class uses the member's `Def` token directly;
@@ -69,8 +119,14 @@ module EmitResolve =
     /// Returns the member-call handle *and* the resolved `EmittedMember` — the
     /// latter so a generic-instance-method call site (`set.Map mapping`) can read
     /// `MethodTyparCount` + the declared signature to mint the `MethodSpec`. A
-    /// 0-typar member (the common case) ignores the second component.
-    let resolveInstanceMember (env: EmitEnv) (receiverTy: FrozenType) (name: string) : EntityHandle * EmittedMember =
+    /// 0-typar member (the common case) ignores the second component. `argTys` are
+    /// the call's actual argument types, used to pick among same-name overloads.
+    let resolveInstanceMember
+        (env: EmitEnv)
+        (receiverTy: FrozenType)
+        (name: string)
+        (argTys: FrozenType list)
+        : EntityHandle * EmittedMember =
         // This resolver only serves project-local receivers (external instance
         // members route through `externalInstanceMemberRef`), so the table key is
         // the receiver's nominal `SymbolKey` directly (Phase 6D).
@@ -79,7 +135,9 @@ module EmitResolve =
         match env.Unions.TryGetValue key with
         | true, u ->
             match u.Members.TryGetValue name with
-            | true, m ->
+            | true, candidates ->
+                let m = pickOverload name candidates argTys
+
                 memberRef
                     env
                     u.Typars
@@ -95,7 +153,9 @@ module EmitResolve =
             match env.Classes.TryGetValue key with
             | true, c ->
                 match c.Members.TryGetValue name with
-                | true, m ->
+                | true, candidates ->
+                    let m = pickOverload name candidates argTys
+
                     memberRef
                         env
                         c.Typars
@@ -219,7 +279,9 @@ module EmitResolve =
         match env.Unions.TryGetValue key with
         | true, u ->
             match u.Members.TryGetValue name with
-            | true, m ->
+            | true, candidates ->
+                let m = pickOverload name candidates argTys
+
                 if List.isEmpty u.Typars then
                     m.Handle
                 else
@@ -229,7 +291,9 @@ module EmitResolve =
             match env.Classes.TryGetValue key with
             | true, c ->
                 match c.Members.TryGetValue name with
-                | true, m ->
+                | true, candidates ->
+                    let m = pickOverload name candidates argTys
+
                     memberRef
                         env
                         c.Typars

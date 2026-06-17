@@ -240,15 +240,15 @@ module EmitLoops =
                             false,
                             FTFun(FTConst("unit", EqArray.empty), enumeratorTy)
                         )
-                    | ForInGetEnum.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator")
+                    | ForInGetEnum.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
 
                 let mnHandle, curHandle =
                     match members with
                     | ForInEnumMembers.External(mnKey, curKey) ->
                         externalEnumMembers env enumeratorTy mnKey curKey elemTy
                     | ForInEnumMembers.Local ->
-                        fst (resolveInstanceMember env enumeratorTy "MoveNext"),
-                        fst (resolveInstanceMember env enumeratorTy "Current")
+                        fst (resolveInstanceMember env enumeratorTy "MoveNext" []),
+                        fst (resolveInstanceMember env enumeratorTy "Current" [])
 
                 emitEnumeratorLoop
                     recur

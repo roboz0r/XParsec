@@ -1703,23 +1703,54 @@ let structTests =
             // proven byte-identical (`PrintfDifferentialTests`). Flip to `test` to
             // drive the fix (EmitMember.fs `loadStructReceiverAddr` / the self-call
             // chain).
-            ptest "PP7f gap: nested struct self-call loses the inner mutation (Formatter.AppendUnsigned)" {
+            // PP7f: overloaded instance members on a struct, where one overload
+            // self-calls another. `EmittedClass/Union.Members` used to key by name
+            // only (first writer wins), so every `S.G` call resolved to the FIRST
+            // overload's handle — a 2-arg call against the arity-1 method's
+            // member-ref → `InvalidProgramException`. This is the exact shape of
+            // `Vesper.Formatter.AppendUnsigned(value, alignment) =
+            // this.AppendFormatted(value, alignment)` (a tail self-call to one of the
+            // four `AppendFormatted` overloads), which threw under the Vesper handler
+            // and blocked the plain-printf reroute. Fixed by keying `Members` to an
+            // overload *list* and picking by argument types at the call site
+            // (ECMA-335 §I.10.2 — CLS overloading is by number + types of
+            // parameters; `EmitResolve.pickOverload`). Two arity-2 overloads
+            // (`G(x:'T, k:int)` / `G(x:'T, k:string)`) prove arity alone is
+            // insufficient — the `int` arg must select the right one.
+            test "PP7f: overloaded struct self-call resolves the right overload by arg types" {
                 runsSelfHostLines
                     [ "2" ]
                     (String.concat
                         "\n"
                         [
-                            "[<Struct>]"
+                            "[<Struct; IsByRefLike>]"
                             "type S ="
                             "    val mutable Acc: int"
                             "    new(a: int) = { Acc = a }"
-                            "    member this.G(x: int) : unit = this.Acc <- this.Acc + 1"
-                            "    member this.U(y: int) : unit = this.G(y)"
-                            "let mutable s = S(0)"
-                            "s.U 5"
-                            "s.U 5"
-                            "printfn \"%d\" s.Acc"
+                            "    member this.G(x: 'T) : unit = this.Acc <- this.Acc + 100"
+                            "    member this.G(x: 'T, k: string) : unit = this.Acc <- this.Acc + 10"
+                            "    member this.G(x: 'T, k: int) : unit = this.Acc <- this.Acc + 1"
+                            "    member this.U(y: int) : unit = this.G(y, 0)"
+                            "let run () ="
+                            "    let mutable s = S(0)"
+                            "    s.U 5"
+                            "    s.U 5"
+                            "    s.Acc"
+                            "printfn \"%d\" (run())"
                         ])
+            }
+
+            // PP7f: the real printf holes that threw `InvalidProgramException` under
+            // the Vesper-compiled handler before the overloaded-member fix — `%u`
+            // (`AppendUnsigned` → 2-arg `AppendFormatted`), an aligned `%Nu`, and the
+            // zero-padded float `%0w.pf` (`AppendZeroPaddedFloat` → 2-arg
+            // `AppendFormatted`). Asserted byte-identical between the C# and Vesper
+            // handlers (the PP7e differential safety net), so this guards the reroute.
+            test "PP7f: %u / aligned / zero-padded-float holes match the C# handler" {
+                runsDifferentialEq "42" "printfn \"%u\" 42"
+                runsDifferentialEq "   42" "printfn \"%5u\" 42"
+                runsDifferentialEq "00003.14" "printfn \"%08.2f\" 3.14"
+                runsDifferentialEq "42   ,7" "printfn \"%-5u,%d\" 42 7"
             }
 
             test "PP7b: RuntimeFormatState : IFormatSink — sink + frame stack" {

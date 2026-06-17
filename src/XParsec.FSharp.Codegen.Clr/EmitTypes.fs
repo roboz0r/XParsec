@@ -95,7 +95,14 @@ module EmitTypes =
             Typars: string list
             TagField: EntityHandle
             Cases: Dictionary<string, EmittedCase>
-            Members: Dictionary<string, EmittedMember>
+            /// Augmentation members keyed by source name. A name maps to a *list*
+            /// of overloads (declaration order — the type's own members first,
+            /// interface-impl members last), so an overloaded member
+            /// (`AppendFormatted(value:'T)` / `(value:'T, alignment:int)` / …) keeps
+            /// every signature; the call site disambiguates by argument types
+            /// (`EmitResolve.pickOverload`). A single-element list is the common,
+            /// non-overloaded case.
+            Members: Dictionary<string, EmittedMember list>
         }
 
     /// A record emitted into this assembly: a sealed class, one public field per
@@ -138,7 +145,14 @@ module EmitTypes =
             /// ctors this is `false`: there is no primary, `Ctor` aliases the first
             /// secondary, and every construction resolves to a secondary by arity.
             HasPrimaryCtor: bool
-            Members: Dictionary<string, EmittedMember>
+            /// Augmentation members keyed by source name. A name maps to a *list*
+            /// of overloads (declaration order — the type's own members first,
+            /// interface-impl members last), so an overloaded member
+            /// (`AppendFormatted(value:'T)` / `(value:'T, alignment:int)` / …) keeps
+            /// every signature; the call site disambiguates by argument types
+            /// (`EmitResolve.pickOverload`). A single-element list is the common,
+            /// non-overloaded case.
+            Members: Dictionary<string, EmittedMember list>
             /// `static let` backing fields keyed by source name (B-10); a
             /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. A mono class
             /// stores the field `Def` token, a generic class a `MemberRef` on the

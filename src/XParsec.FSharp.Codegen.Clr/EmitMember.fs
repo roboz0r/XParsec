@@ -148,7 +148,9 @@ module EmitMember =
             let receiverTy = typeOfExpr receiver
             // A property is never a generic method, so the resolved member metadata
             // is unused here (`MethodTyparCount` is always 0 for a `get_<name>`).
-            let handle, _ = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            // A property get is a 0-argument access — no overload args to match.
+            let handle, _ =
+                resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key) []
             // A property get is never `unit`-returning, so it always yields a value.
             emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
         | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
@@ -160,7 +162,10 @@ module EmitMember =
             // `buildPropertyGet`, with the call's arguments pushed between the
             // receiver and the `call`/`callvirt`.
             let receiverTy = typeOfExpr receiver
-            let handle0, m = resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key)
+            let argTys = [ for a in args -> typeOfExpr a ]
+
+            let handle0, m =
+                resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key) argTys
 
             // A *generic instance method* (`member s.Map<'U> f`, B-12 call side): the
             // member-ref already carries the `GENERIC` header (its `'U` rides `!!i`),

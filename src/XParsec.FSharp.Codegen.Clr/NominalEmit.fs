@@ -47,33 +47,47 @@ module internal NominalEmit =
         // Every member's handle is its layout row, resolvable before any body
         // is built, so a member body can reference a sibling (`this.Length`) or
         // a case factory (`Empty = Nil`).
-        let emittedMembers = Dictionary<string, Emit.EmittedMember>()
+        let emittedMembers = Dictionary<string, Emit.EmittedMember list>()
 
         // The class's own members lead, interface-impl members trail (same
         // indexing as the layout's `MethodKey.Member` rows). Every member still
-        // gets its own indexed method row; this name→member map drives only
+        // gets its own indexed method row; this name→members map drives only
         // *name-based* resolution (`resolveInstanceMember`/`resolveStaticMember`
         // for a `this.Member` / `Set<'T>.Member` access on the class receiver).
-        // A class member and an interface-impl member can share a name (`Set` has
-        // both its own `Add : Set<'T>` and `ICollection<'T>.Add : unit`); the
-        // class's own member must win the name lookup — `set.Add value` resolves to
-        // it in the front end, and the interface slot is only ever reached through
-        // an interface-typed receiver (the external dispatch path), never this
-        // table. So keep the *first* writer (the class member) and never let a
-        // later interface-impl member overwrite it.
+        //
+        // A name maps to a *list* of overloads in declaration order, so an
+        // overloaded member (`AppendFormatted(value:'T)` / `(value:'T,
+        // alignment:int)` / `(value:'T, alignment:int, format:string)`) keeps every
+        // signature; the call site picks by argument types (ECMA-335 §I.10.2 — CLS
+        // overloading is by number + types of parameters; `EmitResolve.pickOverload`).
+        //
+        // Declaration order also resolves the *interface-impl name collision*: a
+        // class member and an interface-impl member can share a name AND signature
+        // (`Set` has both its own `Add : Set<'T>` and `ICollection<'T>.Add : unit`,
+        // both arity 1, param `'T`). The class's own member must win — `set.Add
+        // value` resolves to it in the front end, and the interface slot is only
+        // ever reached through an interface-typed receiver (the external dispatch
+        // path), never this table. Own members lead the list and `pickOverload`
+        // prefers the first equally-good match, so the own member wins on a tie.
         (members @ ifaceMembersOf input)
         |> List.iteri (fun i (mem: Frozen.TTypeMember) ->
-            if not (emittedMembers.ContainsKey mem.Name) then
-                emittedMembers.[mem.Name] <-
-                    {
-                        Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
-                        IsStatic = mem.IsStatic
-                        Arity = mem.Params.Length
-                        MetaName = memberMetaName mem
-                        ParamTys = [ for (_, t) in mem.Params -> t ]
-                        RetTy = mem.ReturnTy
-                        MethodTyparCount = mem.MethodTypeParams.Length
-                    }
+            let em: Emit.EmittedMember =
+                {
+                    Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
+                    IsStatic = mem.IsStatic
+                    Arity = mem.Params.Length
+                    MetaName = memberMetaName mem
+                    ParamTys = [ for (_, t) in mem.Params -> t ]
+                    RetTy = mem.ReturnTy
+                    MethodTyparCount = mem.MethodTypeParams.Length
+                }
+
+            let prior =
+                match emittedMembers.TryGetValue mem.Name with
+                | true, ms -> ms
+                | false, _ -> []
+
+            emittedMembers.[mem.Name] <- prior @ [ em ]
         )
 
         match input with
