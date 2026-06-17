@@ -191,9 +191,26 @@ module EmitTypes =
             /// public static method on the `Foo` holder type. `None` ⇒ the
             /// anonymous "Program" holder.
             Holder: HolderKey option
+            /// The flat, tuple-expanded, lone-unit-erased compiled parameters
+            /// (`CompiledForm.Params`): one CLR `ldarg` slot each. A tupled source
+            /// group `(x, y)` contributes N flat params (full F# flattening), so
+            /// `Params.Length` is the CLR method's parameter count — NOT the number
+            /// of source applications a call collapses (that is `Groups.Length`).
             Params: StaticParam list
+            /// The SOURCE curried/tupled groups (`ValRepr.Groups`): how many spine
+            /// applications a saturated call consumes (`Groups.Length`) and which of
+            /// them are tuple groups whose single argument the call site flattens to
+            /// N pushed values. Distinct from `Params` because the flat compiled
+            /// signature alone cannot tell `f(int,int)` (tupled group) from a genuine
+            /// single `(int*int)` param.
+            Groups: Frozen.ArgGroup list
             Body: Frozen.TExpr
             ResultTy: FrozenType
+            /// `true` when the source result type is `unit` — the method emits as
+            /// genuine CLR `void` (function-method-compiled-form-plan.md Step B,
+            /// "void everywhere"), its body pops the trailing `unit`, and a
+            /// value-position call reifies a `unit` after the `call`.
+            ReturnsVoid: bool
         }
 
     /// A module-level value (`let x = e` at module scope) lowered to a `public
@@ -223,10 +240,21 @@ module EmitTypes =
     type StaticMethodRef =
         {
             Handle: EntityHandle
+            /// The flat CLR parameter count (`StaticFn.Params.Length`) — the `call`
+            /// instruction's argument count. With tuple flattening this can exceed
+            /// the number of source applications a call collapses; the spine split
+            /// is driven by `Groups.Length`, not this.
             Arity: int
+            /// The SOURCE groups (mirrors `StaticFn.Groups`): `Groups.Length` spine
+            /// applications collapse into one `call`, and each tuple group's single
+            /// argument is flattened to N pushed values at the call site.
+            Groups: Frozen.ArgGroup list
             ResultTy: FrozenType
             Typars: int
             ParamTys: FrozenType list
+            /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
+            /// value-position consumer reifies a `unit` afterward.
+            ReturnsVoid: bool
         }
 
     /// The run-wide registries every builder needs: the provider seam, the

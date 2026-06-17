@@ -439,6 +439,18 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let methodArity = openSig.MethodArity
             let openParamTys, openRetTy = decurryFrozen openSig.Signature
 
+            // A `unit`-returning module function is now emitted as genuine CLR `void`
+            // by the producer (function-method-compiled-form-plan.md Step B,
+            // "void everywhere"), so the consumer's member-ref must encode `void`
+            // too — a `System.ValueTuple` return would miss the void method
+            // (`MissingMethodException`). The `call` then leaves nothing on the stack
+            // (`Pushes = 0`); the recipe consumer reifies a `unit` for the
+            // value-position result, exactly as the external instance-member path.
+            let returnsVoid =
+                match openRetTy with
+                | FTConst("unit", _) -> true
+                | _ -> false
+
             // The open method-ref signature: parameters + return encoded with the method typars as
             // `!!i`, as the producer's static-method emit uses.
             let msig =
@@ -448,7 +460,12 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
                     .Parameters(
                         List.length openParamTys,
-                        (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) openRetTy),
+                        (fun (ret: ReturnTypeEncoder) ->
+                            if returnsVoid then
+                                ret.Void()
+                            else
+                                encodeType (ret.Type()) openRetTy
+                        ),
                         (fun (pars: ParametersEncoder) ->
                             for p in openParamTys do
                                 encodeType (pars.AddParameter().Type()) p
@@ -476,7 +493,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 {
                     Emit = fun il -> il.Encoder.Call callHandle
                     ArgCount = List.length openParamTys
-                    Pushes = 1
+                    // A `void` call leaves nothing; the recipe consumer reifies the
+                    // `unit` value (a value-position result still needs one).
+                    Pushes = if returnsVoid then 0 else 1
                 }
 
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the

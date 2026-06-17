@@ -96,6 +96,9 @@ type ClrProvider
     member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
         enc.InstanceMethodSignatureVoid(paramTys)
 
+    member _.StaticMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+        enc.StaticMethodSignatureVoid(paramTys)
+
     member _.GenericMethodOnTypeSignatureVoid
         (methodTyparCount: int, paramTys: FrozenType list, isInstanceMethod: bool)
         : BlobBuilder =

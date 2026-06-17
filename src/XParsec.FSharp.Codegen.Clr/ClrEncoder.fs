@@ -644,6 +644,31 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
+    /// `static void M(params…)` — a static method whose return is genuine `void`,
+    /// the static counterpart of `InstanceMethodSignatureVoid`. A `unit`-returning
+    /// module function / static member now encodes `void` (full F# fidelity,
+    /// function-method-compiled-form-plan.md Step B) rather than the
+    /// `unit`-as-`ValueTuple` the general `StaticMethodSignature` emits, so it
+    /// matches the consumer convention (`unit → void` member-refs) the instance path
+    /// already used. The body is emitted in void mode (the trailing `unit` value is
+    /// popped). A *generic* static void method reuses `GenericMethodOnTypeSignatureVoid`
+    /// with `isInstanceMethod = false`.
+    member _.StaticMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(isInstanceMethod = false)
+            .Parameters(
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) (p)
+                )
+            )
+
+        s
+
     member _.InstanceMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 

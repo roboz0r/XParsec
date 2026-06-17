@@ -248,7 +248,21 @@ module EmitMember =
             for a in args do
                 recur env b a
 
-            b.Add(ILInstr.Call(handle, args.Length, 1))
+            // A `unit`-returning static member is emitted `void` (Step B,
+            // "void everywhere") — and the external member-ref encoder already maps
+            // a `unit` return to `void` — so the `call` declares 0 results and a
+            // value-position consumer reifies a `unit` afterward, exactly as the
+            // instance path (`emitInstanceMember`) does.
+            let returnsUnit =
+                match ty with
+                | FTConst("unit", _) -> true
+                | _ -> false
+
+            let resultCount = if returnsUnit then 0 else 1
+            b.Add(ILInstr.Call(handle, args.Length, resultCount))
+
+            if returnsUnit then
+                EmitTypes.buildUnitValue env b
         | _ -> failwith "EmitMember.buildStaticMethodCall: unreachable"
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =

@@ -385,7 +385,10 @@ let staticTests =
                 let m = helper.GetMethod("get", declaredStatic)
                 Expect.isNotNull m "get emitted as a static method on Helper (not a closure capturing seed)"
                 Expect.isTrue m.IsStatic "get is a static method"
-                Expect.equal (m.Invoke(null, [| () |]) :?> int) 42 "Helper.get () reads seed = 42"
+                // `get ()` compiles to a PARAMETERLESS method — the lone `unit` param
+                // is erased (function-method-compiled-form-plan.md Step B, decision 3).
+                Expect.equal (m.GetParameters().Length) 0 "get () erases its lone unit param (parameterless)"
+                Expect.equal (m.Invoke(null, [||]) :?> int) 42 "Helper.get () reads seed = 42"
             }
 
             // (4) A module value initialised from an *earlier* module value — the
@@ -480,9 +483,7 @@ let staticTests =
                 // A sibling module fn reads it (a `call`, not a closure capture).
                 let getEmpty = tree.GetMethod("getEmpty", declaredStatic)
 
-                Expect.isNull
-                    (getEmpty.MakeGenericMethod(typeof<int>).Invoke(null, [| () |]))
-                    "Tree.getEmpty<int>() = null"
+                Expect.isNull (getEmpty.MakeGenericMethod(typeof<int>).Invoke(null, [||])) "Tree.getEmpty<int>() = null"
 
                 // The generic-class `static let` cctor reads it (the `set.fs` shape).
                 let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>

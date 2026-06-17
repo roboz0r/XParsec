@@ -216,10 +216,15 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             staticMethods.[fn.Key] <-
                 {
                     Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.Key))
+                    // The flat CLR arg count (the `call` operand count); the spine
+                    // split uses `Groups.Length`, which can be smaller (a tupled
+                    // group is one application, many flat params).
                     Arity = List.length fn.Params
+                    Groups = fn.Groups
                     ResultTy = fn.ResultTy
                     Typars = plan.StaticFnTypars.[fn.Key]
                     ParamTys = fn.Params |> List.map (fun p -> p.Ty)
+                    ReturnsVoid = fn.ReturnsVoid
                 }
         )
 
@@ -483,11 +488,18 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             let bodyOffset =
                 Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticMethod emitCtx fn))
 
+            let paramTys = fn.Params |> List.map (fun p -> p.Ty)
+
+            // A `unit`-returning module function now encodes genuine CLR `void`
+            // (Step B, "void everywhere"), matching the consumer convention the
+            // instance path already used. A generic void static fn reuses the
+            // generic-method void encoder with `isInstanceMethod = false`.
             let signature =
-                if typarCount = 0 then
-                    provider.StaticMethodSignature(fn.Params |> List.map (fun p -> p.Ty), fn.ResultTy)
-                else
-                    provider.GenericStaticFnSignature(typarCount, fn.Params |> List.map (fun p -> p.Ty), fn.ResultTy)
+                match typarCount = 0, fn.ReturnsVoid with
+                | true, false -> provider.StaticMethodSignature(paramTys, fn.ResultTy)
+                | true, true -> provider.StaticMethodSignatureVoid(paramTys)
+                | false, false -> provider.GenericStaticFnSignature(typarCount, paramTys, fn.ResultTy)
+                | false, true -> provider.GenericMethodOnTypeSignatureVoid(typarCount, paramTys, false)
 
             this.AddPrepared(
                 MethodKey.StaticFn fn.Key,

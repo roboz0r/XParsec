@@ -6,6 +6,18 @@ open EmitTypes
 open EmitLower
 
 module EmitClosures =
+    /// A static-method candidate's preserved shape: the source groups (the
+    /// escape-analysis / spine arity) and the derived flat compiled signature
+    /// (tuple-expanded params + void), recomputed from the binding's lambda the way
+    /// Freeze built the `LetFn.compiled`.
+    type private StaticFnCandidate =
+        {
+            Groups: Frozen.ArgGroup list
+            Params: StaticParam list
+            Body: Frozen.TExpr
+            ReturnsVoid: bool
+        }
+
     let private patKeys (p: Frozen.TPat) : NodeKey list =
         let acc = ResizeArray<NodeKey>()
 
@@ -297,8 +309,13 @@ module EmitClosures =
                         Name = name
                         Holder = holder
                         Params = []
+                        // A generic module VALUE is never applied (it reaches codegen
+                        // as a bare `Var`, see `EmitExpr`): no source groups, and it
+                        // returns a value (never `void`).
+                        Groups = []
                         Body = value
                         ResultTy = ty
+                        ReturnsVoid = false
                     }
             )
 
@@ -400,22 +417,49 @@ module EmitClosures =
         (moduleValueKeys: HashSet<NodeKey>)
         (decls: Frozen.TDecl list)
         : StaticFn list * HashSet<NodeKey> =
-        let candidates = Dictionary<NodeKey, StaticParam list * Frozen.TExpr>()
+        // A candidate carries BOTH the source groups (`ValRepr.Groups` — how many
+        // applications a saturated call collapses, the escape-analysis arity) and
+        // the derived flat compiled signature (`CompiledForm.Params` / void), so a
+        // tupled group `(x, y)` becomes N flat CLR params yet still consumes ONE
+        // application. These are recomputed here via the same `TastLower` builders
+        // Freeze ran on the `LetFn` node (the in-assembly equivalent of reading
+        // `LetFn.compiled`; cross-assembly export is Step C).
+        let candidates = Dictionary<NodeKey, StaticFnCandidate>()
         let order = ResizeArray<NodeKey>()
 
         for d in decls do
             match d with
             | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                match peelLambda value with
-                | (_ :: _ as ps), body ->
-                    candidates.[k] <- (ps, body)
+                match TastLower.peelValRepr value with
+                | (_ :: _ as groups), body ->
+                    let vr: TastLower.ValRepr =
+                        {
+                            Typars = 0 // unused by `compiledOf`; the real count is `staticFnTypars`
+                            Groups = groups
+                            ResultTy = typeOfExpr body
+                        }
+
+                    let cf = TastLower.compiledOf vr
+
+                    candidates.[k] <-
+                        {
+                            Groups = groups
+                            Params = cf.Params
+                            Body = body
+                            ReturnsVoid =
+                                match cf.Return with
+                                | CompiledReturnG.RVoid -> true
+                                | CompiledReturnG.RValue _ -> false
+                        }
+
                     order.Add k
                 | [], _ -> ()
             | _ -> ()
 
-        let arity k =
-            let ps, _ = candidates.[k]
-            List.length ps
+        // The number of source applications a saturated call collapses — the
+        // escape-analysis arity (an under-applied use escapes). Tuple flattening
+        // does NOT change this: `let f (x, y)` is still saturated by ONE argument.
+        let arity k = List.length candidates.[k].Groups
 
         // Escape analysis: a candidate used as a value or under-applied escapes.
         let escapes = HashSet<NodeKey>()
@@ -452,7 +496,7 @@ module EmitClosures =
             Dictionary<NodeKey, HashSet<NodeKey>>(
                 seq {
                     for k in order do
-                        let ps, body = candidates.[k]
+                        let c = candidates.[k]
                         // A reference to a module value is an `ldsfld`, not a captured
                         // module-level local — treat those keys as bound so a function
                         // over them stays static-method eligible (rule 2).
@@ -460,15 +504,20 @@ module EmitClosures =
                         // own `Slot`; a tuple param binds each leaf the pattern names
                         // (not the placeholder slot), so the body's references to those
                         // leaves count as bound, not as captures.
+                        // The flat compiled params already expose each leaf binder
+                        // directly: a simple/tuple-element param binds its own `Slot`;
+                        // only a nested-tuple element keeps a `Pat` whose leaves it
+                        // binds. (Equivalent to walking the old single tuple param's
+                        // whole pattern, since flattening preserves the leaf keys.)
                         let paramBound =
-                            ps
+                            c.Params
                             |> List.collect (fun p ->
                                 match p.Pat with
                                 | Some pat -> patKeys pat
                                 | None -> [ p.Slot ]
                             )
 
-                        KeyValuePair(k, freeVarKeys (Seq.append moduleValueKeys paramBound) body)
+                        KeyValuePair(k, freeVarKeys (Seq.append moduleValueKeys paramBound) c.Body)
                 }
             )
 
@@ -492,7 +541,7 @@ module EmitClosures =
             [
                 for k in order do
                     if eligible.Contains k then
-                        let ps, body = candidates.[k]
+                        let c = candidates.[k]
 
                         // A binding inside a named module emits with its source
                         // name on its holder type; a top-level function keeps the
@@ -508,9 +557,11 @@ module EmitClosures =
                                 Key = k
                                 Name = name
                                 Holder = holder
-                                Params = ps
-                                Body = body
-                                ResultTy = typeOfExpr body
+                                Params = c.Params
+                                Groups = c.Groups
+                                Body = c.Body
+                                ResultTy = typeOfExpr c.Body
+                                ReturnsVoid = c.ReturnsVoid
                             }
             ]
 

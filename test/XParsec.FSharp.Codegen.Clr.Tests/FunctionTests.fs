@@ -211,4 +211,136 @@ let tests =
                     Expect.isTrue sumTo.IsStatic "sumTo is a static method on the M holder"
                     Expect.isEmpty (staticFnMethods bytes) "carries its source name `sumTo`, not an anonymous `fn$`"
                 }
+
+            // ---- compiled-form: tuple flattening + void everywhere -------------
+            // (function-method-compiled-form-plan.md Step B). A tupled source group
+            // flattens to N flat CLR params (full F#), and a `unit` return is genuine
+            // `void` for module functions and static members alike.
+
+            yield
+                test "a tupled-param module function flattens to N flat params (f(int, int), not f(ValueTuple))" {
+                    // The core motivating case: `let f (x, y)` and `let f x y` share the
+                    // source type `int -> int -> int` after currying erasure, yet the
+                    // tupled form must still emit a FLAT 2-param method — a single
+                    // `ValueTuple` param would disagree with an `fsc`-built DLL's ABI.
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "module M ="
+                                "    let addPair (x, y) = x + y"
+                                "printfn \"%d\" (M.addPair (3, 4))"
+                            ]
+
+                    let _, artifact = compileSource "FnTupled" src
+                    let bytes = Codegen.toBytes artifact
+                    let exitCode, output = runEntryPoint bytes
+                    Expect.equal exitCode 0 "Main returns 0"
+
+                    Expect.equal
+                        (output.Trim())
+                        "7"
+                        "addPair (3, 4) = 7 — the tupled arg flattened to two pushed values"
+
+                    let m = moduleStaticMethod bytes "M" "addPair"
+                    let ps = m.GetParameters()
+                    Expect.equal ps.Length 2 "the tuple group flattened to TWO flat params, not one ValueTuple"
+                    Expect.equal ps.[0].ParameterType typeof<int> "param 0 is a bare int"
+                    Expect.equal ps.[1].ParameterType typeof<int> "param 1 is a bare int"
+                }
+
+            yield
+                test "a tuple VALUE passed to a tupled-param function spills and pushes each element (prints 7)" {
+                    // `f t` where `t : int * int` — the call site spills the tuple value
+                    // to a local and pushes each `ValueTuple` `Item`, since the method
+                    // expects two flat params.
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "module M ="
+                                "    let addPair (x, y) = x + y"
+                                "let t = (3, 4)"
+                                "printfn \"%d\" (M.addPair t)"
+                            ]
+
+                    runs "7" src
+                }
+
+            yield
+                test
+                    "nested tuple param flattens exactly one level (f((a,b), c): first param a ValueTuple, second an int)" {
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "module M ="
+                                "    let f ((a, b), c) = a + b + c"
+                                "printfn \"%d\" (M.f ((1, 2), 3))"
+                            ]
+
+                    let _, artifact = compileSource "FnNestedTuple" src
+                    let bytes = Codegen.toBytes artifact
+                    let exitCode, output = runEntryPoint bytes
+                    Expect.equal exitCode 0 "Main returns 0"
+                    Expect.equal (output.Trim()) "6" "f ((1,2), 3) = 6"
+
+                    let m = moduleStaticMethod bytes "M" "f"
+                    let ps = m.GetParameters()
+                    Expect.equal ps.Length 2 "flattened ONE level: the outer pair → two params"
+
+                    Expect.isTrue
+                        ps.[0].ParameterType.IsGenericType
+                        "param 0 stays a ValueTuple (the nested pair, not unpacked)"
+
+                    Expect.stringStarts ps.[0].ParameterType.Name "ValueTuple" "param 0 is a System.ValueTuple"
+                    Expect.equal ps.[1].ParameterType typeof<int> "param 1 is a bare int"
+                }
+
+            yield
+                test "a unit-returning static member emits genuine CLR void (the NominalEmit static asymmetry is gone)" {
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    static member Act (x: int) : unit = ()"
+                                "    member _.M = 0"
+                            ]
+
+                    let _, artifact = compileSource "StaticVoid" src
+                    let bytes = Codegen.toBytes artifact
+                    let asm = loadAssembly bytes
+                    let c = asm.GetType "C"
+                    let act = c.GetMethod("Act", BindingFlags.Public ||| BindingFlags.Static)
+                    Expect.isNotNull act "Act emitted as a static method"
+                    Expect.equal act.ReturnType typeof<System.Void> "a unit-returning static member is CLR void"
+                }
+
+            yield
+                test "a unit-returning module function self-called in statement position reifies unit (prints 42)" {
+                    // `doNothing x` returns unit and is emitted `void`; calling it in a
+                    // `Sequential` middle position must reify a `unit` so the body is
+                    // stack-balanced.
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "module M ="
+                                "    let doNothing (x: int) : unit = ()"
+                                "    let useIt x ="
+                                "        doNothing x"
+                                "        x + 1"
+                                "printfn \"%d\" (M.useIt 41)"
+                            ]
+
+                    let _, artifact = compileSource "ModFnVoid" src
+                    let bytes = Codegen.toBytes artifact
+                    let exitCode, output = runEntryPoint bytes
+                    Expect.equal exitCode 0 "Main returns 0"
+                    Expect.equal (output.Trim()) "42" "useIt 41 = 42 — the void self-call reified unit"
+
+                    let doNothing = moduleStaticMethod bytes "M" "doNothing"
+                    Expect.equal doNothing.ReturnType typeof<System.Void> "doNothing is CLR void"
+                }
         ]

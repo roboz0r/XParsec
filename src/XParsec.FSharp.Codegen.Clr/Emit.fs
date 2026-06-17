@@ -145,6 +145,18 @@ module Emit =
         )
 
         buildExpr env b fn.Body
+
+        // A `unit`-returning module function emits genuine CLR `void` (Step B): the
+        // body leaves the `unit`-as-value `System.ValueTuple` on the stack (every
+        // Vesper expression yields a value), so pop it before `ret` — the same drain
+        // `buildMember` performs for a `void` member. A body that terminates
+        // (`raise`/`Throw`) leaves depth 0; any deeper stack is a codegen bug.
+        if fn.ReturnsVoid then
+            match b.Depth with
+            | 0 -> ()
+            | 1 -> b.Add ILInstr.Pop
+            | n -> failwithf "void-returning static function body left %d values on the stack (expected 0 or 1)" n
+
         b.Add ILInstr.Ret
         b.Body
 

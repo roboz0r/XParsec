@@ -592,15 +592,16 @@ module internal NominalEmit =
             // (`MissingMethodException`), which is exactly what bit the Vesper-compiled
             // `Vesper.Formatter` (its `AppendFormatted`/`AppendStructured` are
             // generic `unit`-returning instance methods the printf recipe calls void).
-            // STATIC `unit` methods keep the `ValueTuple` convention (module functions
-            // are pervasively self-called that way; their consumer side is unchanged).
+            // A STATIC `unit` member now also encodes `void` (Step B,
+            // "void everywhere": the `NominalEmit.fs:595` static asymmetry is
+            // removed). The flip is safe because the re-read invariant
+            // (`MetadataSymbols.frozenParams` maps a parameterless `void` back to
+            // `unit -> unit`) round-trips it, and every call site already treats a
+            // `unit`-returning call as void + a reified `unit`.
             let returnsVoid =
-                (isIfaceImpl || not mem.IsStatic)
-                && (
-                    match mem.ReturnTy with
-                    | FTConst("unit", _) -> true
-                    | _ -> false
-                )
+                match mem.ReturnTy with
+                | FTConst("unit", _) -> true
+                | _ -> false
 
             let bodyOffset =
                 try
@@ -641,6 +642,9 @@ module internal NominalEmit =
                         // `Formatter.AppendFormatted<'T>`): `void` return + the `GENERIC`
                         // header, so a consumer's generic void member-ref binds.
                         provider.GenericMethodOnTypeSignatureVoid(methodTypars.Length, paramTys, not mem.IsStatic)
+                    elif returnsVoid && mem.IsStatic then
+                        // A `unit`-returning static member — `void` return (Step B).
+                        provider.StaticMethodSignatureVoid paramTys
                     elif returnsVoid then
                         // A `unit`-returning instance method — `void` return, not the
                         // `unit`-as-`ValueTuple` the general path emits.

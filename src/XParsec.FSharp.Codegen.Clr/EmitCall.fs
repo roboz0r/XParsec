@@ -168,6 +168,14 @@ module EmitCall =
 
                 b.Add(ILInstr.Recipe recipe)
 
+                // A `void` recipe (`Pushes = 0`, a now-`void` external module
+                // function, Step B) left nothing on the stack; reify a `unit` for the
+                // value-position result, as every other unit-returning call does.
+                // `rest` is empty for such a call (`unit` is not applicable), so the
+                // `foldInvoke` below is a no-op.
+                if recipe.Pushes = 0 then
+                    EmitTypes.buildUnitValue env b
+
                 // Whatever the recipe left on the stack — a function value
                 // the rest of the spine is applied to.
                 let funcTy =
@@ -193,30 +201,90 @@ module EmitCall =
             // parameter types against the actual argument types (recursion yields
             // the method's own typars ⇒ `!!i`).
             let sm = env.StaticMethods.[k]
-            let leading, rest = List.splitAt sm.Arity spineArgs
+            // The spine split is driven by the SOURCE arity (`Groups.Length`): one
+            // application per source group. Tuple flattening then expands a tupled
+            // group's single argument into N pushed values, so the *flat* CLR arg
+            // count (`sm.Arity`) can exceed `Groups.Length`.
+            let leading, rest = List.splitAt (List.length sm.Groups) spineArgs
 
-            // The value→obj box for an `obj` parameter is now an explicit `Upcast`
-            // node from Freeze (a top-level `let f (x: obj)` emitted as a static
-            // method); push each argument raw.
-            for (a, _, _) in leading do
-                recur env b a
+            // A LONE unit group (`let f () = …`) compiles to a parameterless method
+            // (`compiledOf`'s `[GUnit] → []` erasure); its `()` argument is dropped.
+            let isLoneUnit =
+                match sm.Groups with
+                | [ ArgGroupG.GUnit _ ] -> true
+                | _ -> false
+
+            // Flatten each source group's spine argument to its pushed CLR values,
+            // recording each value's actual type for generic-instantiation matching.
+            // The value→obj box for an `obj` parameter is an explicit `Upcast` node
+            // from Freeze, so each scalar argument is pushed raw.
+            let flatActualTys = ResizeArray<FrozenType>()
+            let pushes = ResizeArray<unit -> unit>()
+
+            List.iter2
+                (fun (g: Frozen.ArgGroup) (a, _, _) ->
+                    match g with
+                    | ArgGroupG.GUnit _ when isLoneUnit -> () // erased — push nothing
+                    | ArgGroupG.GUnit _
+                    | ArgGroupG.GSimple _ ->
+                        flatActualTys.Add(typeOfExpr a)
+                        pushes.Add(fun () -> recur env b a)
+                    | ArgGroupG.GTuple _ ->
+                        // A tupled source group flattens to N flat params (full F#,
+                        // one level): a literal `Tuple(a, b)` pushes each element
+                        // directly; a tuple *value* spills to a local and pushes each
+                        // `ValueTuple` `Item` field.
+                        match a with
+                        | TExprG.Tuple(elems, _, _) ->
+                            for el in EqArray.toList elems do
+                                flatActualTys.Add(typeOfExpr el)
+                                pushes.Add(fun () -> recur env b el)
+                        | _ ->
+                            let elemTys =
+                                match typeOfExpr a with
+                                | FTTuple xs -> EqArray.toList xs
+                                | other -> failwithf "Emit: tuple-group argument is not a tuple type: %A" other
+
+                            let refs = env.Provider.ValueTupleRefs elemTys
+                            let slot = b.Local(typeOfExpr a)
+
+                            // Spill the tuple value once (pushes nothing net), then a
+                            // load thunk per element preserves left-to-right order.
+                            pushes.Add(fun () ->
+                                recur env b a
+                                b.Add(ILInstr.Stloc slot)
+                            )
+
+                            elemTys
+                            |> List.iteri (fun i ety ->
+                                flatActualTys.Add ety
+
+                                pushes.Add(fun () ->
+                                    b.Add(ILInstr.Ldloc slot)
+                                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                                )
+                            )
+                )
+                sm.Groups
+                leading
+
+            for push in pushes do
+                push ()
 
             let callHandle =
                 if sm.Typars = 0 then
                     sm.Handle
                 else
-                    // Each spine arg's *own* type (`collectSpine` pairs it with
-                    // the application's *result* type instead), matched against
-                    // the declared parameter types to recover the instantiation
-                    // (by `FTTypar(Method, i)` index).
-                    let paramActualTys = leading |> List.map (fun (a, _, _) -> typeOfExpr a)
+                    // The flat pushed-argument types, matched against the (flat)
+                    // declared parameter types to recover the instantiation (by
+                    // `FTTypar(Method, i)` index). Parameters alone may not mention
+                    // every typar — e.g. `zeroCreate: int -> 'T[]` carries `'T` only
+                    // in its result — so when the call is saturated (no further
+                    // `Invoke`), also match the declared result against the call's
+                    // actual result. First-occurrence-wins keeps the parameter
+                    // matches authoritative.
+                    let paramActualTys = List.ofSeq flatActualTys
 
-                    // Parameters alone may not mention every typar — e.g.
-                    // `zeroCreate: int -> 'T[]` carries `'T` only in its result.
-                    // When the call is saturated (no further `Invoke`), also match
-                    // the declared result type against the call's actual result
-                    // type so those return-only typars are recovered.
-                    // First-occurrence-wins keeps the parameter matches authoritative.
                     let defTys, actualTys =
                         match rest with
                         | [] -> sm.ParamTys @ [ sm.ResultTy ], paramActualTys @ [ typeOfExpr e ]
@@ -225,7 +293,17 @@ module EmitCall =
                     let inst = matchInstantiation sm.Typars defTys actualTys
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
-            b.Add(ILInstr.Call(callHandle, sm.Arity, 1))
+            // A `unit`-returning static fn is emitted `void` (Step B): the `call`
+            // declares 0 results and a `unit` value is reified for a value-position
+            // consumer — the `unit → void` convention the instance path uses. `rest`
+            // is empty for a void fn (`unit` is not applicable), so `foldInvoke` is a
+            // no-op there.
+            let resultCount = if sm.ReturnsVoid then 0 else 1
+            b.Add(ILInstr.Call(callHandle, flatActualTys.Count, resultCount))
+
+            if sm.ReturnsVoid then
+                EmitTypes.buildUnitValue env b
+
             foldInvoke recur env b sm.ResultTy rest
 
         | TExprG.ExternalMember(receiver, key, name, false, memberTy, _) ->
