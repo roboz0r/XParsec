@@ -207,8 +207,8 @@ module EmitTypes =
             Body: Frozen.TExpr
             ResultTy: FrozenType
             /// `true` when the source result type is `unit` — the method emits as
-            /// genuine CLR `void` (function-method-compiled-form-plan.md Step B,
-            /// "void everywhere"), its body pops the trailing `unit`, and a
+            /// genuine CLR `void` (full F# fidelity, "void everywhere"), its
+            /// body pops the trailing `unit`, and a
             /// value-position call reifies a `unit` after the `call`.
             ReturnsVoid: bool
         }

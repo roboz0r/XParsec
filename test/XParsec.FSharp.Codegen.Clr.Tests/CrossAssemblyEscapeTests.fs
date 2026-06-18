@@ -8,9 +8,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The cross-assembly RUNTIME gate the compiled-form plan left deferred
-// (function-method-compiled-form-plan.md Step C + §"CLR public-function escape
-// gap"): a separately-built PRODUCER package exports module functions whose flat
+// The cross-assembly RUNTIME gate the compiled-form plan left deferred: a separately-built PRODUCER package exports module functions whose flat
 // compiled signatures a CONSUMER assembly binds and `call`s through real
 // `AssemblyRef` member-refs. It exercises, end-to-end across two emitted DLLs:
 //
@@ -90,7 +88,7 @@ let private producerManifestPath = Path.Combine(producerDir, "manifest.toml")
 /// (Vesper.Core injected for `+` / `Vesper.Fun`), load it into the Default ALC, and
 /// return its path. `lazy`, built once. Building it is itself the first time a
 /// Vesper package has an intra-assembly escaping exported function — so the build
-/// exercises `forceExportedStaticFns` on the producer side.
+/// exercises `bridgeStaticFnEscapes` on the producer side.
 let private producerDll: Lazy<string> =
     lazy
         (File.WriteAllText(Path.Combine(producerDir, "producer.fsi"), producerFsi)

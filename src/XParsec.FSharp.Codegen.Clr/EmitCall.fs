@@ -5,6 +5,7 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open EmitTypes
 open EmitLower
 open EmitResolve
@@ -126,6 +127,48 @@ module EmitCall =
             | None -> false
         | _ -> false
 
+    /// Flatten a saturated call's leading spine (one element per SOURCE group) to its
+    /// pushed CLR values, returning each pushed value's actual type in order (for
+    /// generic-instantiation matching; an external recipe call ignores them). The
+    /// lone-unit-erase / literal-vs-value tuple dispatch is `CompiledFns.flattenPlan`'s
+    /// (shared with the JS backend); this interprets each `FlatStep` as IL: a scalar
+    /// arg pushed raw (the `obj` box is an explicit `Upcast` node from Freeze), a tuple
+    /// literal's elements pushed directly, a tuple value spilled to a local then each
+    /// `ValueTuple` `Item` field read (left-to-right order preserved).
+    let private flattenGroupPushes
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (groups: Frozen.ArgGroup list)
+        (leading: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        : FrozenType list =
+        let actualTys = ResizeArray<FrozenType>()
+
+        for step in CompiledFns.flattenPlan groups (leading |> List.map (fun (a, _, _) -> a)) do
+            match step with
+            | CompiledFns.FlatStep.Arg a ->
+                actualTys.Add(typeOfExpr a)
+                recur env b a
+            | CompiledFns.FlatStep.TupleLiteral elems ->
+                for el in elems do
+                    actualTys.Add(typeOfExpr el)
+                    recur env b el
+            | CompiledFns.FlatStep.TupleValue(a, elemTys) ->
+                let refs = env.Provider.ValueTupleRefs elemTys
+                let slot = b.Local(typeOfExpr a)
+
+                recur env b a
+                b.Add(ILInstr.Stloc slot)
+
+                elemTys
+                |> List.iteri (fun i ety ->
+                    actualTys.Add ety
+                    b.Add(ILInstr.Ldloc slot)
+                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                )
+
+        List.ofSeq actualTys
+
     /// Lower a `TExprG.App` chain. The head dispatch is shape-by-shape:
     /// - `TExprG.External(name, key, _)` — a provider-resolved call. The
     ///   recipe's generic instantiation is read from the head's full curried
@@ -161,64 +204,24 @@ module EmitCall =
             // provider — codegen routes by identity, not name suffix.
             match env.Provider.TryEmitCall(name, key, typeOfExpr head) with
             | ValueSome recipe ->
-                // The number of application-spine elements this call consumes. With a
-                // captured `Groups` (Step C) it is one per SOURCE group — a tupled /
-                // lone-`()` group maps to a DIFFERENT flat arg count (`recipe.ArgCount`),
-                // so the split must key off the group count, not the flat count.
-                let spineConsumed =
-                    match recipe.Groups with
-                    | ValueSome groups -> List.length groups
-                    | ValueNone -> recipe.ArgCount
+                // The spine split keys off the SOURCE-group count when the recipe
+                // carries one (`Grouped` — an external module function with a captured
+                // `ValRepr`, Step C): one spine element per source group, then each
+                // group flattened to its pushed CLR values exactly as the in-assembly
+                // static-fn arm does. `Flat` pushes every leading element one-to-one.
+                let leading, rest =
+                    match recipe.Arity with
+                    | CallArity.Grouped(groups, _) ->
+                        let leading, rest = List.splitAt (List.length groups) spineArgs
+                        flattenGroupPushes recur env b groups leading |> ignore
+                        leading, rest
+                    | CallArity.Flat argCount ->
+                        let leading, rest = List.splitAt argCount spineArgs
 
-                let leading, rest = List.splitAt spineConsumed spineArgs
+                        for (a, _, _) in leading do
+                            recur env b a
 
-                // When the recipe carries the callee's SOURCE grouping (an external
-                // module function with a captured `ValRepr`, Step C), `leading` holds
-                // one spine element per source group; flatten each group to its pushed
-                // CLR values exactly as the in-assembly static-fn arm does (a tupled
-                // group → push each element; a lone `()` group → push nothing). Without
-                // `Groups`, every leading element is pushed one-to-one.
-                match recipe.Groups with
-                | ValueSome groups ->
-                    let isLoneUnit =
-                        match groups with
-                        | [ ArgGroupG.GUnit _ ] -> true
-                        | _ -> false
-
-                    List.iter2
-                        (fun (g: Frozen.ArgGroup) (a, _, _) ->
-                            match g with
-                            | ArgGroupG.GUnit _ when isLoneUnit -> () // erased — push nothing
-                            | ArgGroupG.GUnit _
-                            | ArgGroupG.GSimple _ -> recur env b a
-                            | ArgGroupG.GTuple _ ->
-                                match a with
-                                | TExprG.Tuple(elems, _, _) ->
-                                    for el in EqArray.toList elems do
-                                        recur env b el
-                                | _ ->
-                                    let elemTys =
-                                        match typeOfExpr a with
-                                        | FTTuple xs -> EqArray.toList xs
-                                        | other -> failwithf "Emit: tuple-group argument is not a tuple type: %A" other
-
-                                    let refs = env.Provider.ValueTupleRefs elemTys
-                                    let slot = b.Local(typeOfExpr a)
-
-                                    recur env b a
-                                    b.Add(ILInstr.Stloc slot)
-
-                                    elemTys
-                                    |> List.iteri (fun i _ ->
-                                        b.Add(ILInstr.Ldloc slot)
-                                        b.Add(ILInstr.Ldfld refs.ItemFields.[i])
-                                    )
-                        )
-                        groups
-                        leading
-                | ValueNone ->
-                    for (a, _, _) in leading do
-                        recur env b a
+                        leading, rest
 
                 b.Add(ILInstr.Recipe recipe)
 
@@ -256,74 +259,11 @@ module EmitCall =
             // the method's own typars ⇒ `!!i`).
             let sm = env.StaticMethods.[k]
             // The spine split is driven by the SOURCE arity (`Groups.Length`): one
-            // application per source group. Tuple flattening then expands a tupled
-            // group's single argument into N pushed values, so the *flat* CLR arg
-            // count (`sm.Arity`) can exceed `Groups.Length`.
+            // application per source group. `flattenGroupPushes` then expands each
+            // group to its flat pushed values (a tupled group → N; a lone `()` → 0),
+            // so the flat CLR arg count it returns can exceed `Groups.Length`.
             let leading, rest = List.splitAt (List.length sm.Groups) spineArgs
-
-            // A LONE unit group (`let f () = …`) compiles to a parameterless method
-            // (`compiledOf`'s `[GUnit] → []` erasure); its `()` argument is dropped.
-            let isLoneUnit =
-                match sm.Groups with
-                | [ ArgGroupG.GUnit _ ] -> true
-                | _ -> false
-
-            // Flatten each source group's spine argument to its pushed CLR values,
-            // recording each value's actual type for generic-instantiation matching.
-            // The value→obj box for an `obj` parameter is an explicit `Upcast` node
-            // from Freeze, so each scalar argument is pushed raw.
-            let flatActualTys = ResizeArray<FrozenType>()
-            let pushes = ResizeArray<unit -> unit>()
-
-            List.iter2
-                (fun (g: Frozen.ArgGroup) (a, _, _) ->
-                    match g with
-                    | ArgGroupG.GUnit _ when isLoneUnit -> () // erased — push nothing
-                    | ArgGroupG.GUnit _
-                    | ArgGroupG.GSimple _ ->
-                        flatActualTys.Add(typeOfExpr a)
-                        pushes.Add(fun () -> recur env b a)
-                    | ArgGroupG.GTuple _ ->
-                        // A tupled source group flattens to N flat params (full F#,
-                        // one level): a literal `Tuple(a, b)` pushes each element
-                        // directly; a tuple *value* spills to a local and pushes each
-                        // `ValueTuple` `Item` field.
-                        match a with
-                        | TExprG.Tuple(elems, _, _) ->
-                            for el in EqArray.toList elems do
-                                flatActualTys.Add(typeOfExpr el)
-                                pushes.Add(fun () -> recur env b el)
-                        | _ ->
-                            let elemTys =
-                                match typeOfExpr a with
-                                | FTTuple xs -> EqArray.toList xs
-                                | other -> failwithf "Emit: tuple-group argument is not a tuple type: %A" other
-
-                            let refs = env.Provider.ValueTupleRefs elemTys
-                            let slot = b.Local(typeOfExpr a)
-
-                            // Spill the tuple value once (pushes nothing net), then a
-                            // load thunk per element preserves left-to-right order.
-                            pushes.Add(fun () ->
-                                recur env b a
-                                b.Add(ILInstr.Stloc slot)
-                            )
-
-                            elemTys
-                            |> List.iteri (fun i ety ->
-                                flatActualTys.Add ety
-
-                                pushes.Add(fun () ->
-                                    b.Add(ILInstr.Ldloc slot)
-                                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
-                                )
-                            )
-                )
-                sm.Groups
-                leading
-
-            for push in pushes do
-                push ()
+            let flatActualTys = flattenGroupPushes recur env b sm.Groups leading
 
             let callHandle =
                 if sm.Typars = 0 then
@@ -337,12 +277,10 @@ module EmitCall =
                     // `Invoke`), also match the declared result against the call's
                     // actual result. First-occurrence-wins keeps the parameter
                     // matches authoritative.
-                    let paramActualTys = List.ofSeq flatActualTys
-
                     let defTys, actualTys =
                         match rest with
-                        | [] -> sm.ParamTys @ [ sm.ResultTy ], paramActualTys @ [ typeOfExpr e ]
-                        | _ -> sm.ParamTys, paramActualTys
+                        | [] -> sm.ParamTys @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
+                        | _ -> sm.ParamTys, flatActualTys
 
                     let inst = matchInstantiation sm.Typars defTys actualTys
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
@@ -353,7 +291,7 @@ module EmitCall =
             // is empty for a void fn (`unit` is not applicable), so `foldInvoke` is a
             // no-op there.
             let resultCount = if sm.ReturnsVoid then 0 else 1
-            b.Add(ILInstr.Call(callHandle, flatActualTys.Count, resultCount))
+            b.Add(ILInstr.Call(callHandle, List.length flatActualTys, resultCount))
 
             if sm.ReturnsVoid then
                 EmitTypes.buildUnitValue env b

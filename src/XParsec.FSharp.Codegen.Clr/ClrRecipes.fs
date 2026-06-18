@@ -21,14 +21,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     /// Decurry a `FrozenType` arrow chain into `(params, return)` — the `FrozenType`
     /// analogue of `ClrEnv.decurryTy`, for the open module-function template.
-    /// A curried `p1 -> … -> pN -> ret` peels to
-    /// `([p1; …; pN], ret)`.
-    let rec decurryFrozen (t: FrozenType) : FrozenType list * FrozenType =
-        match t with
-        | FTFun(a, b) ->
-            let ps, r = decurryFrozen b
-            a :: ps, r
-        | other -> [], other
+    /// A curried `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`. Peels every
+    /// arrow (`TastLower.peelArrowDomains -1`); the `n`-group variant uses `peelN`.
+    let decurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelArrowDomains -1 t
 
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
     let methodSpec handle args = enc.MethodSpec(handle, args)
@@ -92,9 +87,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         {
             Emit = fun il -> il.Encoder.Call spec
-            ArgCount = 1
+            Arity = CallArity.Flat 1
             Pushes = 1
-            Groups = ValueNone
         }
 
     /// `Vesper.Fun`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a function value.
@@ -129,9 +123,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     fun il ->
                         il.Encoder.OpCode ILOpCode.Callvirt
                         il.Encoder.Token invokeRef
-                ArgCount = 2
+                Arity = CallArity.Flat 2
                 Pushes = 1
-                Groups = ValueNone
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
 
@@ -166,9 +159,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     fun il ->
                         il.Encoder.OpCode ILOpCode.Callvirt
                         il.Encoder.Token invokeRef
-                ArgCount = 2
+                Arity = CallArity.Flat 2
                 Pushes = 1
-                Groups = ValueNone
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
 
@@ -228,9 +220,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         {
             Emit = fun il -> il.Encoder.Call consRef
-            ArgCount = 2
+            Arity = CallArity.Flat 2
             Pushes = 1
-            Groups = ValueNone
         }
 
     let emitListNil (elem: FrozenType) : CallRecipe =
@@ -250,9 +241,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         {
             Emit = fun il -> il.Encoder.Call emptyRef
-            ArgCount = 0
+            Arity = CallArity.Flat 0
             Pushes = 1
-            Groups = ValueNone
         }
 
     /// `Vesper.Collections.List`1<elem>` as a member-ref parent `TypeSpec`.
@@ -286,9 +276,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         {
             Emit = fun il -> il.Encoder.Call consRef
-            ArgCount = 2
+            Arity = CallArity.Flat 2
             Pushes = 1
-            Groups = ValueNone
         }
 
     let emitVesperListEmpty (elem: FrozenType) : CallRecipe =
@@ -303,9 +292,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         {
             Emit = fun il -> il.Encoder.Call emptyRef
-            ArgCount = 0
+            Arity = CallArity.Flat 0
             Pushes = 1
-            Groups = ValueNone
         }
 
     /// The `_tag : int32` discriminator field `MemberRef` on the referenced cons-list
@@ -391,9 +379,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
         {
             Emit = fun il -> il.Encoder.Call foldSpec
-            ArgCount = 3
+            Arity = CallArity.Flat 3
             Pushes = 1
-            Groups = ValueNone
         }
 
     /// The member-ref parent `TypeRef` for an external module's compiled holder type — `declFullName`
@@ -448,83 +435,49 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             // Peel exactly `n` top-level `->` groups off the open template — one per
             // SOURCE argument group. Unlike `decurryFrozen` (which peels every arrow),
-            // this stops at the source arity, so a function-typed RESULT stays whole.
-            let rec peelN n t =
-                if n <= 0 then
-                    [], t
-                else
-                    match t with
-                    | FTFun(a, b) ->
-                        let ps, r = peelN (n - 1) b
-                        a :: ps, r
-                    | _ -> [], t
+            // `peelArrowDomains n` stops at the source arity, so a function-typed
+            // RESULT stays whole.
+            let peelN n t = TastLower.peelArrowDomains n t
 
-            // The flat parameter vector + `void`-vs-value decision come from the two
-            // PRESERVED signatures the symbol carries (Step C): the SOURCE `ValRepr`
-            // groups drive the tuple-flatten / lone-`unit`-erase (mirroring the
-            // producer's `compiledOf`), and `Compiled.Return` decides `void`. The
-            // parameter TYPES come from peeling the open template (its method typars
-            // are already `FTTypar(Method, i)`, matching the producer's `!!i` slots),
-            // not from the captured `Compiled.Params` (whose contract typars carry a
-            // different axis/order). Without a captured `ValRepr` (a value, a
-            // metadata-layer symbol), fall back to the bare-`decurryFrozen`
-            // reconstruction — which is the curried calling convention, correct for
-            // an all-`GSimple` signature.
-            let flatParamTys, openRetTy, argCount, returnsVoid, recipeGroups =
-                match openSig.ValRepr, openSig.Compiled with
-                | ValueSome vr, ValueSome cf ->
+            // The flat parameter vector + `void`-vs-value decision come from the SOURCE
+            // `ValRepr` the symbol carries (Step C): its groups drive the tuple-flatten
+            // / lone-`unit`-erase (mirroring the producer's `compiledOf`), and the
+            // result peeled to exactly that arity decides `void`. The parameter TYPES
+            // come from peeling the open template (its method typars are already
+            // `FTTypar(Method, i)`, matching the producer's `!!i` slots). Without a
+            // captured `ValRepr` (a value, a metadata-layer symbol), fall back to the
+            // bare-`decurryFrozen` reconstruction — the curried calling convention,
+            // correct for an all-`GSimple` signature. A `unit` source result is emitted
+            // genuine CLR `void` by the producer (Step B, "void everywhere"), so the
+            // member-ref must encode `void` too or a `System.ValueTuple` return misses
+            // the void method (`MissingMethodException`) — hence both arms read void
+            // from the same `isUnitReturn` of the (exactly-peeled) source result.
+            let isUnitReturn t =
+                match t with
+                | FTConst("unit", _) -> true
+                | _ -> false
+
+            let flatParamTys, openRetTy, returnsVoid, recipeGroups =
+                match openSig.ValRepr with
+                | ValueSome vr ->
                     let groups = vr.Groups
                     let n = List.length groups
                     let groupParamTys, retTy = peelN n openSig.Signature
 
                     if List.length groupParamTys <> n then
-                        // Open template had fewer arrows than source groups (malformed
-                        // contract); degrade to the curried reconstruction.
-                        let ps, r = decurryFrozen openSig.Signature
+                        // The producer peels the same arity off the same template, so a
+                        // well-formed contract always exposes `n` arrows here; a shortfall
+                        // is a corrupt contract, not a recoverable shape.
+                        failwithf
+                            "emitExternalCall: contract for %s declares %d source groups but its template has only %d arrows"
+                            compiledFullName
+                            n
+                            (List.length groupParamTys)
 
-                        let rv =
-                            match r with
-                            | FTConst("unit", _) -> true
-                            | _ -> false
-
-                        ps, r, List.length ps, rv, ValueNone
-                    else
-                        let flat =
-                            match groups with
-                            | [ ArgGroupG.GUnit _ ] -> [] // lone unit group erased (parameterless method)
-                            | _ ->
-                                List.zip groups groupParamTys
-                                |> List.collect (fun (g, pt) ->
-                                    match g with
-                                    | ArgGroupG.GUnit _
-                                    | ArgGroupG.GSimple _ -> [ pt ]
-                                    | ArgGroupG.GTuple _ ->
-                                        // A tupled group flattens to its N elements (full
-                                        // F#, one level); the open param is the `FTTuple`.
-                                        match pt with
-                                        | FTTuple xs -> EqArray.toList xs
-                                        | _ -> [ pt ]
-                                )
-
-                        let rv =
-                            match cf.Return with
-                            | CompiledReturnG.RVoid -> true
-                            | _ -> false
-
-                        flat, retTy, n, rv, ValueSome groups
-                | _ ->
-                    // A `unit`-returning module function is emitted as genuine CLR `void`
-                    // by the producer (Step B, "void everywhere"); the member-ref must
-                    // encode `void` too or a `System.ValueTuple` return misses the void
-                    // method (`MissingMethodException`).
+                    TastLower.flattenGroupShape groups groupParamTys, retTy, isUnitReturn retTy, ValueSome groups
+                | ValueNone ->
                     let ps, r = decurryFrozen openSig.Signature
-
-                    let rv =
-                        match r with
-                        | FTConst("unit", _) -> true
-                        | _ -> false
-
-                    ps, r, List.length ps, rv, ValueNone
+                    ps, r, isUnitReturn r, ValueNone
 
             // The open method-ref signature: parameters + return encoded with the method typars as
             // `!!i`, as the producer's static-method emit uses.
@@ -564,22 +517,25 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     methodSpec memberRef methodArgs
 
+            // `Grouped` carries the SOURCE grouping (the walker consumes
+            // `groups.Length` spine elements and flattens each) AND the FLAT pop count
+            // `List.length flatParamTys` — what the `call` actually consumes and what
+            // drives the IlIr stack model (`Pushes - FlatArgCount`). The two diverge
+            // for a non-`GSimple` group (a tupled group is N flat from ONE spine
+            // element; a lone `()` is ZERO from one); `Flat` is the all-`GSimple`
+            // fallback where they coincide.
+            let arity =
+                match recipeGroups with
+                | ValueSome groups -> CallArity.Grouped(groups, List.length flatParamTys)
+                | ValueNone -> CallArity.Flat(List.length flatParamTys)
+
             ValueSome
                 {
                     Emit = fun il -> il.Encoder.Call callHandle
-                    // `ArgCount` is the FLAT CLR pop count — the number of values the
-                    // `call` actually consumes, which drives the walker's stack-depth
-                    // adjustment (`Pushes - ArgCount`). It is NOT the spine length: a
-                    // tupled group flattens to N flat args from ONE spine element, and a
-                    // lone `()` group erases to ZERO from one. The number of spine
-                    // elements consumed is `Groups.Length` (the walker reads `Groups` to
-                    // flatten each group's argument); keeping `ArgCount` flat is what
-                    // keeps the IlIr stack model balanced past a non-`GSimple` call.
-                    ArgCount = List.length flatParamTys
+                    Arity = arity
                     // A `void` call leaves nothing; the recipe consumer reifies the
                     // `unit` value (a value-position result still needs one).
                     Pushes = if returnsVoid then 0 else 1
-                    Groups = recipeGroups
                 }
 
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the

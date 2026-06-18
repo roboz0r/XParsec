@@ -80,17 +80,16 @@ type ExternalSymbol =
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
         /// suffix-matching the source-written name.
         Key: SymbolKey
-        /// The two preserved signatures of a module-level FUNCTION, the cross-assembly
-        /// analogue of the frozen `TDeclG.LetFn`'s `valRepr` / `compiled`
-        /// (function-method-compiled-form-plan.md Step C, decision 1): the SOURCE
-        /// arity (`ValRepr`) a caller reconciles its application spine against, and
-        /// the flat, lone-unit-erased, `void`-normalised `CompiledForm` derived from
-        /// it by the SAME `TastLower.compiledOf` rule. `ValueNone` for everything that
-        /// is not a contract-extracted function (module values, operators, the
-        /// `mono`/`poly` test builders, metadata-layer symbols) — those keep the
-        /// curried-`Instantiate` reconstruction at the codegen boundary.
+        /// The SOURCE arity (`ValRepr`) of a module-level FUNCTION, carried across the
+        /// assembly boundary so a caller reconciles its application spine against the
+        /// producer's
+        /// curried / tupled grouping. The flat, lone-unit-erased, `void`-normalised
+        /// `CompiledForm` is derived from it on demand (`TastLower.compiledOf`), never
+        /// stored — it is fully determined by the `ValRepr`. `ValueNone` for
+        /// everything that is not a contract-extracted function (module values,
+        /// operators, the `mono`/`poly` test builders, metadata-layer symbols) — those
+        /// keep the curried-`Instantiate` reconstruction at the codegen boundary.
         ValRepr: Frozen.ValRepr voption
-        Compiled: Frozen.CompiledForm voption
     }
 
 /// Per-field shape inside an `ExternalTypeShape.Record`. The field type is the
@@ -581,20 +580,18 @@ type CodegenOpenSignature =
         Origin: SymbolOrigin
         Signature: FrozenType
         MethodArity: int
-        /// The two preserved signatures carried across the assembly boundary
-        /// (function-method-compiled-form-plan.md Step C): the SOURCE arity
-        /// (`ValRepr.Groups` — how the producer grouped curried / tupled
-        /// parameters) and the flat `CompiledForm` derived from it. The codegen
-        /// boundary reads `ValRepr.Groups` to flatten / lone-unit-erase the
-        /// member-ref parameters and split the call's application spine, and
-        /// `Compiled.Return` for the `void`-vs-value decision — replacing the
-        /// ambiguous `decurryFrozen` reconstruction of the curried `Signature`
-        /// (which can't tell a tupled group `f (x,y)` from a single tuple param
-        /// `f (t:int*int)`). `ValueNone` for a symbol with no captured arity
-        /// (a value, a metadata-layer symbol); the boundary then keeps the
-        /// curried reconstruction.
+        /// The SOURCE arity carried across the assembly boundary: how the producer grouped
+        /// curried / tupled parameters (`ValRepr.Groups`). The codegen boundary reads
+        /// it to flatten / lone-unit-erase the member-ref parameters and split the
+        /// call's application spine, and derives the flat `CompiledForm`
+        /// (`TastLower.compiledOf`) for the `void`-vs-value decision — replacing the
+        /// ambiguous `decurryFrozen` reconstruction of the curried `Signature` (which
+        /// can't tell a tupled group `f (x,y)` from a single tuple param
+        /// `f (t:int*int)`). `ValueNone` for a symbol with no captured arity (a value,
+        /// a metadata-layer symbol); the boundary then keeps the curried
+        /// reconstruction. The compiled form is never stored alongside — it is fully
+        /// determined by the `ValRepr`.
         ValRepr: Frozen.ValRepr voption
-        Compiled: Frozen.CompiledForm voption
     }
 
 /// The **codegen-facing** view of the external-symbol contract. Where `IExternalSymbolProvider` exposes the
@@ -749,7 +746,6 @@ module ExternalSymbols =
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name
             ValRepr = ValueNone
-            Compiled = ValueNone
         }
 
     /// `build level` is invoked per lookup so any `TypeVar` it allocates is
@@ -762,7 +758,6 @@ module ExternalSymbols =
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name
             ValRepr = ValueNone
-            Compiled = ValueNone
         }
 
     /// Like `poly` but carries constraints. The `build` closure is responsible
@@ -776,7 +771,6 @@ module ExternalSymbols =
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name
             ValRepr = ValueNone
-            Compiled = ValueNone
         }
 
     /// For tests that want to isolate behavior from external-symbol noise.

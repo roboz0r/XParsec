@@ -247,7 +247,6 @@ module Inline =
     /// abstract.
     let inlineExpand (decl: TDecl) (typeArgs: SemType[]) : TExpr =
         match decl with
-        | TDecl.LetFn _ -> failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in inlineExpand"
         | TDecl.Let(_, value, _, declTy) ->
             let typars = quantifiedTypars declTy
             let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)

@@ -379,7 +379,6 @@ module Elaborate =
         let f = remapDeclTypars env
 
         match d with
-        | TDecl.LetFn _ -> failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in freezeTypars"
         | TDecl.Let(binding, value, isInline, ty) ->
             let binding =
                 TastWalk.mapPat

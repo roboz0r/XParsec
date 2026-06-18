@@ -36,7 +36,8 @@ module Emit =
     let collectProgramValues = EmitClosures.collectProgramValues
     let typeKeyNsName = EmitClosures.typeKeyNsName
     let validateModuleValueInits = EmitClosures.validateModuleValueInits
-    let forceExportedStaticFns = EmitClosures.forceExportedStaticFns
+    let staticEligible = EmitClosures.staticEligible
+    let bridgeStaticFnEscapes = EmitClosures.bridgeStaticFnEscapes
     let collectStaticFns = EmitClosures.collectStaticFns
     let staticFnTypars = EmitClosures.staticFnTypars
     let discoverClosures = EmitClosures.discoverClosures
@@ -51,8 +52,6 @@ module Emit =
 
         for d in decls do
             match d with
-            // `lower` normalised every `LetFn` back to `Let` already.
-            | TDeclG.LetFn _ -> failwith "buildMain: LetFn must be normalised to Let by lower"
             | TDeclG.Expression(e, _) -> buildStatement env b e
             // A function emitted as a static method has no Main local.
             | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()

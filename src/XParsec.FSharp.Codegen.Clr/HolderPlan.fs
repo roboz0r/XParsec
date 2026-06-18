@@ -2,6 +2,7 @@
 
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// One predicted method row of the holder plan:
 /// a value-bearing holder's `.cctor`, a static-method function, or the anonymous
@@ -21,6 +22,12 @@ type MethodSlot =
 /// emission cannot drift.
 type HolderPlan =
     {
+        /// The lowered decls AFTER `bridgeStaticFnEscapes` — every non-saturated
+        /// reference to a static-eligible function eta-expanded to a wrapper closure.
+        /// This is the single decl list every downstream pass (closure discovery,
+        /// `buildMain`) must walk, so they see the same rewritten nodes the holder
+        /// plan was computed from.
+        Lowered: Frozen.TDecl list
         /// Module-level values lowered to `public static` fields on their named
         /// holders, in declaration order (see `collectModuleValues` for the
         /// classification rules); every reference is an `ldsfld` — never a
@@ -79,8 +86,47 @@ module HolderPlan =
         (programHolder: Emit.HolderKey)
         (topLevelNames: Map<uint64, string>)
         (refStructNsNames: HashSet<string * string>)
-        (lowered: Frozen.TDecl list)
+        (lowered0: Frozen.TDecl list)
         : HolderPlan =
+        // The capture-only eligible set drives bridging: a value-use of a function
+        // that survives as a static method becomes a curried bridge; a capture-demoted
+        // function keeps its closure (no bridge). It is computed on the UN-bridged
+        // decls against the top-level *storage* set (module / program / generic values
+        // are `ldsfld` / `call`, never captures) and then reused verbatim by
+        // `collectStaticFns` below — so the set bridging assumed and the set emitted as
+        // static methods are provably identical (see `staticEligible`). A binding that
+        // bridging flips from a value to a static-fn candidate (e.g. `let g = f` where
+        // `f` is eligible) does not perturb the capture analysis: both module-value and
+        // static-fn keys are non-capturing, so the storage set computed pre-bridge is a
+        // sound seed.
+        let preResolvedTopLevel =
+            let s = HashSet<NodeKey>()
+
+            for mv in Emit.collectModuleValues moduleMembers lowered0 do
+                s.Add mv.Key |> ignore
+
+            for mv in Emit.collectProgramValues moduleMembers programHolder topLevelNames refStructNsNames lowered0 do
+                s.Add mv.Key |> ignore
+
+            for fn in Emit.collectGenericModuleValues moduleMembers topLevelNames lowered0 do
+                s.Add fn.Key |> ignore
+
+            s
+
+        // `gather` once on the un-bridged decls: the same `CompiledFn list` feeds the
+        // capture-eligibility analysis AND the bridge's arity table, so they cannot
+        // disagree about which functions exist. `collectStaticFns` re-gathers the
+        // POST-bridge `lowered` (bridging can turn a `let g = f` value into a lambda
+        // that now peels to groups), so exactly two gathers run, not three.
+        let fns0 = CompiledFns.gather lowered0
+        let eligible = Emit.staticEligible preResolvedTopLevel fns0
+
+        // Eta-expand every non-saturated reference to an eligible function so it stays
+        // a flat static method and the escape becomes a wrapper closure (F#/JS model).
+        // Everything below is computed on the BRIDGED decls; `lowered` is published on
+        // the plan so closure discovery / `buildMain` walk the same rewritten nodes.
+        let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
+
         let moduleValues = Emit.collectModuleValues moduleMembers lowered
         let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 
@@ -108,17 +154,12 @@ module HolderPlan =
         let genericModuleValueKeys =
             HashSet<NodeKey>(genericModuleValues |> List.map (fun fn -> fn.Key))
 
-        // Both ground (an `ldsfld` field) and generic (a `call`ed method) module
-        // values are real top-level storage, never closure captures — exclude both
-        // key sets from the capture/static-fn analysis so a function over them
-        // stays a static method rather than capturing a non-existent local
-        //.
-        let resolvedTopLevel = HashSet<NodeKey>(moduleValueKeys)
-        resolvedTopLevel.UnionWith genericModuleValueKeys
-        resolvedTopLevel.UnionWith programValueKeys
-
-        let collectedFns, eligibleFnKeys =
-            Emit.collectStaticFns moduleMembers resolvedTopLevel lowered
+        // The static-method functions: the eligible set (computed pre-bridge, reused
+        // here) projected onto the bridged decls. A binding bridging newly turned into
+        // a lambda whose key was never eligible is skipped here and falls to closure
+        // discovery.
+        let collectedFns =
+            Emit.collectStaticFns moduleMembers eligible (CompiledFns.gather lowered)
 
         // Generic module values emit exactly like static fns (signature, body,
         // handle, holder method slot); merge them in so every downstream pass —
@@ -127,7 +168,7 @@ module HolderPlan =
         // its holder's method group after the holder's ordinary functions.
         let staticFns = collectedFns @ genericModuleValues
 
-        let staticFnKeys = HashSet<NodeKey>(eligibleFnKeys)
+        let staticFnKeys = HashSet<NodeKey>(eligible)
         staticFnKeys.UnionWith genericModuleValueKeys
 
         // Leading/trailing placement: partition the top-level program values into the leading
@@ -151,7 +192,6 @@ module HolderPlan =
 
             for d in lowered do
                 match d with
-                | TDeclG.LetFn _ -> failwith "HolderPlan.create: LetFn must be normalised to Let by lower"
                 | TDeclG.Expression _ -> seenMainCode <- true
                 | TDeclG.Let(TPatG.NamedSimple(k, _, _), _, _, _) ->
                     match programByKey.TryGetValue k with
@@ -241,6 +281,7 @@ module HolderPlan =
             ]
 
         {
+            Lowered = lowered
             ModuleValues = moduleValues
             ModuleValueKeys = moduleValueKeys
             ProgramCctorValues = programCctorValues

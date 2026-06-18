@@ -6,6 +6,7 @@ open System.Reflection.PortableExecutable
 open System.Runtime.Loader
 open Expecto
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -279,12 +280,18 @@ let tests =
 
             let discover (src: string) : Emit.Closure list =
                 let tast = analyse src
-                let lowered = Emit.lower (Freeze.run tast).Decls
-                let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered
+                let lowered0 = Emit.lower (Freeze.run tast).Decls
+                let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered0
                 let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 
-                let staticFns, staticFnKeys =
-                    Emit.collectStaticFns tast.ModuleMembers moduleValueKeys lowered
+                // Mirror `HolderPlan.create`: the capture-only eligible set drives
+                // bridging, then `collectStaticFns` projects it onto the bridged decls.
+                let fns0 = CompiledFns.gather lowered0
+                let eligible = Emit.staticEligible moduleValueKeys fns0
+                let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
+
+                let staticFns =
+                    Emit.collectStaticFns tast.ModuleMembers eligible (CompiledFns.gather lowered)
 
                 let typarsMap = Dictionary<NodeKey, int>()
 
@@ -292,7 +299,7 @@ let tests =
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
 
                 let closures, _ =
-                    Emit.discoverClosures staticFnKeys moduleValueKeys typarsMap tast.ClosureReprs lowered []
+                    Emit.discoverClosures eligible moduleValueKeys typarsMap tast.ClosureReprs lowered []
 
                 closures
 

@@ -816,8 +816,6 @@ module Regions =
                 for d in decls do
                     match d with
                     | TDecl.Let(p, v, _, _) -> yield (p, v)
-                    | TDecl.LetFn _ ->
-                        failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in Regions"
                     | TDecl.Expression _
                     | TDecl.Type _ -> ()
             ]
@@ -833,7 +831,6 @@ module Regions =
                     // Type-member bodies aren't region-analysed (`RefCellPromotion`
                     // never rewrites a `TDecl.Type`), and lets are handled above.
                     | TDecl.Let _
-                    | TDecl.LetFn _
                     | TDecl.Type _ -> ()
 
                 RegionId.Unknown

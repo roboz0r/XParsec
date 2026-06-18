@@ -306,17 +306,18 @@ module VesperLib =
             let resolved =
                 resolveConstraints ctx dc.Lexed dc.Input dc.Opens dc.Typars (constraints.Snapshot())
 
-            // Capture the SOURCE arity + derived compiled form for a module FUNCTION
-            // (Step C). The `.fsi`'s `CurriedSig`/`ArgsSpec` already encodes the
-            // grouping the bare curried `template` loses (a tupled group `a * b ->`
-            // is one `ArgsSpec` of width 2; a single tuple param `(a*b) ->` is width
-            // 1), so each group's `*`-separated width is the arity. The matching
-            // parameter type comes from peeling exactly one `FTFun` per group off the
-            // template (peeling no further, so a function-typed RESULT stays whole);
-            // `TastLower.externalValRepr` + `compiledOf` then reproduce the same
-            // signatures a frozen `LetFn` carries. A `val` with no groups is a value,
-            // not a function — left `ValueNone`.
-            let valReprOpt, compiledOpt =
+            // Capture the SOURCE arity for a module FUNCTION (Step C). The `.fsi`'s
+            // `CurriedSig`/`ArgsSpec` already encodes the grouping the bare curried
+            // `template` loses (a tupled group `a * b ->` is one `ArgsSpec` of width
+            // 2; a single tuple param `(a*b) ->` is width 1), so each group's
+            // `*`-separated width is the arity. The matching parameter type comes from
+            // peeling exactly one `FTFun` per group off the template (peeling no
+            // further, so a function-typed RESULT stays whole). The flat compiled form
+            // is derived from this `ValRepr` on demand (`TastLower.compiledOf`) at the
+            // codegen boundary — it is never stored, since it is fully determined by
+            // the `ValRepr`. A `val` with no groups is a value, not a function — left
+            // `ValueNone`.
+            let valReprOpt =
                 let (CurriedSig(argGroups, _)) = dv.Signature
 
                 let arities =
@@ -326,24 +327,12 @@ module VesperLib =
                             specs.Length
                     ]
 
-                let rec peelN n t =
-                    if n <= 0 then
-                        [], t
-                    else
-                        match t with
-                        | FTFun(a, b) ->
-                            let ps, r = peelN (n - 1) b
-                            a :: ps, r
-                        | _ -> [], t
-
-                let paramTys, resultTy = peelN arities.Length template
+                let paramTys, resultTy = TastLower.peelArrowDomains arities.Length template
 
                 if List.isEmpty arities || List.length paramTys <> List.length arities then
-                    ValueNone, ValueNone
+                    ValueNone
                 else
-                    let vr = TastLower.externalValRepr typarCount (List.zip arities paramTys) resultTy
-
-                    ValueSome vr, ValueSome(TastLower.compiledOf vr)
+                    ValueSome(TastLower.externalValRepr typarCount (List.zip arities paramTys) resultTy)
 
             let sym: ExternalSymbol =
                 {
@@ -353,7 +342,6 @@ module VesperLib =
                     Origin = SymbolOrigin.Empty
                     Key = SymbolKeyOps.valueKeyOf None dv.Compiled
                     ValRepr = valReprOpt
-                    Compiled = compiledOpt
                 }
 
             ctx.Symbols.[dv.Compiled] <- sym

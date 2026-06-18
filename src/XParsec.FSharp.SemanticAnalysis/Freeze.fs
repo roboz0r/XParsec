@@ -68,47 +68,6 @@ module Freeze =
 
         go (Unification.zonk t)
 
-    /// The method-axis generic arity of a frozen function type — the highest
-    /// `FTTypar(Method, i)` index + 1 over the signature. Feeds `ValRepr.Typars`.
-    let private methodTyparCount (t: FrozenType) : int =
-        let mutable m = 0
-
-        let rec go t =
-            match t with
-            | FTTypar(TyparAxis.Method, i) ->
-                if i + 1 > m then
-                    m <- i + 1
-            | FTConst(_, args)
-            | FTUnion(_, args)
-            | FTRecord(_, args)
-            | FTClass(_, args) -> EqArray.iter go args
-            | FTFun(a, r) ->
-                go a
-                go r
-            | FTTuple xs
-            | FTOr xs -> EqArray.iter go xs
-            | FTTypar _
-            | FTUnknown _ -> ()
-
-        go t
-        m
-
-    /// Split a frozen module FUNCTION binding (`Let` whose value is a curried
-    /// lambda) into a `LetFn` carrying its source `ValRepr` + derived compiled
-    /// signature (function-method-compiled-form-plan.md, Step A). A plain value
-    /// `Let` (no lambda params) is left untouched. `Value` is preserved verbatim, so
-    /// `TastLower.lower` normalises `LetFn` back to `Let` for unchanged emission
-    /// (Step B will consume the compiled signature instead).
-    let private toLetFn (d: Frozen.TDecl) : Frozen.TDecl =
-        match d with
-        | TDeclG.Let(binding, value, isInline, ty) ->
-            let valRepr, _ = TastLower.valReprOf (methodTyparCount ty) value
-
-            match valRepr.Groups with
-            | [] -> d // a plain value, not a function
-            | _ -> TDeclG.LetFn(binding, valRepr, TastLower.compiledOf valRepr, value, isInline, ty)
-        | _ -> d
-
     let run (tast: TastFile) : Frozen.TastFile =
         let emittable =
             tast.Decls
@@ -120,8 +79,4 @@ module Freeze =
             )
             |> EqArray.ofList
 
-        let frozen = TastConvert.file freezeTy { tast with Decls = emittable }
-
-        { frozen with
-            Decls = frozen.Decls |> EqArray.map toLetFn
-        }
+        TastConvert.file freezeTy { tast with Decls = emittable }

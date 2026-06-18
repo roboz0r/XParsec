@@ -62,8 +62,6 @@ module RefCellPromotion =
             | TDecl.Let(pat, value, _, _) ->
                 considerPat pat
                 TastWalk.iterExpr iter value
-            | TDecl.LetFn _ ->
-                failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in RefCellPromotion"
             | TDecl.Expression(e, _) -> TastWalk.iterExpr iter e
             | TDecl.Type _ -> ()
 
@@ -136,7 +134,6 @@ module RefCellPromotion =
 
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
         match d with
-        | TDecl.LetFn _ -> failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in RefCellPromotion"
         | TDecl.Let(pat, value, isInline, ty) ->
             // A top-level binding cannot itself be a promoted cell (module-level
             // mutables don't escape — they live in a static field), so the

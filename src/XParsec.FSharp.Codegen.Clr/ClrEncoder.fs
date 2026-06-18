@@ -646,8 +646,8 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// `static void M(params…)` — a static method whose return is genuine `void`,
     /// the static counterpart of `InstanceMethodSignatureVoid`. A `unit`-returning
-    /// module function / static member now encodes `void` (full F# fidelity,
-    /// function-method-compiled-form-plan.md Step B) rather than the
+    /// module function / static member now encodes `void` (full F# fidelity)
+    /// rather than the
     /// `unit`-as-`ValueTuple` the general `StaticMethodSignature` emits, so it
     /// matches the consumer convention (`unit → void` member-refs) the instance path
     /// already used. The body is emitted in void mode (the trailing `unit` value is

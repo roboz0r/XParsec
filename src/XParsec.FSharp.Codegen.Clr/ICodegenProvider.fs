@@ -7,26 +7,41 @@ open XParsec.FSharp.SemanticAnalysis
 // symbol provider knows a compiled name's *shape*; the codegen provider knows
 // how to *emit a call* to it.
 
+/// A call's argument arity — how many application-spine elements it consumes and
+/// how many CLR values that flattens to. The two diverge only for a module function
+/// carrying a captured SOURCE grouping (Step C): a tupled group is one spine element
+/// but N pushed values, a lone `()` group one spine element but zero. Making the two
+/// counts a single typed value keeps the `FlatArgCount` (the stack-model pop count)
+/// and the spine split provably consistent, instead of a flat `ArgCount` plus a
+/// parallel optional `Groups` the reader must reconcile.
+[<RequireQualifiedAccess>]
+type CallArity =
+    /// Spine count = flat pop count: every leading spine element pushes one value
+    /// (all-`GSimple` module functions and every non-module-function recipe — an
+    /// instance call's count includes the receiver).
+    | Flat of argCount: int
+    /// The callee's SOURCE grouping drives the split: the walker consumes
+    /// `groups.Length` spine elements and flattens each to its pushed CLR values
+    /// (`CompiledFns.flattenPlan`); `flatArgCount` is the resulting flat pop count.
+    | Grouped of groups: Frozen.ArgGroup list * flatArgCount: int
+
+    /// The number of CLR values the `call` actually pops — what the IlIr stack model
+    /// adjusts by (`Pushes - FlatArgCount`). The spine-element count is this for
+    /// `Flat`, but `groups.Length` for `Grouped`.
+    member this.FlatArgCount =
+        match this with
+        | Flat n -> n
+        | Grouped(_, n) -> n
+
 /// How to emit a resolved call once its arguments are on the stack. `Emit`
 /// performs the call itself — a `call` / `callvirt` against a metadata handle,
-/// or a bare intrinsic opcode like `add` (which has no handle). `ArgCount`
-/// includes the receiver for an instance call; the walker adjusts depth by
-/// `Pushes - ArgCount`.
+/// or a bare intrinsic opcode like `add` (which has no handle). The walker
+/// adjusts depth by `Pushes - Arity.FlatArgCount`.
 type CallRecipe =
     {
         Emit: Il -> unit
-        ArgCount: int
+        Arity: CallArity
         Pushes: int
-        /// The callee's SOURCE argument grouping, when known (an external module
-        /// function carrying a captured `ValRepr` — Step C). The walker then consumes
-        /// `Groups.Length` application-spine elements (one per source group) and
-        /// flattens each group's argument to its pushed CLR values (a tupled group → N
-        /// pushes; a lone `()` group → none), mirroring the in-assembly static-fn arm.
-        /// `ArgCount` stays the FLAT pushed count (so `Pushes - ArgCount` keeps the
-        /// stack model balanced even though `Groups.Length` ≠ the flat count here).
-        /// `ValueNone` for every other recipe: the walker pushes `ArgCount` spine
-        /// elements one-to-one (group count = flat count).
-        Groups: Frozen.ArgGroup list voption
     }
 
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }

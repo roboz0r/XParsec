@@ -1,26 +1,23 @@
 namespace XParsec.FSharp.Codegen.Common
 
-open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
 /// Backend-agnostic compiled-form analysis of a file's top-level module functions —
-/// the facts both the CLR and JS backends need to lower a `let f … = …`. Two pieces:
+/// the facts both the CLR and JS backends need to lower a `let f … = …`. `gather`
+/// returns each function's flat compiled signature (`CompiledForm`): the SOURCE arity
+/// groups (how many spine applications a saturated call collapses), the tuple-expanded
+/// / lone-unit-erased flat params, and the `void`-vs-value return — derived via the
+/// same `TastLower.peelValRepr` + `compiledOf` builders Freeze runs.
 ///
-///   * `gather` — each function's flat compiled signature (`CompiledForm`): the
-///     SOURCE arity groups (how many spine applications a saturated call collapses),
-///     the tuple-expanded / lone-unit-erased flat params, and the `void`-vs-value
-///     return. Recomputed via the same `TastLower.peelValRepr` + `compiledOf` builders
-///     Freeze ran on the `LetFn` node, so it equals the in-assembly `LetFn.compiled`.
-///   * `escaping` — which of those functions are *used as a value or under-applied*
-///     somewhere, so a curried view of them is needed in addition to the flat form.
-///
-/// The flat form is a function's ABI: a publicly reachable function ALWAYS exports it
-/// (function-method-compiled-form-plan.md §D). `escaping` is therefore ADDITIVE — it
-/// signals a curried bridge is *also* required, never that the flat form is suppressed.
-/// Each backend layers its own policy on these facts: the JS backend emits every
-/// function flat and a curried bridge for the escapers; the CLR backend currently still
-/// *demotes* an escaping function entirely to a closure (its capture fixpoint stays
-/// CLR-private), a known latent gap the plan tracks.
+/// The flat form is a function's ABI: a publicly reachable function ALWAYS exports it.
+/// A value-use / under-application is
+/// therefore ADDITIVE — it signals a curried bridge is *also* required, never that the
+/// flat form is suppressed. Both backends share this model: the flat method is always
+/// emitted and an escaping reference *adds* a curried bridge — the JS backend via
+/// `curryAdapter`, the CLR backend via `EmitClosures.bridgeStaticFnEscapes` (which
+/// derives saturation from the spine directly). The only CLR-private demotion left is
+/// the *capture* axis (`EmitClosures.staticEligible`), genuinely intrinsic to a
+/// `this`-less static method and orthogonal to escape (unify-clr-escape-bridge-plan.md).
 module CompiledFns =
 
     /// One top-level module-function binding's compiled form. `Groups.Length` is the
@@ -38,9 +35,52 @@ module CompiledFns =
             ReturnsVoid: bool
         }
 
+    /// One source group's contribution to a saturated call's FLAT pushed-argument
+    /// vector — the backend-neutral result of the lone-unit-erase / tuple-flatten
+    /// dispatch. Both backends interpret a `FlatStep list`: the CLR pushes IL, the JS
+    /// builds `JsExpr`s. The dispatch (and the failwith on a mistyped tuple group)
+    /// lives once in `flattenPlan`; only the per-step emission is backend-specific.
+    [<RequireQualifiedAccess>]
+    type FlatStep =
+        /// A scalar group (`GSimple` / non-lone `GUnit`): emit the argument as one value.
+        | Arg of Frozen.TExpr
+        /// A tupled group whose argument is a literal `Tuple`: emit each element (one
+        /// value per element), each evaluated directly.
+        | TupleLiteral of Frozen.TExpr list
+        /// A tupled group whose argument is a tuple *value*: N values read positionally
+        /// from it (`elemTys` are its element types; `N = elemTys.Length`). The CLR
+        /// spills to a local + reads `ItemN`; the JS reads `v[j]` (spilling an impure
+        /// value through an IIFE). Both decide how from `elemTys`/the value itself.
+        | TupleValue of value: Frozen.TExpr * elemTys: FrozenType list
+
+    /// Flatten a saturated call's LEADING spine (one element per SOURCE group) into the
+    /// backend-neutral push plan: a lone `()` group contributes nothing; a `GSimple` /
+    /// non-lone `GUnit` one `Arg`; a `GTuple` either a `TupleLiteral` (its argument is a
+    /// literal `Tuple`) or a `TupleValue` (any other tuple-typed expression). The single
+    /// home of the lone-unit-erase / literal-vs-value tuple dispatch the CLR
+    /// (`EmitCall.flattenGroupPushes`) and JS (`EmitJs.flattenGroupArgs`) interpreters
+    /// share.
+    let flattenPlan (groups: Frozen.ArgGroup list) (leadingArgs: Frozen.TExpr list) : FlatStep list =
+        let isLone = TastLower.isLoneUnitGroup groups
+
+        [
+            for g, a in List.zip groups leadingArgs do
+                match g with
+                | ArgGroupG.GUnit _ when isLone -> () // lone unit erased — contributes nothing
+                | ArgGroupG.GUnit _
+                | ArgGroupG.GSimple _ -> FlatStep.Arg a
+                | ArgGroupG.GTuple _ ->
+                    match a with
+                    | TExprG.Tuple(elems, _, _) -> FlatStep.TupleLiteral(EqArray.toList elems)
+                    | _ ->
+                        match TastLower.typeOfExpr a with
+                        | FTTuple xs -> FlatStep.TupleValue(a, EqArray.toList xs)
+                        | other -> failwithf "flattenPlan: tuple-group argument is not a tuple type: %A" other
+        ]
+
     /// Gather every top-level `let f … = …` whose value peels to ≥ 1 source group
     /// (a function, not a zero-param value), in declaration order. Must be called on
-    /// already-`lower`ed decls — a `LetFn` (the un-normalised frozen node) is a bug.
+    /// already-`lower`ed decls (the curried `Lambda` chain still present in `value`).
     let gather (decls: Frozen.TDecl list) : CompiledFn list =
         [
             for d in decls do
@@ -71,48 +111,5 @@ module CompiledFns =
                                 | CompiledReturnG.RValue _ -> false
                         }
                     | [], _ -> ()
-                | TDeclG.LetFn _ -> failwith "CompiledFns.gather: LetFn must be normalised to Let by lower"
                 | _ -> ()
         ]
-
-    /// Which gathered functions ESCAPE: referenced as a value, or applied through a
-    /// spine shorter than their source arity (a partial application that needs a
-    /// curried view). A reference that heads a spine of ≥ `Groups.Length` arguments is
-    /// a direct flat call and does NOT escape. Mirrors the CLR escape walk exactly so
-    /// both backends agree on the boundary.
-    let escaping (fns: CompiledFn list) (decls: Frozen.TDecl list) : HashSet<NodeKey> =
-        let arity = Dictionary<NodeKey, int>()
-
-        for f in fns do
-            arity.[f.Key] <- List.length f.Groups
-
-        let escapes = HashSet<NodeKey>()
-
-        let rec walk (e: Frozen.TExpr) =
-            match e with
-            | TExprG.Var(k, _, _) when arity.ContainsKey k -> escapes.Add k |> ignore
-            | TExprG.App _ ->
-                let head, args = TastWalk.collectSpine [] e
-
-                match head with
-                | TExprG.Var(k, _, _) when arity.ContainsKey k ->
-                    if List.length args < arity.[k] then
-                        escapes.Add k |> ignore
-
-                    for (a, _, _) in args do
-                        walk a
-                | _ ->
-                    walk head
-
-                    for (a, _, _) in args do
-                        walk a
-            | _ -> TastLower.iterChildren walk e
-
-        for d in decls do
-            match d with
-            | TDeclG.Let(_, value, _, _) -> walk value
-            | TDeclG.Expression(e, _) -> walk e
-            | TDeclG.LetFn _ -> failwith "CompiledFns.escaping: LetFn must be normalised to Let by lower"
-            | TDeclG.Type _ -> ()
-
-        escapes

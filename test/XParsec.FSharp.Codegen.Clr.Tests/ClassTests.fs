@@ -386,7 +386,7 @@ let staticTests =
                 Expect.isNotNull m "get emitted as a static method on Helper (not a closure capturing seed)"
                 Expect.isTrue m.IsStatic "get is a static method"
                 // `get ()` compiles to a PARAMETERLESS method — the lone `unit` param
-                // is erased (function-method-compiled-form-plan.md Step B, decision 3).
+                // is erased.
                 Expect.equal (m.GetParameters().Length) 0 "get () erases its lone unit param (parameterless)"
                 Expect.equal (m.Invoke(null, [||]) :?> int) 42 "Helper.get () reads seed = 42"
             }
@@ -410,12 +410,15 @@ let staticTests =
             //     value that demotes to a closure held in a `Main` local (which a
             //     `.cctor` cannot see) fails with a targeted message.
             //
-            //     `f` is a *holderless* (top-level, anonymous) function so it stays a
-            //     `Main`-local closure: `forceExportedStaticFns` only rescues EXPORTED
-            //     functions (an exported `f` would instead become a static method, and
-            //     `seed = f` eta-expand to a closure — no longer a module value — so
-            //     this validation would not fire). The holderless form preserves the
-            //     Main-local-dependent-init scenario this anchor pins.
+            //     Under the unified escape model an escaping function is NO LONGER
+            //     demoted — it keeps its flat static method and the escape becomes a
+            //     bridge (unify-clr-escape-bridge-plan.md), so a bare value-use can no
+            //     longer strand a module value. The one demotion left is the *capture*
+            //     axis: `f` captures the destructured top-level local `a` (a genuine
+            //     `Main` local — a tuple-pattern `let` is not collected as a module
+            //     value), so `f` stays a `Main`-local closure rather than a static
+            //     method, `seed = f` is left un-bridged (a non-eligible reference), and
+            //     `seed`'s `.cctor` init can't see the `Main`-local `f`.
             test "a module value whose init needs a Main local fails with a targeted error" {
                 let msg =
                     try
@@ -424,7 +427,8 @@ let staticTests =
                             (String.concat
                                 "\n"
                                 [
-                                    "let f = fun (x: int) -> x + 1"
+                                    "let (a, b) = (1, 2)"
+                                    "let f = fun (x: int) -> x + a"
                                     "module Helper ="
                                     "    let seed : int -> int = f"
                                 ])

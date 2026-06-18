@@ -21,9 +21,8 @@ module TastLower =
     /// carries `Pat = Some …` and a synthetic `Slot`, whose value the backend
     /// spills to a local and `bindPattern`s into the leaf bindings. Platform-neutral
     /// (`Frozen.TPat` / `FrozenType` / `NodeKey` only); the CLR-shaped `StaticFn`
-    /// that carries it stays in `Codegen.Clr`. The shape now lives in `Tast.fs`
-    /// (`StaticParamG`, generic) so a frozen `TDeclG.LetFn` can ride it; this is the
-    /// frozen instantiation.
+    /// that carries it stays in `Codegen.Clr`. The shape lives in `Tast.fs`
+    /// (`StaticParamG`, generic over `'ty`/`'tok`); this is the frozen instantiation.
     type StaticParam = Frozen.StaticParam
 
     let typeOfExpr (e: Frozen.TExpr) : FrozenType =
@@ -296,7 +295,7 @@ module TastLower =
         | _ -> [], e
 
     // ----------------------------------------------------------------------
-    // Compiled-form representation (function-method-compiled-form-plan.md, Step A)
+    // Compiled-form representation
     //
     // Two preserved artifacts for a function / method:
     //   * `ValRepr`      — the SOURCE arity (the `ValReprInfo` analogue): the
@@ -309,14 +308,15 @@ module TastLower =
     //
     // `peelValRepr` is `peelLambda` recast as the `ValRepr` builder (it walks the
     // same curried lambda + tuple-pattern structure); `compiledOf` is the
-    // `GetValReprTypeInCompiledForm` analogue. Neither is reconstructed at the
-    // backend boundary — both are captured once at freeze and stored on the node.
+    // `GetValReprTypeInCompiledForm` analogue. `ValRepr` is the load-bearing
+    // artifact (the in-assembly `gather` and the cross-assembly `ExternalSymbol`
+    // both carry it); `CompiledForm` is derived from it on demand by `compiledOf`,
+    // never stored — it is fully determined by the `ValRepr`.
     // ----------------------------------------------------------------------
 
-    // The source-arity / compiled-form types now live in `Tast.fs` (`ArgGroupG`,
-    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic so a frozen
-    // `TDeclG.LetFn` rides them); these are the frozen instantiations the builders
-    // below produce.
+    // The source-arity / compiled-form types live in `Tast.fs` (`ArgGroupG`,
+    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic over `'ty`/`'tok`);
+    // these are the frozen instantiations the builders below produce.
     type ArgGroup = Frozen.ArgGroup
     type ValRepr = Frozen.ValRepr
     type CompiledReturn = Frozen.CompiledReturn
@@ -326,6 +326,80 @@ module TastLower =
         match t with
         | FTConst("unit", args) -> args.Length = 0
         | _ -> false
+
+    /// Peel up to `n` top-level `->` arrows off a frozen type (all of them when
+    /// `n < 0`), returning each as a `(domain, codomain)` pair in order. One home for
+    /// the `peelN` / `arrows` / `decurryFrozen` walks that were copied across
+    /// `VesperLib`, `ClrRecipes`, and `EmitClosures`.
+    let rec peelArrows (n: int) (t: FrozenType) : (FrozenType * FrozenType) list =
+        if n = 0 then
+            []
+        else
+            match t with
+            | FTFun(a, b) -> (a, b) :: peelArrows (if n < 0 then -1 else n - 1) b
+            | _ -> []
+
+    /// `peelArrows` projected to the F#-form `(parameter types, residual result)`:
+    /// `decurryFrozen`'s shape (`n < 0`, peel all) and the contract peelers (`n`
+    /// groups). The residual is the type after the peeled arrows.
+    let peelArrowDomains (n: int) (t: FrozenType) : FrozenType list * FrozenType =
+        match peelArrows n t with
+        | [] -> [], t
+        | levels -> List.map fst levels, snd (List.last levels)
+
+    /// The lone-`()` group shape (`[GUnit]`): the only arity that erases to zero
+    /// compiled params (F#'s `[[]]` rule, read off the arity not the type). The one
+    /// definition of the test the flatten / call-site / adapter paths share.
+    let isLoneUnitGroup (groups: ArgGroup list) : bool =
+        match groups with
+        | [ ArgGroupG.GUnit _ ] -> true
+        | _ -> false
+
+    /// Every source group is a plain single binder — the only shape whose flat
+    /// params map one-to-one onto the source applications (a self-tail-call can
+    /// trampoline; flat == curried, so a value-use needs no adapter beyond aliasing).
+    let allSimpleGroups (groups: ArgGroup list) : bool =
+        groups
+        |> List.forall (
+            function
+            | ArgGroupG.GSimple _ -> true
+            | _ -> false
+        )
+
+    /// Does a value-use of a function with these source groups need a curried
+    /// adapter (its flat call shape differs from the curried one)? Only for arity ≥ 2
+    /// or a tuple group; a single `GSimple` / lone `GUnit` is flat-==-curried.
+    let needsCurryAdapter (groups: ArgGroup list) : bool =
+        List.length groups >= 2
+        || groups
+           |> List.exists (
+               function
+               | ArgGroupG.GTuple _ -> true
+               | _ -> false
+           )
+
+    /// The flat compiled parameter-TYPE vector of a source group list, given each
+    /// group's (already type-correct) parameter type — the
+    /// `GetValReprTypeInCompiledForm` flatten rule expressed over types: a lone `()`
+    /// group erases to nothing; a tuple group expands to its `FTTuple` elements (full
+    /// F#, one level); every other group contributes its one type. `compiledOf`
+    /// follows the identical shape over `StaticParam`s; the cross-assembly member-ref
+    /// encoder (`ClrRecipes.emitExternalCall`) routes its open-template-peeled types
+    /// through here, so the erase/flatten rule is written once.
+    let flattenGroupShape (groups: ArgGroup list) (groupParamTys: FrozenType list) : FrozenType list =
+        if isLoneUnitGroup groups then
+            []
+        else
+            List.zip groups groupParamTys
+            |> List.collect (fun (g, pt) ->
+                match g with
+                | ArgGroupG.GUnit _
+                | ArgGroupG.GSimple _ -> [ pt ]
+                | ArgGroupG.GTuple _ ->
+                    match pt with
+                    | FTTuple xs -> EqArray.toList xs
+                    | _ -> [ pt ]
+            )
 
     /// Peel a curried `Lambda` chain into its source `ArgGroup`s and the residual
     /// body (the `peelLambda` walk, recording groups rather than flattened params).
@@ -397,9 +471,10 @@ module TastLower =
             | ArgGroupG.GTuple _ -> failwith "peelValRepr: GTuple must carry a TPatG.Tuple pattern"
 
         let ps =
-            match vr.Groups with
-            | [ ArgGroupG.GUnit _ ] -> [] // lone unit group erased (F#'s `[[]]` rule, off the arity)
-            | groups -> groups |> List.collect flattenGroup
+            if isLoneUnitGroup vr.Groups then
+                [] // lone unit group erased (F#'s `[[]]` rule, off the arity)
+            else
+                vr.Groups |> List.collect flattenGroup
 
         {
             Params = ps
@@ -425,8 +500,8 @@ module TastLower =
     /// does not); arity-1 `unit` → `GUnit` (the `let f () = …` lone-erasable shape);
     /// arity-1 other → `GSimple`. Feeding the result to `compiledOf` keeps the
     /// flatten / lone-unit-erase / unit→void rule single-sourced — the cross-assembly
-    /// consumer derives the same compiled form an in-assembly `LetFn` carries
-    /// (function-method-compiled-form-plan.md Step C, decision 1).
+    /// consumer derives the same compiled form an in-assembly function does from its
+    /// own `gather`ed `ValRepr`.
     let externalValRepr (typars: int) (groups: (int * FrozenType) list) (resultTy: FrozenType) : ValRepr =
         let groupOf (arity: int, pty: FrozenType) : ArgGroup =
             if arity >= 2 then
@@ -563,14 +638,6 @@ module TastLower =
             match d with
             | TDeclG.Let(_, _, true, _) -> ()
             | TDeclG.Let(p, value, false, t) -> result.Add(TDeclG.Let(p, finishOps (lowerExpr value), false, t))
-            // A `LetFn` (a module FUNCTION binding, with its source `ValRepr` +
-            // compiled signature riding the frozen TAST) normalises back to a plain
-            // `Let(binding, Value, …)` for emission — every downstream consumer
-            // (closure discovery, `collectStaticFns`, emit) sees the familiar
-            // `Let` + curried `Lambda` shape unchanged (Step A). Step B will consume
-            // the `compiled` signature here instead of re-peeling `Value`.
-            | TDeclG.LetFn(_, _, _, _, true, _) -> ()
-            | TDeclG.LetFn(p, _, _, value, false, t) -> result.Add(TDeclG.Let(p, finishOps (lowerExpr value), false, t))
             | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(finishOps (lowerExpr e), t))
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDeclG.Type _ -> ()

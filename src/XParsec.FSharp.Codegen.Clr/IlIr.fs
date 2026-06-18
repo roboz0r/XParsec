@@ -197,7 +197,7 @@ module private InstrDelta =
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
-        | ILInstr.Recipe recipe -> recipe.Pushes - recipe.ArgCount
+        | ILInstr.Recipe recipe -> recipe.Pushes - recipe.Arity.FlatArgCount
         | ILInstr.Bin _ -> -1
         | ILInstr.Brfalse _
         | ILInstr.Brtrue _ -> -1
@@ -296,7 +296,7 @@ module IlIr =
         | ILInstr.Newobj(_, argc) -> 1 - argc
         | ILInstr.Call(_, argc, pushes)
         | ILInstr.Callvirt(_, argc, pushes) -> pushes - argc
-        | ILInstr.Recipe recipe -> recipe.Pushes - recipe.ArgCount
+        | ILInstr.Recipe recipe -> recipe.Pushes - recipe.Arity.FlatArgCount
         | ILInstr.Bin _ -> -1
         | ILInstr.Mark _
         | ILInstr.Br _
@@ -525,7 +525,7 @@ module IlIr =
             | ILInstr.Callvirt(m, argc, pushes) -> Cil.emitCallvirt il m argc pushes
             | ILInstr.Recipe recipe ->
                 recipe.Emit il
-                il.Adjust(recipe.Pushes - recipe.ArgCount)
+                il.Adjust(recipe.Pushes - recipe.Arity.FlatArgCount)
             | ILInstr.Bin code -> Cil.emitIntrinsicValueOp il code 2
             | ILInstr.Un code -> Cil.emitIntrinsicValueOp il code 1
             | ILInstr.Mark l ->

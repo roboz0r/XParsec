@@ -384,12 +384,13 @@ and TStaticOptClauseG<'ty, 'tok> =
     }
 
 // ----------------------------------------------------------------------------
-// Compiled-form representation (function-method-compiled-form-plan.md, Step A).
-// Two preserved artifacts a function / method carries: the SOURCE arity
+// Compiled-form representation.
+// Two derived artifacts describing a function / method: the SOURCE arity
 // (`ValReprG`, the `ValReprInfo` analogue) and the flat compiled signature
-// (`CompiledFormG`) derived from it. Generic over `'ty`/`'tok` so a frozen
-// `TDeclG.LetFn` can ride them; the builders (`peelValRepr`/`compiledOf`) live in
-// `TastLower`. See the `Frozen.*` aliases below for the instantiated names.
+// (`CompiledFormG`) derived from it. Generic over `'ty`/`'tok`; the builders
+// (`peelValRepr`/`compiledOf`) live in `TastLower`, and the cross-assembly
+// consumer (`ExternalSymbol`/`CompiledFns`) reads them. See the `Frozen.*`
+// aliases below for the instantiated names.
 // ----------------------------------------------------------------------------
 
 /// One flattened compiled parameter. A simple binder's `Slot` is referenced by
@@ -452,22 +453,6 @@ type TDeclG<'ty, 'tok> =
     /// `isInline` lets codegen expand the body per call site via `Inline.inlineExpand`
     /// rather than emit a single callable.
     | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * isInline: bool * ty: 'ty
-    /// A module-level FUNCTION binding (`let f x y = …`), split from `Let` at
-    /// Freeze (function-method-compiled-form-plan.md, Step A). Carries BOTH the
-    /// source arity (`ValRepr`) and the derived flat compiled signature
-    /// (`Compiled`), preserved in the frozen TAST so a caller — including a
-    /// cross-assembly one — reconciles its application spine against the source
-    /// grouping. `Value` is the original curried-lambda expression (unchanged from
-    /// the `Let` it replaces); the backend's `EmitLower` normalises `LetFn` back to
-    /// `Let(binding, Value, …)`, so downstream emission is unaffected until Step B
-    /// consumes `Compiled`.
-    | LetFn of
-        binding: TPatG<'ty, 'tok> *
-        valRepr: ValReprG<'ty, 'tok> *
-        compiled: CompiledFormG<'ty, 'tok> *
-        value: TExprG<'ty, 'tok> *
-        isInline: bool *
-        ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok> * ty: 'ty
     | Type of TTypeDeclG<'ty, 'tok>
 

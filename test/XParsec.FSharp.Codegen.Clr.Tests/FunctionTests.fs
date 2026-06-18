@@ -212,14 +212,16 @@ let tests =
                     Expect.isEmpty (staticFnMethods bytes) "carries its source name `sumTo`, not an anonymous `fn$`"
                 }
 
-            // ---- public-function escape gap (forceExportedStaticFns) ----------
-            // An EXPORTED (named-holder) module function used higher-order *within
-            // its own assembly* must still emit its flat static method — the `.fsi`
-            // advertises it, so a cross-assembly consumer `call`s it; demoting it
-            // entirely to a closure (the old all-or-nothing policy) would leave that
-            // `call` unbound → `MissingMethodException` at JIT. `forceExportedStaticFns`
-            // eta-expands the escaping reference so `addOne` stays a static method AND
-            // a wrapper closure (`fun a -> addOne a`) carries the value-use.
+            // ---- escape bridge (bridgeStaticFnEscapes) -------------------------
+            // A module function used higher-order *within its own assembly* still
+            // emits its flat static method; the escape ADDS a wrapper closure that
+            // `call`s it (F#/JS model, unify-clr-escape-bridge-plan.md). For an
+            // EXPORTED (named-holder) function the flat method is the `.fsi`-advertised
+            // contract a cross-assembly consumer `call`s; demoting it entirely to a
+            // closure (the old all-or-nothing policy) left that `call` unbound →
+            // `MissingMethodException` at JIT. `bridgeStaticFnEscapes` eta-expands the
+            // escaping reference so `addOne` stays a static method AND a wrapper
+            // closure (`fun a -> addOne a`) carries the value-use.
             yield
                 test "an exported module function used higher-order keeps its flat static method (escape gap)" {
                     let src =
@@ -254,8 +256,47 @@ let tests =
                     Expect.isTrue hasClosure "a wrapper closure was emitted for the eta-expanded value-use"
                 }
 
+            // The holderless analogue of the escape gap: a *top-level* (anonymous)
+            // function used as a value also keeps its flat static method — under the
+            // unified model there is no exported-vs-holderless split. `addOne` becomes
+            // an `fn$N` static method on the Program holder + a wrapper closure
+            // carrying the value-use, matching F# (which emits the static method for
+            // non-exported module functions too).
+            yield
+                test "a holderless module function used higher-order keeps its flat static method" {
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "let addOne x = x + 1"
+                                "let apply g x = g x"
+                                "printfn \"%d\" (apply addOne 41)"
+                            ]
+
+                    let _, artifact = compileSource "FnEscapeHolderless" src
+                    let bytes = Codegen.toBytes artifact
+                    let exitCode, output = runEntryPoint bytes
+                    Expect.equal exitCode 0 "Main returns 0"
+                    Expect.equal (output.Trim()) "42" "apply addOne 41 = 42 via the wrapper closure"
+
+                    // `addOne` survives as a holderless `fn$N` static method (1 flat
+                    // param) — pre-change a holderless escaper was demoted to a closure
+                    // and no `fn$` method existed.
+                    let addOne =
+                        staticFnMethods bytes |> Array.tryFind (fun m -> m.GetParameters().Length = 1)
+
+                    Expect.isSome addOne "addOne emitted as a 1-param fn$ static method, not demoted to a closure"
+
+                    let asm = loadAssembly bytes
+
+                    let hasClosure =
+                        asm.GetTypes() |> Array.exists (fun t -> t.Name.StartsWith "<closure>")
+
+                    Expect.isTrue hasClosure "a wrapper closure carries the eta-expanded value-use"
+                }
+
             // ---- compiled-form: tuple flattening + void everywhere -------------
-            // (function-method-compiled-form-plan.md Step B). A tupled source group
+            // A tupled source group
             // flattens to N flat CLR params (full F#), and a `unit` return is genuine
             // `void` for module functions and static members alike.
 

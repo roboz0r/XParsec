@@ -391,48 +391,47 @@ module EmitClosures =
                         mv.Name
                         free
 
-    /// Eta-expand every NON-saturated reference to an EXPORTED module function so
-    /// the function stays a flat static method even though it is *also* used
-    /// higher-order inside its own assembly
-    /// (function-method-compiled-form-plan.md §"CLR public-function escape gap").
+    /// Eta-expand every NON-saturated reference to a static-method-`eligible` module
+    /// function so the function stays a flat static method even though it is *also*
+    /// used as a value / under-applied. This is F#'s one model — a module `let f … = …`
+    /// ALWAYS compiles to a flat static method; a value-use compiles to a closure that
+    /// `call`s it — and the model the JS backend (`curryAdapter`) already mirrors. The
+    /// escape is an ADDITIVE bridge: it never removes the flat method (see
+    /// unify-clr-escape-bridge-plan.md).
     ///
-    /// A publicly reachable module function's `.fsi` advertises its flat signature
-    /// independently of how the function is used inside its producing assembly, so a
-    /// cross-assembly consumer decurries that into a flat member-ref and `call`s it.
-    /// The prior `collectStaticFns` policy demoted a function ENTIRELY to a closure on
-    /// any intra-assembly escape (`eligible = order |> filter (not escapes)`); the
-    /// flat static method then never existed and the consumer's `call` bound nothing
-    /// → `MissingMethodException` at JIT. Matching F# (and the JS backend's flat
-    /// model), the flat method stays canonical and each value-use / partial
-    /// application becomes a curried closure that `call`s it — realised here by
+    /// The flat method is a function's ABI: a publicly reachable function's `.fsi`
+    /// advertises it independently of how the function is used inside its producing
+    /// assembly, so a cross-assembly consumer decurries it into a flat member-ref and
+    /// `call`s it; the bridge keeps that method present. Each value-use / partial
+    /// application becomes a curried closure that `call`s the method — realised by
     /// eta-expanding `f` to its full SOURCE arity at every non-saturated occurrence:
     ///   * a bare value-use  `f`     → `fun a0 … a(n-1) -> f a0 … a(n-1)`
     ///   * an under-application `f x` → `(fun a0 … a(n-1) -> f a0 … a(n-1)) x`
-    /// After the rewrite every surviving `Var f` heads a saturated (≥ arity) spine,
-    /// so `collectStaticFns`' escape walk no longer flags `f` and it is emitted as a
-    /// static method; the synthesised eta-lambdas are ordinary closures whose body is
-    /// a saturated direct `call` to that method (the "wrapper that calls it").
+    /// After the rewrite every surviving `Var f` heads a saturated (≥ arity) spine, so
+    /// `collectStaticFns` emits `f` as a static method; the synthesised eta-lambdas are
+    /// ordinary closures whose body is a saturated direct `call` to it (the "wrapper
+    /// that calls it"). Exported and holderless escapers are treated alike — both keep
+    /// their flat method, matching F# (which emits the static method for non-exported
+    /// module functions too).
     ///
-    /// Only EXPORTED functions — those with a `ModuleMemberInfo`, i.e. a named-holder
-    /// public method an `.fsi` can name — are rewritten; a holderless / anonymous
-    /// escaper has no cross-assembly contract, so its existing closure demotion is
-    /// correct and left untouched. A function that genuinely *captures* a module
-    /// local still drops out of the static set via `collectStaticFns`' capture
-    /// fixpoint; its eta-lambdas then resolve `f` through the closure `Invoke` path,
-    /// which is equally correct (a saturated call works either way). The whole pass is
-    /// a no-op when no exported function exists (the entire current corpus, where the
-    /// gap was latent), so it is behavior-preserving until a real escaper lands.
-    let forceExportedStaticFns
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+    /// Bridging is gated on the `eligible` set (`staticEligible`), NOT on escape: a
+    /// function demoted by the *capture* axis is absent from `eligible`, so its
+    /// value-uses are left as ordinary closure-object references — eta-expanding them
+    /// would wrap a closure in a closure. The pass is a no-op when no eligible function
+    /// has a non-saturated reference (the corpus before any escaper lands).
+    let bridgeStaticFnEscapes
+        (eligible: HashSet<NodeKey>)
+        (fns: CompiledFns.CompiledFn list)
         (decls: Frozen.TDecl list)
         : Frozen.TDecl list =
-        // Each exported top-level function's source arity (its curried group count) —
-        // the number of arrows the eta-expansion peels, and the spine length at or
-        // above which a reference is a saturated direct `call`.
+        // Each eligible function's source arity (its curried group count) — the number
+        // of arrows the eta-expansion peels, and the spine length at or above which a
+        // reference is a saturated direct `call`. `fns` is the SAME pre-bridge
+        // `gather` `staticEligible` ran on, threaded in so the two cannot disagree.
         let arity = Dictionary<NodeKey, int>()
 
-        for f in CompiledFns.gather decls do
-            if Map.containsKey f.Key.Raw moduleMembers then
+        for f in fns do
+            if eligible.Contains f.Key then
                 arity.[f.Key] <- List.length f.Groups
 
         if arity.Count = 0 then
@@ -447,16 +446,13 @@ module EmitClosures =
             let buildEta (fVar: Frozen.TExpr) (n: int) : Frozen.TExpr =
                 let tok = TastWalk.exprTok fVar
 
-                let rec arrows i ty =
-                    if i = 0 then
-                        []
-                    else
-                        match ty with
-                        | FTFun(dom, cod) -> (dom, cod) :: arrows (i - 1) cod
-                        | other ->
-                            failwithf "forceExportedStaticFns: function type has fewer than %d arrows: %A" n other
+                // Each peeled `->` as a `(domain, codomain)` pair: the fresh param's
+                // type and the intermediate `App` result type.
+                let levels = TastLower.peelArrows n (typeOfExpr fVar)
 
-                let levels = arrows n (typeOfExpr fVar)
+                if List.length levels <> n then
+                    failwithf "bridgeStaticFnEscapes: function type has fewer than %d arrows: %A" n (typeOfExpr fVar)
+
                 let keys = levels |> List.map (fun _ -> mintUnitParamKey ())
 
                 let argTriples =
@@ -494,32 +490,27 @@ module EmitClosures =
                 match d with
                 | TDeclG.Let(p, value, isInline, tk) -> TDeclG.Let(p, rw value, isInline, tk)
                 | TDeclG.Expression(e, tk) -> TDeclG.Expression(rw e, tk)
-                | TDeclG.LetFn _ -> failwith "forceExportedStaticFns: LetFn must be normalised to Let by lower"
                 | TDeclG.Type _ -> d
             )
 
-    /// Classify which top-level function bindings can be emitted as **static
-    /// methods** rather than closures. A candidate is `let [rec] f p0 … = body`
-    /// whose value peels to at least one simple parameter. Eligible only when:
-    ///   1. it never *escapes* — every use is a saturated call, so it is never
-    ///      needed as a function value (a bare/under-applied reference forces a closure).
-    ///   2. it captures no module-level local — its free variables (minus its
-    ///      parameters and self) are all themselves eligible static functions
-    ///      (direct `call`s). A value-local reference would need a capture field,
-    ///      which a static method has no `this` to hold.
-    /// Rule 2 is a fixpoint, resolved by removing offenders until stable.
-    let collectStaticFns
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
-        (moduleValueKeys: HashSet<NodeKey>)
-        (decls: Frozen.TDecl list)
-        : StaticFn list * HashSet<NodeKey> =
-        // The backend-agnostic facts — each top-level function's flat compiled
-        // signature (source groups + tuple-expanded/void params) and which functions
-        // escape as a value / under-application — come from `Codegen.Common.CompiledFns`,
-        // shared with the JS backend. The CLR-specific POLICY layered on top (demote an
-        // escaping or capturing function to a closure rather than emit a flat method)
-        // stays here, in the capture fixpoint below.
-        let fns = CompiledFns.gather decls
+    /// The static-method-eligible top-level functions — the ONE genuinely
+    /// CLR-intrinsic demotion axis (capture), computed on its own so the bridge pass
+    /// (`bridgeStaticFnEscapes`) can run *before* `collectStaticFns` knows the answer.
+    /// A candidate is `let [rec] f p0 … = body` whose value peels to ≥ 1 source group;
+    /// it is eligible unless it captures a module-level *local*: its free variables
+    /// (minus its parameters, self, and the module-value / static-fn keys, which are
+    /// `ldsfld` / direct `call`) must all themselves be eligible. A value-local
+    /// reference would need a capture field, which a static method has no `this` to
+    /// hold. This is a fixpoint, resolved by removing offenders until stable.
+    ///
+    /// There is **no escape axis** — an escaping function keeps its flat static method
+    /// and the escape becomes a curried bridge (F#/JS model). The set is invariant
+    /// under eta-expansion: a candidate's capture set is its OWN body's free vars, and
+    /// bridging only rewrites references in *other* bodies, leaving the referent free
+    /// through the synthesised lambda (the free-var walk sees through it). So the same
+    /// set drives bridging on the un-bridged decls and `collectStaticFns` on the
+    /// bridged decls — there is no second derivation that could disagree.
+    let staticEligible (moduleValueKeys: HashSet<NodeKey>) (fns: CompiledFns.CompiledFn list) : HashSet<NodeKey> =
         let candidates = Dictionary<NodeKey, CompiledFns.CompiledFn>()
         let order = ResizeArray<NodeKey>()
 
@@ -527,11 +518,7 @@ module EmitClosures =
             candidates.[f.Key] <- f
             order.Add f.Key
 
-        // Escape: a candidate used as a value or under-applied (mirrors the JS
-        // boundary). On CLR an escaping function is demoted entirely to a closure.
-        let escapes = CompiledFns.escaping fns decls
-
-        // Each candidate's capture set (free vars minus its own params), tested by rule 2.
+        // Each candidate's capture set (free vars minus its own params + module values).
         let bodyFree =
             Dictionary<NodeKey, HashSet<NodeKey>>(
                 seq {
@@ -539,16 +526,11 @@ module EmitClosures =
                         let c = candidates.[k]
                         // A reference to a module value is an `ldsfld`, not a captured
                         // module-level local — treat those keys as bound so a function
-                        // over them stays static-method eligible (rule 2).
-                        // The keys a parameter binds: a simple/unit param binds its
-                        // own `Slot`; a tuple param binds each leaf the pattern names
-                        // (not the placeholder slot), so the body's references to those
-                        // leaves count as bound, not as captures.
-                        // The flat compiled params already expose each leaf binder
-                        // directly: a simple/tuple-element param binds its own `Slot`;
-                        // only a nested-tuple element keeps a `Pat` whose leaves it
-                        // binds. (Equivalent to walking the old single tuple param's
-                        // whole pattern, since flattening preserves the leaf keys.)
+                        // over them stays static-method eligible. The keys a parameter
+                        // binds: a simple/unit param binds its own `Slot`; a tuple
+                        // param binds each leaf the pattern names (the flat compiled
+                        // params expose each leaf binder, so references to those leaves
+                        // count as bound, not as captures).
                         let paramBound =
                             c.Params
                             |> List.collect (fun p ->
@@ -561,9 +543,10 @@ module EmitClosures =
                 }
             )
 
-        // Fixpoint: from the non-escaping candidates, drop any whose free vars
-        // reach outside the eligible set (own self-reference allowed).
-        let eligible = HashSet<NodeKey>(order |> Seq.filter (escapes.Contains >> not))
+        // Escape no longer demotes: every gathered function starts eligible; only the
+        // capture fixpoint below removes one (its free vars reach outside the eligible
+        // set, own self-reference allowed).
+        let eligible = HashSet<NodeKey>(order)
         let mutable changed = true
 
         while changed do
@@ -577,35 +560,44 @@ module EmitClosures =
                 if captures && eligible.Remove k then
                     changed <- true
 
-        let staticFns =
-            [
-                for k in order do
-                    if eligible.Contains k then
-                        let c = candidates.[k]
+        eligible
 
-                        // A binding inside a named module emits with its source
-                        // name on its holder type; a top-level function keeps the
-                        // anonymous `fn$<offset>` name on the "Program" holder
-                        // (`Holder = None`).
-                        let name, holder =
-                            match Map.tryFind k.Raw moduleMembers with
-                            | Some info -> info.Name, Some(info.Namespace, info.Holder)
-                            | None -> sprintf "fn$%d" k.Offset, None
+    /// Build the **static-method** `StaticFn`s from the precomputed `eligible` set
+    /// (`staticEligible`): each gathered function whose key is eligible, with its
+    /// holder / name resolved from `moduleMembers` (a named-holder source name, or the
+    /// anonymous `fn$<offset>` on the "Program" holder). Taking `eligible` as input —
+    /// rather than recomputing it — guarantees the set bridging assumed and the set
+    /// emitted as static methods are the same. A gathered function NOT in `eligible`
+    /// (capture-demoted, or a binding `bridgeStaticFnEscapes` newly turned into a
+    /// lambda whose key was never eligible) is left for closure discovery.
+    let collectStaticFns
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (eligible: HashSet<NodeKey>)
+        (fns: CompiledFns.CompiledFn list)
+        : StaticFn list =
+        [
+            for c in fns do
+                if eligible.Contains c.Key then
+                    // A binding inside a named module emits with its source name on its
+                    // holder type; a top-level function keeps the anonymous
+                    // `fn$<offset>` name on the "Program" holder (`Holder = None`).
+                    let name, holder =
+                        match Map.tryFind c.Key.Raw moduleMembers with
+                        | Some info -> info.Name, Some(info.Namespace, info.Holder)
+                        | None -> sprintf "fn$%d" c.Key.Offset, None
 
-                        yield
-                            {
-                                Key = k
-                                Name = name
-                                Holder = holder
-                                Params = c.Params
-                                Groups = c.Groups
-                                Body = c.Body
-                                ResultTy = typeOfExpr c.Body
-                                ReturnsVoid = c.ReturnsVoid
-                            }
-            ]
-
-        staticFns, eligible
+                    yield
+                        {
+                            Key = c.Key
+                            Name = name
+                            Holder = holder
+                            Params = c.Params
+                            Groups = c.Groups
+                            Body = c.Body
+                            ResultTy = c.ResultTy
+                            ReturnsVoid = c.ReturnsVoid
+                        }
+        ]
 
     /// A generic static method's type-parameter count: `freeze` quantified the
     /// module-`let`'s free typars to `FTTypar(Method, i)` (params left-to-right,
@@ -773,7 +765,6 @@ module EmitClosures =
 
         for d in decls do
             match d with
-            | TDeclG.LetFn _ -> failwith "collectStaticFns: LetFn must be normalised to Let by lower"
             // A static-method function's lambda is not a closure, but its body
             // may still construct inner closures — walk only the body. The
             // closures inherit the method's typars.

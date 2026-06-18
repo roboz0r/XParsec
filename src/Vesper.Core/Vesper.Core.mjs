@@ -79,6 +79,6 @@ function hashOf(x) {
 
 // Public entries — the surface the backend imports. The flat (Fable-style) compiled
 // form: a saturated `=` call collapses to `structuralEquals(a, b)`; `hash` to a single
-// `structuralHash(x)` (function-method-compiled-form-plan.md §D).
+// `structuralHash(x)`.
 export const structuralEquals = (a, b) => eq(a, b);
 export const structuralHash = (x) => hashOf(x);

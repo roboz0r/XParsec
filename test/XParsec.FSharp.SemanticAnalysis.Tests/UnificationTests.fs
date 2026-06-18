@@ -1185,10 +1185,9 @@ let tests =
                 |> EqArray.toList
                 |> List.tryPick (fun d ->
                     match d with
-                    // A function binding (`let f … = …`) freezes to `LetFn`; a plain
-                    // value to `Let`. Both carry the binding's frozen type as `ty`.
-                    | TDeclG.Let(ty = ty)
-                    | TDeclG.LetFn(ty = ty) -> Some ty
+                    // Both a function binding (`let f … = …`) and a plain value
+                    // freeze to `Let`, carrying the binding's frozen type as `ty`.
+                    | TDeclG.Let(ty = ty) -> Some ty
                     | _ -> None
                 )
                 |> Option.defaultWith (fun () -> failtest "expected a frozen `let` decl")

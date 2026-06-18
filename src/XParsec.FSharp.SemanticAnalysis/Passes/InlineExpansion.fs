@@ -656,8 +656,6 @@ module InlineExpansion =
                     match d with
                     // Inline templates are left untouched (codegen drops them;
                     // `collectInlineBodies` extracts them raw).
-                    | TDecl.LetFn _ ->
-                        failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in InlineExpansion"
                     | TDecl.Let(_, _, true, _) -> d
                     | TDecl.Let(p, value, false, ty) -> TDecl.Let(p, walkExpr value, false, ty)
                     | TDecl.Expression(e, ty) -> TDecl.Expression(walkExpr e, ty)

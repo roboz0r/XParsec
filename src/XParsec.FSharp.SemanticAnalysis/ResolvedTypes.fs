@@ -135,7 +135,6 @@ module ResolvedTypes =
         let iter = buildIter ctx allowed acc
 
         match d with
-        | TDecl.LetFn _ -> failwith "LetFn is a frozen-phase node (produced at Freeze); unexpected in ResolvedTypes"
         | TDecl.Let(binding, value, _, ty) ->
             let added = pushScheme ctx binding allowed
             addFreeRoots allowed acc ty

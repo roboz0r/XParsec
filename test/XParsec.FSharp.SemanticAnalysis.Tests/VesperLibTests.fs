@@ -477,8 +477,7 @@ let tests =
             }
 
             test "Step C: module-function ValRepr / CompiledForm captured from the .fsi arity" {
-                // The cross-assembly preserved-signatures path
-                // (function-method-compiled-form-plan.md Step C, decision 1): a
+                // The cross-assembly preserved-signatures path: a
                 // `.fsi` `val`'s `CurriedSig`/`ArgsSpec` already encodes the source
                 // arity the bare curried type erases, so `finalizeVal` records BOTH
                 // the source `ValRepr` and the derived flat `CompiledForm` on the
@@ -537,16 +536,19 @@ let tests =
                 let intF = FTConst("int", EqArray.empty)
                 let pairF = FTTuple(EqArray.ofList [ intF; intF ])
 
+                // The compiled form is derived from the captured `ValRepr` on demand —
+                // the same `TastLower.compiledOf` rule the codegen boundary applies, so
+                // the test pins the single-sourced derivation, not a stored copy.
+                let compiledOf (suffix: string) : Frozen.CompiledForm =
+                    match (symOf suffix).ValRepr with
+                    | ValueSome vr -> TastLower.compiledOf vr
+                    | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
+
                 // The flat compiled parameter TYPES the member-ref would encode.
                 let compiledParamTys (suffix: string) : FrozenType list =
-                    match (symOf suffix).Compiled with
-                    | ValueSome cf -> cf.Params |> List.map (fun p -> p.Ty)
-                    | ValueNone -> failtestf "val '%s' carries no CompiledForm" suffix
+                    (compiledOf suffix).Params |> List.map (fun p -> p.Ty)
 
-                let compiledReturn (suffix: string) : Frozen.CompiledReturn =
-                    match (symOf suffix).Compiled with
-                    | ValueSome cf -> cf.Return
-                    | ValueNone -> failtestf "val '%s' carries no CompiledForm" suffix
+                let compiledReturn (suffix: string) : Frozen.CompiledReturn = (compiledOf suffix).Return
 
                 // A terse rendering of the source group shape (the `ValRepr` arity).
                 let groupTags (suffix: string) : string list =
