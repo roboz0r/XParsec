@@ -42,7 +42,7 @@ impl = [
     "list.fs",
 ]
 
-# JS-target impl override (codegen-js-steps.md Step 5b Phase 3), selected by the
+# JS-target impl override, selected by the
 # backend via `ReferencedProject.resolveImpl (Some "js")`. `list.js.fs` is the
 # subset of `list.fs` the JS backend can compile (the cons-list type's cases without
 # member methods + the `isEmpty`/`length`/`head`/`tail`/`map`/`append`/`rev` module
@@ -56,13 +56,13 @@ impl-js = [
 # JS-target inline-body source. Without this, `resolveInlineBodies (Some "js")` falls
 # back to the base `inline-bodies` (= `impl` = `list.fs`), whose `toSeq` leg pulls in
 # `System.Collections.Generic.IEnumerable<_>` — unresolvable under a BCL-free JS
-# provider (codegen-js-steps.md Step 8). `list.js.fs` is the metadata-free subset, so
+# provider. `list.js.fs` is the metadata-free subset, so
 # the JS inline-body analysis stays self-contained.
 inline-bodies-js = [
     "list.js.fs",
 ]
 
-# JS runtime *asset* (codegen-js-steps.md Step 5b): the cons-list module functions
+# JS runtime *asset*: the cons-list module functions
 # (`List.length`/`map`/…) the JS backend imports and ships beside its output, read
 # via `ReferencedProject.runtimeModules`. GENERATED from `list.js.fs` (Phase 3) by
 # the JS backend, not hand-authored; regenerable via the codegen-js test suite. See

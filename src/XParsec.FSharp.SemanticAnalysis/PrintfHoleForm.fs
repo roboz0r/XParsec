@@ -24,7 +24,7 @@ open XParsec.FSharp.Lexer
 /// section-string surgery, recovering precision by counting characters after the
 /// `.`) to recover semantics the `FormatPlaceholder` already held. The JS backend
 /// now reads `FieldFormat` / `HoleForm` directly and never sees a .NET format
-/// string. See printf-shared-core-plan.md.
+/// string.
 module PrintfHoleForm =
 
     /// `%A` (`Structured`) print-*width* budget intent. F# repurposes the

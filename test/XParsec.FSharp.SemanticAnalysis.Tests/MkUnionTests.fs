@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// Stage 2 of the anonymous-union plan (docs/anon-unions-plan.md): the `mkUnion`
+// Stage 2 of the anonymous-union plan: the `mkUnion`
 // smart constructor and the total order it sorts members by. `mkUnion` is the
 // ONLY sanctioned producer of `TyOr`, and the equality layer's `n1 = n2`
 // discipline relies on its canonical form — so `string | int` and `int | string`

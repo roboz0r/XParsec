@@ -421,7 +421,7 @@ module ReferencedProject =
     /// an optional backend target. A target's `<base>.<target>.fs` (`prim-types-exn.js.fs`,
     /// `exn → Error`) wins over the base `<base>.fs` (`exn → System.Exception`) when it
     /// exists — the intrinsic-repr analogue of the manifest's `inline-bodies-<t>`
-    /// override (codegen-js-steps.md Step 8). `None`, or a target with no override file,
+    /// override. `None`, or a target with no override file,
     /// falls back to the base companion.
     /// The base `.fs` companion (`prim-types-exn.fsi` ⇒ `prim-types-exn.fs`) — the
     /// primitive *marker* + the CLR platform repr.
@@ -463,7 +463,7 @@ module ReferencedProject =
             // is the only place the repr lives (the `.fsi` commits `type exn =
             // extern`, no repr) — moved here from the codegen-layer harvest.
             //
-            // Two repr faces (intrinsic-runtime-type-plan.md):
+            // Two repr faces:
             //  - the BASE `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker* (its
             //    presence is what publishes the `extern` as an `Intrinsic`, not a
             //    `Class`) and, on CLR, the platform repr itself.

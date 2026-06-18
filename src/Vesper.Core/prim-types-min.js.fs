@@ -2,7 +2,7 @@ namespace Vesper
 
 #nowarn "42"
 
-// JS-target intrinsic bindings for the core primitives (intrinsic-runtime-type-plan.md).
+// JS-target intrinsic bindings for the core primitives.
 // The platform (codegen/runtime) face only — `canon` (the unifier's identity key) is the
 // `.fsi` name itself (`int`/`bool`/`unit`), so each type keeps its distinct identity while
 // projecting to a JS-native tag here. This `<base>.js.fs` override is harvested by

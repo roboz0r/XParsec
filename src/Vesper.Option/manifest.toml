@@ -32,7 +32,7 @@ impl = [
     "option.fs",
 ]
 
-# No `impl-js` override: as of codegen-js-steps.md Step 7 the JS backend compiles the
+# No `impl-js` override: the JS backend compiles the
 # full `option.fs` directly (type members emit as free curried receiver-first
 # functions, and `raise (InvalidOperationException …)` lowers through the external-`new`
 # arm to a native `new Error`), so `resolveImpl (Some "js")` falls back to the base

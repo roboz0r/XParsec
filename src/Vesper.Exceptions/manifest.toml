@@ -1,5 +1,4 @@
-# Vesper.Exceptions — the common BCL exception roots as Vesper *contract* types
-# (codegen-js-steps.md Step 8).
+# Vesper.Exceptions — the common BCL exception roots as Vesper *contract* types.
 #
 # A JS-target package: it lets `InvalidOperationException` & co. resolve through a
 # Vesper-owned `inherit exn` chain WITHOUT host BCL metadata, so a BCL-free JS

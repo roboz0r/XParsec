@@ -3,8 +3,7 @@ module XParsec.FSharp.Codegen.Js.Tests.PrintfPhase4Tests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// printf-shared-core-plan.md Phase 4 (Half B on JS, route (a) — inline front-end
-// lowering): the format-handler specifiers (`%x`/`%o`/`%u`/`%b`/padding/alignment/
+// Half B on JS (route (a) — inline front-end lowering): the format-handler specifiers (`%x`/`%o`/`%u`/`%b`/padding/alignment/
 // `%f`/forced-sign) now emit per-hole JS string expressions instead of the raw value.
 // Before Phase 4 `printfn "%x" 255` silently emitted the number `255`; these tests
 // pin each specifier's Node output to F#'s `printf` semantics (the CLR

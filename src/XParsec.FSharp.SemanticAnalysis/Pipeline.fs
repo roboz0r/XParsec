@@ -58,7 +58,7 @@ module Pipeline =
         // `Intrinsic(_, platform = None)`) is a type the back end cannot lower, so it
         // is surfaced here as a graceful per-decl diagnostic rather than a `failwith`
         // in a single backend's emitter. No-op on a target where every primitive has a
-        // representation (CLR). (intrinsic-runtime-type-plan.md)
+        // representation (CLR).
         PlatformTypes.run ctx tast1
         // Snapshot ctx.Diagnostics again so ResolvedTypes findings are visible on
         // TastFile.Diagnostics.

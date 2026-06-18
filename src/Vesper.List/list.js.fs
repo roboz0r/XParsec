@@ -1,6 +1,6 @@
 namespace Vesper.Collections
 
-// Vesper.List — JS-target `impl` (codegen-js-steps.md Step 5b Phase 3), selected
+// Vesper.List — JS-target `impl`, selected
 // through the manifest `impl-js` override (the mechanism Vesper.Core uses for
 // `inline-bodies-js`) and compiled by the JS backend in *library* mode into the
 // committed `Vesper.List.mjs` runtime asset — retiring the hand-authored `.mjs`.

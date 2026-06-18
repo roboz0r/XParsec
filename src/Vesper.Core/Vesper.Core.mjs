@@ -1,4 +1,4 @@
-// Vesper.Core — JS runtime structural core (codegen-js-steps.md Step 6).
+// Vesper.Core — JS runtime structural core.
 //
 // Committed platform-support asset — the JS analogue of Vesper.Printf's committed
 // CLR DLL. Declared by this package's manifest `runtime-js` key, read by the JS

@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
-// printf-shared-core-plan.md: the per-hole classification lives in
+// The per-hole classification lives in
 // `SemanticAnalysis.PrintfHoleForm` as a *semantic* `HoleForm` — the single
 // accept-gate (`tryClassify`) shared by the Freeze lowering decision and both
 // codegen backends. The CLR-only `(HoleKind, .NET-format, alignment)` projection

@@ -90,8 +90,7 @@ type TPatG<'ty, 'tok> =
     /// scrutinee skips the arm). `ty` is the scrutinee's (reference) type.
     | Null of ty: 'ty * tok: 'tok
 
-/// A format hole's classified per-value formatting (printf-shared-core-plan.md
-/// step (b)). A hole no longer stores the `(Kind, .NET-format, alignment)` triple
+/// A format hole's classified per-value formatting. A hole no longer stores the `(Kind, .NET-format, alignment)` triple
 /// `PrintfSpec.tryHoleFormat` produced — it carries the *classified*, target-neutral
 /// `HoleForm`, and the CLR triple (a runtime artifact) is projected on demand by
 /// `Codegen.Clr.ClrHoleFormat.toDotNetFormat`. Two origins:
@@ -119,7 +118,7 @@ type HoleSpecSource =
 /// position).
 ///
 /// The legacy `(Kind, Format, Alignment)` projection that once lived here as
-/// transitional members was retired in printf-shared-core-plan.md step (d): both
+/// transitional members was retired: both
 /// backends read `Source`'s `HoleForm` directly (the CLR backend then projects
 /// `Field` holes to its .NET-format triple via
 /// `Codegen.Clr.ClrHoleFormat.toDotNetFormat`).

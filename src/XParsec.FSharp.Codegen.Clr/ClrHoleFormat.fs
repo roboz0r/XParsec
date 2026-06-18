@@ -8,8 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 /// consumes. A .NET format string (`"x8"`, `"F2"`, `"+0;-0"`) is a CLR-runtime
 /// dialect — the literal argument handed to `AppendFormatted<T>(v, format)` — so it
 /// belongs *only* here, in the CLR backend; the JS backend reads `FieldFormat`
-/// directly and never reconstructs one. See printf-shared-core-plan.md ("`.NET`
-/// format strings are a CLR dialect").
+/// directly and never reconstructs one.
 module ClrHoleFormat =
 
     /// Project a `FieldFormat` (+ its field alignment) to the legacy

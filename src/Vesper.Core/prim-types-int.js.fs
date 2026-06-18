@@ -2,7 +2,7 @@ namespace Vesper
 
 #nowarn "42"
 
-// JS-target intrinsic bindings for the integer primitives (intrinsic-runtime-type-plan.md).
+// JS-target intrinsic bindings for the integer primitives.
 // Platform (codegen/runtime) face only — the `canon` identity is the `.fsi` name itself,
 // so each integer type keeps a distinct identity while the ≤32-bit ones all project to the
 // JS `number` tag.

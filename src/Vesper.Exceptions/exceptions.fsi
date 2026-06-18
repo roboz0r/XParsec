@@ -2,8 +2,7 @@ namespace System
 
 open Vesper
 
-// The common BCL exception roots, as Vesper *contract* types (codegen-js-steps.md
-// Step 8). Each inherits the exception root `exn` (`Vesper.exn`), so a consumer's
+// The common BCL exception roots, as Vesper *contract* types. Each inherits the exception root `exn` (`Vesper.exn`), so a consumer's
 // subtype check (`raise : exn -> 'T`, a `:> exn` argument) reconciles through this
 // contract `inherit` chain — independent of any host BCL metadata. On JS every one
 // erases to the `exn` repr (`Error`, from `prim-types-exn.js.fs`); the CLR target

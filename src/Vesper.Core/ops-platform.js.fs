@@ -5,10 +5,9 @@ namespace Vesper
 // over the CLR `ops-platform.fs` by the backend via
 // `ReferencedProject.resolveInlineBodies (Some "js")` (manifest key
 // `inline-bodies-js`); each `let inline` body is read across the package boundary
-// and spliced at every use site, exactly like the CLR file. See
-// ../XParsec.FSharp.SemanticAnalysis/docs/codegen-js-steps.md step F1.
+// and spliced at every use site, exactly like the CLR file.
 //
-// THE TEMPLATE IDIOM (codegen-js-steps.md step F0). The inline-IL string position
+// THE TEMPLATE IDIOM. The inline-IL string position
 // carries a JS-expression template with `$N` operand holes (zero-indexed against
 // the operand list in source order: `(# "$0 + $1" x y #)` ⇒ `$0`=x, `$1`=y; `$$`
 // escapes a literal `$`). Semantic analysis treats the string as an opaque,
@@ -50,7 +49,7 @@ namespace Vesper
 // per-call template. The array ops (`GetArray`/`SetArray`/`GetArrayLength`) ARE
 // re-authored here — verbatim from the CLR file, the `ldelem`/`stelem`/`ldlen`
 // mnemonics being target-neutral (the JS backend emits `arr[i]` / `arr[i] = v` /
-// `arr.length`; printf-shared-core-plan Phase 2). `box` and `invalidArg` are not
+// `arr.length`). `box` and `invalidArg` are not
 // re-authored yet (the latter needs external-`new`); a use site needing one simply
 // finds no JS inline body until its F-step lands.
 

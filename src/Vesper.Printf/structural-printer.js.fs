@@ -3,7 +3,7 @@ namespace Vesper
 // structural-printer.js.fs — the JS-target `%A` structural formatter, authored as
 // Vesper source and compiled by the JS backend (manifest `runtime-js`, library mode)
 // into the committed `Vesper.Printf.mjs`. The successor to the hand-authored
-// `Vesper.Printf.mjs` (printf-shared-core-plan.md Phase 3): the *same* shape-keyed
+// `Vesper.Printf.mjs`: the *same* shape-keyed
 // walker, now generated instead of hand-written.
 //
 // WHY NOT the CLR `structural-printer.fs`: that file is interface-dispatch (per-type
@@ -22,7 +22,7 @@ namespace Vesper
 // / `$0 === $1` templates rather than the `(+)` / `(=)` operators (those would pull in
 // the `Vesper.Core` runtime — `structuralEquals` — defeating self-containment).
 //
-// WIDTH-BREAKING LAYOUT (printf-shared-core-plan.md Phase 3, surface B). The walker
+// WIDTH-BREAKING LAYOUT. The walker
 // builds a Wadler `Doc` tree (`Text`/`Line`/`Cat`/`Nest`/`Group`) — the JS analogue of
 // the CLR `structural-printer.fs` `Doc` DU — and lays it out into a single-cell string
 // accumulator (`renderDoc`), threading indent / broken / column exactly like CLR
@@ -424,7 +424,8 @@ module StructuralPrinter =
         let _ = renderDoc (Group(d, false)) out 0 false 0 width
         getStr out
 
-    // Public curried entry — the surface the backend imports
-    // (`structuralFormat(value)(width)(size)`). `width = 0` ⇒ never break (`%0A`).
+    // Public entry — the surface the backend imports. A 3-param named function,
+    // so it emits as a flat call `structuralFormat(value, width, size)` (Fable-style
+    // flat compiled-function ABI). `width = 0` ⇒ never break (`%0A`).
     let structuralFormat (value: obj) (width: int) (size: int) : string =
         renderRoot (fmtValue value (mkBudget size)) (mkStrCell "") width

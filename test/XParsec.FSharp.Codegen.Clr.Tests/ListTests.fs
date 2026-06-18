@@ -52,7 +52,7 @@ let tests =
                                                                                 _) ],
                                                        outerTy,
                                                        _)) ] ->
-                        // printf-shared-core step (d): the hole carries its classified
+                        // The hole carries its classified
                         // `Source`; `%A` is a `PercentA` (the old `Structured` kind).
                         let isPercentA =
                             match hole.Source with

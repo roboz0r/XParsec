@@ -5,8 +5,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// printf-shared-core-plan.md step (d) retired the `HoleSpec.{Kind,Format,Alignment}`
-// projection members; reconstruct the legacy CLR `(HoleKind, .NET-format, alignment)`
+// `HoleSpec.{Kind,Format,Alignment}` projection members were retired; reconstruct the
+// legacy CLR `(HoleKind, .NET-format, alignment)`
 // triple here from the hole's classified `HoleForm` (`hole.Source`) via the CLR-only
 // `ClrHoleFormat.toDotNetFormat`, so these per-specifier projection assertions keep
 // pinning the CLR emission shape. `%A` reproduces the slot punning the old triple

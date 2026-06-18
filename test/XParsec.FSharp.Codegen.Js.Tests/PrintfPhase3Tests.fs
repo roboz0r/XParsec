@@ -4,7 +4,7 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// printf-shared-core-plan Phase 3 (surface B, flat-parity slice): the `%A` structural
+// The `%A` structural
 // formatter, authored as Vesper source (`structural-printer.js.fs`) and compiled by the
 // JS backend in library mode into the committed `Vesper.Printf.mjs` — retiring the
 // hand-authored runtime. The walker stays shape-keyed and FLAT-output (byte-parity with
@@ -55,7 +55,7 @@ let tests =
                         "\n"
                         [
                             "import { structuralFormat } from \"./Vesper.Printf.mjs\";"
-                            "const fmt = (v) => structuralFormat(v)(80)(10000);"
+                            "const fmt = (v) => structuralFormat(v, 80, 10000);"
                             // A union value carries `tag` + fields as own-keys and `cases()` on the
                             // prototype — exactly the emitted-class shape (Object.keys excludes cases).
                             "const mkUnion = (names) => { const p = { cases() { return names; } };"
@@ -113,7 +113,7 @@ let tests =
                         "primitives / unit / tuple / record / union forms / cons-list, all flat"
             }
 
-            // Surface B proper (printf-shared-core-plan.md Phase 3 remainder): the shared
+            // Surface B proper: the shared
             // Wadler `Doc`/`render` width-breaking kernel. A `Group` lays out ALL-FLAT when
             // its flat width fits from the current column, else ALL-BROKEN — its `Line`s
             // become a newline + the active `Nest` indent. The expectations below are
@@ -126,7 +126,7 @@ let tests =
                         "\n"
                         [
                             "import { structuralFormat } from \"./Vesper.Printf.mjs\";"
-                            "const fmt = (v, w) => structuralFormat(v)(w)(10000);"
+                            "const fmt = (v, w) => structuralFormat(v, w, 10000);"
                             "const mkUnion = (names) => { const p = { cases() { return names; } };"
                             "  return (tag, fields) => Object.assign(Object.create(p), { tag }, fields); };"
                             "const lst = mkUnion([\"Empty\", \"Cons\"]);"

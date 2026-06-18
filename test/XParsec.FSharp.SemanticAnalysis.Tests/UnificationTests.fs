@@ -881,7 +881,7 @@ let tests =
                 Expect.isTrue hasWarning "unrelated type test warns (not errors)"
             }
 
-            // Stage 3 of the anonymous-union plan (docs/anon-unions-plan.md): the
+            // Stage 3 of the anonymous-union plan: the
             // front door. `translateType` maps the CST `Type.UnionType` / `Type.Null`
             // surface to a canonical `TyOr` via `mkUnion`. No assignability yet
             // (Stage 4+), so a union only enters here through an *annotation* on a
@@ -941,7 +941,7 @@ let tests =
                 | other -> failtestf "expected a TyOr, got %A" other
             }
 
-            // Stage 4 of the anonymous-union plan (docs/anon-unions-plan.md): the
+            // Stage 4 of the anonymous-union plan: the
             // directional `subsumes` query learns union membership — the first
             // user-visible behaviour. `unify` is untouched; these are read-only
             // calls (no `Link` mutation), asserted directly. All three relations
@@ -996,7 +996,7 @@ let tests =
                     "(int | string) ⋠ int — the consumer must narrow first"
             }
 
-            // Stage 5 of the anonymous-union plan (docs/anon-unions-plan.md):
+            // Stage 5 of the anonymous-union plan:
             // committing coercion at expected-type positions. The annotation sites
             // (let return / parameter `Pat.Typed`) switched from symmetric `unify` to
             // directional `unifyAnnotation`, so a value flows into a union-typed slot
@@ -1068,7 +1068,7 @@ let tests =
                 Expect.equal tv.Link ValueNone "the actual's typar is left free (no pin)"
             }
 
-            // Stage 6 of the anonymous-union plan (docs/anon-unions-plan.md):
+            // Stage 6 of the anonymous-union plan:
             // constraint reduction. `equality` and `comparison` are deliberately
             // asymmetric (§Constraints): a union satisfies EQUALITY iff *every*
             // member does — generic `=` is total on the union's repr (cross-member
@@ -1122,7 +1122,7 @@ let tests =
                     "int | string fails comparison even though int and string each support it"
             }
 
-            // Stage 7 of the anonymous-union plan (docs/anon-unions-plan.md):
+            // Stage 7 of the anonymous-union plan:
             // binder narrowing + closed-union exhaustiveness. A `match` on a `TyOr`
             // scrutinee narrows each `:? M as x` arm to `M`, narrows a fall-through
             // catch-all to the residual `mkUnion (ts \ matched)`, and — because the
@@ -1168,7 +1168,7 @@ let tests =
                 Expect.isFalse (hasUnionExhaustivenessWarning ctx) "catch-all makes it exhaustive"
             }
 
-            // Stage 8 of the anonymous-union plan (docs/anon-unions-plan.md): the
+            // Stage 8 of the anonymous-union plan: the
             // closing freeze round-trip + backend handoff. No codegen — the front
             // end must hand a well-formed `FTOr` (in canonical order) to the backend
             // boundary. Stage 1 already mapped `TyOr → FTOr` in `freezeTy`; this is

@@ -5,8 +5,7 @@ namespace XParsec.FSharp.Codegen.Common
 /// `Case (·, ·)`). Pure data: no IL, no JS. The CLR backend lowers a `SinkOp`
 /// list to `IFormatSink` `callvirt`s (`EmitStructuralFormat`); the JS central
 /// shape-keyed walker is *checked against* the same grammar by a cross-target
-/// differential test rather than consuming it (the dispatch split is deliberate —
-/// see printf-shared-core-plan.md). A future opt-in per-type JS `Format` emitter
+/// differential test rather than consuming it (the dispatch split is deliberate). A future opt-in per-type JS `Format` emitter
 /// would consume this recipe the same way the CLR emitter does.
 module StructuralFormatRecipe =
 

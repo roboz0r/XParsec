@@ -41,16 +41,15 @@ impl = [
 
 # JS-target inline-body source: none. The printf family is front-end special-cased on
 # JS (lowered to `Format` nodes, not inline-spliced), and `formatter.fs` pulls in
-# `System.Span`/`ArrayPool` — unresolvable under a BCL-free JS provider
-# (codegen-js-steps.md Step 8). An explicit empty override keeps `resolveInlineBodies
+# `System.Span`/`ArrayPool` — unresolvable under a BCL-free JS provider.
+# An explicit empty override keeps `resolveInlineBodies
 # (Some "js")` from falling back to the BCL-heavy base `impl`.
 inline-bodies-js = []
 
 # JS-target runtime asset: the committed `%A` structural formatter (`Vesper.Printf.mjs`),
 # the JS analogue of the Vesper.Printf CLR DLL. The backend's `%A` (`Structured`) format
-# holes import `structuralFormat` from here (codegen-js-steps.md Step 6). GENERATED from
-# `structural-printer.js.fs` (printf-shared-core-plan.md Phase 3, incl. surface-B width
-# breaking) by the JS backend in library mode — the shape-keyed, Wadler-`Doc`-laid-out
+# holes import `structuralFormat` from here. GENERATED from
+# `structural-printer.js.fs` (incl. surface-B width breaking) by the JS backend in library mode — the shape-keyed, Wadler-`Doc`-laid-out
 # successor to the hand-authored asset (regenerable via the codegen-js test suite,
 # `PrintfPhase3Tests`). It is NOT compiled
 # from the printf `.fsi` contract (printf is front-end special-cased, lowered to `Format`

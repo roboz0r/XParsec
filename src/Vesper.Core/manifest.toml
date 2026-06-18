@@ -73,7 +73,7 @@ inline-bodies = [
     "int-comparison.fs",
 ]
 
-# JS-target override (codegen-js-steps.md step F1), selected by the backend via
+# JS-target override, selected by the backend via
 # `ReferencedProject.resolveInlineBodies (Some "js")`. The override REPLACES the
 # whole list, so the target-neutral `ops-std.fs` (logical/composition/pipe — pure
 # F#, no platform IL) is repeated unchanged; only `ops-platform.fs` diverges to
@@ -83,7 +83,7 @@ inline-bodies-js = [
     "ops-std.fs",
 ]
 
-# Hand-authored JS runtime *asset* (codegen-js-steps.md Step 6): the structural
+# Hand-authored JS runtime *asset*: the structural
 # core (`equals` / `structuralHash`) the JS backend imports and ships beside its
 # output — the platform-support analogue of Vesper.Printf's committed DLL, read via
 # `ReferencedProject.runtimeModules`. NOT a parsed source (a `.mjs`, not an

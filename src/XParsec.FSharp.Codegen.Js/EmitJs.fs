@@ -730,15 +730,15 @@ module EmitJs =
 
     /// Build the JS expression a format hole's argument contributes.
     ///
-    /// printf-shared-core-plan.md **step (c)**: the JS backend reads the hole's
-    /// classified semantic model (`HoleForm` / `FieldFormat`, on `hole.Source`)
+    /// The JS backend reads the hole's classified semantic model (`HoleForm` /
+    /// `FieldFormat`, on `hole.Source`)
     /// directly and builds real `JsExpr` nodes from the typed fields — no `.NET`
     /// format string is reconstructed or re-parsed (that dialect is CLR-only). A
     /// `RawFormat` interpolation clause (`{x:X}`) is such a CLR dialect string, so
     /// JS doesn't interpret it — the raw operand stands (the concat coerces it).
     ///
     /// `%A` (`PercentA`) renders the value as copy-pasteable source through the
-    /// `structuralFormat` runtime, curried over `(value)(width)(size)`; the width /
+    /// `structuralFormat` runtime, a flat call `(value, width, size)`; the width /
     /// node-size budgets resolve through `percentAWidth` / `percentASize` (the
     /// `80` / `10000` defaults, shared with the CLR `AppendStructured`).
     ///
@@ -930,7 +930,7 @@ module EmitJs =
                 JsExpr.Identifier(JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey, ValueNone)
 
             let value = buildExpr ctx operand
-            call (call (call fmtRef [ value ]) [ num (percentAWidth width) ]) [ num (percentASize size) ]
+            call fmtRef [ value; num (percentAWidth width); num (percentASize size) ]
         | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) -> emitField fmt alignment
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a

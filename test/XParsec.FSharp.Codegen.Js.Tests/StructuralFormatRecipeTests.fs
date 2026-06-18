@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Common.StructuralFormatRecipe
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Phase 1 of printf-shared-core-plan.md: the `%A` output *grammar* (record /
+// The `%A` output *grammar* (record /
 // union forms) is lifted to `Codegen.Common.StructuralFormatRecipe`, the single
 // source of truth. The CLR backend lowers the recipe to IL directly (the
 // end-to-end `PrintfDifferentialTests` prove that path byte-identical, flat and

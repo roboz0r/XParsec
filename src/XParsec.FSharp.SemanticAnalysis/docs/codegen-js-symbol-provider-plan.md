@@ -3,9 +3,9 @@
 **Status:** plan, not started. **Supersedes**
 [brainstorm-codegen-js-symbol-provider](brainstorm-codegen-js-symbol-provider.md)
 (kept for the original design discussion; this plan is the up-to-date,
-seam-accurate version). Downstream of [codegen-js-plan](codegen-js-plan.md): this
-provider resolves TS-sourced types into TAST, but nothing it resolves is runnable
-until the JS backend can emit. It *can* be prototyped against the CLR pipeline
+seam-accurate version). This provider resolves TS-sourced types into TAST, but
+nothing it resolves is runnable until the JS backend can emit. It *can* be
+prototyped against the CLR pipeline
 (types resolve fine; they just can't codegen yet), making it a low-risk parallel
 workstream.
 
@@ -48,7 +48,7 @@ The brainstorm's *file:line anchors are out of date*; the current seam:
   rehydration).
 - **`TyOr` is now a real plan.** The brainstorm's biggest open fork (erased `U2`
   DU vs native anonymous union) is **decided: native**, scoped in
-  [anon-unions-plan](anon-unions-plan.md). `T | null | undefined` and general
+  the anonymous-union front-end (`TyOr`). `T | null | undefined` and general
   `number | string` map to `TyOr`, not a synthetic `Core.Js` library type. This
   is the faithful TS match (TS unions *are* anonymous structural unions) and
   reuses the parser surface the CST already accepts.
@@ -75,9 +75,9 @@ builder closures. Not a per-lookup RPC into a live Node checker, because:
 | generics `<T>`, `<T extends Foo>`, `<T = string>` | typars + args; bound → constraint; default → `ExternalConstraint.Default` | `TyClass(name, args)` + builder closures |
 | anonymous object `{x:number}` | content-hash → synthetic nominal name | `TyRecord(hash, …)` + side-table for readable name |
 | `any` | dynamic/top, infectious | **new `TyDynamic`** + unifier absorb rule |
-| `unknown` | top, forbids access until narrowed | map to `obj` in v1 (per [anon-unions-plan](anon-unions-plan.md)) |
+| `unknown` | top, forbids access until narrowed | map to `obj` in v1 |
 | `never` | bottom | `TyOr []` |
-| `T \| null \| undefined`, general `number \| string` | **native union** | `TyOr [members]` ([anon-unions-plan](anon-unions-plan.md)) |
+| `T \| null \| undefined`, general `number \| string` | **native union** | `TyOr [members]` |
 | intersection `A & B` | erase | `TyDynamic` (or one side) |
 | literal `"GET" \| "POST"` | erase to base (v1) | `string`/`number` |
 | conditional/mapped (`Partial<T>`, `ReturnType<F>`) | query the *evaluated* type | concrete `SemType` snapshot; generic form lost |
@@ -118,8 +118,7 @@ symbol later (big for `@types/node` / DOM).
 F#'s inference asks constraint questions TS metadata never answered — `when 'T :
 equality`, comparison, SRTP `(+)`. The provider needs a default policy (assume
 structural/`===` equality; or refuse generic-constrained use), since it won't
-fall out of the manifest. For `TyOr` members this composes with
-[anon-unions-plan](anon-unions-plan.md)'s all-members-or-defer constraint rule.
+fall out of the manifest. For `TyOr` members this composes with the all-members-or-defer constraint rule.
 
 ## Scope
 

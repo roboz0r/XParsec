@@ -1,4 +1,4 @@
-// Vesper.Comparison — JS runtime structural comparator (codegen-js-steps.md Step 6),
+// Vesper.Comparison — JS runtime structural comparator,
 // the ordering analogue of Vesper.Core.mjs's `structuralEquals`. A committed
 // platform-support asset declared by this package's manifest `runtime-js` key; the
 // backend materialises it beside the output and the `comparison.js.fs` aggregate

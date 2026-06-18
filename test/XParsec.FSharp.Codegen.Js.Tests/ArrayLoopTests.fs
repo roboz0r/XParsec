@@ -4,7 +4,7 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// printf-shared-core-plan Phase 2 — the JS-backend array / iteration gaps:
+// JS-backend array / iteration gaps:
 // general `'T[]` (`newarr`/`ldelem`/`stelem`/`ldlen`), `while` loops, and the
 // mutable locals a loop drives (`let mutable` + `Assignment`). Each construct is
 // proven by emission (the lowering shape) plus Node execution (the behaviour).
