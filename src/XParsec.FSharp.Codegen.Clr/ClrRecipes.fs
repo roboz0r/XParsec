@@ -567,10 +567,15 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             ValueSome
                 {
                     Emit = fun il -> il.Encoder.Call callHandle
-                    // The spine consumes one element per SOURCE group (the flat CLR
-                    // arg count can exceed this when a tupled group flattens); the
-                    // walker reads `Groups` to flatten each group's argument.
-                    ArgCount = argCount
+                    // `ArgCount` is the FLAT CLR pop count — the number of values the
+                    // `call` actually consumes, which drives the walker's stack-depth
+                    // adjustment (`Pushes - ArgCount`). It is NOT the spine length: a
+                    // tupled group flattens to N flat args from ONE spine element, and a
+                    // lone `()` group erases to ZERO from one. The number of spine
+                    // elements consumed is `Groups.Length` (the walker reads `Groups` to
+                    // flatten each group's argument); keeping `ArgCount` flat is what
+                    // keeps the IlIr stack model balanced past a non-`GSimple` call.
+                    ArgCount = List.length flatParamTys
                     // A `void` call leaves nothing; the recipe consumer reifies the
                     // `unit` value (a value-position result still needs one).
                     Pushes = if returnsVoid then 0 else 1

@@ -391,6 +391,113 @@ module EmitClosures =
                         mv.Name
                         free
 
+    /// Eta-expand every NON-saturated reference to an EXPORTED module function so
+    /// the function stays a flat static method even though it is *also* used
+    /// higher-order inside its own assembly
+    /// (function-method-compiled-form-plan.md §"CLR public-function escape gap").
+    ///
+    /// A publicly reachable module function's `.fsi` advertises its flat signature
+    /// independently of how the function is used inside its producing assembly, so a
+    /// cross-assembly consumer decurries that into a flat member-ref and `call`s it.
+    /// The prior `collectStaticFns` policy demoted a function ENTIRELY to a closure on
+    /// any intra-assembly escape (`eligible = order |> filter (not escapes)`); the
+    /// flat static method then never existed and the consumer's `call` bound nothing
+    /// → `MissingMethodException` at JIT. Matching F# (and the JS backend's flat
+    /// model), the flat method stays canonical and each value-use / partial
+    /// application becomes a curried closure that `call`s it — realised here by
+    /// eta-expanding `f` to its full SOURCE arity at every non-saturated occurrence:
+    ///   * a bare value-use  `f`     → `fun a0 … a(n-1) -> f a0 … a(n-1)`
+    ///   * an under-application `f x` → `(fun a0 … a(n-1) -> f a0 … a(n-1)) x`
+    /// After the rewrite every surviving `Var f` heads a saturated (≥ arity) spine,
+    /// so `collectStaticFns`' escape walk no longer flags `f` and it is emitted as a
+    /// static method; the synthesised eta-lambdas are ordinary closures whose body is
+    /// a saturated direct `call` to that method (the "wrapper that calls it").
+    ///
+    /// Only EXPORTED functions — those with a `ModuleMemberInfo`, i.e. a named-holder
+    /// public method an `.fsi` can name — are rewritten; a holderless / anonymous
+    /// escaper has no cross-assembly contract, so its existing closure demotion is
+    /// correct and left untouched. A function that genuinely *captures* a module
+    /// local still drops out of the static set via `collectStaticFns`' capture
+    /// fixpoint; its eta-lambdas then resolve `f` through the closure `Invoke` path,
+    /// which is equally correct (a saturated call works either way). The whole pass is
+    /// a no-op when no exported function exists (the entire current corpus, where the
+    /// gap was latent), so it is behavior-preserving until a real escaper lands.
+    let forceExportedStaticFns
+        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (decls: Frozen.TDecl list)
+        : Frozen.TDecl list =
+        // Each exported top-level function's source arity (its curried group count) —
+        // the number of arrows the eta-expansion peels, and the spine length at or
+        // above which a reference is a saturated direct `call`.
+        let arity = Dictionary<NodeKey, int>()
+
+        for f in CompiledFns.gather decls do
+            if Map.containsKey f.Key.Raw moduleMembers then
+                arity.[f.Key] <- List.length f.Groups
+
+        if arity.Count = 0 then
+            decls
+        else
+            // `fun a0 … a(n-1) -> f a0 … a(n-1)`, typed from the reference's own
+            // curried type: peel `n` arrows for the param domains + each `App` node's
+            // result type. A tuple / unit source group needs no special case — the
+            // single fresh param carries the group's (possibly tuple / unit) domain
+            // and is passed as one argument, exactly as the saturated-call site
+            // (`EmitCall`) re-flattens it from `StaticFn.Groups`.
+            let buildEta (fVar: Frozen.TExpr) (n: int) : Frozen.TExpr =
+                let tok = TastWalk.exprTok fVar
+
+                let rec arrows i ty =
+                    if i = 0 then
+                        []
+                    else
+                        match ty with
+                        | FTFun(dom, cod) -> (dom, cod) :: arrows (i - 1) cod
+                        | other ->
+                            failwithf "forceExportedStaticFns: function type has fewer than %d arrows: %A" n other
+
+                let levels = arrows n (typeOfExpr fVar)
+                let keys = levels |> List.map (fun _ -> mintUnitParamKey ())
+
+                let argTriples =
+                    List.map2 (fun k (dom, cod) -> TExprG.Var(k, dom, tok), cod, tok) keys levels
+
+                let body = TastWalk.rebuildApp fVar argTriples
+
+                List.foldBack2
+                    (fun k (dom, cod) acc -> TExprG.Lambda(TPatG.NamedSimple(k, dom, tok), acc, FTFun(dom, cod), tok))
+                    keys
+                    levels
+                    body
+
+            let rec rw (e: Frozen.TExpr) : Frozen.TExpr =
+                match e with
+                | TExprG.Var(k, _, _) when arity.ContainsKey k -> buildEta e arity.[k]
+                | TExprG.App _ ->
+                    let head, args = TastWalk.collectSpine [] e
+                    let args = args |> List.map (fun (a, t, tk) -> rw a, t, tk)
+
+                    match head with
+                    | TExprG.Var(k, _, _) when arity.ContainsKey k ->
+                        if List.length args >= arity.[k] then
+                            // Saturated (or over-applied): the head stays a direct
+                            // `call`; the residual spine over-applies `f`'s result.
+                            TastWalk.rebuildApp head args
+                        else
+                            // Under-application: partially apply the eta closure.
+                            TastWalk.rebuildApp (buildEta head arity.[k]) args
+                    | _ -> TastWalk.rebuildApp (rw head) args
+                | _ -> TastLower.mapChildren rw e
+
+            decls
+            |> List.map (fun d ->
+                match d with
+                | TDeclG.Let(p, value, isInline, tk) -> TDeclG.Let(p, rw value, isInline, tk)
+                | TDeclG.Expression(e, tk) -> TDeclG.Expression(rw e, tk)
+                | TDeclG.LetFn _ -> failwith "forceExportedStaticFns: LetFn must be normalised to Let by lower"
+                | TDeclG.Type _ -> d
+            )
+
     /// Classify which top-level function bindings can be emitted as **static
     /// methods** rather than closures. A candidate is `let [rec] f p0 … = body`
     /// whose value peels to at least one simple parameter. Eligible only when:

@@ -60,6 +60,7 @@
     <Compile Include="SeqModuleTests.fs" />
     <Compile Include="SetModuleTests.fs" />
     <Compile Include="UseSetSampleTests.fs" />
+    <Compile Include="CrossAssemblyEscapeTests.fs" />
     <Compile Include="LocalModuleTests.fs" />
     <Compile Include="InferResolutionTests.fs" />
     <Compile Include="TupleTests.fs" />

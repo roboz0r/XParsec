@@ -161,7 +161,16 @@ module EmitCall =
             // provider — codegen routes by identity, not name suffix.
             match env.Provider.TryEmitCall(name, key, typeOfExpr head) with
             | ValueSome recipe ->
-                let leading, rest = List.splitAt recipe.ArgCount spineArgs
+                // The number of application-spine elements this call consumes. With a
+                // captured `Groups` (Step C) it is one per SOURCE group — a tupled /
+                // lone-`()` group maps to a DIFFERENT flat arg count (`recipe.ArgCount`),
+                // so the split must key off the group count, not the flat count.
+                let spineConsumed =
+                    match recipe.Groups with
+                    | ValueSome groups -> List.length groups
+                    | ValueNone -> recipe.ArgCount
+
+                let leading, rest = List.splitAt spineConsumed spineArgs
 
                 // When the recipe carries the callee's SOURCE grouping (an external
                 // module function with a captured `ValRepr`, Step C), `leading` holds

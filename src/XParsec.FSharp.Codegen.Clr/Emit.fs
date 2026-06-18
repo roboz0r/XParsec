@@ -36,6 +36,7 @@ module Emit =
     let collectProgramValues = EmitClosures.collectProgramValues
     let typeKeyNsName = EmitClosures.typeKeyNsName
     let validateModuleValueInits = EmitClosures.validateModuleValueInits
+    let forceExportedStaticFns = EmitClosures.forceExportedStaticFns
     let collectStaticFns = EmitClosures.collectStaticFns
     let staticFnTypars = EmitClosures.staticFnTypars
     let discoverClosures = EmitClosures.discoverClosures

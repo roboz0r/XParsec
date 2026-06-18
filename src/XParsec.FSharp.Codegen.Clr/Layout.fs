@@ -452,7 +452,15 @@ module internal Layout =
     /// exe or holder-less fns exist). Reuses the existing lowering/discovery
     /// passes unchanged and carries their products.
     let build (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
-        let lowered = Emit.lower tast.Decls
+        // Eta-expand non-saturated references to EXPORTED module functions so a
+        // publicly reachable function used higher-order in its own assembly still
+        // emits its flat static method (the `.fsi` advertises it; a cross-assembly
+        // consumer `call`s it). Runs once over the shared `lowered`, so the SAME
+        // rewritten nodes feed `collectStaticFns` (now sees saturated uses → static
+        // method) and `discoverClosures` (sees the eta-lambdas → wrapper closures).
+        // A no-op when no exported function exists. See `forceExportedStaticFns`.
+        let lowered =
+            Emit.lower tast.Decls |> Emit.forceExportedStaticFns tast.ModuleMembers
         // The anonymous "Program" holder's key — `(None, project.ModuleName)` — owns
         // the holder-less fns + `Main` + the top-level value fields / `.cctor`.
         let programHolder = None, project.ModuleName

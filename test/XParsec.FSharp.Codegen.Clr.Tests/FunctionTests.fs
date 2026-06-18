@@ -212,6 +212,48 @@ let tests =
                     Expect.isEmpty (staticFnMethods bytes) "carries its source name `sumTo`, not an anonymous `fn$`"
                 }
 
+            // ---- public-function escape gap (forceExportedStaticFns) ----------
+            // An EXPORTED (named-holder) module function used higher-order *within
+            // its own assembly* must still emit its flat static method — the `.fsi`
+            // advertises it, so a cross-assembly consumer `call`s it; demoting it
+            // entirely to a closure (the old all-or-nothing policy) would leave that
+            // `call` unbound → `MissingMethodException` at JIT. `forceExportedStaticFns`
+            // eta-expands the escaping reference so `addOne` stays a static method AND
+            // a wrapper closure (`fun a -> addOne a`) carries the value-use.
+            yield
+                test "an exported module function used higher-order keeps its flat static method (escape gap)" {
+                    let src =
+                        String.concat
+                            "\n"
+                            [
+                                "module M ="
+                                "    let addOne x = x + 1"
+                                "let apply g x = g x"
+                                "printfn \"%d\" (apply addOne 41)"
+                            ]
+
+                    let _, artifact = compileSource "FnEscapeExport" src
+                    let bytes = Codegen.toBytes artifact
+                    let exitCode, output = runEntryPoint bytes
+                    Expect.equal exitCode 0 "Main returns 0"
+                    Expect.equal (output.Trim()) "42" "apply addOne 41 = 42 via the wrapper closure"
+
+                    // The load-bearing assertion: the flat method survived the escape.
+                    // Pre-fix `addOne` was demoted to a closure and this method did not
+                    // exist (the cross-assembly `MissingMethodException` latent bug).
+                    let addOne = moduleStaticMethod bytes "M" "addOne"
+                    Expect.isTrue addOne.IsStatic "addOne is still a static method on the M holder"
+                    Expect.equal (addOne.GetParameters().Length) 1 "one flat param (the contract the .fsi advertises)"
+
+                    // The value-use is carried by a wrapper closure that `call`s it.
+                    let asm = loadAssembly bytes
+
+                    let hasClosure =
+                        asm.GetTypes() |> Array.exists (fun t -> t.Name.StartsWith "<closure>")
+
+                    Expect.isTrue hasClosure "a wrapper closure was emitted for the eta-expanded value-use"
+                }
+
             // ---- compiled-form: tuple flattening + void everywhere -------------
             // (function-method-compiled-form-plan.md Step B). A tupled source group
             // flattens to N flat CLR params (full F#), and a `unit` return is genuine

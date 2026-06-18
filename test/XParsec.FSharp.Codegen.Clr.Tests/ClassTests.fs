@@ -409,6 +409,13 @@ let staticTests =
             //     module values / static methods inside the holder `.cctor`. A
             //     value that demotes to a closure held in a `Main` local (which a
             //     `.cctor` cannot see) fails with a targeted message.
+            //
+            //     `f` is a *holderless* (top-level, anonymous) function so it stays a
+            //     `Main`-local closure: `forceExportedStaticFns` only rescues EXPORTED
+            //     functions (an exported `f` would instead become a static method, and
+            //     `seed = f` eta-expand to a closure — no longer a module value — so
+            //     this validation would not fire). The holderless form preserves the
+            //     Main-local-dependent-init scenario this anchor pins.
             test "a module value whose init needs a Main local fails with a targeted error" {
                 let msg =
                     try
@@ -417,8 +424,8 @@ let staticTests =
                             (String.concat
                                 "\n"
                                 [
+                                    "let f = fun (x: int) -> x + 1"
                                     "module Helper ="
-                                    "    let f = fun (x: int) -> x + 1"
                                     "    let seed : int -> int = f"
                                 ])
                         |> ignore

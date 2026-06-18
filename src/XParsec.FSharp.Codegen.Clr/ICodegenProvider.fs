@@ -18,12 +18,14 @@ type CallRecipe =
         ArgCount: int
         Pushes: int
         /// The callee's SOURCE argument grouping, when known (an external module
-        /// function carrying a captured `ValRepr` — Step C). `ArgCount` is then the
-        /// number of application-spine elements consumed (one per source group), and
-        /// the walker flattens each group's argument to its pushed CLR values
-        /// (a tupled group → N pushes; a lone `()` group → none), mirroring the
-        /// in-assembly static-fn arm. `ValueNone` for every other recipe: the walker
-        /// pushes `ArgCount` spine elements one-to-one.
+        /// function carrying a captured `ValRepr` — Step C). The walker then consumes
+        /// `Groups.Length` application-spine elements (one per source group) and
+        /// flattens each group's argument to its pushed CLR values (a tupled group → N
+        /// pushes; a lone `()` group → none), mirroring the in-assembly static-fn arm.
+        /// `ArgCount` stays the FLAT pushed count (so `Pushes - ArgCount` keeps the
+        /// stack model balanced even though `Groups.Length` ≠ the flat count here).
+        /// `ValueNone` for every other recipe: the walker pushes `ArgCount` spine
+        /// elements one-to-one (group count = flat count).
         Groups: Frozen.ArgGroup list voption
     }
 
