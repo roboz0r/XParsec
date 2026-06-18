@@ -1033,8 +1033,8 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member val Desugared = SideTable<DesugaredForm>() with get
     /// Keyed by an `Expr.App` NodeKey; present only for printf calls lowered
     /// inline (literal format, fully applied, a `StdOut`/`StdErr`/`StringResult`
-    /// sink, every specifier in `PrintfSpec.tryHoleFormat`). Absence keeps the
-    /// existing FSharp.Core path.
+    /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
+    /// the existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with

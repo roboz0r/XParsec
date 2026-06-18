@@ -21,6 +21,7 @@
     <Compile Include="EmitLower.fs" />
     <Compile Include="EmitClosures.fs" />
     <Compile Include="EmitResolve.fs" />
+    <Compile Include="ClrHoleFormat.fs" />
     <Compile Include="EmitFormat.fs" />
     <Compile Include="EmitDispatch.fs" />
     <Compile Include="EmitPattern.fs" />

@@ -158,8 +158,8 @@ type FormatPlaceholder =
         Type: FormatType
         /// The raw type letter (`'x'` vs `'X'`, `'e'` vs `'E'`, …). `Type`
         /// collapses the case-bearing specifiers, so the literal letter is kept
-        /// here for consumers that must render the .NET format in the right case
-        /// (`PrintfSpec.tryHoleFormat`).
+        /// here for consumers that must render the format in the right case
+        /// (`PrintfHoleForm.tryClassify`).
         TypeChar: char
     }
 

@@ -235,7 +235,7 @@ module internal UnificationInferLiterals =
         | _ -> ValueNone
 
     /// Whether every specifier is one the happy path lowers inline
-    /// (`PrintfSpec.tryHoleFormat`); a `false` keeps the FSharp.Core cold
+    /// (`PrintfHoleForm.tryClassify`); a `false` keeps the FSharp.Core cold
     /// path. `%%` escapes are lowerable (P2): Freeze collapses `%%`→`%` in the
     /// literal segment. Only interpolation holes (`Expr`), orphan specifiers
     /// and lexer-error parts force the cold path.
@@ -249,7 +249,7 @@ module internal UnificationInferLiterals =
                 | StringPart.FormatSpecifier t ->
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
                     | ValueSome p ->
-                        match PrintfSpec.tryHoleFormat p with
+                        match PrintfHoleForm.tryClassify p with
                         | ValueSome _ -> ()
                         | ValueNone -> ok <- false
                     | ValueNone -> ok <- false

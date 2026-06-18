@@ -206,8 +206,17 @@ let tests =
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
-                        Expect.equal hole.Format None "no .NET format string for %d"
-                        Expect.equal hole.Alignment None "no alignment"
+
+                        // step (d): the hole carries its classified `Source`; `%d` (no
+                        // flags) is a plain verbatim field with no alignment (no .NET
+                        // format string, no padding).
+                        match hole.Source with
+                        | HoleSpecSource.Classified hf ->
+                            Expect.equal
+                                hf
+                                (PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim, None))
+                                "%d → verbatim field, no alignment"
+                        | other -> failtestf "expected a Classified source for %%d, got: %A" other
                     | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "unexpected lowered shape: %A" other
             }

@@ -90,38 +90,48 @@ type TPatG<'ty, 'tok> =
     /// scrutinee skips the arm). `ty` is the scrutinee's (reference) type.
     | Null of ty: 'ty * tok: 'tok
 
-/// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Alignment` is
-/// the field width (negative ⇒ left-justify). `Kind`/`Format`/`Alignment` are
-/// produced by `PrintfSpec.tryHoleFormat`. For a `Structured` (`%A`) hole the
-/// `Format` slot instead carries the print-size budget (see `PercentASizeBudget`).
+/// A format hole's classified per-value formatting (printf-shared-core-plan.md
+/// step (b)). A hole no longer stores the `(Kind, .NET-format, alignment)` triple
+/// `PrintfSpec.tryHoleFormat` produced — it carries the *classified*, target-neutral
+/// `HoleForm`, and the CLR triple (a runtime artifact) is projected on demand by
+/// `Codegen.Clr.ClrHoleFormat.toDotNetFormat`. Two origins:
+/// - `Classified` — the classification the lowering gate (`FreezeExpr`) already
+///   computed via `PrintfHoleForm.tryClassify` to decide whether the hole lowers at
+///   all. Covers every printf specifier (`%d`, `%A`, `%08.2f`, …) and every
+///   printf-style `%d{x}` interpolation hole. Both backends read `HoleForm`
+///   directly — no re-classification, and the gate's `ValueNone` (defer) verdict
+///   never reaches here, so no consumer needs an unreachable fallback arm.
+/// - `RawFormat` — an interpolation `{x:fmt}` custom-format clause (`{x:X}`,
+///   `{x:N2}`): a raw .NET format string (or `None`) with no printf placeholder.
+///   A CLR dialect, faithful only on the CLR backend, carried verbatim.
+///
+/// `PrintfHoleForm` compiles before this file, so the classified `HoleForm` is
+/// stored here directly rather than re-derived per consumer.
+[<RequireQualifiedAccess>]
+type HoleSpecSource =
+    | Classified of PrintfHoleForm.HoleForm
+    | RawFormat of fmt: string option
+
+/// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Source` is the
+/// hole's classified formatting (printf classification or interpolation format
+/// clause); `Tok` is the specifier's source token for source maps / PDBs
+/// ([[project_tast_tok_migration]] — `FormatPlaceholder` itself carries no
+/// position).
+///
+/// The legacy `(Kind, Format, Alignment)` projection that once lived here as
+/// transitional members was retired in printf-shared-core-plan.md step (d): both
+/// backends read `Source`'s `HoleForm` directly (the CLR backend then projects
+/// `Field` holes to its .NET-format triple via
+/// `Codegen.Clr.ClrHoleFormat.toDotNetFormat`).
 ///
 /// Lifted out of the `TExpr` `and`-cluster (P2.13) — references only
-/// `SemType`/`PrintfSpec.HoleKind`, so it doesn't need mutual recursion.
-type HoleSpecG<'ty> =
+/// `SemType`/`PrintfHoleForm`, so it doesn't need mutual recursion.
+type HoleSpecG<'ty, 'tok> =
     {
         Ty: 'ty
-        Kind: PrintfSpec.HoleKind
-        Format: string option
-        Alignment: int option
+        Source: HoleSpecSource
+        Tok: 'tok
     }
-
-    /// The `%A` (`Structured`) print-width *budget*, which rides in the `Alignment`
-    /// slot (the idiom is inherited from FSharp.Core, where `%A`'s width reuses the
-    /// alignment field). Only meaningful when `Kind = Structured`: `None` ⇒ the
-    /// default (80, applied at emit), `Some 0` ⇒ never break / flat (`%0A`),
-    /// `Some n` ⇒ width `n`. A named alias so the structural-format read sites don't
-    /// look like they're reading a field alignment.
-    member this.PercentAWidthBudget: int option = this.Alignment
-
-    /// The `%A` (`Structured`) print-*size* budget — F#'s `PrintSize`, a global
-    /// node count after which the engine truncates with `...` (`%.NA`). Rides in
-    /// the `Format` slot as a decimal string (the lone `Alignment` int already
-    /// holds the width budget). Only meaningful when `Kind = Structured`: `None`
-    /// ⇒ the default (10000, applied at emit), `Some n` ⇒ at most `n` nodes.
-    member this.PercentASizeBudget: int option =
-        match this.Format with
-        | Some s -> Some(int s)
-        | None -> None
 
 /// How an instance member access dispatches. `Self` is the normal virtual
 /// dispatch (`callvirt`); `Base` is a `base.M(...)` / `base.X` access, which
@@ -371,7 +381,7 @@ and [<RequireQualifiedAccess>] FormatSinkG<'ty, 'tok> =
 
 and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     | Lit of string
-    | Hole of HoleSpecG<'ty> * TExprG<'ty, 'tok>
+    | Hole of HoleSpecG<'ty, 'tok> * TExprG<'ty, 'tok>
 
 /// One clause of a `TExpr.StaticOptimization`. `Constraints` is the `and`-joined
 /// list (all must hold; declared in `SemanticInfo.fs` so the side table can carry
@@ -770,7 +780,7 @@ type TastFileG<'ty, 'tok> =
 // cutover adds a parallel `FrozenType` instantiation without re-touching annotations.
 
 type TPat = TPatG<SemType, SyntaxToken>
-type HoleSpec = HoleSpecG<SemType>
+type HoleSpec = HoleSpecG<SemType, SyntaxToken>
 type TExpr = TExprG<SemType, SyntaxToken>
 type TMatchArm = TMatchArmG<SemType, SyntaxToken>
 type FormatSink = FormatSinkG<SemType, SyntaxToken>
@@ -795,7 +805,7 @@ type TastFile = TastFileG<SemType, SyntaxToken>
 
 module Frozen =
     type TPat = TPatG<FrozenType, SyntaxToken>
-    type HoleSpec = HoleSpecG<FrozenType>
+    type HoleSpec = HoleSpecG<FrozenType, SyntaxToken>
     type TExpr = TExprG<FrozenType, SyntaxToken>
     type TMatchArm = TMatchArmG<FrozenType, SyntaxToken>
     type FormatSink = FormatSinkG<FrozenType, SyntaxToken>

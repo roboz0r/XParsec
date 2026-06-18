@@ -9,7 +9,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // Before Phase 4 `printfn "%x" 255` silently emitted the number `255`; these tests
 // pin each specifier's Node output to F#'s `printf` semantics (the CLR
 // `PrintfDifferentialTests` goldens, extended). The genuinely subtle float forms
-// (`%e`/`%E`/`%g`/`%G`) stay cold and are NOT asserted here.
+// (`%e`/`%E`/`%g`/`%G`) now emit `toExponential`/`toPrecision` — an accepted JS
+// *approximation* of .NET's byte-exact output, so their tests pin the JS behaviour
+// rather than F# parity.
 //
 // Each hole is wrapped in `[...]` literals in the format string: `runJs` trims the
 // total output, which would otherwise eat the leading spaces of a right-justified
@@ -30,12 +32,12 @@ let tests =
         "Codegen.Js Printf-Phase4"
         [
             // Emission: a lone `%x` hole splices its operand once into the radix form
-            // (no runtime import, no IIFE — the operand is referenced once). The extra
-            // parens are the `JsExpr.Raw` / int-literal wrappers, same as `%d` arithmetic.
+            // as real `JsExpr` nodes (step (c): no runtime import, no IIFE, no `.NET`
+            // format-string round trip — the operand is referenced once).
             test "`%x` emits an inline radix conversion" {
                 Expect.equal
                     (emitJs "printfn \"%x\" 255")
-                    "console.log((((255) >>> 0).toString(16)));\n"
+                    "console.log((255 >>> 0).toString(16));\n"
                     "inline lowering, operand spliced once"
             }
 
@@ -111,5 +113,49 @@ let tests =
                             "printfn \"[%+.2f]\" 3.14"
                         ])
                     [ "[+5]"; "[ 5]"; "[-5]"; "[+3.14]" ]
+            }
+
+            // `%e`/`%E`/`%g`/`%G` were previously cold (raw operand). They now emit
+            // `toExponential` / `toPrecision` — an accepted *approximation* of .NET's
+            // byte-exact output (JS uses a minimal exponent width, not .NET's 3-digit
+            // zero-pad, and `toPrecision` keeps trailing zeros), so these pin the JS
+            // behaviour rather than F# parity.
+            test "`%e` emits an inline `toExponential` conversion" {
+                Expect.equal
+                    (emitJs "printfn \"%e\" 1234.5")
+                    "console.log((1234.5).toExponential(6));\n"
+                    "inline lowering, operand spliced once"
+            }
+
+            test "`%G` upper-cases the `toPrecision` result" {
+                Expect.equal
+                    (emitJs "printfn \"%G\" 1234.5")
+                    "console.log((1234.5).toPrecision(6).toUpperCase());\n"
+                    "compact form, upper-cased exponent letter"
+            }
+
+            test "exponential / compact forms (`%e`/`%E`/`%.2e`/`%g`/`%G`/`%.3g`) render via JS" {
+                runsLines
+                    "expg"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%e]\" 1234.5"
+                            "printfn \"[%E]\" 1234.5"
+                            "printfn \"[%.2e]\" 1234.5"
+                            "printfn \"[%e]\" (-0.000789)"
+                            "printfn \"[%g]\" 1234.5"
+                            "printfn \"[%G]\" 0.0001234"
+                            "printfn \"[%.3g]\" 1234.5"
+                        ])
+                    [
+                        "[1.234500e+3]"
+                        "[1.234500E+3]"
+                        "[1.23e+3]"
+                        "[-7.890000e-4]"
+                        "[1234.50]"
+                        "[0.000123400]"
+                        "[1.23e+3]"
+                    ]
             }
         ]

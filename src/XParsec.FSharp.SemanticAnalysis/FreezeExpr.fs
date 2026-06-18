@@ -652,25 +652,29 @@ module internal FreezeExpr =
     and private stitchLiteralString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         foldStringParts ctx (fun () -> "{<expr>}") parts
 
-    /// Classify one interpolation hole into the `(HoleKind, .NET format,
-    /// alignment)` triple a `FormatSeg.Hole` carries, or `None` if it can't be
-    /// rendered faithfully. A printf-style `%d{x}` reuses
-    /// `PrintfSpec.tryHoleFormat` (so it covers exactly the specifiers the printf
-    /// happy path does); a plain `{x}` / `{x:fmt}` is a `Formatted` hole.
-    /// Interpolation alignment (`{x,n}`) isn't representable here — the parser
-    /// folds `x,n` into a tuple expression — so alignment is always `None` for
-    /// the plain forms.
+    /// Classify one interpolation hole into the `HoleSpecSource` a `FormatSeg.Hole`
+    /// carries, or `None` if it can't be rendered faithfully. A printf-style
+    /// `%d{x}` carries the classified `HoleForm` (`Classified`), admitted only when
+    /// `PrintfHoleForm.tryClassify` accepts it — exactly the specifiers the printf
+    /// happy path covers. A plain `{x}` / `{x:fmt}` carries the raw format clause
+    /// (`RawFormat`). Interpolation alignment (`{x,n}`) isn't representable here —
+    /// the parser folds `x,n` into a tuple expression — so the plain forms carry no
+    /// alignment.
     and private tryInterpHoleSpec
         (ctx: PassContext)
         (formatSpecifier: SyntaxToken voption)
         (formatClause: SyntaxToken voption)
-        : (PrintfSpec.HoleKind * string option * int option) option =
+        : HoleSpecSource option =
         match formatSpecifier with
         | ValueSome ft ->
             match Lexing.parseFormatSpecifierView (ctx.ReadableOf ft) with
             | ValueSome p ->
-                match PrintfSpec.tryHoleFormat p with
-                | ValueSome(k, f, a) -> Some(k, f, a)
+                // Same parity gate as the printf path: only specifiers faithfully
+                // representable as a structured `Format` lower (`tryClassify` accepts
+                // them) lower; the rest keep the generic printf call shape. The
+                // classification is kept (not re-derived per backend).
+                match PrintfHoleForm.tryClassify p with
+                | ValueSome hf -> Some(HoleSpecSource.Classified hf)
                 | ValueNone -> None
             | ValueNone -> None
         | ValueNone ->
@@ -682,7 +686,7 @@ module internal FreezeExpr =
                     if f.Length = 0 then None else Some f
                 | ValueNone -> None
 
-            Some(PrintfSpec.HoleKind.Formatted, fmt, None)
+            Some(HoleSpecSource.RawFormat fmt)
 
     /// Lower an interpolated string ($"…{x}…") to a `TExpr.Format` (D9). Returns
     /// `None` — keeping the literal-stitch fallback — when the string has no
@@ -716,7 +720,7 @@ module internal FreezeExpr =
                 | StringPart.EscapeSequence t
                 | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
                 | StringPart.EscapePercent _ -> litRun.Append('%') |> ignore
-                | StringPart.Expr(formatSpecifier = fs; expr = holeExpr; formatClause = fc) ->
+                | StringPart.Expr(formatSpecifier = fs; lBrace = lBrace; expr = holeExpr; formatClause = fc) ->
                     hasHole <- true
                     let holeTy = typeOfKey ctx (CstKeys.ofExpr holeExpr)
 
@@ -725,16 +729,26 @@ module internal FreezeExpr =
                     | TyVar _ -> lowerable <- false
                     | zHoleTy ->
                         match tryInterpHoleSpec ctx fs fc with
-                        | Some(kind, netFormat, alignment) ->
+                        | Some source ->
                             flushLit ()
+
+                            // Source token for source maps: the specifier (`%d`) or
+                            // format clause (`:fmt`) when present, else the opening
+                            // brace (`FormatPlaceholder` carries no position).
+                            let specTok =
+                                match fs with
+                                | ValueSome t -> t
+                                | ValueNone ->
+                                    match fc with
+                                    | ValueSome c -> c
+                                    | ValueNone -> lBrace
 
                             segments.Add(
                                 FormatSeg.Hole(
                                     {
                                         Ty = zHoleTy
-                                        Kind = kind
-                                        Format = netFormat
-                                        Alignment = alignment
+                                        Source = source
+                                        Tok = specTok
                                     },
                                     translateExpr ctx holeExpr
                                 )
@@ -1145,9 +1159,12 @@ module internal FreezeExpr =
                     | ValueNone ->
                         failwith "Freeze.translatePrintfFormat: unparsable specifier (marker invariant broken)"
 
-                let kind, netFormat, alignment =
-                    match PrintfSpec.tryHoleFormat placeholder with
-                    | ValueSome(k, f, a) -> k, f, a
+                // Classify once here (also validating the marker invariant: the
+                // specifier must be one a backend renders faithfully). The node carries
+                // the classified `HoleForm`, so no consumer re-derives it.
+                let holeForm =
+                    match PrintfHoleForm.tryClassify placeholder with
+                    | ValueSome hf -> hf
                     | ValueNone ->
                         failwith "Freeze.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
@@ -1161,11 +1178,12 @@ module internal FreezeExpr =
                 let holeTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr argExpr))
 
                 // `%A` of a non-engine-faithful arg (a non-Vesper structural type —
-                // FSharpOption / a BCL type — or an unknown) keeps the FSharp.Core
-                // cold path; every Vesper-compiled record / DU (local or external) is
-                // faithful now that step-3 synthesises their `Format`.
+                // FSharpOption / a BCL type — or an unknown) can't be rendered by the
+                // structural engine, so the hole stays off the `Format` path and the
+                // generic printf call stands; every Vesper-compiled record / DU (local
+                // or external) is faithful now that step-3 synthesises their `Format`.
                 if
-                    kind = PrintfSpec.HoleKind.Structured
+                    placeholder.Type = FormatType.Structured
                     && not (structuredArgFaithful ctx localAsm holeTy)
                 then
                     cold <- true
@@ -1174,9 +1192,8 @@ module internal FreezeExpr =
                     FormatSeg.Hole(
                         {
                             Ty = holeTy
-                            Kind = kind
-                            Format = netFormat
-                            Alignment = alignment
+                            Source = HoleSpecSource.Classified holeForm
+                            Tok = t
                         },
                         argT
                     )

@@ -34,12 +34,11 @@ module TastConvert =
         | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty, tok)
         | TPatG.Null(ty, tok) -> TPatG.Null(f ty, tok)
 
-    let hole (f: 'a -> 'b) (h: HoleSpecG<'a>) : HoleSpecG<'b> =
+    let hole (f: 'a -> 'b) (h: HoleSpecG<'a, 'tok>) : HoleSpecG<'b, 'tok> =
         {
             Ty = f h.Ty
-            Kind = h.Kind
-            Format = h.Format
-            Alignment = h.Alignment
+            Source = h.Source
+            Tok = h.Tok
         }
 
     let forInEnumerator (f: 'a -> 'b) (en: ForInEnumeratorG<'a>) : ForInEnumeratorG<'b> =

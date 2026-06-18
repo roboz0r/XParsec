@@ -52,7 +52,14 @@ let tests =
                                                                                 _) ],
                                                        outerTy,
                                                        _)) ] ->
-                        Expect.equal hole.Kind PrintfSpec.HoleKind.Structured "%A is a Structured hole"
+                        // printf-shared-core step (d): the hole carries its classified
+                        // `Source`; `%A` is a `PercentA` (the old `Structured` kind).
+                        let isPercentA =
+                            match hole.Source with
+                            | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA _) -> true
+                            | _ -> false
+
+                        Expect.isTrue isPercentA "%A is a structural (PercentA) hole"
                         Expect.equal outerTy listTy "the hole's arg is the cons chain typed list<int>"
                     | other -> failtestf "unexpected Format segments: %A" other
                 | _ -> failtestf "unexpected list TAST: %A" tast.Decls

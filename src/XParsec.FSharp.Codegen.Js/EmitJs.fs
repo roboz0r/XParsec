@@ -4,6 +4,7 @@ open System.Globalization
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 open JsEmitHelpers
 
 /// The `TAST → JsAst` walker. Every un-handled node is an explicit `failwithf`,
@@ -729,171 +730,208 @@ module EmitJs =
 
     /// Build the JS expression a format hole's argument contributes.
     ///
-    /// `%A` (`Structured`) renders the value as copy-pasteable source through the
-    /// `structuralFormat` runtime, curried over `(value)(width)(size)` — the width
-    /// (`PercentAWidthBudget`, default 80) and node-size (`PercentASizeBudget`,
-    /// default 10000) budgets mirror the CLR `AppendStructured` defaults.
+    /// printf-shared-core-plan.md **step (c)**: the JS backend reads the hole's
+    /// classified semantic model (`HoleForm` / `FieldFormat`, on `hole.Source`)
+    /// directly and builds real `JsExpr` nodes from the typed fields — no `.NET`
+    /// format string is reconstructed or re-parsed (that dialect is CLR-only). A
+    /// `RawFormat` interpolation clause (`{x:X}`) is such a CLR dialect string, so
+    /// JS doesn't interpret it — the raw operand stands (the concat coerces it).
     ///
-    /// Every other kind is the printf-shared-core-plan.md Phase 4 ("Half B")
-    /// lowering — the specifier's per-hole formatting reproduced as an inline JS
-    /// string expression (route (a): no runtime import), byte-matching the CLR
-    /// `Formatter` members. The operand is spliced exactly once (single-reference
-    /// forms inline it, multi-reference forms bind it in an arrow IIFE), so a
-    /// side-effecting argument like `%d (f ())` still evaluates once.
+    /// `%A` (`PercentA`) renders the value as copy-pasteable source through the
+    /// `structuralFormat` runtime, curried over `(value)(width)(size)`; the width /
+    /// node-size budgets resolve through `percentAWidth` / `percentASize` (the
+    /// `80` / `10000` defaults, shared with the CLR `AppendStructured`).
     ///
-    /// Covered: `%d`/`%i`/`%s`/`%O`/`%c`/`%M` (verbatim / `String`), width +
-    /// alignment (`padStart` / `padEnd`), `%x`/`%X` and `%B` (radix, zero-pad),
-    /// `%o` (`Octal`), `%u` (`Unsigned` reinterpret), `%b` (`BoolText`), `%f`
-    /// (`toFixed`), `%0w.pf` (`ZeroPaddedFloat`), and `%+`/`% ` forced-sign
-    /// sections. Still cold (raw operand, parity-incorrect but no worse than before
-    /// Phase 4): `%e`/`%E`/`%g`/`%G` — the .NET exponent / compact field widths
-    /// have no faithful JS analogue and are deferred per the plan.
+    /// Every `Field` hole is the specifier's per-hole formatting reproduced as an
+    /// inline JS expression (no runtime import), byte-matching the CLR `Formatter`
+    /// members. The operand is evaluated exactly once: single-reference forms splice
+    /// it directly; the one form that reads it repeatedly (`DecimalZeroPad`) binds it
+    /// in an arrow IIFE, so `%05d (f ())` still calls `f` once.
+    ///
+    /// Covered: `%d`/`%i`/`%s`/`%O`/`%c`/`%M` (`Verbatim`), width + alignment
+    /// (`padStart` / `padEnd`), `%x`/`%X`/`%B`/`%o` (`IntRadix`), `%u` (`Unsigned`
+    /// reinterpret), `%b` (`Bool`), `%f` (`Fixed`), `%0wd` (`DecimalZeroPad`),
+    /// `%0w.pf` (`FixedZeroPad`), and `%+`/`% ` (`ForcedSign`). Still cold (raw
+    /// operand, deferred per the plan): `%e`/`%E`/`%g`/`%G` (`Exponential`/`Compact`)
+    /// — the .NET exponent / compact field widths have no faithful JS analogue.
     and private buildHole (ctx: WalkCtx) (hole: Frozen.HoleSpec) (operand: Frozen.TExpr) : JsExpr =
-        // Build a JS expression from a `tmpl` whose `$0` marks the operand. One `$0`
-        // ⇒ splice the operand directly; two or more ⇒ rewrite to an arrow IIFE
-        // binding `v`, so the operand is evaluated exactly once regardless.
-        let fromTemplate (tmpl: string) : JsExpr =
-            match tmpl.Split([| "$0" |], System.StringSplitOptions.None) with
-            | [| pre; post |] ->
-                JsExpr.Raw(
-                    [
-                        JsRawSeg.Verbatim pre
-                        JsRawSeg.Hole(buildExpr ctx operand)
-                        JsRawSeg.Verbatim post
-                    ],
-                    ValueNone
+        let num (n: int) =
+            JsExpr.Literal(JsLiteral.Number(string n), ValueNone)
+
+        let str (s: string) =
+            JsExpr.Literal(JsLiteral.String s, ValueNone)
+
+        let id (s: string) = JsExpr.Identifier(s, ValueNone)
+        let call callee args = JsExpr.Call(callee, args, ValueNone)
+        // A method call `recv.m(args…)`.
+        let invoke (recv: JsExpr) (m: string) (args: JsExpr list) =
+            JsExpr.Call(JsExpr.Member(recv, id m, false, ValueNone), args, ValueNone)
+        // Parenthesise a bare numeric-literal `.method` receiver — `5.toFixed(0)` is a
+        // JS syntax error and `-3.14.toFixed(2)` mis-binds as `-(3.14.toFixed(2))`.
+        // Self-parenthesising receivers (`Binary` shifts, `Call`s) need no wrap.
+        let receiver (e: JsExpr) : JsExpr =
+            match e with
+            | JsExpr.Literal _ -> JsExpr.Sequence([ e ], ValueNone)
+            | _ -> e
+
+        // The hole's field alignment, applied to an already-built string expression:
+        // `Some w` ⇒ right-justify (`padStart w`), `Some -w` ⇒ left (`padEnd w`). The
+        // zero-pad forms carry their width inside the `FieldFormat` and set alignment
+        // `None`, so this is a no-op there.
+        let withAlign (alignment: int option) (e: JsExpr) : JsExpr =
+            match alignment with
+            | Some a when a >= 0 -> invoke e "padStart" [ num a ]
+            | Some a -> invoke e "padEnd" [ num (-a) ]
+            | None -> e
+
+        // Splice the operand once into `build value`. Use for forms that read the
+        // value a single time (a duplicated side-effecting operand would re-run).
+        let direct (build: JsExpr -> JsExpr) : JsExpr = build (buildExpr ctx operand)
+
+        // Bind the operand to `v` in an arrow IIFE — for forms that read it more than
+        // once, so it evaluates exactly once: `((v) => build(v))(operand)`.
+        let iife (build: JsExpr -> JsExpr) : JsExpr =
+            call (JsExpr.Arrow([ "v" ], JsFnBody.Expr(build (id "v")), ValueNone)) [ buildExpr ctx operand ]
+
+        // `((s) => build(s))(inner)` — name an intermediate *string* result `s` so the
+        // sign-aware float forms can inspect it (`s.startsWith("-")`) without rebuilding
+        // it; `inner` already references the operand once.
+        let strBind (inner: JsExpr) (build: JsExpr -> JsExpr) : JsExpr =
+            call (JsExpr.Arrow([ "s" ], JsFnBody.Expr(build (id "s")), ValueNone)) [ inner ]
+
+        let emitField (fmt: FieldFormat) (alignment: int option) : JsExpr =
+            match fmt with
+            // `%d`/`%s`/`%O`/`%c`/`%M`: plain stringification. Bare ⇒ the raw operand
+            // (the surrounding concat coerces it, a lone `%d` stays `console.log(x)`);
+            // with a width ⇒ `String(v)` then pad.
+            | FieldFormat.Verbatim ->
+                match alignment with
+                | None -> buildExpr ctx operand
+                | Some _ -> withAlign alignment (direct (fun v -> call (id "String") [ v ]))
+            // `%0wd`: sign-aware zero-pad — zeros pad to `width` *after* the sign
+            // (`(-42).ToString("D5") = "-00042"`), so the value is read three times.
+            | FieldFormat.DecimalZeroPad width ->
+                iife (fun v ->
+                    let signStr =
+                        JsExpr.Conditional(JsExpr.Binary("<", v, num 0, ValueNone), str "-", str "", ValueNone)
+
+                    let digits =
+                        invoke
+                            (invoke (invoke (id "Math") "abs" [ v ]) "toString" [])
+                            "padStart"
+                            [ num width; str "0" ]
+
+                    JsExpr.Binary("+", signStr, digits, ValueNone)
                 )
-            | _ ->
-                let body = tmpl.Replace("$0", "v")
+            // `%x`/`%X`/`%B`/`%o`: `(v >>> 0).toString(base)` — `>>> 0` is JS's 32-bit
+            // unsigned coercion (the CLI-stack reinterpret on CLR), then optional
+            // upper-casing and zero-pad. `%o` never zero-pads (`zeroPad = None`).
+            | FieldFormat.IntRadix(radix, zeroPad) ->
+                let baseN, upper =
+                    match radix with
+                    | Radix.Hex u -> 16, u
+                    | Radix.Binary -> 2, false
+                    | Radix.Octal -> 8, false
 
-                JsExpr.Raw(
-                    [
-                        JsRawSeg.Verbatim("((v) => " + body + ")(")
-                        JsRawSeg.Hole(buildExpr ctx operand)
-                        JsRawSeg.Verbatim ")"
-                    ],
-                    ValueNone
-                )
+                withAlign
+                    alignment
+                    (direct (fun v ->
+                        let digits =
+                            invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" [ num baseN ]
 
-        // Wrap a base template (still carrying `$0`) in the hole's field alignment:
-        // `Some w` ⇒ right-justify (`padStart`), `Some -w` ⇒ left (`padEnd`). The
-        // zero-pad format strings carry no alignment (`tryHoleFormat` never sets
-        // both), so this is a no-op there.
-        let withAlign (baseTmpl: string) : string =
-            match hole.Alignment with
-            | Some a when a >= 0 -> sprintf "(%s).padStart(%d)" baseTmpl a
-            | Some a -> sprintf "(%s).padEnd(%d)" baseTmpl (-a)
-            | None -> baseTmpl
+                        let cased = if upper then invoke digits "toUpperCase" [] else digits
 
-        match hole.Kind with
-        | PrintfSpec.HoleKind.Structured ->
+                        match zeroPad with
+                        | Some w -> invoke cased "padStart" [ num w; str "0" ]
+                        | None -> cased
+                    ))
+            // `%u`: the source `int`'s bits reinterpreted unsigned (`>>> 0`).
+            | FieldFormat.Unsigned ->
+                withAlign alignment (direct (fun v -> invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []))
+            // `%b`: lowercase `true`/`false` (explicit ternary keeps the alignment path uniform).
+            | FieldFormat.Bool ->
+                withAlign alignment (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
+            // `%f` / `%.Nf`: fixed-point with `precision` fraction digits.
+            | FieldFormat.Fixed precision ->
+                withAlign alignment (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
+            // `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
+            | FieldFormat.FixedZeroPad(precision, width) ->
+                withAlign
+                    alignment
+                    (strBind
+                        (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
+                        (fun s ->
+                            let padTail =
+                                JsExpr.Binary(
+                                    "+",
+                                    str "-",
+                                    invoke (invoke s "slice" [ num 1 ]) "padStart" [ num (width - 1); str "0" ],
+                                    ValueNone
+                                )
+
+                            JsExpr.Conditional(
+                                invoke s "startsWith" [ str "-" ],
+                                padTail,
+                                invoke s "padStart" [ num width; str "0" ],
+                                ValueNone
+                            )
+                        ))
+            // `%+d`/`% d`/`%+.Nf`/`% .Nf`: forced sign — a non-negative value takes the
+            // sign char (`+` or a space), a negative keeps its `-`. `precision = 0` ⇒
+            // integer (`toFixed(0)`).
+            | FieldFormat.ForcedSign(space, precision) ->
+                let sign = if space then " " else "+"
+
+                withAlign
+                    alignment
+                    (strBind
+                        (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
+                        (fun s ->
+                            JsExpr.Conditional(
+                                invoke s "startsWith" [ str "-" ],
+                                s,
+                                JsExpr.Binary("+", str sign, s, ValueNone),
+                                ValueNone
+                            )
+                        ))
+            // `%e`/`%E`: scientific notation via `v.toExponential(precision)`. JS uses
+            // a lowercase `e` and a minimal (1-2 digit) exponent, so this is NOT byte-
+            // identical to F#/.NET (which zero-pads the exponent to 3 digits,
+            // `1.234500e+004`); it's an accepted close approximation. `%E` upper-cases
+            // the `e` (only letter in the string, so `toUpperCase` is safe).
+            | FieldFormat.Exponential(precision, upper) ->
+                withAlign
+                    alignment
+                    (direct (fun v ->
+                        let e = invoke (receiver v) "toExponential" [ num precision ]
+                        if upper then invoke e "toUpperCase" [] else e
+                    ))
+            // `%g`/`%G`: compact form via `v.toPrecision(significant)`. JS `toPrecision`
+            // keeps trailing zeros and switches to exponential on different thresholds
+            // than .NET `G`, so again an accepted approximation, not byte-exact.
+            // `toPrecision` requires ≥ 1 significant digit, so clamp (a `%.0g` would
+            // otherwise throw a RangeError at runtime).
+            | FieldFormat.Compact(precision, upper) ->
+                let sig' = max 1 precision
+
+                withAlign
+                    alignment
+                    (direct (fun v ->
+                        let g = invoke (receiver v) "toPrecision" [ num sig' ]
+                        if upper then invoke g "toUpperCase" [] else g
+                    ))
+
+        match hole.Source with
+        // A `{x:fmt}` interpolation custom-format clause: a CLR dialect string with no
+        // printf placeholder, which JS does not interpret — the raw operand stands.
+        | HoleSpecSource.RawFormat _ -> buildExpr ctx operand
+        | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) ->
             let fmtRef =
                 JsExpr.Identifier(JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey, ValueNone)
 
-            let numLit (n: int) =
-                JsExpr.Literal(JsLiteral.Number(string n), ValueNone)
-
-            let width = numLit (defaultArg hole.PercentAWidthBudget 80)
-            let size = numLit (defaultArg hole.PercentASizeBudget 10000)
             let value = buildExpr ctx operand
-
-            JsExpr.Call(
-                JsExpr.Call(JsExpr.Call(fmtRef, [ value ], ValueNone), [ width ], ValueNone),
-                [ size ],
-                ValueNone
-            )
-
-        // `%b`: lowercase `true`/`false` (JS `String(bool)` already lowercases, but
-        // the explicit ternary keeps the field-alignment path uniform).
-        | PrintfSpec.HoleKind.BoolText -> fromTemplate (withAlign "($0 ? \"true\" : \"false\")")
-        // `%u`: the source `int`'s bits reinterpreted unsigned — `>>> 0` is JS's
-        // 32-bit unsigned coercion (mirrors the CLI-stack reinterpret on CLR).
-        | PrintfSpec.HoleKind.Unsigned -> fromTemplate (withAlign "($0 >>> 0).toString()")
-        // `%o`: 32-bit two's-complement octal (`Convert.ToString(v, 8)` on CLR).
-        | PrintfSpec.HoleKind.Octal -> fromTemplate (withAlign "($0 >>> 0).toString(8)")
-        // `%0w.pf`: format `"F<prec>"`, then insert zeros *after any sign* to a
-        // total field of `width`. (`tryHoleFormat` guarantees both slots present.)
-        | PrintfSpec.HoleKind.ZeroPaddedFloat ->
-            let prec =
-                match hole.Format with
-                | Some f -> int (f.Substring 1)
-                | None -> failwith "EmitJs: ZeroPaddedFloat hole missing its \"F<prec>\" format"
-
-            let width =
-                match hole.Alignment with
-                | Some w -> w
-                | None -> failwith "EmitJs: ZeroPaddedFloat hole missing its width"
-
-            fromTemplate (
-                sprintf
-                    "((s) => s.startsWith(\"-\") ? \"-\" + s.slice(1).padStart(%d, \"0\") : s.padStart(%d, \"0\"))($0.toFixed(%d))"
-                    (width - 1)
-                    width
-                    prec
-            )
-
-        | PrintfSpec.HoleKind.Formatted ->
-            match hole.Format with
-            | None ->
-                // `%d`/`%s`/`%O`/`%c`/`%M`: plain stringification. Bare (no
-                // alignment) ⇒ the raw operand — the surrounding concat coerces it,
-                // and a lone `%d` stays `console.log(x)`. With a width ⇒ `String` + pad.
-                match hole.Alignment with
-                | None -> buildExpr ctx operand
-                | Some _ -> fromTemplate (withAlign "String($0)")
-            | Some fmt ->
-                // The `.NET` format string `tryHoleFormat` chose, dispatched on its
-                // leading letter; the optional trailing integer is a zero-pad width.
-                let trailingWidth () : int option =
-                    if fmt.Length > 1 then Some(int (fmt.Substring 1)) else None
-
-                // `(v >>> 0).toString(base)`, optionally upper-cased and zero-padded.
-                let radix (b: int) (upper: bool) : JsExpr =
-                    let cased =
-                        if upper then
-                            sprintf "($0 >>> 0).toString(%d).toUpperCase()" b
-                        else
-                            sprintf "($0 >>> 0).toString(%d)" b
-
-                    let padded =
-                        match trailingWidth () with
-                        | Some w -> sprintf "(%s).padStart(%d, \"0\")" cased w
-                        | None -> cased
-
-                    fromTemplate (withAlign padded)
-
-                match fmt.[0] with
-                | 'F' -> fromTemplate (withAlign (sprintf "$0.toFixed(%d)" (int (fmt.Substring 1))))
-                | 'x' -> radix 16 false
-                | 'X' -> radix 16 true
-                | 'B' -> radix 2 false
-                | 'D' ->
-                    // `%0wd`: sign-aware zero-pad — the digits pad to `w` *after* the
-                    // sign (`(-42).ToString("D5") = "-00042"`), unlike a bare
-                    // `padStart` that would count the sign.
-                    let n = int (fmt.Substring 1)
-                    fromTemplate (sprintf "($0 < 0 ? \"-\" : \"\") + Math.abs($0).toString().padStart(%d, \"0\")" n)
-                | '+'
-                | ' ' ->
-                    // Forced-sign section (`"+0;-0"` / `" 0.00;-0.00"`): a
-                    // non-negative value takes the sign char, a negative keeps its
-                    // `-`. The precision is the digit count after `.` in the positive
-                    // section (0 ⇒ integer / `%+.0f`); a width rides as alignment.
-                    let sign = if fmt.[0] = '+' then "+" else " "
-                    let positivePart = fmt.Substring(0, fmt.IndexOf ';')
-
-                    let prec =
-                        let dot = positivePart.IndexOf '.'
-                        if dot < 0 then 0 else positivePart.Length - dot - 1
-
-                    fromTemplate (
-                        withAlign (sprintf "((s) => s.startsWith(\"-\") ? s : \"%s\" + s)($0.toFixed(%d))" sign prec)
-                    )
-                | _ ->
-                    // `%e`/`%E`/`%g`/`%G`: deferred (still cold). Raw operand — the
-                    // surrounding concat coerces the number; parity-incorrect but no
-                    // worse than before Phase 4 (printf-shared-core-plan.md Phase 4).
-                    buildExpr ctx operand
+            call (call (call fmtRef [ value ]) [ num (percentAWidth width) ]) [ num (percentASize size) ]
+        | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) -> emitField fmt alignment
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named

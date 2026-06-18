@@ -78,14 +78,18 @@ module PrintfSpec =
         | "sprintf" -> ValueSome PrintfSink.StringResult
         | _ -> ValueNone
 
-    /// `Ty` alone can't disambiguate (`%o` and `%u` are both `int`-typed), so
-    /// `tryHoleFormat` tags each hole with a kind. `Formatted` is the default
-    /// (everything that maps onto `AppendFormatted<T>` under a .NET format
-    /// string); the others need a dedicated handler member because they have no
-    /// such mapping.
+    /// The CLR `Vesper.Formatter` handler member a hole dispatches to. `Ty` alone
+    /// can't disambiguate (`%o` and `%u` are both `int`-typed), so the CLR-only
+    /// projection (`Codegen.Clr.ClrHoleFormat.toDotNetFormat`) tags each `Field`
+    /// hole with a kind. `Formatted` is the default (everything that maps onto
+    /// `AppendFormatted<T>` under a .NET format string); the others need a dedicated
+    /// handler member because they have no such mapping. `%A` is emitted from
+    /// `PrintfHoleForm.HoleForm.PercentA` directly, so `Structured` never flows
+    /// through `toDotNetFormat`.
     ///
-    /// Lives here (not in `Tast.fs`) because `PrintfSpec.fs` compiles before
-    /// `Tast.fs` and `Tast.HoleSpec.Kind` references it.
+    /// Lives here (a SemType-layer module) rather than in a codegen assembly so it
+    /// compiles before its CLR-backend consumers; the `.NET format string` dialect
+    /// these kinds describe is reconstructed only in `ClrHoleFormat`.
     [<RequireQualifiedAccess>]
     type HoleKind =
         /// `AppendFormatted<Ty>(v [,alignment] [,format])`.
@@ -102,265 +106,17 @@ module PrintfSpec =
         /// `AppendZeroPaddedFloat(v, format, width)` — F# `%0w.pf`: format the
         /// float via `format` (an `"F<prec>"` string), then zero-pad *after any
         /// sign* to a total field of `width` chars. Dedicated because no .NET
-        /// float format zero-pads to a total width. The width rides in
-        /// `HoleSpec.Alignment` and the `"F<prec>"` body in `HoleSpec.Format`.
+        /// float format zero-pads to a total width. `toDotNetFormat` returns the
+        /// `"F<prec>"` body as the format string and the field width in the
+        /// alignment slot.
         | ZeroPaddedFloat
         /// `AppendStructured<v>(v, widthBudget, sizeBudget)` — F# `%A`. No .NET
         /// format string; the runtime engine (`Vesper.Printf.StructuralPrinter`)
-        /// renders the value as copy-pasteable source. The two free `HoleSpec`
-        /// slots are repurposed for this kind:
-        /// `Alignment` = the print-*width* budget (`None` ⇒ default 80 at emit,
-        /// `Some 0` ⇒ never break / flat (`%0A`), `Some N` ⇒ width N (`%NA`));
-        /// `Format` = the print-*size* budget as a decimal string (F#'s `PrintSize`
-        /// node count: `None` ⇒ default 10000 at emit, `Some "N"` ⇒ at most N nodes
-        /// before `...` (`%.NA`)).
+        /// renders the value as copy-pasteable source. `EmitFormat` resolves the
+        /// width / size budgets from `PrintfHoleForm.HoleForm.PercentA`
+        /// (`percentAWidth` / `percentASize`), so this kind is never produced by
+        /// `toDotNetFormat`.
         | Structured
-
-    /// Map a parsed format placeholder to the `(HoleKind, .NET format string,
-    /// alignment)` triple the happy-path handler call uses, or `ValueNone` for
-    /// specifiers lowered via the FSharp.Core cold path instead. Every lowered
-    /// specifier's `Formatter` output matches F# `printf` byte-for-byte under
-    /// `InvariantCulture` — parity is the gate.
-    ///
-    /// Lowered (P2): `%s` `%d`/`%i` (`Formatted`, no format); `%f` (`"F<prec>"`,
-    /// default 6); `%e`/`%E` (`"e<prec>"`/`"E<prec>"`); `%x`/`%X` (`"x"`/`"X"`),
-    /// `%B` (.NET 8 `"B"`) two's-complement; `%O` (`ToString` via `Formatted`);
-    /// `%u` (`Unsigned`), `%o` (`Octal`), `%b` (`BoolText`) — the last three via
-    /// dedicated handler members. Width with no flag ⇒ alignment; `-` ⇒ negative
-    /// alignment (left-justify); `0` ⇒ a width-bearing `"D5"`/`"x8"`/`"B8"` for
-    /// the integer bases (mutually exclusive with alignment).
-    ///
-    /// Lowered (A1): `%c` (`Formatted`, no format — `char.ToString()` is the
-    /// one-char string) and `%M` (`Formatted`, no format — `decimal` is
-    /// `ISpanFormattable`, `TryFormat` under Invariant matches F# `%M`), now that
-    /// char / decimal literals round-trip through the TAST const subset.
-    ///
-    /// Lowered (B1): the `+` / space forced-sign flags on the signed
-    /// decimal-integer (`%+d`/`% d`) and fixed-point-float (`%+.2f`/`% .2f`)
-    /// specifiers, via a custom .NET *section* format string (`"+0;-0"` /
-    /// `" 0;-0"`) — still a `Formatted` hole, optionally with a width-as-alignment.
-    ///
-    /// Lowered (B2): `0`-on-float (`%08.2f`) via the `ZeroPaddedFloat` handler
-    /// member — .NET has no float format that zero-pads to a total width, so it
-    /// formats the `"F<prec>"` body then inserts `0`s after any sign to reach the
-    /// field width.
-    ///
-    /// Lowered (`%g`): `%g`/`%G` (compact float) ⇒ `Formatted` with a
-    /// `"g<prec>"`/`"G<prec>"` format (default precision 6), exactly the
-    /// `%e`/`%E` rail — `%g v` ≡ `v.ToString("g6", Invariant)`. The exponent case
-    /// rides on the type char (lowercase `g` ⇒ lowercase `e`; `G` ⇒ `E`), the
-    /// same mechanism as `%e`/`%E`; the earlier deferral mis-read this as forced
-    /// uppercasing. Width with no flag ⇒ alignment; `-` ⇒ left-justify.
-    ///
-    /// Lowered (`%A` flag forms): `%.NA` (precision ⇒ `PrintSize` node budget, in
-    /// the `Format` slot as a string), `%+A` (non-public ⇒ no-op in the
-    /// reflection-free engine: `≡ %A`), and `%-A` (left-justify ⇒ no-op for `%A`,
-    /// matching F#). Each lowers to a `Structured` hole; see the `Structured` arm.
-    ///
-    /// Cold path: `%a`/`%t` (callbacks); the `%A` space flag (`% A`); `0`-on-`%e` and
-    /// `0`-on-`%g` (exponent / G-format zero-pad parity is subtle — only `%f` is
-    /// lowered); `+`/space on anything but `%d`/`%f` (exponent / compact /
-    /// scale-preserving forms don't section-format faithfully) and `+`/space
-    /// combined with `0` (zero-pad); zero-pad on the handler-member specifiers
-    /// (`%05u`/`%05o`/`%05b`) and on `%s`/`%O` (meaningless); `%M` with a
-    /// precision (`%.2M` — unusual F# semantics).
-    let tryHoleFormat (p: FormatPlaceholder) : (HoleKind * string option * int option) voption =
-        let flags = p.Flags
-        let has (c: char) = flags.IndexOf c >= 0
-        let zeroPad = has '0'
-        let leftAlign = has '-'
-        let plusSign = has '+'
-        let spaceSign = has ' '
-
-        let width =
-            match p.Width with
-            | ValueSome w -> Some(int w)
-            | ValueNone -> None
-
-        if p.Type = FormatType.Structured then
-            // `%A` (P3): the structural-format engine renders; there is no .NET
-            // format string, so the two free slots carry the engine knobs:
-            //   width (`Alignment`) — print-WIDTH budget: `%0A` ⇒ 0 (never break /
-            //     flat), `%NA` ⇒ N, plain `%A` ⇒ `None` (⇒ default 80 at emit). The
-            //     `0` flag takes precedence over an explicit width, matching F#
-            //     (`printf.fs:947`: `useZeroWidth` ⇒ `PrintWidth = 0`).
-            //   precision (`Format`) — print-SIZE budget (F#'s `PrintSize`, a global
-            //     node count ⇒ `...`): `%.NA` ⇒ `Some "N"`, plain ⇒ `None` (⇒ 10000
-            //     at emit). Encoded as a string because the lone int slot holds width.
-            // The flag forms (all lowered now, none deferred):
-            //   `%+A` — F# prints non-public fields (`BindingFlags.NonPublic`,
-            //     `printf.fs:940`). The reflection-free engine always walks the full
-            //     *declared* structure, so there is nothing extra to show: `%+A` ≡
-            //     `%A`. Admitted and the flag ignored.
-            //   `%-A` — F#'s `GenericToString` never reads the left-justify flag for
-            //     `%A` (the width is a layout budget, not a field pad), so `%-A` ≡
-            //     `%A` byte-for-byte (verified). Admitted and the flag ignored.
-            // Only the space flag (`% A`) stays deferred (unmodelled; not requested).
-            if spaceSign then
-                ValueNone
-            else
-                let widthBudget = if zeroPad then Some 0 else width
-
-                let sizeBudget =
-                    match p.Precision with
-                    | ValueSome pr -> Some(string (int pr))
-                    | ValueNone -> None
-
-                ValueSome(HoleKind.Structured, sizeBudget, widthBudget)
-        elif plusSign || spaceSign then
-            // B1: forced-sign flags via a custom .NET *section* format string
-            // (`"+0;-0"` / `" 0;-0"`). The positive section carries the forced
-            // `+`/space; the negative section keeps `-`; zero takes the positive
-            // section (matching F# `%+d 0 = "+0"`, `% d 0 = " 0"`). Only the
-            // signed decimal-integer and fixed-point-float specifiers render this
-            // way byte-for-byte — the exponent (`%e`, whose custom-format exponent
-            // width diverges from `"e6"`) and scale-preserving (`%M`) forms, every
-            // non-numeric type, and the sign+zero-pad combination stay cold. A
-            // width (with or without `-`) rides as a handler alignment, padding
-            // applied after the section format.
-            if zeroPad then
-                ValueNone
-            else
-                let signSection = if plusSign then "+" else " "
-
-                let alignment =
-                    match width with
-                    | Some w -> Some(if leftAlign then -w else w)
-                    | None -> None
-
-                let body =
-                    match p.Type with
-                    | FormatType.DecimalInt -> Some "0"
-                    | FormatType.FloatDecimal ->
-                        let precision =
-                            match p.Precision with
-                            | ValueSome pr -> int pr
-                            | ValueNone -> 6
-
-                        Some(
-                            if precision <= 0 then
-                                "0"
-                            else
-                                "0." + System.String('0', precision)
-                        )
-                    | _ -> None
-
-                match body with
-                | Some b -> ValueSome(HoleKind.Formatted, Some(signSection + b + ";-" + b), alignment)
-                | None -> ValueNone
-        elif (leftAlign || zeroPad) && width.IsNone then
-            // `-` / `0` are meaningless without a width.
-            ValueNone
-        elif leftAlign && zeroPad then
-            // Their interaction (left-align wins, zero-pad ignored) is easy to
-            // get subtly wrong — defer rather than risk a parity miss.
-            ValueNone
-        else
-            // No flag (or just `-`): width becomes a handler alignment (negative
-            // ⇒ left-justify). Zero-pad uses a width-bearing .NET format string
-            // instead — the two are mutually exclusive on one hole.
-            let alignment =
-                if zeroPad then
-                    None
-                else
-                    match width with
-                    | Some w -> Some(if leftAlign then -w else w)
-                    | None -> None
-
-            // Width-bearing .NET integer format for a zero-pad request. Only
-            // reached when `zeroPad`, so `width` is guaranteed present.
-            let zeroPadFormat (letter: string) = letter + string width.Value
-
-            let formatted fmt =
-                ValueSome(HoleKind.Formatted, fmt, alignment)
-
-            match p.Type with
-            | FormatType.String
-            | FormatType.Object -> if zeroPad then ValueNone else formatted None
-            | FormatType.DecimalInt -> formatted (if zeroPad then Some(zeroPadFormat "D") else None)
-            | FormatType.UnsignedHex ->
-                let letter = if p.TypeChar = 'X' then "X" else "x"
-                formatted (Some(if zeroPad then zeroPadFormat letter else letter))
-            | FormatType.UnsignedBinary -> formatted (Some(if zeroPad then zeroPadFormat "B" else "B"))
-            | FormatType.FloatDecimal ->
-                let precision =
-                    match p.Precision with
-                    | ValueSome pr -> int pr
-                    | ValueNone -> 6
-
-                let fformat = "F" + string precision
-
-                if zeroPad then
-                    // B2: no .NET float format zero-pads to a total width, so a
-                    // dedicated handler member formats the `"F<prec>"` body, then
-                    // inserts `0`s after any sign to reach the field width. `width`
-                    // is guaranteed present here (the `zeroPad && width.IsNone`
-                    // guard above). It rides in `Alignment`; the body in `Format`.
-                    ValueSome(HoleKind.ZeroPaddedFloat, Some fformat, Some width.Value)
-                else
-                    formatted (Some fformat)
-            | FormatType.FloatExponential ->
-                if zeroPad then
-                    ValueNone
-                else
-                    let precision =
-                        match p.Precision with
-                        | ValueSome pr -> int pr
-                        | ValueNone -> 6
-
-                    let letter = if p.TypeChar = 'E' then "E" else "e"
-                    formatted (Some(letter + string precision))
-            | FormatType.FloatCompact ->
-                if zeroPad then
-                    // G-format zero-pad parity is subtle (integer-valued `%g`
-                    // isn't `'0'`-padded — `5.0`→`5`; exponent forms interact
-                    // with the field width) — defer like `0`-on-`%e`.
-                    ValueNone
-                else
-                    let precision =
-                        match p.Precision with
-                        | ValueSome pr -> int pr
-                        | ValueNone -> 6
-
-                    // Case rides on the type char (preserved by the lexer), the
-                    // same exponent-case mechanism as `%e`/`%E`: `%g v` ≡
-                    // `v.ToString("g6", Invariant)`, `%G v` ≡ `ToString("G6")`.
-                    let letter = if p.TypeChar = 'G' then "G" else "g"
-                    formatted (Some(letter + string precision))
-            // Handler members: no .NET format string (alignment only) ⇒ zero-pad defers.
-            | FormatType.UnsignedDecimalInt ->
-                if zeroPad then
-                    ValueNone
-                else
-                    ValueSome(HoleKind.Unsigned, None, alignment)
-            | FormatType.UnsignedOctal ->
-                if zeroPad then
-                    ValueNone
-                else
-                    ValueSome(HoleKind.Octal, None, alignment)
-            | FormatType.Bool ->
-                if zeroPad then
-                    ValueNone
-                else
-                    ValueSome(HoleKind.BoolText, None, alignment)
-            | FormatType.Char ->
-                // `char` is not `IFormattable`, so `AppendFormatted<char>` falls
-                // to `ToString()` → the one-char string. Alignment via the
-                // `(T, alignment)` overload; zero-pad on `%c` is meaningless.
-                if zeroPad then ValueNone else formatted None
-            | FormatType.Decimal ->
-                // `decimal` is `ISpanFormattable`; `TryFormat` under Invariant
-                // matches F# `%M`. F# `%M` precision semantics are unusual and
-                // zero-pad has no faithful float-style mapping → defer both.
-                if zeroPad || p.Precision.IsSome then
-                    ValueNone
-                else
-                    formatted None
-            // `FormatType.Structured` (`%A`) is handled by the leading arm above —
-            // unreachable here, retained only to keep this match exhaustive.
-            | FormatType.Structured
-            | FormatType.FormatFunction
-            | FormatType.Text -> ValueNone
 
     /// SemType of the argument a specifier consumes, or `ValueNone` for the
     /// specifiers v1 doesn't type. `%A`/`%O` both consume a polymorphic argument
