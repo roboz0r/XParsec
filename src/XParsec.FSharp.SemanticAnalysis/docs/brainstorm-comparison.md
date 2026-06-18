@@ -240,7 +240,7 @@ alongside its consumer rather than as a standalone surprise.
   derivation recurses through a generic instantiation's *concrete* type args (the
   `TyTuple` rule), so `Result<int->int,_>` is a compile error at the use site
   while a fully-polymorphic `'T` arg keeps the fail-loud throw as residual. See
-  §7c; settled in [`operators-plan.md`](operators-plan.md) O7/O10.
+  §7c.
 - **Is `Block<'T>` comparable at all (§6)?** Only if there's a consumer (sorting
   blocks, blocks as `Map` keys). Defer until one exists; `EqArray` chose
   `NoComparison` for the same reason.

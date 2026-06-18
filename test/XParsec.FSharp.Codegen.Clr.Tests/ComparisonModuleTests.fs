@@ -129,7 +129,7 @@ let baseTests =
         ]
 
 // Front-end regression guard (analysis only): the `when 'T: comparison`
-// constraint (operators-plan O4). A generically-used operator infers the
+// constraint. A generically-used operator infers the
 // comparison constraint and type-checks; ordering an un-annotated record — whose
 // comparison support is the opt-in default `NoComparison` — is rejected with a
 // `comparison` constraint diagnostic. (StructuralComparisonTests proves the

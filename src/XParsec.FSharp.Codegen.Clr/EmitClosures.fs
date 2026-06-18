@@ -396,8 +396,7 @@ module EmitClosures =
     /// used as a value / under-applied. This is F#'s one model — a module `let f … = …`
     /// ALWAYS compiles to a flat static method; a value-use compiles to a closure that
     /// `call`s it — and the model the JS backend (`curryAdapter`) already mirrors. The
-    /// escape is an ADDITIVE bridge: it never removes the flat method (see
-    /// unify-clr-escape-bridge-plan.md).
+    /// escape is an ADDITIVE bridge: it never removes the flat method.
     ///
     /// The flat method is a function's ABI: a publicly reachable function's `.fsi`
     /// advertises it independently of how the function is used inside its producing

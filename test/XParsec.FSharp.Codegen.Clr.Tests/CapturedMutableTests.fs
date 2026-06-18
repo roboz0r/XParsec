@@ -344,8 +344,8 @@ let tests =
             // RS3: the Regions stack/heap verdict (Axis 1 `LocalStack` ∧ Axis 2
             // `StackOnlyEligible`) reaches `Emit.Closure.Repr` via
             // `TastFile.ClosureReprs`. The field is inert (emission ignores it),
-            // so these assert the classification only — IL is unchanged
-            // (ref-struct-emit-plan RS3). The shapes mirror the RS2 RegionsTests.
+            // so these assert the classification only — IL is unchanged.
+            // The shapes mirror the RS2 RegionsTests.
             test "RS3: a frame-local applied closure carries Repr = Stack" {
                 // `f` is `LocalStack` (confined to `useLocal`) and its only use is
                 // the direct callee of `f 3`, so Axis 2 is `StackOnlyEligible`.

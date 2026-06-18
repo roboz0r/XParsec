@@ -1,10 +1,9 @@
 # Vesper.Printf plan
 
-`printf` as its own library (minimal-core-lib-plan **D4**), depending on
-`Vesper.Core` (`Fun`, `List`). This plan **resolves D4's open fork** —
-compile-time lowering, *not* a closure-factory `PrintfModule` engine — and
-**unifies the happy path with string interpolation** (minimal-core-lib-plan
-**D9**): `printfn "%d" x` and `$"{x:d}"` differ only in surface syntax for the
+`printf` as its own library, depending on `Vesper.Core` (`Fun`, `List`). This
+plan **resolves the engine's open fork** — compile-time lowering, *not* a
+closure-factory `PrintfModule` engine — and **unifies the happy path with string
+interpolation**: `printfn "%d" x` and `$"{x:d}"` differ only in surface syntax for the
 format spec; once parsed they are the same `(literal | hole)*` sequence and lower
 the same way. One mechanism, two surface syntaxes.
 
@@ -82,6 +81,13 @@ format-as-value, the runtime spec-runner, `%A`.
 
 ## P3 — `%A` is reflection-free, compiler-synthesized (deferred)
 
+> **Superseded by the as-built `%A`.** The "indented tree that does not match F#"
+> framing below was replaced by **copy-pasteable Vesper source** with a
+> **group-based** layout — small values render identically to F# (`[1; 2; 3]`),
+> divergence is only in the multi-line regime. See `Vesper.Printf/StructuralFormat.cs`
+> (the layout engine) and `Vesper.Core/structural-format.fs(i)` (the interfaces).
+
+
 Dispatch by static hole type:
 
 ```
@@ -150,9 +156,6 @@ and lowered as intrinsics, no runtime body on the happy path.
 
 ## Cross-references
 
-- [minimal-core-lib-plan](minimal-core-lib-plan.md) — **D4** (printf is its own
-  library; this resolves its compile-time-lowering fork) and **D9** (the shared
-  interpolation handler). `Vesper.Printf` is the gap-① closer for the canonical sample.
 - [function-representation-plan](function-representation-plan.md) — the `Fun`
   value-struct + escape analysis the P4 partial-application structs ride on.
 - [backend-design-plan](backend-design-plan.md) §"Lowering split" — format-spec

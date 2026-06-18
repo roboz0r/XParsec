@@ -18,8 +18,7 @@
 # (`SymbolProviders.inlineBodies`) and splices each at its use site — the
 # operator-named-binding freeze gap that once blocked this is closed, and the
 # `Emit.BuiltinOps` op→opcode table is now only the un-ground / nested / generic
-# fallback. See ../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md
-# "Implementation status".
+# fallback.
 #
 # See ./README.md.
 

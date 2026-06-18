@@ -38,10 +38,10 @@ now) — expected while the self-hosting ladder is climbed, the same stance as
   is a value type, so neither `Ok` nor `Error` allocates on the heap. The price is
   the usual struct trade-off: `Result<'T, 'TError>` is copied by value and boxes
   if it crosses an `obj` boundary.
-- **`Data`, not `State` — opt-in `[<StructuralComparison>]`** (operators-plan.md
-  O10): `Result` is unconditionally structurally equatable and structurally
-  comparable *iff its type arguments are* (the O7
-  `Comparison.Structural ⇒ Equality.Structural` invariant holds). The recognised
+- **`Data`, not `State` — opt-in `[<StructuralComparison>]`**: `Result` is
+  unconditionally structurally equatable and structurally comparable *iff its type
+  arguments are* (the `Comparison.Structural ⇒ Equality.Structural` invariant
+  holds). The recognised
   comparison attributes themselves live in `Vesper.Core` (PS4), since the DAG
   forbids Core depending on `Vesper.Comparison` yet Core/leaf types must be
   annotatable.
@@ -76,6 +76,5 @@ backend once the self-host ladder lands. Parser coverage is verified by golden
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`operators-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md) — O10, the opt-in `[<StructuralComparison>]` on `Result`.
 - [`../Vesper.Option/README.md`](../Vesper.Option/README.md) — the sibling option package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.

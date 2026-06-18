@@ -188,7 +188,7 @@ module Operators =
 
     /// Convert to `uint32`. The JS idiom `$0 >>> 0` coerces any number to a
     /// 32-bit *unsigned* integer (zero-fill right shift by 0), the counterpart of
-    /// the CLR `conv.u4` / sign-only reinterpret. (printf-port-steps.md PP5b.)
+    /// the CLR `conv.u4` / sign-only reinterpret.
     let inline uint32 (value: ^T) : uint32 = (# "$0 >>> 0" value : uint32 #)
 
     /// `uint` abbreviation of `uint32`.
@@ -197,7 +197,6 @@ module Operators =
     /// Convert to `int32`. The JS idiom `$0 | 0` coerces any number to a 32-bit
     /// *signed* integer (bitwise-OR with zero), the signed counterpart of
     /// `uint32`'s `$0 >>> 0` and of the CLR `conv.i4` / sign-only reinterpret.
-    /// (printf-port-steps.md Gap E.)
     let inline int32 (value: ^T) : int32 = (# "$0 | 0" value : int32 #)
 
     /// `int` abbreviation of `int32`.

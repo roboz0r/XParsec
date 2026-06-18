@@ -14,8 +14,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // that need DIFFERENT IL (narrow-int `conv.*` truncation, unsigned `*.un`). Those
 // clauses return DIFFERENT types (`byte` / `int16` / …) than the declared `^T`,
 // which only type-checks because `inferLibraryOnlyStaticOptimization` no longer
-// cross-unifies clause bodies (the per-clause static-opt return typing fix —
-// docs/operators-plan.md, the arithmetic/bitwise/unary task).
+// cross-unifies clause bodies (the per-clause static-opt return typing fix
+// — arithmetic/bitwise/unary task).
 //
 // This file is the Layer-1 exemplar for docs/codegen-test-strategy-plan.md: the
 // dense `(expr, result)` corpus below is the broad, cheap regression net (it

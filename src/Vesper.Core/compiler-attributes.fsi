@@ -2,15 +2,15 @@ namespace Vesper
 
 open System
 
-// Compiler-recognised equality / comparison attributes (operators-plan.md O5).
+// Compiler-recognised equality / comparison attributes.
 //
 // These are *recognition hooks*: zero-runtime markers the front end reads by
 // short name to gate structural `Equals` / `GetHashCode` / `CompareTo`
 // generation and to stamp a type's equality/comparison verdict. They live in
 // `Vesper.Core` — never in `Vesper.Comparison` — because the dependency DAG runs
-// Core → Comparison, and Core's own types (`Ref`, `Result`) already carry them
-// (operators-plan.md O5, O8, O10). Authored here (NOT ported); the targets mirror
-// FSharp.Core's so annotation placement stays familiar.
+// Core → Comparison, and Core's own types (`Ref`, `Result`) already carry them.
+// Authored here (NOT ported); the targets mirror FSharp.Core's so annotation
+// placement stays familiar.
 
 /// <summary>Adding this attribute to a parameter of an inline function marks the
 /// argument as call-at-most-once: the compiler splices it unevaluated at its
@@ -49,7 +49,7 @@ type StructuralComparisonAttribute =
 
 /// <summary>Adding this attribute to a type disables the automatic generation of
 /// equality / hashing overrides; the type uses reference equality (State, not
-/// Data — operators-plan.md O8).</summary>
+/// Data).</summary>
 [<AttributeUsage(AttributeTargets.Class, AllowMultiple = false)>]
 [<Sealed>]
 type ReferenceEqualityAttribute =

@@ -52,7 +52,7 @@ The five types sit at different dependency tiers and self-host rungs:
 | **`Vesper.Option`** | a generic union + module | rung 2 (union emit) | trivial type, higher-order module |
 | **`Vesper.Result`** | a struct union + module | rung 2 | trivial type, module |
 | **`Vesper.List`** | union + recursion + module | rung 2 (mostly landed) | small |
-| **`Vesper.Comparison`** | `< > <= >=` / `compare` / `min` / `max`; BCL `Comparer<T>.Default` | — (designed, operators-plan) | prerequisite for Map/Set |
+| **`Vesper.Comparison`** | `< > <= >=` / `compare` / `min` / `max`; BCL `Comparer<T>.Default` | — (designed) | prerequisite for Map/Set |
 | **`Vesper.Map`** | base + Comparison; tree + rebalancing; List interop *additive* | rung 2+/3 | heavy tail |
 | **`Vesper.Set`** | base + Comparison; tree + rebalancing; List interop *additive* | rung 2+/3 | heavy tail |
 
@@ -97,22 +97,21 @@ Vesper  (rollup: depends-on all; no files of its own)
   **ordering** (`compare` / `IComparer<'T>`), which that spec does not address.
   This is a hard prerequisite for both tree packages and is **not** one of the
   five listed types. **Resolved** (PS4-Q closed) in
-  [operators-plan](operators-plan.md): option 1 — a **`Vesper.Comparison`
-  package** that Map/Set `depends-on`. Its shape:
+  A **`Vesper.Comparison` package** that Map/Set `depends-on`. Its shape:
   1. holds the four ordering operators (`< > <= >=`) **and** `compare` / `min` /
-     `max` — the whole ordering surface (operators-plan O2);
+     `max` — the whole ordering surface;
   2. ships **no runtime type** — structural ordering rides BCL
      `Comparer<T>.Default` + compiler-emitted `IComparable<T>`/`CompareTo`, just
-     as equality rides `EqualityComparer<T>.Default` (operators-plan O1, cmp §4);
+     as equality rides `EqualityComparer<T>.Default`;
   3. the recognised attributes (`[<StructuralComparison>]` / `[<NoComparison>]` /
      `[<CustomComparison>]`) live in **`Vesper.Core`**, not this package — the DAG
      forbids Core depending on Comparison and Core types (e.g. `Result`) must be
-     annotatable (operators-plan O5);
+     annotatable;
   4. primitive ordering (`1 < 5`, CIL `clt`) is in the **default contract
      closure**, so writing `<` does not force a `Vesper.Comparison` reference and
      the emitted PE carries no `AssemblyRef` for it; only per-type `CompareTo`
-     **generation** is the genuinely opt-in part, gated on `[<StructuralComparison>]`
-     (operators-plan O3).
+     **generation** is the genuinely opt-in part, gated on
+     `[<StructuralComparison>]`.
 
   Still must be stood up before either tree package, but the design is no longer
   open.
@@ -156,11 +155,10 @@ prerequisite called out:
    struct union, no recursion in the *type*). Type legs need no new type
    machinery beyond what List proved; module legs ride R1. `Option` is a
    **struct** (`None` = zero-init, no `UseNullAsTrueValue`), so its F# sibling
-   `ValueOption` is **removed** as redundant (operators-plan O9); `Result` gets
-   opt-in `[<StructuralComparison>]` (O10).
+   `ValueOption` is **removed** as redundant; `Result` gets opt-in
+   `[<StructuralComparison>]`.
 4. **`Vesper.Comparison`** (PS4) — stand up the ordered-comparison package
-   (design settled in [operators-plan](operators-plan.md); no longer a spike).
-   Gates the tree packages.
+   (design settled; no longer a spike). Gates the tree packages.
 5. **`Vesper.Map`, `Vesper.Set`** — the heavy tail: balanced tree + rebalancing
    (heavier than List's flat cons-list), plus the comparison and equality
    capabilities. List-interop additive (PS7).
@@ -174,10 +172,10 @@ physical work is layout + manifests + one loader extension.
    and `Collections.List` + `List.fold` → `Vesper.List` are **already split out**;
    [`../../Vesper.Core/core-types.fsi`](../../Vesper.Core/core-types.fsi) now holds
    only `Ref` + `ValueOption` + `Result`. What remains: `Ref` stays with base,
-   re-annotated `[<ReferenceEquality>]`/`[<NoComparison>]` (mutable State,
-   operators-plan O8); `ValueOption`/`voption` is **removed**, not moved —
-   redundant now that `Option` is a struct (O9); `Result` → a new `Vesper.Result`
-   package (opt-in `[<StructuralComparison>]`, O10). Finishing this unblocks the
+   re-annotated `[<ReferenceEquality>]`/`[<NoComparison>]` (mutable State);
+   `ValueOption`/`voption` is **removed**, not moved — redundant now that `Option`
+   is a struct; `Result` → a new `Vesper.Result` package (opt-in
+   `[<StructuralComparison>]`). Finishing this unblocks the
    per-package conformance work below.
 2. **One directory per package** — `src/Vesper.Option/`, `src/Vesper.Result/`,
    `src/Vesper.List/`, `src/Vesper.Comparison/`, `src/Vesper.Map/`,
@@ -212,9 +210,9 @@ this tree has no `[upstream]` pin.)
 
 ## Risks / open questions
 
-- **PS4-Q — Comparison: package vs compiler intrinsic — RESOLVED.** Decided in
-  [operators-plan](operators-plan.md): the `Vesper.Comparison` **package** (the
-  clean dependency edge) holding the ordering operators + `compare`/`min`/`max`,
+- **PS4-Q — Comparison: package vs compiler intrinsic — RESOLVED.** The
+  `Vesper.Comparison` **package** (the clean dependency edge) holds the ordering
+  operators + `compare`/`min`/`max`,
   with structural `CompareTo` emitted by the compiler against BCL
   `Comparer<T>.Default` (no `Runtime` helper, no runtime type) and the recognised
   attributes kept in `Vesper.Core` (PS4). The alternative — couple ordering into
@@ -246,9 +244,6 @@ this tree has no `[upstream]` pin.)
 - [brainstorm-comparison](brainstorm-comparison.md) — the ordering half (`<`…,
   `compare`/`min`/`max`), opt-in `[<StructuralComparison>]`, §7c generic
   arg-recursion.
-- [operators-plan](operators-plan.md) — the equality/ordering operator partition
-  across `Vesper.Core` / `Vesper.Comparison` (the PS4 resolution: O1–O3, O5,
-  O8–O10).
 - [`../VesperLib.fs`](../VesperLib.fs) — the bucket loader (`loadAll` / `topoSort`
   / `ExtractCtx`) this plan repoints at `Vesper.Core`; the PS-Loader change.
 - [extract-symbols-plan](extract-symbols-plan.md) — the symbol-extraction design

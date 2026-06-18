@@ -73,8 +73,8 @@ let private regionOf (input: string) (name: string) : RegionId option =
         if root.Region.Raw >= 0 then Some root.Region else None
     | ValueNone -> None
 
-/// Axis-2 representation verdict of a *module-level* binding (ref-struct-emit-plan
-/// RS2). Mirrors `escapeOf` over the `Repr` side table.
+/// Axis-2 representation verdict of a *module-level* binding.
+/// Mirrors `escapeOf` over the `Repr` side table.
 let private reprOf (input: string) (name: string) : RegionRepr option =
     let ctx, file = analyse input
     let key = headKeyOf ctx file name
@@ -581,7 +581,7 @@ let tests =
                 Expect.equal escape (Some LocalStack) "abbreviation to record at module-top is LocalStack"
             }
 
-            // --- Axis 1 lattice (ref-struct-emit-plan RS1) -------------------
+            // --- Axis 1 lattice -------------------------------------------
             // The `ReturnOnly` tier and the two coarsening maps. v1 lays the
             // tier down but `solve` does not mint it yet (a returned closure
             // stays `CallerStack` per the tests above — the `ReturnOnly`
@@ -639,7 +639,7 @@ let tests =
                     "ReturnOnly is distinct from LocalStack"
             }
 
-            // --- Axis 2 representation fixpoint (ref-struct-emit-plan RS2) -----
+            // --- Axis 2 representation fixpoint ----------------------------------
             // Orthogonal to Axis 1: a closure can be frame-local by lifetime yet
             // pinned to a heap representation by a containment / boxing channel.
             // The ref-struct-eligibility predicate is the conjunction

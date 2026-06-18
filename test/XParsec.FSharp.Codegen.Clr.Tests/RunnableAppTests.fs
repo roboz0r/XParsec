@@ -44,7 +44,7 @@ let tests =
                 // `withCore`: the `printfn "%d"` binds `Vesper.Printf` (+ its
                 // `Vesper.Core` / `Vesper.List` deps), so their paths must be resolvable
                 // reference sources for `materialiseApp` to copy beside the PE
-                // (printf-port-steps.md step 3 — no host fallback ships the handler now).
+                // (no host fallback ships the handler).
                 let project = withCore (ProjectInfo.app "XParsecStaticApp" outDir)
 
                 let src =

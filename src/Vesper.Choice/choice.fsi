@@ -28,7 +28,7 @@ open System
 ///
 /// <category>Choices and Results</category>
 // Data, not State: structural equality (unconditional) + opt-in structural
-// comparison, comparable iff its args are (operators-plan.md O10; the O7
+// comparison, comparable iff its args are (the
 // `Comparison.Structural ⇒ Equality.Structural` invariant holds), exactly as
 // Vesper.Result.
 [<StructuralEquality; StructuralComparison>]

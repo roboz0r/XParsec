@@ -12,8 +12,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // to generic tokens); use sites resolve to their distinct `Token` enums and were
 // wired into `Desugar.infixOpName` + `Unification.tryPrimitiveTraitCandidate`
 // (the `bitwiseBinaryOps` / `shiftOps` sets). `>>>` is a static-opt (signed `shr`
-// base + unsigned `shr.un` clauses); the rest are single-IL bodies. See
-// docs/operators-plan.md (the arithmetic/bitwise/unary task).
+// base + unsigned `shr.un` clauses); the rest are single-IL bodies.
 
 [<Tests>]
 let tests =

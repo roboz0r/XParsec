@@ -39,8 +39,7 @@ module Pipeline =
         Regions.run ctx tast0.Decls
         // Snapshot the RS3 closure stack/heap verdict (Axis 1 ∧ Axis 2) onto the
         // TastFile now that both escape side tables are populated — codegen has no
-        // PassContext, so this is how the verdict reaches `discoverClosures`
-        // (ref-struct-emit-plan RS3).
+        // PassContext, so this is how the verdict reaches `discoverClosures`.
         let tast0 =
             { tast0 with
                 ClosureReprs = Regions.closureReprSnapshot ctx

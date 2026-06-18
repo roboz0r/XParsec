@@ -220,7 +220,7 @@ type EscapeState =
     /// May be returned *by value* but not captured by a caller's refs —
     /// Roslyn's `ReturnOnly` tier. More permissive than `CallerStack`; minted
     /// on a returned-but-non-escaping closure. v1 lays the tier down but does
-    /// not act on it for emission (ref-struct-emit-plan §Axis 1).
+    /// not act on it for emission.
     | ReturnOnly
     | CallerStack
     | HeapShared

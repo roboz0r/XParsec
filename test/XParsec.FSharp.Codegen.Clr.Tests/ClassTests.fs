@@ -412,7 +412,7 @@ let staticTests =
             //
             //     Under the unified escape model an escaping function is NO LONGER
             //     demoted — it keeps its flat static method and the escape becomes a
-            //     bridge (unify-clr-escape-bridge-plan.md), so a bare value-use can no
+            //     bridge, so a bare value-use can no
             //     longer strand a module value. The one demotion left is the *capture*
             //     axis: `f` captures the destructured top-level local `a` (a genuine
             //     `Main` local — a tuple-pattern `let` is not collected as a module

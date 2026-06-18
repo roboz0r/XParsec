@@ -85,9 +85,7 @@ parsed by `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the
 > the un-ground / nested / generic fallback (and `Emit.isHash` is gone). Both
 > front-end gaps that once blocked this are closed — operator-named bindings freeze
 > with their compiled name, and BCL generic-member resolution reaches the
-> `EqualityComparer<'T>` fall-clauses. See
-> [`operators-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md)
-> "Implementation status".
+> `EqualityComparer<'T>` fall-clauses.
 
 Parser coverage is verified: every `.fsi`/`.fs` here parses with zero recovery
 diagnostics — the same bar as the FSharp.Core corpus — by

@@ -215,7 +215,7 @@ let tests =
             // ---- escape bridge (bridgeStaticFnEscapes) -------------------------
             // A module function used higher-order *within its own assembly* still
             // emits its flat static method; the escape ADDS a wrapper closure that
-            // `call`s it (F#/JS model, unify-clr-escape-bridge-plan.md). For an
+            // `call`s it (F#/JS model). For an
             // EXPORTED (named-holder) function the flat method is the `.fsi`-advertised
             // contract a cross-assembly consumer `call`s; demoting it entirely to a
             // closure (the old all-or-nothing policy) left that `call` unbound →

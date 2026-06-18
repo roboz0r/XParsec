@@ -267,8 +267,7 @@ identity int, no `EqualityComparer<T>.Default`, so `Core.JS` must ship the small
 equality/hash/`compare` **runtime dispatcher this design deleted for CLR (§4)** —
 primitives hashed by authored functions, identity hash via a `WeakMap<object,int>`
 + counter, generated structural `equals`/`hash` recursed through it. Semantics
-stay uniform with CLR; the cost is that one shim. See
-[operators-plan](operators-plan.md) "Target portability of `hash`".
+stay uniform with CLR; the cost is that one shim.
 
 ## 6. Implementation slices (dependency order)
 
@@ -288,9 +287,8 @@ All BCL-only; no slice needs a runtime intrinsic.
 4. **S4 — Generic DUs/records.** Equality member sigs in the declaring typar
    (`!0`), via R2 generic-member machinery. **Generic DUs: DONE (2026-05-25)** —
    the full triple + `IEquatable<List<!0>>`, an ambient `!0`-leaf on `encodeType`
-   reusing the existing generic-member machinery (see
-   [operators-plan](operators-plan.md) "Implementation status"). Generic
-   records ride S2 (R6 record backend) + the same ambient machinery.
+   reusing the existing generic-member machinery. Generic records ride S2 (R6
+   record backend) + the same ambient machinery.
 5. **S5 — ValueTuple compile-time unroll.** Once tuple emission settles.
 
 `[|…|]` array-literal surface (does a literal mean `T[]` or `Block`?) is a

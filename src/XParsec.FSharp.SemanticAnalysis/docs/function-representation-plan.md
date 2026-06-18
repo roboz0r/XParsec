@@ -363,6 +363,14 @@ Out of scope for v1. Lands as a follow-up pass that runs *after*
 codegen has chosen `Fun`-constrained signatures — strictly a
 constraint-loosening rewrite.
 
+The classification this widening consumes — *which* closures are
+stack-only — is the escape lattice aligned to Roslyn's ref-safe-context
+(RS1: `ReturnOnly` tier), a second representation axis for the
+boxing/containment channels (a stack closure is illegal the moment it is
+upcast to `Fun<_,_>`, boxed, or stored in a `ValueTuple`/record/array —
+independent of lifetime — RS2), and a `Repr: ClosureRepr` field on
+`Emit.Closure` carrying the `Stack | Heap` verdict to this pass (RS3).
+
 ## Out of scope
 
 - Higher-arity `Fun<...>` overloads as a perf hack (avoiding curried

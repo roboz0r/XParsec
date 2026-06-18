@@ -33,11 +33,10 @@ allocations per element vs one allocation + GC pressure as a class).
   trade-off: the value carries `sizeof 'T1 + sizeof 'T2 + tag`, is copied by
   value, and boxes if it crosses an `obj` boundary — trivial here, where the arms
   are reference types (two words + tag, cheaper to copy than to allocate).
-- **`Data`, not `State` — opt-in `[<StructuralComparison>]`** (operators-plan.md
-  O10): `Choice` is unconditionally structurally equatable and structurally
-  comparable *iff its type arguments are* (the O7
-  `Comparison.Structural ⇒ Equality.Structural` invariant holds), exactly as
-  `Result`.
+- **`Data`, not `State` — opt-in `[<StructuralComparison>]`**: `Choice` is
+  unconditionally structurally equatable and structurally comparable *iff its type
+  arguments are* (the `Comparison.Structural ⇒ Equality.Structural` invariant
+  holds), exactly as `Result`.
 - **Named-field cases** `Choice1Of2 of Choice1Of2: 'T1` /
   `Choice2Of2 of Choice2Of2: 'T2`, matching the FSharp.Core surface
   (compiled name `FSharpChoice`2``).
@@ -66,6 +65,5 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 ## Cross-references
 
 - [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
-- [`operators-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/operators-plan.md) — O10, the opt-in `[<StructuralComparison>]`.
 - [`../Vesper.Result/README.md`](../Vesper.Result/README.md) — the sibling package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on.

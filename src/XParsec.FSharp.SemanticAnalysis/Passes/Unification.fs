@@ -1167,7 +1167,7 @@ module Unification =
     /// `Freeze.translateIdent`, which eta-expands the value into a closure calling the
     /// member; no hit ⇒ the built-in / `External` value path is left untouched.
     ///
-    /// TODO(operators-plan, heterogeneous SRTP): scanning every operand is the correct
+    /// TODO(heterogeneous SRTP): scanning every operand is the correct
     /// F# rule (`(+): ^T1 -> ^T2 -> ^T3 when (^T1 or ^T2): static member (+)`), but it
     /// is not yet *observable*, because the unifier collapses the three operator typars
     /// to one — the `(+)` *inline body* (`ops-platform.fs`) is written `^T -> ^T -> ^T`

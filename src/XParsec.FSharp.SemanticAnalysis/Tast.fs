@@ -321,8 +321,7 @@ type TExprG<'ty, 'tok> =
     /// else `defaultExpr`. Every clause body and `defaultExpr` share `ty` (an
     /// equality-family operator returns `bool` under every clause). Codegen does
     /// **not** emit this node directly — `Inline.inlineExpand` resolves it to the
-    /// chosen branch once the call site pins the operand type (prereq 3). See
-    /// docs/operators-plan.md.
+    /// chosen branch once the call site pins the operand type (prereq 3).
     | StaticOptimization of
         clauses: EqArray<TStaticOptClauseG<'ty, 'tok>> *
         defaultExpr: TExprG<'ty, 'tok> *
@@ -534,7 +533,7 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// (sealed, sequential layout, ctor without a base-ctor chain) instead of a
     /// reference class; `RefStruct` additionally stamps
     /// `System.Runtime.CompilerServices.IsByRefLikeAttribute` so the CLR confines
-    /// the value type to the stack (PP1, `docs/printf-port-steps.md`). `fields`
+    /// the value type to the stack. `fields`
     /// (the explicit `val [mutable] x: T` instance fields) are populated for both
     /// structs and classes that declare them — each emits a `FieldDefinition` and
     /// a mutable one admits `this.x <- …`.

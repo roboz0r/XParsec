@@ -17,7 +17,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// `curryAdapter`, the CLR backend via `EmitClosures.bridgeStaticFnEscapes` (which
 /// derives saturation from the spine directly). The only CLR-private demotion left is
 /// the *capture* axis (`EmitClosures.staticEligible`), genuinely intrinsic to a
-/// `this`-less static method and orthogonal to escape (unify-clr-escape-bridge-plan.md).
+/// `this`-less static method and orthogonal to escape.
 module CompiledFns =
 
     /// One top-level module-function binding's compiled form. `Groups.Length` is the

@@ -1,17 +1,17 @@
 namespace Vesper
 
-// Vesper.Comparison — the ordering family (operators-plan.md O1/O2).
+// Vesper.Comparison — the ordering family.
 //
 // The four bare ordering operators relocated here from Vesper.Core's
 // `ops-platform.fsi` so the entire ordering surface lives in one package, while
 // equality (`=` / `<>` / `hash`) stays in Vesper.Core. Their `when 'T: comparison`
-// constraints are retained and enforced (operators-plan.md O4) exactly as the
-// equality family's `when 'T: equality` is.
+// constraints are retained and enforced exactly as the equality family's
+// `when 'T: equality` is.
 //
 // `compare` / `min` / `max` (and the `Comparer<'T>.Default` dispatch / opt-in
 // structural `CompareTo` generation) land in slice C-Cmp1 alongside the
-// default-contract-closure wiring (operators-plan.md O3/O6) — not in this pass,
-// which is scoped to the Vesper.Core equality slice.
+// default-contract-closure wiring — not in this pass, which is scoped to the
+// Vesper.Core equality slice.
 
 // The non-inline structural-comparison runtime entry the JS aggregate bases call for a
 // non-primitive operand — the ordering analogue of Vesper.Core's

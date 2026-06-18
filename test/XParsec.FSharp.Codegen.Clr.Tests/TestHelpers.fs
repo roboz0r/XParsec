@@ -335,9 +335,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 /// The Vesper-compiled `Vesper.Printf.dll` (`structural-printer.fs` + `formatter.fs`),
 /// built by the `buildPackage` harness and loaded into the *Default*
 /// `AssemblyLoadContext` — the in-process runtime printf/`%A` handler a driver binds
-/// (printf-port-steps.md step 3: the C# DLL is off the TPA, so the Vesper handler is
-/// the one a fresh-ALC `runEntryPoint` driver resolves through the Default
-/// fall-through). Forcing it builds `Vesper.Printf` (and its `Vesper.Core` /
+/// (C# DLL is off the TPA, so the Vesper handler is the one a fresh-ALC
+/// `runEntryPoint` driver resolves through the Default fall-through). Forcing it builds `Vesper.Printf` (and its `Vesper.Core` /
 /// `Vesper.List` deps) and loads the on-disk DLL into Default; the printf assembly's
 /// `Vesper.Core` / `Vesper.List` references resolve by simple name to the
 /// `vesperCoreDll` / `vesperListDll` copies (forced first), the same value-identity
@@ -359,8 +358,8 @@ let vesperPrintfDll: Lazy<string> =
 
 /// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1), `Vesper.List.dll` (for
 /// `Vesper.Collections.List`, package-split-plan PS2), and the Vesper-compiled
-/// `Vesper.Printf.dll` (for `Vesper.Formatter`, the happy-path printf/`%A` handler —
-/// printf-port-steps.md step 3) to a project's `References`, so a program's function
+/// `Vesper.Printf.dll` (for `Vesper.Formatter`, the happy-path printf/`%A` handler)
+/// to a project's `References`, so a program's function
 /// values, list literals, and `printf` calls resolve. Each path is added only when
 /// absent, and never into the package that *defines* the type (a package must not
 /// reference itself): `Vesper.Core` gets no core ref, `Vesper.List` no list ref,
@@ -547,11 +546,8 @@ let runEntryPoint (bytes: byte[]) : int * string =
     // by the target of an invocation".
     runLoadedEntryPoint (loadAssembly bytes)
 
-// ---- PP7e: ALC-separable `Vesper.Printf` (differential-testing foundation) ----
-// The runtime-swap blocker (printf-port-steps.md PP7e) is that the C#-built
-// `Vesper.Printf.dll` is on the Default ALC / process TPA (pulled in by
-// `Codegen.Clr.fsproj`'s `ProjectReference`), so a driver `printfn` always binds
-// the C# handler. This block makes the runtime choice explicit: a driver PE is
+// ---- ALC-separable `Vesper.Printf` (differential-testing foundation) ----
+// This block makes the runtime handler choice explicit: a driver PE is
 // loaded into a dedicated *collectible* ALC whose `Load` override resolves
 // `Vesper.Printf` to a CHOSEN copy — the committed C# DLL or the
 // `buildPackage`-produced Vesper one — while everything else (`Vesper.Core`,
@@ -578,12 +574,12 @@ type PrintfHandler =
     | Vesper
 
 /// The C# `Vesper.Printf.dll`, built on demand for the differential safety net.
-/// `Codegen.Clr` no longer references `Vesper.Printf.csproj` (printf-port-steps.md
-/// step 3), so the C# DLL is neither copied beside the test binary nor on the process
-/// TPA — that is what keeps the C# handler off the Default ALC so the in-process
-/// drivers bind the *Vesper*-compiled handler. The differential suite (its only
-/// consumer) builds the `.csproj` via `dotnet build` and reads the produced DLL by
-/// path. `lazy`, so the build runs once and only when a `CSharp`-handler run forces it.
+/// `Codegen.Clr` no longer references `Vesper.Printf.csproj`, so the C# DLL is
+/// neither copied beside the test binary nor on the process TPA — that is what keeps
+/// the C# handler off the Default ALC so the in-process drivers bind the
+/// *Vesper*-compiled handler. The differential suite (its only consumer) builds the
+/// `.csproj` via `dotnet build` and reads the produced DLL by path. `lazy`, so the
+/// build runs once and only when a `CSharp`-handler run forces it.
 let private csharpPrintfPath: Lazy<string> =
     lazy
         (let csproj =

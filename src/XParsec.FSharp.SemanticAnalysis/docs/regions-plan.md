@@ -727,6 +727,19 @@ When target plugins do come online, v2 adds a fourth field to TAST
 nodes: `escape: EscapeState option`, mirroring the third axis of
 TypeVar all the way through. Defer that until the first plugin needs it.
 
+**Extension (the CLR `ref struct` consumer — landed).** The first
+non-`RefCellPromotion` consumer of this pass (a) aligns the `EscapeState`
+lattice to Roslyn's ref-safe-context — adding a `ReturnOnly` tier between
+`CallerStack` and `LocalStack`, safely additive since `RefCellPromotion`
+only branches on `= HeapShared` — (b) adds a second *representation*
+fixpoint over the same `Outlives` edges (the boxing/containment channels
+that make a frame-local value still heap-bound), and (c) carries the
+verdict to codegen as an `Emit.Closure` repr field (`Stack | Heap`) rather
+than re-deriving it. The non-foreclosure constraints for a future native
+(MLIR/LLVM) backend are preserved: `EscapeState` is a named ordered
+lattice with documented coarsening maps (`toClrRefSafe` /
+`toNativeRegionTier`); the region graph stays structurally preservable.
+
 ## Test strategy
 
 [`RegionsTests.fs`](../../../test/XParsec.FSharp.SemanticAnalysis.Tests/RegionsTests.fs)
