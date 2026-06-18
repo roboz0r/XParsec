@@ -1,106 +1,70 @@
-// Vesper.Printf — JS runtime for `%A` structural formatting (codegen-js-steps.md Step 6).
-//
-// Committed platform-support asset — the JS analogue of the committed Vesper.Printf
-// CLR DLL (which compiles `structural-printer.fs`). Declared by this package's
-// manifest `runtime-js` key, read by the JS backend through
-// `ReferencedProject.runtimeModules`, materialised beside the output and imported as
-// `./Vesper.Printf.mjs`. The backend's `EmitJs.buildHole` lowers every `%A`
-// (`Structured`) format hole to a curried call of the `structuralFormat` export
-// (`structuralFormat(value)(width)(size)`), imported + `$`-aliased like any other
-// Vesper module function.
-//
-// Why a hand-authored JS runtime rather than the CLR `structural-printer.fs`: that
-// file is interface-dispatch (it resolves records / unions via the per-type
-// synthesised `IStructuralFormattable.Format`) and BCL-heavy (`Span` / `ArrayPool` /
-// `ITuple` / `IEnumerable`). The JS target abandoned per-type emission (the Step 5b/6
-// shape-keyed interop invariant — `.tag` + own-keys, never `instanceof`), so the
-// dispatch core cannot be shared as-is. This file is the shape-keyed JS counterpart;
-// the shared-core refactor (a `structural-printer.js.fs` compiled here) is the
-// tracked successor (see printf-shared-core-plan.md). The leaf/layout *forms* this
-// file emits deliberately match the CLR `StructuralPrinter`'s flat output.
-//
-// Output is always FLAT (single line). The CLR engine's group-based line breaking at
-// the `width` budget is the deferred refinement; `width` is accepted but unused, so
-// JS `%A` behaves like the CLR `%0A` (never-break) mode. The `size` budget is F#'s
-// PrintSize node count: each leaf spends one unit and a collection caps at 100
-// elements; past the budget further values render `...` (the `%.NA` mode).
-//
-// ERASURE CORNERS (documented, unreachable through well-typed `%A`): a length-1
-// string and an F# `char` are both JS strings, so a char renders `"a"` not `'a'`; an
-// integer-valued `float` (3.0) and an `int` (3) are both JS numbers, so a whole float
-// renders `3` not `3.0`. F#'s static types make either confusion unreachable through a
-// single `%A`; it only surfaces under `obj`-boxing (out of MVP scope).
-
-function fmtString(s) {
-  let out = "\"";
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === "\\") out += "\\\\";
-    else if (c === "\n") out += "\\n";
-    else if (c === "\r") out += "\\r";
-    else if (c === "\t") out += "\\t";
-    else if (c === "\"") out += "\\\"";
-    else out += c;
+export const cat = (a) => (b) => ((a) + (b));
+export const strEq = (a) => (b) => ((a) === (b));
+export const notB = (x) => (!(x));
+export const intEq = (a) => (b) => ((a) === (b));
+export const intLt = (a) => (b) => ((a) < (b));
+export const intLe = (a) => (b) => ((a) <= (b));
+export const intGe = (a) => (b) => ((a) >= (b));
+export const intGt = (a) => (b) => ((a) > (b));
+export const inc = (a) => ((a) + 1);
+export const dec = (a) => ((a) - 1);
+export const typeOf = (v) => (typeof (v));
+export const isArr = (v) => (Array.isArray((v)));
+export const isUndef = (v) => ((v) === undefined);
+export const isNullV = (v) => ((v) === null);
+export const toStr = (v) => (String((v)));
+export const lenOf = (v) => ((v).length);
+export const elem = (v) => (i) => ((v)[(i)]);
+export const field = (v) => (k) => ((v)[(k)]);
+export const sElem = (a) => (i) => ((a)[(i)]);
+export const keysOf = (v) => (Object.keys((v)));
+export const tagOf = (v) => ((v).tag);
+export const casesOf = (v) => ((v).cases());
+export const mkBudget = (size) => ([(size)]);
+export const getB = (b) => ((b)[0]);
+export const setB = (b) => (v) => ((b)[0] = (v));
+export const fmtString = (s) => ((len) => ((out) => ((i) => ((() => {
+  while (intLt(i)(len)) {
+    (strEq(((s)[(i)]))("\\") ? (out = cat(out)("\\\\")) : (strEq(((s)[(i)]))("\n") ? (out = cat(out)("\\n")) : (strEq(((s)[(i)]))("\r") ? (out = cat(out)("\\r")) : (strEq(((s)[(i)]))("\t") ? (out = cat(out)("\\t")) : (strEq(((s)[(i)]))("\"") ? (out = cat(out)("\\\"")) : (out = cat(out)(((s)[(i)]))))))));
+    (i = inc(i));
   }
-  return out + "\"";
-}
-
-// A union value: a non-array object carrying a numeric `tag` own-key and the
-// `cases()` discriminator method every emitted union base class declares.
-function isUnion(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v)
-    && typeof v.tag === "number" && typeof v.cases === "function";
-}
-
-// A Vesper cons-list: a union whose declaration-order cases are exactly
-// `["Empty", "Cons"]`. Rendered `[a; b; c]` (F#'s list form), not as the raw union.
-function isVesperList(v) {
-  if (!isUnion(v)) return false;
-  const cs = v.cases();
-  return cs.length === 2 && cs[0] === "Empty" && cs[1] === "Cons";
-}
-
-// Render a union payload in argument position. A payload-bearing union parenthesizes
-// (`Some (Circle 5)`); tuples / lists / records carry their own delimiters already.
-function fmtArg(v, budget) {
-  if (isUnion(v) && !isVesperList(v) && Object.keys(v).length > 1) {
-    return "(" + fmtValue(v, budget) + ")";
+})(), cat(out)("\"")))(0))("\""))(lenOf(s));
+export const isUnion = (v) => (isNullV(v) ? false : (notB(strEq(typeOf(v))("object")) ? false : (isArr(v) ? false : (notB(strEq(typeOf(field(v)("tag")))("number")) ? false : strEq(typeOf(field(v)("cases")))("function")))));
+export const isVesperList = (v) => (notB(isUnion(v)) ? false : ((cs) => (notB(intEq(lenOf(cs))(2)) ? false : (notB(strEq(sElem(cs)(0))("Empty")) ? false : strEq(sElem(cs)(1))("Cons"))))(casesOf(v)));
+export const isPayloadUnion = (v) => (notB(isUnion(v)) ? false : (isVesperList(v) ? false : intGt(lenOf(keysOf(v)))(1)));
+export const fmtValue = (v) => (budget) => (isUndef(v) ? "()" : (isNullV(v) ? "null" : ((t) => (strEq(t)("number") ? (setB(budget)(dec(getB(budget))), toStr(v)) : (strEq(t)("bigint") ? (setB(budget)(dec(getB(budget))), cat(toStr(v))("L")) : (strEq(t)("boolean") ? (setB(budget)(dec(getB(budget))), toStr(v)) : (strEq(t)("string") ? (setB(budget)(dec(getB(budget))), fmtString(v)) : (isArr(v) ? ((len) => ((out) => ((i) => ((() => {
+  while (intLt(i)(len)) {
+    const s = fmtValue(elem(v)(i))(budget);
+    (intEq(i)(0) ? (out = cat(out)(s)) : (out = cat(cat(out)(", "))(s)));
+    (i = inc(i));
   }
-  return fmtValue(v, budget);
-}
-
-function fmtValue(v, budget) {
-  if (v === undefined) return "()";          // unit
-  if (v === null) return "null";
-  const t = typeof v;
-  if (t === "number") { budget.n--; return String(v); }
-  if (t === "bigint") { budget.n--; return String(v) + "L"; }   // int64 / uint64
-  if (t === "boolean") { budget.n--; return v ? "true" : "false"; }
-  if (t === "string") { budget.n--; return fmtString(v); }
-  if (Array.isArray(v)) {
-    return "(" + v.map((x) => fmtValue(x, budget)).join(", ") + ")";   // tuple
+})(), cat(out)(")")))(0))("("))(lenOf(v)) : (isVesperList(v) ? ((out) => ((cur) => ((i) => ((first) => ((go) => ((() => {
+  while (go) {
+    (notB(intEq(tagOf(cur))(1)) ? (go = false) : (intGe(i)(100) ? ((out = (first ? cat(out)("...") : cat(out)("; ..."))), (go = false)) : (intLe(getB(budget))(0) ? ((out = (first ? cat(out)("...") : cat(out)("; ..."))), (go = false)) : ((h) => ((first ? (out = cat(out)(h)) : (out = cat(cat(out)("; "))(h))), (first = false), (cur = field(cur)("Tail")), (i = inc(i))))(fmtValue(field(cur)("Head"))(budget)))));
   }
-  if (isVesperList(v)) {
-    const parts = [];
-    let cur = v;
-    let i = 0;
-    while (cur.tag === 1) {
-      if (i >= 100 || budget.n <= 0) { parts.push("..."); break; }
-      parts.push(fmtValue(cur.Head, budget));
-      cur = cur.Tail; i++;
-    }
-    return "[" + parts.join("; ") + "]";
+})(), cat(out)("]")))(true))(true))(0))(v))("[") : (isUnion(v) ? ((name) => ((ks) => ((klen) => ((fcount) => ((j) => ((() => {
+  while (intLt(j)(klen)) {
+    (notB(strEq(sElem(ks)(j))("tag")) ? (fcount = inc(fcount)) : undefined);
+    (j = inc(j));
   }
-  if (isUnion(v)) {
-    const name = v.cases()[v.tag];
-    const fields = Object.keys(v).filter((k) => k !== "tag");
-    if (fields.length === 0) return name;
-    if (fields.length === 1) return name + " " + fmtArg(v[fields[0]], budget);
-    return name + " (" + fields.map((k) => fmtValue(v[k], budget)).join(", ") + ")";
+})(), (intEq(fcount)(0) ? name : (intEq(fcount)(1) ? ((fk) => ((j2) => ((() => {
+  while (intLt(j2)(klen)) {
+    (notB(strEq(sElem(ks)(j2))("tag")) ? (fk = sElem(ks)(j2)) : undefined);
+    (j2 = inc(j2));
   }
-  // A record (or any other plain object): `{ F = v; G = w }` in own-key order.
-  return "{ " + Object.keys(v).map((k) => k + " = " + fmtValue(v[k], budget)).join("; ") + " }";
-}
-
-// Public, curried entry — the surface the backend imports (`structuralFormat(v)(width)(size)`).
-export const structuralFormat = (value) => (width) => (size) => fmtValue(value, { n: size });
+})(), ((child) => ((childStr) => (isPayloadUnion(child) ? cat(cat(cat(name)(" ("))(childStr))(")") : cat(cat(name)(" "))(childStr)))(fmtValue(child)(budget)))(field(v)(fk))))(0))("") : ((out) => ((firstF) => ((j3) => ((() => {
+  while (intLt(j3)(klen)) {
+    const k = sElem(ks)(j3);
+    (notB(strEq(k)("tag")) ? ((s) => ((firstF ? (out = cat(out)(s)) : (out = cat(cat(out)(", "))(s))), (firstF = false)))(fmtValue(field(v)(k))(budget)) : undefined);
+    (j3 = inc(j3));
+  }
+})(), cat(out)(")")))(0))(true))(cat(name)(" ("))))))(0))(0))(lenOf(ks)))(keysOf(v)))(sElem(casesOf(v))(tagOf(v))) : ((ks) => ((klen) => ((out) => ((firstR) => ((jr) => ((() => {
+  while (intLt(jr)(klen)) {
+    const k = sElem(ks)(jr);
+    const s = cat(cat(k)(" = "))(fmtValue(field(v)(k))(budget));
+    (firstR ? (out = cat(out)(s)) : (out = cat(cat(out)("; "))(s)));
+    (firstR = false);
+    (jr = inc(jr));
+  }
+})(), cat(out)(" }")))(0))(true))("{ "))(lenOf(ks)))(keysOf(v))))))))))(typeOf(v))));
+export const structuralFormat = (value) => (width) => (size) => fmtValue(value)(mkBudget(size));

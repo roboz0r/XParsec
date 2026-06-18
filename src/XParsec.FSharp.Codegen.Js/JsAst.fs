@@ -88,6 +88,11 @@ and [<RequireQualifiedAccess>] JsStatement =
     | If of test: JsExpr * consequent: JsStatement list * alternate: JsStatement list
     /// `while (test) { … }` — the self-tail-call trampoline.
     | While of test: JsExpr * body: JsStatement list
+    /// `for (let <var> = <init>; <var> <= <limit>; <var>++) { … }` — the F#
+    /// `for i = a to b do` counted loop. `<limit>` is a value the emitter has
+    /// already hoisted into a binding (F# evaluates `b` once), so re-reading it
+    /// per iteration is side-effect-free.
+    | For of var: string * init: JsExpr * limit: JsExpr * body: JsStatement list
     | Return of JsExpr
     | Continue
     /// `target = value;` — param-shadow mutation in a self-tail-call.

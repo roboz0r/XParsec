@@ -48,8 +48,12 @@ inline-bodies-js = []
 
 # JS-target runtime asset: the committed `%A` structural formatter (`Vesper.Printf.mjs`),
 # the JS analogue of the Vesper.Printf CLR DLL. The backend's `%A` (`Structured`) format
-# holes import `structuralFormat` from here (codegen-js-steps.md Step 6). Hand-authored
-# and shape-keyed (the CLR `structural-printer.fs` is interface-dispatch + BCL-heavy, so
-# it is not the same artifact); a shared-core `.js.fs` is the tracked successor
-# (printf-shared-core-plan.md).
+# holes import `structuralFormat` from here (codegen-js-steps.md Step 6). GENERATED from
+# `structural-printer.js.fs` (printf-shared-core-plan.md Phase 3, flat-parity slice) by the
+# JS backend in library mode — the shape-keyed, flat-output successor to the hand-authored
+# asset (regenerable via the codegen-js test suite, `PrintfPhase3Tests`). It is NOT compiled
+# from the printf `.fsi` contract (printf is front-end special-cased, lowered to `Format`
+# nodes), so unlike Vesper.List it needs no `impl-js`/`inline-bodies-js` wiring — the source
+# is a standalone runtime-asset, distinct from the CLR `structural-printer.fs`
+# (interface-dispatch + BCL-heavy, a genuinely different artifact).
 runtime-js = ["Vesper.Printf.mjs"]

@@ -20,3 +20,6 @@ src/Vesper.Array/
 src/Vesper.Seq/
 # Vesper.Set — verbatim FSharp.Core copy; preserve upstream formatting/comments.
 src/Vesper.Set/
+# Vesper.Printf — structural-printer.js.fs uses the `(# … #)` inline-IL intrinsics
+# FCS can't parse (same stance as Vesper.Array / Vesper.Core).
+src/Vesper.Printf/structural-printer.js.fs

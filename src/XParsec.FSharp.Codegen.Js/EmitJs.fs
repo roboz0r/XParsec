@@ -567,6 +567,17 @@ module EmitJs =
             let loop = JsStatement.While(buildExpr ctx cond, buildStatements ctx body)
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ loop ], loc), [], loc)
 
+        // `for i = a to b do body` in expression position — same IIFE wrapper as `while`;
+        // `buildStatements` produces the hoisted-limit `const` + the `for` statement.
+        | TExprG.ForTo _ -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
+
+        // `e :> obj` (value→`obj` box, synthesised at Freeze for an `obj` parameter/field).
+        // JS is dynamically typed — every value is already a boxed `obj` — so the box is a
+        // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
+        // runtime nominal type to check).
+        | TExprG.Upcast(source, _, _)
+        | TExprG.Downcast(source, _, _) -> buildExpr ctx source
+
         // The tokenful array intrinsics — `Array.zeroCreate` / `arr.[i]` / `arr.[i] <- v`
         // / `arr.Length`, desugared to `newarr`/`ldelem`/`stelem`/`ldlen` (the same
         // mnemonics the CLR backend reads; they are target-neutral, the element-type
@@ -991,6 +1002,18 @@ module EmitJs =
             binding :: buildStatements ctx body
         // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
         | TExprG.While(cond, body, _, _) -> [ JsStatement.While(buildExpr ctx cond, buildStatements ctx body) ]
+        // `for i = a to b do body` — F# evaluates `b` once, so hoist the limit into a
+        // `const` before the loop; the JS `for` then counts `i` from `a` up to that
+        // limit inclusive. (JS numbers are doubles, so the CLR overflow-at-MaxValue
+        // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
+        | TExprG.ForTo(var, startExpr, endExpr, body, _, _) ->
+            let name = identName ctx.Source var
+            let limit = "_lim" + string (TastWalk.exprTok e).StartIndex
+
+            [
+                JsStatement.Const(limit, buildExpr ctx endExpr)
+                JsStatement.For(name, buildExpr ctx startExpr, JsExpr.Identifier(limit, ValueNone), buildStatements ctx body)
+            ]
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
     /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.

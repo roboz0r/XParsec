@@ -232,6 +232,19 @@ module JsPrint =
 
             text "if (" ++ expr test ++ text ") " ++ block consequent ++ elseDoc
         | JsStatement.While(test, body) -> text "while (" ++ expr test ++ text ") " ++ block body
+        | JsStatement.For(var, init, limit, body) ->
+            text "for (let "
+            ++ text var
+            ++ text " = "
+            ++ expr init
+            ++ text "; "
+            ++ text var
+            ++ text " <= "
+            ++ expr limit
+            ++ text "; "
+            ++ text var
+            ++ text "++) "
+            ++ block body
         | JsStatement.Return e -> text "return " ++ expr e ++ text ";"
         | JsStatement.Continue -> text "continue;"
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"

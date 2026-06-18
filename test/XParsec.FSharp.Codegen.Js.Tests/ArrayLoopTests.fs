@@ -47,11 +47,44 @@ let private arraySrc =
             "printfn \"%d\" (build ())"
         ]
 
+// `for i = 1 to n do …` — the counted-loop sibling of `while`. Sums `1 .. n` by
+// accumulating into a mutable local; the limit `n` is evaluated once (hoisted)
+// and the loop variable `i` counts up inclusively.
+let private forToSrc =
+    String.concat
+        "\n"
+        [
+            "let sumTo n ="
+            "    let mutable acc = 0"
+            "    for i = 1 to n do"
+            "        acc <- acc + i"
+            "    acc"
+            "printfn \"%d\" (sumTo 5)"
+        ]
+
 [<Tests>]
 let tests =
     testList
         "Codegen.Js ArrayLoop"
         [
+            // ---- for i = a to b (counted loop) -------------------------------
+
+            test "a `for i = a to b` loop emits a hoisted limit `const` and a `for` statement" {
+                let js = emitJs forToSrc
+                Expect.stringContains js "for (let i = " "emits a counted for-loop binding i"
+                Expect.stringContains js "i <= " "iterates up to the limit inclusively"
+                // The limit `n` is hoisted into a `const` so it is read once, not re-evaluated.
+                Expect.stringContains js "_lim" "the end-expr is hoisted into a limit binding"
+            }
+
+            test "the `for i = 1 to 5` sum executes (1+2+3+4+5 = 15)" {
+                match runJs "phase2-forto-sum" forToSrc with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "15" "prints 15"
+            }
+
             // ---- while + mutable locals --------------------------------------
 
             test "a `while` loop over mutable locals emits a `let` binding and a `while` statement" {
