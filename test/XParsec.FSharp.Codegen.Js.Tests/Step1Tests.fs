@@ -46,12 +46,14 @@ let tests =
                     Expect.equal out "1410065408" "int32 wrapping via Math.imul"
             }
 
-            test "float arithmetic executes (1.5 + 2.0 = 3.5, no truncation)" {
+            test "float arithmetic executes (1.5 + 2.0 = 3.5, `%f` defaults to 6 places)" {
                 match runJs "step1-float" "printfn \"%f\" (1.5 + 2.0)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "3.5" "float add (printf width/precision deferred)"
+                    // Phase 4 (Half B): `%f` now lowers to `toFixed(6)`, matching F#'s
+                    // default fixed-point precision (CLR `printfn "%f" 3.5` = "3.500000").
+                    Expect.equal out "3.500000" "float add formatted at `%f`'s default 6 places"
             }
 
             test "int equality executes (2 = 2 → true)" {

@@ -28,6 +28,7 @@
     <Compile Include="ArrayLoopTests.fs" />
     <Compile Include="StructuralFormatRecipeTests.fs" />
     <Compile Include="PrintfPhase3Tests.fs" />
+    <Compile Include="PrintfPhase4Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
