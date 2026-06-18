@@ -389,6 +389,14 @@ module EmitJs =
                 loc
             )
 
+        // `let _ = value in body` — a Wildcard binder discards the value, kept only for
+        // its effects (`let _ = renderInto buf` over `|> ignore`, which leaves a bare
+        // recipe value). A pure value contributes nothing, so drop it; otherwise a comma
+        // sequence evaluates `value` then yields `body` (JS has no let-expression).
+        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> buildExpr ctx body
+        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) ->
+            JsExpr.Sequence([ buildExpr ctx value; buildExpr ctx body ], loc)
+
         // Anonymous lambda — no binder key, so no self-tail-call analysis applies.
         | TExprG.Lambda _ -> emitFunction ctx ValueNone e
 
@@ -891,6 +899,10 @@ module EmitJs =
                     JsStatement.Const(name, init)
 
             binding :: recur body
+        // `let _ = value in body` — discard the value (effects only); body stays in tail
+        // position. A pure value drops away (see `buildExpr`).
+        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> recur body
+        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) -> buildStatements ctx value @ recur body
         | TExprG.Sequential(xs, _, _) when xs.Length > 0 ->
             let items = EqArray.toList xs
             let init = items.[.. items.Length - 2]
@@ -1000,6 +1012,10 @@ module EmitJs =
                     JsStatement.Const(name, init)
 
             binding :: buildStatements ctx body
+        // `let _ = value in body` — emit the discarded value as its own statement(s)
+        // (effects only), then the body. A pure value drops away (see `buildExpr`).
+        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> buildStatements ctx body
+        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) -> buildStatements ctx value @ buildStatements ctx body
         // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
         | TExprG.While(cond, body, _, _) -> [ JsStatement.While(buildExpr ctx cond, buildStatements ctx body) ]
         // `for i = a to b do body` — F# evaluates `b` once, so hoist the limit into a
@@ -1012,7 +1028,12 @@ module EmitJs =
 
             [
                 JsStatement.Const(limit, buildExpr ctx endExpr)
-                JsStatement.For(name, buildExpr ctx startExpr, JsExpr.Identifier(limit, ValueNone), buildStatements ctx body)
+                JsStatement.For(
+                    name,
+                    buildExpr ctx startExpr,
+                    JsExpr.Identifier(limit, ValueNone),
+                    buildStatements ctx body
+                )
             ]
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
