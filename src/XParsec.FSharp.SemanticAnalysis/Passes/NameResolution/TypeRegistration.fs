@@ -310,6 +310,7 @@ module NameResolutionTypeRegistration =
                 if
                     TypeRegistry.containsUnion ctx.Types name typeArity
                     || TypeRegistry.containsRecord ctx.Types name
+                    || TypeRegistry.containsClass ctx.Types name typeArity
                 then
                     ctx.Diagnostics.Add
                         {

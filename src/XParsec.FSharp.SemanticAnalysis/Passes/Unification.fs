@@ -901,7 +901,14 @@ module Unification =
                 let (TypeName(ident = nameLi)) = d.TypeName
 
                 if nameLi.Idents.Length = 1 then
-                    ValueSome(ctx.NameOf nameLi.Idents.[0], d.PrimaryConstr, d.Body)
+                    // Carry the generic arity so the member-prototype linker resolves
+                    // the right `(name, arity)` class (an overloaded `Box\`1`/`Box\`2`
+                    // has no bare alias).
+                    let arity =
+                        NameResolutionTypeRegistration.typarNamesOfTypeName ctx d.TypeName
+                        |> List.length
+
+                    ValueSome(ctx.NameOf nameLi.Idents.[0], arity, d.PrimaryConstr, d.Body)
                 else
                     ValueNone
             | ValueNone -> ValueNone
@@ -910,9 +917,9 @@ module Unification =
         | ModuleElem.Type defs ->
             for td in defs do
                 match common td with
-                | ValueSome(name, pc, body) ->
-                    match ctx.Types.Class.TryGetValue name with
-                    | true, info ->
+                | ValueSome(name, arity, pc, body) ->
+                    match TypeRegistry.tryClassArity ctx.Types name arity with
+                    | ValueSome info ->
                         let prelinkExtras () =
                             // Attach the class's `when 'S :> IFace` typar constraints
                             // to the prototype TyVars (under the class typar scope, set
@@ -1006,7 +1013,7 @@ module Unification =
                         checkObjectOverrideConformance ctx info
                         fillSecondaryCtors ctx info
                         fillInterfaceImpls ctx info
-                    | false, _ -> ()
+                    | ValueNone -> ()
                 | ValueNone -> ()
         | _ -> ()
 

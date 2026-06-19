@@ -248,7 +248,11 @@ module internal UnificationInferRecordAccess =
             // qualified compiled name (an external `TyClass` carries a qualified key).
             let clsSimple = SymbolKeyOps.simpleName clsKey
 
-            match TypeRegistry.tryClass ctx.Types clsSimple with
+            // Resolve by the (arity-qualified) key, not the bare name: an
+            // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) has no bare alias, so a
+            // bare read would miss. `clsSimple` is still threaded downstream for the
+            // arity-aware chain walk and diagnostics.
+            match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
                 // Walk the inheritance chain (derived members shadow inherited).
                 // On a total miss, fall back to the single-class diagnostic so
@@ -503,7 +507,7 @@ module internal UnificationInferRecordAccess =
             | _ -> ValueNone
 
         match resolveStep recvTy with
-        | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
+        | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             let clsQual = SymbolKeyOps.qualifiedName clsKey
 
             match resolveExternalIndexer clsQual (clsArgs.AsSpan().ToArray()) "get_Item" with

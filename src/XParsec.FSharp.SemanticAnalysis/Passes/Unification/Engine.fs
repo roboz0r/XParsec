@@ -330,12 +330,18 @@ module UnificationEngine =
         : ChainMember voption =
         let seen = HashSet<string>()
 
+        // Resolve by the arity-key (`name\`args.Length`), not the bare short name,
+        // so an arity-overloaded class (`Fun\`2` vs `Fun\`3`, whose bare alias is
+        // withdrawn) walks the correct chain. The receiver's type-arg count IS the
+        // arity, so it is always in hand here.
         let rec walk (clsName: string) (args: EqArray<SemType>) : ChainMember voption =
-            if not (seen.Add clsName) then
+            let arityKey = SymbolKeyOps.arityName clsName args.Length
+
+            if not (seen.Add arityKey) then
                 ValueNone
             else
-                match ctx.Types.Class.TryGetValue clsName with
-                | true, info ->
+                match TypeRegistry.tryClassArity ctx.Types clsName args.Length with
+                | ValueSome info ->
                     match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
                     | Some m ->
                         ValueSome
@@ -350,7 +356,7 @@ module UnificationEngine =
                             | TyClass(parentKey, parentArgs) -> walk (SymbolKeyOps.simpleName parentKey) parentArgs
                             | _ -> ValueNone
                         | ValueNone -> ValueNone
-                | false, _ -> ValueNone
+                | ValueNone -> ValueNone
 
         walk clsName args
 
@@ -463,7 +469,7 @@ module UnificationEngine =
     /// neither re-derives the receiver→platform-name mapping.
     let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =
         match resolveStep ty with
-        | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClass ctx.Types (SymbolKeyOps.simpleName clsKey)).IsNone ->
+        | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             ValueSome(struct (SymbolKeyOps.qualifiedName clsKey, typeArgs))
         // A structural constructor (`'T []`/`byref`) is a generic intrinsic whose
         // `platform` repr (`"!0[]"`) is an IL/codegen artefact, NOT a nominal receiver

@@ -479,12 +479,21 @@ module NameResolutionMemberRegistration =
                 let nameTok = nameLi.Idents.[0]
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+                // Generic arity overloads the short name (`Fun\`2` vs `Fun\`3`), so
+                // the class and union duplicate tests are arity-qualified —
+                // mirroring the union path (`TypeRegistration.fs`). A class
+                // `Foo\`2` may legitimately coexist with a union `Foo\`1` (F#
+                // allows `(name, arity)`-distinct types across kinds), so the
+                // cross-kind union check is arity-aware. Records / abbreviations
+                // are not arity-overloaded, so their checks stay bare (a
+                // same-bare-name class + record is still a duplicate).
+                let classArity = (typarNamesOfTypeName ctx tn).Length
 
                 if
                     TypeRegistry.containsRecord ctx.Types name
-                    || ctx.Types.Union.ContainsKey name
+                    || TypeRegistry.containsUnion ctx.Types name classArity
                     || TypeRegistry.containsAbbrev ctx.Types name
-                    || TypeRegistry.containsClass ctx.Types name
+                    || TypeRegistry.containsClass ctx.Types name classArity
                 then
                     ctx.Diagnostics.Add
                         {
@@ -580,7 +589,7 @@ module NameResolutionMemberRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    TypeRegistry.registerClass ctx.Types name info
+                    TypeRegistry.registerClass ctx.Types name typeParams.Length info
 
                     for m in members do
                         let entry = { Class = info; Member = m }

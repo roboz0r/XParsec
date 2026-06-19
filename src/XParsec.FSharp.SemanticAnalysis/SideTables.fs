@@ -594,6 +594,16 @@ type PassContextTypes =
         /// withdrawn (the name is then only resolvable by its arity-key). Internal to
         /// `TypeRegistry.registerUnion`; not read elsewhere.
         UnionBareArity: Dictionary<string, int>
+        /// Bookkeeping for the bare-name alias `Class` keeps for arity-overloaded
+        /// classes / interfaces (`Fun\`2` vs `Fun\`3`). Mirrors `UnionBareArity`
+        /// exactly: `Class` is keyed by `TypeRegistry.keyFor` (bare name for a
+        /// non-generic class, ``name`N`` for arity N>0); a *single* generic arity
+        /// of a name additionally registers a bare-name alias so every existing
+        /// single-arity class read by bare name still resolves. Maps the bare short
+        /// name → the arity of its current alias, or `-1` once a second arity
+        /// collides and the alias is withdrawn (the name is then only resolvable by
+        /// its arity-key). Internal to `TypeRegistry.registerClass`.
+        ClassBareArity: Dictionary<string, int>
         /// Uniqueness witness for project-local `SymbolKey`s.
         /// Maps each minted `TypeKey(None, ns, name\`arity)` → the decl-site
         /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
@@ -616,6 +626,7 @@ module PassContextTypes =
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
             UnionBareArity = Dictionary<_, _>()
+            ClassBareArity = Dictionary<_, _>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
 
@@ -661,20 +672,63 @@ module TypeRegistry =
     let tryRecordByKey (types: PassContextTypes) (key: SymbolKey) : RecordTypeInfo voption =
         tryRecord types (SymbolKeyOps.simpleName key)
 
-    let registerClass (types: PassContextTypes) (name: string) (info: ClassTypeInfo) : unit = types.Class.[name] <- info
+    /// Register a class under its arity-key, maintaining the bare-name alias while
+    /// the short name is single-arity and withdrawing it once a second arity
+    /// collides. Exact mirror of `registerUnion` (`ClassBareArity` ↔ `UnionBareArity`).
+    /// The bare alias is what lets every existing single-arity class read by bare
+    /// name keep resolving unchanged.
+    let registerClass (types: PassContextTypes) (name: string) (arity: int) (info: ClassTypeInfo) : unit =
+        types.Class.[keyFor name arity] <- info
 
-    let containsClass (types: PassContextTypes) (name: string) : bool = types.Class.ContainsKey name
+        if arity > 0 then
+            match types.ClassBareArity.TryGetValue name with
+            | false, _ ->
+                types.Class.[name] <- info
+                types.ClassBareArity.[name] <- arity
+            | true, a when a = arity -> types.Class.[name] <- info // refresh the same-arity alias
+            | true, -1 -> () // already demoted: only the arity-key resolves
+            | true, _ ->
+                // A second distinct arity for this short name: withdraw the now-
+                // ambiguous bare alias; both arities resolve only by their key.
+                types.Class.Remove name |> ignore
+                types.ClassBareArity.[name] <- -1
 
+    /// True iff a class with this exact `(name, arity)` is registered (the arity-
+    /// key, never the bare alias) — the duplicate-definition test (mirror
+    /// `containsUnion`).
+    let containsClass (types: PassContextTypes) (name: string) (arity: int) : bool =
+        types.Class.ContainsKey(keyFor name arity)
+
+    /// Resolve a class by bare short name. Single-arity classes keep a bare-name
+    /// alias (`registerClass`), so this resolves them; a name with two registered
+    /// arities has its alias withdrawn and misses here (callers holding an
+    /// arity-qualified key use `tryClassByKey`). The recognition-only call sites
+    /// (`Scope.fs`, `NameResolution.fs`, qualified-static heads) ride this alias.
     let tryClass (types: PassContextTypes) (name: string) : ClassTypeInfo voption =
         match types.Class.TryGetValue name with
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
-    /// Resolve a class by its `SymbolKey` — the class analogue of `tryRecordByKey`.
-    /// Classes aren't arity-overloaded; the table is keyed by the bare simple name,
-    /// projected from the key internally.
+    /// Resolve a class by `(name, arity)` — exact arity-key only, so a wrong arity
+    /// misses. Does NOT fall back to the bare alias (mirror `tryUnion`).
+    let tryClassArity (types: PassContextTypes) (name: string) (arity: int) : ClassTypeInfo voption =
+        match types.Class.TryGetValue(keyFor name arity) with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
+
+    /// Resolve a class by its project-local `SymbolKey` — the arity-qualified
+    /// `TypeKey(None, _, name\`arity)` minted onto `ClassTypeInfo.Key`. The key's
+    /// `name` component *is* the registry key (both it and `keyFor` route through
+    /// the one `SymbolKeyOps.arityName` rule), so this reads the name VERBATIM (it
+    /// does NOT strip the arity via `simpleName`) — the class analogue of
+    /// `tryUnionByKey`. A non-`TypeKey` key never names a class, so it misses.
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption =
-        tryClass types (SymbolKeyOps.simpleName key)
+        match key with
+        | SymbolKey.TypeKey(name = name) ->
+            match types.Class.TryGetValue name with
+            | true, info -> ValueSome info
+            | false, _ -> ValueNone
+        | _ -> ValueNone
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info

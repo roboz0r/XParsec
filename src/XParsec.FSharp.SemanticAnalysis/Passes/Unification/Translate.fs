@@ -386,17 +386,25 @@ module internal UnificationTranslate =
                             ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
                             TyUnion(info.Key, translatedArgs)
                         | false, _ ->
-                            match ctx.Types.Class.TryGetValue name with
-                            | true, info ->
-                                checkArity (info.TypeParams.Length)
-                                TyClass(info.Key, translatedArgs)
-                            | false, _ ->
-                                match tryResolveExternalType ctx name translatedArgs with
-                                | ValueSome ty -> ty
-                                | ValueNone ->
-                                    // Unknown name with type args — opaque TyConst,
-                                    // args ignored (matches the bare-name arm).
-                                    TyConst(name, EqArray.empty)
+                            // Class resolution mirrors the union branch above: an
+                            // exact arity-key match first (so `Fun\`2` vs `Fun\`3`
+                            // each resolve to the right class), then the bare alias
+                            // (a single-arity class read with a *different* arity,
+                            // keeping the legacy "expects N got M" diagnostic).
+                            match TypeRegistry.tryClassArity ctx.Types name argCount with
+                            | ValueSome info -> TyClass(info.Key, translatedArgs)
+                            | ValueNone ->
+                                match ctx.Types.Class.TryGetValue name with
+                                | true, info ->
+                                    checkArity (info.TypeParams.Length)
+                                    TyClass(info.Key, translatedArgs)
+                                | false, _ ->
+                                    match tryResolveExternalType ctx name translatedArgs with
+                                    | ValueSome ty -> ty
+                                    | ValueNone ->
+                                        // Unknown name with type args — opaque TyConst,
+                                        // args ignored (matches the bare-name arm).
+                                        TyConst(name, EqArray.empty)
 
     /// Resolve a named/generic type reference that missed every project-local
     /// registry against the external provider — the type-annotation analogue of

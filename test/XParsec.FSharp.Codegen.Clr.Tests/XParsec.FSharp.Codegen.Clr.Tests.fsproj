@@ -46,6 +46,7 @@
     <Compile Include="CustomEqualityComparisonDispatchTests.fs" />
     <Compile Include="CapturedMutableTests.fs" />
     <Compile Include="ClassTests.fs" />
+    <Compile Include="ArityOverloadedClassTests.fs" />
     <Compile Include="StructTests.fs" />
     <Compile Include="ExceptionTests.fs" />
     <Compile Include="UseTests.fs" />

@@ -418,6 +418,7 @@ module Elaborate =
     let private tryInterfaceMethods
         (ctx: PassContext)
         (name: string)
+        (arity: int)
         (body: ObjectModelBody<SyntaxToken>)
         : (EqArray<string> * EqArray<TAbstractMethod> * (TypeVar * SemType) list) option =
         let allAbstractMethods =
@@ -433,9 +434,12 @@ module Elaborate =
         if body.inherits.IsSome || not body.classPreamble.IsEmpty || not allAbstractMethods then
             None
         else
-            match ctx.Types.Class.TryGetValue name with
-            | false, _ -> None
-            | true, info ->
+            // Resolve by the arity-key, not the bare name: an arity-overloaded
+            // interface (`Fun\`2`/`Fun\`3`) has its bare alias withdrawn, so a bare
+            // read would miss and silently drop the decl.
+            match TypeRegistry.tryClassArity ctx.Types name arity with
+            | ValueNone -> None
+            | ValueSome info ->
                 // The member signatures share these prototype TyVars (Unification
                 // typed them under the class's typar scope), so the remap reaches
                 // every typar.
@@ -1034,11 +1038,15 @@ module Elaborate =
         (ctx: PassContext)
         (ns: string option)
         (name: string)
+        (arity: int)
         (elements: TypeDefnElements<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
-        match ctx.Types.Class.TryGetValue name with
-        | false, _ -> None
-        | true, info ->
+        // Resolve by the arity-key, not the bare name: an arity-overloaded class
+        // (`Box\`1`/`Box\`2`) has its bare alias withdrawn, so a bare read would
+        // miss (or fetch the wrong arity's info) and drop / mis-emit the decl.
+        match TypeRegistry.tryClassArity ctx.Types name arity with
+        | ValueNone -> None
+        | ValueSome info ->
             let markers = mkDeclTyparEnv info.TypeParams
             // The decl's freeze env: declaring typars plus every generic member's
             // method typars, accumulated as members are surfaced. `freezeTypars`
@@ -1231,7 +1239,10 @@ module Elaborate =
         let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
-            match tryInterfaceMethods ctx name body with
+            let arity =
+                NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
+
+            match tryInterfaceMethods ctx name arity body with
             | Some(typars, methods, env) ->
                 // Interfaces aren't in the codegen emitted-type tables (their own
                 // `interfaceDecls` path), but `TTypeDecl.Key` is total — mint the
@@ -1256,12 +1267,18 @@ module Elaborate =
                     env
                 )
             // Not all-abstract ⇒ class shape (`type C(x) = member …`).
-            | None -> tryClassType ctx ns name body.elements
+            | None -> tryClassType ctx ns name arity body.elements
 
         match td with
         | TypeDefn.Anon(typeName = tn; body = body) -> classify tn body
         | TypeDefn.Interface(typeName = tn; body = body) -> classify tn body
-        | TypeDefn.Class(typeName = tn; body = body) -> tryClassType ctx ns (typeNameSimple ctx tn) body.elements
+        | TypeDefn.Class(typeName = tn; body = body) ->
+            tryClassType
+                ctx
+                ns
+                (typeNameSimple ctx tn)
+                (NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length)
+                body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Record(typeName = tn) -> tryRecordType ctx ns (typeNameSimple ctx tn)
