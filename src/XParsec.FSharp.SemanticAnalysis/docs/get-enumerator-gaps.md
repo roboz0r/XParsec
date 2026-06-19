@@ -18,6 +18,8 @@ dead ends.
 | ↳ where that user `E` also `: IDisposable` | reference user `E`, disposed in `finally` | `Pattern`, both axes `Local`, `dispose = true` |
 | **user** source, pattern `GetEnumerator()` → **value-type** user `E` (`[<Struct>]`) | by-address user `E`, direct `call` | `Pattern`, both axes `Local` |
 | **user** source, pattern `GetEnumerator()` → **external** `E` (`List<'T>.Enumerator`) | local `GetEnumerator` + external `E` members | `Pattern`, `Local` get-enum / `External` members |
+| **value-type** source (a `[<Struct>]` collection, e.g. `MapSeq`/`ArraySeq`) | source addressed (`ldloca`) for `GetEnumerator` | either arm; by-address `call` (`Pattern`) or `constrained.` (`Interface`) |
+| **generic typar** source (`'S :> ISeq`/`IStructSeq<'E>`, a custom non-`IEnumerable` seq interface) | `GetEnumerator` via `constrained. !S callvirt`; concrete `E` → by-address walk, typar `E` → `constrained. !E callvirt` | `Pattern` with a `ConstrainedInterface` get-enum / members axis (rung-3) |
 | range `for i in a .. b` | — | pre-existing |
 
 ## The descriptor (current model)
@@ -76,21 +78,7 @@ a separate case per source/enumerator combination:
 
 ## Remaining work
 
-### 1. Value-type *source*  — low priority
-
-`buildForIn` emits `GetEnumerator` as a `callvirt`/`call` after loading the source —
-correct for a reference source, malformed for a **value-type** source (a method call
-on a stack value needs the value boxed or the receiver by address). The fix mirrors
-the enumerator's value-receiver handling one level up: evaluate the source to a
-local, `ldloca` it, and call `GetEnumerator` by address (`ExternalMemberRefOn` /
-`resolveInstanceMember` for the value-tagged parent, `constrained. <Source>` for an
-interface-slot call).
-
-**Low priority**: no `set.fs` site sources a value-type collection, and BCL
-value-type enumerables are mostly ref-struct spans (which can't be a `for … in`
-source here anyway).
-
-### 2. Ref-struct enumerator with a pattern `Dispose()` (no `IDisposable`)
+### 1. Ref-struct enumerator with a pattern `Dispose()` (no `IDisposable`)
 
 `dispose` is currently a `bool`, and disposal always goes through the
 `System.IDisposable::Dispose` interface slot. A `[<IsByRefLike>]` enumerator can't be
@@ -105,7 +93,7 @@ This mirrors the `use`-binder precedent `Infer.tryExternalDispose` (prefer the t
 own `Dispose`, fall back to the interface slot). See the TODO on `probeLocalEnumerator`
 / `probeExternalEnumerator`.
 
-### 3. Generic user interface impls — orthogonal front-end gaps
+### 2. Generic user interface impls — orthogonal front-end gaps
 
 The `Interface` path already substitutes class typars with use-site args, so it is
 ready for generic user sources *once two pre-existing impl/upcast gaps close*: a

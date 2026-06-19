@@ -179,7 +179,7 @@ module EmitMember =
                 // any) is recoverable; a property slot drops to its value type.
                 let ifaceTy = FTClass(ifaceKey, ifaceArgs)
 
-                let memberTy = List.foldBack (fun a acc -> FTFun(a, acc)) argTys ty
+                let memberTy = EmitResolve.curriedFun argTys ty
 
                 env.Provider.ExternalMemberRefOn(key, ifaceTy, false, false, memberTy)
 

@@ -10,6 +10,43 @@ open UnificationTranslate
 
 module internal UnificationInferGeneralize =
 
+    /// Visit every `TyVar` leaf of `t`, resolving it to its union-find `root` and
+    /// invoking `onRoot` — the structural skeleton shared by `instantiate`,
+    /// `generalise`, and `generaliseMemberTypars`, each of which supplies its own
+    /// root predicate and dedup. A plain structural walk: it assumes `t` is already
+    /// zonked and does *not* follow `Link`s, unlike `applyDefaults` /
+    /// `prepareListLiterals`, which chase the link/default graph and so keep their
+    /// own bespoke walks.
+    let iterTypeVarRoots (onRoot: TypeVar -> unit) (t: SemType) : unit =
+        let rec walk (t: SemType) : unit =
+            match t with
+            | TyVar tv -> onRoot (UnionFind.find tv)
+            | TyConst(_, args) ->
+                for a in args do
+                    walk a
+            | TyFun(a, r) ->
+                walk a
+                walk r
+            | TyTuple xs ->
+                for x in xs do
+                    walk x
+            | TyRecord(_, args) ->
+                for a in args do
+                    walk a
+            | TyUnion(_, args) ->
+                for a in args do
+                    walk a
+            | TyClass(_, args) ->
+                for a in args do
+                    walk a
+            | TyOr members ->
+                for m in members.Members do
+                    walk m
+            | TyUnknown _ -> ()
+            | TyTypar _ -> ()
+
+        walk t
+
     /// Non-quantified TyVars are left alone — they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is
     /// already zonked by `generalise`, so we don't follow Links here.
@@ -34,28 +71,18 @@ module internal UnificationInferGeneralize =
         // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, absent from the surface
         // type) must stay verbatim: the function body's expr-tree references that
         // original var, and the verbatim constraint is what grounds it.
-        let surfaceRoots =
-            let acc = HashSet<TypeVar>(HashIdentity.Reference)
+        let surfaceRoots = HashSet<TypeVar>(HashIdentity.Reference)
+        scheme.Body |> iterTypeVarRoots (surfaceRoots.Add >> ignore)
 
-            let rec go t =
-                match t with
-                | TyVar tv ->
-                    let r = UnionFind.find tv
-                    acc.Add r |> ignore
-                | TyConst(_, args)
-                | TyRecord(_, args)
-                | TyUnion(_, args)
-                | TyClass(_, args) -> EqArray.iter go args
-                | TyFun(a, r) ->
-                    go a
-                    go r
-                | TyTuple xs -> EqArray.iter go xs
-                | TyOr members -> EqArray.iter go members.Members
-                | TyUnknown _
-                | TyTypar _ -> ()
+        // The surface restriction of `subst` — loop-invariant, so build it once. A
+        // `Coercion` target's surface vars remap to their fresh instances; phantom
+        // ones (referenced by the body expr-tree) stay verbatim. `subst` already maps
+        // every quantified root, so filter it to the surface set.
+        let surfaceSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
-            go scheme.Body
-            acc
+        for kv in subst do
+            if surfaceRoots.Contains kv.Key then
+                surfaceSubst.[kv.Key] <- kv.Value
 
         for (qTv, c) in scheme.Constraints do
             let qRoot = UnionFind.find qTv
@@ -65,16 +92,6 @@ module internal UnificationInferGeneralize =
                 let c =
                     match c.Kind with
                     | SemanticConstraintKind.Coercion target ->
-                        // Remap only the surface vars in the target; leave phantom
-                        // ones (referenced by the body expr-tree) on their original
-                        // identity. `subst` already maps every quantified root, so
-                        // filter it to the surface set for this purpose.
-                        let surfaceSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
-
-                        for kv in subst do
-                            if surfaceRoots.Contains kv.Key then
-                                surfaceSubst.[kv.Key] <- kv.Value
-
                         { c with
                             Kind = SemanticConstraintKind.Coercion(substituteWith surfaceSubst target)
                         }
@@ -307,42 +324,6 @@ module internal UnificationInferGeneralize =
                 | TyTypar _ -> ()
 
             walk ty
-
-    /// Visit every `TyVar` leaf of `t`, resolving it to its union-find `root` and
-    /// invoking `onRoot` — the structural skeleton shared by `generalise` and
-    /// `generaliseMemberTypars`, each of which supplies its own root predicate and
-    /// dedup. A plain structural walk: it assumes `t` is already zonked and does
-    /// *not* follow `Link`s, unlike `applyDefaults` / `prepareListLiterals`, which
-    /// chase the link/default graph and so keep their own bespoke walks.
-    let iterTypeVarRoots (onRoot: TypeVar -> unit) (t: SemType) : unit =
-        let rec walk (t: SemType) : unit =
-            match t with
-            | TyVar tv -> onRoot (UnionFind.find tv)
-            | TyConst(_, args) ->
-                for a in args do
-                    walk a
-            | TyFun(a, r) ->
-                walk a
-                walk r
-            | TyTuple xs ->
-                for x in xs do
-                    walk x
-            | TyRecord(_, args) ->
-                for a in args do
-                    walk a
-            | TyUnion(_, args) ->
-                for a in args do
-                    walk a
-            | TyClass(_, args) ->
-                for a in args do
-                    walk a
-            | TyOr members ->
-                for m in members.Members do
-                    walk m
-            | TyUnknown _ -> ()
-            | TyTypar _ -> ()
-
-        walk t
 
     let generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         // Apply defaults before quantifying: a default that resolves links

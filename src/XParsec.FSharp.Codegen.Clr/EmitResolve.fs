@@ -12,6 +12,11 @@ open EmitLower
 /// altitude (the resolvers are pure handle plumbing with no recursion into
 /// `buildExpr`).
 module EmitResolve =
+    /// Fold an argument list + result into the curried `FrozenType` shape
+    /// (`arg → … → ret`) that the provider's signature-recovery contracts expect.
+    let curriedFun (args: FrozenType list) (ret: FrozenType) : FrozenType =
+        List.foldBack (fun a acc -> FTFun(a, acc)) args ret
+
     /// A member handle on a user type: the member's own `Def` token for a
     /// monomorphic type, or a `MemberRef` on the receiver's instantiated
     /// `TypeSpec` for a generic one (`List<int>::Cons`, `Box<int>::Value`).
@@ -55,8 +60,8 @@ module EmitResolve =
         (argTys: FrozenType list)
         (resultTy: FrozenType)
         : FrozenType list * FrozenType list =
-        let openT = List.foldBack (fun p acc -> FTFun(p, acc)) m.ParamTys m.RetTy
-        let instT = List.foldBack (fun a acc -> FTFun(a, acc)) argTys resultTy
+        let openT = curriedFun m.ParamTys m.RetTy
+        let instT = curriedFun argTys resultTy
         env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
 
     /// The head identity of a `FrozenType` for overload-candidate matching: the
