@@ -89,6 +89,51 @@ let structSeqTests =
                     "apply IL contains no `box` (non-allocating struct Fun dispatch)"
             }
 
+            // Rung-4 foundation: a generic struct whose FIELD is a function typar
+            // `'TFunc :> Fun<'T,'U>` (the EXTERNAL Vesper.Fun interface instantiated at
+            // the struct's OWN typars `'T`/`'U`), applied via `this.F.Invoke(x)` in a
+            // member body — `constrained. !TFunc callvirt` with no box. This is the
+            // combination the struct-seq `'TFunc` flip rests on, and the one the landed
+            // external-dispatch test did NOT cover (it used a concrete `Fun<int,int>` +
+            // a *parameter* receiver). Proves the library can thread `'TFunc` by hand
+            // (mirroring its explicit `'S`/`'E` typars) with no new compiler pass.
+            test "generic struct field 'TFunc :> Fun<'T,'U> dispatches this.F.Invoke via constrained callvirt" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type Add1 ="
+                            "    val N : int"
+                            "    new(n: int) = { N = n }"
+                            "    interface Fun<int, int> with"
+                            "        member this.Invoke(x: int) : int = x + this.N"
+                            "[<Struct>]"
+                            "type Applier<'TFunc, 'T, 'U when 'TFunc :> Fun<'T, 'U>> ="
+                            "    val F : 'TFunc"
+                            "    new(f: 'TFunc) = { F = f }"
+                            "    member this.Apply(x: 'T) : 'U = this.F.Invoke(x)"
+                            "let a = Applier<Add1, int, int>(Add1 1)"
+                            "printfn \"%d\" (a.Apply 41)"
+                        ]
+
+                let _, artifact = compileSource "StructFieldTFuncDispatch" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "this.F.Invoke dispatch returns 42"
+
+                let il = peMethodIlWhere bytes "Applier`3" (fun n -> n = "Apply")
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "Apply IL contains a `constrained.` prefix (typar-field Fun dispatch)"
+                Expect.isFalse (Array.contains 0x8Cuy il) "Apply IL contains no `box`"
+            }
+
             // Wall B+C (rung 3): a member call on a value whose type is a generic
             // typar constrained to a project-local interface (`'T :> IGetVal`).
             // The receiver is a bare TyVar carrying a `Coercion` constraint; Wall B
