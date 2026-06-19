@@ -82,21 +82,21 @@ struct closure**. To make `StructSeq.map (fun x -> x+1) s` zero-alloc, codegen m
 3. **Arity-2 cap.** Saturated 2-arg → `Fun2`; partial → `curryFun`; arity > cap →
    curried chains (unchanged).
 
-### 3.1 Two prerequisite gaps (discovered this session; fix before/within the pass)
+### 3.1 Two prerequisite gaps (discovered this session) — ✅ BOTH FIXED
 
-1. **Chained method-call receiver in an interface-impl member body** —
-   `f.Invoke(a).Invoke(b)` (a method call on the *result* of a method call) inside
-   an interface-impl member mis-types the member's return as the inner call's
-   result (the outer application is dropped at freeze); an explicit return
-   annotation does NOT override it. The identical chain at top-level `let` types
-   correctly. Worked around in `Vesper.Core/core-types.fs` `Flattened.Invoke` with a
-   `let`-split. A genuine front-end inferencer bug — fix it before any
-   adapter/struct-seq body needs a `f.x(a).y(b)` chain.
-2. **Fieldless `[<Struct>]` whose body is only an interface impl** trips parse
-   recovery (`Skipped tokens at module level`). The zero-field struct closure is the
-   *ideal* rung-4 shape (a stateless `fun x -> x+1` captures nothing), so this will
-   bite the lambda-lowering pass directly. Current tests dodge it with a dummy
-   `val`. Fix in the parser.
+1. ✅ **FIXED (`eed60c7`).** Chained method-call receiver in an interface-impl
+   member body — `f.Invoke(a).Invoke(b)` mis-typed the member's return as the inner
+   call's result. Root cause: nested method-call `App`s collided on one `NodeKey`
+   (both keyed off the receiver's leftmost token). Fixed in `CstKeys.fs` by keying
+   such `App`/`HighPrecedenceApp` off the member-name token (per-level
+   disambiguation, mirroring nested `DotLookup`/`InfixApp`). The `Flattened.Invoke`
+   `let`-split workaround was removed.
+2. ✅ **FIXED (`064f8ec`).** Fieldless `[<Struct>]` whose body is only an interface
+   impl tripped parse recovery. Root cause: a body leading with `interface` was
+   always parsed as an explicit interface *type* (`interface … end`), so a light-
+   syntax interface-*impl* body never found its `end`. Fixed in `TypeDefnParsing.fs`
+   with a `interface <Type> with` lookahead routing impls to the implicit-class path
+   (`TypeDefn.Anon`). Captureless struct closures now parse + codegen end-to-end.
 
 ---
 
