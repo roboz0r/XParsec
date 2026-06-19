@@ -534,4 +534,131 @@ let structSeqTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "2\n4\n6\ndone" "maps the struct pipeline in order"
             }
+
+            // Rung-3 payoff, step 2a: a GENERIC `MapSeq<'S>` whose source field is a
+            // typar (`'S :> IStructSeq<ArrayEnumerator>`), instantiated at a CONCRETE
+            // `ArraySeq` at the use site, walked by `for y in s`. Two capabilities meet:
+            //   - inside `MapSeq.GetEnumerator`, `this.Source.GetEnumerator()` is a
+            //     constrained-typar dispatch (the Wrap.Fetch capability), and
+            //   - `for y in s` sources a CONCRETE instantiation of a generic struct
+            //     (`MapSeq`1<ArraySeq>`), so the for-in pattern walk addresses a
+            //     generic-struct value by address and calls its pattern `GetEnumerator`.
+            // The enumerator (`MapEnumerator`) stays concrete to isolate the generic
+            // *source* from a generic *enumerator* (step 2b).
+            test "for-in over a generic MapSeq wrapping a concrete ArraySeq (rung 3 step 2a)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Idx <- this.Idx + 1"
+                            "        this.Idx < this.Arr.Length"
+                            "    member this.Current : int = this.Arr.[this.Idx]"
+                            "type IStructSeq<'E> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArraySeq ="
+                            "    val Arr : int[]"
+                            "    new(arr: int[]) = { Arr = arr }"
+                            "    interface IStructSeq<ArrayEnumerator> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
+                            "[<Struct>]"
+                            "type MapEnumerator ="
+                            "    val mutable Source : ArrayEnumerator"
+                            "    val F : int -> int"
+                            "    new(source: ArrayEnumerator, f: int -> int) = { Source = source; F = f }"
+                            "    member this.MoveNext() : bool = this.Source.MoveNext()"
+                            "    member this.Current : int = this.F (this.Source.Current)"
+                            "[<Struct>]"
+                            "type MapSeq<'S when 'S :> IStructSeq<ArrayEnumerator>> ="
+                            "    val Source : 'S"
+                            "    val F : int -> int"
+                            "    new(source: 'S, f: int -> int) = { Source = source; F = f }"
+                            "    member this.GetEnumerator() : MapEnumerator = MapEnumerator(this.Source.GetEnumerator(), this.F)"
+                            "let xs = [| 1; 2; 3 |]"
+                            "let s = MapSeq<ArraySeq>(ArraySeq(xs), fun x -> x * 2)"
+                            "for y in s do"
+                            "    printfn \"%d\" y"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "GenericMapSeqConcreteSource" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "2\n4\n6\ndone"
+                    "generic MapSeq over concrete ArraySeq maps in order"
+            }
+
+            // Rung-3 payoff, step 2b: the FULLY GENERIC map pipeline. Both `MapSeq` and
+            // `MapEnumerator` are generic; the enumerator chains a generic inner
+            // enumerator `'E :> IStructEnumerator` — so `MapEnumerator<'E>.MoveNext` /
+            // `.Current` dispatch on a typar field via `constrained. !E callvirt`. The
+            // for-in source `s` is a concrete instantiation `MapSeq`2<ArraySeq,
+            // ArrayEnumerator>`; its `GetEnumerator` yields a concrete-but-generic
+            // `MapEnumerator`1<ArrayEnumerator>`. This is the `ArraySeq → map` tree, all
+            // generic, the keystone of the §2 north-star.
+            test "fully generic struct map pipeline chains a generic enumerator (rung 3 step 2b)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : int"
+                            "type IStructSeq<'E when 'E :> IStructEnumerator> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : int = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq ="
+                            "    val Arr : int[]"
+                            "    new(arr: int[]) = { Arr = arr }"
+                            "    interface IStructSeq<ArrayEnumerator> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
+                            "[<Struct>]"
+                            "type MapEnumerator<'E when 'E :> IStructEnumerator> ="
+                            "    val mutable Source : 'E"
+                            "    val F : int -> int"
+                            "    new(source: 'E, f: int -> int) = { Source = source; F = f }"
+                            "    interface IStructEnumerator with"
+                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
+                            "        member this.Current : int = this.F (this.Source.Current)"
+                            "[<Struct>]"
+                            "type MapSeq<'S, 'E when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator> ="
+                            "    val Source : 'S"
+                            "    val F : int -> int"
+                            "    new(source: 'S, f: int -> int) = { Source = source; F = f }"
+                            "    interface IStructSeq<MapEnumerator<'E>> with"
+                            "        member this.GetEnumerator() : MapEnumerator<'E> = MapEnumerator<'E>(this.Source.GetEnumerator(), this.F)"
+                            "let sumSeq (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator) : int ="
+                            "    let mutable total = 0"
+                            "    for y in s do"
+                            "        total <- total + y"
+                            "    total"
+                            "let xs = [| 1; 2; 3 |]"
+                            "let s = MapSeq<ArraySeq, ArrayEnumerator>(ArraySeq(xs), fun x -> x * 2)"
+                            "printfn \"%d\" (sumSeq s)"
+                        ]
+
+                let _, artifact = compileSource "FullyGenericMapPipeline" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "12" "fully generic map pipeline sums the mapped values"
+            }
         ]

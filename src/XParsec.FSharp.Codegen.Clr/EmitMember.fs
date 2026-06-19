@@ -113,6 +113,86 @@ module EmitMember =
         if returnsUnit then
             EmitTypes.buildUnitValue env b
 
+    /// Rung-3 Wall C: a member access on a value whose type is a generic typar
+    /// constrained to an interface (`x : 'T when 'T :> IFace`). The receiver is an
+    /// `FTTypar`, not a nominal — so `resolveInstanceMember` (which destructures a
+    /// nominal head) can't be used. Instead the abstract slot is resolved directly off
+    /// the member key's declaring interface (recorded by Wall B's `TyparInterfaceCall`
+    /// side-table) and the call is dispatched with a `constrained. <typar> callvirt`:
+    /// the JIT then dispatches a *struct* typar by address (no box) and a *class* typar
+    /// by reference — the zero-alloc behaviour rung 3 needs. Sound because the slot is
+    /// an interface (virtual) member, so the non-virtual-struct-method guardrail does
+    /// not bite. Shared by `buildMethodCall` (args present) and `buildPropertyGet` (a
+    /// 0-argument access → a `get_<name>` getter slot).
+    let private emitConstrainedInterfaceCall
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (receiver: Frozen.TExpr)
+        (key: SymbolKey)
+        (ifaceArgs: EqArray<FrozenType>)
+        (args: EqArray<Frozen.TExpr>)
+        (ty: FrozenType)
+        : unit =
+        let receiverTy = typeOfExpr receiver
+        let name = SymbolKeyOps.simpleName key
+        let argTys = [ for a in args -> typeOfExpr a ]
+
+        let ifaceKey =
+            match key with
+            | SymbolKey.MemberKey(decl, _, _, _) -> decl
+            | _ -> failwithf "EmitMember: CallVia.Interface member key is not a MemberKey: %A" key
+
+        let iface =
+            match env.Interfaces.TryGetValue ifaceKey with
+            | true, i -> i
+            | false, _ -> failwithf "EmitMember: CallVia.Interface on unregistered interface '%A'" ifaceKey
+
+        let m =
+            match iface.Members.TryGetValue name with
+            | true, candidates -> pickOverload name candidates argTys
+            | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
+
+        // For a *generic* interface (`'S :> IStructSeq<'E>`), the abstract slot
+        // lives on the instantiated interface `TypeSpec` (`IStructSeq`1<!E>`), not
+        // on the bare generic definition — so mint a `MemberRef` against the
+        // instantiation Wall B threaded onto `CallVia.Interface`. A non-generic
+        // interface (empty `iface.Typars`) uses the slot's `Def` handle directly.
+        let slotHandle =
+            EmitResolve.memberRef
+                env
+                iface.Typars
+                ifaceKey
+                (EqArray.toList ifaceArgs)
+                (UserMemberKind.ClassMember(
+                    ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                ))
+                m.Handle
+
+        // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
+        let returnsUnit =
+            match ty with
+            | FTConst("unit", _) -> true
+            | _ -> false
+
+        let resultCount = if returnsUnit then 0 else 1
+        let operands = 1 + args.Length
+
+        // Receiver by *address* — `loadStructReceiverAddr` addresses a slot/self/field
+        // in place and spills any other receiver (a static-fn arg `Ldarg i`) to a
+        // temp it `ldloca`s; `constrained.` needs that managed pointer for both struct
+        // and class typars.
+        loadStructReceiverAddr recur env b receiver receiverTy
+
+        for a in args do
+            recur env b a
+
+        b.Add(ILInstr.Constrained(env.Provider.TypeToken receiverTy))
+        b.Add(ILInstr.Callvirt(slotHandle, operands, resultCount))
+
+        if returnsUnit then
+            EmitTypes.buildUnitValue env b
+
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.FieldGet(receiver, name, _, _) ->
@@ -160,6 +240,13 @@ module EmitMember =
 
     let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
+        | TExprG.PropertyGet(receiver, key, CallVia.Interface ifaceArgs, ty, _) ->
+            // Rung-3: an instance *property* read on a typar receiver constrained to an
+            // interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator`).
+            // A 0-argument constrained interface access — the getter slot is `get_<name>`
+            // in the interface registry. Shared `constrained. callvirt` path with the
+            // method case.
+            emitConstrainedInterfaceCall recur env b receiver key ifaceArgs EqArray.empty ty
         | TExprG.PropertyGet(receiver, key, via, _, _) ->
             // Instance property read — a 0-argument instance member access; the
             // receiver/dispatch shape is shared with `buildMethodCall`.
@@ -176,74 +263,7 @@ module EmitMember =
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.MethodCall(receiver, key, CallVia.Interface ifaceArgs, args, ty, _) ->
-            // Rung-3 Wall C: a member call on a value whose type is a generic typar
-            // constrained to an interface (`x : 'T when 'T :> IFace`). The receiver's
-            // type is an `FTTypar`, not a nominal — so `resolveInstanceMember` can't be
-            // used (it destructures a nominal head). Instead, the abstract slot is
-            // resolved directly off the member key's declaring interface (recorded by
-            // Wall B's `TyparInterfaceCall` side-table), and the call is dispatched with
-            // a `constrained. <typar> callvirt`: the JIT then dispatches a *struct* typar
-            // by address (no box) and a *class* typar by reference — the zero-alloc
-            // behaviour rung 3 needs. Sound because the slot is an interface (virtual)
-            // member, so the non-virtual-struct-method guardrail does not bite.
-            let receiverTy = typeOfExpr receiver
-            let name = SymbolKeyOps.simpleName key
-            let argTys = [ for a in args -> typeOfExpr a ]
-
-            let ifaceKey =
-                match key with
-                | SymbolKey.MemberKey(decl, _, _, _) -> decl
-                | _ -> failwithf "EmitMember: CallVia.Interface member key is not a MemberKey: %A" key
-
-            let iface =
-                match env.Interfaces.TryGetValue ifaceKey with
-                | true, i -> i
-                | false, _ -> failwithf "EmitMember: CallVia.Interface on unregistered interface '%A'" ifaceKey
-
-            let m =
-                match iface.Members.TryGetValue name with
-                | true, candidates -> pickOverload name candidates argTys
-                | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
-
-            // For a *generic* interface (`'S :> IStructSeq<'E>`), the abstract slot
-            // lives on the instantiated interface `TypeSpec` (`IStructSeq`1<!E>`), not
-            // on the bare generic definition — so mint a `MemberRef` against the
-            // instantiation Wall B threaded onto `CallVia.Interface`. A non-generic
-            // interface (empty `iface.Typars`) uses the slot's `Def` handle directly.
-            let slotHandle =
-                EmitResolve.memberRef
-                    env
-                    iface.Typars
-                    ifaceKey
-                    (EqArray.toList ifaceArgs)
-                    (UserMemberKind.ClassMember(
-                        ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                    ))
-                    m.Handle
-
-            // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
-            let returnsUnit =
-                match ty with
-                | FTConst("unit", _) -> true
-                | _ -> false
-
-            let resultCount = if returnsUnit then 0 else 1
-            let operands = 1 + args.Length
-
-            // Receiver by *address* — `loadStructReceiverAddr` addresses a slot/self/field
-            // in place and spills any other receiver (a static-fn arg `Ldarg i`) to a
-            // temp it `ldloca`s; `constrained.` needs that managed pointer for both struct
-            // and class typars.
-            loadStructReceiverAddr recur env b receiver receiverTy
-
-            for a in args do
-                recur env b a
-
-            b.Add(ILInstr.Constrained(env.Provider.TypeToken receiverTy))
-            b.Add(ILInstr.Callvirt(slotHandle, operands, resultCount))
-
-            if returnsUnit then
-                EmitTypes.buildUnitValue env b
+            emitConstrainedInterfaceCall recur env b receiver key ifaceArgs args ty
         | TExprG.MethodCall(receiver, key, via, args, ty, _) ->
             // Instance method call — the same receiver/dispatch shape as
             // `buildPropertyGet`, with the call's arguments pushed between the

@@ -887,6 +887,17 @@ module internal FreezeExpr =
             | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy, tok)
             | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy, tok)
 
+        // Wall B (rung 3): the chain's *last* segment may be a property read on a
+        // typar receiver constrained to an interface (`this.Source.Current` where
+        // `Source : 'E :> IStructEnumerator`). Unification resolved it through the
+        // interface and recorded the interface key in `TyparInterfaceCall`, keyed by
+        // the LongIdent's NodeKey (the same `CstKeys.ofExpr` identity the inference
+        // step used). The receiver never grounds to a nominal, so `fieldStep` would
+        // emit a bogus `FieldGet` on an `FTTypar` — route it to a `CallVia.Interface`
+        // `PropertyGet` (codegen → `constrained. callvirt get_<name>`) instead.
+        let liKey =
+            NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
+
         let mutable currTy = headTy
         let mutable curr = headExpr
 
@@ -914,7 +925,30 @@ module internal FreezeExpr =
                 match lastExternal with
                 | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
                     TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.IsProperty, stepTy, tok)
-                | _ -> fieldStep ctx curr currTy segName stepTy tok
+                | _ ->
+                    // The `TyparInterfaceCall` entry is keyed by the chain's first
+                    // token, which a method call's receiver *prefix* (`this.Source` of
+                    // `this.Source.MoveNext()`) shares with the full chain — so also
+                    // require the receiver `currTy` to be a typar (the entry is only
+                    // ever recorded for a typar receiver), distinguishing the genuine
+                    // property read `this.Source.Current` (receiver `'E`) from a nominal
+                    // field step `this.Source` (receiver the enclosing class).
+                    let isTyparRecv =
+                        match Unification.zonk currTy with
+                        | TyTypar _
+                        | TyVar _ -> true
+                        | _ -> false
+
+                    match
+                        (if i = li.Idents.Length - 1 && isTyparRecv then
+                             ctx.Resolution.TyparInterfaceCall.TryGetValue liKey
+                         else
+                             ValueNone)
+                    with
+                    | ValueSome(ifaceKey, ifaceArgs) ->
+                        let key = LocalSymbolKey.ofMember ifaceKey segName 0 MemberKind.Property
+                        TExpr.PropertyGet(curr, key, CallVia.Interface ifaceArgs, stepTy, tok)
+                    | ValueNone -> fieldStep ctx curr currTy segName stepTy tok
 
             currTy <- stepTy
 
