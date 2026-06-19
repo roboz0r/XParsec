@@ -1201,11 +1201,17 @@ module UnificationEngine =
                 // equality predicate via BCL `Object.Equals`. Comparison
                 // is opt-in, so an unannotated record is `NoComparison` ⇒ ordering
                 // use site rejected; `[<StructuralComparison>]` falls through to the field-walk.
-                // TODO(custom-eq): Phase 4 — Custom must be Satisfied, not field-walked
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
                 | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
+                // A `Custom` type supports `=` / `<` via its own members, so the
+                // constraint is Satisfied — field-walking would be wrong (its fields
+                // may individually lack equality). Records can't legally be Custom
+                // (Phase 3 diagnoses that), but the verdict is still stamped, so handle
+                // it gracefully here to avoid a cascading field-walk error.
+                | SemanticConstraintKind.Equality, EqualityVerdict.Custom, _ -> Satisfied
                 | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
+                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
                 | _ ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -1217,11 +1223,14 @@ module UnificationEngine =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
-                // TODO(custom-eq): Phase 4 — Custom must be Satisfied, not field-walked
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
                 | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
+                // A `Custom` union supports `=` / `<` via its own members; field-walking
+                // would be wrong (fields may individually lack equality).
+                | SemanticConstraintKind.Equality, EqualityVerdict.Custom, _ -> Satisfied
                 | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
+                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
                 | _ ->
                     let subst = mkNamedTypeSubst info.TypeParams args
 
@@ -1233,10 +1242,30 @@ module UnificationEngine =
 
                     fields |> EqArray.ofResizeArray |> reduceOutcome (checkConstraint ctx c)
             | ValueNone -> Defer
-        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass _ ->
-            // F# classes are reference-equal by default; structural equality / comparison
-            // for classes requires the attribute walker. Defer in v1.
-            Defer
+        | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass(classKey, args) ->
+            // Verdict-honoring lookup, mirroring the record arm. A reference class
+            // defaults to `Reference` equality (⇒ `=` Satisfied via BCL `Object.Equals`)
+            // and `NoComparison`; a `[<Struct>]` value type defaults to `Structural`
+            // (field-walk); `[<CustomEquality>]` / `[<CustomComparison>]` stamp `Custom`.
+            match TypeRegistry.tryClassByKey ctx.Types classKey with
+            | ValueSome info ->
+                match c.Kind, info.EqualitySupport, info.ComparisonSupport with
+                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
+                | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
+                | SemanticConstraintKind.Equality, EqualityVerdict.Custom, _ -> Satisfied
+                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
+                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
+                | _ ->
+                    // Structural posture — only reachable for `[<Struct>]` value
+                    // classes. Field-walk the instance fields with the class type
+                    // params substituted, exactly like the record arm.
+                    let subst = mkNamedTypeSubst info.TypeParams args
+
+                    info.InstanceFields
+                    |> Array.map (fun f -> substituteWith subst f.Type)
+                    |> EqArray.ofArray
+                    |> reduceOutcome (checkConstraint ctx c)
+            | ValueNone -> Defer
         | SemanticConstraintKind.Equality, TyOr members ->
             // An anonymous union satisfies
             // EQUALITY iff EVERY member does — the all-members-or-defer reduction used

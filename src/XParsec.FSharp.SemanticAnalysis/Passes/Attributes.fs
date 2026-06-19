@@ -217,12 +217,18 @@ module Attributes =
             + (if s.NoCmp then 1 else 0)
             + (if s.CustomCmp then 1 else 0)
 
+        // `[<StructuralComparison>]` contradicts a non-structural equality
+        // POSTURE — but absence of an equality attribute is NOT a contradiction:
+        // a record / union / struct defaults to structural equality, so
+        // `[<StructuralComparison>]` on its own is valid (and is the common case).
+        // Only an explicit Reference / No / Custom equality attribute conflicts.
+        // (StructuralComparison is already FS0382 on a reference class, whose
+        // default equality is Reference, so the kinds that reach here always have
+        // a structural default.)
         let invalidMix =
             eqCount > 1
             || cmpCount > 1
-            || (s.StructuralCmp && not s.StructuralEq)
-            || (s.NoEq && s.StructuralCmp)
-            || (s.ReferenceEq && s.StructuralCmp)
+            || (s.StructuralCmp && (s.ReferenceEq || s.NoEq || s.CustomEq))
 
         if invalidMix then
             addDiag

@@ -293,4 +293,57 @@ let tests =
                     scopeErrs
                     (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
             }
+
+            // Phase 4 — the front-end constraint gate now honours the class
+            // verdict at `=` use sites (instead of unconditionally deferring).
+
+            test "[<CustomEquality>] class supports `=` at a use site (no constraint diagnostic)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<CustomEquality; NoComparison>]"
+                            "type ById(id: int) ="
+                            "    member _.Id = id"
+                            "    override this.Equals(o: obj) = false"
+                            "    override this.GetHashCode() = id"
+                            "    interface System.IEquatable<ById> with"
+                            "        member this.Equals(other: ById) = false"
+                            "let a = ById(1)"
+                            "let b = ById(1)"
+                            "let _ = (a = b)"
+                        ]
+
+                let tast, _ = compileSource "EqAttrClassCustomUse" src
+
+                let eqErrors =
+                    errors tast |> List.filter (fun d -> d.Message.Contains "equality")
+
+                Expect.isEmpty
+                    eqErrors
+                    (sprintf "Custom class supports `=` ⇒ no equality diagnostic; got %A" (errors tast))
+            }
+
+            test "[<NoEquality>] class at a `=` use site is rejected" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<NoEquality; NoComparison>]"
+                            "type Opaque(id: int) ="
+                            "    member _.Id = id"
+                            "let a = Opaque(1)"
+                            "let b = Opaque(1)"
+                            "let _ = (a = b)"
+                        ]
+
+                let tast, _ = compileSource "EqAttrClassNoEqUse" src
+
+                let eqErrors =
+                    errors tast |> List.filter (fun d -> d.Message.Contains "equality")
+
+                Expect.isNonEmpty
+                    eqErrors
+                    (sprintf "[<NoEquality>] class at `=` ⇒ equality constraint error; got %A" (errors tast))
+            }
         ]
