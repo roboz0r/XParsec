@@ -16,14 +16,7 @@ type Curried<'A, 'B, 'C>(f: Fun2<'A, 'B, 'C>, a: 'A) =
 
 type Flattened<'A, 'B, 'C>(f: Fun<'A, Fun<'B, 'C>>) =
     interface Fun2<'A, 'B, 'C> with
-        member _.Invoke(a: 'A, b: 'B) : 'C =
-            // A let-split (`let g = f.Invoke(a)`) instead of a chained
-            // `f.Invoke(a).Invoke(b)`: a chained method-call receiver inside an
-            // interface-impl member mis-types the member's return as the inner call's
-            // result (the outer application is dropped at freeze). See the Fun2-wall
-            // report.
-            let g = f.Invoke(a)
-            g.Invoke(b)
+        member _.Invoke(a: 'A, b: 'B) : 'C = f.Invoke(a).Invoke(b)
 
 [<AutoOpen>]
 module FunAdapters =

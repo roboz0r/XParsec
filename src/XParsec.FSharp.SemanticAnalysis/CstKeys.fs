@@ -147,6 +147,20 @@ module CstKeys =
         // chain `r.A.B` is a single multi-segment LongIdent, not nested DotLookups,
         // so it never reached here.)
         | Expr.DotLookup(longIdentOrOp = lio) -> NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprDotLookup
+        // A method-call application `recv.M(args)` whose head is a `DotLookup` keys
+        // off the *member-name* token — not the receiver's leftmost token. Without
+        // this, a chained method-call receiver `f.Invoke(a).Invoke(b)` (a call on the
+        // result of a call) collides: the outer `App` and the inner `App` both key off
+        // the same leftmost `f`, so the outer application's inferred result overwrites
+        // (or is overwritten by) the inner's on one shared `NodeKey`. The member token
+        // is unique per call level (the two `Invoke`s are distinct tokens), so the two
+        // applications get distinct keys — the same per-level disambiguation the
+        // nested-`DotLookup` and nested-`InfixApp` keys already apply. Distinguished
+        // from the `DotLookup` head itself by the `App` / `HighPrecApp` kind.
+        | Expr.App(funcExpr = Expr.DotLookup(longIdentOrOp = lio)) ->
+            NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprApp
+        | Expr.HighPrecedenceApp(funcExpr = Expr.DotLookup(longIdentOrOp = lio)) ->
+            NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprHighPrecApp
         | _ ->
 
             let kind =
