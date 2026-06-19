@@ -89,6 +89,48 @@ let structSeqTests =
                     "apply IL contains no `box` (non-allocating struct Fun dispatch)"
             }
 
+            // The IDEAL rung-4 shape: a CAPTURELESS struct closure (no field, no
+            // ctor) whose only body is the interface impl — exactly what a stateless
+            // source `fun x -> x + 1` lowers to. This previously could not be written
+            // (a fieldless `[<Struct>]` with only an interface impl tripped parse
+            // recovery, so the rung-4 test above had to add a `val N`/`new` to give
+            // the closure spurious state). Now that the parser admits it, the
+            // captureless form compiles and dispatches with no box.
+            test "a CAPTURELESS struct closure (no field) dispatches via constrained callvirt with no box" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type Add1 ="
+                            "    interface Fun<int, int> with"
+                            "        member _.Invoke(x: int) : int = x + 1"
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "printfn \"%d\" (apply (Add1()) 41)"
+                        ]
+
+                let _, artifact = compileSource "CapturelessStructClosure" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "captureless struct Fun dispatch returns 42"
+
+                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue
+                    hasConstrained
+                    "apply IL contains a `constrained.` prefix (captureless typar Fun dispatch)"
+
+                Expect.isFalse
+                    (Array.contains 0x8Cuy il)
+                    "apply IL contains no `box` (non-allocating captureless struct Fun dispatch)"
+            }
+
             // Rung-4 foundation: a generic struct whose FIELD is a function typar
             // `'TFunc :> Fun<'T,'U>` (the EXTERNAL Vesper.Fun interface instantiated at
             // the struct's OWN typars `'T`/`'U`), applied via `this.F.Invoke(x)` in a

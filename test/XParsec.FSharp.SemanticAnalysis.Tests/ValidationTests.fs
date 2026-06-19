@@ -178,4 +178,29 @@ let tests =
                     (hasMessage ctx "must come first")
                     "interspersed open in a rec-namespace submodule diagnoses"
             }
+
+            // A fieldless [<Struct>] whose body is ONLY an interface impl is valid
+            // F# (a stateless captureless struct closure — the ideal rung-4 lambda
+            // shape). It previously tripped parse recovery: the implicit-class
+            // lookahead in TypeDefnParsing didn't admit a leading `interface`, so
+            // the body fell to abbreviation parsing and skipped tokens.
+            test "fieldless [<Struct>] with only an interface impl parses cleanly" {
+                let ctx =
+                    analyse
+                        "type Fun<'a, 'b> =\n    abstract member Invoke: 'a -> 'b\n\n[<Struct>]\ntype AddOne =\n    interface Fun<int, int> with\n        member _.Invoke(x: int) : int = x + 1"
+
+                Expect.isFalse (hasMessage ctx "Skipped tokens") "no parse-recovery skip on a fieldless struct closure"
+            }
+
+            test "fieldless (plain) type with only an interface impl parses cleanly" {
+                // Same shape without [<Struct>] — exercises the implicit-class path
+                // for a reference type too.
+                let ctx =
+                    analyse
+                        "type Fun<'a, 'b> =\n    abstract member Invoke: 'a -> 'b\n\ntype AddOne =\n    interface Fun<int, int> with\n        member _.Invoke(x: int) : int = x + 1"
+
+                Expect.isFalse
+                    (hasMessage ctx "Skipped tokens")
+                    "no parse-recovery skip on a fieldless interface-only class"
+            }
         ]

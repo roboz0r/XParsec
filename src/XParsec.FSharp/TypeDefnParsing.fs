@@ -1369,11 +1369,41 @@ module TypeDefn =
                     return TypeDefn.Struct(typeName, primaryConstr, asDefn, equals, str, body, endTok)
 
                 | Token.KWInterface when primaryConstr.IsNone ->
-                    // Explicit Interface type: type IFoo = interface ... end
-                    // (Not an implicit class whose body starts with `interface X with`)
-                    let! intf = pInterface
-                    let! body, endTok = InterfaceTypeBody.parse pEnd
-                    return TypeDefn.Interface(typeName, equals, intf, body, endTok)
+                    // Two distinct F# shapes both lead with `interface`:
+                    //   (a) explicit interface TYPE:  type IFoo = interface <member-specs> end
+                    //       (the `interface` is the type-kind keyword; no operand type)
+                    //   (b) implicit class whose ONLY body is an interface IMPL:
+                    //       type AddOne = interface Fun<int,int> with member _.Invoke x = ...
+                    //       (F# `classDefnMember := interfaceImplementation`; a fieldless
+                    //       captureless `[<Struct>]` closure is exactly this shape).
+                    // Distinguish by lookahead: `interface <Type> with` is an interface
+                    // impl (b). Without this, (b) fell into the explicit-interface branch
+                    // and the light-syntax `manyTill pEnd` body never found its `end`,
+                    // tripping parse recovery.
+                    let! isInterfaceImpl =
+                        lookAhead (
+                            parser {
+                                let! _ = pInterface
+                                let! _ = Type.parse
+                                let! w = peekNextSyntaxToken
+                                return w.Token = Token.KWWith
+                            }
+                        )
+                        |> opt
+                        |>> (fun r -> r = ValueSome true)
+
+                    if isInterfaceImpl then
+                        // Implicit class with an interface-impl body — same path as a
+                        // body-keyword-led implicit class.
+                        let! beginTok = nextSyntaxTokenVirtualIfNot Token.KWBegin
+                        let! body = withContext OffsideContext.Type ClassTypeBody.parseOffside
+                        let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
+                        return TypeDefn.Anon(typeName, primaryConstr, asDefn, equals, beginTok, body, endTok)
+                    else
+                        // Explicit Interface type: type IFoo = interface ... end
+                        let! intf = pInterface
+                        let! body, endTok = InterfaceTypeBody.parse pEnd
+                        return TypeDefn.Interface(typeName, equals, intf, body, endTok)
 
                 | Token.KWClass ->
                     // Explicit Class
