@@ -143,31 +143,45 @@ module EmitMember =
             | SymbolKey.MemberKey(decl, _, _, _) -> decl
             | _ -> failwithf "EmitMember: CallVia.Interface member key is not a MemberKey: %A" key
 
-        let iface =
-            match env.Interfaces.TryGetValue ifaceKey with
-            | true, i -> i
-            | false, _ -> failwithf "EmitMember: CallVia.Interface on unregistered interface '%A'" ifaceKey
-
-        let m =
-            match iface.Members.TryGetValue name with
-            | true, candidates -> pickOverload name candidates argTys
-            | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
-
-        // For a *generic* interface (`'S :> IStructSeq<'E>`), the abstract slot
-        // lives on the instantiated interface `TypeSpec` (`IStructSeq`1<!E>`), not
-        // on the bare generic definition — so mint a `MemberRef` against the
-        // instantiation Wall B threaded onto `CallVia.Interface`. A non-generic
-        // interface (empty `iface.Typars`) uses the slot's `Def` handle directly.
+        // The abstract slot the `constrained. callvirt` targets. A *project-local*
+        // interface (`'T :> IFace`, rung 3) is in `env.Interfaces`, so the slot is
+        // minted off its emitted member. An *external* interface (`'T :>
+        // Vesper.Fun<int,int>`, rung 4) is not registered locally — mint the slot
+        // via the provider against the interface's instantiated `TypeSpec`, exactly
+        // as `EmitResolve.resolveExternalMember` does for a grounded receiver.
         let slotHandle =
-            EmitResolve.memberRef
-                env
-                iface.Typars
-                ifaceKey
-                (EqArray.toList ifaceArgs)
-                (UserMemberKind.ClassMember(
-                    ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                ))
-                m.Handle
+            match env.Interfaces.TryGetValue ifaceKey with
+            | true, iface ->
+                let m =
+                    match iface.Members.TryGetValue name with
+                    | true, candidates -> pickOverload name candidates argTys
+                    | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
+
+                // For a *generic* interface (`'S :> IStructSeq<'E>`), the abstract slot
+                // lives on the instantiated interface `TypeSpec` (`IStructSeq`1<!E>`), not
+                // on the bare generic definition — so mint a `MemberRef` against the
+                // instantiation Wall B threaded onto `CallVia.Interface`. A non-generic
+                // interface (empty `iface.Typars`) uses the slot's `Def` handle directly.
+                EmitResolve.memberRef
+                    env
+                    iface.Typars
+                    ifaceKey
+                    (EqArray.toList ifaceArgs)
+                    (UserMemberKind.ClassMember(
+                        ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                    ))
+                    m.Handle
+            | false, _ ->
+                // External interface: encode the declaring type from the interface key
+                // + the instantiation `CallVia.Interface` carries, and recover the slot
+                // signature from the provider's metadata. `memberTy` is the access's
+                // instantiated curried shape (`arg → … → ret`) so the method-axis (if
+                // any) is recoverable; a property slot drops to its value type.
+                let ifaceTy = FTClass(ifaceKey, ifaceArgs)
+
+                let memberTy = List.foldBack (fun a acc -> FTFun(a, acc)) argTys ty
+
+                env.Provider.ExternalMemberRefOn(key, ifaceTy, false, false, memberTy)
 
         // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
         let returnsUnit =

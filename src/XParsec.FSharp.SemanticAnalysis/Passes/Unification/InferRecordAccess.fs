@@ -214,7 +214,21 @@ module internal UnificationInferRecordAccess =
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome mty
                             | ValueNone -> scan rest
-                        | _ -> scan rest
+                        | _ ->
+                            // External-interface coercion (`'T :> Vesper.Fun<int,int>`):
+                            // the interface is not in the local registry, so resolve the
+                            // member through the provider on the qualified key. The
+                            // receiver stays a typar (never grounds to the interface), so
+                            // we record `TyparInterfaceCall` — *not* `ExternalAccess` —
+                            // exactly as the local path does, and Freeze emits the same
+                            // `CallVia.Interface` dispatch (now on an external `TypeSpec`).
+                            let ifaceQual = SymbolKeyOps.qualifiedName ifaceKey
+
+                            match ctx.Provider.TryLookupMember(ifaceQual, memberName) with
+                            | ValueSome m when not m.IsStatic ->
+                                ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
+                                ValueSome(ExternalSymbols.openSignature m (ifaceArgs.AsSpan().ToArray()))
+                            | _ -> scan rest
                     | _ -> scan rest
                 | _ -> scan rest
 

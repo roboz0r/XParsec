@@ -36,27 +36,24 @@ let structSeqTests =
             // `constrained. !TF callvirt Vesper.Fun::Invoke`, the rung-3 machinery
             // addressing the struct by `ldloca` with NO box.
             //
-            // PENDING — blocked on a three-layer EXTERNAL-interface constrained-dispatch
-            // gap (rung 3 deferred this; `InferRecordAccess.tryTyparInterfaceMember`
-            // explicitly only handles a *project-local* interface coercion, and an
-            // "external interface coercion ... fall[s] through to the existing path").
-            // With `Vesper.Fun` external, `f.Invoke x` mis-resolves as a record FIELD
-            // get, so codegen crashes: "Emit: class '…Add1' has no field 'Invoke'"
-            // (EmitMember.buildFieldGet → EmitResolve.resolveRecordField). Closing it
-            // needs, in lockstep:
-            //   1. front-end (`tryTyparInterfaceMember`): an external-interface branch
-            //      that looks the member up via `ctx.Provider.TryLookupMember` on the
-            //      external interface key and records `TyparInterfaceCall`;
-            //   2. Freeze (`mkInterfaceMethodCall` / `memberParamTys`): build the
-            //      `CallVia.Interface` member key + obj-arg param model from the
-            //      EXTERNAL interface instead of the local type registry;
-            //   3. codegen (`EmitMember.emitConstrainedInterfaceCall`): mint the
-            //      `constrained. callvirt` slot on the external interface's `TypeSpec`
-            //      MemberRef (today it `failwith`s on an interface not in the LOCAL
-            //      `env.Interfaces` registry).
-            // Flip to `ftest` and assert the `constrained.`-present / `box`-absent IL
-            // once that lands.
-            ptest
+            // LANDED — the three-layer EXTERNAL-interface constrained-dispatch gap is
+            // closed (rung 3 deferred it). The dispatch now flows symmetrically with the
+            // project-local case:
+            //   1. front-end (`InferRecordAccess.tryTyparInterfaceMember`): when the
+            //      coercion target is *not* a local interface, the member is looked up
+            //      via `ctx.Provider.TryLookupMember` on the external interface's
+            //      qualified key and `TyparInterfaceCall` is recorded (same side-table
+            //      the local path uses) — so `f.Invoke x` no longer mis-resolves as a
+            //      record FIELD get;
+            //   2. Freeze: unchanged — `mkInterfaceMethodCall` already mints the
+            //      `CallVia.Interface` node off `TyparInterfaceCall`, and the external
+            //      interface's `Invoke(int)` has a non-`obj` param so the empty local
+            //      param model is correct (no spurious boxing);
+            //   3. codegen (`EmitMember.emitConstrainedInterfaceCall`): an interface not
+            //      in the LOCAL `env.Interfaces` registry mints the `constrained.
+            //      callvirt` slot via `env.Provider.ExternalMemberRefOn` against the
+            //      interface's instantiated `TypeSpec`.
+            test
                 "a struct closure implementing Vesper.Fun dispatches via constrained callvirt with no box (rung 4 target shape)" {
                 let src =
                     String.concat
