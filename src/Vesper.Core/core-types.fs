@@ -9,3 +9,25 @@ namespace Vesper
 [<ReferenceEquality>]
 [<NoComparison>]
 type Ref<'T> = { mutable contents: 'T }
+
+type Curried<'A, 'B, 'C>(f: Fun2<'A, 'B, 'C>, a: 'A) =
+    interface Fun<'B, 'C> with
+        member _.Invoke(b) = f.Invoke(a, b)
+
+type Flattened<'A, 'B, 'C>(f: Fun<'A, Fun<'B, 'C>>) =
+    interface Fun2<'A, 'B, 'C> with
+        member _.Invoke(a: 'A, b: 'B) : 'C =
+            // A let-split (`let g = f.Invoke(a)`) instead of a chained
+            // `f.Invoke(a).Invoke(b)`: a chained method-call receiver inside an
+            // interface-impl member mis-types the member's return as the inner call's
+            // result (the outer application is dropped at freeze). See the Fun2-wall
+            // report.
+            let g = f.Invoke(a)
+            g.Invoke(b)
+
+[<AutoOpen>]
+module FunAdapters =
+
+    let curryFun (f: Fun2<'A, 'B, 'C>) (a: 'A) : Fun<'B, 'C> = Curried(f, a) :> Fun<'B, 'C>
+
+    let flatten (f: Fun<'A, Fun<'B, 'C>>) : Fun2<'A, 'B, 'C> = Flattened(f) :> Fun2<'A, 'B, 'C>

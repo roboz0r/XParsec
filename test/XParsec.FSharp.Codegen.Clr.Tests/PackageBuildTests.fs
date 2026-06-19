@@ -25,6 +25,11 @@ let tests =
 
                 Expect.isNotNull (asm.GetType "Vesper.Fun`2") "the DLL contains Vesper.Fun`2"
                 Expect.isNotNull (asm.GetType "Vesper.Ref`1") "the DLL contains Vesper.Ref`1"
+
+                // Flat arity-2 fn type + its flat<->curried adapters (Fun2 wall).
+                Expect.isNotNull (asm.GetType "Vesper.Fun2`3") "the DLL contains Vesper.Fun2`3"
+                Expect.isNotNull (asm.GetType "Vesper.Curried`3") "the DLL contains Vesper.Curried`3"
+                Expect.isNotNull (asm.GetType "Vesper.Flattened`3") "the DLL contains Vesper.Flattened`3"
             }
 
             // Vesper.List depends on Vesper.Core: the harness builds + loads Core

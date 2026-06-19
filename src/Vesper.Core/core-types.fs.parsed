@@ -1,30 +1,374 @@
-namespace        'namespace'       KWNamespace         tok=   0  pos=   0
-                 'Vesper'          Identifier          tok=   2  pos=  10
+namespace                          'namespace'       KWNamespace         tok=   0  pos=   0
+                                   'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Record:
-    [<           '[<'              KWLAttrBracket      tok=  19  pos= 263
+    [<                             '[<'              KWLAttrBracket      tok=  19  pos= 263
     NamedType:
-      Ident      'ReferenceE...'   Identifier          tok=  20  pos= 265
-    >]           '>]'              KWRAttrBracket      tok=  21  pos= 282
-    [<           '[<'              KWLAttrBracket      tok=  23  pos= 285
+      Ident                        'ReferenceE...'   Identifier          tok=  20  pos= 265
+    >]                             '>]'              KWRAttrBracket      tok=  21  pos= 282
+    [<                             '[<'              KWLAttrBracket      tok=  23  pos= 285
     NamedType:
-      Ident      'NoComparis...'   Identifier          tok=  24  pos= 287
-    >]           '>]'              KWRAttrBracket      tok=  25  pos= 299
-    TypeName     'Ref'             Identifier          tok=  29  pos= 307
+      Ident                        'NoComparis...'   Identifier          tok=  24  pos= 287
+    >]                             '>]'              KWRAttrBracket      tok=  25  pos= 299
+    TypeName                       'Ref'             Identifier          tok=  29  pos= 307
     TyparDefns:
-      <          '<'               op_LessThan         tok=  30  pos= 310
+      <                            '<'               op_LessThan         tok=  30  pos= 310
       Typar.Named:
-                 ''T'              TypeParameter       tok=  31  pos= 311
-      >          '>'               op_GreaterThan      tok=  32  pos= 313
-    =            '='               OpEquality          tok=  34  pos= 315
-    {            '{'               KWLBrace            tok=  36  pos= 317
+                                   ''T'              TypeParameter       tok=  31  pos= 311
+      >                            '>'               op_GreaterThan      tok=  32  pos= 313
+    =                              '='               OpEquality          tok=  34  pos= 315
+    {                              '{'               KWLBrace            tok=  36  pos= 317
       Field:
-        mutable  'mutable'         KWMutable           tok=  38  pos= 319
-        ident    'contents'        Identifier          tok=  40  pos= 327
-        :        ':'               OpColon             tok=  41  pos= 335
+        mutable                    'mutable'         KWMutable           tok=  38  pos= 319
+        ident                      'contents'        Identifier          tok=  40  pos= 327
+        :                          ':'               OpColon             tok=  41  pos= 335
         VarType:
           Typar.Named:
-                 ''T'              TypeParameter       tok=  43  pos= 337
-    }            '}'               KWRBrace            tok=  45  pos= 340
+                                   ''T'              TypeParameter       tok=  43  pos= 337
+    }                              '}'               KWRBrace            tok=  45  pos= 340
+  TypeDefn.Anon:
+    TypeName                       'Curried'         Identifier          tok=  50  pos= 348
+    TyparDefns:
+      <                            '<'               op_LessThan         tok=  51  pos= 355
+      Typar.Named:
+                                   ''A'              TypeParameter       tok=  52  pos= 356
+      Typar.Named:
+                                   ''B'              TypeParameter       tok=  55  pos= 360
+      Typar.Named:
+                                   ''C'              TypeParameter       tok=  58  pos= 364
+      >                            '>'               op_GreaterThan      tok=  59  pos= 366
+    (                              '('               KWLParen            tok=  60  pos= 367
+    Pat.Tuple:
+      Pat.Typed:
+        Pat.NamedSimple            'f'               Identifier          tok=  61  pos= 368
+        Colon                      ':'               OpColon             tok=  62  pos= 369
+        GenericType:
+          Ident                    'Fun2'            Identifier          tok=  64  pos= 371
+          <                        '<'               op_LessThan         tok=  65  pos= 375
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''A'              TypeParameter       tok=  66  pos= 376
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''B'              TypeParameter       tok=  69  pos= 380
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''C'              TypeParameter       tok=  72  pos= 384
+          >                        '>'               op_GreaterThan      tok=  73  pos= 386
+      ,                            ','               OpComma             tok=  74  pos= 387
+      Pat.Typed:
+        Pat.NamedSimple            'a'               Identifier          tok=  76  pos= 389
+        Colon                      ':'               OpColon             tok=  77  pos= 390
+        VarType:
+          Typar.Named:
+                                   ''A'              TypeParameter       tok=  79  pos= 392
+    )                              ')'               KWRParen            tok=  80  pos= 394
+    =                              '='               OpEquality          tok=  82  pos= 396
+    begin                          <virt>            KWBegin             tok=virt  pos= 402
+      InterfaceImpl:
+        interface                  'interface'       KWInterface         tok=  85  pos= 402
+        GenericType:
+          Ident                    'Fun'             Identifier          tok=  87  pos= 412
+          <                        '<'               op_LessThan         tok=  88  pos= 415
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''B'              TypeParameter       tok=  89  pos= 416
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''C'              TypeParameter       tok=  92  pos= 420
+          >                        '>'               op_GreaterThan      tok=  93  pos= 422
+        with                       'with'            KWWith              tok=  95  pos= 424
+          member                   'member'          KWMember            tok=  98  pos= 437
+          self                     '_'               Wildcard            tok= 100  pos= 444
+          Pat.NamedSimple          'Invoke'          Identifier          tok= 102  pos= 446
+          Pats:
+            ParenBlock             '('               KWLParen            tok= 103  pos= 452
+              Pat.NamedSimple      'b'               Identifier          tok= 104  pos= 453
+                                   ')'               KWRParen            tok= 105  pos= 454
+          =                        '='               OpEquality          tok= 107  pos= 456
+            HighPrecedenceApp:
+              Func:
+                LongIdentOrOp:
+                  LongIdent:
+                                   'f'               Identifier          tok= 109  pos= 458
+                                   'Invoke'          Identifier          tok= 111  pos= 460
+              (                    '('               KWLParen            tok= 112  pos= 466
+              Arg:
+                Tuple:
+                  Ident            'a'               Identifier          tok= 113  pos= 467
+                  Ident            'b'               Identifier          tok= 116  pos= 470
+                                   ')'               KWRParen            tok= 117  pos= 471
+        end                        <virt>            KWEnd               tok=virt  pos=   0
+    end                            <virt>            KWEnd               tok=virt  pos= 474
+  TypeDefn.Anon:
+    TypeName                       'Flattened'       Identifier          tok= 122  pos= 479
+    TyparDefns:
+      <                            '<'               op_LessThan         tok= 123  pos= 488
+      Typar.Named:
+                                   ''A'              TypeParameter       tok= 124  pos= 489
+      Typar.Named:
+                                   ''B'              TypeParameter       tok= 127  pos= 493
+      Typar.Named:
+                                   ''C'              TypeParameter       tok= 130  pos= 497
+      >                            '>'               op_GreaterThan      tok= 131  pos= 499
+    (                              '('               KWLParen            tok= 132  pos= 500
+    Pat.Typed:
+      Pat.NamedSimple              'f'               Identifier          tok= 133  pos= 501
+      Colon                        ':'               OpColon             tok= 134  pos= 502
+      GenericType:
+        Ident                      'Fun'             Identifier          tok= 136  pos= 504
+        <                          '<'               op_LessThan         tok= 137  pos= 507
+        TypeArg.Type:
+          VarType:
+            Typar.Named:
+                                   ''A'              TypeParameter       tok= 138  pos= 508
+        TypeArg.Type:
+          GenericType:
+            Ident                  'Fun'             Identifier          tok= 141  pos= 512
+            <                      '<'               op_LessThan         tok= 142  pos= 515
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''B'              TypeParameter       tok= 143  pos= 516
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''C'              TypeParameter       tok= 146  pos= 520
+            >                      <virt>            OpGreaterThan       tok=virt  pos= 522
+        >                          '>>'              op_ComposeRight     tok= 147  pos= 522
+    )                              ')'               KWRParen            tok= 148  pos= 524
+    =                              '='               OpEquality          tok= 150  pos= 526
+    begin                          <virt>            KWBegin             tok=virt  pos= 532
+      InterfaceImpl:
+        interface                  'interface'       KWInterface         tok= 153  pos= 532
+        GenericType:
+          Ident                    'Fun2'            Identifier          tok= 155  pos= 542
+          <                        '<'               op_LessThan         tok= 156  pos= 546
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''A'              TypeParameter       tok= 157  pos= 547
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''B'              TypeParameter       tok= 160  pos= 551
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                                   ''C'              TypeParameter       tok= 163  pos= 555
+          >                        '>'               op_GreaterThan      tok= 164  pos= 557
+        with                       'with'            KWWith              tok= 166  pos= 559
+          member                   'member'          KWMember            tok= 169  pos= 572
+          self                     '_'               Wildcard            tok= 171  pos= 579
+          Pat.NamedSimple          'Invoke'          Identifier          tok= 173  pos= 581
+          Pats:
+            ParenBlock             '('               KWLParen            tok= 174  pos= 587
+              Pat.Tuple:
+                Pat.Typed:
+                  Pat.NamedSimple  'a'               Identifier          tok= 175  pos= 588
+                  Colon            ':'               OpColon             tok= 176  pos= 589
+                  VarType:
+                    Typar.Named:
+                                   ''A'              TypeParameter       tok= 178  pos= 591
+                ,                  ','               OpComma             tok= 179  pos= 593
+                Pat.Typed:
+                  Pat.NamedSimple  'b'               Identifier          tok= 181  pos= 595
+                  Colon            ':'               OpColon             tok= 182  pos= 596
+                  VarType:
+                    Typar.Named:
+                                   ''B'              TypeParameter       tok= 184  pos= 598
+                                   ')'               KWRParen            tok= 185  pos= 600
+          ReturnColon              ':'               OpColon             tok= 187  pos= 602
+          VarType:
+            Typar.Named:
+                                   ''C'              TypeParameter       tok= 189  pos= 604
+          =                        '='               OpEquality          tok= 191  pos= 607
+            Let                    'let'             KWLet               tok= 209  pos= 970
+              Pat.NamedSimple      'g'               Identifier          tok= 211  pos= 974
+              =                    '='               OpEquality          tok= 213  pos= 976
+                HighPrecedenceApp:
+                  Func:
+                    LongIdentOrOp:
+                      LongIdent:
+                                   'f'               Identifier          tok= 215  pos= 978
+                                   'Invoke'          Identifier          tok= 217  pos= 980
+                  (                '('               KWLParen            tok= 218  pos= 986
+                  Arg:
+                    Ident          'a'               Identifier          tok= 219  pos= 987
+                                   ')'               KWRParen            tok= 220  pos= 988
+            in                     <virt>            KWIn                tok=virt  pos=1002
+            Body:
+              HighPrecedenceApp:
+                Func:
+                  LongIdentOrOp:
+                    LongIdent:
+                                   'g'               Identifier          tok= 223  pos=1002
+                                   'Invoke'          Identifier          tok= 225  pos=1004
+                (                  '('               KWLParen            tok= 226  pos=1010
+                Arg:
+                  Ident            'b'               Identifier          tok= 227  pos=1011
+                                   ')'               KWRParen            tok= 228  pos=1012
+        end                        <virt>            KWEnd               tok=virt  pos=   0
+    end                            <virt>            KWEnd               tok=virt  pos=1015
+  Module:
+    [<                             '[<'              KWLAttrBracket      tok= 231  pos=1015
+    NamedType:
+      Ident                        'AutoOpen'        Identifier          tok= 232  pos=1017
+    >]                             '>]'              KWRAttrBracket      tok= 233  pos=1025
+    module                         'module'          KWModule            tok= 235  pos=1028
+    ident                          'FunAdapter...'   Identifier          tok= 237  pos=1035
+    =                              '='               OpEquality          tok= 239  pos=1047
+    begin                          <virt>            KWBegin             tok=virt  pos=1054
+      FunctionOrValue:
+        let                        'let'             KWLet               tok= 243  pos=1054
+          Pat.NamedSimple          'curryFun'        Identifier          tok= 245  pos=1058
+          Pats:
+            ParenBlock             '('               KWLParen            tok= 247  pos=1067
+              Pat.Typed:
+                Pat.NamedSimple    'f'               Identifier          tok= 248  pos=1068
+                Colon              ':'               OpColon             tok= 249  pos=1069
+                GenericType:
+                  Ident            'Fun2'            Identifier          tok= 251  pos=1071
+                  <                '<'               op_LessThan         tok= 252  pos=1075
+                  TypeArg.Type:
+                    VarType:
+                      Typar.Named:
+                                   ''A'              TypeParameter       tok= 253  pos=1076
+                  TypeArg.Type:
+                    VarType:
+                      Typar.Named:
+                                   ''B'              TypeParameter       tok= 256  pos=1080
+                  TypeArg.Type:
+                    VarType:
+                      Typar.Named:
+                                   ''C'              TypeParameter       tok= 259  pos=1084
+                  >                '>'               op_GreaterThan      tok= 260  pos=1086
+                                   ')'               KWRParen            tok= 261  pos=1087
+            ParenBlock             '('               KWLParen            tok= 263  pos=1089
+              Pat.Typed:
+                Pat.NamedSimple    'a'               Identifier          tok= 264  pos=1090
+                Colon              ':'               OpColon             tok= 265  pos=1091
+                VarType:
+                  Typar.Named:
+                                   ''A'              TypeParameter       tok= 267  pos=1093
+                                   ')'               KWRParen            tok= 268  pos=1095
+          ReturnColon              ':'               OpColon             tok= 270  pos=1097
+          GenericType:
+            Ident                  'Fun'             Identifier          tok= 272  pos=1099
+            <                      '<'               op_LessThan         tok= 273  pos=1102
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''B'              TypeParameter       tok= 274  pos=1103
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''C'              TypeParameter       tok= 277  pos=1107
+            >                      '>'               op_GreaterThan      tok= 278  pos=1109
+          =                        '='               OpEquality          tok= 280  pos=1111
+            StaticUpcast:
+              Expr:
+                HighPrecedenceApp:
+                  Func:
+                    Ident          'Curried'         Identifier          tok= 282  pos=1113
+                  (                '('               KWLParen            tok= 283  pos=1120
+                  Arg:
+                    Tuple:
+                      Ident        'f'               Identifier          tok= 284  pos=1121
+                      Ident        'a'               Identifier          tok= 287  pos=1124
+                                   ')'               KWRParen            tok= 288  pos=1125
+              :>                   ':>'              OpUpcast            tok= 290  pos=1127
+              GenericType:
+                Ident              'Fun'             Identifier          tok= 292  pos=1130
+                <                  '<'               op_LessThan         tok= 293  pos=1133
+                TypeArg.Type:
+                  VarType:
+                    Typar.Named:
+                                   ''B'              TypeParameter       tok= 294  pos=1134
+                TypeArg.Type:
+                  VarType:
+                    Typar.Named:
+                                   ''C'              TypeParameter       tok= 297  pos=1138
+                >                  '>'               op_GreaterThan      tok= 298  pos=1140
+      FunctionOrValue:
+        let                        'let'             KWLet               tok= 302  pos=1147
+          Pat.NamedSimple          'flatten'         Identifier          tok= 304  pos=1151
+          Pats:
+            ParenBlock             '('               KWLParen            tok= 306  pos=1159
+              Pat.Typed:
+                Pat.NamedSimple    'f'               Identifier          tok= 307  pos=1160
+                Colon              ':'               OpColon             tok= 308  pos=1161
+                GenericType:
+                  Ident            'Fun'             Identifier          tok= 310  pos=1163
+                  <                '<'               op_LessThan         tok= 311  pos=1166
+                  TypeArg.Type:
+                    VarType:
+                      Typar.Named:
+                                   ''A'              TypeParameter       tok= 312  pos=1167
+                  TypeArg.Type:
+                    GenericType:
+                      Ident        'Fun'             Identifier          tok= 315  pos=1171
+                      <            '<'               op_LessThan         tok= 316  pos=1174
+                      TypeArg.Type:
+                        VarType:
+                          Typar.Named:
+                                   ''B'              TypeParameter       tok= 317  pos=1175
+                      TypeArg.Type:
+                        VarType:
+                          Typar.Named:
+                                   ''C'              TypeParameter       tok= 320  pos=1179
+                      >            <virt>            OpGreaterThan       tok=virt  pos=1181
+                  >                '>>'              op_ComposeRight     tok= 321  pos=1181
+                                   ')'               KWRParen            tok= 322  pos=1183
+          ReturnColon              ':'               OpColon             tok= 324  pos=1185
+          GenericType:
+            Ident                  'Fun2'            Identifier          tok= 326  pos=1187
+            <                      '<'               op_LessThan         tok= 327  pos=1191
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''A'              TypeParameter       tok= 328  pos=1192
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''B'              TypeParameter       tok= 331  pos=1196
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                                   ''C'              TypeParameter       tok= 334  pos=1200
+            >                      '>'               op_GreaterThan      tok= 335  pos=1202
+          =                        '='               OpEquality          tok= 337  pos=1204
+            StaticUpcast:
+              Expr:
+                HighPrecedenceApp:
+                  Func:
+                    Ident          'Flattened'       Identifier          tok= 339  pos=1206
+                  (                '('               KWLParen            tok= 340  pos=1215
+                  Arg:
+                    Ident          'f'               Identifier          tok= 341  pos=1216
+                                   ')'               KWRParen            tok= 342  pos=1217
+              :>                   ':>'              OpUpcast            tok= 344  pos=1219
+              GenericType:
+                Ident              'Fun2'            Identifier          tok= 346  pos=1222
+                <                  '<'               op_LessThan         tok= 347  pos=1226
+                TypeArg.Type:
+                  VarType:
+                    Typar.Named:
+                                   ''A'              TypeParameter       tok= 348  pos=1227
+                TypeArg.Type:
+                  VarType:
+                    Typar.Named:
+                                   ''B'              TypeParameter       tok= 351  pos=1231
+                TypeArg.Type:
+                  VarType:
+                    Typar.Named:
+                                   ''C'              TypeParameter       tok= 354  pos=1235
+                >                  '>'               op_GreaterThan      tok= 355  pos=1237
+    end                            <virt>            KWEnd               tok=virt  pos=1239
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

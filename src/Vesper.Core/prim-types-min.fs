@@ -14,3 +14,6 @@ type 'T array = 'T[]
 
 type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B
+
+type Fun2<'A, 'B, 'C> =
+    abstract member Invoke: a: 'A * b: 'B -> 'C

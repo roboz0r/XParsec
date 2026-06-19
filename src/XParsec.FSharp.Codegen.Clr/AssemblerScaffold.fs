@@ -53,6 +53,15 @@ module internal AssemblerScaffold =
 
         match paramTys with
         | [ single ] when isUnitTy single -> []
+        // A multi-arg abstract member (`abstract Invoke : 'A * 'B -> 'C`) is modelled
+        // with a single tupled domain, but F# emits it as an N-param method — and the
+        // conforming impl member (`member _.Invoke(a, b)`) emits N params too. Flatten
+        // a sole leading tuple back to N parameters so the slot signature matches the
+        // impl's `Param` rows; otherwise the runtime can't bind the impl to the slot
+        // ("does not have an implementation"). This mirrors the external-method tuple
+        // flattening in `ClrExternalMembers` (a genuine single `(('A*'B))` param is not
+        // expressible in an abstract member sig, so there is no ambiguity here).
+        | [ FTTuple elems ] when elems.Length >= 2 -> EqArray.toList elems
         | _ -> paramTys
 
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method. The

@@ -910,4 +910,53 @@ let structSeqTests =
                     "10"
                     "fold threads state through the closure over a generic struct seq"
             }
+
+            // Fun2 wall: the flat arity-2 fn type + its flat<->curried adapters
+            // (`Fun2<'A,'B,'C>` / `Curried` / `flatten` in Vesper.Core) must not
+            // just BUILD but RUN end-to-end. This exercises (1) a `[<Struct>]`
+            // implementing the 2-arg interface and a saturated `Invoke(a,b)`
+            // dispatch, (2) `curryFun`'s `:> Fun<_,_>` upcast over the `Curried`
+            // adapter whose body re-dispatches `f.Invoke(a, b)`, and (3) `flatten`
+            // forcing a genuinely curried `Fun<int, Fun<int,int>>` (built from two
+            // project-local classes) into a flat slot whose `Invoke(a,b)` walks the
+            // curried chain `f.Invoke(a).Invoke(b)`.
+            test "Fun2 flat dispatch + curryFun/flatten adapters round-trip" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            // A value-type flat 2-arg closure. A fieldless `[<Struct>]`
+                            // whose body is ONLY an interface impl trips parse recovery
+                            // ("Skipped tokens at module level"); a `val`/`new` preamble
+                            // (the rung-4 `Add1` shape) parses, so carry a dummy field.
+                            "[<Struct>]"
+                            "type Add2 ="
+                            "    val Z : int"
+                            "    new(z: int) = { Z = z }"
+                            "    interface Fun2<int, int, int> with"
+                            "        member this.Invoke(a: int, b: int) : int = a + b + this.Z"
+                            // a genuinely curried value: AddB captures `a`, returns b -> a+b
+                            "type AddB(a: int) ="
+                            "    interface Fun<int, int> with"
+                            "        member this.Invoke(b: int) : int = a + b"
+                            "type AddCurried() ="
+                            "    interface Fun<int, Fun<int, int>> with"
+                            "        member this.Invoke(a: int) : Fun<int, int> = AddB(a) :> Fun<int, int>"
+                            "let flat = (Add2(0) :> Fun2<int, int, int>).Invoke(20, 22)"
+                            "let curried = ((curryFun (Add2(0) :> Fun2<int, int, int>) 20) :> Fun<int, int>).Invoke(22)"
+                            "let flattened = (flatten (AddCurried() :> Fun<int, Fun<int, int>>)).Invoke(20, 22)"
+                            "printfn \"%d %d %d\" flat curried flattened"
+                        ]
+
+                let tast, artifact = compileSource "Fun2Adapters" src
+                let bytes = Codegen.toBytes artifact
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "42 42 42"
+                    "flat Invoke(a,b), curryFun round-trip, and flatten of a curried value all yield 42"
+            }
         ]

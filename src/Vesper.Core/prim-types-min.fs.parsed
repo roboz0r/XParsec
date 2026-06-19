@@ -79,7 +79,39 @@ namespace              'namespace'       KWNamespace         tok=   0  pos=   0
       VarType:
         Typar.Named:
                        ''B'              TypeParameter       tok= 119  pos= 553
-    end                <virt>            KWEnd               tok=virt  pos= 556
+    end                <virt>            KWEnd               tok=virt  pos= 557
+  TypeDefn.Anon:
+    TypeName           'Fun2'            Identifier          tok= 124  pos= 562
+    TyparDefns:
+      <                '<'               op_LessThan         tok= 125  pos= 566
+      Typar.Named:
+                       ''A'              TypeParameter       tok= 126  pos= 567
+      Typar.Named:
+                       ''B'              TypeParameter       tok= 129  pos= 571
+      Typar.Named:
+                       ''C'              TypeParameter       tok= 132  pos= 575
+      >                '>'               op_GreaterThan      tok= 133  pos= 577
+    =                  '='               OpEquality          tok= 135  pos= 579
+    begin              <virt>            KWBegin             tok=virt  pos= 585
+      abstract         'abstract'        KWAbstract          tok= 138  pos= 585
+      member           'member'          KWMember            tok= 140  pos= 594
+      Ident            'Invoke'          Identifier          tok= 142  pos= 601
+      :                ':'               OpColon             tok= 143  pos= 607
+      arg              'a'               Identifier          tok= 145  pos= 609
+      :                ':'               OpColon             tok= 146  pos= 610
+      VarType:
+        Typar.Named:
+                       ''A'              TypeParameter       tok= 148  pos= 612
+      arg              'b'               Identifier          tok= 152  pos= 617
+      :                ':'               OpColon             tok= 153  pos= 618
+      VarType:
+        Typar.Named:
+                       ''B'              TypeParameter       tok= 155  pos= 620
+      ->               '->'              OpArrowRight        tok= 157  pos= 623
+      VarType:
+        Typar.Named:
+                       ''C'              TypeParameter       tok= 159  pos= 626
+    end                <virt>            KWEnd               tok=virt  pos= 629
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)
