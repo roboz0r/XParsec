@@ -198,6 +198,7 @@ module TastConvert =
             Name = am.Name
             MethodTypeParams = am.MethodTypeParams
             Signature = f am.Signature
+            IsProperty = am.IsProperty
         }
 
     let kind (f: 'a -> 'b) (k: TTypeKindG<'a, 'tok>) : TTypeKindG<'b, 'tok> =

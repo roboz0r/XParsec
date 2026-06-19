@@ -746,6 +746,11 @@ and TAbstractMethodG<'ty> =
         Name: string
         MethodTypeParams: EqArray<string>
         Signature: 'ty
+        /// `true` for an abstract *property* (`abstract member Current : int` —
+        /// an arg-less member sig). It emits as a `get_<Name>` getter slot so a
+        /// property impl (`get_Current`) binds to it by name + signature; a
+        /// `false` (method) slot keeps its bare name.
+        IsProperty: bool
     }
 
 type TastFileG<'ty, 'tok> =

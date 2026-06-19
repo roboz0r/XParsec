@@ -458,6 +458,29 @@ module InlineExpansion =
 
                 let bindings, core = peel expanded args []
 
+                // A parameter bound to a bare `External` function value — a
+                // library/top-level symbol reference, pure and capture-free (e.g.
+                // `ignore` in `x |> ignore`, where `(|>) arg func = func arg` binds
+                // `func = ignore`) — is substituted directly into the body BEFORE the
+                // recursive walk. A saturated `func arg` use then re-forms the
+                // `ignore arg` head and the walker expands its inline body (from
+                // `ops-platform.fs`). Duplicating a value reference is always sound
+                // (no side effect, no capture). Without this the binding survives as
+                // `let func = ignore in func arg`, leaving `ignore` a bare external
+                // value codegen cannot eta-expand ("no call recipe for external …").
+                let externalValParams =
+                    bindings
+                    |> List.choose (fun (k, _, arg, _) ->
+                        match arg with
+                        | TExpr.External _ -> Some(k, arg)
+                        | _ -> None
+                    )
+
+                let externalKeys = HashSet<NodeKey>(externalValParams |> List.map fst)
+
+                let core =
+                    externalValParams |> List.fold (fun body (k, v) -> substituteVar k v body) core
+
                 let candidates = Dictionary<NodeKey, TExpr>()
 
                 for (k, _, arg, _) in bindings do
@@ -507,7 +530,10 @@ module InlineExpansion =
 
                 List.foldBack
                     (fun (i, k, paramTy, arg, appTok) acc ->
-                        if inlinable.Contains k then
+                        // `inlinable` lambda params and the bare-`External`-value
+                        // params (substituted into `core` above) carry no surviving
+                        // `let` binding.
+                        if inlinable.Contains k || externalKeys.Contains k then
                             acc
                         else
                             let warg = walk arg

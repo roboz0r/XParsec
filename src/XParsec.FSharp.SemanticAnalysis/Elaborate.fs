@@ -429,21 +429,24 @@ module Elaborate =
                 let methods =
                     EqArray.ofSeq (
                         seq {
+                            // An interface body is all-abstract; both abstract
+                            // methods and abstract *properties* become slots. A
+                            // property (`abstract member Current : int`) emits as a
+                            // `get_<Name>` getter so a property impl binds to it.
                             for m in info.Members do
-                                if m.Kind = ClassMemberKind.Method then
-                                    // A generic method's own typars join the env so
-                                    // the backend routes them to `GenericMethodParameter`
-                                    // (declaring typars stay `GenericTypeParameter`).
-                                    if not m.MethodTypeParams.IsEmpty then
-                                        env.AddRange(mkMethodTyparEnv m.MethodTypeParams)
+                                // A generic method's own typars join the env so
+                                // the backend routes them to `GenericMethodParameter`
+                                // (declaring typars stay `GenericTypeParameter`).
+                                if not m.MethodTypeParams.IsEmpty then
+                                    env.AddRange(mkMethodTyparEnv m.MethodTypeParams)
 
-                                    yield
-                                        {
-                                            Name = m.Name
-                                            MethodTypeParams =
-                                                EqArray.ofSeq (seq { for (n, _) in m.MethodTypeParams -> n })
-                                            Signature = m.Type
-                                        }
+                                yield
+                                    {
+                                        Name = m.Name
+                                        MethodTypeParams = EqArray.ofSeq (seq { for (n, _) in m.MethodTypeParams -> n })
+                                        Signature = m.Type
+                                        IsProperty = (m.Kind = ClassMemberKind.Property)
+                                    }
                         }
                     )
 

@@ -179,6 +179,45 @@ let structSeqTests =
                     "generic-struct typar-arg interface dispatch returns the impl value"
             }
 
+            // Rung-3 sub-task 1 (north-star probe gap): a [<Struct>] implementing an
+            // interface that declares an abstract *property* (`Current`). The impl
+            // property getter must be wired (MethodImpl / get_-getter) to the
+            // interface's getter slot, else TypeLoadException "Method 'Current' ...
+            // does not have an implementation".
+            test "struct implements an interface with an abstract property and dispatches" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : int"
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : int = this.Arr.[this.Idx]"
+                            "let e = ArrayEnumerator([| 10; 20 |])"
+                            "let i = (e :> IStructEnumerator)"
+                            "i.MoveNext() |> ignore"
+                            "printfn \"%d\" i.Current"
+                        ]
+
+                let _, artifact = compileSource "StructIfaceProperty" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "10"
+                    "struct interface property dispatch returns the impl value"
+            }
+
             // Wall A (rung 3): a project-local class implementing a project-local
             // interface, dispatched through the interface. Existing interface-impl
             // tests all use BCL interfaces; `resolveInterfaceImpls` only recognises an

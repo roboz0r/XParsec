@@ -598,7 +598,10 @@ module internal Layout =
                         |> List.mapi (fun i m ->
                             {
                                 Key = MethodKey.InterfaceMethod(td.Key, i)
-                                Name = m.Name
+                                // An abstract property emits as its `get_<Name>` getter
+                                // slot (matching the impl's getter); a method keeps its
+                                // bare name.
+                                Name = if m.IsProperty then "get_" + m.Name else m.Name
                                 Attrs = abstractMethodAttrs
                             }
                         )

@@ -406,7 +406,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                         Handle = handle
                         IsStatic = false
                         Arity = List.length paramTys
-                        MetaName = m.Name
+                        // The IL method name (a property → its `get_<Name>` getter);
+                        // the use-site table below stays keyed by the bare member name.
+                        MetaName = if m.IsProperty then "get_" + m.Name else m.Name
                         ParamTys = paramTys
                         RetTy = retTy
                         MethodTyparCount = m.MethodTypeParams.Length

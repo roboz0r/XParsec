@@ -187,4 +187,33 @@ let tests =
                     "1\n0"
                     "distinct-but-equal DU pair compares structurally (true), not by reference"
             }
+
+            // `ignore` on a NON-unit value: FSharp.Core `ignore : 'T -> unit` has no
+            // emit recipe, so `expr |> ignore` once crashed codegen with "no call
+            // recipe for external 'ignore'". A saturated application now lowers to the
+            // `let _ = expr` shape (eval + pop + reify unit). The side effect (the
+            // `printfn`) must still run, proving the arg is evaluated, not elided.
+            test "`expr |> ignore` on a non-unit value evaluates the arg and discards it" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let f (x: int) : int ="
+                            "    printfn \"side %d\" x"
+                            "    x + 1"
+                            "f 41 |> ignore"
+                            "ignore (f 7)" // the un-piped form, same head + spine
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "IgnoreNonUnit" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "side 41\nside 7\ndone"
+                    "both ignore forms run the side effect and discard the int result"
+            }
         ]

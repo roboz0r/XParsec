@@ -300,12 +300,12 @@ module NameResolutionMemberRegistration =
                 (NodeKey.ofToken id NodeKind.PatIdent)
             |> ignore
 
-        let registerAbstractMethod idOrOp tds isStatic =
+        let registerAbstractMethod idOrOp tds isStatic kind =
             match identOrOpNameTok ctx idOrOp with
             | ValueSome(mName, mTok) ->
                 // An `abstract` signature is a slot declaration, never an override.
                 let cmi =
-                    addMember mName ClassMemberKind.Method isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent)
+                    addMember mName kind isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent)
                 // The method's own `<'C, …>` typars get prototype TyVars so
                 // Unification scopes the signature against them and Freeze can
                 // surface them as GenericMethodParameters.
@@ -329,8 +329,17 @@ module NameResolutionMemberRegistration =
                 | MethodOrPropDefn.Method(defn = b) -> registerNamed b ClassMemberKind.Method isStatic isOverride
                 | MethodOrPropDefn.Property(defn = b) -> registerNamed b ClassMemberKind.Property isStatic isOverride
                 | MethodOrPropDefn.AutoProperty(ident = id) -> registerAutoProperty id isStatic isOverride
-                | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; typarDefns = tds)) ->
-                    registerAbstractMethod idOrOp tds isStatic
+                | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
+                    ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs))) ->
+                    // An arg-less signature (`abstract member Current : int`, no `->`)
+                    // is an abstract *property*; a curried/arrow signature is a method.
+                    let kind =
+                        if sigArgs.IsEmpty then
+                            ClassMemberKind.Property
+                        else
+                            ClassMemberKind.Method
+
+                    registerAbstractMethod idOrOp tds isStatic kind
                 | MethodOrPropDefn.PropertyWithGetSet _ ->
                     diagnose "Properties with explicit `get`/`set` blocks are not yet supported"
                 | MethodOrPropDefn.AbstractSignature _ ->
