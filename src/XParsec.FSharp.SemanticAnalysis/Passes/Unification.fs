@@ -846,7 +846,12 @@ module Unification =
                 | TyClass(ifaceKey, _) ->
                     match ExternalSymbols.tryLookupType ctx.Provider ifaceKey with
                     | ValueSome(ExternalTypeShape.Class shape) -> shape.IsInterface
-                    | _ -> false
+                    // A project-local interface has no external-provider entry — its
+                    // interface-ness is on the registered `ClassTypeInfo`.
+                    | _ ->
+                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
+                        | ValueSome localInfo -> localInfo.IsInterface
+                        | ValueNone -> false
                 | _ -> false
 
             if isInterface then

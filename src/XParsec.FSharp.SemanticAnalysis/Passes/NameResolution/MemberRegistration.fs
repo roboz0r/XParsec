@@ -530,6 +530,10 @@ module NameResolutionMemberRegistration =
                     // type. A struct is implicitly sealed (no derivation), so the
                     // emitted `TypeAttributes.Sealed` rides `IsValueType` too.
                     info.IsValueType <- classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
+                    // A project-local interface (all-abstract body) — so
+                    // `resolveInterfaceImpls` / the subtype check recognise it without
+                    // an external-provider entry.
+                    info.IsInterface <- TypeDefnPatterns.isInterfaceShape td
                     // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
                     info.IsByRefLike <- classAttrs.IsByRefLike
                     info.InstanceFields <- extractInstanceFields ctx body.elements

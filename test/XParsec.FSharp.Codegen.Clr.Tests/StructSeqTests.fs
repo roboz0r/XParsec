@@ -28,6 +28,32 @@ let structSeqTests =
     testList
         "StructSeq"
         [
+            // Wall A (rung 3): a project-local class implementing a project-local
+            // interface, dispatched through the interface. Existing interface-impl
+            // tests all use BCL interfaces; `resolveInterfaceImpls` only recognises an
+            // interface via the external provider, so a local interface errors with
+            // "Type 'IGetVal' is not an interface".
+            test "project-local class implements a project-local interface and dispatches" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IGetVal ="
+                            "    abstract member GetVal : unit -> int"
+                            "type Holder(n: int) ="
+                            "    interface IGetVal with"
+                            "        member _.GetVal() = n"
+                            "let h = Holder(42)"
+                            "let v = (h :> IGetVal).GetVal()"
+                            "printfn \"%d\" v"
+                        ]
+
+                let _, artifact = compileSource "LocalInterfaceImpl" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "local interface dispatch returns the impl value"
+            }
+
             // Minimal repro of the chained-method-call gap: `this.I.Get()` parses as
             // `App(LongIdent[this; I; Get], ())`. The 3-segment chain isn't recognised
             // as a method call, so `Get` is mis-typed as a property and `()` becomes a

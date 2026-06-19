@@ -165,6 +165,20 @@ module EmitTypes =
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
         }
 
+    /// An interface emitted into this assembly. Only its `Members` matter at use
+    /// sites: a method call on an interface-typed receiver (or, later, a
+    /// `constrained.` call on an interface-constrained typar) resolves the member
+    /// here and `callvirt`s the interface slot (`MethodKey.InterfaceMethod` handle).
+    /// Interfaces have no ctor / fields, so — unlike a class — that's all that's
+    /// carried. `Typars` empty ⇒ monomorphic. Same `Members` shape as
+    /// `EmittedClass`, so `resolveInstanceMember` reuses `pickOverload`.
+    type EmittedInterface =
+        {
+            Name: string
+            Typars: string list
+            Members: Dictionary<string, EmittedMember list>
+        }
+
     /// A named module holder's identity: `(namespace, holderName)` as recorded in
     /// `TastFile.ModuleMembers`. One static holder class per `module Foo = …`.
     type HolderKey = string option * string
@@ -271,6 +285,7 @@ module EmitTypes =
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
+            Interfaces: Dictionary<SymbolKey, EmittedInterface>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
             /// Module-level value bindings → their emitted `public static` field
             /// (`ldsfld`). Shared by every body builder so a module value resolves
@@ -304,6 +319,7 @@ module EmitTypes =
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
+            Interfaces: Dictionary<SymbolKey, EmittedInterface>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
             /// Module-level values (`let x = e` at module scope), lowered to a
             /// `public static` field on their module holder and resolved here by
@@ -336,6 +352,7 @@ module EmitTypes =
                 Unions = ctx.Unions
                 Records = ctx.Records
                 Classes = ctx.Classes
+                Interfaces = ctx.Interfaces
                 StaticMethods = ctx.StaticMethods
                 ModuleValues = ctx.ModuleValues
             }

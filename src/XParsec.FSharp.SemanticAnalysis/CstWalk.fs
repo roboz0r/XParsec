@@ -131,6 +131,31 @@ module TypeDefnPatterns =
         | TypeDefn.Struct _ -> true
         | _ -> false
 
+    /// `true` when the type is an interface: either the explicit `interface … end`
+    /// shape, or the idiomatic all-abstract object-model form
+    /// (`type IFoo = abstract member …` — every element an abstract signature, no
+    /// primary ctor / `inherit` / `let`-preamble). The latter parses as
+    /// `Class`/`Anon`, so `registerClassTypeDefn` consults this to stamp
+    /// `ClassTypeInfo.IsInterface`, mirroring `isStructShape`. Same all-abstract
+    /// predicate `Elaborate.tryInterfaceMethods` uses to project `TTypeKind.Interface`.
+    let isInterfaceShape (td: TypeDefn<'T>) : bool =
+        match td with
+        | TypeDefn.Interface _ -> true
+        | _ ->
+            match tryClassLikeDecl td with
+            | ValueNone -> false
+            | ValueSome d ->
+                d.PrimaryConstr.IsNone
+                && d.Body.inherits.IsNone
+                && d.Body.classPreamble.IsEmpty
+                && not d.Body.elements.IsEmpty
+                && d.Body.elements
+                   |> Seq.forall (fun el ->
+                       match el with
+                       | TypeDefnElement.Member(MemberDefn.Member(defn = MethodOrPropDefn.AbstractSignature _)) -> true
+                       | _ -> false
+                   )
+
     /// Project the `body` field from any object-model `TypeDefn` shape:
     /// `Class | Anon | Struct | Interface`. The four shapes share the same
     /// body type. Returns `ValueNone` for `Record | Union | Abbrev | Enum |

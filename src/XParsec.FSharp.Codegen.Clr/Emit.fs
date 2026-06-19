@@ -23,6 +23,7 @@ module Emit =
     type EmittedUnion = EmitTypes.EmittedUnion
     type EmittedRecord = EmitTypes.EmittedRecord
     type EmittedClass = EmitTypes.EmittedClass
+    type EmittedInterface = EmitTypes.EmittedInterface
     type HolderKey = EmitTypes.HolderKey
     type StaticFn = EmitTypes.StaticFn
     type ModuleValue = EmitTypes.ModuleValue

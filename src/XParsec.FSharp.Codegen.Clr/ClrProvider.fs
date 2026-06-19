@@ -124,7 +124,14 @@ type ClrProvider
         | FTClass(key, args) when args.IsEmpty ->
             match env.ExternalClassRef key with
             | ValueSome tref -> tref
-            | ValueNone -> enc.TypeSpecOf ty
+            | ValueNone ->
+                // A *project-local* interface: its `TypeDef` was registered via
+                // `RegisterUserType`. A non-generic local type reference must be that
+                // `TypeDef`, not a `TypeSpec` (the runtime can't load a `TypeSpec` for
+                // a non-generic type — "Could not load TypeSpec").
+                match env.UserTypes.TryGetValue key with
+                | true, h -> h
+                | false, _ -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
 
     member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder = enc.InvokeSignature(a, b)

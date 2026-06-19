@@ -428,6 +428,13 @@ type ClassTypeInfo
     /// projects it onto `TTypeKind.Class.isStruct` so codegen emits a
     /// `System.ValueType`-based value type. A struct is implicitly sealed.
     member val IsValueType: bool = false with get, set
+    /// A project-local *interface* declaration (`type IFoo = abstract member …` —
+    /// all members abstract, no ctor / fields / inherit / `let`-preamble). Stamped
+    /// by `registerClassTypeDefn` from the syntactic shape so the inference pass
+    /// (`resolveInterfaceImpls`) and the subtype check recognise a local interface
+    /// the external provider knows nothing about; mirrors how a referenced
+    /// interface is recognised via `ExternalTypeShape.Class.IsInterface`.
+    member val IsInterface: bool = false with get, set
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type. Stamped by
     /// `registerClassTypeDefn` (implies `IsValueType`); `Freeze` projects it onto
     /// `TTypeKind.Class.isByRefLike` so codegen stamps

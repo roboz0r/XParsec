@@ -166,7 +166,29 @@ module EmitResolve =
                         m.Handle,
                     m
                 | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
-            | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
+            | false, _ ->
+                // An interface-typed receiver (`(x :> IFace).M()` — or, later, an
+                // interface-constrained typar): resolve the abstract slot and let
+                // `emitInstanceMember` `callvirt` it (interface ⇒ not a value type, so
+                // it takes the `Callvirt` arm). Same member-table shape as a class.
+                match env.Interfaces.TryGetValue key with
+                | true, iface ->
+                    match iface.Members.TryGetValue name with
+                    | true, candidates ->
+                        let m = pickOverload name candidates argTys
+
+                        memberRef
+                            env
+                            iface.Typars
+                            key
+                            tyArgs
+                            (UserMemberKind.ClassMember(
+                                ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                            ))
+                            m.Handle,
+                        m
+                    | false, _ -> failwithf "Emit: interface '%A' has no emitted member '%s'" key name
+                | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
 
     /// Member handle for an instance access on an *external* (referenced-package)
     /// type. A union/record receiver carries its instantiation in its own type

@@ -205,6 +205,9 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
     let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
     let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
+    // Filled by `PrepareInterfaces` (shared by reference with `emitCtx`), so a call
+    // on an interface-typed receiver resolves its slot through `resolveInstanceMember`.
+    let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
 
     // A static fn's call sites resolve through its layout-derived `MethodDef`
     // handle; recursion and cross-calls need no emission-order discipline.
@@ -255,6 +258,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             Unions = unions
             Records = records
             Classes = classes
+            Interfaces = interfaces
             StaticMethods = staticMethods
             ModuleValues = moduleValueFields
             MainInitValues = mainInitValues
@@ -373,12 +377,37 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     member this.PrepareInterfaces() =
         for (td, methods) in interfaceDecls do
+            // The use-site member table for a call on an interface-typed receiver:
+            // each method's `MethodKey.InterfaceMethod` handle keyed by source name, so
+            // `resolveInstanceMember` finds the slot and `buildMethodCall` `callvirt`s
+            // it. Same `EmittedMember` shape as a class member (overload list).
+            let memberTable = Dictionary<string, Emit.EmittedMember list>()
+
             methods
             |> List.iteri (fun i m ->
                 // The post-elision arity (a nullary `unit ->` member drops its sole
                 // param) must match `abstractMethodSignature`'s, or the `Param` rows
                 // and the signature disagree and the method becomes un-reflectable.
                 let paramTys = abstractMethodParamTys m
+                let _, retTy = decurry m.Signature
+
+                let handle = toEntity (this.MethodDef(MethodKey.InterfaceMethod(td.Key, i)))
+
+                let em: Emit.EmittedMember =
+                    {
+                        Handle = handle
+                        IsStatic = false
+                        Arity = List.length paramTys
+                        MetaName = m.Name
+                        ParamTys = paramTys
+                        RetTy = retTy
+                        MethodTyparCount = m.MethodTypeParams.Length
+                    }
+
+                memberTable.[m.Name] <-
+                    match memberTable.TryGetValue m.Name with
+                    | true, existing -> existing @ [ em ]
+                    | false, _ -> [ em ]
 
                 this.AddPrepared(
                     MethodKey.InterfaceMethod(td.Key, i),
@@ -392,6 +421,13 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     }
                 )
             )
+
+            interfaces.[td.Key] <-
+                {
+                    Name = td.Name
+                    Typars = EqArray.toList td.TypeParams
+                    Members = memberTable
+                }
 
     // A *generic* closure enters closure-typar mode around every signature/body
     // build, so the body's `FTTypar(Method, i)` (the enclosing method's typars)
