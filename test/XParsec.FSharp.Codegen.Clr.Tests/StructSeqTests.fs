@@ -28,6 +28,70 @@ let structSeqTests =
     testList
         "StructSeq"
         [
+            // Rung 4 (struct closures) — the dispatch half. The perf-mature shape of a
+            // value-type closure dispatched non-allocating is a `[<Struct>]`
+            // implementing the source-nameable `Vesper.Fun<'A,'B>` interface
+            // (`prim-types-min.fsi`), applied through a combinator generic over
+            // `'TF :> Fun<int,int>` calling `.Invoke` — which should lower to
+            // `constrained. !TF callvirt Vesper.Fun::Invoke`, the rung-3 machinery
+            // addressing the struct by `ldloca` with NO box.
+            //
+            // PENDING — blocked on a three-layer EXTERNAL-interface constrained-dispatch
+            // gap (rung 3 deferred this; `InferRecordAccess.tryTyparInterfaceMember`
+            // explicitly only handles a *project-local* interface coercion, and an
+            // "external interface coercion ... fall[s] through to the existing path").
+            // With `Vesper.Fun` external, `f.Invoke x` mis-resolves as a record FIELD
+            // get, so codegen crashes: "Emit: class '…Add1' has no field 'Invoke'"
+            // (EmitMember.buildFieldGet → EmitResolve.resolveRecordField). Closing it
+            // needs, in lockstep:
+            //   1. front-end (`tryTyparInterfaceMember`): an external-interface branch
+            //      that looks the member up via `ctx.Provider.TryLookupMember` on the
+            //      external interface key and records `TyparInterfaceCall`;
+            //   2. Freeze (`mkInterfaceMethodCall` / `memberParamTys`): build the
+            //      `CallVia.Interface` member key + obj-arg param model from the
+            //      EXTERNAL interface instead of the local type registry;
+            //   3. codegen (`EmitMember.emitConstrainedInterfaceCall`): mint the
+            //      `constrained. callvirt` slot on the external interface's `TypeSpec`
+            //      MemberRef (today it `failwith`s on an interface not in the LOCAL
+            //      `env.Interfaces` registry).
+            // Flip to `ftest` and assert the `constrained.`-present / `box`-absent IL
+            // once that lands.
+            ptest
+                "a struct closure implementing Vesper.Fun dispatches via constrained callvirt with no box (rung 4 target shape)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type Add1 ="
+                            "    val N : int"
+                            "    new(n: int) = { N = n }"
+                            "    interface Fun<int, int> with"
+                            "        member this.Invoke(x: int) : int = x + this.N"
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "printfn \"%d\" (apply (Add1 1) 41)"
+                        ]
+
+                let _, artifact = compileSource "StructClosureFunDispatch" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "struct Fun dispatch returns Invoke result"
+
+                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "apply IL contains a `constrained.` prefix (typar Fun dispatch)"
+
+                Expect.isFalse
+                    (Array.contains 0x8Cuy il)
+                    "apply IL contains no `box` (non-allocating struct Fun dispatch)"
+            }
+
             // Wall B+C (rung 3): a member call on a value whose type is a generic
             // typar constrained to a project-local interface (`'T :> IGetVal`).
             // The receiver is a bare TyVar carrying a `Coercion` constraint; Wall B
