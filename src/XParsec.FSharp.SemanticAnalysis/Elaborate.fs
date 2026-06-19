@@ -245,6 +245,25 @@ module Elaborate =
             | TyTypar _ -> ()
 
         go declTy
+
+        // Dependent typars (mirrors `InferGeneralize.generalise`): a collected typar's
+        // `Coercion` bound may name further typars absent from the declared (curried)
+        // type — `let f (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator>)`
+        // has `'E` in no parameter/return position. F# generalises these phantom
+        // parameters too, so they are genuine method typars; fold each collected
+        // typar's `Coercion` targets in to a fixpoint (a bound may itself reference a
+        // typar with bounds), `ResizeArray` growth driving the worklist. Without this a
+        // constrained `for … in` over `'S` leaks `'E` as `?ungrounded` at the freeze cut.
+        let mutable depIdx = 0
+
+        while depIdx < acc.Count do
+            for c in acc.[depIdx].Constraints do
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target -> go (Unification.zonk target)
+                | _ -> ()
+
+            depIdx <- depIdx + 1
+
         [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(TyparAxis.Method, i) ]
 
     /// Did the generaliser quantify this binding into a (non-empty) scheme? A

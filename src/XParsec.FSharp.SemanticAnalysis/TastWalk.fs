@@ -180,6 +180,31 @@ module TastWalk =
         | CallVia.Self -> CallVia.Self
         | CallVia.Base -> CallVia.Base
 
+    /// Map the `'ty` payloads of a `for … in` enumerator descriptor — the enumerator
+    /// type and (rung-3 constrained-typar source) the seq/enumerator interface
+    /// instantiation args. Mirrors `TastConvert.forInEnumerator`, duplicated here
+    /// because `TastWalk` precedes `TastConvert` in compile order (the same posture as
+    /// `mapVia`). The `SymbolKey` payloads carry no `'ty`, so they pass through.
+    let mapForInEnumerator (f: SemType -> SemType) (en: ForInEnumerator) : ForInEnumerator =
+        let mapGetEnum ge =
+            match ge with
+            | ForInGetEnumG.External k -> ForInGetEnumG.External k
+            | ForInGetEnumG.Local -> ForInGetEnumG.Local
+            | ForInGetEnumG.ConstrainedInterface(iface, args) ->
+                ForInGetEnumG.ConstrainedInterface(iface, EqArray.map f args)
+
+        let mapMembers mem =
+            match mem with
+            | ForInEnumMembersG.External(mn, cur) -> ForInEnumMembersG.External(mn, cur)
+            | ForInEnumMembersG.Local -> ForInEnumMembersG.Local
+            | ForInEnumMembersG.ConstrainedInterface(iface, args) ->
+                ForInEnumMembersG.ConstrainedInterface(iface, EqArray.map f args)
+
+        match en with
+        | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
+        | ForInEnumeratorG.Pattern(enumTy, ge, mem, isVal, disp) ->
+            ForInEnumeratorG.Pattern(f enumTy, mapGetEnum ge, mapMembers mem, isVal, disp)
+
     let rec mapPat (m: Mapper) (p: TPat) : TPat =
         match m.OverridePat m p with
         | ValueSome p' -> p'
@@ -227,7 +252,13 @@ module TastWalk =
             // it — passes that rename binders (`Inline.freshen`) must override
             // `ForTo` at the expr level.
             | TExpr.ForTo(k, s, e2, b, ty, tok) -> TExpr.ForTo(k, pe s, pe e2, pe b, f ty, tok)
-            | TExpr.ForIn(p, src, b, en, ty, tok) -> TExpr.ForIn(pp p, pe src, pe b, en, f ty, tok)
+            // The enumerator descriptor carries `'ty` payloads — the enumerator type
+            // and, for a rung-3 constrained-typar source, the seq/enumerator interface
+            // instantiation args. They reference the enclosing function's typars, so a
+            // declaring-typar remap (`freezeTypars`) must reach them too (the same
+            // `mapVia` precedent for `CallVia.Interface`), else they leak as un-ground
+            // `TyVar`s → `?ungrounded-operator` at the freeze cut.
+            | TExpr.ForIn(p, src, b, en, ty, tok) -> TExpr.ForIn(pp p, pe src, pe b, mapForInEnumerator f en, f ty, tok)
             | TExpr.Match(sc, arms, ty, tok) -> TExpr.Match(pe sc, EqArray.map pa arms, f ty, tok)
             | TExpr.TryWith(b, arms, ty, tok) -> TExpr.TryWith(pe b, EqArray.map pa arms, f ty, tok)
             | TExpr.TryFinally(b, c, ty, tok) -> TExpr.TryFinally(pe b, pe c, f ty, tok)

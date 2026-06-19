@@ -305,11 +305,29 @@ module internal UnificationInferGeneralize =
         let quantified = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
 
-        zonkedTy
-        |> iterTypeVarRoots (fun root ->
+        let addRoot (root: TypeVar) =
             if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
                 quantified.Add(root)
-        )
+
+        zonkedTy |> iterTypeVarRoots addRoot
+
+        // Dependent typars: a quantified typar's `Coercion` bound may name *further*
+        // typars that appear ONLY in constraints, never in the binding type itself
+        // (`let f (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator>)` — `'E`
+        // is in no parameter/return position). F# generalises these phantom parameters
+        // too; without them they leak as un-ground `TyVar`s → `?ungrounded-operator` at
+        // the freeze cut (a constrained `for … in` over `'S`). Walk each quantified
+        // typar's `Coercion` targets to a fixpoint (a bound may itself reference a typar
+        // with its own bounds), `ResizeArray` growth driving the worklist.
+        let mutable i = 0
+
+        while i < quantified.Count do
+            for c in quantified.[i].Constraints do
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target -> iterTypeVarRoots addRoot (zonk target)
+                | _ -> ()
+
+            i <- i + 1
 
         // `instantiate` swaps these onto fresh substitutions per use site
         // so satisfaction is re-evaluated independently.

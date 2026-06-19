@@ -57,7 +57,7 @@ type ModuleMemberInfo =
 /// one of the two independent axes of a duck-typed walk (the other is
 /// `ForInEnumMembers`).
 [<RequireQualifiedAccess>]
-type ForInGetEnum =
+type ForInGetEnumG<'ty> =
     /// The source is *external* (a BCL type): codegen mints `GetEnumerator` via
     /// `ExternalMemberRef` from this provider-interned key (its `unit → E` return
     /// recovers the source instantiation).
@@ -66,13 +66,20 @@ type ForInGetEnum =
     /// through `EmitResolve.resolveInstanceMember` against the source expression's
     /// type — no key needed.
     | Local
+    /// Rung-3: the source is a *generic typar* (or a value whose only enumerable
+    /// surface is a custom interface) constrained to a project-local seq interface
+    /// `iface<ifaceArgs>` declaring `GetEnumerator(): E`. Codegen addresses the
+    /// source receiver and emits `constrained. <Source> callvirt iface::GetEnumerator`,
+    /// so a struct source dispatches by address (no box) and a class source by
+    /// reference. The slot is resolved off the `EmittedInterface` registry by name.
+    | ConstrainedInterface of iface: SymbolKey * ifaceArgs: EqArray<'ty>
 
 /// How codegen resolves the `MoveNext` / `Current` handles of a `Pattern`
 /// enumerator `E` — the second independent axis of a duck-typed walk. The element
 /// type comes from the loop pattern, so only the external dispatch keys (when `E`
 /// is external) are carried.
 [<RequireQualifiedAccess>]
-type ForInEnumMembers =
+type ForInEnumMembersG<'ty> =
     /// `E` is *external* (a BCL `List<'T>.Enumerator`): codegen mints both members
     /// via `ExternalMemberRefOn` against `EnumeratorTy`'s instantiation (a T-free
     /// `MoveNext(): bool` can't recover the declaring type, so it must be supplied).
@@ -80,6 +87,12 @@ type ForInEnumMembers =
     /// `E` is a *project-local* `TypeDef`: codegen resolves both members through
     /// `EmitResolve.resolveInstanceMember` against `EnumeratorTy`.
     | Local
+    /// Rung-3: `E` is itself a *generic typar* constrained to an enumerator interface
+    /// `iface<ifaceArgs>` declaring `MoveNext(): bool` and a `Current` property.
+    /// Codegen emits `constrained. <E> callvirt iface::MoveNext / iface::get_Current`,
+    /// dispatching a struct enumerator typar by address (no box). The slots are
+    /// resolved off the `EmittedInterface` registry by name.
+    | ConstrainedInterface of iface: SymbolKey * ifaceArgs: EqArray<'ty>
 
 [<RequireQualifiedAccess>]
 type ForInEnumeratorG<'ty> =
@@ -107,12 +120,14 @@ type ForInEnumeratorG<'ty> =
     /// is carried), else the `finally` is elided (C# parity).
     | Pattern of
         enumeratorTy: 'ty *
-        getEnumerator: ForInGetEnum *
-        members: ForInEnumMembers *
+        getEnumerator: ForInGetEnumG<'ty> *
+        members: ForInEnumMembersG<'ty> *
         isValueType: bool *
         dispose: bool
 
-/// The `SemType`-domain `ForInEnumerator` (inference + `SideTables.ForInShape` +
-/// the pre-freeze `TExpr.ForIn`). The frozen alias lives in `Tast.fs`'s `Frozen`
-/// module; `Freeze` maps `enumeratorTy` through `toFrozen` via `TastConvert`.
+/// The `SemType`-domain axes + `ForInEnumerator` (inference + `SideTables.ForInShape`
+/// + the pre-freeze `TExpr.ForIn`). The frozen aliases live in `Tast.fs`'s `Frozen`
+/// module; `Freeze` maps the `'ty` payloads through `toFrozen` via `TastConvert`.
+type ForInGetEnum = ForInGetEnumG<SemType>
+type ForInEnumMembers = ForInEnumMembersG<SemType>
 type ForInEnumerator = ForInEnumeratorG<SemType>

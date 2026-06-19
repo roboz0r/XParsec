@@ -41,13 +41,27 @@ module TastConvert =
             Tok = h.Tok
         }
 
+    let forInGetEnum (f: 'a -> 'b) (ge: ForInGetEnumG<'a>) : ForInGetEnumG<'b> =
+        match ge with
+        | ForInGetEnumG.External k -> ForInGetEnumG.External k
+        | ForInGetEnumG.Local -> ForInGetEnumG.Local
+        | ForInGetEnumG.ConstrainedInterface(iface, args) ->
+            ForInGetEnumG.ConstrainedInterface(iface, EqArray.map f args)
+
+    let forInEnumMembers (f: 'a -> 'b) (m: ForInEnumMembersG<'a>) : ForInEnumMembersG<'b> =
+        match m with
+        | ForInEnumMembersG.External(mn, cur) -> ForInEnumMembersG.External(mn, cur)
+        | ForInEnumMembersG.Local -> ForInEnumMembersG.Local
+        | ForInEnumMembersG.ConstrainedInterface(iface, args) ->
+            ForInEnumMembersG.ConstrainedInterface(iface, EqArray.map f args)
+
     let forInEnumerator (f: 'a -> 'b) (en: ForInEnumeratorG<'a>) : ForInEnumeratorG<'b> =
         match en with
         | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
-        // `getEnumerator` / `members` carry only `SymbolKey`s (no `'ty`), so only the
-        // enumerator type is remapped through `f`.
+        // Both axes now carry an interface instantiation for the constrained-typar
+        // case, so they are remapped through `f` alongside the enumerator type.
         | ForInEnumeratorG.Pattern(enumTy, ge, members, isVal, disp) ->
-            ForInEnumeratorG.Pattern(f enumTy, ge, members, isVal, disp)
+            ForInEnumeratorG.Pattern(f enumTy, forInGetEnum f ge, forInEnumMembers f members, isVal, disp)
 
     let rec expr (f: 'a -> 'b) (e: TExprG<'a, 'tok>) : TExprG<'b, 'tok> =
         let pe = expr f

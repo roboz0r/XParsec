@@ -1287,6 +1287,35 @@ module UnificationEngine =
             let mutable remaining = []
 
             for c in cs do
+                // Dependent-typar inference: a `Coercion` bound `'a :> IFace<'b>` whose
+                // target carries free vars (`'b`) — once `'a` grounds to a nominal that
+                // implements `IFace`, pin `'b` to the witnessed instantiation's args (the
+                // same witness-unify `tryCoerceUpcast` performs at `:>` sites). This is
+                // what lets a phantom typar reachable ONLY through the bound — `Seq.fold`'s
+                // enumerator `'E` in `'S :> IStructSeq<'E>` — ground from the argument's
+                // interface impl instead of leaking as an un-instantiated method typar at
+                // the call's `MethodSpec`. Concrete / non-generic bounds (`'T :> IGetVal`,
+                // `'e :> exn`) have no free-var args, so this is a no-op for them.
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target ->
+                    match subtypeNominalOf ctx (zonk target) with
+                    | ValueSome(struct (tname, targs)) when
+                        targs.Length > 0
+                        && targs
+                           |> EqArray.exists (fun a ->
+                               match resolveStep a with
+                               | TyVar _ -> true
+                               | _ -> false
+                           )
+                        ->
+                        match tryUpcastWitness ctx linkTarget tname with
+                        | ValueSome wargs when wargs.Length = targs.Length ->
+                            for i in 0 .. targs.Length - 1 do
+                                unify ctx key wargs.[i] targs.[i]
+                        | _ -> ()
+                    | _ -> ()
+                | _ -> ()
+
                 match checkConstraint ctx c linkTarget with
                 | Satisfied -> ()
                 | Violated ->

@@ -344,6 +344,148 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "local-headed chained method call works"
             }
 
+            // Rung-3 payoff, for-in step 1: `for y in s` over a GENERIC typar source
+            // (`'S :> ISeq`) whose `GetEnumerator` is reached through a project-local
+            // *custom* (non-`IEnumerable`) interface. The source receiver is a typar, so
+            // `GetEnumerator` must dispatch via `constrained. !S callvirt ISeq::GetEnumerator`.
+            // The enumerator `E` is here a CONCRETE struct exposing public pattern
+            // `MoveNext`/`Current`, so the loop body stays the existing by-address struct
+            // walk — isolating the new for-in-over-typar-source dispatch.
+            test "for-in over a generic typar source via a custom interface (concrete enumerator)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Idx <- this.Idx + 1"
+                            "        this.Idx < this.Arr.Length"
+                            "    member this.Current : int = this.Arr.[this.Idx]"
+                            "type ISeq ="
+                            "    abstract member GetEnumerator : unit -> ArrayEnumerator"
+                            "[<Struct>]"
+                            "type ArraySeq ="
+                            "    val Arr : int[]"
+                            "    new(arr: int[]) = { Arr = arr }"
+                            "    interface ISeq with"
+                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
+                            "let sumSeq (s: 'S when 'S :> ISeq) : int ="
+                            "    let mutable total = 0"
+                            "    for y in s do"
+                            "        total <- total + y"
+                            "    total"
+                            "printfn \"%d\" (sumSeq (ArraySeq([| 1; 2; 3 |])))"
+                        ]
+
+                let _, artifact = compileSource "TyparSeqSource" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "6"
+                    "for-in over a typar seq source sums via constrained dispatch"
+            }
+
+            // Rung-3 payoff, for-in step 2a: `for y in s` over a generic typar source
+            // whose seq interface is GENERIC instantiated at a CONCRETE enumerator
+            // (`'S :> IStructSeq<ArrayEnumerator>`). `GetEnumerator` dispatches via
+            // `constrained. !S callvirt IStructSeq`1<ArrayEnumerator>::GetEnumerator` —
+            // the slot minted on the instantiated interface `TypeSpec`. The enumerator
+            // is concrete so its members stay the by-address struct walk.
+            test "for-in over a generic typar source via a generic interface (concrete enumerator)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Idx <- this.Idx + 1"
+                            "        this.Idx < this.Arr.Length"
+                            "    member this.Current : int = this.Arr.[this.Idx]"
+                            "type IStructSeq<'E> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArraySeq ="
+                            "    val Arr : int[]"
+                            "    new(arr: int[]) = { Arr = arr }"
+                            "    interface IStructSeq<ArrayEnumerator> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
+                            "let sumSeq (s: 'S when 'S :> IStructSeq<ArrayEnumerator>) : int ="
+                            "    let mutable total = 0"
+                            "    for y in s do"
+                            "        total <- total + y"
+                            "    total"
+                            "printfn \"%d\" (sumSeq (ArraySeq([| 1; 2; 3 |])))"
+                        ]
+
+                let _, artifact = compileSource "GenericIfaceTyparSeqSource" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "6"
+                    "for-in over a typar source via a generic seq interface sums"
+            }
+
+            // Rung-3 payoff, for-in step 2b (the §2 north-star): a fully generic
+            // `sumSeq` over ANY struct sequence — both the seq interface arg `'E` and
+            // the enumerator are typars (`'S :> IStructSeq<'E> and 'E :> IStructEnumerator`).
+            // `GetEnumerator` and the enumerator's `MoveNext`/`Current` ALL dispatch via
+            // `constrained. callvirt`, with `'E` inferred from `ArraySeq`'s interface impl.
+            test "for-in over a fully generic struct seq source (north-star)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : int"
+                            "type IStructSeq<'E when 'E :> IStructEnumerator> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : int = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq ="
+                            "    val Arr : int[]"
+                            "    new(arr: int[]) = { Arr = arr }"
+                            "    interface IStructSeq<ArrayEnumerator> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
+                            "let sumSeq (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator) : int ="
+                            "    let mutable total = 0"
+                            "    for y in s do"
+                            "        total <- total + y"
+                            "    total"
+                            "printfn \"%d\" (sumSeq (ArraySeq([| 1; 2; 3 |])))"
+                        ]
+
+                let _, artifact = compileSource "FullyGenericStructSeq" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "6"
+                    "fully generic struct seq sums via constrained dispatch"
+            }
+
             // Rung 2 target: a concrete `[<Struct>] MapSeq` holding a concrete
             // `[<Struct>] ArraySeq` field + a reference-type closure, walked by
             // `for y in s` — the value-type-source (rung 1) + chained struct-field

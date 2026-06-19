@@ -39,7 +39,49 @@ module EmitLoops =
             // method (`Pattern` arm). Only consulted for a *value-type* source, where
             // it selects `constrained. <Source> callvirt` over a by-address `call`.
             GetEnumeratorViaInterface: bool
+            // Rung-3: the source is a *generic typar* (or a value reached only through
+            // a custom seq interface) — `GetEnumerator` dispatches via
+            // `constrained. <Source> callvirt iface::GetEnumerator`, so the source
+            // receiver is addressed (`ldloca`) regardless of `EmitPattern.isValueType`
+            // (an `FTTypar` is not statically a value type).
+            GetEnumViaConstrained: bool
+            // Rung-3: the enumerator `E` is itself a *generic typar* — its `MoveNext` /
+            // `Current` dispatch via `constrained. <E> callvirt iface::…`, addressing
+            // the enumerator slot and dispatching virtually for both struct and class.
+            MembersViaConstrained: bool
         }
+
+    /// Mint an interface method-slot handle for a `constrained. callvirt` for-in
+    /// dispatch (rung-3): look the abstract slot up by name in the `EmittedInterface`
+    /// registry (Wall A's `env.Interfaces`) and route a *generic* interface through
+    /// `EmitResolve.memberRef` so the slot lands on the instantiated interface
+    /// `TypeSpec` (`IStructSeq`1<!E>`). A non-generic interface (empty `Typars`) uses
+    /// the slot's `Def` handle directly. Mirrors `EmitMember`'s `CallVia.Interface`
+    /// slot resolution; for-in members (`GetEnumerator`/`MoveNext`/`Current`) take no
+    /// arguments, so overload picking sees an empty arg-type list.
+    let private constrainedSlot
+        (env: EmitEnv)
+        (ifaceKey: SymbolKey)
+        (ifaceArgs: EqArray<FrozenType>)
+        (memberName: string)
+        : EntityHandle =
+        let iface =
+            match env.Interfaces.TryGetValue ifaceKey with
+            | true, i -> i
+            | false, _ -> failwithf "EmitLoops: constrained for-in on unregistered interface '%A'" ifaceKey
+
+        let m =
+            match iface.Members.TryGetValue memberName with
+            | true, candidates -> pickOverload memberName candidates []
+            | false, _ -> failwithf "EmitLoops: interface '%A' has no emitted member '%s'" ifaceKey memberName
+
+        EmitResolve.memberRef
+            env
+            iface.Typars
+            ifaceKey
+            (EqArray.toList ifaceArgs)
+            (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+            m.Handle
 
     /// The `System.IDisposable::Dispose` handle — disposal for *every* `for … in`
     /// arm goes through the interface slot (a `callvirt`, or `constrained. callvirt`
@@ -129,15 +171,22 @@ module EmitLoops =
         // struct by address (`ldloca`, for the by-address `call`), a reference by
         // value (`ldloc`, for the `callvirt`).
         let loadEnumReceiver () =
-            if loop.IsValueType then
+            // A struct (or a constrained typar, rung-3) is dispatched by address; a
+            // reference enumerator by value.
+            if loop.IsValueType || loop.MembersViaConstrained then
                 b.Add(ILInstr.Ldloca enumSlot)
             else
                 b.Add(ILInstr.Ldloc enumSlot)
 
-        // Dispatch a member declared on `E` itself (`MoveNext` / `Current`): a direct
-        // `call` for a struct (concrete type known), a `callvirt` for a reference.
+        // Dispatch a member declared on `E` (`MoveNext` / `Current`): a direct `call`
+        // for a concrete struct (type known), a plain `callvirt` for a reference, and
+        // `constrained. <E> callvirt` when `E` is a generic typar (rung-3) — the JIT
+        // dispatches a struct typar by address (no box) and a class typar by reference.
         let callEnumMember (handle: EntityHandle) =
-            if loop.IsValueType then
+            if loop.MembersViaConstrained then
+                b.Add(ILInstr.Constrained(env.Provider.TypeToken loop.EnumeratorTy))
+                b.Add(ILInstr.Callvirt(handle, 1, 1))
+            elif loop.IsValueType then
                 b.Add(ILInstr.Call(handle, 1, 1))
             else
                 b.Add(ILInstr.Callvirt(handle, 1, 1))
@@ -151,7 +200,10 @@ module EmitLoops =
         // `IEnumerable<'T>` slot — a `constrained. <Source> callvirt` (`Interface` arm).
         let sourceTy = typeOfExpr source
 
-        if EmitPattern.isValueType env sourceTy then
+        // The source receiver is addressed (`ldloca`) when it is a value-type
+        // collection OR a rung-3 constrained-typar source (an `FTTypar` is not
+        // statically a value type, but `constrained. callvirt` needs its address).
+        if EmitPattern.isValueType env sourceTy || loop.GetEnumViaConstrained then
             recur env b source
             let srcSlot = b.Local sourceTy
             b.Add(ILInstr.Stloc srcSlot)
@@ -259,22 +311,41 @@ module EmitLoops =
                 // slot is absent from `E`'s member table).
                 let geHandle =
                     match getEnum with
-                    | ForInGetEnum.External geKey ->
+                    | ForInGetEnumG.External geKey ->
                         env.Provider.ExternalMemberRef(
                             geKey,
                             false,
                             false,
                             FTFun(FTConst("unit", EqArray.empty), enumeratorTy)
                         )
-                    | ForInGetEnum.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
+                    | ForInGetEnumG.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
+                    // Rung-3: a generic-typar source — `GetEnumerator` is the custom
+                    // seq interface's abstract slot, dispatched `constrained. callvirt`.
+                    | ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
+                        constrainedSlot env ifaceKey ifaceArgs "GetEnumerator"
 
                 let mnHandle, curHandle =
                     match members with
-                    | ForInEnumMembers.External(mnKey, curKey) ->
+                    | ForInEnumMembersG.External(mnKey, curKey) ->
                         externalEnumMembers env enumeratorTy mnKey curKey elemTy
-                    | ForInEnumMembers.Local ->
+                    | ForInEnumMembersG.Local ->
                         fst (resolveInstanceMember env enumeratorTy "MoveNext" []),
                         fst (resolveInstanceMember env enumeratorTy "Current" [])
+                    // Rung-3: a generic-typar enumerator `E` — `MoveNext` / `Current`
+                    // are the enumerator interface's abstract slots.
+                    | ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
+                        constrainedSlot env ifaceKey ifaceArgs "MoveNext",
+                        constrainedSlot env ifaceKey ifaceArgs "Current"
+
+                let getEnumViaConstrained =
+                    match getEnum with
+                    | ForInGetEnumG.ConstrainedInterface _ -> true
+                    | _ -> false
+
+                let membersViaConstrained =
+                    match members with
+                    | ForInEnumMembersG.ConstrainedInterface _ -> true
+                    | _ -> false
 
                 emitEnumeratorLoop
                     recur
@@ -288,7 +359,11 @@ module EmitLoops =
                         Current = curHandle
                         IsValueType = isValueType
                         Disposable = dispose
-                        GetEnumeratorViaInterface = false
+                        // A constrained `GetEnumerator` is dispatched `constrained.
+                        // callvirt` on the addressed source receiver.
+                        GetEnumeratorViaInterface = getEnumViaConstrained
+                        GetEnumViaConstrained = getEnumViaConstrained
+                        MembersViaConstrained = membersViaConstrained
                     }
                     pat
                     source
@@ -375,6 +450,8 @@ module EmitLoops =
                         IsValueType = false
                         Disposable = true
                         GetEnumeratorViaInterface = true
+                        GetEnumViaConstrained = false
+                        MembersViaConstrained = false
                     }
                     pat
                     source

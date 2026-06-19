@@ -459,6 +459,117 @@ module internal UnificationInferControlFlow =
             | None -> ValueNone
         | ValueNone -> ValueNone
 
+    /// Rung-3: resolve the enumerator `E` returned by a constrained `GetEnumerator`
+    /// into the loop element type + the `ForInEnumMembers` axis + value-type-ness +
+    /// disposability. `E` is either a *concrete* project-local enumerator (struct or
+    /// class) exposing public pattern `MoveNext`/`Current` — the existing local walk —
+    /// or *itself a typar* constrained to an enumerator interface, in which case its
+    /// members dispatch via `constrained. <E> callvirt` too.
+    and tryConstrainedEnumeratorMembers
+        (ctx: PassContext)
+        (enumTy: SemType)
+        : (SemType * ForInEnumMembers * bool * bool) voption =
+        match zonk enumTy with
+        | TyClass(enumKey, enumArgs) ->
+            match TypeRegistry.tryClassByKey ctx.Types enumKey with
+            | ValueSome enumInfo ->
+                probeLocalEnumerator enumInfo enumArgs
+                |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
+                    elemTy, ForInEnumMembersG.Local, isValueType, dispose
+                )
+            // An *external* enumerator returned by a constrained source is not yet
+            // reachable in practice (a project-local seq interface hands back a
+            // project-local `E`); defer rather than guess.
+            | ValueNone -> ValueNone
+        | TyVar etv -> tryConstrainedTyparEnumerator ctx etv
+        | _ -> ValueNone
+
+    /// `E` is itself a generic typar constrained to an enumerator interface
+    /// (`'E :> IStructEnumerator`). Scan its `Coercion` constraints for an interface
+    /// declaring `MoveNext(): bool` and a `Current` property; on a hit the members
+    /// dispatch via `constrained. <E> callvirt`. The element type is `Current`'s type.
+    and tryConstrainedTyparEnumerator
+        (ctx: PassContext)
+        (tv: TypeVar)
+        : (SemType * ForInEnumMembers * bool * bool) voption =
+        let rec scan (cs: SemanticConstraint list) =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target ->
+                    match resolveStep target with
+                    | TyClass(ifaceKey, ifaceArgs) ->
+                        let ifaceName = SymbolKeyOps.simpleName ifaceKey
+
+                        match TypeRegistry.tryClass ctx.Types ifaceName with
+                        | ValueSome info when info.IsInterface ->
+                            match
+                                tryClassChainMember ctx ifaceName ifaceArgs "MoveNext",
+                                tryClassChainMember ctx ifaceName ifaceArgs "Current"
+                            with
+                            | ValueSome mnTy, ValueSome curTy ->
+                                match zonk mnTy with
+                                | TyFun(_, TyConst("bool", _)) ->
+                                    // `Current` is a property — its type IS the element type.
+                                    ValueSome(
+                                        zonk curTy,
+                                        ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs),
+                                        false,
+                                        false
+                                    )
+                                | _ -> scan rest
+                            | _ -> scan rest
+                        | _ -> scan rest
+                    | _ -> scan rest
+                | _ -> scan rest
+
+        scan tv.Constraints
+
+    /// Rung-3: resolve `for x in s` where the source `s` is a *generic typar*
+    /// constrained to a project-local seq interface (`'S :> ISeq` / `'S :> IStructSeq<'E>`)
+    /// declaring a `GetEnumerator(): E`. Scans the typar's `Coercion` constraints
+    /// (Wall B's machinery) for such an interface, resolves the enumerator `E`'s walk
+    /// members, and produces a `Pattern` descriptor whose `GetEnumerator` (and, when
+    /// `E` is itself a typar, `MoveNext`/`Current`) dispatch via `constrained. callvirt`.
+    and tryTyparSeqSource (ctx: PassContext) (tv: TypeVar) : (SemType * ForInEnumerator) voption =
+        let rec scan (cs: SemanticConstraint list) =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target ->
+                    match resolveStep target with
+                    | TyClass(ifaceKey, ifaceArgs) ->
+                        let ifaceName = SymbolKeyOps.simpleName ifaceKey
+
+                        match TypeRegistry.tryClass ctx.Types ifaceName with
+                        | ValueSome info when info.IsInterface ->
+                            match tryClassChainMember ctx ifaceName ifaceArgs "GetEnumerator" with
+                            | ValueSome mty ->
+                                match zonk mty with
+                                | TyFun(_, enumTy) ->
+                                    match tryConstrainedEnumeratorMembers ctx enumTy with
+                                    | ValueSome(elemTy, members, isValueType, dispose) ->
+                                        ValueSome(
+                                            elemTy,
+                                            ForInEnumeratorG.Pattern(
+                                                enumTy,
+                                                ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs),
+                                                members,
+                                                isValueType,
+                                                dispose
+                                            )
+                                        )
+                                    | ValueNone -> scan rest
+                                | _ -> scan rest
+                            | ValueNone -> scan rest
+                        | _ -> scan rest
+                    | _ -> scan rest
+                | _ -> scan rest
+
+        scan tv.Constraints
+
     /// `srcTy` is either `IEnumerable<'T>` itself, an external class that
     /// implements it (the directly-implemented interface set the metadata layer
     /// surfaces through `ExternalClassShape.Interfaces`), or
@@ -500,6 +611,10 @@ module internal UnificationInferControlFlow =
                 match tryLocalDuckTypedEnumerator ctx nameKey args with
                 | ValueSome r -> ValueSome r
                 | ValueNone -> tryLocalInterfaceEnumerator ctx nameKey args
+        // Rung-3: a *generic typar* source (`'S :> ISeq`/`IStructSeq<'E>`) — resolve
+        // its enumerable surface through the `Coercion` constraint, dispatching
+        // `GetEnumerator` via `constrained. callvirt` (the zero-alloc struct path).
+        | TyVar tv -> tryTyparSeqSource ctx tv
         | _ -> ValueNone
 
     and inferForIn
