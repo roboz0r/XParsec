@@ -43,6 +43,7 @@
     <Compile Include="RecordTests.fs" />
     <Compile Include="EqualityAttributeTests.fs" />
     <Compile Include="StructuralComparisonTests.fs" />
+    <Compile Include="CustomEqualityComparisonDispatchTests.fs" />
     <Compile Include="CapturedMutableTests.fs" />
     <Compile Include="ClassTests.fs" />
     <Compile Include="StructTests.fs" />
