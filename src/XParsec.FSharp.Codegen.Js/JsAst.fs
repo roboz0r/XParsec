@@ -97,10 +97,14 @@ and [<RequireQualifiedAccess>] JsStatement =
     | Continue
     /// `target = value;` — param-shadow mutation in a self-tail-call.
     | Assign of target: string * value: JsExpr
-    /// A record's emitted JS class: one positional constructor storing each
-    /// declaration-order field into the like-named property. `export` is set in
-    /// library mode so a consumer can `import` the class rather than re-emit it.
-    | Class of name: string * fields: string list * export: bool
+    /// A record's or class's emitted JS class: one positional constructor storing
+    /// each declaration-order field into the like-named property, plus any
+    /// `methods` attached as instance methods on the class (a record passes `[]`).
+    /// Attached methods carry the runtime dispatch slots of a custom-equality /
+    /// custom-comparison class (`Equals`/`CompareTo`/`GetHashCode`), bodied with
+    /// the receiver bound to JS `this`. `export` is set in library mode so a
+    /// consumer can `import` the class rather than re-emit it.
+    | Class of name: string * fields: string list * methods: JsClassMethod list * export: bool
     /// A union's emitted JS classes: a `baseName` base class (`tag` + `cases()` + a
     /// non-enumerable `$type` brand getter returning `brand`, the type's qualified name)
     /// plus one `extends`-subclass per case carrying its named fields after `super(tag)`.
@@ -114,6 +118,17 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// arms binding the same name don't collide as sibling `const`s.
     | Block of body: JsStatement list
     | Throw of JsExpr
+
+/// An instance method attached to an emitted JS class — `Name(params) { body }`.
+/// Distinct from a free, receiver-first member function: an attached method binds
+/// the receiver to JS `this`, so the runtime can dispatch on method presence
+/// (`a.Equals(b)`, `a.CompareTo(b)`, `x.GetHashCode()`).
+and JsClassMethod =
+    {
+        Name: string
+        Params: string list
+        Body: JsStatement list
+    }
 
 /// `Program` with `sourceType: "module"` (ESM output).
 type JsProgram = { Body: JsStatement list }

@@ -251,7 +251,13 @@ module JsPrint =
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"
         | JsStatement.Block body -> block body
         | JsStatement.Throw e -> text "throw " ++ expr e ++ text ";"
-        | JsStatement.Class(name, fields, export) -> classDecl export name None [ ctorDecl fields [] fields ]
+        | JsStatement.Class(name, fields, methods, export) ->
+            let methodDecl (m: JsClassMethod) =
+                memberDecl
+                    (text m.Name ++ text "(" ++ commaList (List.map text m.Params) ++ text ")")
+                    [ for s in m.Body -> statement s ]
+
+            classDecl export name None (ctorDecl fields [] fields :: [ for m in methods -> methodDecl m ])
         | JsStatement.Union(baseName, brand, cases, export) ->
             let baseClass =
                 classDecl

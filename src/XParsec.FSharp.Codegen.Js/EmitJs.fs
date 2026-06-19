@@ -89,6 +89,11 @@ module EmitJs =
             Source: string voption
             Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
             Unions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
+            /// Locally-emitted classes (`[<CustomEquality>]` & plain classes), keyed
+            /// by type `SymbolKey` → emitted JS class name. A `New` of a local class
+            /// resolves its constructor name here (external `exn` subtypes go through
+            /// `exnReprOf` instead).
+            Classes: System.Collections.Generic.Dictionary<SymbolKey, string>
             /// External union types (`Option`, `List`) not in the file's `tast.Decls`;
             /// their case shapes are read off the provider on first use and emitted as
             /// nominal JS classes (same base-class + subclass shape a local union gets).
@@ -527,18 +532,33 @@ module EmitJs =
         // from the `inherit` chain via `exnReprOf`; only the leading message arg is kept
         // (`Error` has no slot for further args). Non-`exn`-subtype external `New` fails loudly.
         | TExprG.New(className, args, ty, _) ->
-            match exnReprOf ctx ty with
-            | ValueSome repr ->
-                let errArgs =
-                    match EqArray.toList args with
-                    | [] -> []
-                    | msg :: _ -> [ buildExpr ctx msg ]
+            // A locally-emitted class constructs by its emitted name with positional
+            // args (the ctor stores each into the like-named field). Resolved before
+            // the external `exn`-repr path.
+            let localClassName =
+                match TastLower.receiverShape ty with
+                | ValueSome(key, _) ->
+                    match ctx.Classes.TryGetValue key with
+                    | true, name -> ValueSome name
+                    | _ -> ValueNone
+                | ValueNone -> ValueNone
 
-                JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
+            match localClassName with
+            | ValueSome name ->
+                JsExpr.New(JsExpr.Identifier(name, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
             | ValueNone ->
-                failwithf
-                    "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
-                    className
+                match exnReprOf ctx ty with
+                | ValueSome repr ->
+                    let errArgs =
+                        match EqArray.toList args with
+                        | [] -> []
+                        | msg :: _ -> [ buildExpr ctx msg ]
+
+                    JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
+                | ValueNone ->
+                    failwithf
+                        "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
+                        className
 
         // Member calls on a local record/union: each member is a free receiver-first function.
         | TExprG.PropertyGet(receiver, key, _, _, _) ->
@@ -1182,6 +1202,37 @@ module EmitJs =
 
         topLevelBinding ctx name init
 
+    /// Emit an interface-impl / `Object`-override member as an ATTACHED instance
+    /// method `Name(params) { … }` on the emitted class, with the receiver bound to
+    /// JS `this` (not a curried param). The runtimes dispatch by method presence —
+    /// `Vesper.Core.eq` calls `a.Equals(b)`, `Vesper.Comparison.cmp` calls
+    /// `a.CompareTo(b)`, `Vesper.Core.hashOf` calls `x.GetHashCode()` — so a
+    /// custom-equality / custom-comparison class's slot IS its `IEquatable`/
+    /// `IComparable`/`override GetHashCode` impl. The receiver's source-name binder
+    /// (`m.ThisKey`) is re-bound to `this` via a leading `const`, leaving the body's
+    /// `TExpr.Var(thisKey)` references intact.
+    and emitAttachedMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
+        let paramNames = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+
+        let recvBinding =
+            match m.ThisKey with
+            | ValueSome k ->
+                let recvName = identName ctx.Source k
+                // Avoid a no-op `const this = this;` if the binder already resolves to `this`.
+                if recvName = "this" then
+                    []
+                else
+                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+            | ValueNone -> []
+
+        let body = recvBinding @ [ JsStatement.Return(buildExpr ctx m.Body) ]
+
+        {
+            Name = m.Name
+            Params = paramNames
+            Body = body
+        }
+
     /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
     /// value routes through `emitFunction` carrying its binder key, so a
     /// recursive binding (`let rec`) can recognise its own tail calls; any other
@@ -1247,10 +1298,22 @@ module EmitJs =
     /// Collect the file's nominal `type` decls (in source order) into the emission list,
     /// the two lookup tables, and the member list. Read off the un-lowered decls —
     /// `TastLower.lower` drops `type` decls.
+    /// One locally-emitted class awaiting body emission: its name + ctor `fields`
+    /// and the interface-impl / override members to ATTACH (bodies built later with
+    /// the full `WalkCtx`, since `collectTypes` runs before the ctx exists).
+    type private PendingClass =
+        {
+            Name: string
+            Fields: string list
+            Attached: Frozen.TTypeMember list
+        }
+
     let private collectTypes (exportTypes: bool) (tast: Frozen.TastFile) =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
+        let classes = System.Collections.Generic.Dictionary<SymbolKey, string>()
+        let pendingClasses = ResizeArray<PendingClass>()
         let members = ResizeArray<string * Frozen.TTypeMember>()
 
         let addMembers (typeName: string) (ms: EqArray<Frozen.TTypeMember>) =
@@ -1269,7 +1332,7 @@ module EmitJs =
                         }
 
                     records.[td.Key] <- info
-                    ordered.Add(JsStatement.Class(info.Name, info.Fields, exportTypes))
+                    ordered.Add(JsStatement.Class(info.Name, info.Fields, [], exportTypes))
                     addMembers td.Name recMembers
                 | TTypeKindG.Union(cases, unionMembers) ->
                     // Local union: `Home = ValueNone` — its case classes are emitted here.
@@ -1284,16 +1347,62 @@ module EmitJs =
                     // imported case class and any same-type value agree on `$type`.
                     ordered.Add(JsStatement.Union(td.Name, SymbolKeyOps.qualifiedName td.Key, caseDecls, exportTypes))
                     addMembers td.Name unionMembers
+                | TTypeKindG.Class cls ->
+                    classes.[td.Key] <- td.Name
+
+                    // The class's positional ctor stores each declared field. Use
+                    // `CtorParams` when present (primary-ctor parameters that become
+                    // fields); fall back to `Fields` (the `val`-field form).
+                    let fieldNames =
+                        let ctorFields = [ for f in cls.CtorParams -> f.Name ]
+
+                        if List.isEmpty ctorFields then
+                            [ for f in cls.Fields -> f.Name ]
+                        else
+                            ctorFields
+
+                    // ATTACHED instance methods (runtime dispatch slots). Interface-impl
+                    // members win their name slot; an `Object` override of the SAME name
+                    // (the redundant `obj`-typed `Equals`) is dropped. A surviving
+                    // override (`GetHashCode`, `ToString`) attaches too.
+                    let attached = ResizeArray<Frozen.TTypeMember>()
+                    let attachedNames = System.Collections.Generic.HashSet<string>()
+
+                    for (_iface, ifaceMembers) in cls.Interfaces do
+                        for m in ifaceMembers do
+                            if attachedNames.Add m.Name then
+                                attached.Add m
+
+                    for m in cls.Members do
+                        // `obj`-typed `Object.Equals` override is redundant on JS — the
+                        // typed `IEquatable<Self>.Equals` already holds the `.Equals`
+                        // slot. Every other `Object` override (notably `GetHashCode`)
+                        // attaches if it doesn't clash with an interface impl.
+                        if m.IsOverride && m.Name <> "Equals" && attachedNames.Add m.Name then
+                            attached.Add m
+
+                    pendingClasses.Add
+                        {
+                            Name = td.Name
+                            Fields = fieldNames
+                            Attached = List.ofSeq attached
+                        }
+
+                    // Regular (non-attached) members emit as FREE receiver-first
+                    // functions for tree-shaking — call sites already lower to these.
+                    for m in cls.Members do
+                        if not (attachedNames.Contains m.Name) then
+                            members.Add(td.Name, m)
                 | _ -> ()
             | _ -> ()
 
-        List.ofSeq ordered, records, unions, List.ofSeq members
+        List.ofSeq ordered, records, unions, classes, List.ofSeq pendingClasses, List.ofSeq members
 
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
-        let classDecls, recordTable, unionTable, memberDefs =
+        let recordUnionDecls, recordTable, unionTable, classTable, pendingClasses, memberDefs =
             collectTypes ctx0.ExportTopLevel tast
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
@@ -1312,8 +1421,23 @@ module EmitJs =
             { ctx0 with
                 Records = recordTable
                 Unions = unionTable
+                Classes = classTable
                 CompiledFns = compiledFns
             }
+
+        // Class decls (with their attached instance methods) are built now — their
+        // method bodies need the full ctx, unlike record/union decls which carry no
+        // bodies. They join the record/union decls ahead of members and the body.
+        let classDecls =
+            [
+                for pc in pendingClasses ->
+                    JsStatement.Class(
+                        pc.Name,
+                        pc.Fields,
+                        [ for m in pc.Attached -> emitAttachedMethod ctx m ],
+                        ctx.ExportTopLevel
+                    )
+            ]
 
         // Member functions emitted after the class decls (they reference the classes
         // via `new`/match, and `const` arrows are not hoisted) and before the body.
@@ -1340,5 +1464,5 @@ module EmitJs =
         // and must precede every `new`/match site. External union case classes are not
         // emitted here: a `UnionCons` imports them from the union's home module.
         {
-            Body = JsImports.importStatements ctx.Imports @ classDecls @ memberDecls @ body
+            Body = JsImports.importStatements ctx.Imports @ recordUnionDecls @ classDecls @ memberDecls @ body
         }

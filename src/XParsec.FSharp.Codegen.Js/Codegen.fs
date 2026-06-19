@@ -101,6 +101,7 @@ module Codegen =
                     | None -> ValueNone
                 Records = System.Collections.Generic.Dictionary()
                 Unions = System.Collections.Generic.Dictionary()
+                Classes = System.Collections.Generic.Dictionary()
                 Provider = ValueSome provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
                 Imports = JsImports.create runtimeAssets
