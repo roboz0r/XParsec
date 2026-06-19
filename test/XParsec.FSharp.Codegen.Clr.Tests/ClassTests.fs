@@ -1708,6 +1708,51 @@ let interfaceImplTests =
                 | false, _ -> failtest "class C was not registered"
             }
 
+            // rung-3 §2.1 sub-gap 1: a *generic* struct implementing a *generic*
+            // local interface must thread the class typar `'T` into the impl
+            // member's scope — the impl member's return type `'T` is the enclosing
+            // type's type parameter, NOT a free typar, so it must not trip the
+            // "Free type parameter" diagnostic.
+            test
+                "a generic struct implementing a generic local interface threads the class typar (no free-typar diagnostic)" {
+                let provider = SymbolProviders.buildContract defaultManifests
+
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IBox<'E> ="
+                            "    abstract member Unwrap : unit -> 'E"
+                            "[<Struct>]"
+                            "type Box<'T>(value: 'T) ="
+                            "    interface IBox<'T> with"
+                            "        member this.Unwrap() : 'T = value"
+                        ]
+
+                let lexed, file = parseFile src
+                let ctx, tast = Pipeline.analyseSemWithContext provider src lexed file
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                // The impl member's free `'T` is the enclosing struct's type
+                // parameter, threaded into the impl scope — NOT a genuinely-free
+                // typar, so it must not trip the diagnostic.
+                Expect.isFalse
+                    (errors |> List.exists (fun d -> d.Message.Contains "Free type parameter"))
+                    "the impl member's return type 'T is the class typar, not a free typar"
+
+                Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                match ctx.Types.Class.TryGetValue "Box" with
+                | true, info ->
+                    Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on Box"
+
+                    match info.InterfaceImpls.[0].Resolved with
+                    | ValueSome(TyClass(name, _)) -> Expect.stringContains name "IBox" "impl resolved to IBox"
+                    | other -> failtestf "interface impl did not resolve to IBox: %A" other
+                | false, _ -> failtest "struct Box was not registered"
+            }
+
             // §5.2 step 2: argument + return types must match the interface
             // signature. `CompareTo` returning a `string` where `IComparable`
             // promises an `int` is a conformance failure.

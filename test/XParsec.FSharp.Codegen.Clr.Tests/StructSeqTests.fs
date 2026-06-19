@@ -218,6 +218,44 @@ let structSeqTests =
                     "struct interface property dispatch returns the impl value"
             }
 
+            // rung-3 §2.1 sub-gap 1: a *generic* struct implementing a *generic*
+            // local interface AT ITS OWN TYPAR (`Box<'T> : IBox<'T>`). Every other
+            // interface-impl fixture instantiates the interface at a CONCRETE arg
+            // (`IBox<int>`, `IStructSeq<ArrayEnumerator>`); here the impl member's
+            // return type `'T` is the enclosing struct's own type parameter, which
+            // must be threaded into the impl member's scope (not diagnosed free) AND
+            // emitted as a generic MethodImpl so the dispatch round-trips at any
+            // instantiation. Boxing the struct to the interface and calling `Unwrap`
+            // is the producer-side proof.
+            test
+                "a generic struct implements a generic local interface at its own typar and dispatches (rung 3 §2.1 sub-gap 1)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IBox<'E> ="
+                            "    abstract member Unwrap : unit -> 'E"
+                            "[<Struct>]"
+                            "type Box<'T> ="
+                            "    val Value : 'T"
+                            "    new(value: 'T) = { Value = value }"
+                            "    interface IBox<'T> with"
+                            "        member this.Unwrap() : 'T = this.Value"
+                            "let b = Box<int>(42)"
+                            "let i = (b :> IBox<int>)"
+                            "printfn \"%d\" (i.Unwrap())"
+                        ]
+
+                let _, artifact = compileSource "GenericStructGenericIface" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "42"
+                    "generic struct implementing a generic interface at its own typar dispatches the impl value"
+            }
+
             // Wall A (rung 3): a project-local class implementing a project-local
             // interface, dispatched through the interface. Existing interface-impl
             // tests all use BCL interfaces; `resolveInterfaceImpls` only recognises an
