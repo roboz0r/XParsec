@@ -27,7 +27,7 @@ module EmitMember =
     /// fresh temp and addressed there.
     /// Leaves the address on the stack; the caller pushes args then `constrained.
     /// <recvTy>` immediately before the `callvirt`.
-    let private loadStructReceiverAddr
+    let rec private loadStructReceiverAddr
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
@@ -37,6 +37,24 @@ module EmitMember =
         match receiver with
         | TExprG.Var(binding, _, _) when env.Slots.ContainsKey binding -> b.Add(ILInstr.Ldloca env.Slots.[binding])
         | TExprG.Var(binding, _, _) when env.SelfKey = ValueSome binding -> b.Add(ILInstr.Ldarg 0)
+        // A struct-typed *field* receiver (`this.Source.MoveNext()`): address the
+        // field in place with `ldflda` so a mutating member call persists — spilling
+        // the field's *value* to a temp (the fall-through below) would mutate a copy.
+        // The parent is itself addressed when it's a struct (recurse — chains
+        // `this.a.b.M()`) or loaded by value when it's a reference type; `ldflda`
+        // accepts either an object ref or a managed pointer. A struct returned by a
+        // *property* still falls through to the spill (a getter yields a copy — there
+        // is no in-place location to address, matching F#'s copy semantics).
+        | TExprG.FieldGet(parent, name, _, _) ->
+            let parentTy = typeOfExpr parent
+            let fldHandle = resolveRecordField env parentTy name
+
+            if isValueType env parentTy then
+                loadStructReceiverAddr recur env b parent parentTy
+            else
+                recur env b parent
+
+            b.Add(ILInstr.Ldflda fldHandle)
         | _ ->
             recur env b receiver
             let tmp = b.Local receiverTy

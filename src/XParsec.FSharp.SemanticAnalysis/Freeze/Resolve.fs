@@ -762,6 +762,68 @@ module internal FreezeResolve =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// `head.f.…g.M(args)` — a method call whose receiver is a *multi-segment*
+    /// folded LongIdent chain (`head` a bound local, `f…g` intermediate field /
+    /// property steps, `M` the trailing instance method). The parser folds any
+    /// `Ident`-headed dotted path into one `LongIdent`, so `this.Source.MoveNext`
+    /// arrives as `LongIdent[this; Source; MoveNext]` — *not* a `DotLookup`
+    /// (`InstanceMethodCall`) and longer than the 2-segment `ClassTailMethod`. Walk
+    /// the prefix's segment types with `recoverFieldStepTy` (the same recovery
+    /// `translateLongIdentFieldChain` uses) to land the receiver type, then confirm
+    /// the tail is one of its methods. Returns the *prefix* LongIdent (the receiver
+    /// chain, last segment dropped) + the receiver type + the method name, so the
+    /// `App` arm rebuilds the receiver via `translateLongIdentFieldChain`. Without
+    /// this the chain falls through to the field-chain resolver, which mis-types the
+    /// trailing method segment as a property and leaves the call's `()` as a spurious
+    /// `App` lowered to `Vesper.Fun::Invoke` — malformed IL.
+    [<return: Struct>]
+    let (|ClassChainMethod|_|)
+        (ctx: PassContext)
+        (li: LongIdent<SyntaxToken>)
+        : (LongIdent<SyntaxToken> * SemType * string) voption =
+        let n = li.Idents.Length
+
+        if n < 3 then
+            // 2-segment `var.M(args)` is `ClassTailMethod`; this is the 3+ case.
+            ValueNone
+        else
+            let head = li.Idents.[0]
+            let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+            match ctx.Bindings.Binding.TryGetValue headKey with
+            | ValueNone -> ValueNone
+            | ValueSome rb ->
+                // Walk the intermediate segments `[1 .. n-2]` to the receiver type,
+                // bailing if any step can't be typed (then the generic path handles it).
+                let mutable recvTy = Unification.zonk (typeOfKey ctx rb.BindingSite)
+                let mutable ok = true
+
+                for i in 1 .. n - 2 do
+                    if ok then
+                        match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
+                        | ValueSome t -> recvTy <- Unification.zonk t
+                        | ValueNone -> ok <- false
+
+                if not ok then
+                    ValueNone
+                else
+                    match recvTy with
+                    | TyClass(typeKey, _)
+                    | TyUnion(typeKey, _) ->
+                        let memberName = ctx.NameOf li.Idents.[n - 1]
+
+                        match tryClassMember ctx (SymbolKeyOps.simpleName typeKey) memberName with
+                        | ValueSome(_, m) when m.Kind = ClassMemberKind.Method ->
+                            let prefixLi =
+                                {
+                                    Idents = li.Idents.RemoveAt(n - 1)
+                                    Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
+                                }
+
+                            ValueSome(prefixLi, recvTy, memberName)
+                        | _ -> ValueNone
+                    | _ -> ValueNone
+
     /// The `ResolvedExternalMember` Unification recorded for this node, if any.
     /// Used with a `&` conjunction so the external-member arms drop both the
     /// `ContainsKey` guard and the body's `failwith "unreachable"` re-lookup.

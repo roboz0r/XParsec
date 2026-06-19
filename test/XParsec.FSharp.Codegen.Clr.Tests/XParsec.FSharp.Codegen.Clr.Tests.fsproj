@@ -49,6 +49,7 @@
     <Compile Include="ExceptionTests.fs" />
     <Compile Include="UseTests.fs" />
     <Compile Include="ForInTests.fs" />
+    <Compile Include="StructSeqTests.fs" />
     <Compile Include="PackageBuildTests.fs" />
     <Compile Include="PackageBuildTriage.fs" />
     <Compile Include="OptionTests.fs" />

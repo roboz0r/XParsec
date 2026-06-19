@@ -73,6 +73,14 @@ module Cil =
         il.Encoder.Token(field)
         il.Adjust 0
 
+    // `ldflda` — like `ldfld` but pushes the field's *address* (a managed pointer),
+    // so a member call on a value-type field persists its mutation. Same net stack
+    // effect as `ldfld`: pops the receiver, pushes one value (here the address).
+    let emitLdflda (il: Il) (field: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldflda)
+        il.Encoder.Token(field)
+        il.Adjust 0
+
     let emitStfld (il: Il) (field: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Stfld)
         il.Encoder.Token(field)

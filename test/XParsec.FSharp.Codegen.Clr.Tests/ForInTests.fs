@@ -411,6 +411,46 @@ let forInTests =
                     "walks the external struct enumerator in order"
             }
 
+            // Gap 1 (`get-enumerator-gaps.md`): the for-in *source* is itself a
+            // `[<Struct>]`. `GetEnumerator` is a method call on a value, so the source
+            // must be addressed (`ldloca`) the same way the enumerator receiver is —
+            // not pushed by value and `callvirt`-ed (malformed IL on a value type).
+            // The seq module's `MapSeq`/`ArraySeq` are exactly this shape, so this is
+            // the minimal isolation case that forces the fix. The struct `Counter`'s
+            // own `GetEnumerator` is a non-virtual `MethodDef`, dispatched by a direct
+            // `call` on the address; the struct `Enum` then walks by address as before.
+            test "for-in over a value-type struct source addresses it for GetEnumerator and walks" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type Enum ="
+                            "    val mutable Cur : int"
+                            "    val Stop : int"
+                            "    new(stop: int) = { Cur = 0; Stop = stop }"
+                            "    member this.MoveNext() : bool ="
+                            "        this.Cur <- this.Cur + 1"
+                            "        this.Cur <= this.Stop"
+                            "    member this.Current : int = this.Cur"
+                            "[<Struct>]"
+                            "type Counter ="
+                            "    val Stop : int"
+                            "    new(stop: int) = { Stop = stop }"
+                            "    member this.GetEnumerator() : Enum = Enum(this.Stop)"
+                            "let c = Counter(3)"
+                            "for x in c do"
+                            "    printfn \"%d\" x"
+                            "printfn \"done\""
+                        ]
+
+                let _, artifact = compileSource "ValueTypeSource" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the value-type source in order"
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

@@ -107,6 +107,27 @@ module internal FreezeExpr =
             argExpr = arg) ->
             let receiver = TExpr.Var(bindingSite, receiverTy, tok)
             mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty tok
+        // `head.f.…M(args)` — method call on a *multi-segment* receiver chain (e.g.
+        // `this.Source.MoveNext()`), which `ClassTailMethod` (2-segment) misses. The
+        // prefix LongIdent rebuilds the receiver field-chain; the tail is the method.
+        | Expr.App(
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, receiverTy, memberName)))
+            argExprs = args) ->
+            let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+
+            mkMethodCall
+                ctx
+                receiver
+                (nominalDeclKey receiverTy)
+                memberName
+                (peelCtorArgs (translateExpr ctx) args)
+                ty
+                tok
+        | Expr.HighPrecedenceApp(
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, receiverTy, memberName)))
+            argExpr = arg) ->
+            let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.

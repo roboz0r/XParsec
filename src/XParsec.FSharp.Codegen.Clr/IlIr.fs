@@ -37,6 +37,7 @@ type ILInstr =
     | Dup
     | Pop
     | Ldfld of EntityHandle
+    | Ldflda of EntityHandle
     | Stfld of EntityHandle
     /// `ldsfld` — load a static field (net +1). Used for class `static let`
     /// backing fields.
@@ -174,6 +175,7 @@ module private InstrDelta =
         | ILInstr.Stloc _
         | ILInstr.Pop -> -1
         | ILInstr.Ldfld _
+        | ILInstr.Ldflda _
         | ILInstr.Isinst _
         | ILInstr.Castclass _
         | ILInstr.Box _
@@ -277,6 +279,7 @@ module IlIr =
         | ILInstr.Stloc _
         | ILInstr.Pop -> -1
         | ILInstr.Ldfld _
+        | ILInstr.Ldflda _
         | ILInstr.Isinst _
         | ILInstr.Castclass _
         | ILInstr.Box _
@@ -506,6 +509,7 @@ module IlIr =
             | ILInstr.Dup -> Cil.emitDup il
             | ILInstr.Pop -> Cil.emitPop il
             | ILInstr.Ldfld f -> Cil.emitLdfld il f
+            | ILInstr.Ldflda f -> Cil.emitLdflda il f
             | ILInstr.Stfld f -> Cil.emitStfld il f
             | ILInstr.Ldsfld f -> Cil.emitLdsfld il f
             | ILInstr.Stsfld f -> Cil.emitStsfld il f

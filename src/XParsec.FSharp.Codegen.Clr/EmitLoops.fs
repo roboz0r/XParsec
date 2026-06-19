@@ -34,6 +34,11 @@ module EmitLoops =
             Current: EntityHandle
             IsValueType: bool
             Disposable: bool
+            // Whether `GetEnumerator` is dispatched through the `IEnumerable<'T>`
+            // interface slot (`Interface` arm) rather than the source's own concrete
+            // method (`Pattern` arm). Only consulted for a *value-type* source, where
+            // it selects `constrained. <Source> callvirt` over a by-address `call`.
+            GetEnumeratorViaInterface: bool
         }
 
     /// The `System.IDisposable::Dispose` handle — disposal for *every* `for … in`
@@ -137,8 +142,30 @@ module EmitLoops =
             else
                 b.Add(ILInstr.Callvirt(handle, 1, 1))
 
-        recur env b source
-        b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
+        // Load the source as the `GetEnumerator` receiver. A reference source is
+        // pushed by value and `callvirt`-ed. A *value-type* source (Gap 1: a struct
+        // `MapSeq`/`ArraySeq`, or any `[<Struct>]` collection) is a method call on a
+        // value, so it must be addressed exactly like the enumerator receiver: spill
+        // to a local and `ldloca`, then dispatch its own concrete `GetEnumerator` with
+        // a direct `call` (`Pattern` arm), or — when the only enumerable surface is the
+        // `IEnumerable<'T>` slot — a `constrained. <Source> callvirt` (`Interface` arm).
+        let sourceTy = typeOfExpr source
+
+        if EmitPattern.isValueType env sourceTy then
+            recur env b source
+            let srcSlot = b.Local sourceTy
+            b.Add(ILInstr.Stloc srcSlot)
+            b.Add(ILInstr.Ldloca srcSlot)
+
+            if loop.GetEnumeratorViaInterface then
+                b.Add(ILInstr.Constrained(env.Provider.TypeToken sourceTy))
+                b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
+            else
+                b.Add(ILInstr.Call(loop.GetEnumerator, 1, 1))
+        else
+            recur env b source
+            b.Add(ILInstr.Callvirt(loop.GetEnumerator, 1, 1))
+
         b.Add(ILInstr.Stloc enumSlot)
 
         let xSlot = b.Local loop.ElemTy
@@ -261,6 +288,7 @@ module EmitLoops =
                         Current = curHandle
                         IsValueType = isValueType
                         Disposable = dispose
+                        GetEnumeratorViaInterface = false
                     }
                     pat
                     source
@@ -346,6 +374,7 @@ module EmitLoops =
                         Current = curHandle
                         IsValueType = false
                         Disposable = true
+                        GetEnumeratorViaInterface = true
                     }
                     pat
                     source
