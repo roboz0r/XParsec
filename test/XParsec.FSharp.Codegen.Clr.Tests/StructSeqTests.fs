@@ -28,12 +28,13 @@ let structSeqTests =
     testList
         "StructSeq"
         [
-            // Wall B (rung 3): a member call on a value whose type is a generic
+            // Wall B+C (rung 3): a member call on a value whose type is a generic
             // typar constrained to a project-local interface (`'T :> IGetVal`).
-            // The receiver is a bare TyVar carrying a `Coercion` constraint; the
-            // member must resolve through the interface's members (diagnostics-only
-            // first — Wall C makes it RUN).
-            test "typar receiver constrained to a local interface resolves member (Wall B)" {
+            // The receiver is a bare TyVar carrying a `Coercion` constraint; Wall B
+            // resolves the member through the interface's members and mints a
+            // `CallVia.Interface` node, Wall C emits `constrained. <typar> callvirt`
+            // so it RUNS end-to-end.
+            test "typar receiver constrained to a local interface dispatches via constrained callvirt (Wall C)" {
                 let src =
                     String.concat
                         "\n"
@@ -47,7 +48,55 @@ let structSeqTests =
                             "printfn \"%d\" (callIt (Holder 7))"
                         ]
 
-                typeChecks src
+                let _, artifact = compileSource "TyparInterfaceDispatch" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "7"
+                    "constrained typar interface dispatch returns the impl value"
+            }
+
+            // Wall C, the non-allocating payoff: the SAME generic `callIt` applied to a
+            // `[<Struct>]` argument. The constrained-typar dispatch addresses the struct
+            // (`ldloca`) and `constrained. !!T callvirt`s the interface slot, so the JIT
+            // resolves the struct's impl directly — no boxing. Asserted on `callIt`'s IL:
+            // a `constrained.` prefix (0xFE 0x16) is present and there is NO `box` (0x8C).
+            test "constrained typar dispatch on a struct arg does not box (Wall C)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IGetVal ="
+                            "    abstract member GetVal : unit -> int"
+                            "[<Struct>]"
+                            "type SBox ="
+                            "    val N : int"
+                            "    new(n: int) = { N = n }"
+                            "    interface IGetVal with"
+                            "        member this.GetVal() = this.N"
+                            "let callIt (x: 'T when 'T :> IGetVal) : int = x.GetVal()"
+                            "printfn \"%d\" (callIt (SBox 9))"
+                        ]
+
+                let _, artifact = compileSource "TyparInterfaceStructDispatch" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "9" "constrained struct dispatch returns the impl value"
+
+                // The holder-less top-level `callIt` is emitted on the "Program" type
+                // under a synthetic `fn$<n>` name, so target it structurally.
+                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "callIt IL contains a `constrained.` prefix (typar interface dispatch)"
+                Expect.isFalse (Array.contains 0x8Cuy il) "callIt IL contains no `box` (non-allocating struct dispatch)"
             }
 
             // Wall A (rung 3): a project-local class implementing a project-local

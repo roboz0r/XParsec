@@ -175,11 +175,67 @@ module EmitMember =
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.MethodCall(_, _, CallVia.Interface, _, _, _) ->
-            // Rung-3 Wall B produces this for a typar-receiver interface dispatch
-            // (`'T :> IFace`); Wall C will emit `constrained. <typar> callvirt` here.
-            // Until then, fail loudly rather than mis-resolving the typar receiver.
-            failwith "EmitMember.buildMethodCall: CallVia.Interface dispatch is rung-3 Wall C (not yet implemented)"
+        | TExprG.MethodCall(receiver, key, CallVia.Interface, args, ty, _) ->
+            // Rung-3 Wall C: a member call on a value whose type is a generic typar
+            // constrained to an interface (`x : 'T when 'T :> IFace`). The receiver's
+            // type is an `FTTypar`, not a nominal — so `resolveInstanceMember` can't be
+            // used (it destructures a nominal head). Instead, the abstract slot is
+            // resolved directly off the member key's declaring interface (recorded by
+            // Wall B's `TyparInterfaceCall` side-table), and the call is dispatched with
+            // a `constrained. <typar> callvirt`: the JIT then dispatches a *struct* typar
+            // by address (no box) and a *class* typar by reference — the zero-alloc
+            // behaviour rung 3 needs. Sound because the slot is an interface (virtual)
+            // member, so the non-virtual-struct-method guardrail does not bite.
+            let receiverTy = typeOfExpr receiver
+            let name = SymbolKeyOps.simpleName key
+            let argTys = [ for a in args -> typeOfExpr a ]
+
+            let ifaceKey =
+                match key with
+                | SymbolKey.MemberKey(decl, _, _, _) -> decl
+                | _ -> failwithf "EmitMember: CallVia.Interface member key is not a MemberKey: %A" key
+
+            let iface =
+                match env.Interfaces.TryGetValue ifaceKey with
+                | true, i -> i
+                | false, _ -> failwithf "EmitMember: CallVia.Interface on unregistered interface '%A'" ifaceKey
+
+            // The constrained dispatch is currently exercised only by *non-generic*
+            // interfaces (Wall B / rung-3's first slice). A generic interface
+            // (`IStructSeq<'E>`) needs the slot resolved on an instantiated `TypeSpec`,
+            // whose instantiation isn't recoverable from the bare `FTTypar` receiver —
+            // fail loudly until the generic payoff threads it through.
+            if not (List.isEmpty iface.Typars) then
+                failwithf "EmitMember: CallVia.Interface on a generic interface '%A' is not yet supported" ifaceKey
+
+            let m =
+                match iface.Members.TryGetValue name with
+                | true, candidates -> pickOverload name candidates argTys
+                | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
+
+            // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
+            let returnsUnit =
+                match ty with
+                | FTConst("unit", _) -> true
+                | _ -> false
+
+            let resultCount = if returnsUnit then 0 else 1
+            let operands = 1 + args.Length
+
+            // Receiver by *address* — `loadStructReceiverAddr` addresses a slot/self/field
+            // in place and spills any other receiver (a static-fn arg `Ldarg i`) to a
+            // temp it `ldloca`s; `constrained.` needs that managed pointer for both struct
+            // and class typars.
+            loadStructReceiverAddr recur env b receiver receiverTy
+
+            for a in args do
+                recur env b a
+
+            b.Add(ILInstr.Constrained(env.Provider.TypeToken receiverTy))
+            b.Add(ILInstr.Callvirt(m.Handle, operands, resultCount))
+
+            if returnsUnit then
+                EmitTypes.buildUnitValue env b
         | TExprG.MethodCall(receiver, key, via, args, ty, _) ->
             // Instance method call — the same receiver/dispatch shape as
             // `buildPropertyGet`, with the call's arguments pushed between the

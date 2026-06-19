@@ -1625,6 +1625,52 @@ let peInterfaceImplCount (bytes: byte[]) : int =
 /// emits stfld, ldnull, ret") or printing a hex dump in a failing test. Returns
 /// an empty array for an abstract method (no body). Throws if the method is
 /// not found.
+/// Raw IL bytes of the first method on `declaringType` whose name satisfies
+/// `nameMatches`. Use when the emitted method name is synthetic (a holder-less
+/// top-level function lands on "Program" as `fn$<n>`) so an exact name can't be
+/// pinned. Throws if no matching method is found.
+let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[] =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    let typeMatches (td: TypeDefinition) =
+        let name = md.GetString td.Name
+        let ns = md.GetString td.Namespace
+
+        let qualified =
+            if System.String.IsNullOrEmpty ns then
+                name
+            else
+                sprintf "%s.%s" ns name
+
+        qualified = declaringType
+
+    let methodHandle =
+        md.TypeDefinitions
+        |> Seq.tryPick (fun tdh ->
+            let td = md.GetTypeDefinition tdh
+
+            if typeMatches td then
+                td.GetMethods()
+                |> Seq.tryFind (fun mdh -> nameMatches (md.GetString(md.GetMethodDefinition(mdh).Name)))
+            else
+                None
+        )
+
+    match methodHandle with
+    | None -> failwithf "peMethodIlWhere: no matching method on type '%s'" declaringType
+    | Some mdh ->
+        let m = md.GetMethodDefinition mdh
+
+        if m.RelativeVirtualAddress = 0 then
+            [||]
+        else
+            let body = peReader.GetMethodBody m.RelativeVirtualAddress
+            let ilReader = body.GetILReader()
+            let buf = Array.zeroCreate ilReader.RemainingBytes
+            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
+            buf
+
 let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
