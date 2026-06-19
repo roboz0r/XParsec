@@ -1241,6 +1241,78 @@ module Unification =
             | ValueSome dk -> ctx.Resolution.ResolvedOperatorValue.Set(site.Node, dk)
             | ValueNone -> ()
 
+    /// Enforce the semantic contract of a `Custom` equality / comparison posture
+    /// on a class (Phase 3). Runs AFTER `walkElems` so every
+    /// `InterfaceImpls[].Resolved` has been stamped by `resolveInterfaceImpls`.
+    ///   - `EqualitySupport = Custom` ⇒ the class must implement
+    ///     `System.IEquatable<Self>`.
+    ///   - `ComparisonSupport = Custom` ⇒ the class must implement
+    ///     `System.IComparable<Self>`, and must also carry `Custom` equality
+    ///     (custom ordering atop non-custom equality is incoherent).
+    /// The interface HEAD is matched on the arity-suffixed qualified name
+    /// (`System.IEquatable\`1` / `System.IComparable\`1`) — the exact form the
+    /// provider mints for a resolved `TyClass(ifaceKey, _)`. The single type-arg
+    /// is checked to be Self (the declaring class's own nominal key) when present;
+    /// the head match is the reliable gate and the Self-arg check is best-effort
+    /// (it compares the resolved arg's nominal key to `info.Key`, tolerating the
+    /// generic typar instantiation of the class's own type params).
+    let private validateCustomEqCompImpls (ctx: PassContext) : unit =
+        let addDiag (key: NodeKey) (code: string) (msg: string) =
+            ctx.Diagnostics.Add
+                {
+                    Key = key
+                    Message = msg
+                    Code = code
+                    Severity = Severity.Error
+                }
+
+        // The declaring class's own nominal key — Self is `TyClass(info.Key, _)`.
+        let argIsSelf (info: ClassTypeInfo) (arg: SemType) : bool =
+            match zonk arg with
+            | TyClass(k, _)
+            | TyRecord(k, _)
+            | TyUnion(k, _) -> SymbolKeyOps.qualifiedName k = SymbolKeyOps.qualifiedName info.Key
+            | _ -> false
+
+        // Does the class implement `ifaceQualified<Self>` among its resolved
+        // interface impls? Best-effort on the arg: a head match with a Self arg
+        // (or a head match with no readable arg) satisfies the requirement.
+        let implementsSelf (info: ClassTypeInfo) (ifaceQualified: string) : bool =
+            info.InterfaceImpls
+            |> Array.exists (fun impl ->
+                match impl.Resolved with
+                | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
+                    SymbolKeyOps.qualifiedName ifaceKey = ifaceQualified
+                    && (ifaceArgs.Length = 0 || argIsSelf info ifaceArgs.[0])
+                | _ -> false)
+
+        for kv in ctx.Types.Class do
+            let info = kv.Value
+            let nameKey = info.DeclKey
+
+            let needsEq = info.EqualitySupport = EqualityVerdict.Custom
+            let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
+
+            if needsEq && not (implementsSelf info "System.IEquatable`1") then
+                addDiag
+                    nameKey
+                    "FS0378"
+                    "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
+
+            if needsCmp then
+                if not (implementsSelf info "System.IComparable`1") then
+                    addDiag
+                        nameKey
+                        "FS0378"
+                        "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
+
+                // Coherence: custom comparison demands custom equality.
+                if not needsEq then
+                    addDiag
+                        nameKey
+                        "FS0379"
+                        "A type with [<CustomComparison>] must also have [<CustomEquality>]."
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
         // same stable ambient seed (`AmbientOpenScope`, not the per-element
@@ -1248,3 +1320,4 @@ module Unification =
         walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx
         resolveOperatorValues ctx
+        validateCustomEqCompImpls ctx

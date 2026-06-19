@@ -189,6 +189,23 @@ module NameResolutionTypeRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
+                    // Custom equality/comparison on a record is out of scope: a
+                    // record has no interface-impl side table to satisfy the
+                    // `IEquatable<_>`/`IComparable<_>` requirement, so direct the
+                    // user to a class.
+                    if
+                        info.EqualitySupport = EqualityVerdict.Custom
+                        || info.ComparisonSupport = ComparisonVerdict.Custom
+                    then
+                        ctx.Diagnostics.Add
+                            {
+                                Key = declKey
+                                Message =
+                                    "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
+                                Code = "FS0378"
+                                Severity = Severity.Error
+                            }
+
                     TypeRegistry.registerRecord ctx.Types name info
 
                     for fi in fieldInfos do
@@ -339,6 +356,23 @@ module NameResolutionTypeRegistration =
                         match cmpV with
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
+
+                    // Custom equality/comparison on a union is out of scope: union
+                    // interface impls are unsupported front-to-back, so there is no
+                    // way to satisfy the `IEquatable<_>`/`IComparable<_>`
+                    // requirement — direct the user to a class.
+                    if
+                        info.EqualitySupport = EqualityVerdict.Custom
+                        || info.ComparisonSupport = ComparisonVerdict.Custom
+                    then
+                        ctx.Diagnostics.Add
+                            {
+                                Key = declKey
+                                Message =
+                                    "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
+                                Code = "FS0378"
+                                Severity = Severity.Error
+                            }
 
                     TypeRegistry.registerUnion ctx.Types name typeArity info
 

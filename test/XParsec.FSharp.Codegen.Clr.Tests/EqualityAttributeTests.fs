@@ -203,4 +203,94 @@ let tests =
                 Expect.isNull (equalsObj ty) "qualified ReferenceEquality resolved by leaf segment"
                 Expect.isFalse (implementsIEquatable ty) "no IEquatable<Point> on qualified ReferenceEquality"
             }
+
+            // Phase 3 — the `Custom` posture's semantic requirement (the type must
+            // implement the matching self-instantiated BCL interface), the
+            // coherence rule (custom comparison ⇒ custom equality), and the
+            // record/union scope diagnostic.
+
+            test "[<CustomEquality>] class WITH IEquatable<Self> ⇒ no diagnostic" {
+                let classSrc =
+                    String.concat
+                        "\n"
+                        [
+                            "[<CustomEquality; NoComparison>]"
+                            "type ById(id: int) ="
+                            "    member _.Id = id"
+                            "    override this.Equals(o: obj) = false"
+                            "    override this.GetHashCode() = id"
+                            "    interface System.IEquatable<ById> with"
+                            "        member this.Equals(other: ById) = false"
+                        ]
+
+                let tast, _ = compileSource "EqAttrCustomEqOk" classSrc
+
+                let customErrs =
+                    errors tast
+                    |> List.filter (fun d -> d.Message.Contains "IEquatable" || d.Message.Contains "CustomEquality")
+
+                Expect.isEmpty
+                    customErrs
+                    (sprintf "class implementing IEquatable<Self> ⇒ no custom-eq diagnostic; got %A" (errors tast))
+            }
+
+            test "[<CustomEquality>] class WITHOUT IEquatable<Self> ⇒ must-implement error" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<CustomEquality; NoComparison>]"
+                            "type ById(id: int) ="
+                            "    member _.Id = id"
+                            "    override this.Equals(o: obj) = false"
+                            "    override this.GetHashCode() = id"
+                        ]
+
+                let tast, _ = compileSource "EqAttrCustomEqMissing" src
+
+                let customErrs =
+                    errors tast |> List.filter (fun d -> d.Message.Contains "IEquatable")
+
+                Expect.isNonEmpty
+                    customErrs
+                    (sprintf "missing IEquatable<Self> ⇒ must-implement error; got %A" (errors tast))
+            }
+
+            test "[<CustomComparison>] without [<CustomEquality>] ⇒ coherence error" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<CustomComparison>]"
+                            "type ById(id: int) ="
+                            "    member _.Id = id"
+                            "    interface System.IComparable<ById> with"
+                            "        member this.CompareTo(other: ById) = 0"
+                        ]
+
+                let tast, _ = compileSource "EqAttrCustomCmpIncoherent" src
+
+                let coherenceErrs =
+                    errors tast
+                    |> List.filter (fun d -> d.Message.Contains "must also have [<CustomEquality>]")
+
+                Expect.isNonEmpty
+                    coherenceErrs
+                    (sprintf "custom comparison without custom equality ⇒ coherence error; got %A" (errors tast))
+            }
+
+            test "[<CustomEquality>] on a record ⇒ wrap-in-a-class scope error" {
+                let src =
+                    String.concat "\n" [ "[<CustomEquality; NoComparison>]"; "type R = { x: int }" ]
+
+                let tast, _ = compileSource "EqAttrCustomRecordScope" src
+
+                let scopeErrs =
+                    errors tast
+                    |> List.filter (fun d -> d.Message.Contains "wrap the type in a class")
+
+                Expect.isNonEmpty
+                    scopeErrs
+                    (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
+            }
         ]
