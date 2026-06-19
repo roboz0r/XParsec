@@ -103,69 +103,35 @@ module JsNativeSymbols =
     /// The single declaring typar `'T` (axis Declaring, index 0).
     let private selfTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
 
-    let private iequatableKey: SymbolKey =
-        SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IEquatable`1")
+    /// An erased arity-1 `System` interface (`IEquatable\`1` / `IComparable\`1`) as a
+    /// single-member `ExternalTypeShape.Class`: `<memberName> : 'T -> ret`. The pair
+    /// differ only in `{name, member name, return type}`, so they share this builder.
+    let private mkErasedGenericIface (name: string) (memberName: string) (ret: FrozenType) : ExternalTypeShape =
+        let key = SymbolKey.TypeKey(Some RuntimeAssembly, "System", name)
 
-    let private icomparableKey: SymbolKey =
-        SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IComparable`1")
-
-    /// `IEquatable<'T>.Equals : 'T -> bool`.
-    let private iequatableEquals: ExternalMember =
-        {
-            Name = "Equals"
-            IsStatic = false
-            IsProperty = false
-            Signature =
-                {
-                    DeclaringArity = 1
-                    MethodArity = 0
-                    Parameters = selfTypar
-                    Return = boolTy
-                }
-            MethodArity = 0
-            Origin = systemOrigin
-            Key = SymbolKey.MemberKey(iequatableKey, "Equals", EqArray.empty, MemberKind.InterfaceMethod iequatableKey)
-            OptionalDefaults = []
-        }
-
-    /// `IComparable<'T>.CompareTo : 'T -> int`.
-    let private icomparableCompareTo: ExternalMember =
-        {
-            Name = "CompareTo"
-            IsStatic = false
-            IsProperty = false
-            Signature =
-                {
-                    DeclaringArity = 1
-                    MethodArity = 0
-                    Parameters = selfTypar
-                    Return = intTy
-                }
-            MethodArity = 0
-            Origin = systemOrigin
-            Key =
-                SymbolKey.MemberKey(icomparableKey, "CompareTo", EqArray.empty, MemberKind.InterfaceMethod icomparableKey)
-            OptionalDefaults = []
-        }
-
-    let private iequatableShape: ExternalTypeShape =
-        ExternalTypeShape.Class
+        let mem: ExternalMember =
             {
-                Arity = 1
-                IsInterface = true
-                Members = [| iequatableEquals |]
-                FrozenInterfaces = [||]
-                FrozenBaseType = ValueNone
-                Flags = ExternalClassFlags.Default
+                Name = memberName
+                IsStatic = false
+                IsProperty = false
+                Signature =
+                    {
+                        DeclaringArity = 1
+                        MethodArity = 0
+                        Parameters = selfTypar
+                        Return = ret
+                    }
+                MethodArity = 0
                 Origin = systemOrigin
+                Key = SymbolKey.MemberKey(key, memberName, EqArray.empty, MemberKind.InterfaceMethod key)
+                OptionalDefaults = []
             }
 
-    let private icomparableShape: ExternalTypeShape =
         ExternalTypeShape.Class
             {
                 Arity = 1
                 IsInterface = true
-                Members = [| icomparableCompareTo |]
+                Members = [| mem |]
                 FrozenInterfaces = [||]
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
@@ -179,8 +145,8 @@ module JsNativeSymbols =
         Map
             [
                 "Error", errorShape
-                "System.IEquatable`1", iequatableShape
-                "System.IComparable`1", icomparableShape
+                "System.IEquatable`1", mkErasedGenericIface "IEquatable`1" "Equals" boolTy
+                "System.IComparable`1", mkErasedGenericIface "IComparable`1" "CompareTo" intTy
             ]
 
     /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.

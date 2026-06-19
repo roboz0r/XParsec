@@ -136,7 +136,8 @@ let tests =
             // orders by id DESCENDING (inverted), so `a(1) < b(2)` is FALSE under the custom member
             // (a natural ordering would give true). Passing proves `<`/`>`/`<=`/`>=` dispatch through
             // `Vesper.Comparison.structuralCompare` → `cmp(a,b)` → `a.CompareTo(b)`.
-            test "a [<CustomComparison>] class dispatches `<`/`>`/`<=`/`>=` to the attached IComparable.CompareTo on JS (inverted order)" {
+            test
+                "a [<CustomComparison>] class dispatches `<`/`>`/`<=`/`>=` to the attached IComparable.CompareTo on JS (inverted order)" {
                 match
                     runJs
                         "class-customcmp"
@@ -167,6 +168,7 @@ let tests =
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+
                     Expect.equal
                         out
                         "false\ntrue\nfalse\ntrue\ntrue\ntrue"

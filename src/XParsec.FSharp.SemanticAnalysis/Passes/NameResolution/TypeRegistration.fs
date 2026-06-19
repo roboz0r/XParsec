@@ -11,6 +11,27 @@ open XParsec.FSharp.SemanticAnalysis
 
 module NameResolutionTypeRegistration =
 
+    /// `[<CustomEquality>]` / `[<CustomComparison>]` on a record or union is out of
+    /// scope: neither has an interface-impl side table to satisfy the
+    /// `IEquatable<_>` / `IComparable<_>` requirement (union interface impls are
+    /// unsupported front-to-back), so a `Custom` verdict on either is a diagnostic
+    /// directing the user to a class. Shared by the record and union arms.
+    let private rejectCustomOnDataType
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (eq: EqualityVerdict)
+        (cmp: ComparisonVerdict)
+        : unit =
+        if eq = EqualityVerdict.Custom || cmp = ComparisonVerdict.Custom then
+            ctx.Diagnostics.Add
+                {
+                    Key = declKey
+                    Message =
+                        "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
+                    Code = "FS0378"
+                    Severity = Severity.Error
+                }
+
     /// A `Typar`'s source-text name; the leading `'`/`^` lives on a separate
     /// token. Anon (`_`) typars don't participate in scope — ValueNone.
     let typarName (ctx: PassContext) (t: Typar<SyntaxToken>) : string voption =
@@ -189,22 +210,7 @@ module NameResolutionTypeRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    // Custom equality/comparison on a record is out of scope: a
-                    // record has no interface-impl side table to satisfy the
-                    // `IEquatable<_>`/`IComparable<_>` requirement, so direct the
-                    // user to a class.
-                    if
-                        info.EqualitySupport = EqualityVerdict.Custom
-                        || info.ComparisonSupport = ComparisonVerdict.Custom
-                    then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = declKey
-                                Message =
-                                    "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
-                                Code = "FS0378"
-                                Severity = Severity.Error
-                            }
+                    rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
                     TypeRegistry.registerRecord ctx.Types name info
 
@@ -357,22 +363,7 @@ module NameResolutionTypeRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    // Custom equality/comparison on a union is out of scope: union
-                    // interface impls are unsupported front-to-back, so there is no
-                    // way to satisfy the `IEquatable<_>`/`IComparable<_>`
-                    // requirement — direct the user to a class.
-                    if
-                        info.EqualitySupport = EqualityVerdict.Custom
-                        || info.ComparisonSupport = ComparisonVerdict.Custom
-                    then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = declKey
-                                Message =
-                                    "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
-                                Code = "FS0378"
-                                Severity = Severity.Error
-                            }
+                    rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
                     TypeRegistry.registerUnion ctx.Types name typeArity info
 

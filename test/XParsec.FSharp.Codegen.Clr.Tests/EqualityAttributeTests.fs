@@ -289,9 +289,7 @@ let tests =
                     errors tast
                     |> List.filter (fun d -> d.Message.Contains "wrap the type in a class")
 
-                Expect.isNonEmpty
-                    scopeErrs
-                    (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
+                Expect.isNonEmpty scopeErrs (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
             }
 
             // Phase 4 — the front-end constraint gate now honours the class
@@ -316,8 +314,7 @@ let tests =
 
                 let tast, _ = compileSource "EqAttrClassCustomUse" src
 
-                let eqErrors =
-                    errors tast |> List.filter (fun d -> d.Message.Contains "equality")
+                let eqErrors = errors tast |> List.filter (fun d -> d.Message.Contains "equality")
 
                 Expect.isEmpty
                     eqErrors
@@ -339,8 +336,7 @@ let tests =
 
                 let tast, _ = compileSource "EqAttrClassNoEqUse" src
 
-                let eqErrors =
-                    errors tast |> List.filter (fun d -> d.Message.Contains "equality")
+                let eqErrors = errors tast |> List.filter (fun d -> d.Message.Contains "equality")
 
                 Expect.isNonEmpty
                     eqErrors

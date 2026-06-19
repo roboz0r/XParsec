@@ -1160,6 +1160,27 @@ module UnificationEngine =
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the
     /// check via `drainConstraints`; nested compounds recurse compositionally.
     and checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
+        // Shared verdict policy for the nominal data types (record / union / class):
+        // the stamped equality / comparison verdict overrides the field-walk. A
+        // `[<NoEquality>]` type at a `=` / `<>` use site is a diagnostic (`Violated`);
+        // `Reference` / `Custom` equality is `Satisfied` (BCL `Object.Equals` resp. the
+        // type's own members — field-walking a `Custom` type would be wrong, as its
+        // fields may individually lack equality). Comparison is opt-in: `NoComparison`
+        // ⇒ `Violated`, `Custom` ⇒ `Satisfied`, `Structural` falls through to the
+        // field-walk (`fieldsOf`, computed lazily so the non-structural arms never
+        // touch it).
+        let verdictOutcome
+            (eq: EqualityVerdict)
+            (cmp: ComparisonVerdict)
+            (fieldsOf: unit -> EqArray<SemType>)
+            : ConstraintOutcome =
+            match c.Kind, eq, cmp with
+            | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
+            | SemanticConstraintKind.Equality, (EqualityVerdict.Reference | EqualityVerdict.Custom), _ -> Satisfied
+            | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
+            | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
+            | _ -> reduceOutcome (checkConstraint ctx c) (fieldsOf ())
+
         match c.Kind, resolveStep t with
         | _, TyVar _ -> Defer
         // An unresolved contract head supports no constraint, but the
@@ -1195,76 +1216,51 @@ module UnificationEngine =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyRecord(recKey, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types recKey with
             | ValueSome info ->
-                // Verdict overrides the field-walk. Equality: a
-                // `[<NoEquality>]` record at a `=` / `<>` use site is a
-                // diagnostic; a `[<ReferenceEquality>]` record satisfies the
-                // equality predicate via BCL `Object.Equals`. Comparison
-                // is opt-in, so an unannotated record is `NoComparison` ⇒ ordering
-                // use site rejected; `[<StructuralComparison>]` falls through to the field-walk.
-                match c.Kind, info.EqualitySupport, info.ComparisonSupport with
-                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
-                | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
-                // A `Custom` type supports `=` / `<` via its own members, so the
-                // constraint is Satisfied — field-walking would be wrong (its fields
-                // may individually lack equality). Records can't legally be Custom
-                // (Phase 3 diagnoses that), but the verdict is still stamped, so handle
-                // it gracefully here to avoid a cascading field-walk error.
-                | SemanticConstraintKind.Equality, EqualityVerdict.Custom, _ -> Satisfied
-                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
-                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
-                | _ ->
-                    let subst = mkNamedTypeSubst info.TypeParams args
+                verdictOutcome
+                    info.EqualitySupport
+                    info.ComparisonSupport
+                    (fun () ->
+                        let subst = mkNamedTypeSubst info.TypeParams args
 
-                    info.Fields
-                    |> Array.map (fun f -> substituteWith subst f.Type)
-                    |> EqArray.ofArray
-                    |> reduceOutcome (checkConstraint ctx c)
+                        info.Fields
+                        |> Array.map (fun f -> substituteWith subst f.Type)
+                        |> EqArray.ofArray
+                    )
             | ValueNone -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
-                match c.Kind, info.EqualitySupport, info.ComparisonSupport with
-                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
-                | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
-                // A `Custom` union supports `=` / `<` via its own members; field-walking
-                // would be wrong (fields may individually lack equality).
-                | SemanticConstraintKind.Equality, EqualityVerdict.Custom, _ -> Satisfied
-                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
-                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
-                | _ ->
-                    let subst = mkNamedTypeSubst info.TypeParams args
+                verdictOutcome
+                    info.EqualitySupport
+                    info.ComparisonSupport
+                    (fun () ->
+                        let subst = mkNamedTypeSubst info.TypeParams args
+                        let fields = ResizeArray<SemType>()
 
-                    let fields = ResizeArray<SemType>()
+                        for case in info.Cases do
+                            for field in case.Fields do
+                                fields.Add(substituteWith subst field)
 
-                    for case in info.Cases do
-                        for field in case.Fields do
-                            fields.Add(substituteWith subst field)
-
-                    fields |> EqArray.ofResizeArray |> reduceOutcome (checkConstraint ctx c)
+                        EqArray.ofResizeArray fields
+                    )
             | ValueNone -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyClass(classKey, args) ->
-            // Verdict-honoring lookup, mirroring the record arm. A reference class
-            // defaults to `Reference` equality (⇒ `=` Satisfied via BCL `Object.Equals`)
-            // and `NoComparison`; a `[<Struct>]` value type defaults to `Structural`
-            // (field-walk); `[<CustomEquality>]` / `[<CustomComparison>]` stamp `Custom`.
+            // A reference class defaults to `Reference` equality (⇒ `=` Satisfied via
+            // BCL `Object.Equals`) and `NoComparison`; a `[<Struct>]` value type
+            // defaults to `Structural` (field-walk the instance fields);
+            // `[<CustomEquality>]` / `[<CustomComparison>]` stamp `Custom`.
             match TypeRegistry.tryClassByKey ctx.Types classKey with
             | ValueSome info ->
-                match c.Kind, info.EqualitySupport, info.ComparisonSupport with
-                | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
-                | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
-                | SemanticConstraintKind.Equality, EqualityVerdict.Custom, _ -> Satisfied
-                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.NoComparison -> Violated
-                | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
-                | _ ->
-                    // Structural posture — only reachable for `[<Struct>]` value
-                    // classes. Field-walk the instance fields with the class type
-                    // params substituted, exactly like the record arm.
-                    let subst = mkNamedTypeSubst info.TypeParams args
+                verdictOutcome
+                    info.EqualitySupport
+                    info.ComparisonSupport
+                    (fun () ->
+                        let subst = mkNamedTypeSubst info.TypeParams args
 
-                    info.InstanceFields
-                    |> Array.map (fun f -> substituteWith subst f.Type)
-                    |> EqArray.ofArray
-                    |> reduceOutcome (checkConstraint ctx c)
+                        info.InstanceFields
+                        |> Array.map (fun f -> substituteWith subst f.Type)
+                        |> EqArray.ofArray
+                    )
             | ValueNone -> Defer
         | SemanticConstraintKind.Equality, TyOr members ->
             // An anonymous union satisfies

@@ -71,11 +71,11 @@ let tests =
                             "    interface System.IEquatable<Tagged> with"
                             "        member this.Equals(other: Tagged) = (id = other.Id)"
                             "let a = Tagged(1, 10)"
-                            "let b = Tagged(1, 20)"   // custom-equal to a, not ref/struct equal
-                            "let c = Tagged(2, 10)"   // different id ⇒ custom-unequal
-                            "printfn \"%b\" (a = b)"   // true  — custom (id matches)
-                            "printfn \"%b\" (a = c)"   // false — custom (id differs)
-                            "printfn \"%b\" (a = a)"   // true  — custom (id matches)
+                            "let b = Tagged(1, 20)" // custom-equal to a, not ref/struct equal
+                            "let c = Tagged(2, 10)" // different id ⇒ custom-unequal
+                            "printfn \"%b\" (a = b)" // true  — custom (id matches)
+                            "printfn \"%b\" (a = c)" // false — custom (id differs)
+                            "printfn \"%b\" (a = a)" // true  — custom (id matches)
                         ]
 
                 let tast, artifact = compileSource "CustomEqDispatch" src
@@ -96,7 +96,8 @@ let tests =
                     "`=` dispatches to IEquatable<Tagged>.Equals (id-only), not structural/reference"
             }
 
-            test "[<CustomComparison>] class: `<` / compare invokes the user's IComparable<Self>.CompareTo (INVERTED order)" {
+            test
+                "[<CustomComparison>] class: `<` / compare invokes the user's IComparable<Self>.CompareTo (INVERTED order)" {
                 // `Ranked` carries an `id`. The custom `CompareTo` orders by id
                 // *DESCENDING* (inverted: larger id sorts first) — the opposite
                 // of any natural / structural ordering. So:
@@ -124,12 +125,12 @@ let tests =
                             "            else 0"
                             "let a = Ranked(1)"
                             "let b = Ranked(2)"
-                            "printfn \"%b\" (a < b)"   // false — custom inverts (1 sorts after 2)
-                            "printfn \"%b\" (a > b)"   // true  — custom inverts
-                            "printfn \"%b\" (a <= b)"  // false
-                            "printfn \"%b\" (a >= b)"  // true
-                            "printfn \"%b\" (a <= a)"  // true  — equal sorts <=
-                            "printfn \"%b\" (a >= a)"  // true  — equal sorts >=
+                            "printfn \"%b\" (a < b)" // false — custom inverts (1 sorts after 2)
+                            "printfn \"%b\" (a > b)" // true  — custom inverts
+                            "printfn \"%b\" (a <= b)" // false
+                            "printfn \"%b\" (a >= b)" // true
+                            "printfn \"%b\" (a <= a)" // true  — equal sorts <=
+                            "printfn \"%b\" (a >= a)" // true  — equal sorts >=
                         ]
 
                 let tast, artifact = compileSource "CustomCmpDispatch" src
@@ -179,6 +180,7 @@ let tests =
                 Expect.isNull
                     (typedCompareTo ty)
                     "no synthesized CompareTo(Tagged) on a [<CustomEquality; NoComparison>] class"
+
                 Expect.isFalse (implementsIComparable ty) "Tagged does NOT declare IComparable<Tagged>"
             }
         ]

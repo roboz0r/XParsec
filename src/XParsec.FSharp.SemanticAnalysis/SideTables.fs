@@ -461,11 +461,11 @@ type ClassTypeInfo
     /// stamps `Custom`. `Unification`/`Freeze` read this like the
     /// record/union ones.
     member val EqualitySupport = EqualityVerdict.Reference with get, set
-    /// Comparison posture for this class. The field default is the
-    /// reference-class posture (`NoComparison`);
-    /// `NameResolution.registerClassTypeDefn` (a later phase) computes the
-    /// kind-aware value — a `[<Struct>]` value type (`IsValueType = true`)
-    /// defaults to `Structural`, and `[<CustomComparison>]` stamps `Custom`.
+    /// Comparison posture for this class. The field default is also the resolved
+    /// default: comparison is opt-in, so every class kind (struct included) stays
+    /// `NoComparison` unless an attribute overrides it —
+    /// `NameResolution.registerClassTypeDefn` (a later phase) stamps `Structural`
+    /// for `[<StructuralComparison>]` and `Custom` for `[<CustomComparison>]`.
     /// `Unification`/`Freeze` read this like the record/union ones.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 

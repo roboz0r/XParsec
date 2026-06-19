@@ -1464,5 +1464,10 @@ module EmitJs =
         // and must precede every `new`/match site. External union case classes are not
         // emitted here: a `UnionCons` imports them from the union's home module.
         {
-            Body = JsImports.importStatements ctx.Imports @ recordUnionDecls @ classDecls @ memberDecls @ body
+            Body =
+                JsImports.importStatements ctx.Imports
+                @ recordUnionDecls
+                @ classDecls
+                @ memberDecls
+                @ body
         }

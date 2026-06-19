@@ -1284,7 +1284,8 @@ module Unification =
                 | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
                     SymbolKeyOps.qualifiedName ifaceKey = ifaceQualified
                     && (ifaceArgs.Length = 0 || argIsSelf info ifaceArgs.[0])
-                | _ -> false)
+                | _ -> false
+            )
 
         for kv in ctx.Types.Class do
             let info = kv.Value
@@ -1294,10 +1295,7 @@ module Unification =
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
 
             if needsEq && not (implementsSelf info "System.IEquatable`1") then
-                addDiag
-                    nameKey
-                    "FS0378"
-                    "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
+                addDiag nameKey "FS0378" "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
 
             // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
             // (FS0344). Without one the runtimes fall back to a structural hash (JS)
@@ -1311,17 +1309,11 @@ module Unification =
 
             if needsCmp then
                 if not (implementsSelf info "System.IComparable`1") then
-                    addDiag
-                        nameKey
-                        "FS0378"
-                        "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
+                    addDiag nameKey "FS0378" "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
 
                 // Coherence: custom comparison demands custom equality.
                 if not needsEq then
-                    addDiag
-                        nameKey
-                        "FS0379"
-                        "A type with [<CustomComparison>] must also have [<CustomEquality>]."
+                    addDiag nameKey "FS0379" "A type with [<CustomComparison>] must also have [<CustomEquality>]."
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
