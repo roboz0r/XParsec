@@ -1,3 +1,4 @@
+// Generated from list.js.fs
 export class List {
   constructor(tag) {
     this.tag = tag;

@@ -21,16 +21,17 @@
 // { tag, Head, Tail } cell) compare and hash identically — the same interop the
 // Step 5b list runtime relies on.
 //
-// TYPE BRAND: emitted union/record instances carry a non-enumerable `$type` (the
-// type's qualified name) on their prototype, so `eq` / `structuralCompare` distinguish
-// two different unions' nullary cases (both `{ tag: 0 }` — None vs Empty) instead of
+// TYPE BRAND: emitted union instances carry a non-enumerable `$type` (the type's
+// qualified name) on their prototype, so `eq` / `structuralCompare` distinguish two
+// different unions' nullary cases (both `{ tag: 0 }` — None vs Empty) instead of
 // reporting them equal. The brand is checked only when BOTH operands carry it, so a
 // hand-built plain `{ tag, … }` cell still interoperates structurally with an emitted
-// instance (the Step 5b/6 invariant). Residual erasure corner: two BRAND-LESS plain
-// cells of different nullary cases still compare equal — but F#'s type system makes
-// that unreachable through `=` (statically same-typed), and real values are always
-// branded instances. A future per-type `Equals`/`CompareTo` on the prototype would
-// also serve custom equality and monomorphic dispatch.
+// instance (the Step 5b/6 invariant). Records and plain classes are NOT branded (only
+// unions are). Residual erasure corners, both unreachable through `=` (which is
+// statically same-typed): two BRAND-LESS plain cells of different nullary cases still
+// compare equal; and two structurally identical record values of different types
+// compare equal. A future per-type `Equals`/`CompareTo` on the prototype would also
+// serve custom equality and monomorphic dispatch.
 //
 // Route B (the --compiling-fslib bootstrap) eventually replaces this hand-authored
 // file with a backend-compiled module — same shape, same imports.
@@ -59,11 +60,12 @@ function eq(a, b) {
 
 function eqStructural(a, b) {
   if (Array.isArray(b)) return false;
-  // Emitted union/record instances carry a non-enumerable `$type` brand (the type's
-  // qualified name) on their prototype. When BOTH operands are branded, a mismatch is
-  // unequal — this closes the erasure corner where two different unions' nullary cases
-  // (both `{ tag: 0 }`) compared equal. The check is tolerant: a plain `{ tag, … }`
-  // cell has no `$type`, so a cell-vs-instance comparison skips it and stays structural
+  // Emitted union instances carry a non-enumerable `$type` brand (the type's qualified
+  // name) on their prototype (records and plain classes are unbranded). When BOTH
+  // operands are branded, a mismatch is unequal — this closes the erasure corner where
+  // two different unions' nullary cases (both `{ tag: 0 }`) compared equal. The check is
+  // tolerant: a plain `{ tag, … }` cell has no `$type`, so a cell-vs-instance comparison
+  // skips it and stays structural
   // (the Step 5b/6 interop invariant). `$type` is non-enumerable, so the own-key walk
   // below never sees it; `hashOf` deliberately ignores it so equal values still hash
   // equal (a branded instance and an equal plain cell).

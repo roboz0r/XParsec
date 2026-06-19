@@ -14,10 +14,11 @@
 // sign (-1 / 0 / 1) the bases test against 0. It must agree with Vesper.Core.mjs's
 // `eq` — equal values compare 0 — a cross-package contract the Step6 tests pin down.
 //
-// TYPE BRAND (as in Vesper.Core.mjs): emitted instances carry a non-enumerable
+// TYPE BRAND (as in Vesper.Core.mjs): emitted union instances carry a non-enumerable
 // `$type`; when both operands are branded, a mismatch orders by it first, so two
 // different unions' nullary cases ({ tag: 0 }) no longer compare 0 — agreeing with
-// `eq`. Brand-less plain cells stay structural. Route B (the --compiling-fslib
+// `eq`. Records and plain classes are unbranded, and brand-less plain cells stay
+// structural. Route B (the --compiling-fslib
 // bootstrap) eventually replaces this hand-authored file with a backend-compiled
 // module — same shape, same import.
 

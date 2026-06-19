@@ -6,7 +6,12 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 /// The generated `Vesper.List.mjs` source (deps-only provider, library mode).
 let private generated: Lazy<string> =
-    lazy compileLibrary coreDepsJsProvider.Value "Vesper.List" (IO.File.ReadAllText(srcFile "Vesper.List" "list.js.fs"))
+    lazy
+        compileLibrary
+            coreDepsJsProvider.Value
+            "Vesper.List"
+            "list.js.fs"
+            (IO.File.ReadAllText(srcFile "Vesper.List" "list.js.fs"))
 
 /// Normalise line endings so a CRLF checkout still matches the printer's `\n` output.
 let private lf (s: string) : string = s.Replace("\r\n", "\n")

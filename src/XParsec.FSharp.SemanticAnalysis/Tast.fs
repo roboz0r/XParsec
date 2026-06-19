@@ -828,6 +828,7 @@ module Frozen =
     type TDecl = TDeclG<FrozenType, SyntaxToken>
     type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken>
     type TTypeKind = TTypeKindG<FrozenType, SyntaxToken>
+    type TClass = TClassG<FrozenType, SyntaxToken>
     type TUnionCase = TUnionCaseG<FrozenType>
     type TRecordField = TRecordFieldG<FrozenType>
     type TTypeMember = TTypeMemberG<FrozenType, SyntaxToken>

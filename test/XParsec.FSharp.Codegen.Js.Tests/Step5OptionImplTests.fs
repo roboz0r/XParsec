@@ -9,6 +9,7 @@ let private generated: Lazy<string> =
         compileLibrary
             coreDepsJsProvider.Value
             "Vesper.Option"
+            "option.fs"
             (IO.File.ReadAllText(srcFile "Vesper.Option" "option.fs"))
 
 let private lf (s: string) : string = s.Replace("\r\n", "\n")

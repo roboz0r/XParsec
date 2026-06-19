@@ -1,3 +1,4 @@
+// Generated from structural-printer.js.fs
 export class Doc {
   constructor(tag) {
     this.tag = tag;

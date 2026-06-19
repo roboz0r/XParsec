@@ -1,3 +1,4 @@
+// Generated from option.fs
 export class Option {
   constructor(tag) {
     this.tag = tag;

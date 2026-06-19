@@ -237,9 +237,12 @@ module Attributes =
                 "FS0377"
                 "This type uses an invalid mix of the attributes 'NoEquality', 'ReferenceEquality', 'StructuralEquality', 'NoComparison' and 'StructuralComparison'."
 
-        // Resolved verdicts mirror `decode*Attributes` first-wins ordering, so the
-        // verdict a site stamps is unchanged from the pre-validation path; only
-        // the diagnostics are new.
+        // Resolved verdicts use a fixed within-axis priority (Structural > Reference >
+        // No > Custom). For any non-contradictory attribute set this is exactly the
+        // verdict the old source-order `decode*Attributes` first-wins decoders stamped;
+        // the two differ only for a contradictory mix (e.g. `[<ReferenceEquality;
+        // StructuralEquality>]`), which is now an FS0377 error, so the stamped verdict is
+        // moot. Net: observationally unchanged; only the diagnostics are new.
         let eqVerdict =
             if s.StructuralEq then ValueSome EqualityVerdict.Structural
             elif s.ReferenceEq then ValueSome EqualityVerdict.Reference

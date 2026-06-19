@@ -21,6 +21,7 @@ let private generated: Lazy<string> =
         compileLibrary
             coreDepsJsProvider.Value
             "Vesper.Printf"
+            "structural-printer.js.fs"
             (IO.File.ReadAllText(srcFile "Vesper.Printf" "structural-printer.js.fs"))
 
 /// Normalise line endings so a CRLF checkout still matches the printer's `\n` output.

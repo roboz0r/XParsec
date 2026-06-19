@@ -164,17 +164,20 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : Frozen.Ta
 
     Freeze.run tast
 
-/// Compile a package impl in library mode to runtime-module source text (strips sourceMappingURL).
-let compileLibrary (provider: IExternalSymbolProvider) (moduleName: string) (input: string) : string =
+/// Compile a package impl in library mode to runtime-module source text (strips
+/// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.js.fs`),
+/// recorded both in the source map and in the emitted `// Generated from …` header.
+let compileLibrary
+    (provider: IExternalSymbolProvider)
+    (moduleName: string)
+    (sourceFile: string)
+    (input: string)
+    : string =
     let project =
         { JsProjectInfo.defaults moduleName with
-            Source =
-                Some
-                    {
-                        Path = moduleName + ".fs"
-                        Content = input
-                    }
+            Source = Some { Path = sourceFile; Content = input }
             Kind = Library
+            GeneratedFrom = Some sourceFile
         }
 
     let src =

@@ -1308,6 +1308,53 @@ module EmitJs =
             Attached: Frozen.TTypeMember list
         }
 
+    /// Partition a class's `Members` into the ATTACHED instance methods (runtime
+    /// dispatch slots, bound to `this`) and the FREE receiver-first functions
+    /// (tree-shakeable; call sites already lower to these). Interface-impl members
+    /// claim their name slot first; the redundant `obj`-typed `Object.Equals`
+    /// override is always dropped (the typed `IEquatable<Self>.Equals` impl holds
+    /// the `.Equals` slot); every other override (`GetHashCode`, `ToString`)
+    /// attaches. A member that ends up with NO emission slot — a non-`Equals`
+    /// member whose name is already claimed by an interface impl — fails loudly
+    /// rather than silently vanishing.
+    let private partitionClassMembers
+        (typeName: string)
+        (cls: Frozen.TClass)
+        : Frozen.TTypeMember list * Frozen.TTypeMember list =
+        let attached = ResizeArray<Frozen.TTypeMember>()
+        let claimed = System.Collections.Generic.HashSet<string>()
+
+        // Interface impls claim their name slot first.
+        for (_iface, ifaceMembers) in cls.Interfaces do
+            for m in ifaceMembers do
+                if claimed.Add m.Name then
+                    attached.Add m
+
+        let free = ResizeArray<Frozen.TTypeMember>()
+
+        for m in cls.Members do
+            if m.IsOverride && m.Name = "Equals" then
+                // `obj`-typed `Object.Equals` override is redundant on JS — the typed
+                // `IEquatable<Self>.Equals` already holds the `.Equals` dispatch slot.
+                ()
+            elif m.IsOverride then
+                if claimed.Add m.Name then
+                    attached.Add m
+                else
+                    failwithf
+                        "EmitJs: class '%s' override '%s' clashes with an interface-impl member of the same name (no JS dispatch slot for both)"
+                        typeName
+                        m.Name
+            elif claimed.Contains m.Name then
+                failwithf
+                    "EmitJs: class '%s' member '%s' collides with an interface-impl member of the same name (a regular method cannot share an attached dispatch slot)"
+                    typeName
+                    m.Name
+            else
+                free.Add m
+
+        List.ofSeq attached, List.ofSeq free
+
     let private collectTypes (exportTypes: bool) (tast: Frozen.TastFile) =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
@@ -1361,38 +1408,20 @@ module EmitJs =
                         else
                             ctorFields
 
-                    // ATTACHED instance methods (runtime dispatch slots). Interface-impl
-                    // members win their name slot; an `Object` override of the SAME name
-                    // (the redundant `obj`-typed `Equals`) is dropped. A surviving
-                    // override (`GetHashCode`, `ToString`) attaches too.
-                    let attached = ResizeArray<Frozen.TTypeMember>()
-                    let attachedNames = System.Collections.Generic.HashSet<string>()
-
-                    for (_iface, ifaceMembers) in cls.Interfaces do
-                        for m in ifaceMembers do
-                            if attachedNames.Add m.Name then
-                                attached.Add m
-
-                    for m in cls.Members do
-                        // `obj`-typed `Object.Equals` override is redundant on JS — the
-                        // typed `IEquatable<Self>.Equals` already holds the `.Equals`
-                        // slot. Every other `Object` override (notably `GetHashCode`)
-                        // attaches if it doesn't clash with an interface impl.
-                        if m.IsOverride && m.Name <> "Equals" && attachedNames.Add m.Name then
-                            attached.Add m
+                    // Split members into attached dispatch slots and free
+                    // receiver-first functions (interface-impl / override policy in
+                    // `partitionClassMembers`).
+                    let attached, free = partitionClassMembers td.Name cls
 
                     pendingClasses.Add
                         {
                             Name = td.Name
                             Fields = fieldNames
-                            Attached = List.ofSeq attached
+                            Attached = attached
                         }
 
-                    // Regular (non-attached) members emit as FREE receiver-first
-                    // functions for tree-shaking — call sites already lower to these.
-                    for m in cls.Members do
-                        if not (attachedNames.Contains m.Name) then
-                            members.Add(td.Name, m)
+                    for m in free do
+                        members.Add(td.Name, m)
                 | _ -> ()
             | _ -> ()
 

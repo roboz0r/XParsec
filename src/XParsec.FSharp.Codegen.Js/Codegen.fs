@@ -35,6 +35,13 @@ type JsProjectInfo =
         Source: JsSource option
         /// `Library` exports top-level bindings; `Script` keeps them as `const`.
         Kind: JsCompileKind
+        /// `Some sourceFile` prepends a `// Generated from <sourceFile>` provenance
+        /// line as the emitted file's first line — set when compiling a committed
+        /// runtime asset (`Vesper.List.mjs` etc.) so the artifact records the Vesper
+        /// source it was generated from. `None` emits no header (the default for an
+        /// ordinary program). The header shifts every source-map mapping down one
+        /// generated line, handled in `compileWith`.
+        GeneratedFrom: string option
     }
 
 module JsProjectInfo =
@@ -44,6 +51,7 @@ module JsProjectInfo =
             OutputPath = None
             Source = None
             Kind = Script
+            GeneratedFrom = None
         }
 
 /// The emitted artifact: the ESM source, its V3 source map (when source text was
@@ -118,15 +126,30 @@ module Codegen =
 
         let runtimeModules = JsImports.modules ctx.Imports
 
+        // Optional provenance header as the file's first line; it shifts every
+        // source-map mapping down one generated line so the map stays aligned.
+        let header =
+            match project.GeneratedFrom with
+            | Some src -> sprintf "// Generated from %s\n" src
+            | None -> ""
+
+        let mappings =
+            if header = "" then
+                result.Mappings
+            else
+                result.Mappings |> List.map (fun m -> { m with GenLine = m.GenLine + 1 })
+
+        let body = header + result.Source
+
         let map =
             project.Source
-            |> Option.map (fun src -> JsSourceMap.build jsFile src.Path src.Content result.Mappings)
+            |> Option.map (fun src -> JsSourceMap.build jsFile src.Path src.Content mappings)
 
         {
             Source =
                 match map with
-                | Some _ -> result.Source + sprintf "//# sourceMappingURL=%s.map\n" jsFile
-                | None -> result.Source
+                | Some _ -> body + sprintf "//# sourceMappingURL=%s.map\n" jsFile
+                | None -> body
             OutputPath = project.OutputPath
             Map = map
             MapPath =
