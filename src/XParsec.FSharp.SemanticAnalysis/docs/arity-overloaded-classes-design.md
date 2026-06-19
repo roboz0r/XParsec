@@ -13,6 +13,16 @@ This doc is READ-ONLY analysis + a staged plan. It names real `file:line`
 touch-points. Where a touch-point could not be found it is flagged an **open
 question**, not invented.
 
+> **STATUS (2026-06-19):** ✅ **Step A LANDED** (commit `662cd12`) — the
+> `(name, arity)` key, `ClassBareArity` alias, and arity threading through the
+> seven load-bearing front-end reads. Codegen needed zero new arity plumbing as
+> predicted; the site count ran modestly above the ~10-15 estimate (the seven bare
+> reads filed as "not load-bearing" turned out load-bearing once a name has two
+> arities). ⏳ **Step B (the `Fun2 → Fun<,,>` rename) is DEFERRED** — it edits the
+> rung4-shared `core-types.fs` block and is a binary-breaking contract change, so it
+> must be sequenced with the rung4 lambda-lowering epic, not parallelized. Do NOT
+> delete this doc until Step B lands.
+
 ---
 
 ## 0. The constraint being lifted
