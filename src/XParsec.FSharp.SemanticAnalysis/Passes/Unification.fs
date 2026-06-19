@@ -1299,6 +1299,16 @@ module Unification =
                     "FS0378"
                     "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
 
+            // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
+            // (FS0344). Without one the runtimes fall back to a structural hash (JS)
+            // / `Object.GetHashCode` (CLR), which is unsound under a non-structural
+            // custom `Equals` (it breaks equal ⇒ same-hash). Target-agnostic.
+            if
+                needsEq
+                && not (info.Members |> Array.exists (fun m -> m.Name = "GetHashCode" && m.IsOverride))
+            then
+                addDiag nameKey "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
+
             if needsCmp then
                 if not (implementsSelf info "System.IComparable`1") then
                     addDiag

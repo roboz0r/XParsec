@@ -76,8 +76,112 @@ module JsNativeSymbols =
                 Origin = errorOrigin
             }
 
-    /// The JS-native type table, keyed by bare global name.
-    let private types: Map<string, ExternalTypeShape> = Map [ "Error", errorShape ]
+    // --- System.IEquatable<'T> / System.IComparable<'T> -------------------------
+    //
+    // The JS provider is BCL-free, so it carries no `System.IEquatable\`1` /
+    // `System.IComparable\`1`. Without them a user's `interface System.IEquatable<Self>`
+    // on a custom-equality class resolves to an unbound `TyVar`, the
+    // "is not an interface" check (`Unification.fs`) fires, and the Phase-3 custom-eq
+    // gate (`validateCustomEqCompImpls`) then reports FS0378. These interfaces are
+    // ERASED at runtime on JS (the runtime duck-types `.Equals` / `.CompareTo`
+    // presence), so they exist here as PROVIDER METADATA only — no `.mjs` artifact.
+    //
+    // Keyed by the arity-suffixed name `tryResolveExternalTypeKey` probes first for an
+    // arity-1 receiver (`System.IEquatable\`1`); the resolved nominal head's
+    // `qualifiedName` is then EXACTLY `System.IEquatable\`1` (origin namespace `System`
+    // split off, arity suffix retained) — the form the gate matches on.
+
+    let private systemOrigin: SymbolOrigin =
+        {
+            Assembly = Some RuntimeAssembly
+            Namespace = "System"
+            DeclaringType = None
+        }
+
+    let private boolTy: FrozenType = FTConst("bool", EqArray.empty)
+    let private intTy: FrozenType = FTConst("int", EqArray.empty)
+    /// The single declaring typar `'T` (axis Declaring, index 0).
+    let private selfTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
+
+    let private iequatableKey: SymbolKey =
+        SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IEquatable`1")
+
+    let private icomparableKey: SymbolKey =
+        SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IComparable`1")
+
+    /// `IEquatable<'T>.Equals : 'T -> bool`.
+    let private iequatableEquals: ExternalMember =
+        {
+            Name = "Equals"
+            IsStatic = false
+            IsProperty = false
+            Signature =
+                {
+                    DeclaringArity = 1
+                    MethodArity = 0
+                    Parameters = selfTypar
+                    Return = boolTy
+                }
+            MethodArity = 0
+            Origin = systemOrigin
+            Key = SymbolKey.MemberKey(iequatableKey, "Equals", EqArray.empty, MemberKind.InterfaceMethod iequatableKey)
+            OptionalDefaults = []
+        }
+
+    /// `IComparable<'T>.CompareTo : 'T -> int`.
+    let private icomparableCompareTo: ExternalMember =
+        {
+            Name = "CompareTo"
+            IsStatic = false
+            IsProperty = false
+            Signature =
+                {
+                    DeclaringArity = 1
+                    MethodArity = 0
+                    Parameters = selfTypar
+                    Return = intTy
+                }
+            MethodArity = 0
+            Origin = systemOrigin
+            Key =
+                SymbolKey.MemberKey(icomparableKey, "CompareTo", EqArray.empty, MemberKind.InterfaceMethod icomparableKey)
+            OptionalDefaults = []
+        }
+
+    let private iequatableShape: ExternalTypeShape =
+        ExternalTypeShape.Class
+            {
+                Arity = 1
+                IsInterface = true
+                Members = [| iequatableEquals |]
+                FrozenInterfaces = [||]
+                FrozenBaseType = ValueNone
+                Flags = ExternalClassFlags.Default
+                Origin = systemOrigin
+            }
+
+    let private icomparableShape: ExternalTypeShape =
+        ExternalTypeShape.Class
+            {
+                Arity = 1
+                IsInterface = true
+                Members = [| icomparableCompareTo |]
+                FrozenInterfaces = [||]
+                FrozenBaseType = ValueNone
+                Flags = ExternalClassFlags.Default
+                Origin = systemOrigin
+            }
+
+    /// The JS-native type table, keyed by the compiled name resolution probes:
+    /// `Error` by bare global name, the generic interfaces by their arity-suffixed
+    /// qualified name.
+    let private types: Map<string, ExternalTypeShape> =
+        Map
+            [
+                "Error", errorShape
+                "System.IEquatable`1", iequatableShape
+                "System.IComparable`1", icomparableShape
+            ]
 
     /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.
     let private membersOf (typeName: string) (memberName: string) : ExternalMember[] =
