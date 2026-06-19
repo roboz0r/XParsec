@@ -129,4 +129,74 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "true\nfalse\ntrue" "`=` dispatches to IEquatable<Tagged>.Equals (id-only)"
             }
+
+            // ---- custom-comparison dispatch slot: execution proves `<`/`>`/`<=`/`>=` route through CompareTo ----
+            //
+            // Mirrors the CLR oracle `CustomEqualityComparisonDispatchTests.fs`. `Ranked.CompareTo`
+            // orders by id DESCENDING (inverted), so `a(1) < b(2)` is FALSE under the custom member
+            // (a natural ordering would give true). Passing proves `<`/`>`/`<=`/`>=` dispatch through
+            // `Vesper.Comparison.structuralCompare` → `cmp(a,b)` → `a.CompareTo(b)`.
+            test "a [<CustomComparison>] class dispatches `<`/`>`/`<=`/`>=` to the attached IComparable.CompareTo on JS (inverted order)" {
+                match
+                    runJs
+                        "class-customcmp"
+                        (lines
+                            [
+                                "[<CustomEquality; CustomComparison>]"
+                                "type Ranked(id: int) ="
+                                "    member _.Id = id"
+                                "    override this.Equals(o: obj) = false"
+                                "    override this.GetHashCode() = id"
+                                "    interface System.IEquatable<Ranked> with"
+                                "        member this.Equals(other: Ranked) = (id = other.Id)"
+                                "    interface System.IComparable<Ranked> with"
+                                "        member this.CompareTo(other: Ranked) ="
+                                "            if other.Id < id then -1"
+                                "            elif other.Id > id then 1"
+                                "            else 0"
+                                "let a = Ranked(1)"
+                                "let b = Ranked(2)"
+                                "printfn \"%b\" (a < b)"
+                                "printfn \"%b\" (a > b)"
+                                "printfn \"%b\" (a <= b)"
+                                "printfn \"%b\" (a >= b)"
+                                "printfn \"%b\" (a <= a)"
+                                "printfn \"%b\" (a >= a)"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal
+                        out
+                        "false\ntrue\nfalse\ntrue\ntrue\ntrue"
+                        "`<`/`>`/`<=`/`>=` dispatch to IComparable<Ranked>.CompareTo (inverted order)"
+            }
+
+            // ---- custom-hash dispatch slot: execution proves `hash` routes through GetHashCode ----
+            //
+            // `Hashed.GetHashCode` returns a CONSTANT 42, distinguishable from any structural hash.
+            // Proves `hash a` → `Vesper.Core.structuralHash` → `hashOf` → `a.GetHashCode()`.
+            test "a [<CustomEquality>] class dispatches `hash` to the attached GetHashCode on JS (constant)" {
+                match
+                    runJs
+                        "class-customhash"
+                        (lines
+                            [
+                                "[<CustomEquality; NoComparison>]"
+                                "type Hashed(id: int) ="
+                                "    member _.Id = id"
+                                "    override this.Equals(o: obj) = false"
+                                "    override this.GetHashCode() = 42"
+                                "    interface System.IEquatable<Hashed> with"
+                                "        member this.Equals(other: Hashed) = (id = other.Id)"
+                                "let a = Hashed(7)"
+                                "printfn \"%d\" (hash a)"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "42" "`hash` dispatches to GetHashCode (constant 42), not a structural hash"
+            }
         ]
