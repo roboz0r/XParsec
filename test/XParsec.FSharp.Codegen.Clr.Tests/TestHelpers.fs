@@ -1671,6 +1671,45 @@ let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string
             ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
             buf
 
+/// Like `peMethodIlWhere` but returns the IL of EVERY method on `declaringType`
+/// whose name matches — for when several methods share a synthetic naming scheme
+/// (`fn$<n>` for top-level functions) and the caller picks the right one by
+/// inspecting the IL (e.g. "the one containing a `constrained.` prefix").
+let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[][] =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    let typeMatches (td: TypeDefinition) =
+        let name = md.GetString td.Name
+        let ns = md.GetString td.Namespace
+
+        let qualified =
+            if System.String.IsNullOrEmpty ns then
+                name
+            else
+                sprintf "%s.%s" ns name
+
+        qualified = declaringType
+
+    [|
+        for tdh in md.TypeDefinitions do
+            let td = md.GetTypeDefinition tdh
+
+            if typeMatches td then
+                for mdh in td.GetMethods() do
+                    let m = md.GetMethodDefinition mdh
+
+                    if nameMatches (md.GetString m.Name) then
+                        if m.RelativeVirtualAddress = 0 then
+                            yield [||]
+                        else
+                            let body = peReader.GetMethodBody m.RelativeVirtualAddress
+                            let ilReader = body.GetILReader()
+                            let buf = Array.zeroCreate ilReader.RemainingBytes
+                            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
+                            yield buf
+    |]
+
 let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()

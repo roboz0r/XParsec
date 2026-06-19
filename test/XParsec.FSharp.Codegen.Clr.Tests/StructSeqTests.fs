@@ -959,4 +959,136 @@ let structSeqTests =
                     "42 42 42"
                     "flat Invoke(a,b), curryFun round-trip, and flatten of a curried value all yield 42"
             }
+
+            // RUNG 4 PROOF (wall iv): the WHOLE struct-seq pipeline dispatched via
+            // constrained struct-closure typars — the `src/Vesper.Seq/struct-seq`
+            // flip in miniature. Hand-written struct closures (an `AddN : Fun<int,int>`
+            // for `map` and a `SumAcc : Fun2<int,int,int>` for `fold`) drive
+            // `ofArray |> map |> fold`. `map`'s `MapEnumerator.Current` dispatches
+            // `this.F.Invoke(this.Source.Current)` through the `'TFunc :> Fun<int,int>`
+            // field (`constrained. !TFunc callvirt`); `fold` dispatches
+            // `f.Invoke(state, y)` through the `'TFunc :> Fun2<int,int,int>` PARAMETER
+            // in ONE flat 2-arg constrained call. The hot fold loop is asserted
+            // non-allocating: a `constrained.` prefix present, no `box`.
+            //
+            // The fixtures here re-declare the struct-seq surface inline (mirroring
+            // `src/Vesper.Seq/struct-seq.fs`) so the proof is self-contained against
+            // `compileSource` (which tolerates the Seq contract not being stacked);
+            // the library form is proven separately by `buildPackage "Vesper.Seq"`.
+            test "rung 4: struct-closure-typar map/fold pipeline runs non-allocating (wall iv proof)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator<'T> ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : 'T"
+                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator<'T> ="
+                            "    val Arr : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator<'T> with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : 'T = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq<'T> ="
+                            "    val Arr : 'T[]"
+                            "    new(arr: 'T[]) = { Arr = arr }"
+                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
+                            "[<Struct>]"
+                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val mutable Source : 'E"
+                            "    val F : 'TFunc"
+                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructEnumerator<'U> with"
+                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
+                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
+                            "[<Struct>]"
+                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val Source : 'S"
+                            "    val F : 'TFunc"
+                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
+                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
+                            // hand-written struct closures (each carries a `val`/`new`
+                            // so the [<Struct>] parses — a fieldless impl-only struct
+                            // trips parse recovery).
+                            "[<Struct>]"
+                            "type AddN ="
+                            "    val N : int"
+                            "    new(n: int) = { N = n }"
+                            "    interface Fun<int, int> with"
+                            "        member this.Invoke(x: int) : int = x + this.N"
+                            "[<Struct>]"
+                            "type SumAcc ="
+                            "    val Z : int"
+                            "    new(z: int) = { Z = z }"
+                            "    interface Fun2<int, int, int> with"
+                            "        member this.Invoke(state: int, y: int) : int = state + y + this.Z"
+                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
+                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
+                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
+                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "    let mutable state = seed"
+                            "    for y in source do"
+                            "        state <- f.Invoke(state, y)"
+                            "    state"
+                            "let xs = [| 1; 2; 3; 4 |]"
+                            "let s0 = ofArray xs"
+                            "let s1 = map (AddN 1) s0"
+                            "let total = fold (SumAcc 0) 0 s1"
+                            "printfn \"%d\" total"
+                        ]
+
+                let tast, artifact = compileSource "StructSeqRung4Pipeline" src
+                let bytes = Codegen.toBytes artifact
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                // (1+1)+(2+1)+(3+1)+(4+1) = 2+3+4+5 = 14
+                Expect.equal (output.Replace("\r", "").Trim()) "14" "map (+1) then fold (+) yields 14"
+
+                // The map node's per-element work is `MapEnumerator.Current`, which
+                // dispatches `this.F.Invoke(...)` via `constrained. !TFunc callvirt
+                // Fun::Invoke` — non-allocating.
+                let curIl = peMethodIlWhere bytes "MapEnumerator`4" (fun n -> n.EndsWith "Current")
+
+                let curConstrained =
+                    curIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue
+                    curConstrained
+                    "MapEnumerator.Current IL contains a `constrained.` prefix (Fun typar dispatch)"
+
+                Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
+
+                // The fold loop drives `f.Invoke(state, y)` via `constrained. !TFunc
+                // callvirt Fun2::Invoke` — the hot accumulator, also non-allocating.
+                // Several free top-level fns land on "Program" as `fn$<n>`; pick the
+                // one whose body carries a `constrained.` prefix (the fold loop) and
+                // assert it has no `box`.
+                let programFoldIl =
+                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    |> Array.filter (fun il ->
+                        il
+                        |> Array.windowed 2
+                        |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+                    )
+
+                Expect.isNonEmpty
+                    programFoldIl
+                    "a top-level fn$ (the fold loop) contains a `constrained.` prefix (Fun2 typar dispatch)"
+
+                Expect.isFalse
+                    (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
+                    "the constrained fold loop IL contains no `box` (non-allocating)"
+            }
         ]

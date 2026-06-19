@@ -12,16 +12,20 @@ namespace Vesper.Collections
 //     as generic constraints, never as variable types), so the compiler tracks
 //     the concrete enumerator type and chains by value.
 //   - `ArrayEnumerator<'T>` / `ArraySeq<'T>` — entering the pipeline from `'T[]`.
-//   - `MapEnumerator<'E, 'T, 'U>` / `MapSeq<'S, 'E, 'T, 'U>` — the `Seq.map` node;
-//     a generic struct enumerator chaining a generic inner enumerator `'E` via
-//     `constrained. !E callvirt`.
+//   - `MapEnumerator<'E, 'TFunc, 'T, 'U>` / `MapSeq<'S, 'E, 'TFunc, 'T, 'U>` — the
+//     `Seq.map` node; a generic struct enumerator chaining a generic inner
+//     enumerator `'E` via `constrained. !E callvirt`.
 //   - `ofArray` / `map` / `fold` — the entry, the combinator, and the consuming
 //     terminal (`fold` drives `for y in s` and threads a state accumulator,
-//     applying a `Vesper.Fun` per element).
+//     applying the flat arity-2 closure per element).
 //
-// The functional arguments are `Vesper.Fun`s (reference-type closures for now —
-// rung 4 flips them to struct closures); each application lowers to
-// `callvirt Fun::Invoke`.
+// RUNG 4 — the functional arguments are carried as EXPLICIT CONSTRAINED TYPARS,
+// not reference-type closures: `map` rides `'TFunc :> Fun<'T, 'U>` (single-arg)
+// and `fold` rides `'TFunc :> Fun2<'State, 'T, 'State>` (flat arity-2). The struct
+// closure is a `val F: 'TFunc` field / parameter, and each application lowers to
+// `constrained. !TFunc callvirt` — no heap, no box, JIT-devirtualizable — the same
+// by-value threading the library already does for its `'S` / `'E` enumerator
+// typars.
 
 open System
 open System.Collections
@@ -81,43 +85,44 @@ type ArraySeq<'T> =
         member this.GetEnumerator() : IEnumerator = (ArrayEnumerator<'T>(this.Arr) :> IEnumerator)
 
 [<Struct>]
-type MapEnumerator<'E, 'T, 'U when 'E :> IStructEnumerator<'T>> =
+type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> =
     val mutable Source: 'E
-    val F: 'T -> 'U
-    new(source: 'E, f: 'T -> 'U) = { Source = source; F = f }
+    val F: 'TFunc
+    new(source: 'E, f: 'TFunc) = { Source = source; F = f }
 
     interface IStructEnumerator<'U> with
         member this.MoveNext() : bool = this.Source.MoveNext()
-        member this.Current: 'U = this.F(this.Source.Current)
+        member this.Current: 'U = this.F.Invoke(this.Source.Current)
 
     interface IEnumerator<'U> with
-        member this.Current: 'U = this.F(this.Source.Current)
+        member this.Current: 'U = this.F.Invoke(this.Source.Current)
 
     interface IEnumerator with
         member this.MoveNext() : bool = this.Source.MoveNext()
-        member this.Current: obj = box (this.F(this.Source.Current))
+        member this.Current: obj = box (this.F.Invoke(this.Source.Current))
         member this.Reset() : unit = ()
 
     interface IDisposable with
         member this.Dispose() : unit = ()
 
 [<Struct>]
-type MapSeq<'S, 'E, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>> =
+type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>>
+    =
     val Source: 'S
-    val F: 'T -> 'U
-    new(source: 'S, f: 'T -> 'U) = { Source = source; F = f }
+    val F: 'TFunc
+    new(source: 'S, f: 'TFunc) = { Source = source; F = f }
 
-    interface IStructSeq<'U, MapEnumerator<'E, 'T, 'U>> with
-        member this.GetEnumerator() : MapEnumerator<'E, 'T, 'U> =
-            MapEnumerator<'E, 'T, 'U>(this.Source.GetEnumerator(), this.F)
+    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with
+        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> =
+            MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)
 
     interface IEnumerable<'U> with
         member this.GetEnumerator() : IEnumerator<'U> =
-            (MapEnumerator<'E, 'T, 'U>(this.Source.GetEnumerator(), this.F) :> IEnumerator<'U>)
+            (MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F) :> IEnumerator<'U>)
 
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =
-            (MapEnumerator<'E, 'T, 'U>(this.Source.GetEnumerator(), this.F) :> IEnumerator)
+            (MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F) :> IEnumerator)
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -125,17 +130,20 @@ module StructSeq =
 
     let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)
 
-    let map (f: 'T -> 'U) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'T, 'U> =
-        MapSeq<'S, 'E, 'T, 'U>(source, f)
+    let map
+        (f: 'TFunc when 'TFunc :> Fun<'T, 'U>)
+        (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>)
+        : MapSeq<'S, 'E, 'TFunc, 'T, 'U> =
+        MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)
 
     let fold
-        (f: 'State -> 'T -> 'State)
+        (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>)
         (seed: 'State)
         (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>)
         : 'State =
         let mutable state = seed
 
         for y in source do
-            state <- f state y
+            state <- f.Invoke(state, y)
 
         state

@@ -24,14 +24,63 @@ module internal UnificationInferGeneralize =
             subst.[qRoot] <- TyVar fresh
             freshOf.[qRoot] <- fresh
 
-        // Re-stamp constraints onto the fresh instance TyVars so each use
-        // site re-evaluates satisfaction against its own substitution; the
-        // original quantified TyVars stay constraint-bearing for the next call.
+        // Roots that appear in the scheme's SURFACE type (`scheme.Body`) — the part
+        // the caller unifies against. A `Coercion` target var that occurs here
+        // (e.g. `'U` in `map`'s `… -> MapSeq<…,'U>` return, constrained only by
+        // `'TFunc :> Fun<'T,'U>`) must be remapped to its fresh instance, or the
+        // dependent-typar inference in `drainConstraints` grounds the ORIGINAL
+        // surface var and leaves the FRESH return copy un-instantiated → an
+        // unresolved TyVar at freeze. A purely PHANTOM target var (e.g. the
+        // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, absent from the surface
+        // type) must stay verbatim: the function body's expr-tree references that
+        // original var, and the verbatim constraint is what grounds it.
+        let surfaceRoots =
+            let acc = HashSet<TypeVar>(HashIdentity.Reference)
+
+            let rec go t =
+                match t with
+                | TyVar tv ->
+                    let r = UnionFind.find tv
+                    acc.Add r |> ignore
+                | TyConst(_, args)
+                | TyRecord(_, args)
+                | TyUnion(_, args)
+                | TyClass(_, args) -> EqArray.iter go args
+                | TyFun(a, r) ->
+                    go a
+                    go r
+                | TyTuple xs -> EqArray.iter go xs
+                | TyOr members -> EqArray.iter go members.Members
+                | TyUnknown _
+                | TyTypar _ -> ()
+
+            go scheme.Body
+            acc
+
         for (qTv, c) in scheme.Constraints do
             let qRoot = UnionFind.find qTv
 
             match freshOf.TryGetValue qRoot with
-            | true, fresh -> addConstraintByKind fresh c
+            | true, fresh ->
+                let c =
+                    match c.Kind with
+                    | SemanticConstraintKind.Coercion target ->
+                        // Remap only the surface vars in the target; leave phantom
+                        // ones (referenced by the body expr-tree) on their original
+                        // identity. `subst` already maps every quantified root, so
+                        // filter it to the surface set for this purpose.
+                        let surfaceSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+
+                        for kv in subst do
+                            if surfaceRoots.Contains kv.Key then
+                                surfaceSubst.[kv.Key] <- kv.Value
+
+                        { c with
+                            Kind = SemanticConstraintKind.Coercion(substituteWith surfaceSubst target)
+                        }
+                    | _ -> c
+
+                addConstraintByKind fresh c
             | false, _ -> ()
 
         substituteWith subst scheme.Body

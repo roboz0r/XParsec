@@ -61,7 +61,7 @@ let tests =
                     "the DLL contains Vesper.Collections.ArraySeq`1"
 
                 Expect.isNotNull
-                    (asm.GetType "Vesper.Collections.MapSeq`4")
-                    "the DLL contains Vesper.Collections.MapSeq`4"
+                    (asm.GetType "Vesper.Collections.MapSeq`5")
+                    "the DLL contains Vesper.Collections.MapSeq`5"
             }
         ]
