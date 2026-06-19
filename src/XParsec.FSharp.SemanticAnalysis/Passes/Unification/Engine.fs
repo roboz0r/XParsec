@@ -1201,6 +1201,7 @@ module UnificationEngine =
                 // equality predicate via BCL `Object.Equals`. Comparison
                 // is opt-in, so an unannotated record is `NoComparison` ⇒ ordering
                 // use site rejected; `[<StructuralComparison>]` falls through to the field-walk.
+                // TODO(custom-eq): Phase 4 — Custom must be Satisfied, not field-walked
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
                 | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied
@@ -1216,6 +1217,7 @@ module UnificationEngine =
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
+                // TODO(custom-eq): Phase 4 — Custom must be Satisfied, not field-walked
                 match c.Kind, info.EqualitySupport, info.ComparisonSupport with
                 | SemanticConstraintKind.Equality, EqualityVerdict.NoEquality, _ -> Violated
                 | SemanticConstraintKind.Equality, EqualityVerdict.Reference, _ -> Satisfied

@@ -542,7 +542,8 @@ module NameResolutionMemberRegistration =
                     // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
                     // type. A struct is implicitly sealed (no derivation), so the
                     // emitted `TypeAttributes.Sealed` rides `IsValueType` too.
-                    info.IsValueType <- classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
+                    let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
+                    info.IsValueType <- isValueType
                     // A project-local interface (all-abstract body) — so
                     // `resolveInterfaceImpls` / the subtype check recognise it without
                     // an external-provider entry.
@@ -550,6 +551,34 @@ module NameResolutionMemberRegistration =
                     // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
                     info.IsByRefLike <- classAttrs.IsByRefLike
                     info.InstanceFields <- extractInstanceFields ctx body.elements
+
+                    // Validate equality / comparison attributes against the class
+                    // kind (FS0382 / FS0377) and stamp kind-aware verdicts. A value
+                    // type defaults to `Structural`; a reference class to
+                    // `Reference`. Comparison opt-in ⇒ `NoComparison`. Custom* and
+                    // explicit Structural* / No* overrides come from the validator.
+                    let classKind =
+                        if isValueType then
+                            Attributes.EqCompTargetKind.Struct
+                        else
+                            Attributes.EqCompTargetKind.RefClass
+
+                    let eqV, cmpV =
+                        Attributes.validateEqCompAttributes ctx classKind nameTok (Attributes.attributesOfTypeName tn)
+
+                    info.EqualitySupport <-
+                        match eqV with
+                        | ValueSome v -> v
+                        | ValueNone ->
+                            if isValueType then
+                                EqualityVerdict.Structural
+                            else
+                                EqualityVerdict.Reference
+
+                    info.ComparisonSupport <-
+                        match cmpV with
+                        | ValueSome v -> v
+                        | ValueNone -> ComparisonVerdict.NoComparison
 
                     TypeRegistry.registerClass ctx.Types name info
 
@@ -567,11 +596,33 @@ module NameResolutionMemberRegistration =
                             ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
                         | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
 
+    /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict
+    /// to stamp), but `[<StructuralEquality>]` / `[<ReferenceEquality>]` /
+    /// `[<CustomEquality>]` etc. are still illegal on it — run the kind-legality
+    /// check (FS0382 / FS0377) so those produce a diagnostic, discarding the
+    /// verdicts.
+    let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        match td with
+        | TypeDefn.Interface(typeName = tn) ->
+            let (TypeName(ident = nameLi)) = tn
+
+            if nameLi.Idents.Length = 1 then
+                let nameTok = nameLi.Idents.[0]
+
+                Attributes.validateEqCompAttributes
+                    ctx
+                    Attributes.EqCompTargetKind.Interface
+                    nameTok
+                    (Attributes.attributesOfTypeName tn)
+                |> ignore
+        | _ -> ()
+
     let registerClassTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
                 registerClassTypeDefn ctx declNs td
+                validateInterfaceTypeDefn ctx td
         | _ -> ()
 
     // A post-pass after

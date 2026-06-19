@@ -161,12 +161,21 @@ module NameResolutionTypeRegistration =
                     let info =
                         RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, key)
 
+                    // Validate the equality / comparison attributes against the
+                    // record kind (FS0382 / FS0377) and read the resolved verdicts.
+                    let eqV, cmpV =
+                        Attributes.validateEqCompAttributes
+                            ctx
+                            Attributes.EqCompTargetKind.Record
+                            nameTok
+                            (Attributes.attributesOfTypeName tn)
+
                     // Explicit equality attribute wins; absent, the default
                     // ⇒ Structural when every field is immutable,
                     // Reference otherwise. Feeds Unification.checkConstraint and the
                     // codegen triple gate (Freeze copies it onto EqualitySupport).
                     info.EqualitySupport <-
-                        match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        match eqV with
                         | ValueSome v -> v
                         | ValueNone ->
                             if fieldInfos |> Array.forall (fun fi -> not fi.IsMutable) then
@@ -176,7 +185,7 @@ module NameResolutionTypeRegistration =
 
                     // Comparison defaults to NoComparison, explicit attribute overrides.
                     info.ComparisonSupport <-
-                        match Attributes.decodeComparisonAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        match cmpV with
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
@@ -310,15 +319,24 @@ module NameResolutionTypeRegistration =
                     let info =
                         UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, key)
 
+                    // Validate the equality / comparison attributes against the
+                    // union kind (FS0382 / FS0377) and read the resolved verdicts.
+                    let eqV, cmpV =
+                        Attributes.validateEqCompAttributes
+                            ctx
+                            Attributes.EqCompTargetKind.Union
+                            nameTok
+                            (Attributes.attributesOfTypeName tn)
+
                     // Union equality defaults to Structural, explicit attribute overrides.
                     info.EqualitySupport <-
-                        match Attributes.decodeEqualityAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        match eqV with
                         | ValueSome v -> v
                         | ValueNone -> EqualityVerdict.Structural
 
                     // Comparison defaults to NoComparison, explicit attribute overrides.
                     info.ComparisonSupport <-
-                        match Attributes.decodeComparisonAttributes ctx (Attributes.attributesOfTypeName tn) with
+                        match cmpV with
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 

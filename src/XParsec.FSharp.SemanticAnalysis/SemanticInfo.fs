@@ -288,6 +288,11 @@ type EqualityVerdict =
     /// identity) suffice. Default for a record with any mutable field; also
     /// the `[<ReferenceEquality>]`-attributed case.
     | Reference
+    /// The type provides its own equality (`[<CustomEquality>]`): no triple is
+    /// synthesised; the user's `Equals`/`GetHashCode`/`IEquatable<Self>` members
+    /// are authoritative. An equality use site is SATISFIED. Validation (a later
+    /// phase) requires the type to implement `IEquatable<Self>`.
+    | Custom
     /// Emit no triple AND mark the type as forbidding equality; a `=` /
     /// `<>` use site against this type is a diagnostic (driven through the
     /// `Equality` typar-constraint check in `Unification`).
@@ -307,6 +312,11 @@ type ComparisonVerdict =
     /// `IComparable` `InterfaceImpl`s. Requires an explicit
     /// `[<StructuralComparison>]` attribute on the type.
     | Structural
+    /// The type provides its own comparison (`[<CustomComparison>]`): no pair is
+    /// synthesised; the user's `CompareTo`/`IComparable<Self>` members are
+    /// authoritative. A comparison use site is SATISFIED. Validation (a later
+    /// phase) requires the type to implement `IComparable<Self>`.
+    | Custom
     /// Emit no pair; `<` / `>` / `<=` / `>=` against this type is a diagnostic
     /// (driven through the `Comparison` typar-constraint check in
     /// `Unification`). Default for unannotated records / unions.

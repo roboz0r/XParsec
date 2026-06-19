@@ -29,18 +29,21 @@ module Attributes =
 
     let private noEqualityNames = [ "NoEquality"; "NoEqualityAttribute" ]
 
+    let private customEqualityNames = [ "CustomEquality"; "CustomEqualityAttribute" ]
+
     /// Canonical comparison-relevant short names. `[<StructuralComparison>]`
     /// opts a record / union INTO structural comparison (per
     /// brainstorm-comparison §9 the default is opt-in); `[<NoComparison>]` is
-    /// explicit refusal. `CustomComparison` is reserved for the augmentation
-    /// path (brainstorm-comparison §10) and is treated as
-    /// `NoComparison` by the decoder until augmentation-member support lands —
-    /// no triple is synthesised, but a use site is allowed (the augmentation
-    /// would provide one).
+    /// explicit refusal. `[<CustomComparison>]` decodes to
+    /// `ComparisonVerdict.Custom` — no pair is synthesised; the user's
+    /// `CompareTo`/`IComparable<Self>` members are authoritative.
     let private structuralComparisonNames =
         [ "StructuralComparison"; "StructuralComparisonAttribute" ]
 
     let private noComparisonNames = [ "NoComparison"; "NoComparisonAttribute" ]
+
+    let private customComparisonNames =
+        [ "CustomComparison"; "CustomComparisonAttribute" ]
 
     /// The attribute "class" lives inside `ObjectConstruction.typ` as the
     /// long-ident the user wrote (`StructuralEquality`, or
@@ -55,72 +58,200 @@ module Attributes =
             ValueSome(ctx.NameOf last)
         | _ -> ValueNone
 
-    /// Decode an attribute set list into an `EqualityVerdict`. The first
-    /// equality-relevant attribute wins (F# diagnoses redundant /
-    /// contradictory pairs as a separate error, which Phase 1 does not yet
-    /// produce); irrelevant attributes (`[<Struct>]`, `[<DefaultValue>]`, etc.)
-    /// are silently ignored.
-    ///
-    /// `ValueNone` ⇒ no equality-relevant attribute present — the caller falls
-    /// back to its default rule (brainstorm §8): an
-    /// all-immutable record / any union ⇒ `Structural`; a mutable record ⇒
-    /// `Reference`.
-    let decodeEqualityAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : EqualityVerdict voption =
+    // Per-axis verdict resolution + the FS0382 / FS0377 attribute validation
+    // lives in `validateEqCompAttributes` below (the single entry point for every
+    // type-registration site). The old first-wins `decode*Attributes` decoders
+    // were folded into it.
+
+    /// The set of equality / comparison attributes PRESENT on a type, collected
+    /// without first-wins short-circuiting so the mix validator (FS0377) can see
+    /// every contributing attribute. Each flag is `true` iff the corresponding
+    /// attribute short name appears in the type's `[<…>]` sets.
+    [<Struct>]
+    type private EqCompAttrSet =
+        {
+            StructuralEq: bool
+            ReferenceEq: bool
+            NoEq: bool
+            CustomEq: bool
+            StructuralCmp: bool
+            NoCmp: bool
+            CustomCmp: bool
+        }
+
+        static member Empty =
+            {
+                StructuralEq = false
+                ReferenceEq = false
+                NoEq = false
+                CustomEq = false
+                StructuralCmp = false
+                NoCmp = false
+                CustomCmp = false
+            }
+
+    /// Collect the FULL set of present equality / comparison attributes off a
+    /// type's `[<…>]` sets — unlike `decode*Attributes`, no first-wins
+    /// short-circuit, so a contradictory mix (`[<ReferenceEquality;
+    /// StructuralEquality>]`) is visible to the FS0377 validator.
+    let private collectEqCompAttrs (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : EqCompAttrSet =
         match attrs with
-        | ValueNone -> ValueNone
+        | ValueNone -> EqCompAttrSet.Empty
         | ValueSome sets ->
-            let mutable verdict = ValueNone
+            let mutable r = EqCompAttrSet.Empty
 
             for AttributeSet(attributes = entries) in sets do
-                if verdict.IsNone then
-                    for Attribute(construction = construction), _sep in entries do
-                        if verdict.IsNone then
-                            let attrTy =
-                                match construction with
-                                | ObjectConstruction(typ = t) -> t
-                                | InterfaceConstruction(typ = t) -> t
+                for Attribute(construction = construction), _sep in entries do
+                    let attrTy =
+                        match construction with
+                        | ObjectConstruction(typ = t) -> t
+                        | InterfaceConstruction(typ = t) -> t
 
-                            match attributeShortName ctx attrTy with
-                            | ValueSome n when List.contains n structuralEqualityNames ->
-                                verdict <- ValueSome EqualityVerdict.Structural
-                            | ValueSome n when List.contains n referenceEqualityNames ->
-                                verdict <- ValueSome EqualityVerdict.Reference
-                            | ValueSome n when List.contains n noEqualityNames ->
-                                verdict <- ValueSome EqualityVerdict.NoEquality
-                            | _ -> ()
+                    match attributeShortName ctx attrTy with
+                    | ValueSome n when List.contains n structuralEqualityNames -> r <- { r with StructuralEq = true }
+                    | ValueSome n when List.contains n referenceEqualityNames -> r <- { r with ReferenceEq = true }
+                    | ValueSome n when List.contains n noEqualityNames -> r <- { r with NoEq = true }
+                    | ValueSome n when List.contains n customEqualityNames -> r <- { r with CustomEq = true }
+                    | ValueSome n when List.contains n structuralComparisonNames -> r <- { r with StructuralCmp = true }
+                    | ValueSome n when List.contains n noComparisonNames -> r <- { r with NoCmp = true }
+                    | ValueSome n when List.contains n customComparisonNames -> r <- { r with CustomCmp = true }
+                    | _ -> ()
 
-            verdict
+            r
 
-    /// Decode an attribute set list into a `ComparisonVerdict`. Mirrors
-    /// `decodeEqualityAttributes`. `ValueNone` ⇒ no comparison-relevant
-    /// attribute is present, and the caller falls back to the default
-    /// (`NoComparison` per brainstorm-comparison §9 — opt-in).
-    let decodeComparisonAttributes
+    /// The type-kind axis the equality / comparison attribute legality matrix
+    /// (FS0382) keys on. `Struct` is any value type (`[<Struct>]`, `struct … end`,
+    /// `[<IsByRefLike>]`); `RefClass` is a plain reference class. Records, unions
+    /// and exceptions each have their own arm because their legality differs from
+    /// classes' (a record may carry `[<ReferenceEquality>]`; a class may not).
+    [<RequireQualifiedAccess>]
+    type EqCompTargetKind =
+        | Record
+        | Union
+        | Exception
+        | Struct
+        | RefClass
+        | Interface
+
+    let private addDiag (ctx: PassContext) (nameTok: SyntaxToken) (code: string) (message: string) : unit =
+        ctx.Diagnostics.Add
+            {
+                Key = NodeKey.ofToken nameTok NodeKind.DeclType
+                Message = message
+                Code = code
+                Severity = Severity.Error
+            }
+
+    /// Validate the equality / comparison attributes against the type kind
+    /// (FS0382 kind-legality + FS0377 invalid-mix), emitting diagnostics at the
+    /// type-name token, and return the resolved `(EqualityVerdict voption,
+    /// ComparisonVerdict voption)` for the caller to default + stamp. `ValueNone`
+    /// on either axis ⇒ no relevant attribute present (caller applies its
+    /// kind-aware default). This is the single attribute-validation entry point
+    /// for every type-registration site (record / union / class / interface);
+    /// the within-axis "first wins" of `decode*Attributes` is preserved here for
+    /// the verdict, while the mix check sees the whole set.
+    let validateEqCompAttributes
         (ctx: PassContext)
+        (kind: EqCompTargetKind)
+        (nameTok: SyntaxToken)
         (attrs: Attributes<SyntaxToken> voption)
-        : ComparisonVerdict voption =
-        match attrs with
-        | ValueNone -> ValueNone
-        | ValueSome sets ->
-            let mutable verdict = ValueNone
+        : EqualityVerdict voption * ComparisonVerdict voption =
+        let s = collectEqCompAttrs ctx attrs
 
-            for AttributeSet(attributes = entries) in sets do
-                if verdict.IsNone then
-                    for Attribute(construction = construction), _sep in entries do
-                        if verdict.IsNone then
-                            let attrTy =
-                                match construction with
-                                | ObjectConstruction(typ = t) -> t
-                                | InterfaceConstruction(typ = t) -> t
+        // FS0382 — kind legality. StructuralEquality / StructuralComparison are
+        // legal only on record / union / exception / struct; ReferenceEquality
+        // additionally bars struct; Custom* bar only interface; No* are legal
+        // everywhere.
+        let structuralLegal =
+            match kind with
+            | EqCompTargetKind.Record
+            | EqCompTargetKind.Union
+            | EqCompTargetKind.Exception
+            | EqCompTargetKind.Struct -> true
+            | EqCompTargetKind.RefClass
+            | EqCompTargetKind.Interface -> false
 
-                            match attributeShortName ctx attrTy with
-                            | ValueSome n when List.contains n structuralComparisonNames ->
-                                verdict <- ValueSome ComparisonVerdict.Structural
-                            | ValueSome n when List.contains n noComparisonNames ->
-                                verdict <- ValueSome ComparisonVerdict.NoComparison
-                            | _ -> ()
+        let referenceLegal =
+            match kind with
+            | EqCompTargetKind.Record
+            | EqCompTargetKind.Union
+            | EqCompTargetKind.Exception -> true
+            | EqCompTargetKind.Struct
+            | EqCompTargetKind.RefClass
+            | EqCompTargetKind.Interface -> false
 
-            verdict
+        let customLegal =
+            match kind with
+            | EqCompTargetKind.Interface -> false
+            | _ -> true
+
+        let structMsg =
+            "Only record, union, exception and struct types may be augmented with the 'ReferenceEquality', 'StructuralEquality' and 'StructuralComparison' attributes."
+
+        if (s.StructuralEq || s.StructuralCmp) && not structuralLegal then
+            addDiag ctx nameTok "FS0382" structMsg
+
+        if s.ReferenceEq && not referenceLegal then
+            addDiag ctx nameTok "FS0382" structMsg
+
+        if (s.CustomEq || s.CustomCmp) && not customLegal then
+            addDiag
+                ctx
+                nameTok
+                "FS0382"
+                "The 'CustomEquality' and 'CustomComparison' attributes are not valid on an interface type."
+
+        // FS0377 — invalid mix. Count attributes per axis; more than one is a
+        // mix. The cross-axis rules forbid structural comparison without
+        // structural equality, and reference / no-equality alongside structural
+        // comparison.
+        let eqCount =
+            (if s.StructuralEq then 1 else 0)
+            + (if s.ReferenceEq then 1 else 0)
+            + (if s.NoEq then 1 else 0)
+            + (if s.CustomEq then 1 else 0)
+
+        let cmpCount =
+            (if s.StructuralCmp then 1 else 0)
+            + (if s.NoCmp then 1 else 0)
+            + (if s.CustomCmp then 1 else 0)
+
+        let invalidMix =
+            eqCount > 1
+            || cmpCount > 1
+            || (s.StructuralCmp && not s.StructuralEq)
+            || (s.NoEq && s.StructuralCmp)
+            || (s.ReferenceEq && s.StructuralCmp)
+
+        if invalidMix then
+            addDiag
+                ctx
+                nameTok
+                "FS0377"
+                "This type uses an invalid mix of the attributes 'NoEquality', 'ReferenceEquality', 'StructuralEquality', 'NoComparison' and 'StructuralComparison'."
+
+        // Resolved verdicts mirror `decode*Attributes` first-wins ordering, so the
+        // verdict a site stamps is unchanged from the pre-validation path; only
+        // the diagnostics are new.
+        let eqVerdict =
+            if s.StructuralEq then ValueSome EqualityVerdict.Structural
+            elif s.ReferenceEq then ValueSome EqualityVerdict.Reference
+            elif s.NoEq then ValueSome EqualityVerdict.NoEquality
+            elif s.CustomEq then ValueSome EqualityVerdict.Custom
+            else ValueNone
+
+        let cmpVerdict =
+            if s.StructuralCmp then
+                ValueSome ComparisonVerdict.Structural
+            elif s.NoCmp then
+                ValueSome ComparisonVerdict.NoComparison
+            elif s.CustomCmp then
+                ValueSome ComparisonVerdict.Custom
+            else
+                ValueNone
+
+        eqVerdict, cmpVerdict
 
     /// Canonical parameter-attribute short names. `[<CallAtMostOnce>]` marks an
     /// inline parameter for call-by-name-at-its-single-use splicing (see

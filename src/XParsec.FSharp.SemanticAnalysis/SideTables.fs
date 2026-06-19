@@ -454,6 +454,20 @@ type ClassTypeInfo
     /// each onto a `TRecordField` in `TTypeKind.Class.fields`. Empty unless the
     /// class declares any `val` fields.
     member val InstanceFields: ClassFieldInfo[] = [||] with get, set
+    /// Equality posture for this class. The field default is the reference-class
+    /// posture (`Reference`); `NameResolution.registerClassTypeDefn` (a later
+    /// phase) computes the kind-aware value — a `[<Struct>]` value type
+    /// (`IsValueType = true`) defaults to `Structural`, and `[<CustomEquality>]`
+    /// stamps `Custom`. `Unification`/`Freeze` read this like the
+    /// record/union ones.
+    member val EqualitySupport = EqualityVerdict.Reference with get, set
+    /// Comparison posture for this class. The field default is the
+    /// reference-class posture (`NoComparison`);
+    /// `NameResolution.registerClassTypeDefn` (a later phase) computes the
+    /// kind-aware value — a `[<Struct>]` value type (`IsValueType = true`)
+    /// defaults to `Structural`, and `[<CustomComparison>]` stamps `Custom`.
+    /// `Unification`/`Freeze` read this like the record/union ones.
+    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. A record rather than a 2-tuple so
