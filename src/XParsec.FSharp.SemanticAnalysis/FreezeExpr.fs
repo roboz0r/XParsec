@@ -136,18 +136,29 @@ module internal FreezeExpr =
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
                                                                                             receiverTy,
                                                                                             ifaceKey,
+                                                                                            ifaceArgs,
                                                                                             memberName)))
             argExprs = args) ->
             let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
-            mkInterfaceMethodCall ctx receiver ifaceKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
+
+            mkInterfaceMethodCall
+                ctx
+                receiver
+                ifaceKey
+                ifaceArgs
+                memberName
+                (peelCtorArgs (translateExpr ctx) args)
+                ty
+                tok
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
                                                                                             receiverTy,
                                                                                             ifaceKey,
+                                                                                            ifaceArgs,
                                                                                             memberName)))
             argExpr = arg) ->
             let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
-            mkInterfaceMethodCall ctx receiver ifaceKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            mkInterfaceMethodCall ctx receiver ifaceKey ifaceArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.

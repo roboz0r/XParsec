@@ -914,6 +914,16 @@ module Unification =
                     match ctx.Types.Class.TryGetValue name with
                     | true, info ->
                         let prelinkExtras () =
+                            // Attach the class's `when 'S :> IFace` typar constraints
+                            // to the prototype TyVars (under the class typar scope, set
+                            // by `fillTypeMembers` before this runs) — so a member-body
+                            // `this.field` access on an interface-constrained class typar
+                            // resolves through the interface (rung-3 `CallVia.Interface`).
+                            // Mirrors `fillRecordFieldTypes`/`fillUnionFieldTypes`.
+                            match info.TyparConstraints with
+                            | ValueSome cs -> translateConstraints ctx cs
+                            | ValueNone -> ()
+
                             // Fill ctor-param placeholders under the class's
                             // typar scope, then seed `ctx.Bindings.TypeVar` so
                             // `inferIdent` lookups against the param binding

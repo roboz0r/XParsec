@@ -872,7 +872,7 @@ let tests =
                     analyse
                         "type Base() =\n    member this.M () = 1\ntype Derived() =\n    inherit Base()\n    override this.M () = base.M() + 1"
 
-                let vias = ResizeArray<CallVia>()
+                let vias = ResizeArray<CallVia<SemType>>()
 
                 let collect =
                     { TastWalk.identityIter with

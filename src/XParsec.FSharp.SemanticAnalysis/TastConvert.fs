@@ -81,8 +81,9 @@ module TastConvert =
         | TExprG.FieldSet(r, n, v, ty, tok) -> TExprG.FieldSet(pe r, n, pe v, f ty, tok)
         | TExprG.UnionCons(c, args, ty, tok) -> TExprG.UnionCons(c, EqArray.map pe args, f ty, tok)
         | TExprG.New(c, args, ty, tok) -> TExprG.New(c, EqArray.map pe args, f ty, tok)
-        | TExprG.MethodCall(r, k, via, args, ty, tok) -> TExprG.MethodCall(pe r, k, via, EqArray.map pe args, f ty, tok)
-        | TExprG.PropertyGet(r, k, via, ty, tok) -> TExprG.PropertyGet(pe r, k, via, f ty, tok)
+        | TExprG.MethodCall(r, k, via, args, ty, tok) ->
+            TExprG.MethodCall(pe r, k, viaOf f via, EqArray.map pe args, f ty, tok)
+        | TExprG.PropertyGet(r, k, via, ty, tok) -> TExprG.PropertyGet(pe r, k, viaOf f via, f ty, tok)
         | TExprG.StaticMethodCall(k, args, ty, tok) -> TExprG.StaticMethodCall(k, EqArray.map pe args, f ty, tok)
         | TExprG.StaticPropertyGet(k, ty, tok) -> TExprG.StaticPropertyGet(k, f ty, tok)
         | TExprG.StaticFieldGet(k, n, ty, tok) -> TExprG.StaticFieldGet(k, n, f ty, tok)
@@ -104,6 +105,12 @@ module TastConvert =
             Guard = Option.map (expr f) a.Guard
             Body = expr f a.Body
         }
+
+    and viaOf (f: 'a -> 'b) (v: CallVia<'a>) : CallVia<'b> =
+        match v with
+        | CallVia.Self -> CallVia.Self
+        | CallVia.Base -> CallVia.Base
+        | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
 
     and sinkOf (f: 'a -> 'b) (s: FormatSinkG<'a, 'tok>) : FormatSinkG<'b, 'tok> =
         match s with

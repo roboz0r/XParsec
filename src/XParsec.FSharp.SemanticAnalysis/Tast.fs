@@ -142,12 +142,15 @@ type HoleSpecG<'ty, 'tok> =
 /// type is the interface, the receiver's type is the typar, and codegen emits
 /// `constrained. <typar> callvirt <iface-slot>` (no box for a struct typar, a
 /// reference dispatch for a class typar). Set by Freeze when the receiver resolved
-/// through `TyparInterfaceCall`; read by codegen (Wall C).
+/// through `TyparInterfaceCall`; read by codegen (Wall C). The carried `ifaceArgs`
+/// are the interface's instantiation type arguments (`'E` in `'T :> IStructSeq<'E>`),
+/// threaded from the typar's `Coercion` constraint so codegen can mint the slot on
+/// the *instantiated* interface `TypeSpec`; empty for a non-generic interface.
 [<RequireQualifiedAccess>]
-type CallVia =
+type CallVia<'ty> =
     | Self
     | Base
-    | Interface
+    | Interface of ifaceArgs: EqArray<'ty>
 
 [<RequireQualifiedAccess>]
 type TExprG<'ty, 'tok> =
@@ -273,11 +276,11 @@ type TExprG<'ty, 'tok> =
     | MethodCall of
         receiver: TExprG<'ty, 'tok> *
         key: SymbolKey *
-        via: CallVia *
+        via: CallVia<'ty> *
         args: EqArray<TExprG<'ty, 'tok>> *
         ty: 'ty *
         tok: 'tok
-    | PropertyGet of receiver: TExprG<'ty, 'tok> * key: SymbolKey * via: CallVia * ty: 'ty * tok: 'tok
+    | PropertyGet of receiver: TExprG<'ty, 'tok> * key: SymbolKey * via: CallVia<'ty> * ty: 'ty * tok: 'tok
     /// Same arg-peeling as `MethodCall`; no receiver. `key` is the resolved local
     /// `SymbolKey.MemberKey`.
     | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok

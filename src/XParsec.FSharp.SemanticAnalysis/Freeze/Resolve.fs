@@ -557,7 +557,7 @@ module internal FreezeResolve =
     /// into itself. The check is O(classes) per access — the gap doc accepts this
     /// for v1 (most files declare a handful of classes); a reverse index is a
     /// later optimisation.
-    let viaOfReceiver (ctx: PassContext) (receiver: TExpr) : CallVia =
+    let viaOfReceiver (ctx: PassContext) (receiver: TExpr) : CallVia<SemType> =
         match receiver with
         | TExpr.Var(bindingSite, _, _) ->
             let mutable isBase = false
@@ -606,6 +606,7 @@ module internal FreezeResolve =
         (ctx: PassContext)
         (receiver: TExpr)
         (ifaceKey: SymbolKey)
+        (ifaceArgs: EqArray<SemType>)
         (memberName: string)
         (args: EqArray<TExpr>)
         (ty: SemType)
@@ -613,7 +614,7 @@ module internal FreezeResolve =
         : TExpr =
         let key = LocalSymbolKey.ofMember ifaceKey memberName args.Length MemberKind.Method
         let argsList = wrapObjArgsEq (memberParamTys ctx ifaceKey memberName) args
-        TExpr.MethodCall(receiver, key, CallVia.Interface, argsList, ty, tok)
+        TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
 
     /// `StaticMethodCall` resolved to `declKey.memberName`.
     let mkStaticMethodCall
@@ -856,7 +857,7 @@ module internal FreezeResolve =
     let (|TyparInterfaceMethod|_|)
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (LongIdent<SyntaxToken> * SemType * SymbolKey * string) voption =
+        : (LongIdent<SyntaxToken> * SemType * SymbolKey * EqArray<SemType> * string) voption =
         let n = li.Idents.Length
 
         if n < 2 then
@@ -866,7 +867,7 @@ module internal FreezeResolve =
 
             match ctx.Resolution.TyparInterfaceCall.TryGetValue key with
             | ValueNone -> ValueNone
-            | ValueSome ifaceKey ->
+            | ValueSome(ifaceKey, ifaceArgs) ->
                 let head = li.Idents.[0]
                 let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
@@ -895,7 +896,7 @@ module internal FreezeResolve =
                                 Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
                             }
 
-                        ValueSome(prefixLi, recvTy, ifaceKey, memberName)
+                        ValueSome(prefixLi, recvTy, ifaceKey, ifaceArgs, memberName)
 
     /// The `ResolvedExternalMember` Unification recorded for this node, if any.
     /// Used with a `&` conjunction so the external-member arms drop both the

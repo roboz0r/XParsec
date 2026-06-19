@@ -391,7 +391,7 @@ type private Renderer() =
                 | CallVia.Self -> "."
                 // Rung-3 Wall B: constrained dispatch on a typar coerced to an
                 // interface — render with `:` to read distinctly from `.`/`^`.
-                | CallVia.Interface -> ":"
+                | CallVia.Interface _ -> ":"
             )
 
             push (SymbolKeyOps.simpleName key)
@@ -416,7 +416,7 @@ type private Renderer() =
                 | CallVia.Self -> "."
                 // Rung-3 Wall B: constrained dispatch on a typar coerced to an
                 // interface — render with `:` to read distinctly from `.`/`^`.
-                | CallVia.Interface -> ":"
+                | CallVia.Interface _ -> ":"
             )
 
             push (SymbolKeyOps.simpleName key)

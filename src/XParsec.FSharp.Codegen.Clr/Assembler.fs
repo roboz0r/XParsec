@@ -133,13 +133,21 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     // Interfaces register their `TypeDef` too, so one Core interface naming another
     // as a member-signature type (`IStructuralFormattable.Format(IFormatSink)`)
-    // resolves through `userTypes` like any project-local nominal. Generic
-    // interfaces (`Fun\`2`) are referenced via dedicated encoder arms, so only the
-    // bare-handle registration is needed here.
+    // resolves through `userTypes` like any project-local nominal.
     do
         interfaceDecls
         |> List.iter (fun (td, _) ->
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+
+            // A *generic* interface (`IStructSeq<'E>`) also enters the generic-class
+            // registry so a constrained-typar dispatch (rung-3 `CallVia.Interface`)
+            // can mint its abstract slot as a `MemberRef` on the instantiated
+            // interface `TypeSpec` (`IStructSeq\`1<!E>::GetEnumerator`) via
+            // `UserGenericMemberRef`. An interface has no ctor params or fields, so
+            // the field/ctor-arity components are empty — only the typar count (for
+            // the self-`TypeSpec`) and the member signature are consulted.
+            if not td.TypeParams.IsEmpty then
+                provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, 0, [])
         )
 
     // A *generic* closure is a real generic `TypeDefinition` after the nominal

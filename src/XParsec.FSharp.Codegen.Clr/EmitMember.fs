@@ -75,7 +75,7 @@ module EmitMember =
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (via: CallVia)
+        (via: CallVia<FrozenType>)
         (receiver: Frozen.TExpr)
         (receiverTy: FrozenType)
         (handle: EntityHandle)
@@ -175,7 +175,7 @@ module EmitMember =
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.MethodCall(receiver, key, CallVia.Interface, args, ty, _) ->
+        | TExprG.MethodCall(receiver, key, CallVia.Interface ifaceArgs, args, ty, _) ->
             // Rung-3 Wall C: a member call on a value whose type is a generic typar
             // constrained to an interface (`x : 'T when 'T :> IFace`). The receiver's
             // type is an `FTTypar`, not a nominal — so `resolveInstanceMember` can't be
@@ -200,18 +200,26 @@ module EmitMember =
                 | true, i -> i
                 | false, _ -> failwithf "EmitMember: CallVia.Interface on unregistered interface '%A'" ifaceKey
 
-            // The constrained dispatch is currently exercised only by *non-generic*
-            // interfaces (Wall B / rung-3's first slice). A generic interface
-            // (`IStructSeq<'E>`) needs the slot resolved on an instantiated `TypeSpec`,
-            // whose instantiation isn't recoverable from the bare `FTTypar` receiver —
-            // fail loudly until the generic payoff threads it through.
-            if not (List.isEmpty iface.Typars) then
-                failwithf "EmitMember: CallVia.Interface on a generic interface '%A' is not yet supported" ifaceKey
-
             let m =
                 match iface.Members.TryGetValue name with
                 | true, candidates -> pickOverload name candidates argTys
                 | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
+
+            // For a *generic* interface (`'S :> IStructSeq<'E>`), the abstract slot
+            // lives on the instantiated interface `TypeSpec` (`IStructSeq`1<!E>`), not
+            // on the bare generic definition — so mint a `MemberRef` against the
+            // instantiation Wall B threaded onto `CallVia.Interface`. A non-generic
+            // interface (empty `iface.Typars`) uses the slot's `Def` handle directly.
+            let slotHandle =
+                EmitResolve.memberRef
+                    env
+                    iface.Typars
+                    ifaceKey
+                    (EqArray.toList ifaceArgs)
+                    (UserMemberKind.ClassMember(
+                        ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
+                    ))
+                    m.Handle
 
             // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
             let returnsUnit =
@@ -232,7 +240,7 @@ module EmitMember =
                 recur env b a
 
             b.Add(ILInstr.Constrained(env.Provider.TypeToken receiverTy))
-            b.Add(ILInstr.Callvirt(m.Handle, operands, resultCount))
+            b.Add(ILInstr.Callvirt(slotHandle, operands, resultCount))
 
             if returnsUnit then
                 EmitTypes.buildUnitValue env b

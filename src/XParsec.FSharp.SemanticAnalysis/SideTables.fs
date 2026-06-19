@@ -423,6 +423,14 @@ type ClassTypeInfo
     /// block. `Freeze` projects them onto `TTypeKind.Class.interfaces` for codegen
     /// (Step 5.3, deferred).
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+    /// `when 'a : ...` / `when 'a :> IFace` clause attached to the class's typar
+    /// list, if any. Stamped by `NameResolution.registerClassTypeDefn`; Unification's
+    /// `fillClassMembers` walks it (under the class typar scope) and attaches each
+    /// constraint to the matching prototype TyVar in `TypeParams` — so a member body's
+    /// `this.field` access on an interface-constrained class typar (`'S :> IBox<'T>`)
+    /// resolves through the interface (rung-3 `CallVia.Interface`). Mirrors
+    /// `RecordTypeInfo.TyparConstraints`. `ValueNone` for an unconstrained class.
+    member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]` (or the `type X = struct … end` shape).
     /// Stamped by `registerClassTypeDefn`; `Freeze`
     /// projects it onto `TTypeKind.Class.isStruct` so codegen emits a
@@ -869,8 +877,12 @@ type PassContextResolution =
         /// through the typar's `Coercion` constraint, and read by `Freeze` to mint a
         /// `TExpr.MethodCall` with `CallVia.Interface` (the declaring type is the
         /// interface; codegen emits `constrained. <typar> callvirt`). Absent ⇒ an
-        /// ordinary nominal-receiver member access.
-        TyparInterfaceCall: SideTable<SymbolKey>
+        /// ordinary nominal-receiver member access. The paired `SemType list` is the
+        /// interface's instantiation type arguments (`'E` in `'T :> IStructSeq<'E>`),
+        /// taken from the `Coercion` constraint's target so Freeze can thread them
+        /// onto `CallVia.Interface` and codegen mint the slot on the *instantiated*
+        /// interface `TypeSpec`; empty for a non-generic interface.
+        TyparInterfaceCall: SideTable<SymbolKey * EqArray<SemType>>
         /// Keyed by an external-value use-site's `NodeKey` (the `Expr.Ident` /
         /// `Expr.LongIdentOrOp` that resolved through `IExternalSymbolProvider.TryLookup`):
         /// the resolved value's `SymbolKey.ValueKey`. Freeze stamps it onto

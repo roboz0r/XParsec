@@ -99,6 +99,86 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy il) "callIt IL contains no `box` (non-allocating struct dispatch)"
             }
 
+            // Rung-3 generic payoff, step 0: a typar constrained to a *generic*
+            // interface instantiated at a CONCRETE arg (`'T :> IBox<int>`). Forces
+            // the `CallVia.Interface` slot to be minted on the instantiated interface
+            // `TypeSpec` (`IBox`1<int>`) rather than the bare definition — the case
+            // Wall C deferred (`iface.Typars` non-empty).
+            test "constrained typar dispatch on a generic interface (concrete arg) does not box" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IBox<'T> ="
+                            "    abstract member Get : unit -> 'T"
+                            "[<Struct>]"
+                            "type IntBox ="
+                            "    val N : int"
+                            "    new(n: int) = { N = n }"
+                            "    interface IBox<int> with"
+                            "        member this.Get() = this.N"
+                            "let callIt (x: 'T when 'T :> IBox<int>) : int = x.Get()"
+                            "printfn \"%d\" (callIt (IntBox 5))"
+                        ]
+
+                let _, artifact = compileSource "GenericIfaceConcreteDispatch" src
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "5"
+                    "generic-interface constrained dispatch returns the impl value"
+
+                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    il
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "callIt IL contains a `constrained.` prefix"
+                Expect.isFalse (Array.contains 0x8Cuy il) "callIt IL contains no `box`"
+            }
+
+            // Rung-3 generic payoff, step 1: a generic struct whose field is a typar
+            // (`'S`) constrained to a generic interface whose arg is ANOTHER typar of
+            // the enclosing struct (`'S :> IBox<'T>`). The constrained dispatch must
+            // mint the slot on `IBox\`1<!T>` where `!T` is the struct's own typar —
+            // the interface instantiation is itself a generic parameter, not concrete.
+            test "generic struct dispatches through a typar field constrained to a generic interface (typar arg)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IBox<'T> ="
+                            "    abstract member Get : unit -> 'T"
+                            "[<Struct>]"
+                            "type IntBox ="
+                            "    val N : int"
+                            "    new(n: int) = { N = n }"
+                            "    interface IBox<int> with"
+                            "        member this.Get() = this.N"
+                            "[<Struct>]"
+                            "type Wrap<'S, 'T when 'S :> IBox<'T>> ="
+                            "    val Inner : 'S"
+                            "    new(inner: 'S) = { Inner = inner }"
+                            "    member this.Fetch() : 'T = this.Inner.Get()"
+                            "let w = Wrap<IntBox, int>(IntBox 7)"
+                            "printfn \"%d\" (w.Fetch())"
+                        ]
+
+                let _, artifact = compileSource "GenericStructTyparIface" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "7"
+                    "generic-struct typar-arg interface dispatch returns the impl value"
+            }
+
             // Wall A (rung 3): a project-local class implementing a project-local
             // interface, dispatched through the interface. Existing interface-impl
             // tests all use BCL interfaces; `resolveInterfaceImpls` only recognises an

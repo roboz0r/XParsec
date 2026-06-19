@@ -171,6 +171,15 @@ module TastWalk =
             OverrideArm = fun _ _ -> ValueNone
         }
 
+    /// Apply a type map to a `CallVia`'s payload. Only `CallVia.Interface` carries
+    /// types (its constraining-interface instantiation args); `Self`/`Base` pass
+    /// through unchanged.
+    let mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
+        match v with
+        | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
+        | CallVia.Self -> CallVia.Self
+        | CallVia.Base -> CallVia.Base
+
     let rec mapPat (m: Mapper) (p: TPat) : TPat =
         match m.OverridePat m p with
         | ValueSome p' -> p'
@@ -232,9 +241,13 @@ module TastWalk =
             | TExpr.FieldSet(r, n, v, ty, tok) -> TExpr.FieldSet(pe r, n, pe v, f ty, tok)
             | TExpr.UnionCons(c, args, ty, tok) -> TExpr.UnionCons(c, EqArray.map pe args, f ty, tok)
             | TExpr.New(c, args, ty, tok) -> TExpr.New(c, EqArray.map pe args, f ty, tok)
+            // `CallVia.Interface` carries the constraining interface's instantiation
+            // type args (rung-3) — they reference the enclosing type's typars, so a
+            // declaring-typar remap (`freezeTypars`) must reach them too, else they
+            // leak as un-ground `TyVar`s at the freeze cut.
             | TExpr.MethodCall(r, k, via, args, ty, tok) ->
-                TExpr.MethodCall(pe r, k, via, EqArray.map pe args, f ty, tok)
-            | TExpr.PropertyGet(r, k, via, ty, tok) -> TExpr.PropertyGet(pe r, k, via, f ty, tok)
+                TExpr.MethodCall(pe r, k, mapVia f via, EqArray.map pe args, f ty, tok)
+            | TExpr.PropertyGet(r, k, via, ty, tok) -> TExpr.PropertyGet(pe r, k, mapVia f via, f ty, tok)
             | TExpr.StaticMethodCall(k, args, ty, tok) -> TExpr.StaticMethodCall(k, EqArray.map pe args, f ty, tok)
             | TExpr.StaticPropertyGet(k, ty, tok) -> TExpr.StaticPropertyGet(k, f ty, tok)
             | TExpr.StaticFieldGet(k, n, ty, tok) -> TExpr.StaticFieldGet(k, n, f ty, tok)

@@ -211,7 +211,7 @@ module internal UnificationInferRecordAccess =
                         | ValueSome info when info.IsInterface ->
                             match tryClassChainMember ctx ifaceName ifaceArgs memberName with
                             | ValueSome mty ->
-                                ctx.Resolution.TyparInterfaceCall.Set(diagKey, ifaceKey)
+                                ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome mty
                             | ValueNone -> scan rest
                         | _ -> scan rest

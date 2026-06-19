@@ -525,6 +525,10 @@ module NameResolutionMemberRegistration =
                     info.IsSealed <- classAttrs.IsSealed
                     info.AllowNullLiteral <- classAttrs.AllowNullLiteral
                     info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
+                    // The class's `when 'S :> IFace` typar constraints, attached to the
+                    // prototype TyVars by `fillClassMembers` so a member-body access on
+                    // a constrained class typar resolves through the interface.
+                    info.TyparConstraints <- NameResolutionTypeRegistration.typarConstraintsOfTypeName tn
 
                     // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
                     // type. A struct is implicitly sealed (no derivation), so the
