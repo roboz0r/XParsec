@@ -1878,6 +1878,64 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
+            // §2.1 sub-gap 2 (rung3-handoff): the §7.2 escape-hatch shape. A *generic*
+            // class `C<'T>` implementing `IEnumerable<'T>` + the non-generic `IEnumerable`
+            // upcasts its OWN-TYPAR-instantiated `IEnumerator<'T>` to the non-generic base
+            // `IEnumerator` (`e :> System.Collections.IEnumerator`). The upcast target's
+            // generic arg is the class typar `'T`, so the subtype walk must reach the
+            // non-generic base interface of `IEnumerator<'T>` — a relation distinct from
+            // the concrete `IEnumerator<int>` case above.
+            test "a generic class upcasts its own-typar IEnumerator<'T> to the non-generic IEnumerator and enumerates" {
+                let gsrc =
+                    String.concat
+                        "\n"
+                        [
+                            "type C<'T>(e: System.Collections.Generic.IEnumerator<'T>) ="
+                            "    interface System.Collections.Generic.IEnumerable<'T> with"
+                            "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> = e"
+                            "    interface System.Collections.IEnumerable with"
+                            "        member this.GetEnumerator() : System.Collections.IEnumerator = e :> System.Collections.IEnumerator"
+                        ]
+
+                let _, artifact = compileSource "ClsIEnumGen" gsrc
+                let bytes = Codegen.toBytes artifact
+
+                Expect.equal
+                    (peInterfaceImplCount bytes)
+                    2
+                    "C<'T> carries two InterfaceImpl rows (IEnumerable<'T> + IEnumerable)"
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("C`1", throwOnError = true)
+                let tyInt = ty.MakeGenericType(typeof<int>)
+
+                let ifaceNames = tyInt.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaceNames.Contains "IEnumerable`1") "C<int> reflects as implementing IEnumerable<'T>"
+
+                Expect.isTrue
+                    (ifaceNames.Contains "IEnumerable")
+                    "C<int> reflects as implementing the non-generic IEnumerable"
+
+                // `(c :> IEnumerable<int>).GetEnumerator()` yields an IEnumerator<int>.
+                let asGeneric =
+                    Activator.CreateInstance(tyInt, [| box (freshEnumerator ()) |])
+                    :?> System.Collections.Generic.IEnumerable<int>
+
+                Expect.equal
+                    (asGeneric |> Seq.toList)
+                    [ 1; 2; 3 ]
+                    "enumerating C<int> through IEnumerable<int> yields 1,2,3"
+
+                // `(c :> IEnumerable).GetEnumerator()` succeeds through the non-generic slot
+                // — the own-typar `IEnumerator<'T> :> IEnumerator` upcast in the body.
+                let asNonGeneric =
+                    Activator.CreateInstance(tyInt, [| box (freshEnumerator ()) |]) :?> System.Collections.IEnumerable
+
+                let nonGenericEnum = asNonGeneric.GetEnumerator()
+                Expect.isTrue (nonGenericEnum.MoveNext()) "the non-generic enumerator advances to the first element"
+                Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
+            }
+
             // A generic class implementing `IStructuralEquatable`
             // (`Equals(obj, IEqualityComparer)` / `GetHashCode(IEqualityComparer)`)
             // alongside `override`s of Object's `Equals(obj)` / `GetHashCode()`.
