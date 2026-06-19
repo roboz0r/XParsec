@@ -103,7 +103,6 @@ module Codegen =
                 Unions = System.Collections.Generic.Dictionary()
                 Provider = ValueSome provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
-                ExternalUnionDecls = ResizeArray()
                 Imports = JsImports.create runtimeAssets
                 ExportTopLevel =
                     match project.Kind with

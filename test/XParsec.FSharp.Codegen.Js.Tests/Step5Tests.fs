@@ -50,30 +50,12 @@ let tests =
                     Expect.equal out "6" "nested tuple destructuring [[a, b], c]"
             }
 
-            test "Option emits as honest nominal classes (None tag 0, Some tag 1)" {
+            test "Some imports the case class from the Option runtime module" {
                 Expect.equal
                     (emitJs "let x = Some 5")
-                    ("class Option {\n"
-                     + "  constructor(tag) {\n"
-                     + "    this.tag = tag;\n"
-                     + "  }\n"
-                     + "  cases() {\n"
-                     + "    return [\"None\", \"Some\"];\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "class Option_None extends Option {\n"
-                     + "  constructor() {\n"
-                     + "    super(0);\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "class Option_Some extends Option {\n"
-                     + "  constructor(Value) {\n"
-                     + "    super(1);\n"
-                     + "    this.Value = Value;\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "const x = new Option_Some(5);\n")
-                    "external Option union → base class + None/Some subclasses, then the `new` site"
+                    ("import { Option_Some as $Vesper_Option_Option_Some } from \"./Vesper.Option.mjs\";\n"
+                     + "const x = new $Vesper_Option_Option_Some(5);\n")
+                    "external Option `Some` → import the case class from its home module, then `new` it (no local re-emit)"
             }
 
             test "Some binds its value in a match (Some 5 → 5)" {

@@ -1,37 +1,40 @@
-class Doc {
+export class Doc {
   constructor(tag) {
     this.tag = tag;
+  }
+  get $type() {
+    return "Vesper.Doc";
   }
   cases() {
     return ["Text", "Line", "Cat", "Nest", "Group"];
   }
 }
-class Doc_Text extends Doc {
+export class Doc_Text extends Doc {
   constructor(Item) {
     super(0);
     this.Item = Item;
   }
 }
-class Doc_Line extends Doc {
+export class Doc_Line extends Doc {
   constructor(Item) {
     super(1);
     this.Item = Item;
   }
 }
-class Doc_Cat extends Doc {
+export class Doc_Cat extends Doc {
   constructor(Item) {
     super(2);
     this.Item = Item;
   }
 }
-class Doc_Nest extends Doc {
+export class Doc_Nest extends Doc {
   constructor(Item1, Item2) {
     super(3);
     this.Item1 = Item1;
     this.Item2 = Item2;
   }
 }
-class Doc_Group extends Doc {
+export class Doc_Group extends Doc {
   constructor(Item1, Item2) {
     super(4);
     this.Item1 = Item1;

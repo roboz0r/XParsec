@@ -7,10 +7,10 @@
 // `hash` base arms delegate to the non-inline `Vesper.Core` values
 // `structuralEquals` / `structuralHash`, which the backend imports from here through
 // the ordinary external-call path (`JsImports.addRef`) — so these two exports are
-// the public surface, aliased like any other Vesper module function. They are
-// CURRIED to match the backend's unary-arrow calling convention
-// (`structuralEquals(a)(b)`); the recursive walkers (`eq` / `hashOf`) stay private,
-// uncurried, and never cross the module boundary.
+// the public surface, aliased like any other Vesper module function. They are FLAT
+// (Fable-style) two-arg functions — a saturated `=` / `hash` call collapses its spine
+// to `structuralEquals(a, b)` / `structuralHash(x)`; the recursive walkers
+// (`eq` / `hashOf`) stay private and never cross the module boundary.
 //
 // Generic `eq` / `hashOf` keyed on value SHAPE, never on class
 // identity. Both walkers handle the full emitted value surface: primitives
@@ -21,17 +21,29 @@
 // { tag, Head, Tail } cell) compare and hash identically — the same interop the
 // Step 5b list runtime relies on.
 //
-// ERASURE CORNER (documented, not a bug for the supported set): type erasure makes
-// every nullary case { tag: 0 } — None, Empty, a nullary Dot — structurally
-// identical, so `eq` reports them equal. F#'s type system makes that
-// comparison unreachable through `=` (it is statically same-typed); it only
-// surfaces if such values are boxed into a shared `obj` collection. Closing it
-// needs per-type methods carrying a type brand — the post-MVP slot that also
-// serves custom equality and monomorphic-dispatch performance.
+// TYPE BRAND: emitted union/record instances carry a non-enumerable `$type` (the
+// type's qualified name) on their prototype, so `eq` / `structuralCompare` distinguish
+// two different unions' nullary cases (both `{ tag: 0 }` — None vs Empty) instead of
+// reporting them equal. The brand is checked only when BOTH operands carry it, so a
+// hand-built plain `{ tag, … }` cell still interoperates structurally with an emitted
+// instance (the Step 5b/6 invariant). Residual erasure corner: two BRAND-LESS plain
+// cells of different nullary cases still compare equal — but F#'s type system makes
+// that unreachable through `=` (statically same-typed), and real values are always
+// branded instances. A future per-type `Equals`/`CompareTo` on the prototype would
+// also serve custom equality and monomorphic dispatch.
 //
 // Route B (the --compiling-fslib bootstrap) eventually replaces this hand-authored
 // file with a backend-compiled module — same shape, same imports.
 
+// DISPATCHER vs STRUCTURAL CORE split. `eq` dispatches to a per-instance `Equals` when
+// present — the override slot for a future `[<CustomEquality>]` type, which emits its
+// own `Equals` method that the backend picks up by presence (no shared base class).
+// `eqStructural` is the non-dispatching shape walk and the DEFAULT path: ordinary
+// unions/records carry no `Equals`, so structural equality (`$type` + own-keys) applies.
+// The no-loop invariant for a custom override: its `Equals` must compare FIELD values
+// (re-entering `eq`), never call `eq` on its own `this`. A plain `{ tag, … }` cell has
+// no `Equals` and falls straight to `eqStructural` — the Step 5b/6 cell-vs-instance
+// interop is preserved.
 function eq(a, b) {
   if (a === b) return true;
   if (a === null || a === undefined || b === null || b === undefined) return false;
@@ -41,7 +53,21 @@ function eq(a, b) {
     for (let i = 0; i < a.length; i++) { if (!eq(a[i], b[i])) return false; }
     return true;
   }
+  if (typeof a.Equals === "function" && typeof b.Equals === "function") return a.Equals(b);
+  return eqStructural(a, b);
+}
+
+function eqStructural(a, b) {
   if (Array.isArray(b)) return false;
+  // Emitted union/record instances carry a non-enumerable `$type` brand (the type's
+  // qualified name) on their prototype. When BOTH operands are branded, a mismatch is
+  // unequal — this closes the erasure corner where two different unions' nullary cases
+  // (both `{ tag: 0 }`) compared equal. The check is tolerant: a plain `{ tag, … }`
+  // cell has no `$type`, so a cell-vs-instance comparison skips it and stays structural
+  // (the Step 5b/6 interop invariant). `$type` is non-enumerable, so the own-key walk
+  // below never sees it; `hashOf` deliberately ignores it so equal values still hash
+  // equal (a branded instance and an equal plain cell).
+  if (a.$type !== undefined && b.$type !== undefined && a.$type !== b.$type) return false;
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return false;
@@ -60,6 +86,11 @@ function stringHash(s) {
   return h;
 }
 
+// DISPATCHER (`hashOf`) vs STRUCTURAL CORE (`hashStructural`), same shape as `eq`:
+// `hashOf` defers to a per-instance `GetHashCode` (the override slot for a future
+// custom-equality type), else the default `hashStructural` walk. Hashing IGNORES
+// `$type` (it is non-enumerable, never an own-key), so an equal branded instance and
+// plain cell still hash equal — the brand discriminates equality, not the hash.
 function hashOf(x) {
   if (x === null || x === undefined) return 0;
   const t = typeof x;
@@ -72,6 +103,11 @@ function hashOf(x) {
     for (let i = 0; i < x.length; i++) { h = combineHash(h, hashOf(x[i])); }
     return h;
   }
+  if (typeof x.GetHashCode === "function") return x.GetHashCode();
+  return hashStructural(x);
+}
+
+function hashStructural(x) {
   let h = 0;
   for (const k of Object.keys(x)) { h = combineHash(h, hashOf(x[k])); }
   return h;

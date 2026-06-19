@@ -71,6 +71,17 @@ module JsImports =
             alias
         | _ -> failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
 
+    /// Resolve an external union's case class to its local import identifier, importing
+    /// the class export `className` from `asm`'s module aliased as `$<asm>_<className>`
+    /// (`asm` disambiguates a same-named class from another package). Used by a
+    /// `UnionCons` on an external union, whose case classes are imported rather than
+    /// re-emitted. Fails loudly for a package with no authored runtime module.
+    let addTypeRef (imports: JsImports) (asm: string) (className: string) : string =
+        let _, specs = entryFor imports asm (sprintf "external type '%s'" className)
+        let alias = "$" + asm.Replace('.', '_') + "_" + className
+        specs.Add(sprintf "%s as %s" className alias) |> ignore
+        alias
+
     /// Resolve an external member reference to its local import identifier, aliasing
     /// the export from `asm`'s module as `$<exportName>`. Member analogue of `addRef`.
     let addMemberRef (imports: JsImports) (asm: string) (exportName: string) : string =
@@ -88,6 +99,8 @@ module JsImports =
                 JsStatement.Import(List.ofSeq specs, "./" + rt.FileName)
         ]
 
-    /// The runtime modules referenced during the walk, sorted by assembly.
+    /// The runtime modules referenced during the walk, sorted by assembly. Each emitted
+    /// runtime asset is a self-contained leaf (no `.mjs` imports another), so the
+    /// referenced set is exactly the set to materialise — no transitive closure needed.
     let modules (imports: JsImports) : JsRuntimeModule list =
         [ for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) -> fst kv.Value ]

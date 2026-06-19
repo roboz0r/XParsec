@@ -98,11 +98,18 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `target = value;` — param-shadow mutation in a self-tail-call.
     | Assign of target: string * value: JsExpr
     /// A record's emitted JS class: one positional constructor storing each
-    /// declaration-order field into the like-named property.
-    | Class of name: string * fields: string list
-    /// A union's emitted JS classes: a `baseName` base class (`tag` + `cases()`) plus
-    /// one `extends`-subclass per case carrying its named fields after `super(tag)`.
-    | Union of baseName: string * cases: JsUnionCaseDecl list
+    /// declaration-order field into the like-named property. `export` is set in
+    /// library mode so a consumer can `import` the class rather than re-emit it.
+    | Class of name: string * fields: string list * export: bool
+    /// A union's emitted JS classes: a `baseName` base class (`tag` + `cases()` + a
+    /// non-enumerable `$type` brand getter returning `brand`, the type's qualified name)
+    /// plus one `extends`-subclass per case carrying its named fields after `super(tag)`.
+    /// No shared runtime base: default equality/comparison/hashing is structural (the
+    /// `Vesper.Core`/`Vesper.Comparison` runtimes dispatch on `$type` + own-keys); a
+    /// type with custom equality/comparison emits its own `Equals`/`CompareTo` and the
+    /// runtimes pick it up by method presence. `export` (library mode) exports every
+    /// class so consumers import them.
+    | Union of baseName: string * brand: string * cases: JsUnionCaseDecl list * export: bool
     /// A bare lexical block `{ … }` — scopes a match arm's pattern bindings so two
     /// arms binding the same name don't collide as sibling `const`s.
     | Block of body: JsStatement list

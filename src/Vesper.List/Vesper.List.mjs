@@ -1,17 +1,20 @@
-class List {
+export class List {
   constructor(tag) {
     this.tag = tag;
+  }
+  get $type() {
+    return "Vesper.Collections.List`1";
   }
   cases() {
     return ["Empty", "Cons"];
   }
 }
-class List_Empty extends List {
+export class List_Empty extends List {
   constructor() {
     super(0);
   }
 }
-class List_Cons extends List {
+export class List_Cons extends List {
   constructor(Head, Tail) {
     super(1);
     this.Head = Head;

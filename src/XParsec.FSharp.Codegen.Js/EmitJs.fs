@@ -76,6 +76,10 @@ module EmitJs =
         {
             Name: string
             Cases: System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>
+            /// `ValueSome asm` for an external union: its case classes live in `asm`'s
+            /// runtime module, so a `UnionCons` site imports them rather than relying on
+            /// a local class. `ValueNone` for a union declared in this file.
+            Home: string voption
         }
 
     /// The walker's ambient context.
@@ -90,10 +94,9 @@ module EmitJs =
             /// nominal JS classes (same base-class + subclass shape a local union gets).
             Provider: IExternalSymbolProvider voption
             /// External unions resolved on demand, keyed by `SymbolKey`. A miss in
-            /// `Unions` falls back here; `ExternalUnionDecls` tracks emission order
-            /// so `buildProgram` can prepend the classes (JS classes are not hoisted).
+            /// `Unions` falls back here. Their case classes are imported from the
+            /// union's home module at each `UnionCons` site, not re-emitted.
             ExternalUnions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
-            ExternalUnionDecls: ResizeArray<JsStatement>
             Imports: JsImports
             /// `true` in library mode: top-level `let` emits `export const …`.
             ExportTopLevel: bool
@@ -148,6 +151,7 @@ module EmitJs =
     /// Build a `JsUnionInfo` for `baseName` with `(caseName, fieldNames)` in declaration
     /// order: tag = declaration index, subclass = `<baseName>_<case>`.
     let private buildUnionInfo
+        (home: string voption)
         (baseName: string)
         (cases: (string * string voption list) list)
         : JsUnionInfo * JsUnionCaseDecl list =
@@ -167,11 +171,18 @@ module EmitJs =
         for c in caseDecls do
             table.[c.CaseName] <- c
 
-        { Name = baseName; Cases = table }, caseDecls
+        {
+            Name = baseName
+            Cases = table
+            Home = home
+        },
+        caseDecls
 
-    /// Resolve an external union to a `JsUnionInfo` via the provider, queuing its class
-    /// decl in `ExternalUnionDecls` and caching in `ExternalUnions`. `ValueNone` when
-    /// no provider or the type is not a union — caller fails loudly.
+    /// Resolve an external union to a `JsUnionInfo` via the provider, caching in
+    /// `ExternalUnions`. The case classes are NOT re-emitted locally — they are
+    /// imported from the union's home module at each `UnionCons` site (`Home`
+    /// carries the home assembly). `ValueNone` when no provider or the type is not a
+    /// union — caller fails loudly.
     let private resolveExternalUnion (ctx: WalkCtx) (key: SymbolKey) : JsUnionInfo voption =
         match ctx.ExternalUnions.TryGetValue key with
         | true, info -> ValueSome info
@@ -183,11 +194,15 @@ module EmitJs =
                 | ValueSome(ExternalTypeShape.Union(_, cases, _)) ->
                     let baseName = SymbolKeyOps.simpleName key
 
-                    let info, caseDecls =
-                        buildUnionInfo baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
+                    let home =
+                        match key with
+                        | SymbolKey.TypeKey(Some asm, _, _) -> ValueSome asm
+                        | _ -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
+
+                    let info, _ =
+                        buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
 
                     ctx.ExternalUnions.[key] <- info
-                    ctx.ExternalUnionDecls.Add(JsStatement.Union(baseName, caseDecls))
                     ValueSome info
                 | _ -> ValueNone
 
@@ -203,12 +218,13 @@ module EmitJs =
             | ValueSome info -> info
             | ValueNone -> failwithf "EmitJs: %s on union with no emitted type (key %A)" what key
 
-    let private unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
-        let info = unionInfoOf ctx what ty
-
+    let private unionCaseFromInfo (info: JsUnionInfo) (what: string) (caseName: string) : JsUnionCaseDecl =
         match info.Cases.TryGetValue caseName with
         | true, c -> c
         | _ -> failwithf "EmitJs: %s on union '%s' has no case '%s'" what info.Name caseName
+
+    let private unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
+        unionCaseFromInfo (unionInfoOf ctx what ty) what caseName
 
     // ---- Members -------------------------------------------------------------
 
@@ -495,9 +511,17 @@ module EmitJs =
         // literal — no reordering is needed; the subclass constructor stores them
         // positionally under the case's field names.
         | TExprG.UnionCons(caseName, args, ty, _) ->
-            let c = unionCaseOf ctx "UnionCons" ty caseName
+            let info = unionInfoOf ctx "UnionCons" ty
+            let c = unionCaseFromInfo info "UnionCons" caseName
 
-            JsExpr.New(JsExpr.Identifier(c.ClassName, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
+            // A local union's class is in this file; an external union's case class is
+            // imported from its home module (no local re-emit).
+            let callee =
+                match info.Home with
+                | ValueSome asm -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports asm c.ClassName, loc)
+                | ValueNone -> JsExpr.Identifier(c.ClassName, ValueNone)
+
+            JsExpr.New(callee, [ for a in args -> buildExpr ctx a ], loc)
 
         // External exception construction → `new <exn repr>(msg)`. The repr is sourced
         // from the `inherit` chain via `exnReprOf`; only the leading message arg is kept
@@ -1223,7 +1247,7 @@ module EmitJs =
     /// Collect the file's nominal `type` decls (in source order) into the emission list,
     /// the two lookup tables, and the member list. Read off the un-lowered decls —
     /// `TastLower.lower` drops `type` decls.
-    let private collectTypes (tast: Frozen.TastFile) =
+    let private collectTypes (exportTypes: bool) (tast: Frozen.TastFile) =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
@@ -1245,14 +1269,20 @@ module EmitJs =
                         }
 
                     records.[td.Key] <- info
-                    ordered.Add(JsStatement.Class(info.Name, info.Fields))
+                    ordered.Add(JsStatement.Class(info.Name, info.Fields, exportTypes))
                     addMembers td.Name recMembers
                 | TTypeKindG.Union(cases, unionMembers) ->
+                    // Local union: `Home = ValueNone` — its case classes are emitted here.
                     let info, caseDecls =
-                        buildUnionInfo td.Name [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
+                        buildUnionInfo
+                            ValueNone
+                            td.Name
+                            [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
 
                     unions.[td.Key] <- info
-                    ordered.Add(JsStatement.Union(td.Name, caseDecls))
+                    // Brand = qualified type name — a single value across modules, so an
+                    // imported case class and any same-type value agree on `$type`.
+                    ordered.Add(JsStatement.Union(td.Name, SymbolKeyOps.qualifiedName td.Key, caseDecls, exportTypes))
                     addMembers td.Name unionMembers
                 | _ -> ()
             | _ -> ()
@@ -1263,7 +1293,8 @@ module EmitJs =
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
-        let classDecls, recordTable, unionTable, memberDefs = collectTypes tast
+        let classDecls, recordTable, unionTable, memberDefs =
+            collectTypes ctx0.ExportTopLevel tast
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
 
@@ -1305,13 +1336,9 @@ module EmitJs =
                     | other -> failwithf "EmitJs: unsupported declaration %A" other
             ]
 
-        // Imports lead the program; external + local class decls follow — classes
-        // are not hoisted and must precede every `new`/match site.
+        // Imports lead the program; local class decls follow — classes are not hoisted
+        // and must precede every `new`/match site. External union case classes are not
+        // emitted here: a `UnionCons` imports them from the union's home module.
         {
-            Body =
-                JsImports.importStatements ctx.Imports
-                @ classDecls
-                @ List.ofSeq ctx.ExternalUnionDecls
-                @ memberDecls
-                @ body
+            Body = JsImports.importStatements ctx.Imports @ classDecls @ memberDecls @ body
         }

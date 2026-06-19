@@ -1,17 +1,20 @@
-class Option {
+export class Option {
   constructor(tag) {
     this.tag = tag;
+  }
+  get $type() {
+    return "Vesper.Option`1";
   }
   cases() {
     return ["None", "Some"];
   }
 }
-class Option_None extends Option {
+export class Option_None extends Option {
   constructor() {
     super(0);
   }
 }
-class Option_Some extends Option {
+export class Option_Some extends Option {
   constructor(Value) {
     super(1);
     this.Value = Value;

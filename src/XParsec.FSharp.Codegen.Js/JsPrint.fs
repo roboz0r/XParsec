@@ -200,14 +200,15 @@ module JsPrint =
 
         memberDecl (text "constructor(" ++ commaList (List.map text paramNames) ++ text ")") (prologue @ assignStmts)
 
-    /// `class Name [extends Base] { member… }`.
-    and private classDecl (name: string) (extends: string option) (members: Doc list) : Doc =
+    /// `[export ]class Name [extends Base] { member… }`. `export` is set in library
+    /// mode so a consumer can import the type rather than re-emit it.
+    and private classDecl (export: bool) (name: string) (extends: string option) (members: Doc list) : Doc =
         let ext =
             match extends with
             | Some b -> text " extends " ++ text b
             | None -> Nil
 
-        text "class "
+        (if export then text "export class " else text "class ")
         ++ text name
         ++ ext
         ++ text " {"
@@ -250,14 +251,18 @@ module JsPrint =
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"
         | JsStatement.Block body -> block body
         | JsStatement.Throw e -> text "throw " ++ expr e ++ text ";"
-        | JsStatement.Class(name, fields) -> classDecl name None [ ctorDecl fields [] fields ]
-        | JsStatement.Union(baseName, cases) ->
+        | JsStatement.Class(name, fields, export) -> classDecl export name None [ ctorDecl fields [] fields ]
+        | JsStatement.Union(baseName, brand, cases, export) ->
             let baseClass =
                 classDecl
+                    export
                     baseName
                     None
                     [
                         ctorDecl [ "tag" ] [] [ "tag" ]
+                        // Non-enumerable type brand (prototype getter, so absent from
+                        // own-keys): the structural runtime distinguishes types by it.
+                        memberDecl (text "get $type()") [ text (sprintf "return %s;" (JsEscape.quoted brand)) ]
                         memberDecl
                             (text "cases()")
                             [
@@ -269,6 +274,7 @@ module JsPrint =
 
             let subclass (c: JsUnionCaseDecl) =
                 classDecl
+                    export
                     c.ClassName
                     (Some baseName)
                     [ ctorDecl c.Fields [ text (sprintf "super(%d);" c.Tag) ] c.Fields ]

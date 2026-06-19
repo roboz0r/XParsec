@@ -8,31 +8,12 @@ let tests =
     testList
         "Codegen.Js Step5b"
         [
-            test "the cons-list emits as base + Empty/Cons subclasses (tag 0 / tag 1)" {
+            test "a cons-list literal imports the case classes and nests Cons ending in Empty" {
                 Expect.equal
                     (emitJs "let xs = [1; 2; 3]")
-                    ("class List {\n"
-                     + "  constructor(tag) {\n"
-                     + "    this.tag = tag;\n"
-                     + "  }\n"
-                     + "  cases() {\n"
-                     + "    return [\"Empty\", \"Cons\"];\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "class List_Empty extends List {\n"
-                     + "  constructor() {\n"
-                     + "    super(0);\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "class List_Cons extends List {\n"
-                     + "  constructor(Head, Tail) {\n"
-                     + "    super(1);\n"
-                     + "    this.Head = Head;\n"
-                     + "    this.Tail = Tail;\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "const xs = new List_Cons(1, new List_Cons(2, new List_Cons(3, new List_Empty())));\n")
-                    "external cons-list union → base + Empty/Cons subclasses, literal → nested Cons ending in Empty"
+                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty } from \"./Vesper.List.mjs\";\n"
+                     + "const xs = new $Vesper_List_List_Cons(1, new $Vesper_List_List_Cons(2, new $Vesper_List_List_Cons(3, new $Vesper_List_List_Empty())));\n")
+                    "external cons-list union → import Cons/Empty from the home module (no local re-emit); literal → nested Cons ending in Empty"
             }
 
             test "a `[1;2;3]` literal sums via []/:: match recursion (→ 6)" {
@@ -104,32 +85,12 @@ let tests =
                     Expect.equal out "7\n0" "two-deep cons pattern binds a+b; a 1-element list falls through"
             }
 
-            test "List.length imports from the Vesper.List runtime module and calls it" {
+            test "List.length imports the runtime function AND the case classes it constructs" {
                 Expect.equal
                     (emitJs "let n = List.length [1; 2; 3]")
-                    ("import { length as $Vesper_Collections_ListModule_length } from \"./Vesper.List.mjs\";\n"
-                     + "class List {\n"
-                     + "  constructor(tag) {\n"
-                     + "    this.tag = tag;\n"
-                     + "  }\n"
-                     + "  cases() {\n"
-                     + "    return [\"Empty\", \"Cons\"];\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "class List_Empty extends List {\n"
-                     + "  constructor() {\n"
-                     + "    super(0);\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "class List_Cons extends List {\n"
-                     + "  constructor(Head, Tail) {\n"
-                     + "    super(1);\n"
-                     + "    this.Head = Head;\n"
-                     + "    this.Tail = Tail;\n"
-                     + "  }\n"
-                     + "}\n"
-                     + "const n = $Vesper_Collections_ListModule_length(new List_Cons(1, new List_Cons(2, new List_Cons(3, new List_Empty()))));\n")
-                    "import leads the program; the call references the import alias"
+                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty, length as $Vesper_Collections_ListModule_length } from \"./Vesper.List.mjs\";\n"
+                     + "const n = $Vesper_Collections_ListModule_length(new $Vesper_List_List_Cons(1, new $Vesper_List_List_Cons(2, new $Vesper_List_List_Cons(3, new $Vesper_List_List_Empty()))));\n")
+                    "one import merges the function and the case classes; the `new` sites reference the imported class aliases (no local re-emit)"
             }
 
             test "List.length counts a literal under Node (→ 3)" {
