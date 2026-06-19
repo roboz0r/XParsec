@@ -699,4 +699,109 @@ let structSeqTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "12" "fully generic map pipeline sums the mapped values"
             }
+
+            // §2.2 graduation prerequisite: the consuming TERMINAL `fold`. Every
+            // prior fixture sums inline with `total <- total + y`; none drives a
+            // generic struct seq through a `fold` that threads a STATE accumulator
+            // and applies a passed reference-type closure `(fun acc x -> acc + x)`
+            // per element. This is the shape `src/Vesper.Seq` `Seq.fold` will have:
+            // a free generic function `fold f seed s`, generic over the struct seq
+            // `'S`/enumerator `'E`, walking `for y in s` and folding. Proves the
+            // terminal codegens + runs before the library graduation.
+            // §7.2 escape hatch: a generic struct sequence/enumerator (generic over
+            // `'T`) ALSO implements the BCL `IEnumerable<'T>` / `IEnumerator<'T>` /
+            // `IEnumerator` / `IDisposable` so it boxes transparently when handed to a
+            // standard .NET API. Proves the generic-struct-implements-generic-BCL-interface
+            // declaration + the `IEnumerator<'T> :> IEnumerator` upcast (§2.1 sub-gap 2)
+            // round-trip: the struct upcast to `IEnumerable<int>` enumerates 1,2,3.
+            test "generic struct seq implements IEnumerable<'T> escape hatch and enumerates (§7.2)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Collections.Generic"
+                            "open System.Collections"
+                            "[<Struct>]"
+                            "type ArrayEnumerator<'T> ="
+                            "    val Arr : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IEnumerator<'T> with"
+                            "        member this.Current : 'T = this.Arr.[this.Idx]"
+                            "    interface IEnumerator with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : obj = box (this.Arr.[this.Idx])"
+                            "        member this.Reset() : unit = ()"
+                            "    interface System.IDisposable with"
+                            "        member this.Dispose() : unit = ()"
+                            "[<Struct>]"
+                            "type ArraySeq<'T> ="
+                            "    val Arr : 'T[]"
+                            "    new(arr: 'T[]) = { Arr = arr }"
+                            "    interface IEnumerable<'T> with"
+                            "        member this.GetEnumerator() : IEnumerator<'T> = (ArrayEnumerator<'T>(this.Arr) :> IEnumerator<'T>)"
+                            "    interface IEnumerable with"
+                            "        member this.GetEnumerator() : IEnumerator = (ArrayEnumerator<'T>(this.Arr) :> IEnumerator)"
+                            "let sum3 (xs: IEnumerable<int>) : int ="
+                            "    let e = xs.GetEnumerator()"
+                            "    let mutable total = 0"
+                            "    while e.MoveNext() do"
+                            "        total <- total + e.Current"
+                            "    total"
+                            "let s = ArraySeq<int>([| 1; 2; 3 |])"
+                            "printfn \"%d\" (sum3 (s :> IEnumerable<int>))"
+                        ]
+
+                let _, artifact = compileSource "StructSeqEscapeHatch" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "6" "escape-hatch enumerates via IEnumerable<'T>"
+            }
+
+            test "fold over a fully generic struct seq threads state through a closure (rung 3 §2.2)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : int"
+                            "type IStructSeq<'E when 'E :> IStructEnumerator> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator ="
+                            "    val Arr : int[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : int = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq ="
+                            "    val Arr : int[]"
+                            "    new(arr: int[]) = { Arr = arr }"
+                            "    interface IStructSeq<ArrayEnumerator> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
+                            "let fold (f: 'State -> int -> 'State) (seed: 'State) (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator) : 'State ="
+                            "    let mutable state = seed"
+                            "    for y in s do"
+                            "        state <- f state y"
+                            "    state"
+                            "let xs = [| 1; 2; 3; 4 |]"
+                            "printfn \"%d\" (fold (fun acc x -> acc + x) 0 (ArraySeq(xs)))"
+                        ]
+
+                let _, artifact = compileSource "StructSeqFold" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "10"
+                    "fold threads state through the closure over a generic struct seq"
+            }
         ]

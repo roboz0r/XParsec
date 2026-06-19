@@ -146,6 +146,8 @@ let vesperSeqContractTests =
         [
             test "Parsing seq.fsi" { testParseSignatureFile (seqPath "seq.fsi") }
             test "Parsing seq.fs" { testParseFile (seqPath "seq.fs") }
+            test "Parsing struct-seq.fsi" { testParseSignatureFile (seqPath "struct-seq.fsi") }
+            test "Parsing struct-seq.fs" { testParseFile (seqPath "struct-seq.fs") }
         ]
 
 /// Vesper.Comparison — the ordering family relocated out of Vesper.Core's

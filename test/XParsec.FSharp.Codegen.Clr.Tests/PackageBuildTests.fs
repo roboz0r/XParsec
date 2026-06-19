@@ -37,4 +37,26 @@ let tests =
 
                 Expect.isNotNull (asm.GetType "Vesper.Collections.List`1") "the DLL contains Vesper.Collections.List`1"
             }
+
+            // Vesper.Seq's `struct-seq.fs` is the graduation of the rung-3 inline
+            // struct-`Seq` slice (brainstorm-seq-module.md) into a real,
+            // generic-over-`'T` library: the `IStructEnumerator`/`IStructSeq` marker
+            // interfaces, the `ArrayEnumerator`/`ArraySeq` + `MapEnumerator`/`MapSeq`
+            // struct pairs, and the `ofArray`/`map`/`fold` module. Built via the
+            // STRICTER package path (`buildPackage` fails on any error diagnostic),
+            // so this surfaces front-end gaps the inline `compileSource` fixtures
+            // (which tolerate errors) never hit.
+            test "buildPackage Vesper.Seq builds a BCL-only DLL with the generic struct-seq surface" {
+                let asm, artifact = (buildPackage "Vesper.Seq").Value
+
+                Expect.isEmpty artifact.FSharpCoreDependencies "Vesper.Seq.dll is BCL-only (no FSharp.Core)"
+
+                Expect.isNotNull
+                    (asm.GetType "Vesper.Collections.ArraySeq`1")
+                    "the DLL contains Vesper.Collections.ArraySeq`1"
+
+                Expect.isNotNull
+                    (asm.GetType "Vesper.Collections.MapSeq`4")
+                    "the DLL contains Vesper.Collections.MapSeq`4"
+            }
         ]

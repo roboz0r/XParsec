@@ -23,14 +23,16 @@
 name = "Vesper.Seq"
 namespace = "Vesper.Collections"
 description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
-depends-on = ["Vesper.Core", "Vesper.List"]
+depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Contract `.fsi` files in compile order.
 files = [
     "seq.fsi",
+    "struct-seq.fsi",
 ]
 
 # Runtime impl `.fs` files (our-backend target source).
 impl = [
     "seq.fs",
+    "struct-seq.fs",
 ]
