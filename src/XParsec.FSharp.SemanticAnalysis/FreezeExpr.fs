@@ -128,6 +128,26 @@ module internal FreezeExpr =
             argExpr = arg) ->
             let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
             mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty tok
+        // `x.M(args)` where `x`'s type is a generic typar coerced to a project-local
+        // interface (`'T :> IFace`, rung-3 Wall B). Unification recorded the
+        // interface key in `TyparInterfaceCall`; dispatch via `CallVia.Interface` so
+        // codegen emits `constrained. <typar> callvirt`.
+        | Expr.App(
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
+                                                                                            receiverTy,
+                                                                                            ifaceKey,
+                                                                                            memberName)))
+            argExprs = args) ->
+            let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            mkInterfaceMethodCall ctx receiver ifaceKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
+        | Expr.HighPrecedenceApp(
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
+                                                                                            receiverTy,
+                                                                                            ifaceKey,
+                                                                                            memberName)))
+            argExpr = arg) ->
+            let receiver = translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            mkInterfaceMethodCall ctx receiver ifaceKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the head is a regular identifier. Anything not a class property falls
         // to the chained FieldGet path below.

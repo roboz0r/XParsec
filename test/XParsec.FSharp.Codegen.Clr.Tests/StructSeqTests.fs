@@ -28,6 +28,28 @@ let structSeqTests =
     testList
         "StructSeq"
         [
+            // Wall B (rung 3): a member call on a value whose type is a generic
+            // typar constrained to a project-local interface (`'T :> IGetVal`).
+            // The receiver is a bare TyVar carrying a `Coercion` constraint; the
+            // member must resolve through the interface's members (diagnostics-only
+            // first — Wall C makes it RUN).
+            test "typar receiver constrained to a local interface resolves member (Wall B)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IGetVal ="
+                            "    abstract member GetVal : unit -> int"
+                            "type Holder(n: int) ="
+                            "    interface IGetVal with"
+                            "        member _.GetVal() = n"
+                            "let callIt (x: 'T when 'T :> IGetVal) : int = x.GetVal()"
+                            "printfn \"%d\" (callIt (Holder 7))"
+                        ]
+
+                typeChecks src
+            }
+
             // Wall A (rung 3): a project-local class implementing a project-local
             // interface, dispatched through the interface. Existing interface-impl
             // tests all use BCL interfaces; `resolveInterfaceImpls` only recognises an

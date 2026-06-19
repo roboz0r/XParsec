@@ -137,10 +137,17 @@ type HoleSpecG<'ty, 'tok> =
 /// must target the *parent's* method slot non-virtually (`call`) so an
 /// `override` doesn't recurse into itself. Set by Freeze when the receiver's
 /// head binding site is a class's `BaseKey`; read by codegen to pick the call opcode.
+/// `Interface` is a constrained dispatch on a *generic typar* receiver coerced to
+/// an interface (`'T :> IFace`, rung-3 Wall B): the `MethodCall`'s `key` declaring
+/// type is the interface, the receiver's type is the typar, and codegen emits
+/// `constrained. <typar> callvirt <iface-slot>` (no box for a struct typar, a
+/// reference dispatch for a class typar). Set by Freeze when the receiver resolved
+/// through `TyparInterfaceCall`; read by codegen (Wall C).
 [<RequireQualifiedAccess>]
 type CallVia =
     | Self
     | Base
+    | Interface
 
 [<RequireQualifiedAccess>]
 type TExprG<'ty, 'tok> =

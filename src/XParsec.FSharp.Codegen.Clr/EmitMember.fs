@@ -175,6 +175,11 @@ module EmitMember =
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
+        | TExprG.MethodCall(_, _, CallVia.Interface, _, _, _) ->
+            // Rung-3 Wall B produces this for a typar-receiver interface dispatch
+            // (`'T :> IFace`); Wall C will emit `constrained. <typar> callvirt` here.
+            // Until then, fail loudly rather than mis-resolving the typar receiver.
+            failwith "EmitMember.buildMethodCall: CallVia.Interface dispatch is rung-3 Wall C (not yet implemented)"
         | TExprG.MethodCall(receiver, key, via, args, ty, _) ->
             // Instance method call — the same receiver/dispatch shape as
             // `buildPropertyGet`, with the call's arguments pushed between the

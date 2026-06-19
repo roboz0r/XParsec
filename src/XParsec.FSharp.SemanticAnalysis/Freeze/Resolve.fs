@@ -597,6 +597,24 @@ module internal FreezeResolve =
         let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
         TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
 
+    /// Wall B (rung 3): instance `MethodCall` dispatched through an *interface* the
+    /// receiver's typar is coerced to (`'T :> IFace`). `ifaceKey` is the interface's
+    /// declaring `SymbolKey` (the member key's `decl`); `CallVia.Interface` tells
+    /// codegen to emit `constrained. <receiver-typar> callvirt`. The parameter model
+    /// for the obj-upcast comes from the interface's own member (the abstract slot).
+    let mkInterfaceMethodCall
+        (ctx: PassContext)
+        (receiver: TExpr)
+        (ifaceKey: SymbolKey)
+        (memberName: string)
+        (args: EqArray<TExpr>)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
+        let key = LocalSymbolKey.ofMember ifaceKey memberName args.Length MemberKind.Method
+        let argsList = wrapObjArgsEq (memberParamTys ctx ifaceKey memberName) args
+        TExpr.MethodCall(receiver, key, CallVia.Interface, argsList, ty, tok)
+
     /// `StaticMethodCall` resolved to `declKey.memberName`.
     let mkStaticMethodCall
         (ctx: PassContext)
@@ -823,6 +841,61 @@ module internal FreezeResolve =
                             ValueSome(prefixLi, recvTy, memberName)
                         | _ -> ValueNone
                     | _ -> ValueNone
+
+    /// Wall B (rung 3): `head.…M(args)` whose receiver type is a generic typar
+    /// coerced to a project-local interface (`'T :> IFace`). Unification resolved
+    /// the member through the interface and recorded its `SymbolKey` in
+    /// `TyparInterfaceCall` (keyed by the folded `LongIdent`'s `NodeKey`, the same
+    /// `CstKeys.ofExpr` identity the inference step used). The receiver never grounds
+    /// to a nominal, so neither `ClassTailMethod` nor `ClassChainMethod` fires; this
+    /// pattern recognises the recorded call instead. Returns the receiver-prefix
+    /// LongIdent (member segment dropped), the receiver's (typar) type, the interface
+    /// `SymbolKey`, and the member name — mirroring `ClassChainMethod`'s shape so the
+    /// `App` arms rebuild the receiver via `translateLongIdentFieldChain`.
+    [<return: Struct>]
+    let (|TyparInterfaceMethod|_|)
+        (ctx: PassContext)
+        (li: LongIdent<SyntaxToken>)
+        : (LongIdent<SyntaxToken> * SemType * SymbolKey * string) voption =
+        let n = li.Idents.Length
+
+        if n < 2 then
+            ValueNone
+        else
+            let key = NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
+
+            match ctx.Resolution.TyparInterfaceCall.TryGetValue key with
+            | ValueNone -> ValueNone
+            | ValueSome ifaceKey ->
+                let head = li.Idents.[0]
+                let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+                match ctx.Bindings.Binding.TryGetValue headKey with
+                | ValueNone -> ValueNone
+                | ValueSome rb ->
+                    // Walk the intermediate segments `[1 .. n-2]` to the receiver
+                    // (typar) type, exactly as `ClassChainMethod` does.
+                    let mutable recvTy = Unification.zonk (typeOfKey ctx rb.BindingSite)
+                    let mutable ok = true
+
+                    for i in 1 .. n - 2 do
+                        if ok then
+                            match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
+                            | ValueSome t -> recvTy <- Unification.zonk t
+                            | ValueNone -> ok <- false
+
+                    if not ok then
+                        ValueNone
+                    else
+                        let memberName = ctx.NameOf li.Idents.[n - 1]
+
+                        let prefixLi =
+                            {
+                                Idents = li.Idents.RemoveAt(n - 1)
+                                Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
+                            }
+
+                        ValueSome(prefixLi, recvTy, ifaceKey, memberName)
 
     /// The `ResolvedExternalMember` Unification recorded for this node, if any.
     /// Used with a `&` conjunction so the external-member arms drop both the

@@ -181,6 +181,45 @@ module internal UnificationInferRecordAccess =
             else
                 errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" typeName memberName)
 
+    /// Wall B (rung 3): resolve `memberName` on a typar receiver through an
+    /// interface the typar is coerced to (`'T :> IFace`). Scans the root's
+    /// `Coercion` constraints; for each whose target zonks to a project-local
+    /// *interface* `TyClass`, walks its members (and inherited interface members)
+    /// for `memberName`. On a hit, records the interface key in
+    /// `TyparInterfaceCall` (keyed by the access node) so Freeze emits a
+    /// `CallVia.Interface` dispatch, and returns the member's instantiated type.
+    /// `ValueNone` (the caller parks the access) when no coercion names a local
+    /// interface declaring the member — an external interface coercion or a
+    /// genuinely-unresolved typar both fall through to the existing path.
+    and tryTyparInterfaceMember
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (root: TypeVar)
+        (memberName: string)
+        : SemType voption =
+        let rec scan (cs: SemanticConstraint list) : SemType voption =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target ->
+                    match resolveStep target with
+                    | TyClass(ifaceKey, ifaceArgs) ->
+                        let ifaceName = SymbolKeyOps.simpleName ifaceKey
+
+                        match TypeRegistry.tryClass ctx.Types ifaceName with
+                        | ValueSome info when info.IsInterface ->
+                            match tryClassChainMember ctx ifaceName ifaceArgs memberName with
+                            | ValueSome mty ->
+                                ctx.Resolution.TyparInterfaceCall.Set(diagKey, ifaceKey)
+                                ValueSome mty
+                            | ValueNone -> scan rest
+                        | _ -> scan rest
+                    | _ -> scan rest
+                | _ -> scan rest
+
+        scan root.Constraints
+
     and resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         match resolveStep rTy with
         | TyRecord(recKey, args) ->
@@ -281,17 +320,29 @@ module internal UnificationInferRecordAccess =
                     | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionQual)
         | TyVar tv ->
             let root = UnionFind.find tv
-            let resultTv = freshTyVar ctx
 
-            let access =
-                {
-                    MemberName = memberName
-                    UseKey = diagKey
-                    ResultTv = resultTv
-                }
+            // Wall B (rung 3): the receiver is a generic typar (`'T`) constrained to
+            // an interface (`'T :> IFace`). The typar never grounds to a nominal, so
+            // the `PendingDotAccess` drain would never fire (and the binding wouldn't
+            // generalise); instead resolve the member *now* through the interface the
+            // typar is coerced to. The constraint's target zonks to the interface's
+            // `TyClass` (Wall A registers a project-local interface in `Types.Class`
+            // with `IsInterface` set). Record the interface key so Freeze mints a
+            // `CallVia.Interface` dispatch (codegen → `constrained. callvirt`).
+            match tryTyparInterfaceMember ctx diagKey root memberName with
+            | ValueSome ty -> ty
+            | ValueNone ->
+                let resultTv = freshTyVar ctx
 
-            root.PendingDotAccess <- access :: root.PendingDotAccess
-            TyVar resultTv
+                let access =
+                    {
+                        MemberName = memberName
+                        UseKey = diagKey
+                        ResultTv = resultTv
+                    }
+
+                root.PendingDotAccess <- access :: root.PendingDotAccess
+                TyVar resultTv
         // `arr.Length` on a rank-1 intrinsic array resolves to the core
         // `GetArrayLength` inline function (scheme `'T[] -> int`), grounding the
         // call so `InlineExpansion` can splice the source `ldlen` — the same path as

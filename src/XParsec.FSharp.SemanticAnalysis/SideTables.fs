@@ -861,6 +861,16 @@ type PassContextResolution =
         /// (`ArrayPool<'T>.Return(arr)` ⇒ `Return(arr, false)`). Absent ⇒ a fully
         /// applied call (the common case), emitted unchanged.
         ExternalOptionalFill: SideTable<TConstValue list>
+        /// Keyed by a member-access node's `NodeKey` (the folded `LongIdent` /
+        /// `DotLookup` head of `x.M(...)`): the constraining *interface*'s
+        /// `SymbolKey.TypeKey` when the receiver's type is a generic typar coerced
+        /// to a project-local interface (`'T :> IFace`, rung-3 Wall B). Recorded by
+        /// `Unification.resolveFieldStep`'s typar arm when it resolves the member
+        /// through the typar's `Coercion` constraint, and read by `Freeze` to mint a
+        /// `TExpr.MethodCall` with `CallVia.Interface` (the declaring type is the
+        /// interface; codegen emits `constrained. <typar> callvirt`). Absent ⇒ an
+        /// ordinary nominal-receiver member access.
+        TyparInterfaceCall: SideTable<SymbolKey>
         /// Keyed by an external-value use-site's `NodeKey` (the `Expr.Ident` /
         /// `Expr.LongIdentOrOp` that resolved through `IExternalSymbolProvider.TryLookup`):
         /// the resolved value's `SymbolKey.ValueKey`. Freeze stamps it onto
@@ -944,6 +954,7 @@ module PassContextResolution =
             EnclosingTypars = ValueNone
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
+            TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()
             ResolvedOperatorValue = SideTable<_>()
