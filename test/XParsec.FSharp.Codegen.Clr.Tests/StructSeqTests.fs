@@ -89,6 +89,43 @@ let structSeqTests =
                     "apply IL contains no `box` (non-allocating struct Fun dispatch)"
             }
 
+            // rung-4 Step A: feed a SOURCE lambda (structural TyFun) into the SAME
+            // `apply` combinator whose param is a constrained `'TF :> Fun<int,int>`
+            // typar. The M0 probe established that the front-end REJECTED this —
+            // `subsumes` (Engine.fs `checkConstraint` Coercion arm) returned
+            // `Unrelated` for (TyFun, Fun`2). Step A added the single arrow→`Fun`
+            // discharge rule to `subsumes`: `subsumes(TyFun(a,b), Fun`2<a,b>) =
+            // Subtype` (args invariant-Equal). The typar `'TF` then binds to the
+            // arrow and the existing heap-closure emission (a System.Object subclass
+            // implementing Vesper.Fun`2) dispatches via `callvirt Fun::Invoke`, so
+            // it compiles + runs 42. The no-box/`constrained.` struct-repr IL ideal
+            // is Step C — NOT asserted here.
+            test "rung4 Step A: source lambda into a constrained 'TF :> Fun slot compiles + runs" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "printfn \"%d\" (apply (fun x -> x + 1) 41)"
+                        ]
+
+                let tast, artifact = compileSource "M0SourceLambdaFun" src
+
+                // (1) front-end verdict: does the unifier accept a structural TyFun
+                // at the `'TF :> Fun` slot? Failure here prints the rejecting diagnostic.
+                Expect.isEmpty tast.Diagnostics (sprintf "M0 front-end diagnostics: %A" tast.Diagnostics)
+
+                // (2) runtime verdict
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "M0 Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "M0 apply (fun x -> x+1) 41 = 42"
+
+            // Step A only proves front-end accept + correct runtime. The IL-ideal
+            // (a `constrained.` prefix `0xFE 0x16` and NO `box` `0x8C` in `apply`)
+            // is the later struct-repr milestone — assert it there, not here.
+            }
+
             // The IDEAL rung-4 shape: a CAPTURELESS struct closure (no field, no
             // ctor) whose only body is the interface impl — exactly what a stateless
             // source `fun x -> x + 1` lowers to. This previously could not be written

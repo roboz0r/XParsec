@@ -381,6 +381,13 @@ module UnificationEngine =
         | Subtype
         | Unrelated
 
+    /// The bare (arity-suffix-stripped) qualified name of the canonical function
+    /// interface `Vesper.Fun`2` — the codegen contract `SemType.TyFun` lowers to.
+    /// `subsumes` consults this for the single arrow→`Fun` discharge rule (rung-4
+    /// Step A); the unifier otherwise keeps `TyFun` purely structural.
+    [<Literal>]
+    let private funInterfaceQualifiedName = "Vesper.Fun"
+
     // Canonical nominal name for subtype comparison: the type's platform-INVARIANT
     // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.
     // A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
@@ -662,6 +669,28 @@ module UnificationEngine =
             if
                 ss.Members
                 |> EqArray.forall (fun s -> subsumes ctx s tgt <> SubsumeOutcome.Unrelated)
+            then
+                SubsumeOutcome.Subtype
+            else
+                SubsumeOutcome.Unrelated
+        // The arrow↔`Fun` correspondence (rung-4 Step A): a structural arrow
+        // `TyFun(a,b)` IS a subtype of the canonical `Vesper.Fun`2<a,b>` interface.
+        // This is the ONE place the two layers meet — the unifier keeps seeing
+        // `TyFun` as the structural arrow everywhere else (function-representation
+        // §"Two layers"); only a `'TF :> Fun<…>` constrained-typar slot discharges
+        // through here. Args are invariant (same rule as `subsumesNominal`): the
+        // arrow's domain/codomain must each be `Equal` to the `Fun`'s type args. This
+        // is a read-only check, not a `unify` — grounding a still-free `Fun`-arg FROM
+        // the arrow is deferred (design-doc §5.2 Q1), not yet exercised. Arity-1 `Fun`2` only for Step A
+        // — a curried `TyFun(a, TyFun(b,c))` against `Fun`2` falls out naturally
+        // (codomain = the inner arrow), with no flat-`Fun2`/`Fun3` special-casing.
+        | TyFun(a, b), (TyClass(tk, targs)) when
+            SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = funInterfaceQualifiedName
+            && targs.Length = 2
+            ->
+            if
+                subsumes ctx a targs.[0] = SubsumeOutcome.Equal
+                && subsumes ctx b targs.[1] = SubsumeOutcome.Equal
             then
                 SubsumeOutcome.Subtype
             else
