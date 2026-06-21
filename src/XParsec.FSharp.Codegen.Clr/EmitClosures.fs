@@ -786,17 +786,20 @@ module EmitClosures =
                 // parameters, never captures.
                 let captures = freeVars nonCaptured (patKeys paramPat) selfKey body
 
-                // rung-4 Step C (M1): the CODEGEN value-struct trigger — the
+                // rung-4 Step C (M1/M2): the CODEGEN value-struct trigger — the
                 // stricter gate (necessary-not-sufficient `Repr` is NOT consulted).
                 // An *anonymous* lambda (`ValueNone` selfKey — a `let`-bound closure
                 // keeps its heap shape) threaded through a constrained `Fun` slot,
-                // captureless (a zero-field struct) and monomorphic. A capturing such
-                // lambda stays heap (M2); everything else is unchanged.
+                // monomorphic. M2 dropped M1's `List.isEmpty captures` restriction: a
+                // CAPTURING such lambda is now also a value-struct, its captures stored
+                // by value into struct fields and constructed via the value-type ctor
+                // (NOT `initobj`). A plain value struct copies by value, so passing it
+                // by value into the combinator stays escape-free (no `ref struct`); a
+                // mutable capture is promoted to a heap ref-cell captured by value, so
+                // sharing is preserved. The narrow constrained-slot gate is unchanged —
+                // the blast radius does not widen beyond M1. Everything else is heap.
                 let isValueStruct =
-                    currentTypars = 0
-                    && ValueOption.isNone selfKey
-                    && stackLambdaArgs.Contains e
-                    && List.isEmpty captures
+                    currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.Contains e
 
                 let c =
                     {

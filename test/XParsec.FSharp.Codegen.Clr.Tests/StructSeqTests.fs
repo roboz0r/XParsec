@@ -1,6 +1,8 @@
 module XParsec.FSharp.Codegen.Clr.Tests.StructSeqTests
 
 open System
+open System.Reflection.Metadata
+open System.Reflection.PortableExecutable
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
@@ -213,15 +215,21 @@ let structSeqTests =
 
             // rung-4 Step B guard: a CAPTURING lambda differs per construction (its
             // captured value is distinct each time), so caching would be WRONG. The
-            // capturing path is UNTOUCHED — it still `newobj`s per construction (no
-            // `.cctor`, no cached field). Proven by the construction site (here the
+            // HEAP capturing path is UNTOUCHED — it still `newobj`s per construction
+            // (no `.cctor`, no cached field). Proven by the construction site (here the
             // body of `outer`, a `fn$` static method) still containing `newobj`.
+            //
+            // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int`, NOT a constrained
+            // `'TF :> Fun` typar. Step C (M2) now lowers a capturing lambda through the
+            // CONSTRAINED slot to a by-value value-struct (no `newobj`); the plain-arrow
+            // HOF is the genuine heap path this guard still describes (the dedicated
+            // "Step C (M2)" test above asserts the value-struct shape).
             test "rung4 Step B: a capturing lambda is NOT cached (still newobjs per construction)" {
                 let src =
                     String.concat
                         "\n"
                         [
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "let apply (f: int -> int) (x: int) : int = f x"
                             "let outer (n: int) (x: int) : int = apply (fun y -> y + n) x"
                             "printfn \"%d\" (outer 1 41)"
                         ]
@@ -357,6 +365,96 @@ let structSeqTests =
                 Expect.isFalse
                     (Array.contains 0x8Cuy applyIl)
                     "apply IL contains no `box` (non-allocating value-struct dispatch)"
+            }
+
+            // rung-4 Step C (M2): a CAPTURING source lambda (`fun y -> y + n`,
+            // capturing `n`) fed into the SAME constrained `'TF :> Fun<int,int>` slot
+            // also lowers to a zero-alloc VALUE-STRUCT closure. M1 stored ZERO fields
+            // (`initobj`); M2 stores the capture by value into a struct field and
+            // constructs via the value-type ctor (`ldloca; <push n>; call .ctor`), NOT
+            // `initobj` (which only zeroes a fieldless struct). Dispatch is still
+            // `constrained.` devirt with NO box. The helper `mk` makes the capture
+            // real (the lambda's `n` is `mk`'s parameter), so the closure has one
+            // genuine capture field.
+            test "rung4 Step C (M2): a capturing source lambda lowers to a no-box value-struct closure" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "let mk (n: int) (x: int) : int = apply (fun y -> y + n) x"
+                            "printfn \"%d\" (mk 1 41)"
+                        ]
+
+                let tast, artifact = compileSource "StepCM2CapturingValueStruct" src
+                Expect.isEmpty tast.Diagnostics (sprintf "Step C M2 front-end diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "mk 1 41 = 42 (capturing lambda)"
+
+                // (1) The synthesised closure is a VALUE TYPE — base `System.ValueType`.
+                let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
+
+                Expect.equal
+                    closureBase
+                    (ValueSome "System.ValueType")
+                    "the capturing closure is a value type (base System.ValueType)"
+
+                // (2) It has exactly ONE capture field (the captured `n`).
+                use peReader = openPe bytes
+                let md = peReader.GetMetadataReader()
+
+                let closureTd =
+                    md.TypeDefinitions
+                    |> Seq.find (fun h ->
+                        let td = md.GetTypeDefinition h
+                        (md.GetString td.Name).StartsWith "<closure>$"
+                    )
+
+                let fieldCount = (md.GetTypeDefinition closureTd).GetFields() |> Seq.length
+                Expect.equal fieldCount 1 "the capturing value-struct closure has exactly one capture field"
+
+                // (3) Construction is by-value: the construction site (`mk`, a `fn$`
+                // static method) must NOT `newobj` (0x73), NOT `ldsfld` (0x7E) a
+                // cached singleton, and there must be no Step-B caching `.cctor`. The
+                // capture is pushed and a `call` (0x28) to the value-type ctor stores
+                // it by value.
+                let mkIls = peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let anyNewobj = mkIls |> Array.exists (fun il -> Array.contains 0x73uy il)
+                Expect.isFalse anyNewobj "no fn$ method newobjs the value-struct closure (0x73)"
+
+                let anyLdsfld = mkIls |> Array.exists (fun il -> Array.contains 0x7Euy il)
+                Expect.isFalse anyLdsfld "no fn$ method ldsflds a cached singleton (0x7E)"
+
+                let anyCall = mkIls |> Array.exists (fun il -> Array.contains 0x28uy il)
+                Expect.isTrue anyCall "a fn$ method `call`s the value-struct ctor (0x28) with the capture pushed"
+
+                let closureCctors =
+                    peMethodNames bytes
+                    |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
+
+                Expect.isEmpty closureCctors "no value-struct closure was given a Step-B caching .cctor"
+
+                // (4) `apply`'s body dispatches via `constrained.` (0xFE 0x16) with NO
+                // box (0x8C). `apply` is also a `fn$`; assert across all of them that a
+                // `constrained.` prefix is present and no `box` appears anywhere.
+                let hasConstrained =
+                    mkIls
+                    |> Array.exists (fun il ->
+                        il
+                        |> Array.windowed 2
+                        |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+                    )
+
+                Expect.isTrue
+                    hasConstrained
+                    "apply IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
+
+                let anyBox = mkIls |> Array.exists (fun il -> Array.contains 0x8Cuy il)
+                Expect.isFalse anyBox "no fn$ method contains a `box` (non-allocating capturing value-struct dispatch)"
             }
 
             // Rung-4 foundation: a generic struct whose FIELD is a function typar

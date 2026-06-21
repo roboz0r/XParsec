@@ -298,17 +298,43 @@ module EmitConstruct =
             // inside an enclosing closure's `Invoke`) — both encodings reference
             // the same TypeVar roots, and the parent's `TypeSpec` captures the
             // use-site instantiation.
-            // rung-4 Step C (M1): a captureless `Stack` (value-struct) closure is a
-            // zero-field readonly struct — materialise it by-value with `initobj` to
-            // a fresh local, then load the value (NO `newobj`, NO Step-B `ldsfld`).
-            // This leaves the struct VALUE on the stack; the call site passes it into
-            // the constrained `!TF` slot, so `constrained.` devirtualises with no box.
+            // rung-4 Step C (M1/M2): a `Stack` (value-struct) closure is a readonly
+            // struct, constructed BY-VALUE (NO `newobj`, NO Step-B `ldsfld`). This
+            // leaves the struct VALUE on the stack; the call site passes it into the
+            // constrained `!TF` slot, so `constrained.` devirtualises with no box.
+            //   * Captureless (M1): a zero-field struct — `ldloca; initobj; ldloc`.
+            //   * Capturing (M2): `initobj` only zeroes a fieldless struct, so push
+            //     each capture (in capture-field order) and `call` the value-type ctor
+            //     (`buildStructCtor` stores `ldarg.(i+1)` into field `i`), which writes
+            //     through the `&slot` managed pointer. Stack discipline for a
+            //     value-type ctor: address first, then args, then `call`, then `ldloc`
+            //     the now-initialised value.
             match env.ClosureValueTypeByNode.TryGetValue e with
             | true, closureFt ->
                 let closureHandle = env.ClosureTypeDefByNode.[e]
                 let slot = b.Local closureFt
                 b.Add(ILInstr.Ldloca slot)
-                b.Add(ILInstr.Initobj closureHandle)
+
+                match env.ClosureByNode.TryGetValue e with
+                | true, closure when not (List.isEmpty closure.Captures) ->
+                    for (k, _) in closure.Captures do
+                        buildVarLoad env b k
+
+                    let ctorHandle =
+                        match env.CtorHandleByNode.TryGetValue e with
+                        | true, ctor -> ctor
+                        | false, _ ->
+                            failwith
+                                "Emit: value-struct closure constructor not yet emitted (leaves-first ordering broken)"
+
+                    // Value-type ctor `call` (NOT `newobj`): `ldloca` already pushed
+                    // the receiver address; result count 0 — it returns void, leaving
+                    // nothing on the stack, so the trailing `ldloc` reads the value.
+                    b.Add(ILInstr.Call(ctorHandle, List.length closure.Captures + 1, 0))
+                | _ ->
+                    // Captureless (or no discovered closure): the zero-field path.
+                    b.Add(ILInstr.Initobj closureHandle)
+
                 b.Add(ILInstr.Ldloc slot)
             | false, _ ->
 
