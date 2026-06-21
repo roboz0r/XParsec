@@ -1967,26 +1967,20 @@ let structSeqTests =
             // ITS OWN closure. Expected output: ((1+1)*2)+((2+1)*2)+((3+1)*2)+((4+1)*2) =
             // 4+6+8+10 = 28.
             //
-            // PENDING — blocked on a PRE-EXISTING front-end generalisation/freshening bug
-            // that is ORTHOGONAL to source lambdas and to the P-d closure-collision work.
-            // Chaining a generic combinator (`map`) whose phantom enumerator typar `'E`
-            // (in `'S :> IStructSeq<'T,'E>` and in the `MapSeq<…,'E,…>` result) is fed a
-            // value that is ITSELF a `MapSeq` fails the front-end subtype check: the
-            // SECOND `map (g) s1` reports `MapSeq`5 does not support subtype of
-            // IStructSeq`2`. Root cause (traced via `Engine.subsumesNominal` /
-            // `InferGeneralize.instantiate`): the second instantiation's `'E2` is ground
-            // to `ArrayEnumerator` (the INNER seq's enumerator) instead of
-            // `MapEnumerator` — the constraint-target `'E` is not remapped to the fresh
-            // per-call instance in `instantiate` (its constraint-occurrence root is not
-            // in `surfaceSubst`), so the FIRST call grounds the shared scheme typar and
-            // poisons the SECOND. This reproduces IDENTICALLY with a hand-written
-            // `[<Struct>] AddN : Fun<int,int>` in place of the lambdas, confirming it is
-            // a chained-generic-combinator inference gap, not a closure/lowering gap.
-            // The P-d codegen rewrite (node-identity-keyed, collision-impossible by
-            // construction) is in place and validated against the M6 capstone / P-b /
-            // M1/M2/M3 (all still green); it cannot be exercised end-to-end until the
-            // chained-`map` front-end subtyping is fixed (a unifier change, out of P-d's
-            // codegen-only scope). The orchestrator decides the follow-up milestone.
+            // PENDING — the FRONT-END chained-combinator inference gap is now FIXED
+            // (`InferGeneralize.instantiate` freshens leaked non-quantified constraint
+            // roots per call, so the SECOND `map (g) s1` no longer inherits the first
+            // call's grounded enumerator bound — see GeneralisationTests "chained generic
+            // combinator with constraint-bound result typar"). With the type-check clean,
+            // this fixture now reaches RUNTIME and hits a SEPARATE, codegen-only wall:
+            //   System.EntryPointNotFoundException at IStructSeq`2.GetEnumerator()
+            //   (Program.fn$… → Program..cctor)
+            // i.e. the `fold`'s `for y in source` `constrained. callvirt` to
+            // `IStructSeq.GetEnumerator()` over the doubly-nested `MapSeq<MapSeq<…>,…>`
+            // receiver resolves to a missing method (bad MethodSpec / interface-method
+            // resolution for the nested-generic constrained call). This is the P-d
+            // codegen path now being exercised end-to-end for the first time; the wall is
+            // in CLR emission, not inference. Left `ptest` for a codegen follow-up.
             ptest "rung 4 (M6 P-d): multi-map chain lowers each closure to its OWN value-struct slot" {
                 let src =
                     String.concat

@@ -209,6 +209,57 @@ let tests =
                 Expect.isTrue (hasMismatch tast) "second use at bool conflicts with int from first use"
             }
 
+            test "chained generic combinator with constraint-bound result typar (P-d front-end)" {
+                // Minimal isolation of the rung-4 M6 P-d wall — NO Fun/AddN/struct.
+                // `wrap` is a generic combinator: `'S :> I<'T,'E>` carries a PHANTOM
+                // enumerator typar `'E` (also in the result `W<'S,'E,'T>`). Chaining
+                // `wrap` twice (the second over a `W<…>` produced by the first) must
+                // freshen `'E` per call; if the first call grounds the SHARED scheme
+                // `'E` to `A<'T>` (the inner seq's enumerator), the second call's
+                // result-`'E` is poisoned and the subtype check on `W :> I` fails.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IEnum<'T> ="
+                            "    abstract member Current : 'T"
+                            "type ISeq<'T, 'E when 'E :> IEnum<'T>> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrEnum<'T> ="
+                            "    val Cur : 'T"
+                            "    new(c: 'T) = { Cur = c }"
+                            "    interface IEnum<'T> with"
+                            "        member this.Current : 'T = this.Cur"
+                            "[<Struct>]"
+                            "type ArrSeq<'T> ="
+                            "    val C : 'T"
+                            "    new(c: 'T) = { C = c }"
+                            "    interface ISeq<'T, ArrEnum<'T>> with"
+                            "        member this.GetEnumerator() : ArrEnum<'T> = ArrEnum<'T>(this.C)"
+                            "[<Struct>]"
+                            "type WEnum<'E, 'T when 'E :> IEnum<'T>> ="
+                            "    val mutable Source : 'E"
+                            "    new(source: 'E) = { Source = source }"
+                            "    interface IEnum<'T> with"
+                            "        member this.Current : 'T = this.Source.Current"
+                            "[<Struct>]"
+                            "type WSeq<'S, 'E, 'T when 'S :> ISeq<'T, 'E> and 'E :> IEnum<'T>> ="
+                            "    val Source : 'S"
+                            "    new(source: 'S) = { Source = source }"
+                            "    interface ISeq<'T, WEnum<'E, 'T>> with"
+                            "        member this.GetEnumerator() : WEnum<'E, 'T> = WEnum<'E, 'T>(this.Source.GetEnumerator())"
+                            "let ofVal (x: 'T) : ArrSeq<'T> = ArrSeq<'T>(x)"
+                            "let wrap (source: 'S when 'S :> ISeq<'T, 'E> and 'E :> IEnum<'T>) : WSeq<'S, 'E, 'T> = WSeq<'S, 'E, 'T>(source)"
+                            "let s0 = ofVal 1"
+                            "let s1 = wrap s0"
+                            "let s2 = wrap s1"
+                        ]
+
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics (sprintf "chained wrap diagnostics: %A" tast.Diagnostics)
+            }
+
             test "mutable binding: assignment unifies LHS and RHS types" {
                 // `let mutable r = fun x -> x` starts with `'a -> 'a`. The
                 // assignment unifies it with `int -> int`, pinning the free

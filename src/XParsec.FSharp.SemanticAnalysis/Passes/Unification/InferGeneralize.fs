@@ -67,22 +67,56 @@ module internal UnificationInferGeneralize =
         // `'TFunc :> Fun<'T,'U>`) must be remapped to its fresh instance, or the
         // dependent-typar inference in `drainConstraints` grounds the ORIGINAL
         // surface var and leaves the FRESH return copy un-instantiated → an
-        // unresolved TyVar at freeze. A purely PHANTOM target var (e.g. the
-        // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, absent from the surface
-        // type) must stay verbatim: the function body's expr-tree references that
-        // original var, and the verbatim constraint is what grounds it.
+        // unresolved TyVar at freeze. A purely PHANTOM *quantified* target var
+        // (e.g. the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`, absent
+        // from the surface type) stays verbatim: the function body's expr-tree
+        // references that original var, and the verbatim constraint is what grounds
+        // it at the binding.
         let surfaceRoots = HashSet<TypeVar>(HashIdentity.Reference)
         scheme.Body |> iterTypeVarRoots (surfaceRoots.Add >> ignore)
 
-        // The surface restriction of `subst` — loop-invariant, so build it once. A
-        // `Coercion` target's surface vars remap to their fresh instances; phantom
-        // ones (referenced by the body expr-tree) stay verbatim. `subst` already maps
-        // every quantified root, so filter it to the surface set.
-        let surfaceSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+        // Start from the surface restriction of `subst` (quantified surface roots
+        // remap to their fresh instances; quantified phantom roots stay verbatim
+        // so the body grounds them).
+        let constraintSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
         for kv in subst do
             if surfaceRoots.Contains kv.Key then
-                surfaceSubst.[kv.Key] <- kv.Value
+                constraintSubst.[kv.Key] <- kv.Value
+
+        // A `Coercion` target may ALSO reference still-free roots that are NOT
+        // quantified at all: a placeholder typar that leaked into the bound when
+        // the combinator's param typar unified with a CONSTRUCTED type's own
+        // declared typar (the `WSeq`/`MapSeq` ctor's `'S :> ISeq<…>` bound migrating
+        // onto `wrap`/`map`'s `'S` via `migrateBounds`). Its root sits at the
+        // registry/outer level, so `generalise`'s level test never quantified it,
+        // yet it rides the constraint. Left verbatim it is SHARED across every
+        // instantiation of the scheme, so the FIRST call grounds it (its
+        // dependent-typar inference pins it to the inner arg's witness) and the
+        // SECOND call inherits that ground bound → a spurious subtype check against
+        // an unrelated nominal (`MapSeq`5 does not support subtype of IStructSeq`2`).
+        // Freshen each such non-quantified free root per call, sharing one fresh
+        // instance across all constraints that mention it. (Quantified phantom roots
+        // are deliberately excluded — they are NOT in `subst`, so the
+        // `freshOf`-keyed walk above never added them here; the body grounds them.)
+        let quantifiedRoots = HashSet<TypeVar>(freshOf.Keys, HashIdentity.Reference)
+
+        for (_, c) in scheme.Constraints do
+            match c.Kind with
+            | SemanticConstraintKind.Coercion target ->
+                target
+                |> zonk
+                |> iterTypeVarRoots (fun root ->
+                    if
+                        root.Link.IsNone
+                        && not (quantifiedRoots.Contains root)
+                        && not (constraintSubst.ContainsKey root)
+                    then
+                        let fresh = TypeVar()
+                        fresh.Level <- ctx.CurrentLevel
+                        constraintSubst.[root] <- TyVar fresh
+                )
+            | _ -> ()
 
         for (qTv, c) in scheme.Constraints do
             let qRoot = UnionFind.find qTv
@@ -93,7 +127,7 @@ module internal UnificationInferGeneralize =
                     match c.Kind with
                     | SemanticConstraintKind.Coercion target ->
                         { c with
-                            Kind = SemanticConstraintKind.Coercion(substituteWith surfaceSubst target)
+                            Kind = SemanticConstraintKind.Coercion(substituteWith constraintSubst target)
                         }
                     | _ -> c
 
