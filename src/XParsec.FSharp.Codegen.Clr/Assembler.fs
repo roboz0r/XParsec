@@ -56,12 +56,35 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let closures = layout.Closures
     let closureByNode = layout.ClosureByNode
 
+    // rung-4 Step C (M1): closure name → its `Closure` record, so the type-layout
+    // pass (keyed only by `TypeKey.Closure name`) can branch a value-struct closure
+    // onto struct attrs / `System.ValueType` base.
+    let closureByName = Dictionary<string, Emit.Closure>()
+
+    do
+        for c in closures do
+            closureByName.[c.Name] <- c
+
+    let closureIsValueStruct (name: string) : bool =
+        match closureByName.TryGetValue name with
+        | true, c -> c.IsValueStruct
+        | false, _ -> false
+
     let ctorHandleByNode =
         Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
     // A non-capturing, monomorphic closure's cached singleton field (rung-4
     // Step B): its construction sites `ldsfld` this instead of `newobj`ing.
     let cachedClosureFieldByNode =
+        Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+
+    // rung-4 Step C (M1): a captureless `Stack` (value-struct) closure's synthetic
+    // encodable `FrozenType` (the by-value local + the constrained-slot `MethodSpec`
+    // type-argument) and its closure-`TypeDef` handle (`initobj` operand).
+    let closureValueTypeByNode =
+        Dictionary<Frozen.TExpr, FrozenType>(HashIdentity.Reference)
+
+    let closureTypeDefByNode =
         Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
     let partitionedDecls = layout.Partitioned
@@ -274,6 +297,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             ClosureByNode = closureByNode
             CtorHandleByNode = ctorHandleByNode
             CachedClosureFieldByNode = cachedClosureFieldByNode
+            ClosureValueTypeByNode = closureValueTypeByNode
+            ClosureTypeDefByNode = closureTypeDefByNode
             Unions = unions
             Records = records
             Classes = classes
@@ -399,6 +424,19 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             if Emit.closureIsCached c then
                 cachedClosureFieldByNode.[c.Node] <- toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
+            // rung-4 Step C (M1): a captureless `Stack` (value-struct) closure is
+            // constructed by-value (`initobj` to a local) and its struct `TypeDef`
+            // is the constrained-slot `MethodSpec` type-argument at the call site.
+            // Register it as a project-local value type (so `encodeType` emits
+            // `ELEMENT_TYPE_VALUETYPE`) and record both the synthetic `FrozenType`
+            // and the `TypeDef` handle per node. Only monomorphic closures reach
+            // here (the gate sets `Stack` only when `currentTypars = 0`).
+            if c.IsValueStruct then
+                let defHandle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))
+                let ft = provider.RegisterStackClosureValueType(c.Name, defHandle)
+                closureValueTypeByNode.[c.Node] <- ft
+                closureTypeDefByNode.[c.Node] <- defHandle
+
     member this.PrepareInterfaces() =
         for (td, methods) in interfaceDecls do
             // The use-site member table for a call on an interface-typed receiver:
@@ -491,11 +529,22 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     handleForUse
                 )
 
+            // rung-4 Step C (M1): a `Stack` closure is a value type — its ctor
+            // does NOT chain `System.Object::.ctor` (value types have none and do
+            // not chain), so use the struct-ctor builder. A captureless Stack
+            // closure's ctor is the trivial `ret`; construction is by-value
+            // (`initobj`), so it is never called, but the row stays for layout
+            // parity with the heap path.
+            let isStack = c.IsValueStruct
+
             let ctorBodyOffset =
-                Cil.buildBody
-                    encodeLocals
-                    bodyStream
-                    (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
+                if isStack then
+                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructCtor fieldHandles))
+                else
+                    Cil.buildBody
+                        encodeLocals
+                        bodyStream
+                        (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
 
             let invokeBodyOffset =
                 Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke emitCtx c captureFields))
@@ -560,7 +609,13 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 TypeKey.Closure c.Name,
                 {
                     Interfaces = [ ifaceSpec ]
-                    BaseType = provider.ObjectType
+                    // rung-4 Step C (M1): a `Stack` closure is a value type, so it
+                    // derives from `System.ValueType`; the heap closure from `Object`.
+                    BaseType =
+                        (if isStack then
+                             provider.ValueTypeBase
+                         else
+                             provider.ObjectType)
                 }
             )
 
@@ -790,9 +845,18 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     | true, e -> e
                     | _ -> failwithf "Layout: closure slot '%s' was never prepared" slot.MetaName
 
+                // rung-4 Step C (M1): a `Stack` closure is a `[<Struct>]` value
+                // type (sealed, sequential layout) deriving from `System.ValueType`
+                // (set on `extras.BaseType` in `PrepareClosures`); the heap closure
+                // keeps the sealed-class `closureAttrs` over `System.Object`.
+                let attrs =
+                    match slot.Key with
+                    | TypeKey.Closure name when closureIsValueStruct name -> classAttrsOf true true
+                    | _ -> closureAttrs
+
                 let closureHandle =
                     ctx.AddClass(
-                        closureAttrs,
+                        attrs,
                         slot.Namespace,
                         slot.MetaName,
                         extras.BaseType,

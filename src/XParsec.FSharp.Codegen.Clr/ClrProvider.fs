@@ -165,6 +165,23 @@ type ClrProvider
                 DefHandle = defHandle
             }
 
+    /// rung-4 Step C (M1): register a captureless `Stack` (value-struct) closure
+    /// under a synthetic project-local `SymbolKey` and return the `FrozenType` that
+    /// names it. A closure has no `FrozenType` of its own (it is keyed by
+    /// `TypeKey.Closure name`, codegen-only), but a value-struct closure must be
+    /// *encodable* — its by-value local, its `initobj`, and the constrained-slot
+    /// `MethodSpec` type-argument all reference it. Minting an `FTClass(synthKey, [])`
+    /// keyed at the emitted assembly and registering `synthKey → defHandle` in
+    /// `userTypes` + `userValueTypes` makes the SHARED `encodeType` value-type arm
+    /// (`ELEMENT_TYPE_VALUETYPE`) emit it — no new encoder/MethodSpec path needed.
+    /// The synthetic key's `name` is never used for emission (only the handle is),
+    /// so the closure name suffices.
+    member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
+        let key = SymbolKey.TypeKey(env.EnvAsm, "", name)
+        env.UserTypes.[key] <- defHandle
+        env.UserValueTypes.Add key |> ignore
+        FTClass(key, EqArray.empty)
+
     member _.GenericClosureTypeSpec(name: string, args: FrozenType list) : EntityHandle =
         generics.GenericClosureTypeSpec(name, args)
 

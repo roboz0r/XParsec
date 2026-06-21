@@ -298,8 +298,21 @@ let tests =
                 for fn in staticFns do
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
 
+                let paramTysMap =
+                    readOnlyDict [ for fn in staticFns -> fn.Key, [ for p in fn.Params -> p.Ty ] ]
+
+                let groupsMap = readOnlyDict [ for fn in staticFns -> fn.Key, fn.Groups ]
+
                 let closures, _ =
-                    Emit.discoverClosures eligible moduleValueKeys typarsMap tast.ClosureReprs lowered []
+                    Emit.discoverClosures
+                        eligible
+                        moduleValueKeys
+                        typarsMap
+                        paramTysMap
+                        groupsMap
+                        tast.ClosureReprs
+                        lowered
+                        []
 
                 closures
 

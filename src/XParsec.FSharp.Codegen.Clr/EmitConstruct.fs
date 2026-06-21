@@ -298,43 +298,57 @@ module EmitConstruct =
             // inside an enclosing closure's `Invoke`) — both encodings reference
             // the same TypeVar roots, and the parent's `TypeSpec` captures the
             // use-site instantiation.
-            // A non-capturing, monomorphic closure is cached as a `static readonly`
-            // singleton (rung-4 Step B): load the one instance with `ldsfld` instead
-            // of `newobj`ing a fresh heap closure per construction.
-            match env.CachedClosureFieldByNode.TryGetValue e with
-            | true, cachedField -> b.Add(ILInstr.Ldsfld cachedField)
+            // rung-4 Step C (M1): a captureless `Stack` (value-struct) closure is a
+            // zero-field readonly struct — materialise it by-value with `initobj` to
+            // a fresh local, then load the value (NO `newobj`, NO Step-B `ldsfld`).
+            // This leaves the struct VALUE on the stack; the call site passes it into
+            // the constrained `!TF` slot, so `constrained.` devirtualises with no box.
+            match env.ClosureValueTypeByNode.TryGetValue e with
+            | true, closureFt ->
+                let closureHandle = env.ClosureTypeDefByNode.[e]
+                let slot = b.Local closureFt
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Initobj closureHandle)
+                b.Add(ILInstr.Ldloc slot)
             | false, _ ->
 
-                match env.ClosureByNode.TryGetValue e with
-                | true, closure ->
-                    for (k, _) in closure.Captures do
-                        buildVarLoad env b k
+                // A non-capturing, monomorphic closure is cached as a `static readonly`
+                // singleton (rung-4 Step B): load the one instance with `ldsfld` instead
+                // of `newobj`ing a fresh heap closure per construction.
+                match env.CachedClosureFieldByNode.TryGetValue e with
+                | true, cachedField -> b.Add(ILInstr.Ldsfld cachedField)
+                | false, _ ->
 
-                    let ctorHandle =
-                        if closure.Typars = 0 then
-                            match env.CtorHandleByNode.TryGetValue e with
-                            | true, ctor -> ctor
-                            | false, _ ->
-                                failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
-                        else
-                            // The closure's instantiation at *this* construction site,
-                            // in the enclosing context's ambient. Its typar list is the
-                            // enclosing class typars (the leading `DeclaringTypars`
-                            // slots) followed by the enclosing member's method typars:
-                            // a class typar is `FTTypar(Declaring, i)` (encoded `!i` in
-                            // a member body) and a method typar `FTTypar(Method, j)`
-                            // (`!!j`). A static-fn closure has `DeclaringTypars = 0`, so
-                            // this is `[FTTypar(Method, j)]` — the prior encoding (`!!i`
-                            // in a static-method body, `!i` inside an enclosing closure).
-                            let instArgs =
-                                [ for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
-                                @ [
-                                    for j in 0 .. closure.Typars - closure.DeclaringTypars - 1 ->
-                                        FTTypar(TyparAxis.Method, j)
-                                ]
+                    match env.ClosureByNode.TryGetValue e with
+                    | true, closure ->
+                        for (k, _) in closure.Captures do
+                            buildVarLoad env b k
 
-                            env.Provider.UserClosureMemberRef(closure.Name, instArgs, ClosureMember.Ctor)
+                        let ctorHandle =
+                            if closure.Typars = 0 then
+                                match env.CtorHandleByNode.TryGetValue e with
+                                | true, ctor -> ctor
+                                | false, _ ->
+                                    failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
+                            else
+                                // The closure's instantiation at *this* construction site,
+                                // in the enclosing context's ambient. Its typar list is the
+                                // enclosing class typars (the leading `DeclaringTypars`
+                                // slots) followed by the enclosing member's method typars:
+                                // a class typar is `FTTypar(Declaring, i)` (encoded `!i` in
+                                // a member body) and a method typar `FTTypar(Method, j)`
+                                // (`!!j`). A static-fn closure has `DeclaringTypars = 0`, so
+                                // this is `[FTTypar(Method, j)]` — the prior encoding (`!!i`
+                                // in a static-method body, `!i` inside an enclosing closure).
+                                let instArgs =
+                                    [ for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+                                    @ [
+                                        for j in 0 .. closure.Typars - closure.DeclaringTypars - 1 ->
+                                            FTTypar(TyparAxis.Method, j)
+                                    ]
 
-                    b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
-                | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
+                                env.Provider.UserClosureMemberRef(closure.Name, instArgs, ClosureMember.Ctor)
+
+                        b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
+                    | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
         | _ -> failwith "EmitConstruct.buildLambda: unreachable"

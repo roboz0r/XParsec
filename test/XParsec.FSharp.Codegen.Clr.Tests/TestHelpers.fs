@@ -1569,6 +1569,45 @@ let peTypeDefNames (bytes: byte[]) : string list =
                     sprintf "%s.%s" ns name
     ]
 
+/// The base-type full name (`Namespace.Name`) of the first type-def whose simple
+/// name satisfies `nameMatches` — resolving the `BaseType` handle through either a
+/// `TypeReference` (BCL, e.g. `System.ValueType` / `System.Object`) or a sibling
+/// `TypeDefinition`. `ValueNone` if no type matches or the base handle is nil.
+/// Distinguishes a value-type (`System.ValueType`) closure from a heap one
+/// (`System.Object`).
+let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string voption =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    let nameOf (ns: string) (n: string) =
+        if System.String.IsNullOrEmpty ns then
+            n
+        else
+            sprintf "%s.%s" ns n
+
+    md.TypeDefinitions
+    |> Seq.tryPick (fun tdh ->
+        let td = md.GetTypeDefinition tdh
+
+        if nameMatches (md.GetString td.Name) then
+            let bt = td.BaseType
+
+            if bt.IsNil then
+                Some ValueNone
+            else
+                match bt.Kind with
+                | HandleKind.TypeReference ->
+                    let r = md.GetTypeReference(TypeReferenceHandle.op_Explicit bt)
+                    Some(ValueSome(nameOf (md.GetString r.Namespace) (md.GetString r.Name)))
+                | HandleKind.TypeDefinition ->
+                    let d = md.GetTypeDefinition(TypeDefinitionHandle.op_Explicit bt)
+                    Some(ValueSome(nameOf (md.GetString d.Namespace) (md.GetString d.Name)))
+                | _ -> Some ValueNone
+        else
+            None
+    )
+    |> Option.defaultValue ValueNone
+
 /// List every method-def's `(declaringType, methodName)` in the PE. The
 /// declaring type's name comes through `peTypeDefNames`'s formatting.
 let peMethodNames (bytes: byte[]) : (string * string) list =

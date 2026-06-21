@@ -128,18 +128,26 @@ let structSeqTests =
 
             // rung-4 Step B: a NON-capturing source lambda is STATELESS, so a single
             // shared instance suffices (fsc caches it in a `static readonly` field and
-            // allocates once). The lambda is now emitted as a cached singleton: its
+            // allocates once). The lambda is emitted as a cached singleton: its
             // closure type gains a `static readonly instance` field initialised by a
             // `.cctor` (`newobj` once), and every construction site `ldsfld`s it
             // instead of `newobj`ing. This kills per-construction allocation
             // independent of the value-struct work (Step C). The heap closure shape is
             // UNCHANGED — Step B is only the caching.
+            //
+            // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int` (an ordinary
+            // higher-order function), NOT a constrained `'TF :> Fun` typar. Step C
+            // (M1) intercepts ONLY the bare-method-typar slot — the value-struct shape
+            // needs a typar to instantiate `!TF` at the struct `TypeDef` — so a plain
+            // arrow HOF still takes the Step-B heap-singleton path. (The
+            // constrained-typar shape these tests previously used now lowers to a
+            // value-struct; that is the dedicated "Step C (M1)" test above.)
             test "rung4 Step B: a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
                 let src =
                     String.concat
                         "\n"
                         [
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "let apply (f: int -> int) (x: int) : int = f x"
                             "printfn \"%d\" (apply (fun x -> x + 1) 41)"
                         ]
 
@@ -170,11 +178,13 @@ let structSeqTests =
             // the one cached singleton. Proven by counting closure types (one) and the
             // total `newobj` in its `.cctor` (one), while both use sites `ldsfld`.
             test "rung4 Step B: the same non-capturing lambda at two sites allocates once" {
+                // Plain arrow `int -> int` parameter ⇒ the Step-B heap-caching path (a
+                // constrained typar would take the Step C value-struct path instead).
                 let src =
                     String.concat
                         "\n"
                         [
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "let apply (f: int -> int) (x: int) : int = f x"
                             "let a = apply (fun x -> x + 1) 41"
                             "let b = apply (fun x -> x + 1) 9"
                             "printfn \"%d\" (a + b)"
@@ -280,6 +290,73 @@ let structSeqTests =
                 Expect.isFalse
                     (Array.contains 0x8Cuy il)
                     "apply IL contains no `box` (non-allocating captureless struct Fun dispatch)"
+            }
+
+            // rung-4 Step C (M1): the IDEAL — a CAPTURELESS SOURCE lambda
+            // (`fun x -> x + 1`) fed into the constrained `'TF :> Fun<int,int>` slot
+            // is now lowered to a zero-alloc VALUE-STRUCT closure, dispatched with
+            // `constrained.` devirt and NO box. Step A made it typecheck (arrow →
+            // `Fun\`2` subsumes) and run on the heap; Step B cached the heap
+            // singleton. Step C synthesises the closure as a `System.ValueType` and
+            // overrides the call-site `!TF` instantiation to the struct `TypeDef`, so
+            // the source lambda now reaches the SAME no-box shape the hand-written
+            // `[<Struct>] Add1` fixture above proves.
+            test "rung4 Step C (M1): a captureless source lambda lowers to a no-box value-struct closure" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "printfn \"%d\" (apply (fun x -> x + 1) 41)"
+                        ]
+
+                let tast, artifact = compileSource "StepCValueStructClosure" src
+                Expect.isEmpty tast.Diagnostics (sprintf "Step C front-end diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "apply (fun x -> x+1) 41 = 42"
+
+                // (1) The synthesised closure is a VALUE TYPE — base `System.ValueType`,
+                // NOT a `System.Object` subclass (the heap shape).
+                let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
+
+                Expect.equal
+                    closureBase
+                    (ValueSome "System.ValueType")
+                    "the captureless closure is a value type (base System.ValueType)"
+
+                // (2) Construction is by-value: the construction site (`Main`) must NOT
+                // `newobj` (0x73) the closure, and must NOT `ldsfld` (0x7E) a Step-B
+                // cached singleton — it `initobj`s a local instead.
+                let mainIl = peMethodIlWhere bytes "Program" (fun n -> n = "Main")
+                Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
+                Expect.isFalse (Array.contains 0x7Euy mainIl) "Main does NOT ldsfld a cached singleton (0x7E)"
+
+                // No Step-B caching `.cctor` was minted for this closure.
+                let closureCctors =
+                    peMethodNames bytes
+                    |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
+
+                Expect.isEmpty closureCctors "no value-struct closure was given a Step-B caching .cctor"
+
+                // (3) `apply`'s body dispatches via `constrained.` (0xFE 0x16) with NO
+                // box (0x8C): `!TF` is the struct `TypeDef`, so the JIT devirtualises.
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    applyIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue
+                    hasConstrained
+                    "apply IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
+
+                Expect.isFalse
+                    (Array.contains 0x8Cuy applyIl)
+                    "apply IL contains no `box` (non-allocating value-struct dispatch)"
             }
 
             // Rung-4 foundation: a generic struct whose FIELD is a function typar

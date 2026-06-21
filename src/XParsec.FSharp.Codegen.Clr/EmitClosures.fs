@@ -661,10 +661,67 @@ module EmitClosures =
             Body: Frozen.TExpr
         }
 
+    /// rung-4 Step C (M1): the captureless source-lambda argument nodes that may
+    /// lower onto a zero-alloc value-struct. An anonymous lambda passed to a
+    /// project-local static fn whose corresponding parameter is a bare method
+    /// typar `FTTypar(Method, i)` is — by Step A's `subsumes(TyFun, Fun\`2)` rule —
+    /// being threaded through a `'TF :> Fun<_,_>` constrained slot, the only shape
+    /// the call site can devirtualise by instantiating `!TF` with the closure's own
+    /// struct `TypeDef`. Gated to all-`GSimple` callees (flat == curried, so the
+    /// spine-arg index maps one-to-one onto the parameter index) — the narrow
+    /// blast radius the design doc §1.2 recommends. Captures (M2) stay heap.
+    let private collectStackLambdaArgs
+        (staticFnKeys: HashSet<NodeKey>)
+        (staticFnParamTys: IReadOnlyDictionary<NodeKey, FrozenType list>)
+        (staticFnGroups: IReadOnlyDictionary<NodeKey, Frozen.ArgGroup list>)
+        (decls: Frozen.TDecl list)
+        (memberRoots: MemberClosureRoot list)
+        : HashSet<Frozen.TExpr> =
+        let stackNodes = HashSet<Frozen.TExpr>(HashIdentity.Reference)
+
+        let rec walk (e: Frozen.TExpr) =
+            (match e with
+             | TExprG.App _ ->
+                 let head, spineArgs = TastWalk.collectSpine [] e
+
+                 match head with
+                 | TExprG.Var(k, _, _) when staticFnKeys.Contains k ->
+                     match staticFnParamTys.TryGetValue k, staticFnGroups.TryGetValue k with
+                     | (true, paramTys), (true, groups) when TastLower.allSimpleGroups groups ->
+                         // All-`GSimple`: one flat param per source group, so spine
+                         // arg `i` lands on parameter `i`. A bare-typar parameter
+                         // fed a literal `fun … -> …` is a constrained `Fun` slot.
+                         spineArgs
+                         |> List.iteri (fun i (arg, _, _) ->
+                             if i < List.length paramTys then
+                                 match paramTys.[i], arg with
+                                 | FTTypar(TyparAxis.Method, _), (TExprG.Lambda _ as lam) ->
+                                     stackNodes.Add lam |> ignore
+                                 | _ -> ()
+                         )
+                     | _ -> ()
+                 | _ -> ()
+             | _ -> ())
+
+            iterChildren walk e
+
+        for d in decls do
+            match d with
+            | TDeclG.Expression(e, _) -> walk e
+            | TDeclG.Let(_, v, _, _) -> walk v
+            | TDeclG.Type _ -> ()
+
+        for r in memberRoots do
+            walk r.Body
+
+        stackNodes
+
     let discoverClosures
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
+        (staticFnParamTys: IReadOnlyDictionary<NodeKey, FrozenType list>)
+        (staticFnGroups: IReadOnlyDictionary<NodeKey, Frozen.ArgGroup list>)
         (closureReprs: Map<uint64, ClosureRepr>)
         (decls: Frozen.TDecl list)
         (memberRoots: MemberClosureRoot list)
@@ -672,6 +729,11 @@ module EmitClosures =
         let order = ResizeArray<Frozen.TExpr>()
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
+
+        // rung-4 Step C (M1): captureless source lambdas threaded through a
+        // constrained `Fun` slot — eligible for the value-struct closure shape.
+        let stackLambdaArgs =
+            collectStackLambdaArgs staticFnKeys staticFnParamTys staticFnGroups decls memberRoots
 
         // A module-level value is a `public static` field (`ldsfld`), so — like a
         // static-method reference — it is resolved without a capture. Fold both
@@ -706,7 +768,11 @@ module EmitClosures =
 
                 // Keyed by the closure's binder (`let f = …`). An anonymous lambda
                 // (no `SelfKey`) or a binder the snapshot didn't reach defaults to
-                // `Heap` — the only shape emitted today.
+                // `Heap` — the only shape the v1 heap path emits.
+                //
+                // `Repr` is the front-end Regions SNAPSHOT (inert on its own).
+                // Keyed by the closure's binder; an anonymous lambda or an
+                // unreached binder defaults to `Heap`.
                 let repr =
                     match selfKey with
                     | ValueSome k ->
@@ -714,6 +780,23 @@ module EmitClosures =
                         | Some r -> r
                         | None -> ClosureRepr.Heap
                     | ValueNone -> ClosureRepr.Heap
+
+                // Bind every leaf the param pattern introduces (a tuple's element
+                // bindings), not the placeholder `ParamKey` — those leaves are
+                // parameters, never captures.
+                let captures = freeVars nonCaptured (patKeys paramPat) selfKey body
+
+                // rung-4 Step C (M1): the CODEGEN value-struct trigger — the
+                // stricter gate (necessary-not-sufficient `Repr` is NOT consulted).
+                // An *anonymous* lambda (`ValueNone` selfKey — a `let`-bound closure
+                // keeps its heap shape) threaded through a constrained `Fun` slot,
+                // captureless (a zero-field struct) and monomorphic. A capturing such
+                // lambda stays heap (M2); everything else is unchanged.
+                let isValueStruct =
+                    currentTypars = 0
+                    && ValueOption.isNone selfKey
+                    && stackLambdaArgs.Contains e
+                    && List.isEmpty captures
 
                 let c =
                     {
@@ -724,14 +807,12 @@ module EmitClosures =
                         ParamPat = paramPat
                         ResultTy = resultTy
                         Body = body
-                        // Bind every leaf the param pattern introduces (a tuple's
-                        // element bindings), not the placeholder `ParamKey` — those
-                        // leaves are parameters, never captures.
-                        Captures = freeVars nonCaptured (patKeys paramPat) selfKey body
+                        Captures = captures
                         SelfKey = selfKey
                         Typars = currentTypars
                         DeclaringTypars = declaringOffset
                         Repr = repr
+                        IsValueStruct = isValueStruct
                     }
 
                 counter <- counter + 1

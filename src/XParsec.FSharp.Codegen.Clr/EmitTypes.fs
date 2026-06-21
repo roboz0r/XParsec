@@ -48,10 +48,20 @@ module EmitTypes =
             /// Stack vs heap representation, decided from the Regions verdict
             /// (Axis 1 `LocalStack` ∧ Axis 2 `StackOnlyEligible`) and snapshotted
             /// onto `TastFile.ClosureReprs`. `Heap` = the v1 reference-type
-            /// `Vesper.Fun<_,_>` subclass (the only shape emitted today); `Stack` =
-            /// eligible for the deferred readonly-struct closure shape. Inert in v1 — emission ignores it, so a
-            /// `Stack` verdict changes no IL until the struct-closure gate flips.
+            /// `Vesper.Fun<_,_>` subclass; `Stack` = the Regions verdict that a
+            /// readonly-struct shape is *admissible*. This is the front-end SNAPSHOT
+            /// — a *necessary* condition for the value-struct lowering, NOT the
+            /// codegen trigger (which is the stricter `IsValueStruct` gate below).
+            /// On its own it remains inert (it changes no IL).
             Repr: ClosureRepr
+            /// rung-4 Step C (M1): the CODEGEN decision to emit this closure as a
+            /// zero-alloc value-struct (`System.ValueType` base, `initobj`
+            /// construction, constrained-slot `!TF` override). `true` only for a
+            /// captureless, monomorphic, *anonymous* lambda threaded through a
+            /// constrained `Fun` slot — the narrowly gated shape M1 proves. Distinct
+            /// from `Repr`: the front-end `Stack` verdict is necessary but not
+            /// sufficient, so this is the single source of truth for the struct path.
+            IsValueStruct: bool
         }
 
     /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is
@@ -61,7 +71,11 @@ module EmitTypes =
     /// allocating (rung-4 Step B; fsc's no-capture-closure caching). A capturing
     /// closure differs per construction (caching would be wrong), and a generic one
     /// needs a per-instantiation singleton (deferred) — both keep `newobj`.
-    let closureIsCached (c: Closure) : bool = List.isEmpty c.Captures && c.Typars = 0
+    /// A value-struct (rung-4 Step C) closure is constructed by-value (`initobj`),
+    /// never cached as a heap singleton — the two paths are mutually exclusive.
+    /// Only the heap non-capturing monomorphic closure caches (Step B).
+    let closureIsCached (c: Closure) : bool =
+        List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
 
     /// One case of an emitted union: runtime `Tag`, the static factory
     /// `TExpr.UnionCons` `call`s, and its payload field handles in declaration order.
@@ -295,6 +309,12 @@ module EmitTypes =
             /// (rung-4 Step B): a `Lambda` node here loads its one cached singleton
             /// with `ldsfld` instead of `newobj`'ing per construction.
             CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            /// rung-4 Step C (M1): a captureless `Stack` (value-struct) closure
+            /// `Lambda` node → its synthetic encodable `FrozenType` (its by-value
+            /// local + the constrained-slot `MethodSpec` type-argument) and its
+            /// closure-`TypeDef` handle (`initobj` operand).
+            ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
+            ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -329,6 +349,10 @@ module EmitTypes =
             /// Cached non-capturing closure singleton fields (rung-4 Step B);
             /// a `Lambda` value here `ldsfld`s instead of `newobj`ing.
             CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            /// rung-4 Step C (M1) value-struct closures: synthetic encodable
+            /// `FrozenType` + closure-`TypeDef` handle per `Stack` `Lambda` node.
+            ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
+            ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
             Args: Dictionary<NodeKey, int>
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
@@ -363,6 +387,8 @@ module EmitTypes =
                 ClosureByNode = ctx.ClosureByNode
                 CtorHandleByNode = ctx.CtorHandleByNode
                 CachedClosureFieldByNode = ctx.CachedClosureFieldByNode
+                ClosureValueTypeByNode = ctx.ClosureValueTypeByNode
+                ClosureTypeDefByNode = ctx.ClosureTypeDefByNode
                 Args = args
                 SelfKey = selfKey
                 CaptureFields = captureFields

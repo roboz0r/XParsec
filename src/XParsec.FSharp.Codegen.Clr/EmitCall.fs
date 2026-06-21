@@ -283,7 +283,32 @@ module EmitCall =
                         | _ -> sm.ParamTys, flatActualTys
 
                     let inst = matchInstantiation sm.Typars defTys actualTys
-                    env.Provider.StaticFnMethodSpec(sm.Handle, inst)
+
+                    // rung-4 Step C (M1): a captureless `Stack` (value-struct) lambda
+                    // argument fed a bare method-typar parameter (the constrained
+                    // `'TF :> Fun<_,_>` slot) must instantiate `!TF` with the
+                    // closure's own struct `TypeDef`, NOT the arrow (which encodes to
+                    // the `Fun\`2` INTERFACE and would force a box). `matchInstantiation`
+                    // bound that typar to the arrow `FTFun(_,_)`; override it with the
+                    // closure's synthetic value-type `FrozenType` so `constrained. !TF`
+                    // targets the struct → JIT devirt, no box. The discovery gate runs
+                    // only on all-`GSimple` callees, so the leading spine arg index
+                    // maps one-to-one onto the flat parameter index.
+                    let instArr = List.toArray inst
+
+                    leading
+                    |> List.iteri (fun i (arg, _, _) ->
+                        match env.ClosureValueTypeByNode.TryGetValue arg with
+                        | true, closureFt ->
+                            if i < List.length sm.ParamTys then
+                                match sm.ParamTys.[i] with
+                                | FTTypar(TyparAxis.Method, idx) when idx >= 0 && idx < instArr.Length ->
+                                    instArr.[idx] <- closureFt
+                                | _ -> ()
+                        | false, _ -> ()
+                    )
+
+                    env.Provider.StaticFnMethodSpec(sm.Handle, List.ofArray instArr)
 
             // A `unit`-returning static fn is emitted `void` (Step B): the `call`
             // declares 0 results and a `unit` value is reified for a value-position
