@@ -54,6 +54,15 @@ module EmitTypes =
             Repr: ClosureRepr
         }
 
+    /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is
+    /// STATELESS — a single shared instance suffices, so it is cached in a
+    /// `static readonly` singleton field on the closure type itself, `newobj`'d once
+    /// in the closure's `.cctor`, and every construction site `ldsfld`s it instead of
+    /// allocating (rung-4 Step B; fsc's no-capture-closure caching). A capturing
+    /// closure differs per construction (caching would be wrong), and a generic one
+    /// needs a per-instantiation singleton (deferred) — both keep `newobj`.
+    let closureIsCached (c: Closure) : bool = List.isEmpty c.Captures && c.Typars = 0
+
     /// One case of an emitted union: runtime `Tag`, the static factory
     /// `TExpr.UnionCons` `call`s, and its payload field handles in declaration order.
     type EmittedCase =
@@ -282,6 +291,10 @@ module EmitTypes =
             Ctx: MetadataContext
             ClosureByNode: Dictionary<Frozen.TExpr, Closure>
             CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            /// A non-capturing, monomorphic closure's cached `instance` field
+            /// (rung-4 Step B): a `Lambda` node here loads its one cached singleton
+            /// with `ldsfld` instead of `newobj`'ing per construction.
+            CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -313,6 +326,9 @@ module EmitTypes =
             Slots: Dictionary<NodeKey, int>
             ClosureByNode: Dictionary<Frozen.TExpr, Closure>
             CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            /// Cached non-capturing closure singleton fields (rung-4 Step B);
+            /// a `Lambda` value here `ldsfld`s instead of `newobj`ing.
+            CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
             Args: Dictionary<NodeKey, int>
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
@@ -346,6 +362,7 @@ module EmitTypes =
                 Slots = Dictionary<NodeKey, int>()
                 ClosureByNode = ctx.ClosureByNode
                 CtorHandleByNode = ctx.CtorHandleByNode
+                CachedClosureFieldByNode = ctx.CachedClosureFieldByNode
                 Args = args
                 SelfKey = selfKey
                 CaptureFields = captureFields

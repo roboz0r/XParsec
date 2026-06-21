@@ -131,6 +131,9 @@ type internal FieldKey =
     /// A `static let` backing field.
     | ClassStaticField of SymbolKey * name: string
     | ClosureCapture of closure: string * index: int
+    /// A non-capturing, monomorphic closure's `static readonly` singleton field —
+    /// the one cached instance every construction site `ldsfld`s (rung-4 Step B).
+    | ClosureCached of closure: string
     /// A module-level value's `public static` holder field.
     | ModuleValue of NodeKey
 
@@ -175,6 +178,10 @@ type internal MethodKey =
     | FmtFormat of SymbolKey
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
+    /// A non-capturing, monomorphic closure's `.cctor` — `newobj`s the closure once
+    /// and `stsfld`s it into `FieldKey.ClosureCached` (rung-4 Step B). Present only
+    /// for a cached closure; a capturing/generic closure has none.
+    | ClosureCctor of closure: string
     | HolderCctor of Emit.HolderKey
     /// The anonymous "Program" holder's `.cctor` — initialises the
     /// leading-prefix top-level values; at most one per assembly.
@@ -807,8 +814,9 @@ module internal Layout =
             [
                 for c in closures ->
                     let isGeneric = c.Typars > 0
+                    let cached = Emit.closureIsCached c
 
-                    let fields =
+                    let captureFields =
                         [
                             for i in 0 .. List.length c.Captures - 1 ->
                                 {
@@ -819,6 +827,25 @@ module internal Layout =
                                     ClosureScope = (if isGeneric then ValueSome c.DeclaringTypars else ValueNone)
                                 }
                         ]
+
+                    // The singleton field (Step B): `static readonly` of the closure's
+                    // own type. Its `Ty` is unused — the writer mints the self-type
+                    // signature from the closure's TypeDef handle, not from `Ty` (a
+                    // closure type has no `FrozenType` the encoder resolves).
+                    let cachedFields =
+                        [
+                            if cached then
+                                {
+                                    Key = FieldKey.ClosureCached c.Name
+                                    Name = "instance"
+                                    Attrs =
+                                        FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                    Ty = c.ResultTy
+                                    ClosureScope = ValueNone
+                                }
+                        ]
+
+                    let fields = captureFields @ cachedFields
 
                     let methodRows =
                         [
@@ -832,6 +859,12 @@ module internal Layout =
                                 Name = "Invoke"
                                 Attrs = invokeAttrs
                             }
+                            if cached then
+                                {
+                                    Key = MethodKey.ClosureCctor c.Name
+                                    Name = ".cctor"
+                                    Attrs = cctorAttrs
+                                }
                         ]
 
                     let slot =

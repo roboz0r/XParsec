@@ -30,6 +30,8 @@ module Emit =
     type StaticMethodRef = EmitTypes.StaticMethodRef
     type EmitContext = EmitTypes.EmitContext
 
+    let closureIsCached = EmitTypes.closureIsCached
+
     let expandBuiltinOps = EmitLower.expandBuiltinOps
     let lower = EmitLower.lower
     let collectModuleValues = EmitClosures.collectModuleValues
@@ -359,6 +361,17 @@ module Emit =
             b.Add(ILInstr.Stfld field)
         )
 
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// A non-capturing, monomorphic closure's `.cctor` (rung-4 Step B): `newobj` the
+    /// closure once and `stsfld` it into the singleton `instance` field. Runs before
+    /// the first `ldsfld` of that field (every construction site), so a stateless
+    /// lambda allocates exactly once instead of per construction.
+    let buildCachedClosureCctor (ctorHandle: EntityHandle) (cachedField: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Newobj(ctorHandle, 0))
+        b.Add(ILInstr.Stsfld cachedField)
         b.Add ILInstr.Ret
         b.Body
 

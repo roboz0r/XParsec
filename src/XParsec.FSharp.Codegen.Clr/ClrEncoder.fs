@@ -746,6 +746,15 @@ type internal ClrEncoder(env: ClrEnv) =
         encodeType te ty
         blob
 
+    /// A field signature whose type is the closure's OWN (reference) type, given its
+    /// `TypeDefinition` handle directly — a closure type has no `FrozenType` the
+    /// encoder resolves, so the cached-singleton field (rung-4 Step B) is encoded
+    /// here from its handle rather than through `FieldSignature ty`.
+    member _.ClosureSelfFieldSignature(closureTypeHandle: EntityHandle) : BlobBuilder =
+        let blob = BlobBuilder()
+        BlobEncoder(blob).FieldSignature().Type(closureTypeHandle, false)
+        blob
+
     /// `override bool Equals(object)` signature. The parameter is the compact `ELEMENT_TYPE_OBJECT`
     /// encoding (`.Object()`), not `class System.Object` — `System.Object::Equals(object)` uses the
     /// compact form and implicit override binding is by signature *blob* match, so the encodings must

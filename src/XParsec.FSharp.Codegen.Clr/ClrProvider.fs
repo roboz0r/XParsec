@@ -140,6 +140,9 @@ type ClrProvider
 
     member _.FieldSignature(ty: FrozenType) : BlobBuilder = enc.FieldSignature ty
 
+    member _.ClosureSelfFieldSignature(closureTypeHandle: EntityHandle) : BlobBuilder =
+        enc.ClosureSelfFieldSignature closureTypeHandle
+
     /// Register a *generic* closure's shape so its member refs can be minted on its `TypeSpec`. A
     /// monomorphic closure (`Closure.Typars = []`) is *not* registered — its `Def` tokens are used.
     member _.RegisterClosure

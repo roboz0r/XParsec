@@ -59,6 +59,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let ctorHandleByNode =
         Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
+    // A non-capturing, monomorphic closure's cached singleton field (rung-4
+    // Step B): its construction sites `ldsfld` this instead of `newobj`ing.
+    let cachedClosureFieldByNode =
+        Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+
     let partitionedDecls = layout.Partitioned
     let interfaceDecls = partitionedDecls.Interfaces
     let unionDecls = partitionedDecls.Unions
@@ -190,7 +195,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             // pinpointable rather than anonymous.
             let fieldSig =
                 try
-                    provider.FieldSignature fs.Ty
+                    match fs.Key with
+                    // The cached-singleton field's type is the closure's own reference
+                    // type, encoded from its TypeDef handle (no `FrozenType`).
+                    | FieldKey.ClosureCached name ->
+                        provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeKey.Closure name)))
+                    | _ -> provider.FieldSignature fs.Ty
                 with ex ->
                     // Wrap (not `failwithf "%s" ex.Message`) so the original
                     // encoder exception rides as `InnerException` — the stack
@@ -263,6 +273,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             Ctx = ctx
             ClosureByNode = closureByNode
             CtorHandleByNode = ctorHandleByNode
+            CachedClosureFieldByNode = cachedClosureFieldByNode
             Unions = unions
             Records = records
             Classes = classes
@@ -382,6 +393,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         for c in closures do
             if c.Typars = 0 then
                 ctorHandleByNode.[c.Node] <- toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
+
+            // A non-capturing, monomorphic closure is cached: the construction site
+            // `ldsfld`s its singleton field instead of `newobj`ing (rung-4 Step B).
+            if Emit.closureIsCached c then
+                cachedClosureFieldByNode.[c.Node] <- toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
     member this.PrepareInterfaces() =
         for (td, methods) in interfaceDecls do
@@ -503,6 +519,30 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     MethodTypars = []
                 }
             )
+
+            // A non-capturing, monomorphic closure caches its single instance: a
+            // `.cctor` `newobj`s the ctor once and `stsfld`s the singleton field
+            // (rung-4 Step B). Construction sites then `ldsfld` it (`BindClosures`
+            // populated `cachedClosureFieldByNode`).
+            if Emit.closureIsCached c then
+                let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
+                let cachedField = toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
+
+                let cctorBodyOffset =
+                    Cil.buildBody
+                        encodeLocals
+                        bodyStream
+                        (IlIr.lower (Emit.buildCachedClosureCctor ctorHandle cachedField))
+
+                this.AddPrepared(
+                    MethodKey.ClosureCctor c.Name,
+                    {
+                        Signature = provider.CctorSignature()
+                        BodyOffset = cctorBodyOffset
+                        ParamNames = []
+                        MethodTypars = []
+                    }
+                )
 
             // `Fun\`2<param, result>` interface `TypeSpec` — closure ambient
             // still installed, so free `TyVar`s encode to `!i`.

@@ -126,6 +126,120 @@ let structSeqTests =
             // is the later struct-repr milestone — assert it there, not here.
             }
 
+            // rung-4 Step B: a NON-capturing source lambda is STATELESS, so a single
+            // shared instance suffices (fsc caches it in a `static readonly` field and
+            // allocates once). The lambda is now emitted as a cached singleton: its
+            // closure type gains a `static readonly instance` field initialised by a
+            // `.cctor` (`newobj` once), and every construction site `ldsfld`s it
+            // instead of `newobj`ing. This kills per-construction allocation
+            // independent of the value-struct work (Step C). The heap closure shape is
+            // UNCHANGED — Step B is only the caching.
+            test "rung4 Step B: a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "printfn \"%d\" (apply (fun x -> x + 1) 41)"
+                        ]
+
+                let tast, artifact = compileSource "StepBCachedSingleton" src
+                Expect.isEmpty tast.Diagnostics (sprintf "Step B front-end diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "apply (fun x -> x+1) 41 = 42"
+
+                // The construction site is `Main` (the top-level `printfn` call). It must
+                // load the cached instance (`ldsfld` 0x7E) and must NOT `newobj` (0x73)
+                // the closure there.
+                let mainIl = peMethodIlWhere bytes "Program" (fun n -> n = "Main")
+                Expect.isTrue (Array.contains 0x7Euy mainIl) "Main loads the cached closure via ldsfld (0x7E)"
+                Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the closure (0x73)"
+
+                // The single `newobj` of the closure lives in the closure type's
+                // `.cctor`, followed by a `stsfld` (0x80) into the singleton field.
+                let cctorIl = peMethodIlWhere bytes "<closure>$0" (fun n -> n = ".cctor")
+                Expect.isTrue (Array.contains 0x73uy cctorIl) ".cctor newobjs the closure once (0x73)"
+                Expect.isTrue (Array.contains 0x80uy cctorIl) ".cctor stsflds the singleton (0x80)"
+            }
+
+            // rung-4 Step B: caching is per-closure-TYPE, so constructing the SAME
+            // non-capturing lambda at TWO call sites allocates ONCE — both sites share
+            // the one cached singleton. Proven by counting closure types (one) and the
+            // total `newobj` in its `.cctor` (one), while both use sites `ldsfld`.
+            test "rung4 Step B: the same non-capturing lambda at two sites allocates once" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "let a = apply (fun x -> x + 1) 41"
+                            "let b = apply (fun x -> x + 1) 9"
+                            "printfn \"%d\" (a + b)"
+                        ]
+
+                let tast, artifact = compileSource "StepBTwoSites" src
+                Expect.isEmpty tast.Diagnostics (sprintf "Step B two-site diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "52" "(42) + (10) = 52"
+
+                // Two distinct source lambdas, so two closure types — each cached.
+                let closureCctors =
+                    peMethodNames bytes
+                    |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
+
+                // Each closure's `.cctor` newobjs exactly once; no per-construction
+                // newobj reaches the construction sites.
+                for (ty, _) in closureCctors do
+                    let cctorIl = peMethodIlWhere bytes ty (fun n -> n = ".cctor")
+                    let newobjs = cctorIl |> Array.filter (fun b -> b = 0x73uy) |> Array.length
+                    Expect.equal newobjs 1 (sprintf "%s .cctor newobjs exactly once" ty)
+            }
+
+            // rung-4 Step B guard: a CAPTURING lambda differs per construction (its
+            // captured value is distinct each time), so caching would be WRONG. The
+            // capturing path is UNTOUCHED — it still `newobj`s per construction (no
+            // `.cctor`, no cached field). Proven by the construction site (here the
+            // body of `outer`, a `fn$` static method) still containing `newobj`.
+            test "rung4 Step B: a capturing lambda is NOT cached (still newobjs per construction)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            "let outer (n: int) (x: int) : int = apply (fun y -> y + n) x"
+                            "printfn \"%d\" (outer 1 41)"
+                        ]
+
+                let tast, artifact = compileSource "StepBCapturingNotCached" src
+                Expect.isEmpty tast.Diagnostics (sprintf "Step B capturing diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "outer 1 41 = 42 (capturing lambda)"
+
+                // The capturing closure's construction site (the `outer` static method)
+                // still `newobj`s (0x73) — caching did not apply.
+                let outerIls = peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let anyNewobj = outerIls |> Array.exists (fun il -> Array.contains 0x73uy il)
+
+                Expect.isTrue anyNewobj "a capturing lambda still newobjs per construction (not cached)"
+
+                // No closure type gained a `.cctor` (no cached singleton was minted).
+                let closureCctors =
+                    peMethodNames bytes
+                    |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
+
+                Expect.isEmpty closureCctors "no capturing closure was given a caching .cctor"
+            }
+
             // The IDEAL rung-4 shape: a CAPTURELESS struct closure (no field, no
             // ctor) whose only body is the interface impl — exactly what a stateless
             // source `fun x -> x + 1` lowers to. This previously could not be written
