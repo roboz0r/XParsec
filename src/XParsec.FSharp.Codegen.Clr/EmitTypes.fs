@@ -54,13 +54,14 @@ module EmitTypes =
             /// codegen trigger (which is the stricter `IsValueStruct` gate below).
             /// On its own it remains inert (it changes no IL).
             Repr: ClosureRepr
-            /// rung-4 Step C (M1): the CODEGEN decision to emit this closure as a
-            /// zero-alloc value-struct (`System.ValueType` base, `initobj`
-            /// construction, constrained-slot `!TF` override). `true` only for a
-            /// captureless, monomorphic, *anonymous* lambda threaded through a
-            /// constrained `Fun` slot — the narrowly gated shape M1 proves. Distinct
-            /// from `Repr`: the front-end `Stack` verdict is necessary but not
-            /// sufficient, so this is the single source of truth for the struct path.
+            /// rung-4 Step C: the CODEGEN decision to emit this closure as a
+            /// zero-alloc value-struct (`System.ValueType` base, by-value
+            /// construction, constrained-slot `!TF` override). `true` for a
+            /// monomorphic, *anonymous* lambda threaded through a constrained `Fun`
+            /// slot — captureless (M1, `initobj`) or capturing (M2, value-type ctor).
+            /// Distinct from `Repr`: the front-end `Stack` verdict is necessary but
+            /// not sufficient, so this is the single source of truth for the struct
+            /// path.
             IsValueStruct: bool
         }
 

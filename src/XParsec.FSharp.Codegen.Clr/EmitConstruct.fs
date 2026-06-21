@@ -282,99 +282,98 @@ module EmitConstruct =
             b.Add(ILInstr.Newobj(refs.Ctor, elems.Length))
         | _ -> failwith "EmitConstruct.buildTuple: unreachable"
 
-    /// A `Lambda` value: construct its closure. Pushes captures via `buildVarLoad`
-    /// then `newobj`s the closure ctor — no sub-expression evaluation, so no
-    /// `Recur` seam.
+    /// The discovered `Closure` for a `Lambda` node — every construction path needs
+    /// it. Its absence is a broken invariant (discovery missed a lambda), so each
+    /// caller faults rather than silently degrading.
+    let private closureOf (env: EmitEnv) (e: Frozen.TExpr) : Closure =
+        match env.ClosureByNode.TryGetValue e with
+        | true, closure -> closure
+        | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
+
+    /// rung-4 Step C (M1/M2): a `Stack` (value-struct) closure is a readonly struct,
+    /// constructed BY-VALUE (NO `newobj`, NO Step-B `ldsfld`), leaving the struct
+    /// VALUE on the stack; the call site passes it into the constrained `!TF` slot,
+    /// so `constrained.` devirtualises with no box.
+    ///   * Captureless (M1): a zero-field struct — `ldloca; initobj; ldloc`.
+    ///   * Capturing (M2): `initobj` only zeroes a fieldless struct, so push each
+    ///     capture (in capture-field order) and `call` the value-type ctor
+    ///     (`buildStructCtor` stores `ldarg.(i+1)` into field `i`), writing through
+    ///     the `&slot` managed pointer. Value-type ctor stack discipline: address
+    ///     first, then args, then `call` (returns void, stack empty), then `ldloc`
+    ///     the now-initialised value.
+    let private buildValueStructClosure (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) (closureFt: FrozenType) : unit =
+        let closure = closureOf env e
+        let closureHandle = env.ClosureTypeDefByNode.[e]
+        let slot = b.Local closureFt
+        b.Add(ILInstr.Ldloca slot)
+
+        if List.isEmpty closure.Captures then
+            b.Add(ILInstr.Initobj closureHandle)
+        else
+            for (k, _) in closure.Captures do
+                buildVarLoad env b k
+
+            let ctorHandle =
+                match env.CtorHandleByNode.TryGetValue e with
+                | true, ctor -> ctor
+                | false, _ ->
+                    failwith "Emit: value-struct closure constructor not yet emitted (leaves-first ordering broken)"
+
+            b.Add(ILInstr.Call(ctorHandle, List.length closure.Captures + 1, 0))
+
+        b.Add(ILInstr.Ldloc slot)
+
+    /// The v1 heap closure: push captures via the current resolver (a local in
+    /// `Main`, the param, or a capture inside an enclosing closure), then `newobj`
+    /// its ctor. A generic closure routes the `Newobj` through a `MemberRef` on
+    /// `<closure>$n<args>`, where `args` is the closure's typars zonked at the call
+    /// site (`!!i` inside the enclosing static method's body, `!i` inside an
+    /// enclosing closure's `Invoke`) — both encodings reference the same TypeVar
+    /// roots, and the parent's `TypeSpec` captures the use-site instantiation.
+    let private buildHeapClosure (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        let closure = closureOf env e
+
+        for (k, _) in closure.Captures do
+            buildVarLoad env b k
+
+        let ctorHandle =
+            if closure.Typars = 0 then
+                match env.CtorHandleByNode.TryGetValue e with
+                | true, ctor -> ctor
+                | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
+            else
+                // The closure's instantiation at *this* construction site, in the
+                // enclosing context's ambient. Its typar list is the enclosing class
+                // typars (the leading `DeclaringTypars` slots) followed by the
+                // enclosing member's method typars: a class typar is
+                // `FTTypar(Declaring, i)` (encoded `!i` in a member body) and a method
+                // typar `FTTypar(Method, j)` (`!!j`). A static-fn closure has
+                // `DeclaringTypars = 0`, so this is `[FTTypar(Method, j)]` — the prior
+                // encoding (`!!i` in a static-method body, `!i` inside an enclosing
+                // closure).
+                let instArgs =
+                    [ for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+                    @ [
+                        for j in 0 .. closure.Typars - closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Method, j)
+                    ]
+
+                env.Provider.UserClosureMemberRef(closure.Name, instArgs, ClosureMember.Ctor)
+
+        b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
+
+    /// A `Lambda` value: construct its closure. The three construction modes
+    /// partition the closure space (`EmitTypes.closureIsCached`), so this is a flat
+    /// dispatch with no sub-expression evaluation (no `Recur` seam):
+    ///   * value-struct (Step C) — by-value, keyed in `ClosureValueTypeByNode`;
+    ///   * cached singleton (Step B) — stateless heap closure `ldsfld`'d once;
+    ///   * heap `newobj` (v1) — everything else.
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.Lambda _ ->
-            // A function value: construct its closure. Captures are pushed via
-            // the current resolver (a local in `Main`, the param or a capture
-            // inside an enclosing closure), then `newobj` its ctor.
-            //
-            // A generic closure routes the `Newobj` through a `MemberRef` on
-            // `<closure>$n<args>`, where `args` is the closure's typars zonked at
-            // the call site (`!!i` inside the enclosing static method's body, `!i`
-            // inside an enclosing closure's `Invoke`) — both encodings reference
-            // the same TypeVar roots, and the parent's `TypeSpec` captures the
-            // use-site instantiation.
-            // rung-4 Step C (M1/M2): a `Stack` (value-struct) closure is a readonly
-            // struct, constructed BY-VALUE (NO `newobj`, NO Step-B `ldsfld`). This
-            // leaves the struct VALUE on the stack; the call site passes it into the
-            // constrained `!TF` slot, so `constrained.` devirtualises with no box.
-            //   * Captureless (M1): a zero-field struct — `ldloca; initobj; ldloc`.
-            //   * Capturing (M2): `initobj` only zeroes a fieldless struct, so push
-            //     each capture (in capture-field order) and `call` the value-type ctor
-            //     (`buildStructCtor` stores `ldarg.(i+1)` into field `i`), which writes
-            //     through the `&slot` managed pointer. Stack discipline for a
-            //     value-type ctor: address first, then args, then `call`, then `ldloc`
-            //     the now-initialised value.
             match env.ClosureValueTypeByNode.TryGetValue e with
-            | true, closureFt ->
-                let closureHandle = env.ClosureTypeDefByNode.[e]
-                let slot = b.Local closureFt
-                b.Add(ILInstr.Ldloca slot)
-
-                match env.ClosureByNode.TryGetValue e with
-                | true, closure when not (List.isEmpty closure.Captures) ->
-                    for (k, _) in closure.Captures do
-                        buildVarLoad env b k
-
-                    let ctorHandle =
-                        match env.CtorHandleByNode.TryGetValue e with
-                        | true, ctor -> ctor
-                        | false, _ ->
-                            failwith
-                                "Emit: value-struct closure constructor not yet emitted (leaves-first ordering broken)"
-
-                    // Value-type ctor `call` (NOT `newobj`): `ldloca` already pushed
-                    // the receiver address; result count 0 — it returns void, leaving
-                    // nothing on the stack, so the trailing `ldloc` reads the value.
-                    b.Add(ILInstr.Call(ctorHandle, List.length closure.Captures + 1, 0))
-                | _ ->
-                    // Captureless (or no discovered closure): the zero-field path.
-                    b.Add(ILInstr.Initobj closureHandle)
-
-                b.Add(ILInstr.Ldloc slot)
+            | true, closureFt -> buildValueStructClosure env b e closureFt
             | false, _ ->
-
-                // A non-capturing, monomorphic closure is cached as a `static readonly`
-                // singleton (rung-4 Step B): load the one instance with `ldsfld` instead
-                // of `newobj`ing a fresh heap closure per construction.
                 match env.CachedClosureFieldByNode.TryGetValue e with
                 | true, cachedField -> b.Add(ILInstr.Ldsfld cachedField)
-                | false, _ ->
-
-                    match env.ClosureByNode.TryGetValue e with
-                    | true, closure ->
-                        for (k, _) in closure.Captures do
-                            buildVarLoad env b k
-
-                        let ctorHandle =
-                            if closure.Typars = 0 then
-                                match env.CtorHandleByNode.TryGetValue e with
-                                | true, ctor -> ctor
-                                | false, _ ->
-                                    failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
-                            else
-                                // The closure's instantiation at *this* construction site,
-                                // in the enclosing context's ambient. Its typar list is the
-                                // enclosing class typars (the leading `DeclaringTypars`
-                                // slots) followed by the enclosing member's method typars:
-                                // a class typar is `FTTypar(Declaring, i)` (encoded `!i` in
-                                // a member body) and a method typar `FTTypar(Method, j)`
-                                // (`!!j`). A static-fn closure has `DeclaringTypars = 0`, so
-                                // this is `[FTTypar(Method, j)]` — the prior encoding (`!!i`
-                                // in a static-method body, `!i` inside an enclosing closure).
-                                let instArgs =
-                                    [ for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
-                                    @ [
-                                        for j in 0 .. closure.Typars - closure.DeclaringTypars - 1 ->
-                                            FTTypar(TyparAxis.Method, j)
-                                    ]
-
-                                env.Provider.UserClosureMemberRef(closure.Name, instArgs, ClosureMember.Ctor)
-
-                        b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
-                    | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
+                | false, _ -> buildHeapClosure env b e
         | _ -> failwith "EmitConstruct.buildLambda: unreachable"

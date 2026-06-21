@@ -175,9 +175,16 @@ type ClrProvider
     /// `userTypes` + `userValueTypes` makes the SHARED `encodeType` value-type arm
     /// (`ELEMENT_TYPE_VALUETYPE`) emit it — no new encoder/MethodSpec path needed.
     /// The synthetic key's `name` is never used for emission (only the handle is),
-    /// so the closure name suffices.
+    /// so the closure name suffices. The key is placed in the reserved `<closure>`
+    /// namespace — a sigil no source-declared type can produce — so it provably
+    /// cannot collide with a real `userTypes` key; the guard below fails fast if
+    /// that invariant is ever broken.
     member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
-        let key = SymbolKey.TypeKey(env.EnvAsm, "", name)
+        let key = SymbolKey.TypeKey(env.EnvAsm, "<closure>", name)
+
+        if env.UserTypes.ContainsKey key then
+            failwithf "Emit: synthetic value-struct closure key '%s' collides with a registered type" name
+
         env.UserTypes.[key] <- defHandle
         env.UserValueTypes.Add key |> ignore
         FTClass(key, EqArray.empty)
