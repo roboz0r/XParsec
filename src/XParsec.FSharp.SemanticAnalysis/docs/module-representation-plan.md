@@ -534,7 +534,7 @@ field)".
 
 1. **Front-end name (`Elaborate.translateModuleElem`).** A top-level binding records
    no `ModuleMemberInfo`, so the backend has no field *name*. Add an additive
-   `TastFile.TopLevelNames : Map<uint64, string>` (binding-key → source name via the
+   `TastFile.TopLevelNames : Map<NodeKey, string>` (binding-key → source name via the
    existing `memberNameOfBinding`), recorded for every top-level binding; consulted
    **only** by the value collector, so top-level **functions** keep their
    `fn$<off>` holderless path untouched. *(References are by `NodeKey`, so the name

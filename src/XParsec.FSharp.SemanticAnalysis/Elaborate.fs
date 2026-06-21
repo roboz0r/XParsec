@@ -1321,7 +1321,7 @@ module Elaborate =
                                 | ValueSome cn -> cn
                                 | ValueNone -> nm
 
-                            ctx.Bindings.ModuleMembers.[(CstKeys.ofBinding b).Raw] <-
+                            ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <-
                                 {
                                     Namespace = ns
                                     Holder = h
@@ -1335,7 +1335,7 @@ module Elaborate =
                     // so a top-level function's `fn$<off>` path is untouched.
                     | None ->
                         match memberNameOfBinding ctx b with
-                        | ValueSome nm -> ctx.Bindings.TopLevelNames.[(CstKeys.ofBinding b).Raw] <- nm
+                        | ValueSome nm -> ctx.Bindings.TopLevelNames.[CstKeys.ofBinding b] <- nm
                         | ValueNone -> ()
 
                     let valT = translateBinding ctx b
@@ -1483,8 +1483,7 @@ module Elaborate =
             // The RS3 closure verdict is filled in by the Pipeline after
             // `Regions.run` — escape analysis hasn't run at elaboration time.
             ClosureReprs = Map.empty
-            // rung-4 M3 `Fun`-arity verdict — snapshotted by the Pipeline from
-            // `ctx.FunSlotArity` alongside `ClosureReprs`.
-            FunSlotArity = Map.empty
-            FunResultTypar = Map.empty
+            // rung-4 M3 / M6 value-struct closure verdicts — snapshotted by the
+            // Pipeline from `ctx.FunVerdicts` alongside `ClosureReprs`.
+            FunVerdicts = Map.empty
         }

@@ -145,7 +145,7 @@ LOCKED: record the verdict in a **node-keyed side table**, riding the identical 
 Regions `ClosureRepr` snapshot already uses:
 - produced in a pass and snapshotted in `Pipeline.fs` (next to `ClosureReprs =
   Regions.closureReprSnapshot ctx`, `Pipeline.fs:45`);
-- stored on `TastFile` (sibling of `ClosureReprs : Map<uint64, ClosureRepr>`, `Tast.fs:789`);
+- stored on `TastFile` (sibling of `ClosureReprs : Map<NodeKey, ClosureRepr>`, `Tast.fs:789`);
 - carried by `TastConvert` (`TastConvert.fs:268`);
 - passed into `EmitClosures.discoverClosures` (`Layout.fs:587`) and consumed in
   `registerClosure` (`EmitClosures.fs:757`) to set the value-struct `Invoke`'s arity — the

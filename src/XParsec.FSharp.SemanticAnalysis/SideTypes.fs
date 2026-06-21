@@ -47,6 +47,25 @@ type ModuleMemberInfo =
         Name: string
     }
 
+/// rung-4 M3 / M6 P-a: the per-source-lambda value-struct closure verdict, keyed
+/// (in the side table / `TastFile`) by the lambda argument's `NodeKey`. One record
+/// makes the subset invariant explicit: a lambda threaded through a `:> Fun`/`:> Fun2`
+/// slot always has an `Arity`; only one whose constrained `'TFunc` *also* surfaces in
+/// the producing combinator's RESULT nominal carries a `ResultTyparPos`. Recorded in
+/// `inferApp`; `Arity` read by codegen's `discoverClosures` (flat `Invoke` sizing),
+/// `ResultTyparPos` by `ClosureVerdictRewrite` (stored-slot / result-type rewrite).
+type FunVerdict =
+    {
+        /// The flat `FunN` arity the slot constrains the argument to: `1` for a
+        /// `Fun<a,b>` slot, `2` for a `Fun2<a,b,c>` slot.
+        Arity: int
+        /// The type-argument POSITION the lambda's constrained `'TFunc` occupies in
+        /// the combinator's RESULT nominal (`0` for `mk : ('TF:>Fun) -> Holder<'TF>`),
+        /// or `ValueNone` for a terminal combinator (`fold`/`apply2`) whose result
+        /// does not mention `'TFunc` — such a binding needs no slot rewrite.
+        ResultTyparPos: int voption
+    }
+
 /// How a `for x in src do …` (`TExpr.ForIn`) sources its enumerator — resolved by
 /// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
 /// codegen can't re-derive the struct-vs-interface decision from the element type

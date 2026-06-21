@@ -68,7 +68,7 @@ module EmitTypes =
             /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun2<P1,P2,R>` interface
             /// with one flat `Invoke(P1,P2):R` — the curried 2-arg source lambda
             /// `fun x y -> …` peeled so the inner arrow is NOT a separate closure.
-            /// Driven by the node-keyed verdict (`TastFile.FunSlotArity`); only a
+            /// Driven by the node-keyed verdict (`TastFile.FunVerdicts`); only a
             /// value-struct closure (`IsValueStruct`) is ever arity > 1 today.
             FunArity: int
             /// The SECOND flat parameter for an arity-2 (`Fun2`) closure: its binder

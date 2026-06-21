@@ -841,17 +841,17 @@ type PassContextBindings =
         /// `RequiresHeapRepr` there.
         Repr: SideTable<RegionRepr>
         /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
-        /// binding's `NodeKey.Raw` → where its emitted static method belongs (a real
+        /// binding's `NodeKey` → where its emitted static method belongs (a real
         /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
         /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
         /// backend keys off it to name + place a module function (`ListModule::fold`).
-        ModuleMembers: Dictionary<uint64, ModuleMemberInfo>
+        ModuleMembers: Dictionary<NodeKey, ModuleMemberInfo>
         /// A *top-level* (implicit-"Program"-module, `holder = None`) binding's
-        /// `NodeKey.Raw` → its source name. Top-level bindings record no
+        /// `NodeKey` → its source name. Top-level bindings record no
         /// `ModuleMemberInfo`, so this is the only name source for a top-level value
         /// lowered to a Program-holder static field. Consulted only by the value
         /// collector, so top-level functions keep their `fn$<off>` holderless path.
-        TopLevelNames: Dictionary<uint64, string>
+        TopLevelNames: Dictionary<NodeKey, string>
     }
 
 module PassContextBindings =
@@ -1133,30 +1133,17 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
     /// the existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
-    /// rung-4 M3: the node-keyed `Fun`-arity verdict. Keyed by a SOURCE-lambda
-    /// argument's NodeKey, the value is the flat `FunN` arity (`1` for a `Fun<a,b>`
-    /// slot, `2` for a `Fun2<a,b,c>` slot) the lambda is being threaded through.
+    /// rung-4 M3 / M6 P-a: the node-keyed value-struct closure verdict. Keyed by a
+    /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
+    /// arity (always) and, for a transformer combinator, the result-typar position.
     /// Recorded in `inferApp` when an argument lambda lands on a typar parameter
     /// whose `:> Fun`/`:> Fun2` coercion bound fires (the `subsumes` arm). The
     /// decision lives here (inference) as the single source of truth; the Pipeline
-    /// snapshots it onto `TastFile.FunSlotArity`, and codegen's `discoverClosures`
-    /// reads it to size the value-struct closure's flat `Invoke`. A lambda with no
-    /// entry is the ordinary curried closure.
-    member val FunSlotArity = SideTable<int>() with get
-    /// rung-4 M6 P-a: keyed by the SAME SOURCE-lambda argument NodeKey as
-    /// `FunSlotArity`; the value is the type-argument POSITION (index into the
-    /// immediate result nominal's type-args) the lambda's constrained `'TFunc`
-    /// occupies in the combinator's RESULT type. `mk : ('TF:>Fun<int,int>) ->
-    /// Holder<'TF>` records index `0` (the lambda's typar is `Holder`'s 0th arg).
-    /// Recorded in `inferApp` alongside the arity verdict, by locating `dom`'s
-    /// typar root among the spine result's nominal args. `ValueNone` (absent) when
-    /// the typar does not appear at the top level of the result (a terminal
-    /// combinator like `fold`/`apply2`, whose result type does not mention `'TF`) —
-    /// such a binding needs no slot rewrite. Codegen's `substituteVerdictClosures`
-    /// reads it to replace that binding-type leaf with the lambda's `<closure>$`
-    /// value-struct, so a stored result lays the `'TFunc` slot out as the struct,
-    /// not the `Fun`/`Fun2` interface.
-    member val FunResultTypar = SideTable<int>() with get
+    /// snapshots it onto `TastFile.FunVerdicts`, codegen's `discoverClosures` reads
+    /// `Arity` to size the value-struct closure's flat `Invoke`, and
+    /// `ClosureVerdictRewrite` reads `ResultTyparPos` for the slot/result rewrite. A
+    /// lambda with no entry is the ordinary curried closure.
+    member val FunVerdicts = SideTable<FunVerdict>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar

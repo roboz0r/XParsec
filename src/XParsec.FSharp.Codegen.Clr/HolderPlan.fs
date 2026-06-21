@@ -82,9 +82,9 @@ module HolderPlan =
     /// functions, validate the values' initialisers, and fix the holder /
     /// method / field emission orders.
     let create
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
         (programHolder: Emit.HolderKey)
-        (topLevelNames: Map<uint64, string>)
+        (topLevelNames: Map<NodeKey, string>)
         (refStructNsNames: HashSet<string * string>)
         (lowered0: Frozen.TDecl list)
         : HolderPlan =

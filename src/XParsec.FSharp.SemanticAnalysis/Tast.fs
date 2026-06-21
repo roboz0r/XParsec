@@ -768,41 +768,34 @@ type TastFileG<'ty, 'tok> =
         /// retargets a primitive by editing one `.fs` line). The backend overlays
         /// these on its built-in defaults.
         IntrinsicReprTypes: Map<string, string>
-        /// A module-level binding's `NodeKey.Raw` → its named-holder placement
+        /// A module-level binding's `NodeKey` → its named-holder placement
         /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
         /// not the anonymous "Program" holder). Empty for a program with no named
         /// modules — every static method then lands on "Program" as before.
-        ModuleMembers: Map<uint64, ModuleMemberInfo>
-        /// A *top-level* (implicit-"Program"-module) binding's `NodeKey.Raw` → its
+        ModuleMembers: Map<NodeKey, ModuleMemberInfo>
+        /// A *top-level* (implicit-"Program"-module) binding's `NodeKey` → its
         /// source name. Top-level bindings (an exe's last file, FS0222) record no
         /// `ModuleMemberInfo`; this names a top-level value lowered to a
         /// Program-holder static field. Empty for a library or a file led by a
         /// `module`/`namespace` declaration.
-        TopLevelNames: Map<uint64, string>
-        /// A closure binder's `NodeKey.Raw` → its stack-vs-heap verdict
+        TopLevelNames: Map<NodeKey, string>
+        /// A closure binder's `NodeKey` → its stack-vs-heap verdict
         /// (the `EscapeState.LocalStack ∧ RegionRepr.StackOnlyEligible`
         /// conjunction), snapshotted from `ctx.Bindings.Escape` /
         /// `ctx.Bindings.ClosureRepr` after `Regions.run`. Read by codegen's
         /// `discoverClosures` to set `Emit.Closure.Repr`; a binder absent here
         /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
         /// still forces heap.
-        ClosureReprs: Map<uint64, ClosureRepr>
-        /// rung-4 M3: a SOURCE-lambda argument's `NodeKey.Raw` → the flat `FunN`
-        /// arity it is threaded through (`1` for a `Fun<a,b>` slot, `2` for a
-        /// `Fun2<a,b,c>` slot). Snapshotted from `ctx.FunSlotArity` (decided by the
-        /// `subsumes` arm's caller in `inferApp`); read by codegen's
-        /// `discoverClosures` to size the value-struct closure's flat `Invoke`. A
-        /// lambda absent here is an ordinary curried closure.
-        FunSlotArity: Map<uint64, int>
-        /// rung-4 M6 P-a: a SOURCE-lambda argument's `NodeKey.Raw` → the type-arg
-        /// POSITION its constrained `'TFunc` occupies in the combinator's RESULT
-        /// nominal (e.g. `0` for `mk : ('TF:>Fun) -> Holder<'TF>`). Snapshotted from
-        /// `ctx.FunResultTypar`; read by codegen's `substituteVerdictClosures` to
-        /// lay a stored binding's `'TFunc` slot out as the lambda's `<closure>$`
-        /// value-struct rather than the `Fun`/`Fun2` interface. A lambda absent here
-        /// flows into a result type that does not mention its typar (a terminal
-        /// combinator), so no binding-slot rewrite is needed.
-        FunResultTypar: Map<uint64, int>
+        ClosureReprs: Map<NodeKey, ClosureRepr>
+        /// rung-4 M3 / M6 P-a: a SOURCE-lambda argument's `NodeKey` → its
+        /// value-struct closure verdict (`FunVerdict`: the flat `FunN` arity, plus
+        /// the result-typar position for a transformer combinator). Snapshotted from
+        /// `ctx.FunVerdicts`; `discoverClosures` reads `Arity` to size the closure's
+        /// flat `Invoke`, and `ClosureVerdictRewrite` reads `ResultTyparPos` to lay a
+        /// stored binding's `'TFunc` slot out as the `<closure>$` value-struct rather
+        /// than the `Fun`/`Fun2` interface. A lambda absent here is an ordinary
+        /// curried closure.
+        FunVerdicts: Map<NodeKey, FunVerdict>
     }
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;

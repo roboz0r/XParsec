@@ -303,7 +303,7 @@ let tests =
                         eligible
                         moduleValueKeys
                         typarsMap
-                        tast.FunSlotArity
+                        tast.FunVerdicts
                         tast.ClosureReprs
                         lowered
                         []

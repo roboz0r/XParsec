@@ -40,6 +40,7 @@
     <Compile Include="Layout.fs" />
     <Compile Include="Materialise.fs" />
     <Compile Include="AssemblerScaffold.fs" />
+    <Compile Include="ClosureVerdictRewrite.fs" />
     <Compile Include="Assembler.fs" />
     <Compile Include="NominalEmit.fs" />
     <Compile Include="Codegen.fs" />

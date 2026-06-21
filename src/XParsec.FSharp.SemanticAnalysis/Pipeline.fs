@@ -43,18 +43,13 @@ module Pipeline =
         let tast0 =
             { tast0 with
                 ClosureReprs = Regions.closureReprSnapshot ctx
-                // rung-4 M3: snapshot the node-keyed `Fun`-arity verdict (decided in
-                // `inferApp`) onto the TastFile alongside `ClosureReprs` — codegen has
-                // no PassContext, so this is how `discoverClosures` reaches it.
-                FunSlotArity =
-                    ctx.FunSlotArity.AsDictionary()
-                    |> Seq.map (fun kv -> kv.Key.Raw, kv.Value)
-                    |> Map.ofSeq
-                // rung-4 M6 P-a: the sibling result-typar-position verdict, snapshotted
-                // the same way so `substituteVerdictClosures` reaches it at codegen.
-                FunResultTypar =
-                    ctx.FunResultTypar.AsDictionary()
-                    |> Seq.map (fun kv -> kv.Key.Raw, kv.Value)
+                // rung-4 M3 / M6: snapshot the node-keyed value-struct closure
+                // verdicts (decided in `inferApp`) onto the TastFile alongside
+                // `ClosureReprs` — codegen has no PassContext, so this is how
+                // `discoverClosures` / `ClosureVerdictRewrite` reach them.
+                FunVerdicts =
+                    ctx.FunVerdicts.AsDictionary()
+                    |> Seq.map (fun kv -> kv.Key, kv.Value)
                     |> Map.ofSeq
             }
         // TAST→TAST promotion of `let mutable` cells captured by escaping closures.

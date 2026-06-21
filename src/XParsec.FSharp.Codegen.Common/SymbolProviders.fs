@@ -72,13 +72,13 @@ module SymbolProviders =
         // Pre-pass: build NodeKey → source-name map. Inline bodies that reference a
         // sibling inline carry `TExpr.Var` bound to a key not in scope at a consumer
         // use site; rewrite those to `TExpr.External(name)` so the inliner can splice them.
-        let inlineNames = System.Collections.Generic.Dictionary<uint64, string>()
+        let inlineNames = System.Collections.Generic.Dictionary<NodeKey, string>()
 
         for d in tast.Decls do
             match d with
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
-                match Map.tryFind k.Raw tast.ModuleMembers with
-                | Some info -> inlineNames.[k.Raw] <- info.Name
+                match Map.tryFind k tast.ModuleMembers with
+                | Some info -> inlineNames.[k] <- info.Name
                 | None -> ()
             | _ -> ()
 
@@ -89,7 +89,7 @@ module SymbolProviders =
                         fun _ e ->
                             match e with
                             | TExpr.Var(k, ty, tok) ->
-                                match inlineNames.TryGetValue k.Raw with
+                                match inlineNames.TryGetValue k with
                                 | true, name -> ValueSome(TExpr.External(name, ValueNone, ty, tok))
                                 | _ -> ValueNone
                             | _ -> ValueNone
@@ -105,7 +105,7 @@ module SymbolProviders =
         for d in tast.Decls do
             match d with
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
-                match Map.tryFind k.Raw tast.ModuleMembers with
+                match Map.tryFind k tast.ModuleMembers with
                 | Some info ->
                     // Carry param attrs so the consumer's inliner honours them without re-decoding.
                     let paramAttrs =

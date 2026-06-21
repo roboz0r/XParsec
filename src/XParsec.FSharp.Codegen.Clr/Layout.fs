@@ -572,11 +572,11 @@ module internal Layout =
                 plan.StaticFnKeys
                 plan.ModuleValueKeys
                 plan.StaticFnTypars
-                // rung-4 Step C: the node-keyed `Fun`-arity verdict (design §2.4),
-                // snapshotted in `Pipeline` like `ClosureReprs`. `discoverClosures`
-                // marks a source-lambda argument a value-struct (and at what flat
-                // arity) by node membership — no structural re-derivation.
-                tast.FunSlotArity
+                // rung-4 Step C: the node-keyed value-struct closure verdicts (design
+                // §2.4), snapshotted in `Pipeline` like `ClosureReprs`.
+                // `discoverClosures` marks a source-lambda argument a value-struct (and
+                // at what flat arity) by node membership — no structural re-derivation.
+                tast.FunVerdicts
                 tast.ClosureReprs
                 lowered
                 memberRoots

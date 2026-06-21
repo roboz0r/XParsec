@@ -855,7 +855,7 @@ module Regions =
     /// closure `Closure.SelfKey`s, so non-closure entries are inert. Must run after
     /// `run` has populated both side tables; the Pipeline snapshots the result onto
     /// `TastFile.ClosureReprs`.
-    let closureReprSnapshot (ctx: PassContext) : Map<uint64, ClosureRepr> =
+    let closureReprSnapshot (ctx: PassContext) : Map<NodeKey, ClosureRepr> =
         ctx.Bindings.Escape.AsDictionary()
         |> Seq.map (fun kv ->
             let stackEligible =
@@ -866,7 +866,7 @@ module Regions =
                     | _ -> false
                 )
 
-            kv.Key.Raw,
+            kv.Key,
             (if stackEligible then
                  ClosureRepr.Stack
              else

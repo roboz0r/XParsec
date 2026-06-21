@@ -150,7 +150,7 @@ module EmitClosures =
     /// `None` for a *top-level* (implicit-"Program"-module) value. A caller that only
     /// wants named-holder values returns `None` on the holderless case.
     let private classifyModuleValues
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
         (tyOk: FrozenType -> bool)
         (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleMemberInfo option -> 'a option)
         (decls: Frozen.TDecl list)
@@ -167,7 +167,7 @@ module EmitClosures =
                 )
                 && tyOk ty
                 ->
-                project k ty value (Map.tryFind k.Raw moduleMembers)
+                project k ty value (Map.tryFind k moduleMembers)
             | _ -> None
         )
 
@@ -183,7 +183,7 @@ module EmitClosures =
     /// top-level ("Program") values are out of scope and keep their current
     /// treatment.
     let collectModuleValues
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
         (decls: Frozen.TDecl list)
         : ModuleValue list =
         decls
@@ -228,8 +228,8 @@ module EmitClosures =
     /// the preceding sequential (a nested `let`, not its own module element) and has no
     /// recorded name — synthesise one fsc-style (`value@<offset>`), the field being
     /// assembly-internal and resolved by `NodeKey`, never by name.
-    let private topLevelName (topLevelNames: Map<uint64, string>) (k: NodeKey) : string =
-        match Map.tryFind k.Raw topLevelNames with
+    let private topLevelName (topLevelNames: Map<NodeKey, string>) (k: NodeKey) : string =
+        match Map.tryFind k topLevelNames with
         | Some n -> n
         | None -> sprintf "value@%d" k.Offset
 
@@ -265,8 +265,8 @@ module EmitClosures =
     /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
     /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
     let collectGenericModuleValues
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
-        (topLevelNames: Map<uint64, string>)
+        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (topLevelNames: Map<NodeKey, string>)
         (decls: Frozen.TDecl list)
         : StaticFn list =
         // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
@@ -318,9 +318,9 @@ module EmitClosures =
     /// holderless fallback; function-typed values (a stored closure) are deferred,
     /// as for a named holder.
     let collectProgramValues
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
         (programHolder: HolderKey)
-        (topLevelNames: Map<uint64, string>)
+        (topLevelNames: Map<NodeKey, string>)
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this
         // assembly. `EmitLower.lower` strips type decls, so the caller computes this
         // from `tast.Decls`.
@@ -570,7 +570,7 @@ module EmitClosures =
     /// (capture-demoted, or a binding `bridgeStaticFnEscapes` newly turned into a
     /// lambda whose key was never eligible) is left for closure discovery.
     let collectStaticFns
-        (moduleMembers: Map<uint64, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
         (eligible: HashSet<NodeKey>)
         (fns: CompiledFns.CompiledFn list)
         : StaticFn list =
@@ -581,7 +581,7 @@ module EmitClosures =
                     // holder type; a top-level function keeps the anonymous
                     // `fn$<offset>` name on the "Program" holder (`Holder = None`).
                     let name, holder =
-                        match Map.tryFind c.Key.Raw moduleMembers with
+                        match Map.tryFind c.Key moduleMembers with
                         | Some info -> info.Name, Some(info.Namespace, info.Holder)
                         | None -> sprintf "fn$%d" c.Key.Offset, None
 
@@ -673,7 +673,7 @@ module EmitClosures =
     /// `ofToken … ExprLambda`) indexes the verdict map. Walking every lambda and
     /// testing membership covers project-local and (M6) external heads in one path.
     let private collectStackLambdaArgs
-        (funSlotArity: Map<uint64, int>)
+        (funVerdicts: Map<NodeKey, FunVerdict>)
         (decls: Frozen.TDecl list)
         (memberRoots: MemberClosureRoot list)
         : Dictionary<Frozen.TExpr, int> =
@@ -684,8 +684,8 @@ module EmitClosures =
              | TExprG.Lambda _ ->
                  let k = NodeKey.ofToken (TastWalk.exprTok e) NodeKind.ExprLambda
 
-                 match Map.tryFind k.Raw funSlotArity with
-                 | Some arity -> stackNodes.[e] <- arity
+                 match Map.tryFind k funVerdicts with
+                 | Some v -> stackNodes.[e] <- v.Arity
                  | None -> ()
              | _ -> ())
 
@@ -706,8 +706,8 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
-        (funSlotArity: Map<uint64, int>)
-        (closureReprs: Map<uint64, ClosureRepr>)
+        (funVerdicts: Map<NodeKey, FunVerdict>)
+        (closureReprs: Map<NodeKey, ClosureRepr>)
         (decls: Frozen.TDecl list)
         (memberRoots: MemberClosureRoot list)
         : Closure list * Dictionary<Frozen.TExpr, Closure> =
@@ -717,8 +717,8 @@ module EmitClosures =
 
         // rung-4 Step C: source lambdas threaded through a constrained `Fun`/`Fun2`
         // slot — eligible for the value-struct closure shape, mapped to their flat
-        // arity (1 or 2). The node-keyed verdict (`TastFile.FunSlotArity`).
-        let stackLambdaArgs = collectStackLambdaArgs funSlotArity decls memberRoots
+        // arity (1 or 2). The node-keyed verdict (`TastFile.FunVerdicts`).
+        let stackLambdaArgs = collectStackLambdaArgs funVerdicts decls memberRoots
 
         // A module-level value is a `public static` field (`ldsfld`), so — like a
         // static-method reference — it is resolved without a capture. Fold both
@@ -801,7 +801,7 @@ module EmitClosures =
                 let repr =
                     match selfKey with
                     | ValueSome k ->
-                        match Map.tryFind k.Raw closureReprs with
+                        match Map.tryFind k closureReprs with
                         | Some r -> r
                         | None -> ClosureRepr.Heap
                     | ValueNone -> ClosureRepr.Heap

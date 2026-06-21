@@ -21,6 +21,113 @@ open UnificationInferIdentExpr
 
 module internal UnificationInferApp =
 
+    /// rung-4 M3 / M6 P-a: record the node-keyed `Fun`-arity verdict (and its
+    /// result-typar position) for each source-lambda argument of an application.
+    /// Walk the head's curried domains in lockstep with the source arguments; when a
+    /// SOURCE lambda lands on a parameter whose typar bound is `:> Fun`/`:> Fun2`
+    /// (`funSlotArityOf`, the same nominal the `subsumes` arm matches), key the
+    /// lambda's node → that flat arity so codegen sizes its value-struct `Invoke`.
+    /// Must run BEFORE `inferGenericAppFrom` links the domain to the arrow (which
+    /// would erase the bound). A non-lambda argument or a non-`Fun` slot records
+    /// nothing. Pure side-effect into `ctx.FunVerdicts`.
+    let private recordFunArityVerdicts (ctx: PassContext) (args: ImmutableArray<Expr<SyntaxToken>>) (fnTy: SemType) =
+        let mutable currTy = fnTy
+        // The lambda verdicts recorded in the spine walk, paired with the typar `dom`
+        // (its union-find root) the lambda landed on — so a SECOND pass over the spine
+        // RESULT can record `lambda → result-typar position` (M6 P-a) once `currTy`
+        // reaches the tail. Recording the position in the loop is premature: `currTy`
+        // is still the residual arrow, not the result nominal.
+        let lambdaSlots = ResizeArray<NodeKey * SemType>()
+
+        for i in 0 .. args.Length - 1 do
+            match resolveStep currTy with
+            | TyFun(dom, cod) ->
+                // An argument lambda is usually parenthesised (`apply2 (fun … )`), so
+                // peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Freeze` strips
+                // them transparently, anchoring the frozen `Lambda` on the inner
+                // `Expr.Fun`'s FIRST parameter pattern's token (NOT the `fun` keyword).
+                // Key the verdict on the SAME `(firstTokenOfPat arg0, ExprLambda)` the
+                // frozen node carries so codegen's lookup matches.
+                let rec peelLambda e =
+                    match e with
+                    | Expr.EnclosedBlock(expr = inner)
+                    | Expr.TypeAnnotation(expr = inner) -> peelLambda inner
+                    | Expr.Fun(argumentPats = argPats) when argPats.Length > 0 -> ValueSome argPats.[0]
+                    | _ -> ValueNone
+
+                match peelLambda args.[i] with
+                | ValueSome arg0Pat ->
+                    match funSlotArityOf dom with
+                    | ValueSome arity ->
+                        let lamKey = NodeKey.ofToken (CstKeys.firstTokenOfPat arg0Pat) NodeKind.ExprLambda
+                        // Arity now; the result-typar position (if any) is filled in by
+                        // the second pass below, once `currTy` reaches the result nominal.
+                        ctx.FunVerdicts.Set(
+                            lamKey,
+                            {
+                                Arity = arity
+                                ResultTyparPos = ValueNone
+                            }
+                        )
+
+                        lambdaSlots.Add(lamKey, dom)
+                    | ValueNone -> ()
+                | ValueNone -> ()
+
+                currTy <- cod
+            | _ -> currTy <- TyVar(freshTyVar ctx)
+
+        // rung-4 M6 P-a: record the result-typar POSITION for each verdict lambda.
+        // `currTy` is now the spine's result type; a *transformer* combinator's result
+        // is a nominal (`Holder<'TF>`, `MapSeq<…,'TF,…>`) carrying the lambda's typar
+        // at some top-level arg index. Match by typar IDENTITY (the arg's union-find
+        // root equals `dom`'s root), NOT by shape — a genuine function-valued arg of
+        // the same arrow shape would otherwise be conflated. A *terminal* combinator
+        // (`fold`/`apply2`, result `'State`/`int`) records nothing, so its stored
+        // bindings are never rewritten.
+        if lambdaSlots.Count > 0 then
+            match resolveStep currTy with
+            | TyConst(_, resArgs)
+            | TyRecord(_, resArgs)
+            | TyUnion(_, resArgs)
+            | TyClass(_, resArgs)
+            | TyTuple resArgs ->
+                // Typar identity = the union-find ROOT (reference-stable); a free
+                // `TyVar`'s `resolveStep` re-wraps a fresh `TyVar` each call, so compare
+                // the underlying roots, not the wrappers.
+                let rootOf (t: SemType) : TypeVar voption =
+                    match resolveStep t with
+                    | TyVar tv -> ValueSome(UnionFind.find tv)
+                    | _ -> ValueNone
+
+                for (lamKey, dom) in lambdaSlots do
+                    match rootOf dom with
+                    | ValueSome domRoot ->
+                        let mutable found = ValueNone
+
+                        for i in 0 .. resArgs.Length - 1 do
+                            if ValueOption.isNone found then
+                                match rootOf resArgs.[i] with
+                                | ValueSome r when System.Object.ReferenceEquals(r, domRoot) -> found <- ValueSome i
+                                | _ -> ()
+
+                        match found with
+                        | ValueSome idx ->
+                            // Upgrade the arity-only verdict recorded in the first pass
+                            // with the result-typar position (keys are a guaranteed subset).
+                            match ctx.FunVerdicts.TryGetValue lamKey with
+                            | ValueSome v ->
+                                ctx.FunVerdicts.Set(
+                                    lamKey,
+                                    { v with
+                                        ResultTyparPos = ValueSome idx
+                                    }
+                                )
+                            | ValueNone -> ()
+                        | ValueNone -> ()
+                    | ValueNone -> ()
+            | _ -> ()
+
     let rec inferApp
         (infer: Infer)
         (ctx: PassContext)
@@ -85,91 +192,11 @@ module internal UnificationInferApp =
             let fnTy = infer ctx fn
             let argTys = [| for a in args -> infer ctx a |]
 
-            // rung-4 M3: record the node-keyed `Fun`-arity verdict. Walk the head's
-            // curried domains in lockstep with the source arguments; when a SOURCE
-            // lambda lands on a parameter whose typar bound is `:> Fun`/`:> Fun2`
-            // (`funSlotArityOf`, the same nominal the `subsumes` arm matches), key the
-            // lambda's node → that flat arity so codegen sizes its value-struct
-            // `Invoke`. Read BEFORE `inferGenericAppFrom` links the domain to the arrow
-            // (which would erase the bound). A non-lambda argument or a non-`Fun` slot
-            // records nothing.
-            (let mutable currTy = fnTy
-             // The lambda verdicts recorded in the spine walk, paired with the typar
-             // `dom` (its union-find root) the lambda landed on — so a SECOND pass over
-             // the spine RESULT can record `lambda → result-typar position` (M6 P-a)
-             // once `currTy` reaches the tail. Recording the position in the loop is
-             // premature: `currTy` is still the residual arrow, not the result nominal.
-             let lambdaSlots = ResizeArray<NodeKey * SemType>()
-
-             for i in 0 .. args.Length - 1 do
-                 match resolveStep currTy with
-                 | TyFun(dom, cod) ->
-                     // An argument lambda is usually parenthesised (`apply2 (fun … )`),
-                     // so peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Freeze`
-                     // strips them transparently, anchoring the frozen `Lambda` on the
-                     // inner `Expr.Fun`'s FIRST parameter pattern's token (NOT the `fun`
-                     // keyword). Key the verdict on the SAME `(firstTokenOfPat arg0,
-                     // ExprLambda)` the frozen node carries so codegen's lookup matches.
-                     let rec peelLambda e =
-                         match e with
-                         | Expr.EnclosedBlock(expr = inner)
-                         | Expr.TypeAnnotation(expr = inner) -> peelLambda inner
-                         | Expr.Fun(argumentPats = argPats) when argPats.Length > 0 -> ValueSome argPats.[0]
-                         | _ -> ValueNone
-
-                     match peelLambda args.[i] with
-                     | ValueSome arg0Pat ->
-                         match funSlotArityOf dom with
-                         | ValueSome arity ->
-                             let lamKey = NodeKey.ofToken (CstKeys.firstTokenOfPat arg0Pat) NodeKind.ExprLambda
-                             ctx.FunSlotArity.Set(lamKey, arity)
-                             lambdaSlots.Add(lamKey, dom)
-                         | ValueNone -> ()
-                     | ValueNone -> ()
-
-                     currTy <- cod
-                 | _ -> currTy <- TyVar(freshTyVar ctx)
-
-             // rung-4 M6 P-a: record the result-typar POSITION for each verdict lambda.
-             // `currTy` is now the spine's result type; a *transformer* combinator's
-             // result is a nominal (`Holder<'TF>`, `MapSeq<…,'TF,…>`) carrying the
-             // lambda's typar at some top-level arg index. Match by typar IDENTITY (the
-             // arg's union-find root equals `dom`'s root), NOT by shape — a genuine
-             // function-valued arg of the same arrow shape would otherwise be conflated.
-             // A *terminal* combinator (`fold`/`apply2`, result `'State`/`int`) records
-             // nothing, so its stored bindings are never rewritten.
-             if lambdaSlots.Count > 0 then
-                 match resolveStep currTy with
-                 | TyConst(_, resArgs)
-                 | TyRecord(_, resArgs)
-                 | TyUnion(_, resArgs)
-                 | TyClass(_, resArgs)
-                 | TyTuple resArgs ->
-                     // Typar identity = the union-find ROOT (reference-stable); a free
-                     // `TyVar`'s `resolveStep` re-wraps a fresh `TyVar` each call, so
-                     // compare the underlying roots, not the wrappers.
-                     let rootOf (t: SemType) : TypeVar voption =
-                         match resolveStep t with
-                         | TyVar tv -> ValueSome(UnionFind.find tv)
-                         | _ -> ValueNone
-
-                     for (lamKey, dom) in lambdaSlots do
-                         match rootOf dom with
-                         | ValueSome domRoot ->
-                             let mutable found = ValueNone
-
-                             for i in 0 .. resArgs.Length - 1 do
-                                 if ValueOption.isNone found then
-                                     match rootOf resArgs.[i] with
-                                     | ValueSome r when System.Object.ReferenceEquals(r, domRoot) ->
-                                         found <- ValueSome i
-                                     | _ -> ()
-
-                             match found with
-                             | ValueSome idx -> ctx.FunResultTypar.Set(lamKey, idx)
-                             | ValueNone -> ()
-                         | ValueNone -> ()
-                 | _ -> ())
+            // rung-4 M3 / M6 P-a: record the node-keyed `Fun`-arity + result-typar
+            // verdicts for any source-lambda arguments, BEFORE the curried-application
+            // loop below links each domain to its arrow (which would erase the `:> Fun`
+            // bound the verdict reads).
+            recordFunArityVerdicts ctx args fnTy
 
             tryFillOptionalCall ctx key fn args argTys
             |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)

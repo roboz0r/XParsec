@@ -339,6 +339,21 @@ module TastLower =
             | FTFun(a, b) -> (a, b) :: peelArrows (if n < 0 then -1 else n - 1) b
             | _ -> []
 
+    /// Rebuild a frozen type by transforming its top-level type-argument vector.
+    /// Covers every nominal-with-args shape (`FTConst`/`FTRecord`/`FTUnion`/`FTClass`
+    /// and the tuple's element vector); leaves (`FTFun`/`FTOr`/`FTTypar`/`FTUnknown`)
+    /// pass through unchanged. The one combinator the codegen verdict rewrites share
+    /// for "replace some of a nominal's args" — the per-arg transform `f` decides what
+    /// (position match, recursion, etc.).
+    let mapFrozenArgs (f: EqArray<FrozenType> -> EqArray<FrozenType>) (t: FrozenType) : FrozenType =
+        match t with
+        | FTClass(key, args) -> FTClass(key, f args)
+        | FTRecord(key, args) -> FTRecord(key, f args)
+        | FTUnion(key, args) -> FTUnion(key, f args)
+        | FTConst(name, args) -> FTConst(name, f args)
+        | FTTuple items -> FTTuple(f items)
+        | _ -> t
+
     /// `peelArrows` projected to the F#-form `(parameter types, residual result)`:
     /// `decurryFrozen`'s shape (`n < 0`, peel all) and the contract peelers (`n`
     /// groups). The residual is the type after the peeled arrows.
