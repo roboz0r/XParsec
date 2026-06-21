@@ -106,6 +106,11 @@ type ClrProvider
 
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
+    /// rung-4 M3: the flat `Vesper.Fun2`3<a,b,c>` interface `TypeSpec` a flat-2
+    /// value-struct closure implements.
+    member _.Fun2InterfaceSpec(a: FrozenType, b: FrozenType, c: FrozenType) : EntityHandle =
+        recipes.Fun2InterfaceSpec(a, b, c)
+
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
     /// `interface IEnumerable<'T>` carries its `'T` arg as a `TyTypar(Declaring, i)`
     /// the encoder resolves to the declaring type's `!i` directly. Drives each class
@@ -135,6 +140,9 @@ type ClrProvider
         | _ -> enc.TypeSpecOf ty
 
     member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder = enc.InvokeSignature(a, b)
+
+    /// rung-4 M3: the flat `instance c Invoke(a, b)` signature of a `Fun2` closure.
+    member _.InvokeSignature2(a: FrozenType, b: FrozenType, c: FrozenType) : BlobBuilder = enc.InvokeSignature2(a, b, c)
 
     member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder = enc.ClosureCtorSignature captures
 

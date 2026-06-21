@@ -567,23 +567,16 @@ module internal Layout =
                         for m in ms -> root cd.Decl m
             ]
 
-        // rung-4 Step C (M1) gating signal: a static fn's source parameter types
-        // and its source argument groups, keyed by `NodeKey`. `discoverClosures`
-        // marks a captureless source-lambda argument `Stack` only when it lands on
-        // a bare method-typar parameter (the constrained `Fun` slot) of an
-        // all-`GSimple` callee — the index-aligned, flat-==-curried shape.
-        let staticFnParamTys =
-            readOnlyDict [ for fn in plan.StaticFns -> fn.Key, [ for p in fn.Params -> p.Ty ] ]
-
-        let staticFnGroups = readOnlyDict [ for fn in plan.StaticFns -> fn.Key, fn.Groups ]
-
         let closures, closureByNode =
             Emit.discoverClosures
                 plan.StaticFnKeys
                 plan.ModuleValueKeys
                 plan.StaticFnTypars
-                staticFnParamTys
-                staticFnGroups
+                // rung-4 Step C: the node-keyed `Fun`-arity verdict (design §2.4),
+                // snapshotted in `Pipeline` like `ClosureReprs`. `discoverClosures`
+                // marks a source-lambda argument a value-struct (and at what flat
+                // arity) by node membership — no structural re-derivation.
+                tast.FunSlotArity
                 tast.ClosureReprs
                 lowered
                 memberRoots

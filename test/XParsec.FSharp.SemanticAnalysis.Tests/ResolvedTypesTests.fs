@@ -81,6 +81,7 @@ let tests =
                         ModuleMembers = Map.empty
                         TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
+                        FunSlotArity = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count
@@ -136,6 +137,7 @@ let tests =
                         ModuleMembers = Map.empty
                         TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
+                        FunSlotArity = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count

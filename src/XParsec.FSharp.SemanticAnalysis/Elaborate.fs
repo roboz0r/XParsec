@@ -1483,4 +1483,7 @@ module Elaborate =
             // The RS3 closure verdict is filled in by the Pipeline after
             // `Regions.run` — escape analysis hasn't run at elaboration time.
             ClosureReprs = Map.empty
+            // rung-4 M3 `Fun`-arity verdict — snapshotted by the Pipeline from
+            // `ctx.FunSlotArity` alongside `ClosureReprs`.
+            FunSlotArity = Map.empty
         }

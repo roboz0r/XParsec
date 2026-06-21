@@ -34,6 +34,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let eTextWriter = env.ETextWriter
     let ePrintfModule = env.EPrintfModule
     let eFun2 = env.EFun2
+    let eFun2Flat = env.EFun2Flat
     let eFSharpFunc2 = env.EFSharpFunc2
     let eVesperList1 = env.EVesperList1
     let eListModule = env.EListModule
@@ -332,6 +333,17 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let g = te.GenericInstantiation(eFun2.Value, 2, false)
         encodeType (g.AddArgument()) a
         encodeType (g.AddArgument()) b
+        toEntity (ctx.TypeSpec tsB)
+
+    /// `Vesper.Fun2`3<a,b,c>` as a `TypeSpec` — the FLAT 2-arg interface a flat-2
+    /// value-struct closure implements (rung-4 M3). Sibling of `funInterfaceSpec`.
+    let fun2InterfaceSpec (a: FrozenType) (b: FrozenType) (c: FrozenType) : EntityHandle =
+        let tsB = BlobBuilder()
+        let te = BlobEncoder(tsB).TypeSpecificationSignature()
+        let g = te.GenericInstantiation(eFun2Flat.Value, 3, false)
+        encodeType (g.AddArgument()) a
+        encodeType (g.AddArgument()) b
+        encodeType (g.AddArgument()) c
         toEntity (ctx.TypeSpec tsB)
 
     /// `List.fold folder state xs` over the *Vesper* list — a `call` to `fold` compiled into
@@ -944,6 +956,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitVesperListTagField elem = emitVesperListTagField elem
     member _.EmitVesperListConsField(elem, fieldIndex) = emitVesperListConsField elem fieldIndex
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
+    member _.Fun2InterfaceSpec(a, b, c) = fun2InterfaceSpec a b c
     member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy
     member _.BuildFormatHandles() = buildFormatHandles ()

@@ -388,6 +388,12 @@ module UnificationEngine =
     [<Literal>]
     let private funInterfaceQualifiedName = "Vesper.Fun"
 
+    /// The canonical FLAT 2-arg function interface `Vesper.Fun2`3<'A,'B,'C>` — the
+    /// arity-2 sibling of `funInterfaceQualifiedName`. A curried arrow
+    /// `TyFun(a, TyFun(b,c))` subsumes into it (rung-4 M3); see the `subsumes` arm.
+    [<Literal>]
+    let private fun2InterfaceQualifiedName = "Vesper.Fun2"
+
     // Canonical nominal name for subtype comparison: the type's platform-INVARIANT
     // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.
     // A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
@@ -695,6 +701,26 @@ module UnificationEngine =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
+        // The FLAT-2 arrow↔`Fun2` correspondence (rung-4 M3): a CURRIED arrow
+        // `TyFun(a, TyFun(b,c))` IS a subtype of the canonical
+        // `Vesper.Fun2`3<a,b,c>` interface — a saturated 2-arg slot. Sibling of the
+        // arity-1 `Vesper.Fun` arm above (`Fun2` does NOT inherit `Fun`, design §4.2,
+        // so the two arms are independent). Same read-only, invariant-arg discipline:
+        // the two arrow domains and the final codomain must each be `Equal` to the
+        // `Fun2`'s three type args. The caller records the arity-2 verdict for the
+        // lambda node (`inferApp`), keyed for the value-struct flat-`Invoke` lowering.
+        | TyFun(a, TyFun(b, c)), (TyClass(tk, targs)) when
+            SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = fun2InterfaceQualifiedName
+            && targs.Length = 3
+            ->
+            if
+                subsumes ctx a targs.[0] = SubsumeOutcome.Equal
+                && subsumes ctx b targs.[1] = SubsumeOutcome.Equal
+                && subsumes ctx c targs.[2] = SubsumeOutcome.Equal
+            then
+                SubsumeOutcome.Subtype
+            else
+                SubsumeOutcome.Unrelated
         // Neither operand is a union: the nominal subtype walk.
         | _ -> subsumesNominal ctx src tgt
 
@@ -726,6 +752,40 @@ module UnificationEngine =
                 SubsumeOutcome.Equal
             else
                 SubsumeOutcome.Unrelated
+
+    /// rung-4 M3: the flat `FunN` arity a parameter slot constrains its argument to,
+    /// or `ValueNone` for an ordinary (non-`Fun`-bounded) parameter. A combinator
+    /// param `'TF :> Fun<a,b>` is arity 1; `'TF :> Fun2<a,b,c>` is arity 2. The
+    /// `subsumes` arm decides the arrow↔`FunN` correspondence; this reads the SAME
+    /// nominal bound so `inferApp` can record the verdict against the lambda
+    /// argument's node (the value-struct flat-`Invoke` lowering reads it at codegen).
+    /// Reads the coercion bound off the still-free typar's union-find root.
+    let funSlotArityOf (param: SemType) : int voption =
+        match resolveStep param with
+        | TyVar tv ->
+            let root = UnionFind.find tv
+
+            root.Constraints
+            |> List.tryPick (fun c ->
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target ->
+                    match resolveStep target with
+                    | TyClass(tk, targs) ->
+                        let bare = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)
+
+                        if bare = funInterfaceQualifiedName && targs.Length = 2 then
+                            Some 1
+                        elif bare = fun2InterfaceQualifiedName && targs.Length = 3 then
+                            Some 2
+                        else
+                            None
+                    | _ -> None
+                | _ -> None
+            )
+            |> function
+                | Some n -> ValueSome n
+                | None -> ValueNone
+        | _ -> ValueNone
 
     [<RequireQualifiedAccess>]
     type private NominalKind =
@@ -1374,6 +1434,36 @@ module UnificationEngine =
                         | ValueSome wargs when wargs.Length = targs.Length ->
                             for i in 0 .. targs.Length - 1 do
                                 unify ctx key wargs.[i] targs.[i]
+                        | _ -> ()
+                    | _ -> ()
+                | _ -> ()
+
+                // The INVERSE direction for the arrow↔`Fun`/`Fun2` correspondence
+                // (rung-4 Step A / M3): a source lambda whose arrow has STILL-FREE
+                // domains (`fun x y -> x + y` — no literal pins `x`/`y`) coerced into a
+                // GROUND constrained slot (`'TF :> Fun2<int,int,int>`) must ground from
+                // the slot's args, so the lambda body's SRTP operators resolve instead
+                // of leaking `?ungrounded-operator`. `subsumes` itself stays read-only
+                // (it only *checks* invariant-equality); this is the one place the
+                // grounding `unify` lives. Arity-1 `Fun`2<a,b>` peels one arrow; flat-2
+                // `Fun2`3<a,b,c>` peels two (curried codomain). Non-`Fun` coercions and
+                // a non-arrow `linkTarget` are untouched.
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target ->
+                    match subtypeNominalOf ctx (zonk target), resolveStep linkTarget with
+                    | ValueSome(struct (tname, targs)), TyFun(a, b) when
+                        SymbolKeyOps.bareName tname = funInterfaceQualifiedName && targs.Length = 2
+                        ->
+                        unify ctx key a targs.[0]
+                        unify ctx key b targs.[1]
+                    | ValueSome(struct (tname, targs)), TyFun(a, bc) when
+                        SymbolKeyOps.bareName tname = fun2InterfaceQualifiedName && targs.Length = 3
+                        ->
+                        match resolveStep bc with
+                        | TyFun(b, c) ->
+                            unify ctx key a targs.[0]
+                            unify ctx key b targs.[1]
+                            unify ctx key c targs.[2]
                         | _ -> ()
                     | _ -> ()
                 | _ -> ()

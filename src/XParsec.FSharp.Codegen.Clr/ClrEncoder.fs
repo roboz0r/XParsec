@@ -723,6 +723,24 @@ type internal ClrEncoder(env: ClrEnv) =
 
         msig
 
+    /// `instance c Invoke(a, b)` — a FLAT 2-arg (`Fun2`) closure's `Invoke`
+    /// override signature (rung-4 M3). The arity-2 sibling of `InvokeSignature`.
+    member _.InvokeSignature2(a: FrozenType, b: FrozenType, c: FrozenType) : BlobBuilder =
+        let msig = BlobBuilder()
+
+        BlobEncoder(msig)
+            .MethodSignature(isInstanceMethod = true)
+            .Parameters(
+                2,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (c)),
+                (fun (pars: ParametersEncoder) ->
+                    encodeType (pars.AddParameter().Type()) (a)
+                    encodeType (pars.AddParameter().Type()) (b)
+                )
+            )
+
+        msig
+
     /// `instance void .ctor(captures…)` — one concrete parameter per captured value (in field order).
     member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder =
         let msig = BlobBuilder()

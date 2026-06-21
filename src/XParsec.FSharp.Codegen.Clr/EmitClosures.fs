@@ -661,46 +661,32 @@ module EmitClosures =
             Body: Frozen.TExpr
         }
 
-    /// rung-4 Step C (M1): the captureless source-lambda argument nodes that may
-    /// lower onto a zero-alloc value-struct. An anonymous lambda passed to a
-    /// project-local static fn whose corresponding parameter is a bare method
-    /// typar `FTTypar(Method, i)` is — by Step A's `subsumes(TyFun, Fun\`2)` rule —
-    /// being threaded through a `'TF :> Fun<_,_>` constrained slot, the only shape
-    /// the call site can devirtualise by instantiating `!TF` with the closure's own
-    /// struct `TypeDef`. Gated to all-`GSimple` callees (flat == curried, so the
-    /// spine-arg index maps one-to-one onto the parameter index) — the narrow
-    /// blast radius the design doc §1.2 recommends. Captures (M2) stay heap.
+    /// rung-4 Step C: the source-lambda argument nodes that lower onto a zero-alloc
+    /// value-struct, each mapped to the FLAT `FunN` arity its constrained slot
+    /// demands (`1` for `Fun<_,_>`, `2` for `Fun2<_,_,_>`). The decision is the
+    /// node-keyed verdict `inferApp` recorded when Step A's / M3's
+    /// `subsumes(TyFun, Fun`/`Fun2)` arm fired (design §2.4) — codegen no longer
+    /// re-derives it structurally (the prior all-`GSimple` + bare-method-typar walk
+    /// was a fragile reconstruction of what `subsumes` already knew, and could not
+    /// see an external combinator head). A lambda's frozen node carries the same
+    /// `fun`-keyword token its CST node keyed off, so its `NodeKey` (recomputed
+    /// `ofToken … ExprLambda`) indexes the verdict map. Walking every lambda and
+    /// testing membership covers project-local and (M6) external heads in one path.
     let private collectStackLambdaArgs
-        (staticFnKeys: HashSet<NodeKey>)
-        (staticFnParamTys: IReadOnlyDictionary<NodeKey, FrozenType list>)
-        (staticFnGroups: IReadOnlyDictionary<NodeKey, Frozen.ArgGroup list>)
+        (funSlotArity: Map<uint64, int>)
         (decls: Frozen.TDecl list)
         (memberRoots: MemberClosureRoot list)
-        : HashSet<Frozen.TExpr> =
-        let stackNodes = HashSet<Frozen.TExpr>(HashIdentity.Reference)
+        : Dictionary<Frozen.TExpr, int> =
+        let stackNodes = Dictionary<Frozen.TExpr, int>(HashIdentity.Reference)
 
         let rec walk (e: Frozen.TExpr) =
             (match e with
-             | TExprG.App _ ->
-                 let head, spineArgs = TastWalk.collectSpine [] e
+             | TExprG.Lambda _ ->
+                 let k = NodeKey.ofToken (TastWalk.exprTok e) NodeKind.ExprLambda
 
-                 match head with
-                 | TExprG.Var(k, _, _) when staticFnKeys.Contains k ->
-                     match staticFnParamTys.TryGetValue k, staticFnGroups.TryGetValue k with
-                     | (true, paramTys), (true, groups) when TastLower.allSimpleGroups groups ->
-                         // All-`GSimple`: one flat param per source group, so spine
-                         // arg `i` lands on parameter `i`. A bare-typar parameter
-                         // fed a literal `fun … -> …` is a constrained `Fun` slot.
-                         spineArgs
-                         |> List.iteri (fun i (arg, _, _) ->
-                             if i < List.length paramTys then
-                                 match paramTys.[i], arg with
-                                 | FTTypar(TyparAxis.Method, _), (TExprG.Lambda _ as lam) ->
-                                     stackNodes.Add lam |> ignore
-                                 | _ -> ()
-                         )
-                     | _ -> ()
-                 | _ -> ()
+                 match Map.tryFind k.Raw funSlotArity with
+                 | Some arity -> stackNodes.[e] <- arity
+                 | None -> ()
              | _ -> ())
 
             iterChildren walk e
@@ -720,8 +706,7 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
-        (staticFnParamTys: IReadOnlyDictionary<NodeKey, FrozenType list>)
-        (staticFnGroups: IReadOnlyDictionary<NodeKey, Frozen.ArgGroup list>)
+        (funSlotArity: Map<uint64, int>)
         (closureReprs: Map<uint64, ClosureRepr>)
         (decls: Frozen.TDecl list)
         (memberRoots: MemberClosureRoot list)
@@ -730,10 +715,10 @@ module EmitClosures =
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
 
-        // rung-4 Step C (M1): captureless source lambdas threaded through a
-        // constrained `Fun` slot — eligible for the value-struct closure shape.
-        let stackLambdaArgs =
-            collectStackLambdaArgs staticFnKeys staticFnParamTys staticFnGroups decls memberRoots
+        // rung-4 Step C: source lambdas threaded through a constrained `Fun`/`Fun2`
+        // slot — eligible for the value-struct closure shape, mapped to their flat
+        // arity (1 or 2). The node-keyed verdict (`TastFile.FunSlotArity`).
+        let stackLambdaArgs = collectStackLambdaArgs funSlotArity decls memberRoots
 
         // A module-level value is a `public static` field (`ldsfld`), so — like a
         // static-method reference — it is resolved without a capture. Fold both
@@ -747,9 +732,32 @@ module EmitClosures =
         // static method / member (or, for inner closures, the enclosing closure
         // verbatim); `declaringOffset` is how many of those are the enclosing
         // class's typars (the leading slots) — `0` for a static-fn closure.
+        // rung-4 M3: the arity of a value-struct lambda node (1 by default; 2 for a
+        // flat `Fun2` slot). Only an anonymous monomorphic lambda the verdict reached.
+        let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) : int =
+            if currentTypars = 0 && ValueOption.isNone selfKey then
+                match stackLambdaArgs.TryGetValue e with
+                | true, arity -> arity
+                | false, _ -> 1
+            else
+                1
+
         let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
-            (match e with
-             | TExprG.Let(TPatG.NamedSimple(k, _, _), (TExprG.Lambda _ as v), body, _, _) ->
+            // A FLAT-2 (`Fun2`) value-struct lambda peels its inner `Lambda` into the
+            // SAME closure's second parameter (one flat `Invoke(a,b)`), so the inner
+            // lambda is NOT walked as an independent closure — recurse into the inner
+            // BODY instead. Every other node walks children first (leaves-first).
+            let flat2 =
+                match e with
+                | TExprG.Lambda(_, TExprG.Lambda(_, inner, _, _), _, _) when
+                    valueStructArity currentTypars selfKey e = 2
+                    ->
+                    ValueSome inner
+                | _ -> ValueNone
+
+            (match e, flat2 with
+             | _, ValueSome inner -> go currentTypars declaringOffset ValueNone inner
+             | TExprG.Let(TPatG.NamedSimple(k, _, _), (TExprG.Lambda _ as v), body, _, _), _ ->
                  go currentTypars declaringOffset (ValueSome k) v
                  go currentTypars declaringOffset ValueNone body
              | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
@@ -761,10 +769,27 @@ module EmitClosures =
                 (body: Frozen.TExpr)
                 (lamTy: FrozenType)
                 =
-                let resultTy =
-                    match lamTy with
-                    | FTFun(_, r) -> r
-                    | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
+                // rung-4 M3: a flat-2 (`Fun2`) value-struct closure peels the inner
+                // `Lambda` — its second parameter + the real (inner) body + the inner
+                // arrow's codomain. Arity-1 keeps the curried `ResultTy = codomain`.
+                let arity = valueStructArity currentTypars selfKey e
+
+                let funArity, param2, body, resultTy =
+                    match arity, body with
+                    | 2, TExprG.Lambda((TPatG.NamedSimple(p2, p2ty, _) as p2pat), innerBody, innerLamTy, _) ->
+                        let innerResult =
+                            match innerLamTy with
+                            | FTFun(_, r) -> r
+                            | _ -> failwithf "Emit: flat-2 closure inner type is not a function: %A" innerLamTy
+
+                        2, ValueSome(p2, p2ty, p2pat), innerBody, innerResult
+                    | _ ->
+                        let resultTy =
+                            match lamTy with
+                            | FTFun(_, r) -> r
+                            | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
+
+                        1, ValueNone, body, resultTy
 
                 // Keyed by the closure's binder (`let f = …`). An anonymous lambda
                 // (no `SelfKey`) or a binder the snapshot didn't reach defaults to
@@ -781,25 +806,29 @@ module EmitClosures =
                         | None -> ClosureRepr.Heap
                     | ValueNone -> ClosureRepr.Heap
 
-                // Bind every leaf the param pattern introduces (a tuple's element
+                // Bind every leaf each param pattern introduces (a tuple's element
                 // bindings), not the placeholder `ParamKey` — those leaves are
-                // parameters, never captures.
-                let captures = freeVars nonCaptured (patKeys paramPat) selfKey body
+                // parameters, never captures. A flat-2 closure binds BOTH params
+                // (the peeled inner `Lambda`'s binder too), against the inner body.
+                let paramBound =
+                    match param2 with
+                    | ValueSome(_, _, p2pat) -> patKeys paramPat @ patKeys p2pat
+                    | ValueNone -> patKeys paramPat
 
-                // rung-4 Step C (M1/M2): the CODEGEN value-struct trigger — the
-                // stricter gate (necessary-not-sufficient `Repr` is NOT consulted).
-                // An *anonymous* lambda (`ValueNone` selfKey — a `let`-bound closure
-                // keeps its heap shape) threaded through a constrained `Fun` slot,
-                // monomorphic. M2 dropped M1's `List.isEmpty captures` restriction: a
-                // CAPTURING such lambda is now also a value-struct, its captures stored
-                // by value into struct fields and constructed via the value-type ctor
-                // (NOT `initobj`). A plain value struct copies by value, so passing it
-                // by value into the combinator stays escape-free (no `ref struct`); a
-                // mutable capture is promoted to a heap ref-cell captured by value, so
-                // sharing is preserved. The narrow constrained-slot gate is unchanged —
-                // the blast radius does not widen beyond M1. Everything else is heap.
+                let captures = freeVars nonCaptured paramBound selfKey body
+
+                // rung-4 Step C: the CODEGEN value-struct trigger — the stricter gate
+                // (necessary-not-sufficient `Repr` is NOT consulted). An *anonymous*
+                // lambda (`ValueNone` selfKey — a `let`-bound closure keeps its heap
+                // shape) threaded through a constrained `Fun`/`Fun2` slot, monomorphic;
+                // the node-keyed verdict (`valueStructArity` ≥ 1 ⇒ in the table). M2
+                // dropped M1's `List.isEmpty captures` restriction: a CAPTURING such
+                // lambda is also a value-struct (captures stored by value); M3 adds the
+                // flat-2 arity. A plain value struct copies by value, so passing it into
+                // the combinator stays escape-free (no `ref struct`). Everything else is
+                // heap.
                 let isValueStruct =
-                    currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.Contains e
+                    currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.ContainsKey e
 
                 let c =
                     {
@@ -816,6 +845,8 @@ module EmitClosures =
                         DeclaringTypars = declaringOffset
                         Repr = repr
                         IsValueStruct = isValueStruct
+                        FunArity = funArity
+                        Param2 = param2
                     }
 
                 counter <- counter + 1

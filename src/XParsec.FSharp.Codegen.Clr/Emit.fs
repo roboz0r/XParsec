@@ -102,6 +102,13 @@ module Emit =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
+
+        // rung-4 M3: a flat-2 (`Fun2`) value-struct closure has a SECOND flat
+        // parameter at `ldarg.2` — the peeled inner-`Lambda` binder.
+        match closure.Param2 with
+        | ValueSome(p2, _, _) -> args.[p2] <- 2
+        | ValueNone -> ()
+
         let env = EmitEnv.create ctx closure.SelfKey captureFields args
 
         // A destructuring tuple parameter (`fun (a, b) -> …`): `ldarg.1` holds the

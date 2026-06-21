@@ -1133,6 +1133,16 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
     /// the existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
+    /// rung-4 M3: the node-keyed `Fun`-arity verdict. Keyed by a SOURCE-lambda
+    /// argument's NodeKey, the value is the flat `FunN` arity (`1` for a `Fun<a,b>`
+    /// slot, `2` for a `Fun2<a,b,c>` slot) the lambda is being threaded through.
+    /// Recorded in `inferApp` when an argument lambda lands on a typar parameter
+    /// whose `:> Fun`/`:> Fun2` coercion bound fires (the `subsumes` arm). The
+    /// decision lives here (inference) as the single source of truth; the Pipeline
+    /// snapshots it onto `TastFile.FunSlotArity`, and codegen's `discoverClosures`
+    /// reads it to size the value-struct closure's flat `Invoke`. A lambda with no
+    /// entry is the ordinary curried closure.
+    member val FunSlotArity = SideTable<int>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar

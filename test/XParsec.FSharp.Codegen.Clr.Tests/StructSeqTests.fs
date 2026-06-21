@@ -457,6 +457,94 @@ let structSeqTests =
                 Expect.isFalse anyBox "no fn$ method contains a `box` (non-allocating capturing value-struct dispatch)"
             }
 
+            // rung-4 Step C (M3): a SATURATED 2-arg SOURCE lambda (`fun x y -> x + y`)
+            // fed into a constrained `'TF :> Fun2<int,int,int>` slot lowers to a
+            // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b)` (the
+            // peeled curried body), dispatched `constrained.` with NO box — the
+            // arity-2 analog of the M1/M2 single-arg case. Proves (a) the new
+            // `subsumes(TyFun(a,TyFun(b,c)), Fun2`3<a,b,c>)` arm, (b) the node-keyed
+            // `Fun`-arity verdict threaded like `ClosureReprs`, (c) the 2-param flat
+            // `Invoke` emission.
+            test "rung4 Step C (M3): a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply2 (f: 'TF when 'TF :> Fun2<int, int, int>) (a: int) (b: int) : int = f.Invoke(a, b)"
+                            "printfn \"%d\" (apply2 (fun x y -> x + y) 20 22)"
+                        ]
+
+                let tast, artifact = compileSource "StepCM3Flat2ValueStruct" src
+                Expect.isEmpty tast.Diagnostics (sprintf "Step C M3 front-end diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "apply2 (fun x y -> x+y) 20 22 = 42"
+
+                // (1) The synthesised closure is a VALUE TYPE — base `System.ValueType`.
+                let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
+
+                Expect.equal
+                    closureBase
+                    (ValueSome "System.ValueType")
+                    "the 2-arg closure is a value type (base System.ValueType)"
+
+                // (2) Its `Invoke` is FLAT 2-arg: the closure type defines a single
+                // `Invoke` taking two parameters (peeled from the curried lambda body),
+                // and there is no nested inner closure for the second arrow.
+                use peReader = openPe bytes
+                let md = peReader.GetMetadataReader()
+
+                let closureTds =
+                    md.TypeDefinitions
+                    |> Seq.filter (fun h ->
+                        let td = md.GetTypeDefinition h
+                        (md.GetString td.Name).StartsWith "<closure>$"
+                    )
+                    |> Seq.toList
+
+                Expect.equal
+                    (List.length closureTds)
+                    1
+                    "exactly one closure type (no nested inner closure for the second arrow)"
+
+                let invokeParamCount =
+                    let td = md.GetTypeDefinition closureTds.[0]
+
+                    td.GetMethods()
+                    |> Seq.pick (fun mh ->
+                        let m = md.GetMethodDefinition mh
+
+                        if md.GetString m.Name = "Invoke" then
+                            Some(m.GetParameters() |> Seq.length)
+                        else
+                            None
+                    )
+
+                Expect.equal invokeParamCount 2 "the value-struct closure's Invoke is flat 2-arg"
+
+                // (3) Construction is by-value (no `newobj`, no cached `ldsfld`).
+                let mainIl = peMethodIlWhere bytes "Program" (fun n -> n = "Main")
+                Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
+
+                // (4) `apply2`'s body dispatches via `constrained.` (0xFE 0x16) with NO box.
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    applyIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue
+                    hasConstrained
+                    "apply2 IL contains a `constrained.` prefix (value-struct typar Fun2 dispatch)"
+
+                Expect.isFalse
+                    (Array.contains 0x8Cuy applyIl)
+                    "apply2 IL contains no `box` (non-allocating flat-2 value-struct dispatch)"
+            }
+
             // Rung-4 foundation: a generic struct whose FIELD is a function typar
             // `'TFunc :> Fun<'T,'U>` (the EXTERNAL Vesper.Fun interface instantiated at
             // the struct's OWN typars `'T`/`'U`), applied via `this.F.Invoke(x)` in a
@@ -1458,5 +1546,59 @@ let structSeqTests =
                 Expect.isFalse
                     (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
                     "the constrained fold loop IL contains no `box` (non-allocating)"
+            }
+
+            // rung-4 M3 (external-head sibling of the project-local `apply2` test):
+            // the SAME node-keyed verdict mechanism (§2.4) must lower a SOURCE lambda
+            // fed into `fold`'s `'TFunc :> Fun2<'State,'T,'State>` parameter — the
+            // combinator here stands in for the eventual external `StructSeq.fold`.
+            // No `collectStackLambdaArgs` extension is needed for the head: the verdict
+            // is recorded at the application site by `subsumes`' caller regardless of
+            // whether the head is project-local or external.
+            test "rung4 Step C (M3): a SOURCE lambda through fold's Fun2 slot lowers to a no-box value-struct" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator<'T> ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : 'T"
+                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator<'T> ="
+                            "    val Arr : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator<'T> with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : 'T = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq<'T> ="
+                            "    val Arr : 'T[]"
+                            "    new(arr: 'T[]) = { Arr = arr }"
+                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
+                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
+                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "    let mutable state = seed"
+                            "    for y in source do"
+                            "        state <- f.Invoke(state, y)"
+                            "    state"
+                            "let total = fold (fun acc x -> acc + x) 0 (ofArray [| 1; 2; 3; 4 |])"
+                            "printfn \"%d\" total"
+                        ]
+
+                let tast, artifact = compileSource "StepCM3FoldSourceLambda" src
+                Expect.isEmpty tast.Diagnostics (sprintf "M3 fold source-lambda diagnostics: %A" tast.Diagnostics)
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "10" "fold (+) 0 [1;2;3;4] = 10"
+
+                let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
+                Expect.equal closureBase (ValueSome "System.ValueType") "the fold source lambda is a value-struct"
             }
         ]

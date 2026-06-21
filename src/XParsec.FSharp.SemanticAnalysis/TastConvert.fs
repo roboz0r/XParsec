@@ -266,4 +266,5 @@ module TastConvert =
             ModuleMembers = tf.ModuleMembers
             TopLevelNames = tf.TopLevelNames
             ClosureReprs = tf.ClosureReprs
+            FunSlotArity = tf.FunSlotArity
         }

@@ -43,6 +43,13 @@ module Pipeline =
         let tast0 =
             { tast0 with
                 ClosureReprs = Regions.closureReprSnapshot ctx
+                // rung-4 M3: snapshot the node-keyed `Fun`-arity verdict (decided in
+                // `inferApp`) onto the TastFile alongside `ClosureReprs` — codegen has
+                // no PassContext, so this is how `discoverClosures` reaches it.
+                FunSlotArity =
+                    ctx.FunSlotArity.AsDictionary()
+                    |> Seq.map (fun kv -> kv.Key.Raw, kv.Value)
+                    |> Map.ofSeq
             }
         // TAST→TAST promotion of `let mutable` cells captured by escaping closures.
         // Reads `ctx.Bindings.Escape` / `ctx.Bindings.Binding`;

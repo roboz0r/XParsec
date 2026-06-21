@@ -141,6 +141,11 @@ type internal ClrEnv
 
     let eFun2 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`2")))
 
+    // rung-4 M3: the FLAT 2-arg function interface `Vesper.Fun2`3<a,b,c>` a flat-2
+    // value-struct closure implements (one `Invoke(a,b):c`). Sibling of `eFun2`.
+    let eFun2Flat =
+        lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun2`3")))
+
     // Deliberately NO fallback to `vesperCoreRef`: that would re-merge the list into Core's ref
     // surface and mint a wrong `Vesper.Core::List`1` while every test still passed.
     let vesperListRef =
@@ -509,6 +514,7 @@ type internal ClrEnv
     member _.EFSharpFunc2 = eFSharpFunc2
     member _.VesperCoreRef = vesperCoreRef
     member _.EFun2 = eFun2
+    member _.EFun2Flat = eFun2Flat
     member _.VesperListRef = vesperListRef
     member _.EFSharpList1 = eFSharpList1
     member _.EVesperList1 = eVesperList1

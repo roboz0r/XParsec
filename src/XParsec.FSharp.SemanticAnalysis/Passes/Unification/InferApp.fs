@@ -85,6 +85,44 @@ module internal UnificationInferApp =
             let fnTy = infer ctx fn
             let argTys = [| for a in args -> infer ctx a |]
 
+            // rung-4 M3: record the node-keyed `Fun`-arity verdict. Walk the head's
+            // curried domains in lockstep with the source arguments; when a SOURCE
+            // lambda lands on a parameter whose typar bound is `:> Fun`/`:> Fun2`
+            // (`funSlotArityOf`, the same nominal the `subsumes` arm matches), key the
+            // lambda's node → that flat arity so codegen sizes its value-struct
+            // `Invoke`. Read BEFORE `inferGenericAppFrom` links the domain to the arrow
+            // (which would erase the bound). A non-lambda argument or a non-`Fun` slot
+            // records nothing.
+            (let mutable currTy = fnTy
+
+             for i in 0 .. args.Length - 1 do
+                 match resolveStep currTy with
+                 | TyFun(dom, cod) ->
+                     // An argument lambda is usually parenthesised (`apply2 (fun … )`),
+                     // so peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Freeze`
+                     // strips them transparently, anchoring the frozen `Lambda` on the
+                     // inner `Expr.Fun`'s FIRST parameter pattern's token (NOT the `fun`
+                     // keyword). Key the verdict on the SAME `(firstTokenOfPat arg0,
+                     // ExprLambda)` the frozen node carries so codegen's lookup matches.
+                     let rec peelLambda e =
+                         match e with
+                         | Expr.EnclosedBlock(expr = inner)
+                         | Expr.TypeAnnotation(expr = inner) -> peelLambda inner
+                         | Expr.Fun(argumentPats = argPats) when argPats.Length > 0 -> ValueSome argPats.[0]
+                         | _ -> ValueNone
+
+                     match peelLambda args.[i] with
+                     | ValueSome arg0Pat ->
+                         match funSlotArityOf dom with
+                         | ValueSome arity ->
+                             let lamKey = NodeKey.ofToken (CstKeys.firstTokenOfPat arg0Pat) NodeKind.ExprLambda
+                             ctx.FunSlotArity.Set(lamKey, arity)
+                         | ValueNone -> ()
+                     | ValueNone -> ()
+
+                     currTy <- cod
+                 | _ -> currTy <- TyVar(freshTyVar ctx))
+
             tryFillOptionalCall ctx key fn args argTys
             |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
         )

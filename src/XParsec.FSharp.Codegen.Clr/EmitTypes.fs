@@ -63,6 +63,19 @@ module EmitTypes =
             /// not sufficient, so this is the single source of truth for the struct
             /// path.
             IsValueStruct: bool
+            /// rung-4 M3: the FLAT `FunN` arity this closure implements. `1` (the
+            /// default / M1+M2 path) is the single-arg `Vesper.Fun<P,R>` interface
+            /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun2<P1,P2,R>` interface
+            /// with one flat `Invoke(P1,P2):R` — the curried 2-arg source lambda
+            /// `fun x y -> …` peeled so the inner arrow is NOT a separate closure.
+            /// Driven by the node-keyed verdict (`TastFile.FunSlotArity`); only a
+            /// value-struct closure (`IsValueStruct`) is ever arity > 1 today.
+            FunArity: int
+            /// The SECOND flat parameter for an arity-2 (`Fun2`) closure: its binder
+            /// key, type, and pattern (peeled from the inner `Lambda`). `ValueNone`
+            /// for the arity-1 path. The closure's `Invoke` binds `Param2` to
+            /// `ldarg.2`.
+            Param2: (NodeKey * FrozenType * Frozen.TPat) voption
         }
 
     /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is

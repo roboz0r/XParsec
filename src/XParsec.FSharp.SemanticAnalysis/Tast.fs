@@ -787,6 +787,13 @@ type TastFileG<'ty, 'tok> =
         /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
         /// still forces heap.
         ClosureReprs: Map<uint64, ClosureRepr>
+        /// rung-4 M3: a SOURCE-lambda argument's `NodeKey.Raw` → the flat `FunN`
+        /// arity it is threaded through (`1` for a `Fun<a,b>` slot, `2` for a
+        /// `Fun2<a,b,c>` slot). Snapshotted from `ctx.FunSlotArity` (decided by the
+        /// `subsumes` arm's caller in `inferApp`); read by codegen's
+        /// `discoverClosures` to size the value-struct closure's flat `Invoke`. A
+        /// lambda absent here is an ordinary curried closure.
+        FunSlotArity: Map<uint64, int>
     }
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;

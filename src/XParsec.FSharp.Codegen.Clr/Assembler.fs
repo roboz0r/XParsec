@@ -559,12 +559,19 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
+            // rung-4 M3: a flat-2 (`Fun2`) closure's `Invoke` is `Invoke(a, b) : c`;
+            // arity-1 keeps the single-arg `Invoke(a) : b`.
+            let invokeSignature, invokeParamNames =
+                match c.Param2 with
+                | ValueSome(_, p2ty, _) -> provider.InvokeSignature2(c.ParamTy, p2ty, c.ResultTy), [ "arg0"; "arg1" ]
+                | ValueNone -> provider.InvokeSignature(c.ParamTy, c.ResultTy), [ "arg0" ]
+
             this.AddPrepared(
                 MethodKey.ClosureInvoke c.Name,
                 {
-                    Signature = provider.InvokeSignature(c.ParamTy, c.ResultTy)
+                    Signature = invokeSignature
                     BodyOffset = invokeBodyOffset
-                    ParamNames = [ "arg0" ]
+                    ParamNames = invokeParamNames
                     MethodTypars = []
                 }
             )
@@ -594,8 +601,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 )
 
             // `Fun\`2<param, result>` interface `TypeSpec` — closure ambient
-            // still installed, so free `TyVar`s encode to `!i`.
-            let ifaceSpec = provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
+            // still installed, so free `TyVar`s encode to `!i`. A flat-2 (`Fun2`)
+            // value-struct closure (rung-4 M3) implements `Fun2`3<a,b,c>` instead.
+            let ifaceSpec =
+                match c.Param2 with
+                | ValueSome(_, p2ty, _) -> provider.Fun2InterfaceSpec(c.ParamTy, p2ty, c.ResultTy)
+                | ValueNone -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
 
             if isGenericClosure then
                 let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))
