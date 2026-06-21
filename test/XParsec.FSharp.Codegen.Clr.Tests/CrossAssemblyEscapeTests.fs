@@ -23,8 +23,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   * Step C lone-unit erasure — `getUnit ()` (`unit ->`) binds a parameterless
 //     member-ref `getUnit()`.
 //
-// The producer is built through this repo's own backend (like `vesperOptionDll` /
-// `vesperResultDll`) and loaded into the Default ALC so a fresh-ALC consumer run
+// The producer is built through this repo's own backend (like the `buildPackage`
+// Vesper.* fixtures) and loaded into the Default ALC so a fresh-ALC consumer run
 // resolves it by simple name. Its `.fsi`/`.fs`/`manifest.toml` are written to the
 // repo `tmp/` dir so the consumer's contract provider extracts the producer's
 // `ValRepr`/`CompiledForm` from the recorded arity — the exact Step C path.
