@@ -291,7 +291,7 @@ let tests =
                 let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
                 let staticFns =
-                    Emit.collectStaticFns tast.ModuleMembers eligible (CompiledFns.gather lowered)
+                    Emit.collectStaticFns tast.ModuleMembers tast.GenericFnSchemes eligible (CompiledFns.gather lowered)
 
                 let typarsMap = Dictionary<NodeKey, int>()
 

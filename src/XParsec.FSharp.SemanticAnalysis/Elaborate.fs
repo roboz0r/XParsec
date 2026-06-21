@@ -278,6 +278,79 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
+    /// rung-4 §9.4 Stage 1+2 (DORMANT): for a generalised binding, record its true
+    /// quantified-typar COUNT and its frozen typar BOUNDS, keyed by the binding's
+    /// `NodeKey`, onto `ctx.GenericFnSchemes`. The count is the scheme's
+    /// `Quantified.Length` (= `quantEnv`'s length — both run the same param/result +
+    /// dependent-`Coercion`-fixpoint collection), which includes phantom constraint
+    /// typars (`'E`) that param/result-only `staticFnTypars` cannot see. Each
+    /// `Coercion` bound is frozen as a `FrozenConstraint.Coercion(idx, target)`
+    /// template over the METHOD typars: the target is remapped through the SAME
+    /// `quantEnv` the body freezes with (so its typar leaves get the identical
+    /// `FTTypar(Method, idx)` indices) and then `toFrozen`-converted. The constrained
+    /// typar's `idx` is its position in `quantEnv`. A constraint whose typar or
+    /// target is not (yet) a `quantEnv` method typar is dropped — only method-axis
+    /// bounds are carried. Inert: populated but unread.
+    let private recordGenericFnScheme
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (quantEnv: (TypeVar * SemType) list)
+        : unit =
+        if not (List.isEmpty quantEnv) then
+            match ctx.Bindings.Scheme.TryGetValue(CstKeys.ofBinding b) with
+            | ValueNone ->
+                // A quantified function with no recorded scheme: carry the count
+                // (= `quantEnv` length, the same `acc.Count` the index minter used)
+                // with no bounds. Keeps the typar-count channel complete.
+                let entry: GenericFnScheme =
+                    {
+                        TyparCount = quantEnv.Length
+                        Constraints = []
+                    }
+
+                ctx.GenericFnSchemes.Set(CstKeys.ofBinding b, entry)
+            | ValueSome scheme ->
+                // Index of `tv`'s zonked root in `quantEnv` (its `TyTypar(Method, i)`).
+                let methodIndexOf (tv: TypeVar) : int voption =
+                    match Unification.zonk (TyVar tv) with
+                    | TyVar root ->
+                        quantEnv
+                        |> List.tryPick (fun (r, target) ->
+                            if Object.ReferenceEquals(r, root) then
+                                match target with
+                                | TyTypar(TyparAxis.Method, i) -> Some i
+                                | _ -> None
+                            else
+                                None
+                        )
+                        |> function
+                            | Some i -> ValueSome i
+                            | None -> ValueNone
+                    | _ -> ValueNone
+
+                let constraints =
+                    [
+                        for (tv, sc) in scheme.Constraints do
+                            match sc.Kind with
+                            | SemanticConstraintKind.Coercion target ->
+                                match methodIndexOf tv with
+                                | ValueSome idx ->
+                                    // Freeze the target with the SAME typar env the body
+                                    // uses, so its leaves carry matching method indices.
+                                    let frozenTarget = toFrozen (remapDeclTypars quantEnv target)
+                                    FrozenConstraint.Coercion(idx, frozenTarget)
+                                | ValueNone -> ()
+                            | _ -> ()
+                    ]
+
+                let entry: GenericFnScheme =
+                    {
+                        TyparCount = scheme.Quantified.Length
+                        Constraints = constraints
+                    }
+
+                ctx.GenericFnSchemes.Set(CstKeys.ofBinding b, entry)
+
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and
     /// the body's synthesised `this` self-type: each declared typar zonked to its
     /// root `TyVar`. `elaborate` keeps these in `TyVar` form (not `TyTypar`) so
@@ -1379,6 +1452,12 @@ module Elaborate =
                             | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv declTy
                             | _ -> []
 
+                    // rung-4 §9.4 Stage 1+2 (DORMANT): record the binding's true
+                    // typar count + frozen bounds using THIS `quantEnv` (the same
+                    // env `freezeTypars` freezes the body with, so the bounds' typar
+                    // indices line up). Inert — carried to codegen but unread.
+                    recordGenericFnScheme ctx b quantEnv
+
                     TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
             ]
         | ModuleElem.Expression e ->
@@ -1486,4 +1565,12 @@ module Elaborate =
             // rung-4 M3 / M6 value-struct closure verdicts — snapshotted by the
             // Pipeline from `ctx.FunVerdicts` alongside `ClosureReprs`.
             FunVerdicts = Map.empty
+            // rung-4 §9.4 Stage 1+2 (DORMANT): the per-binding typar count + frozen
+            // bounds, filled by `recordGenericFnScheme` during `elaborate` (above) at
+            // the index-minting point — snapshot here, not in the Pipeline, because
+            // the indices are minted in this pass. Inert — carried but unread.
+            GenericFnSchemes =
+                ctx.GenericFnSchemes.AsDictionary()
+                |> Seq.map (fun kv -> kv.Key, kv.Value)
+                |> Map.ofSeq
         }

@@ -83,6 +83,9 @@ module HolderPlan =
     /// method / field emission orders.
     let create
         (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        // rung-4 §9.4 Stage 1+2 (DORMANT): forwarded to `collectStaticFns` to
+        // populate `StaticFn.Typars`/`.Constraints`. Carried but unread.
+        (genericFnSchemes: Map<NodeKey, GenericFnScheme>)
         (programHolder: Emit.HolderKey)
         (topLevelNames: Map<NodeKey, string>)
         (refStructNsNames: HashSet<string * string>)
@@ -159,7 +162,7 @@ module HolderPlan =
         // a lambda whose key was never eligible is skipped here and falls to closure
         // discovery.
         let collectedFns =
-            Emit.collectStaticFns moduleMembers eligible (CompiledFns.gather lowered)
+            Emit.collectStaticFns moduleMembers genericFnSchemes eligible (CompiledFns.gather lowered)
 
         // Generic module values emit exactly like static fns (signature, body,
         // handle, holder method slot); merge them in so every downstream pass —

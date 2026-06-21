@@ -267,4 +267,5 @@ module TastConvert =
             TopLevelNames = tf.TopLevelNames
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts
+            GenericFnSchemes = tf.GenericFnSchemes
         }

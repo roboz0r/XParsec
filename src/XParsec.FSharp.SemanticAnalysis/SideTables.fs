@@ -1144,6 +1144,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `ClosureVerdictRewrite` reads `ResultTyparPos` for the slot/result rewrite. A
     /// lambda with no entry is the ordinary curried closure.
     member val FunVerdicts = SideTable<FunVerdict>() with get
+    /// rung-4 §9.4 Stage 1+2 (DORMANT): a project-local generalised binding's
+    /// `NodeKey` → its true quantified-typar count + frozen typar bounds. Written by
+    /// `Elaborate.translateModuleElem` at the single index-minting point (so the
+    /// bounds' typar leaves carry the SAME method-axis indices the body freezes
+    /// with), snapshotted by `Elaborate.run` onto `TastFile.GenericFnSchemes`.
+    /// Inert — carried to codegen but unread (`staticFnTypars` stays authoritative).
+    member val GenericFnSchemes = SideTable<GenericFnScheme>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar

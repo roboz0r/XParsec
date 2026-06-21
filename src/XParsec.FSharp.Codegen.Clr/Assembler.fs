@@ -304,6 +304,10 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Typars = plan.StaticFnTypars.[fn.Key]
                     ParamTys = fn.Params |> List.map (fun p -> p.Ty)
                     ReturnsVoid = fn.ReturnsVoid
+                    // rung-4 §9.4 Stage 2 (DORMANT): carry the frozen typar bounds
+                    // from the front-end scheme. Unread until the Stage-3 solve;
+                    // `Typars` stays the `staticFnTypars`-derived count above.
+                    Constraints = fn.Constraints
                 }
         )
 

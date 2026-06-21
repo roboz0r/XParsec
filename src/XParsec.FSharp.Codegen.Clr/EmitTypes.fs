@@ -262,6 +262,17 @@ module EmitTypes =
             /// body pops the trailing `unit`, and a
             /// value-position call reifies a `unit` after the `call`.
             ReturnsVoid: bool
+            /// rung-4 §9.4 Stage 1 (DORMANT): the binding's TRUE quantified-typar
+            /// count from the front-end scheme (`TastFile.GenericFnSchemes`), which
+            /// includes phantom constraint typars `staticFnTypars` cannot see from
+            /// params/result alone. `0` when the binding carried no scheme entry.
+            /// Carried but UNREAD — `staticFnTypars` stays the authoritative count.
+            Typars: int
+            /// rung-4 §9.4 Stage 2 (DORMANT): the binding's frozen typar bounds,
+            /// method-axis-indexed templates over the method typars
+            /// (`FrozenConstraint.Coercion`). Carried but unread until the Stage-3
+            /// call-site solve.
+            Constraints: FrozenConstraint list
         }
 
     /// A module-level value (`let x = e` at module scope) lowered to a `public
@@ -306,6 +317,11 @@ module EmitTypes =
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool
+            /// rung-4 §9.4 Stage 2 (DORMANT): the method's frozen typar bounds
+            /// (mirrors `StaticFn.Constraints`), method-axis-indexed templates over
+            /// the method typars. Carried but unread until the Stage-3 call-site
+            /// solve reads a phantom typar's bound.
+            Constraints: FrozenConstraint list
         }
 
     /// The run-wide registries every builder needs: the provider seam, the

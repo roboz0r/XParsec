@@ -487,7 +487,13 @@ module internal Layout =
         // closure discovery and `buildMain`, so they see the same nodes the plan was
         // computed from.
         let plan =
-            HolderPlan.create tast.ModuleMembers programHolder tast.TopLevelNames refStructNsNames lowered0
+            HolderPlan.create
+                tast.ModuleMembers
+                tast.GenericFnSchemes
+                programHolder
+                tast.TopLevelNames
+                refStructNsNames
+                lowered0
 
         let lowered = plan.Lowered
 
