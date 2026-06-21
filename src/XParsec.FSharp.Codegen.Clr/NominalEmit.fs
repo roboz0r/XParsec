@@ -137,7 +137,7 @@ module internal NominalEmit =
                                      staticLets,
                                      secondaryCtors,
                                      _,
-                                     _,
+                                     interfaces,
                                      isStruct,
                                      hasPrimaryCtor) ->
             // The handle every `ldsfld`/`stsfld` *references*. A generic class
@@ -206,6 +206,11 @@ module internal NominalEmit =
                     Members = emittedMembers
                     StaticFields = staticFieldsDict
                     SecondaryCtors = secondaryCtorHandles
+                    // The implemented-interface templates over this class's declaring
+                    // typars (the `fst` of each impl pair — the member bodies are not
+                    // needed for the witness walk). Same source the definition emission
+                    // reads at `classInterfaces`.
+                    Interfaces = [ for (ifaceTy, _) in interfaces -> ifaceTy ]
                 }
 
     let prepare

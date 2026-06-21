@@ -200,6 +200,16 @@ module EmitTypes =
             /// the instantiated `TypeSpec` from the param types (in declaring-typar
             /// markers).
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
+            /// rung-4 §9.4 Stage 3 (3b): the implemented-interface `FrozenType`
+            /// TEMPLATES, each written over THIS class's declaring typars (its arg
+            /// leaves are `FTTypar(TyparAxis.Declaring, i)`). Sourced from
+            /// `ClassDecl.Interfaces` (the `fst` of each impl pair). The codegen
+            /// analog of the front-end's `info.InterfaceImpls` that
+            /// `Engine.subtypeInterfacesOf` instantiates by the receiver's args —
+            /// `EmitResolve.tryInterfaceWitness` walks these to recover a phantom
+            /// enumerator typar's bound at a call site. Carried but UNREAD until that
+            /// Stage-3 solve calls the witness.
+            Interfaces: FrozenType list
         }
 
     /// An interface emitted into this assembly. Only its `Members` matter at use

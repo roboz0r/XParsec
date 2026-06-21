@@ -64,6 +64,67 @@ module EmitResolve =
         let instT = curriedFun argTys resultTy
         env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
 
+    /// Substitute a nominal's declaring-typar leaves throughout a `FrozenType`
+    /// TEMPLATE: every `FTTypar(TyparAxis.Declaring, i)` becomes `args.[i]`. The
+    /// codegen analog of the front end's `instantiateMember` over the declaring
+    /// axis (`Engine.subtypeInterfacesOf` uses it to instantiate an interface-impl
+    /// template by the receiver's type args). Method-axis typars are left alone (a
+    /// member-axis template is not what this rewrites). An out-of-range declaring
+    /// index passes through unchanged — defensive only; well-formed templates index
+    /// within the class's typar count.
+    let rec private instantiateDeclaring (args: FrozenType[]) (t: FrozenType) : FrozenType =
+        match t with
+        | FTTypar(TyparAxis.Declaring, i) when i >= 0 && i < args.Length -> args.[i]
+        | FTFun(a, b) -> FTFun(instantiateDeclaring args a, instantiateDeclaring args b)
+        | FTTuple items -> FTTuple(EqArray.map (instantiateDeclaring args) items)
+        | FTConst(n, xs) -> FTConst(n, EqArray.map (instantiateDeclaring args) xs)
+        | FTClass(k, xs) -> FTClass(k, EqArray.map (instantiateDeclaring args) xs)
+        | FTRecord(k, xs) -> FTRecord(k, EqArray.map (instantiateDeclaring args) xs)
+        | FTUnion(k, xs) -> FTUnion(k, EqArray.map (instantiateDeclaring args) xs)
+        | FTOr ms -> FTOr(EqArray.map (instantiateDeclaring args) ms)
+        | FTTypar _
+        | FTUnknown _ -> t
+
+    /// rung-4 §9.4 Stage 3 (3b): the codegen analog of front-end
+    /// `Engine.tryUpcastWitness` / `subtypeInterfacesOf`. Given a project-local
+    /// nominal `FTClass(classKey, classArgs)` (structs are `FTClass` with
+    /// `IsValueType = true`; records/unions carry their impls elsewhere so are not
+    /// covered here), look up the class in `env.Classes`, find an implemented-
+    /// interface TEMPLATE (`EmittedClass.Interfaces`, over the class's declaring
+    /// typars) whose head matches `ifaceKey`, and return that interface's args
+    /// instantiated by `FTTypar(Declaring, i) := classArgs.[i]` — i.e. the
+    /// interface as seen at THIS receiver. `ValueNone` when the nominal is not a
+    /// project-local class or implements no matching interface.
+    ///
+    /// Direct-declared interfaces only (the registry's `Interfaces` list is the
+    /// frozen direct-impl set); the front-end walk additionally recurses base
+    /// classes / transitive interfaces — deferred until a consumer needs it. UNUSED
+    /// until the Stage-3 call-site phantom-typar solve (`EmitCall`) calls it.
+    let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
+        match nominal with
+        | FTClass(classKey, classArgs) ->
+            match env.Classes.TryGetValue classKey with
+            | true, cls ->
+                let target = SymbolKeyOps.qualifiedName ifaceKey
+                let args = classArgs.AsSpan().ToArray()
+
+                let witness =
+                    cls.Interfaces
+                    |> List.tryPick (fun ifaceTmpl ->
+                        match ifaceTmpl with
+                        | FTClass(k, ifaceArgs)
+                        | FTRecord(k, ifaceArgs)
+                        | FTUnion(k, ifaceArgs) when SymbolKeyOps.qualifiedName k = target ->
+                            Some(EqArray.map (instantiateDeclaring args) ifaceArgs)
+                        | _ -> None
+                    )
+
+                match witness with
+                | Some ia -> ValueSome ia
+                | None -> ValueNone
+            | false, _ -> ValueNone
+        | _ -> ValueNone
+
     /// The head identity of a `FrozenType` for overload-candidate matching: the
     /// nominal name (arity suffix / namespace dropped to the comparable key), or a
     /// structural tag. An open typar (`FTTypar`) is never compared — a generic
