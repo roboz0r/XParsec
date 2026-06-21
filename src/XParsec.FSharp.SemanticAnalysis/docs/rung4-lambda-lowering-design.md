@@ -334,7 +334,15 @@ Sub-milestones, each smallest-test-first, review-gated:
 - **P-c** — the M6 capstone: un-`ptest` the committed M6 fixture; full `let s1=…; let total=…`
   pipeline → `14`, no box.
 - **P-d** — multi-`map` chain (`map g0 |> map g1 |> fold f`): forces the RECURSIVE rewrite over
-  nested `MapSeq<MapSeq<…>,…>` with two distinct `<closure>$` slots.
+  nested `MapSeq<MapSeq<…>,…>` with two distinct `<closure>$` slots. **Must make the
+  consuming-body rewrite collision-safe.** P-b/P-c (`aa2cdd1`) landed it as a program-wide
+  arrow-TYPE-keyed table (`arrowClosurePairs` in `Assembler.fs`), because the consuming
+  combinator's `for-in` carries no verdict of its own to key on. Two same-typed transformer
+  lambdas (two `int->int` maps) have structurally identical frozen arrows → they collide
+  (first wins), and a genuine same-typed function value in a for-in/body would be miscoerced.
+  P-d must replace the type-keyed match with a node-identity / position-keyed mechanism (thread
+  the producing call's verdict to its consumer), restoring P-a's `FunResultTypar` discipline to
+  the consuming-body path. The multi-`map` test is what forces and validates this.
 - Regression gate every milestone: re-run the green M1/M2/M3 suite (terminal path must stay
   untouched — `substituteVerdictClosures` is a no-op when no matching leaf exists).
 
