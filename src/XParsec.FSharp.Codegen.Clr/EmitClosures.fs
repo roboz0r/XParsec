@@ -305,10 +305,9 @@ module EmitClosures =
                         Body = value
                         ResultTy = ty
                         ReturnsVoid = false
-                        // rung-4 §9.4: a generic module VALUE carries no front-end
+                        // rung-4 §9: a generic module VALUE carries no front-end
                         // function scheme bounds; `staticFnTypars` still derives its
-                        // emitted typar count. Inert fields stay empty.
-                        Typars = 0
+                        // emitted typar count.
                         Constraints = []
                     }
             )
@@ -576,10 +575,10 @@ module EmitClosures =
     /// lambda whose key was never eligible) is left for closure discovery.
     let collectStaticFns
         (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
-        // rung-4 §9.4 Stage 1+2 (DORMANT): per-binding true typar count + frozen
-        // bounds from the front-end scheme. Looked up by `c.Key`; absent ⇒ no scheme
-        // (`Typars = 0`, no bounds). Carried onto `StaticFn` but unread.
-        (genericFnSchemes: Map<NodeKey, GenericFnScheme>)
+        // rung-4 §9 (Direction B): per-binding frozen typar bounds from the front-end
+        // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
+        // `StaticFn.Constraints` and read by the call-site phantom-typar solve.
+        (genericFnSchemes: Map<NodeKey, FrozenConstraint list>)
         (eligible: HashSet<NodeKey>)
         (fns: CompiledFns.CompiledFn list)
         : StaticFn list =
@@ -594,10 +593,10 @@ module EmitClosures =
                         | Some info -> info.Name, Some(info.Namespace, info.Holder)
                         | None -> sprintf "fn$%d" c.Key.Offset, None
 
-                    let typars, constraints =
+                    let constraints =
                         match Map.tryFind c.Key genericFnSchemes with
-                        | Some s -> s.TyparCount, s.Constraints
-                        | None -> 0, []
+                        | Some cs -> cs
+                        | None -> []
 
                     yield
                         {
@@ -609,7 +608,6 @@ module EmitClosures =
                             Body = c.Body
                             ResultTy = c.ResultTy
                             ReturnsVoid = c.ReturnsVoid
-                            Typars = typars
                             Constraints = constraints
                         }
         ]

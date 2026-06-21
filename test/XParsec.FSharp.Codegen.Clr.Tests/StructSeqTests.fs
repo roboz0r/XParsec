@@ -1651,17 +1651,15 @@ let structSeqTests =
             //        (`s1 : MapSeq<…,'TFunc,…>`) is laid out as the `<closure>$` value-
             //        struct by position (`substituteVerdictClosures`), so the `fold`
             //        call's `'S` MethodSpec instantiates `MapSeq<…,<closure>$,…>`.
-            //  (P-b/P-c) the CONSUMING combinator's body — `fold`'s `for y in source`
-            //        — carried the source's frozen seq types
-            //        (`IStructSeq<'U, MapEnumerator<…,'TFunc,…>>` ifaceArgs + enumerator
-            //        type) with `'TFunc` STILL the arrow (encoded to the `Fun`/`Fun2`
-            //        INTERFACE = CLASS). The receiver is the value-struct-instantiated
-            //        seq, so the `constrained. callvirt GetEnumerator` token's nested
-            //        `'TFunc` (CLASS) mismatched the receiver's actual value-struct
-            //        interface impl → the call fell through to the abstract slot
-            //        (`EntryPointNotFoundException`). `rewriteClosureLeaves` (run over
-            //        StaticFn bodies + the for-in enumerator descriptor) rewrites those
-            //        nested arrow leaves to the `<closure>$` value-struct.
+            //  (§9 Direction B) the CONSUMING combinator's body — `fold`'s
+            //        `for y in source` — is GENERIC over its phantom enumerator typar
+            //        `'E`; the `<closure>$` is no longer baked into a grounded body.
+            //        The `fold` call's MethodSpec solves `'E` from its
+            //        `'S :> IStructSeq<'T,'E>` bound by walking the (already value-
+            //        struct-instantiated) `'S` arg's seq impl, so the `constrained.
+            //        callvirt GetEnumerator` token's nested `'TFunc` is the
+            //        `<closure>$` value-struct and matches the receiver's impl. No
+            //        arrow-equality rewrite (the old `rewriteClosureLeaves` is gone).
             test "rung 4 (M6): SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
                 let src =
                     String.concat

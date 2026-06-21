@@ -84,10 +84,10 @@ module HolderPlan =
     let create
         (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
         // rung-4 §9 (Direction B): forwarded to `collectStaticFns` to populate
-        // `StaticFn.Typars`/`.Constraints`. `Constraints` drives the call-site
-        // phantom-typar solve (`EmitCall`); the count is re-derived by body sweep
-        // (`Emit.staticFnTypars`), so `StaticFn.Typars` is no longer read for it.
-        (genericFnSchemes: Map<NodeKey, GenericFnScheme>)
+        // `StaticFn.Constraints`, which drives the call-site phantom-typar solve
+        // (`EmitCall`). The emitted arity is re-derived independently by the
+        // `Emit.staticFnTypars` body sweep.
+        (genericFnSchemes: Map<NodeKey, FrozenConstraint list>)
         (programHolder: Emit.HolderKey)
         (topLevelNames: Map<NodeKey, string>)
         (refStructNsNames: HashSet<string * string>)
@@ -229,8 +229,8 @@ module HolderPlan =
         // `'E`) that param/result cannot see but that survives un-grounded in the
         // `for-in` enumerator descriptor, so `fold` emits at its true arity and the
         // call site solves `'E` from its bound. It deliberately does NOT use the
-        // front-end `scheme.Quantified.Length` (`StaticFn.Typars`), which over-counts
-        // a quantified-but-body-erased typar (the `SetTree.compare` regression).
+        // front-end `scheme.Quantified.Length`, which over-counts a quantified-but-
+        // body-erased typar (the `SetTree.compare` regression).
         let staticFnTypars = Dictionary<NodeKey, int>()
 
         for fn in staticFns do

@@ -272,13 +272,6 @@ module EmitTypes =
             /// body pops the trailing `unit`, and a
             /// value-position call reifies a `unit` after the `call`.
             ReturnsVoid: bool
-            /// rung-4 §9: the binding's TRUE quantified-typar count from the front-end
-            /// scheme (`TastFile.GenericFnSchemes`). `0` when the binding carried no
-            /// scheme entry. NO LONGER read for the emitted arity (Direction B derives
-            /// that by a body sweep in `staticFnTypars`, which excludes a quantified-
-            /// but-body-erased typar this count would over-count); retained as the
-            /// front-end fact for diagnostics / future use.
-            Typars: int
             /// rung-4 §9 (Direction B): the binding's frozen typar bounds, method-axis-
             /// indexed templates over the method typars (`FrozenConstraint.Coercion`).
             /// Read by the call-site phantom-typar solve (`EmitCall`) to recover a

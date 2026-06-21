@@ -796,13 +796,15 @@ type TastFileG<'ty, 'tok> =
         /// than the `Fun`/`Fun2` interface. A lambda absent here is an ordinary
         /// curried closure.
         FunVerdicts: Map<NodeKey, FunVerdict>
-        /// rung-4 §9.4 Stage 1+2 (DORMANT): a project-local generalised binding's
-        /// `NodeKey` → its true quantified-typar count + frozen typar bounds
-        /// (`GenericFnScheme`). Snapshotted at `Elaborate.run` (where the method-typar
-        /// indices are minted, so the bounds' typar leaves line up with the body's),
-        /// threaded `TastFile → HolderPlan → StaticFn/StaticMethodRef` exactly like
-        /// `FunVerdicts`. Populated but unread — `staticFnTypars` stays authoritative.
-        GenericFnSchemes: Map<NodeKey, GenericFnScheme>
+        /// rung-4 §9 (Direction B): a project-local generalised binding's
+        /// `NodeKey` → its frozen typar bounds (method-axis-indexed
+        /// `FrozenConstraint` templates). Snapshotted at `Elaborate.run` (where the
+        /// method-typar indices are minted, so the bounds' typar leaves line up with
+        /// the body's), threaded `TastFile → HolderPlan → StaticFn/StaticMethodRef`
+        /// exactly like `FunVerdicts`. Read by the call-site phantom-typar solve
+        /// (`EmitCall`); the emitted arity is re-derived independently by
+        /// `staticFnTypars`' body sweep.
+        GenericFnSchemes: Map<NodeKey, FrozenConstraint list>
     }
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;

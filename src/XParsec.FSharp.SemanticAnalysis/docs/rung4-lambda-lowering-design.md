@@ -496,9 +496,10 @@ MethodSpec slot → invalid IL / `matchInstantiation` failwith. So:
    each subexpr's `typeOfExpr` plus the `for-in` enumerator descriptor's
    `ConstrainedInterface` ifaceArgs, where a surviving phantom `'E` lives), which counts
    exactly the typars the frozen IL references and excludes erased ones. CONSEQUENCE: the
-   carried `StaticFn.Typars` (= `scheme.Quantified.Length`, Stage 1+2) is UNUSED for arity
-   — a Step-5 cleanup candidate (remove it or keep as a documented front-end fact). The
-   carried `Constraints` channel IS used (the Stage-3 solve).
+   carried typar-count channel (Stage 1+2) was vestigial and has been REMOVED — Stage 1+2's
+   `GenericFnScheme {TyparCount; Constraints}` collapsed to a per-binding
+   `FrozenConstraint list` keyed by `NodeKey`; only the `Constraints` channel survives (it
+   feeds the Stage-3 solve). Arity is `staticFnTypars`' body sweep alone.
 2. **Carry typar bounds to codegen** — the project-local half of §5's frozen-constraint
    table. Add method-axis-indexed `FrozenConstraint`s on `StaticFn`/`StaticMethodRef`,
    populated at freeze (`Elaborate.run`, which holds `ctx` and mints the indices) from

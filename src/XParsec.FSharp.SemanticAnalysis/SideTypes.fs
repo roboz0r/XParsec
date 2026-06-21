@@ -71,28 +71,16 @@ type FunVerdict =
 /// of `ExternalConstraint` (`ExternalSymbols.fs`) for the project-local head —
 /// `target` is a `FrozenType` over the binding's METHOD typars, i.e. its typar
 /// leaves are `FTTypar(Method, idx)` carrying the SAME indices the binding's body
-/// freezes with. Threaded end-to-end onto `StaticFn`/`StaticMethodRef` and read by
-/// the call-site phantom-typar solve (`EmitCall`) to recover a phantom typar
-/// (`fold`'s `'E`) from the constrained source's seq interface impl.
+/// freezes with. Threaded end-to-end onto `StaticFn`/`StaticMethodRef` (the
+/// per-binding `FrozenConstraint list` is keyed by `NodeKey` in `TastFile`) and
+/// read by the call-site phantom-typar solve (`EmitCall`) to recover a phantom
+/// typar (`fold`'s `'E`) from the constrained source's seq interface impl.
 [<RequireQualifiedAccess>]
 type FrozenConstraint =
     /// `when 'a :> <ty>` — coercion. `typarIndex` is the constrained typar's
     /// method-axis position; `target` is the required supertype as a `FrozenType`
     /// template over the binding's method typars.
     | Coercion of typarIndex: int * target: FrozenType
-
-/// rung-4 §9 (Direction B): the generalisation facts a project-local generic `let`
-/// carries to codegen, keyed (in the side table / `TastFile`) by the binding's
-/// `NodeKey`. `TyparCount` is the scheme's TRUE quantified-typar count
-/// (`scheme.Quantified.Length` / `mkMethodQuantEnv`'s `acc.Count`). `Constraints`
-/// are the frozen typar bounds — these drive the call-site phantom-typar solve
-/// (`EmitCall`). (The emitted arity is re-derived by `staticFnTypars`' body sweep,
-/// not `TyparCount`, which over-counts a quantified-but-body-erased typar.)
-type GenericFnScheme =
-    {
-        TyparCount: int
-        Constraints: FrozenConstraint list
-    }
 
 /// How a `for x in src do …` (`TExpr.ForIn`) sources its enumerator — resolved by
 /// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
