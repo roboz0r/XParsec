@@ -330,26 +330,100 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // -> …`, dispatched solely by the call-site `!TF` MethodSpec override) records no
     // verdict and contributes no leaf, so a same-shaped genuine function value at a
     // non-result position is never miscoerced.
-    let arrowClosurePairs =
-        [
-            for c in closures do
-                if c.IsValueStruct then
-                    match closureValueTypeByNode.TryGetValue c.Node with
-                    | true, closureFt ->
-                        let k = NodeKey.ofToken (TastWalk.exprTok c.Node) NodeKind.ExprLambda
+    // rung-4 M6 P-d: per-value-struct-closure VERDICT, keyed by the closure's Lambda
+    // node (reference identity, the same key `closureValueTypeByNode` uses) → its
+    // `<closure>$` value-struct + the RESULT-typar POSITION its `'TFunc` occupies in
+    // the producing transformer's result nominal (`FunResultTypar`, decided in
+    // `inferApp`). This is the node-identity discipline P-a established for the
+    // stored-binding path; P-d extends it to the consuming-combinator path so two
+    // *structurally identical* transformer arrows (two `int->int` maps) are NEVER
+    // conflated — each transformer-call site is rewritten with the closure THAT call
+    // produced, found by walking that call's OWN argument spine, never a program-wide
+    // arrow-type lookup (the P-b/P-c `arrowClosurePairs` collision the M6 capstone
+    // could not surface but a multi-`map` chain forces).
+    let closureNodeVerdict =
+        let d = Dictionary<Frozen.TExpr, struct (FrozenType * int)>(HashIdentity.Reference)
 
-                        match Map.tryFind k.Raw tast.FunResultTypar with
-                        | Some _ -> yield (TastLower.typeOfExpr c.Node, closureFt)
-                        | None -> ()
-                    | false, _ -> ()
+        for c in closures do
+            if c.IsValueStruct then
+                match closureValueTypeByNode.TryGetValue c.Node with
+                | true, closureFt ->
+                    let k = NodeKey.ofToken (TastWalk.exprTok c.Node) NodeKind.ExprLambda
+
+                    match Map.tryFind k.Raw tast.FunResultTypar with
+                    | Some idx -> d.[c.Node] <- struct (closureFt, idx)
+                    | None -> ()
+                | false, _ -> ()
+
+        d
+
+    // True iff ANY value-struct closure carries a transformer verdict — the cheap
+    // gate that keeps the whole consuming-body rewrite a no-op on the green
+    // named-struct / terminal-only paths.
+    let hasTransformerVerdict = closureNodeVerdict.Count > 0
+
+    // The transformer verdict the lambda argument of a single application produces:
+    // walk the spine of `fn (arg)` collecting each direct argument, and look up the
+    // value-struct closure (by node identity) among them. Returns the closure's
+    // `(value-struct type, result-typar position)`. A combinator takes at most one
+    // `Fun`/`Fun2`-bounded lambda argument, so at most one verdict is found per call.
+    let appOwnVerdict (e: Frozen.TExpr) : struct (FrozenType * int) voption =
+        let rec scan (e: Frozen.TExpr) : struct (FrozenType * int) voption =
+            match e with
+            | TExprG.App(fn, arg, _, _) ->
+                match closureNodeVerdict.TryGetValue arg with
+                | true, v -> ValueSome v
+                | false, _ -> scan fn
+            | _ -> ValueNone
+
+        scan e
+
+    // Replace, in a producing transformer's RESULT type (`MapSeq<…,arrow,…>`), the
+    // `'TFunc`-position leaf with THIS call's own `<closure>$` value-struct. `verdict`
+    // = the `(closure value-struct, FunResultTypar position)` of the lambda this very
+    // application fed (resolved by node identity, `appOwnVerdict`), so a same-shaped
+    // arrow at a NON-recorded position (e.g. a genuine function-valued field, or the
+    // SOURCE seq's own nested `'TFunc` for a chained map) is left untouched here — the
+    // nested source slot is rewritten by ITS OWN producing site (the `Var s1` /
+    // nested-`App` path through `retypeBody`/`substituteVerdictClosures`), never by a
+    // first-matching arrow guess. Position-only (not recursive) keeps the collision
+    // impossible by construction: one application rewrites exactly one slot, its own.
+    let rewriteAppResultByVerdict (resultTy: FrozenType) (verdict: struct (FrozenType * int)) : FrozenType =
+        let struct (closureFt, pos) = verdict
+
+        let atPos (args: EqArray<FrozenType>) =
+            EqArray.mapi (fun i a -> if i = pos then closureFt else a) args
+
+        match resultTy with
+        | FTClass(key, args) when pos >= 0 && pos < args.Length -> FTClass(key, atPos args)
+        | FTRecord(key, args) when pos >= 0 && pos < args.Length -> FTRecord(key, atPos args)
+        | FTUnion(key, args) when pos >= 0 && pos < args.Length -> FTUnion(key, atPos args)
+        | FTConst(name, args) when pos >= 0 && pos < args.Length -> FTConst(name, atPos args)
+        | _ -> resultTy
+
+    // The consuming combinator's `for-in` enumerator descriptor (`fold`'s `for y in
+    // source`) carries the SOURCE seq's frozen types. When `fold` is monomorphic at a
+    // concrete source those nested `'TFunc` arrow leaves must become the `<closure>$`
+    // value-struct so `constrained. callvirt GetEnumerator` matches the receiver's
+    // value-struct impl. In the current pipeline `fold` is GENERIC (its body carries
+    // `!!i` method-typars, NOT concrete arrows — verified by the emitted `gp>0`
+    // MethodDef), so this pass finds no arrow leaf and is a structural no-op; it is
+    // retained for the (future) monomorphic-consumer shape. Each verdict closure
+    // contributes its OWN grounded arrow → its OWN value-struct: distinct closures
+    // map to distinct targets, so a same-shaped arrow that is NOT a verdict closure's
+    // own grounded arrow is left untouched. (A genuine collision would need two
+    // verdict closures whose grounded arrows are reference-equal frozen values — they
+    // are not: each lambda node freezes its own arrow instance.)
+    let verdictArrowToClosure =
+        [
+            for KeyValue(node, struct (closureFt, _)) in closureNodeVerdict -> (TastLower.typeOfExpr node, closureFt)
         ]
 
-    // Replace, in a frozen TYPE, every leaf structurally equal to a recorded verdict
-    // arrow with that arrow's `<closure>$` value-struct. Recursive over the nominal
-    // spine (closes P-d's nested `MapSeq<MapSeq<…>,…>` for free). A no-op when no
-    // arrow matches (the terminal-combinator / no-verdict case).
     let rec rewriteClosureLeaves (t: FrozenType) : FrozenType =
-        match arrowClosurePairs |> List.tryPick (fun (a, c) -> if a = t then Some c else None) with
+        match
+            verdictArrowToClosure
+            |> List.tryPick (fun (a, c) -> if a = t then Some c else None)
+        with
         | Some closureFt -> closureFt
         | None ->
             match t with
@@ -360,8 +434,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             | FTTuple items -> FTTuple(EqArray.map rewriteClosureLeaves items)
             | _ -> t
 
-    // Rewrite a `for-in` enumerator descriptor's frozen TYPE payloads (enumerator
-    // type + both `ConstrainedInterface` ifaceArgs) through `rewriteClosureLeaves`.
     let rewriteForInEnumerator (en: Frozen.ForInEnumerator) : Frozen.ForInEnumerator =
         match en with
         | ForInEnumeratorG.Interface -> en
@@ -388,7 +460,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // replacements; the receiver itself is retyped to the rewritten container so its
     // field-`MemberRef` `TypeSpec` matches the value-struct-instantiated field row.
     let retypeBody (e: Frozen.TExpr) : Frozen.TExpr =
-        if verdictBindings.Count = 0 && List.isEmpty arrowClosurePairs then
+        if verdictBindings.Count = 0 && not hasTransformerVerdict then
             e
         else
             // The verdict binding a (possibly nested-field) receiver bottoms out in,
@@ -451,18 +523,30 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     else
                         TExprG.ForIn(pat, src', body', enumerator', ty, tok)
                 | TExprG.App(fn, arg, ty, tok) ->
-                    // rung-4 M6 P-b: a *transformer* call (`map (fun x -> x+1) src`) whose
-                    // result type carries the lambda's `'TFunc` (`MapSeq<…,arrow,…>`),
+                    // rung-4 M6 P-b/P-d: a *transformer* call (`map (fun x -> x+1) src`)
+                    // whose result type carries the lambda's `'TFunc` (`MapSeq<…,arrow,…>`),
                     // used directly as an argument to a consuming combinator (`fold f 0
                     // (map …)`) WITHOUT a stored `let s1`. The fold call's `'S` MethodSpec
                     // reads `typeOfExpr` of this App, so its result type must lay the
-                    // `'TFunc` slot out as the `<closure>$` value-struct. `rewriteClosure
-                    // Leaves` replaces the arrow leaf by structural identity (the verdict
-                    // lambda's own grounded arrow); a terminal call (`fold …`, result
-                    // `int`) carries no arrow leaf and is left unchanged.
+                    // `'TFunc` slot out as the `<closure>$` value-struct.
+                    //
+                    // COLLISION-SAFE (P-d): the rewrite is keyed on THIS application's own
+                    // produced closure — `appOwnVerdict` walks this `App`'s argument spine,
+                    // finds the value-struct lambda node it feeds (by reference identity),
+                    // and rewrites ONLY that closure's recorded `FunResultTypar` POSITION.
+                    // It never consults a program-wide arrow-type table, so two transformer
+                    // calls whose lambdas share the SAME frozen arrow (`int->int`) are each
+                    // rewritten with the closure THEY produced — the P-b/P-c type-keyed
+                    // collision is impossible by construction. A terminal call (`fold …`,
+                    // result `int`) produces no value-struct transformer verdict, so it is
+                    // left unchanged.
                     let fn' = rw fn
                     let arg' = rw arg
-                    let ty' = rewriteClosureLeaves ty
+
+                    let ty' =
+                        match appOwnVerdict e with
+                        | ValueSome verdict -> rewriteAppResultByVerdict ty verdict
+                        | ValueNone -> ty
 
                     if
                         System.Object.ReferenceEquals(fn', fn)

@@ -1952,4 +1952,103 @@ let structSeqTests =
                 let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
                 Expect.equal closureBase (ValueSome "System.ValueType") "the fold source lambda is a value-struct"
             }
+
+            // rung-4 M6 P-d: a MULTI-`map` chain — two transformers before the terminal,
+            // whose lambdas have STRUCTURALLY IDENTICAL frozen arrows (`int -> int`):
+            //   s1 = map (fun x -> x + 1) s0   // closure A
+            //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
+            //   total = fold (fun acc x -> acc + x) 0 s2
+            // This is the case the P-b/P-c program-wide arrow-TYPE-keyed table
+            // (`arrowClosurePairs`) could not handle: A and B collide on the arrow key,
+            // so `s2`'s outer `'TFunc` slot (and the nested-`s1` slot inside it) would
+            // both bind to whichever closure the table picked FIRST. P-d replaced that
+            // with the node-identity / `FunResultTypar`-POSITION mechanism (`appOwnVerdict`
+            // + `substituteVerdictClosures`), so each transformer result is laid out from
+            // ITS OWN closure. Expected output: ((1+1)*2)+((2+1)*2)+((3+1)*2)+((4+1)*2) =
+            // 4+6+8+10 = 28.
+            //
+            // PENDING — blocked on a PRE-EXISTING front-end generalisation/freshening bug
+            // that is ORTHOGONAL to source lambdas and to the P-d closure-collision work.
+            // Chaining a generic combinator (`map`) whose phantom enumerator typar `'E`
+            // (in `'S :> IStructSeq<'T,'E>` and in the `MapSeq<…,'E,…>` result) is fed a
+            // value that is ITSELF a `MapSeq` fails the front-end subtype check: the
+            // SECOND `map (g) s1` reports `MapSeq`5 does not support subtype of
+            // IStructSeq`2`. Root cause (traced via `Engine.subsumesNominal` /
+            // `InferGeneralize.instantiate`): the second instantiation's `'E2` is ground
+            // to `ArrayEnumerator` (the INNER seq's enumerator) instead of
+            // `MapEnumerator` — the constraint-target `'E` is not remapped to the fresh
+            // per-call instance in `instantiate` (its constraint-occurrence root is not
+            // in `surfaceSubst`), so the FIRST call grounds the shared scheme typar and
+            // poisons the SECOND. This reproduces IDENTICALLY with a hand-written
+            // `[<Struct>] AddN : Fun<int,int>` in place of the lambdas, confirming it is
+            // a chained-generic-combinator inference gap, not a closure/lowering gap.
+            // The P-d codegen rewrite (node-identity-keyed, collision-impossible by
+            // construction) is in place and validated against the M6 capstone / P-b /
+            // M1/M2/M3 (all still green); it cannot be exercised end-to-end until the
+            // chained-`map` front-end subtyping is fixed (a unifier change, out of P-d's
+            // codegen-only scope). The orchestrator decides the follow-up milestone.
+            ptest "rung 4 (M6 P-d): multi-map chain lowers each closure to its OWN value-struct slot" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator<'T> ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : 'T"
+                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator<'T> ="
+                            "    val Arr : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator<'T> with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : 'T = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq<'T> ="
+                            "    val Arr : 'T[]"
+                            "    new(arr: 'T[]) = { Arr = arr }"
+                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
+                            "[<Struct>]"
+                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val mutable Source : 'E"
+                            "    val F : 'TFunc"
+                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructEnumerator<'U> with"
+                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
+                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
+                            "[<Struct>]"
+                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val Source : 'S"
+                            "    val F : 'TFunc"
+                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
+                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
+                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
+                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
+                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
+                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "    let mutable state = seed"
+                            "    for y in source do"
+                            "        state <- f.Invoke(state, y)"
+                            "    state"
+                            "let xs = [| 1; 2; 3; 4 |]"
+                            "let s0 = ofArray xs"
+                            "let s1 = map (fun x -> x + 1) s0"
+                            "let s2 = map (fun x -> x * 2) s1"
+                            "let total = fold (fun acc x -> acc + x) 0 s2"
+                            "printfn \"%d\" total"
+                        ]
+
+                let tast, artifact = compileSource "StructSeqRung4M6PdMultiMap" src
+                let bytes = Codegen.toBytes artifact
+                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-d multi-map diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "28" "(x+1)*2 mapped then summed = 28"
+            }
         ]
