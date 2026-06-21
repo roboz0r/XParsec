@@ -98,8 +98,9 @@ module EmitResolve =
     ///
     /// Direct-declared interfaces only (the registry's `Interfaces` list is the
     /// frozen direct-impl set); the front-end walk additionally recurses base
-    /// classes / transitive interfaces — deferred until a consumer needs it. UNUSED
-    /// until the Stage-3 call-site phantom-typar solve (`EmitCall`) calls it.
+    /// classes / transitive interfaces — deferred until a consumer needs it. Read by
+    /// the rung-4 §9 (Direction B) call-site phantom-typar solve (`EmitCall`) to
+    /// recover a phantom enumerator typar from the constrained source's seq impl.
     let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
         match nominal with
         | FTClass(classKey, classArgs) ->

@@ -272,16 +272,17 @@ module EmitTypes =
             /// body pops the trailing `unit`, and a
             /// value-position call reifies a `unit` after the `call`.
             ReturnsVoid: bool
-            /// rung-4 §9.4 Stage 1 (DORMANT): the binding's TRUE quantified-typar
-            /// count from the front-end scheme (`TastFile.GenericFnSchemes`), which
-            /// includes phantom constraint typars `staticFnTypars` cannot see from
-            /// params/result alone. `0` when the binding carried no scheme entry.
-            /// Carried but UNREAD — `staticFnTypars` stays the authoritative count.
+            /// rung-4 §9: the binding's TRUE quantified-typar count from the front-end
+            /// scheme (`TastFile.GenericFnSchemes`). `0` when the binding carried no
+            /// scheme entry. NO LONGER read for the emitted arity (Direction B derives
+            /// that by a body sweep in `staticFnTypars`, which excludes a quantified-
+            /// but-body-erased typar this count would over-count); retained as the
+            /// front-end fact for diagnostics / future use.
             Typars: int
-            /// rung-4 §9.4 Stage 2 (DORMANT): the binding's frozen typar bounds,
-            /// method-axis-indexed templates over the method typars
-            /// (`FrozenConstraint.Coercion`). Carried but unread until the Stage-3
-            /// call-site solve.
+            /// rung-4 §9 (Direction B): the binding's frozen typar bounds, method-axis-
+            /// indexed templates over the method typars (`FrozenConstraint.Coercion`).
+            /// Read by the call-site phantom-typar solve (`EmitCall`) to recover a
+            /// phantom typar (`fold`'s `'E`) no parameter/result mentions.
             Constraints: FrozenConstraint list
         }
 
@@ -327,10 +328,10 @@ module EmitTypes =
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool
-            /// rung-4 §9.4 Stage 2 (DORMANT): the method's frozen typar bounds
-            /// (mirrors `StaticFn.Constraints`), method-axis-indexed templates over
-            /// the method typars. Carried but unread until the Stage-3 call-site
-            /// solve reads a phantom typar's bound.
+            /// rung-4 §9 (Direction B): the method's frozen typar bounds (mirrors
+            /// `StaticFn.Constraints`), method-axis-indexed templates over the method
+            /// typars. Read by the call-site phantom-typar solve (`EmitCall`) to
+            /// recover a phantom typar (`fold`'s `'E`) from its bound's seq impl.
             Constraints: FrozenConstraint list
         }
 

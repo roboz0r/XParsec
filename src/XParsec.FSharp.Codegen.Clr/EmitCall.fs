@@ -282,7 +282,12 @@ module EmitCall =
                         | [] -> sm.ParamTys @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
                         | _ -> sm.ParamTys, flatActualTys
 
-                    let inst = matchInstantiation sm.Typars defTys actualTys
+                    // rung-4 §9 (Direction B): partial recovery — a PHANTOM
+                    // constraint typar (`fold`'s enumerator `'E`, in no param/result)
+                    // is unrecoverable by param-matching and stays `ValueNone`; it is
+                    // solved below from `sm.Constraints`. The strict failwith moved
+                    // to the post-solve finalize.
+                    let instArr = matchInstantiationPartial sm.Typars defTys actualTys
 
                     // rung-4 Step C (M1): a captureless `Stack` (value-struct) lambda
                     // argument fed a bare method-typar parameter (the constrained
@@ -294,8 +299,6 @@ module EmitCall =
                     // targets the struct → JIT devirt, no box. The discovery gate runs
                     // only on all-`GSimple` callees, so the leading spine arg index
                     // maps one-to-one onto the flat parameter index.
-                    let instArr = List.toArray inst
-
                     leading
                     |> List.iteri (fun i (arg, _, _) ->
                         match env.ClosureValueTypeByNode.TryGetValue arg with
@@ -303,12 +306,98 @@ module EmitCall =
                             if i < List.length sm.ParamTys then
                                 match sm.ParamTys.[i] with
                                 | FTTypar(TyparAxis.Method, idx) when idx >= 0 && idx < instArr.Length ->
-                                    instArr.[idx] <- closureFt
+                                    instArr.[idx] <- ValueSome closureFt
                                 | _ -> ()
                         | false, _ -> ()
                     )
 
-                    env.Provider.StaticFnMethodSpec(sm.Handle, List.ofArray instArr)
+                    // rung-4 §9 (Direction B) — the call-site PHANTOM-typar solve.
+                    // A phantom constraint typar (`fold`'s enumerator `'E` in
+                    // `'S :> IStructSeq<'T,'E>`) is in no param/result, so it is still
+                    // `ValueNone`. Solve it from `sm.Constraints`: for each
+                    // `Coercion(ci, target)` whose CONSTRAINED typar `ci` is already
+                    // resolved (e.g. `'S := instArr.[idx_S]`, ALREADY the node-key-
+                    // rewritten `<closure>$`-bearing arg type), walk the constrained
+                    // type's interface impl for `target`'s iface and structurally
+                    // recover the typars `target` mentions (incl. `'E`) from the
+                    // concrete witness. The closure rides in through `'S`'s rewritten
+                    // arg — collision-free, no arrow-equality. Iterate to a fixpoint:
+                    // one bound's target may mention a typar another bound just solved.
+                    //
+                    // The witness is AUTHORITATIVE for a bound-mentioned typar even if
+                    // `matchInstantiation` already recovered it from the result: a
+                    // combinator like `map` carries `'E` in BOTH its `'S :> IStructSeq<'T,'E>`
+                    // bound AND its `… -> MapSeq<'S,'E,…>` result, and the RESULT occurrence
+                    // can still embed a stale arrow (a chained source `s1`'s `'TFunc` buried
+                    // in its frozen enumerator type), whereas the witness reads it from the
+                    // source's ACTUAL `<closure>$`-bearing seq impl. So override every typar
+                    // index that appears inside a Coercion target with the witness value.
+                    if not (List.isEmpty sm.Constraints) then
+                        // Indices the bounds can recover — those the witness may overwrite.
+                        let boundMentioned = System.Collections.Generic.HashSet<int>()
+
+                        let rec mention (t: FrozenType) =
+                            match t with
+                            | FTTypar(TyparAxis.Method, i) -> boundMentioned.Add i |> ignore
+                            | FTFun(a, b) ->
+                                mention a
+                                mention b
+                            | FTConst(_, xs)
+                            | FTTuple xs
+                            | FTRecord(_, xs)
+                            | FTUnion(_, xs)
+                            | FTClass(_, xs)
+                            | FTOr xs -> EqArray.iter mention xs
+                            | FTUnknown _
+                            | FTTypar(TyparAxis.Declaring, _) -> ()
+
+                        for c in sm.Constraints do
+                            match c with
+                            | FrozenConstraint.Coercion(_, target) -> mention target
+
+                        let mutable changed = true
+
+                        while changed do
+                            changed <- false
+
+                            for c in sm.Constraints do
+                                match c with
+                                | FrozenConstraint.Coercion(ci, target) ->
+                                    if ci >= 0 && ci < instArr.Length then
+                                        match instArr.[ci], target with
+                                        | ValueSome receiver, FTClass(ifaceKey, _) ->
+                                            match tryInterfaceWitness env receiver ifaceKey with
+                                            | ValueSome witnessArgs ->
+                                                let holes =
+                                                    matchInstantiationPartial
+                                                        sm.Typars
+                                                        [ target ]
+                                                        [ FTClass(ifaceKey, witnessArgs) ]
+
+                                                for j in 0 .. instArr.Length - 1 do
+                                                    match holes.[j] with
+                                                    | ValueSome t when
+                                                        instArr.[j] <> ValueSome t
+                                                        && (instArr.[j] = ValueNone || boundMentioned.Contains j)
+                                                        ->
+                                                        instArr.[j] <- ValueSome t
+                                                        changed <- true
+                                                    | _ -> ()
+                                            | ValueNone -> ()
+                                        | _ -> ()
+
+                    let inst =
+                        [
+                            for i in 0 .. instArr.Length - 1 ->
+                                match instArr.[i] with
+                                | ValueSome t -> t
+                                | ValueNone ->
+                                    failwithf
+                                        "Emit: could not infer instantiation for static-method type parameter %d (phantom-typar solve found no witness)"
+                                        i
+                        ]
+
+                    env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
             // A `unit`-returning static fn is emitted `void` (Step B): the `call`
             // declares 0 results and a `unit` value is reified for a value-position

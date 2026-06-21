@@ -61,28 +61,25 @@ module internal UnificationInferGeneralize =
             subst.[qRoot] <- TyVar fresh
             freshOf.[qRoot] <- fresh
 
-        // Roots that appear in the scheme's SURFACE type (`scheme.Body`) — the part
-        // the caller unifies against. A `Coercion` target var that occurs here
-        // (e.g. `'U` in `map`'s `… -> MapSeq<…,'U>` return, constrained only by
-        // `'TFunc :> Fun<'T,'U>`) must be remapped to its fresh instance, or the
-        // dependent-typar inference in `drainConstraints` grounds the ORIGINAL
-        // surface var and leaves the FRESH return copy un-instantiated → an
-        // unresolved TyVar at freeze. A purely PHANTOM *quantified* target var
-        // (e.g. the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`, absent
-        // from the surface type) stays verbatim: the function body's expr-tree
-        // references that original var, and the verbatim constraint is what grounds
-        // it at the binding.
-        let surfaceRoots = HashSet<TypeVar>(HashIdentity.Reference)
-        scheme.Body |> iterTypeVarRoots (surfaceRoots.Add >> ignore)
-
-        // Start from the surface restriction of `subst` (quantified surface roots
-        // remap to their fresh instances; quantified phantom roots stay verbatim
-        // so the body grounds them).
+        // Direction B (§9): EVERY quantified root is freshened per call in the
+        // constraint substitution, INCLUDING purely PHANTOM quantified roots (e.g.
+        // the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`, absent from the
+        // surface type). Previously phantom roots were left verbatim so the body
+        // grounded them at the binding — but that baked one call's concrete
+        // enumerator (carrying a function-arrow where a value-struct closure belongs)
+        // into a method that is supposed to be generic over `'E`, forcing the
+        // collision-prone arrow-equality rewrite in ClosureVerdictRewrite. Now `'E`
+        // stays free in the body (freezes as `FTTypar(Method, idx_E)`), becomes a
+        // real generic method slot, and the call site solves it from the bound. The
+        // remapping of SURFACE quantified roots (e.g. `'U` in `map`'s
+        // `… -> MapSeq<…,'U>` return) is still required so the dependent-typar
+        // inference in `drainConstraints` does not ground the ORIGINAL surface var
+        // and leave the FRESH return copy un-instantiated → an unresolved TyVar at
+        // freeze. Seeding from the FULL `subst` covers both.
         let constraintSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
         for kv in subst do
-            if surfaceRoots.Contains kv.Key then
-                constraintSubst.[kv.Key] <- kv.Value
+            constraintSubst.[kv.Key] <- kv.Value
 
         // A `Coercion` target may ALSO reference still-free roots that are NOT
         // quantified at all: a placeholder typar that leaked into the bound when
@@ -96,9 +93,9 @@ module internal UnificationInferGeneralize =
         // SECOND call inherits that ground bound → a spurious subtype check against
         // an unrelated nominal (`MapSeq`5 does not support subtype of IStructSeq`2`).
         // Freshen each such non-quantified free root per call, sharing one fresh
-        // instance across all constraints that mention it. (Quantified phantom roots
-        // are deliberately excluded — they are NOT in `subst`, so the
-        // `freshOf`-keyed walk above never added them here; the body grounds them.)
+        // instance across all constraints that mention it. (Quantified roots —
+        // surface AND phantom — are already in `constraintSubst` from the full
+        // `subst` seed above, so the `quantifiedRoots` guard skips them here.)
         let quantifiedRoots = HashSet<TypeVar>(freshOf.Keys, HashIdentity.Reference)
 
         for (_, c) in scheme.Constraints do

@@ -15,6 +15,7 @@ module EmitLower =
     // re-export `let` would demote it to an allocated function value).
     let inline receiverShape ty = TastLower.receiverShape ty
     let matchInstantiation = TastLower.matchInstantiation
+    let matchInstantiationPartial = TastLower.matchInstantiationPartial
     let iterChildren = TastLower.iterChildren
     let mintUnitParamKey = TastLower.mintUnitParamKey
     let mintTupleParamKey = TastLower.mintTupleParamKey

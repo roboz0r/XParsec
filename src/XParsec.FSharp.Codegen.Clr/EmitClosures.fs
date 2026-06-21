@@ -616,12 +616,20 @@ module EmitClosures =
 
     /// A generic static method's type-parameter count: `freeze` quantified the
     /// module-`let`'s free typars to `FTTypar(Method, i)` (params left-to-right,
-    /// then return), so the count is `max i + 1` over the method's parameter +
-    /// result types — those positions reconstruct the declared type freeze indexed,
-    /// so every index `0..n-1` appears. `0` ⇒ a monomorphic method, emitted
-    /// unchanged. The backend's `FTTypar(Method, i)` encoder maps these to `!!i`
-    /// directly (no ambient window). A closure walked from this fn's body inherits
-    /// the count on its `Closure.Typars`.
+    /// then return, then any body-only index), so the count is `max i + 1` over the
+    /// method's parameter + result types AND the body. Parameter/result positions
+    /// reconstruct the declared signature; the body sweep additionally catches a
+    /// rung-4 §9 PHANTOM constraint typar (`fold`'s enumerator `'E`) that appears in
+    /// NO param/result but survives un-grounded as a real `FTTypar(Method, idx_E)`
+    /// leaf in the `for-in` enumerator descriptor — so `fold` emits at its true
+    /// arity (e.g. 5) and the call site solves `'E` from its bound. Using the body
+    /// (rather than the front-end `scheme.Quantified.Length`) keeps a quantified-but-
+    /// erased typar — one `instantiate`/the body grounded to a concrete type, so it
+    /// occurs at no frozen index — OUT of the count: emitting a slot for it would
+    /// leave an unrecoverable `MethodSpec` arg (the `SetTree.compare` over-count
+    /// regression). `0` ⇒ a monomorphic method, emitted unchanged. The backend's
+    /// `FTTypar(Method, i)` encoder maps these to `!!i` directly (no ambient window).
+    /// A closure walked from this fn's body inherits the count on its `Closure.Typars`.
     let staticFnTypars (fn: StaticFn) : int =
         let mutable maxIx = -1
 
@@ -651,6 +659,35 @@ module EmitClosures =
             go p.Ty
 
         go fn.ResultTy
+
+        // Sweep the body for the only method indices that param/result cannot see: a
+        // phantom constraint typar lives in a `for-in` enumerator descriptor's
+        // `ConstrainedInterface` ifaceArgs (and the enumerator type itself). Walk
+        // every subexpression's own type plus those descriptor types.
+        let goEnum (en: Frozen.ForInEnumerator) =
+            match en with
+            | ForInEnumeratorG.Interface -> ()
+            | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, _, _) ->
+                go enumeratorTy
+
+                match getEnum with
+                | ForInGetEnumG.ConstrainedInterface(_, args) -> EqArray.iter go args
+                | _ -> ()
+
+                match members with
+                | ForInEnumMembersG.ConstrainedInterface(_, args) -> EqArray.iter go args
+                | _ -> ()
+
+        let rec goExpr (e: Frozen.TExpr) =
+            go (TastLower.typeOfExpr e)
+
+            match e with
+            | TExprG.ForIn(_, _, _, enumerator, _, _) -> goEnum enumerator
+            | _ -> ()
+
+            TastLower.iterChildren goExpr e
+
+        goExpr fn.Body
         maxIx + 1
 
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure before

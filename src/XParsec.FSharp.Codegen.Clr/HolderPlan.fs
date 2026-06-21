@@ -83,8 +83,10 @@ module HolderPlan =
     /// method / field emission orders.
     let create
         (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
-        // rung-4 §9.4 Stage 1+2 (DORMANT): forwarded to `collectStaticFns` to
-        // populate `StaticFn.Typars`/`.Constraints`. Carried but unread.
+        // rung-4 §9 (Direction B): forwarded to `collectStaticFns` to populate
+        // `StaticFn.Typars`/`.Constraints`. `Constraints` drives the call-site
+        // phantom-typar solve (`EmitCall`); the count is re-derived by body sweep
+        // (`Emit.staticFnTypars`), so `StaticFn.Typars` is no longer read for it.
         (genericFnSchemes: Map<NodeKey, GenericFnScheme>)
         (programHolder: Emit.HolderKey)
         (topLevelNames: Map<NodeKey, string>)
@@ -221,6 +223,14 @@ module HolderPlan =
         cctorRefKeys.UnionWith programValueKeys
         Emit.validateModuleValueInits cctorRefKeys staticFnKeys programCctorValues
 
+        // rung-4 §9 (Direction B): the emitted generic-method arity is the max
+        // `FTTypar(Method, i)` index over params + result + BODY. The body sweep is
+        // the change — it catches a phantom constraint typar (`fold`'s enumerator
+        // `'E`) that param/result cannot see but that survives un-grounded in the
+        // `for-in` enumerator descriptor, so `fold` emits at its true arity and the
+        // call site solves `'E` from its bound. It deliberately does NOT use the
+        // front-end `scheme.Quantified.Length` (`StaticFn.Typars`), which over-counts
+        // a quantified-but-body-erased typar (the `SetTree.compare` regression).
         let staticFnTypars = Dictionary<NodeKey, int>()
 
         for fn in staticFns do

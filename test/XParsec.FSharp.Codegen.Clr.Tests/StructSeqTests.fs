@@ -1958,30 +1958,23 @@ let structSeqTests =
             //   s1 = map (fun x -> x + 1) s0   // closure A
             //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
             //   total = fold (fun acc x -> acc + x) 0 s2
-            // This is the case the P-b/P-c program-wide arrow-TYPE-keyed table
-            // (`arrowClosurePairs`) could not handle: A and B collide on the arrow key,
-            // so `s2`'s outer `'TFunc` slot (and the nested-`s1` slot inside it) would
-            // both bind to whichever closure the table picked FIRST. P-d replaced that
-            // with the node-identity / `FunResultTypar`-POSITION mechanism (`appOwnVerdict`
-            // + `substituteVerdictClosures`), so each transformer result is laid out from
-            // ITS OWN closure. Expected output: ((1+1)*2)+((2+1)*2)+((3+1)*2)+((4+1)*2) =
-            // 4+6+8+10 = 28.
+            // This is the case the earlier program-wide arrow-TYPE-keyed table could not
+            // handle: A and B collide on the arrow key, so `s2`'s outer `'TFunc` slot (and
+            // the nested-`s1` slot inside it) would both bind to whichever closure the
+            // table picked FIRST. Expected output:
+            // ((1+1)*2)+((2+1)*2)+((3+1)*2)+((4+1)*2) = 4+6+8+10 = 28.
             //
-            // PENDING — the FRONT-END chained-combinator inference gap is now FIXED
-            // (`InferGeneralize.instantiate` freshens leaked non-quantified constraint
-            // roots per call, so the SECOND `map (g) s1` no longer inherits the first
-            // call's grounded enumerator bound — see GeneralisationTests "chained generic
-            // combinator with constraint-bound result typar"). With the type-check clean,
-            // this fixture now reaches RUNTIME and hits a SEPARATE, codegen-only wall:
-            //   System.EntryPointNotFoundException at IStructSeq`2.GetEnumerator()
-            //   (Program.fn$… → Program..cctor)
-            // i.e. the `fold`'s `for y in source` `constrained. callvirt` to
-            // `IStructSeq.GetEnumerator()` over the doubly-nested `MapSeq<MapSeq<…>,…>`
-            // receiver resolves to a missing method (bad MethodSpec / interface-method
-            // resolution for the nested-generic constrained call). This is the P-d
-            // codegen path now being exercised end-to-end for the first time; the wall is
-            // in CLR emission, not inference. Left `ptest` for a codegen follow-up.
-            ptest "rung 4 (M6 P-d): multi-map chain lowers each closure to its OWN value-struct slot" {
+            // FIXED by rung-4 §9 (Direction B). `fold`'s phantom enumerator typar `'E` is
+            // no longer grounded into its shared body; it is a real generic method slot the
+            // call site solves from the `'S :> IStructSeq<'T,'E>` bound by walking the
+            // (already `<closure>$`-rewritten) source arg's seq interface impl. So the body
+            // is genuinely generic over `'E`, each `fold` instantiation carries its own
+            // enumerator via the normal `MethodSpec`, and the collision-prone for-in
+            // arrow-equality rewrite (which raised `EntryPointNotFoundException` on the
+            // doubly-nested `MapSeq<MapSeq<…>,…>` receiver) is gone — no shared baked body
+            // to disambiguate. The closure identity rides through `'S`'s rewritten arg, so
+            // the two same-typed `int->int` maps stay distinct.
+            test "rung 4 (M6 P-d): multi-map chain lowers each closure to its OWN value-struct slot" {
                 let src =
                     String.concat
                         "\n"
@@ -2044,5 +2037,134 @@ let structSeqTests =
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "28" "(x+1)*2 mapped then summed = 28"
+            }
+
+            // rung-4 M6 P-d regression: a THREE-`map` chain whose three transformer
+            // lambdas all share the STRUCTURALLY IDENTICAL frozen arrow (`int -> int`):
+            //   s1 = map (fun x -> x + 1) s0   // closure A
+            //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
+            //   s3 = map (fun x -> x + 3) s2   // closure C — SAME arrow type as A, B
+            //   total = fold (fun acc x -> acc + x) 0 s3
+            // The 2-map test passes even with a structural arrow→closure table by sheer
+            // luck (only one nested level). At THREE maps the table COLLIDES: rewriting
+            // `s3`'s field type, a structural `arrow_(int->int) → closure` lookup cannot
+            // tell `s3`'s outer `'TFunc` (closure C), the once-nested `s2` source slot
+            // (closure B), and the twice-nested `s1` source slot (closure A) apart — they
+            // are all `int->int`. A first/last-match structural rewrite picks ONE closure
+            // for all three positions, corrupting the stored seq signature
+            // (`EntryPointNotFoundException` class). Only NODE identity disambiguates.
+            // Expected output: for [1;2;3;4], each e -> ((e+1)*2)+3 = 7,9,11,13; sum = 40.
+            test "rung 4 (M6 P-d): three-map chain keeps each same-typed closure in its OWN slot" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator<'T> ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : 'T"
+                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator<'T> ="
+                            "    val Arr : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator<'T> with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : 'T = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq<'T> ="
+                            "    val Arr : 'T[]"
+                            "    new(arr: 'T[]) = { Arr = arr }"
+                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
+                            "[<Struct>]"
+                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val mutable Source : 'E"
+                            "    val F : 'TFunc"
+                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructEnumerator<'U> with"
+                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
+                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
+                            "[<Struct>]"
+                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val Source : 'S"
+                            "    val F : 'TFunc"
+                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
+                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
+                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
+                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
+                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
+                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "    let mutable state = seed"
+                            "    for y in source do"
+                            "        state <- f.Invoke(state, y)"
+                            "    state"
+                            "let xs = [| 1; 2; 3; 4 |]"
+                            "let s0 = ofArray xs"
+                            "let s1 = map (fun x -> x + 1) s0"
+                            "let s2 = map (fun x -> x * 2) s1"
+                            "let s3 = map (fun x -> x + 3) s2"
+                            "let total = fold (fun acc x -> acc + x) 0 s3"
+                            "printfn \"%d\" total"
+                        ]
+
+                let tast, artifact = compileSource "StructSeqRung4M6PdThreeMap" src
+                let bytes = Codegen.toBytes artifact
+                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-d three-map diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "40" "((x+1)*2)+3 mapped then summed = 40"
+
+                let curIl = peMethodIlWhere bytes "MapEnumerator`4" (fun n -> n.EndsWith "Current")
+
+                let curConstrained =
+                    curIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue curConstrained "MapEnumerator.Current dispatches via `constrained.`"
+                Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
+
+                let programFoldIl =
+                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    |> Array.filter (fun il ->
+                        il
+                        |> Array.windowed 2
+                        |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+                    )
+
+                Expect.isNonEmpty programFoldIl "the fold loop contains a `constrained.` prefix"
+
+                Expect.isFalse
+                    (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
+                    "the constrained fold loop IL contains no `box` (non-allocating)"
+
+                let closureBases =
+                    use pr = openPe bytes
+                    let m = pr.GetMetadataReader()
+
+                    m.TypeDefinitions
+                    |> Seq.choose (fun tdh ->
+                        let td = m.GetTypeDefinition tdh
+
+                        if (m.GetString td.Name).StartsWith "<closure>$" then
+                            match td.BaseType.Kind with
+                            | HandleKind.TypeReference ->
+                                Some(
+                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
+                                )
+                            | _ -> Some "<none>"
+                        else
+                            None
+                    )
+                    |> Seq.toList
+
+                Expect.isTrue
+                    (closureBases |> List.forall (fun b -> b = "ValueType"))
+                    (sprintf "all three source-lambda closures are value types: %A" closureBases)
             }
         ]

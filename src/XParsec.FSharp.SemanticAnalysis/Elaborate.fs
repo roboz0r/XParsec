@@ -290,7 +290,7 @@ module Elaborate =
     /// `FTTypar(Method, idx)` indices) and then `toFrozen`-converted. The constrained
     /// typar's `idx` is its position in `quantEnv`. A constraint whose typar or
     /// target is not (yet) a `quantEnv` method typar is dropped — only method-axis
-    /// bounds are carried. Inert: populated but unread.
+    /// bounds are carried. Read by the codegen call-site phantom-typar solve (§9).
     let private recordGenericFnScheme
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)

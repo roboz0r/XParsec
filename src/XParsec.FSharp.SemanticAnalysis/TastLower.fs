@@ -91,12 +91,15 @@ module TastLower =
         | FTClass(n, args) -> ValueSome(n, EqArray.toList args)
         | _ -> ValueNone
 
-    /// Recover a generic static method's per-typar instantiation at a call site
-    /// (R3): structurally match each declared parameter type (`defTys`, carrying
-    /// the method's typar `TypeVar`s) against the actual argument type. First
-    /// occurrence wins. A recursive self-call yields the method's own typars
-    /// (encoded `!!i`); an external call yields concrete types.
-    let matchInstantiation (typarCount: int) (defTys: FrozenType list) (actualTys: FrozenType list) : FrozenType list =
+    /// As `matchInstantiation`, but returns the recovery array WITH `ValueNone`
+    /// holes for typars that no parameter/result mentions — a phantom constraint
+    /// typar (e.g. `fold`'s enumerator `'E`) is unrecoverable by param-matching and
+    /// must be solved separately from its bounds at the call site (EmitCall §9).
+    let matchInstantiationPartial
+        (typarCount: int)
+        (defTys: FrozenType list)
+        (actualTys: FrozenType list)
+        : FrozenType voption[] =
         let result = Array.create typarCount ValueNone
 
         let rec go (defT: FrozenType) (actT: FrozenType) =
@@ -131,6 +134,17 @@ module TastLower =
             | _ -> ()
 
         List.iter2 go defTys actualTys
+        result
+
+    /// Recover a generic static method's per-typar instantiation at a call site
+    /// (R3): structurally match each declared parameter type (`defTys`, carrying
+    /// the method's typar `TypeVar`s) against the actual argument type. First
+    /// occurrence wins. A recursive self-call yields the method's own typars
+    /// (encoded `!!i`); an external call yields concrete types. Strict: every
+    /// typar must be recovered by param-matching (the `EmitExpr` caller has no
+    /// phantom typars).
+    let matchInstantiation (typarCount: int) (defTys: FrozenType list) (actualTys: FrozenType list) : FrozenType list =
+        let result = matchInstantiationPartial typarCount defTys actualTys
 
         [
             for i in 0 .. typarCount - 1 ->

@@ -486,12 +486,19 @@ MethodSpec slot → invalid IL / `matchInstantiation` failwith. So:
    **The index minter already handles phantoms** — `Elaborate.mkMethodQuantEnv`
    (`Elaborate.fs:218-267`) runs the identical dependent-typar `Coercion` fixpoint
    (`:257-265`) `generalise` does, so once `'E` survives un-grounded it gets its
-   `FTTypar(Method, idx_E)` index with NO change to the minter. Then carry the scheme's
-   true quantified-typar **count** to codegen (source: `mkMethodQuantEnv`'s `acc.Count`
-   / `scheme.Quantified.Length`; `CompiledFns.gather` currently zeroes `ValRepr.Typars`,
-   `CompiledFns.fs:95`) and retire the param/result-only `staticFnTypars` re-derivation
-   (`EmitClosures.fs:609-638` — the same fragile-reconstruction anti-pattern already
-   deleted from `collectStackLambdaArgs`).
+   `FTTypar(Method, idx_E)` index with NO change to the minter. **AS BUILT — the emitted count is a BODY-INCLUSIVE
+   sweep, NOT `scheme.Quantified.Length`.** The original plan was to carry
+   `scheme.Quantified.Length`; in practice that OVER-counts — `freeze`/`instantiate` can
+   erase a quantified typar (it grounds to a concrete type and appears at no frozen
+   `FTTypar` index, e.g. a `SetTree.compare` typar), so a slot emitted for it is an
+   unrecoverable `MethodSpec` arg. The emitted arity is therefore `max FTTypar(Method,i)+1`
+   over params + result + **body** (`staticFnTypars` extended to also sweep the body —
+   each subexpr's `typeOfExpr` plus the `for-in` enumerator descriptor's
+   `ConstrainedInterface` ifaceArgs, where a surviving phantom `'E` lives), which counts
+   exactly the typars the frozen IL references and excludes erased ones. CONSEQUENCE: the
+   carried `StaticFn.Typars` (= `scheme.Quantified.Length`, Stage 1+2) is UNUSED for arity
+   — a Step-5 cleanup candidate (remove it or keep as a documented front-end fact). The
+   carried `Constraints` channel IS used (the Stage-3 solve).
 2. **Carry typar bounds to codegen** — the project-local half of §5's frozen-constraint
    table. Add method-axis-indexed `FrozenConstraint`s on `StaticFn`/`StaticMethodRef`,
    populated at freeze (`Elaborate.run`, which holds `ctx` and mints the indices) from
@@ -550,6 +557,32 @@ there is no shared baked body to disambiguate — the body is genuinely generic 
 closure identity flows through the normal `MethodSpec` instantiation, the same channel
 every other type argument already uses. The collision is not *patched*, it is made
 *impossible*.
+
+### 9.7 As-built deltas (landed)
+
+Beyond the §9.4 plan, the implementation needed three refinements (all keep "no
+arrow-equality"):
+
+1. **Count is a body-inclusive sweep** (see Stage 1 AS-BUILT note) — `scheme.Quantified.Length`
+   over-counts vs the frozen IL.
+2. **The call-site solve is WITNESS-AUTHORITATIVE for bound-mentioned typars.** A combinator
+   like `map` carries `'E` in BOTH its `'S :> IStructSeq<'T,'E>` bound AND its
+   `… -> MapSeq<'S,'E,…>` result; `matchInstantiation` recovers `'E` from the result, but that
+   result occurrence can embed a stale arrow (a chained source's `'TFunc` frozen before closures
+   existed). So the solve OVERRIDES any typar index appearing inside a `Coercion` target with the
+   witness value (read from the source's actual `<closure>$`-bearing seq impl), not just fills
+   holes. Still node-anchored (the witness walks the rewritten `'S` arg) — no arrow-equality.
+3. **`enumeratorOf` witness for the chained-binding nested `'E` slot.** A chained
+   `let s2 = map g s1`'s stored field type buries `s1`'s `'TFunc` arrow in its `'E` enumerator
+   slot. `substituteVerdictClosures` rewrites it NODE-KEYED (anchored on the `Var s1` reference)
+   via a whole-nominal lockstep diff of `(s1_old, s1_new)` plus the seq→enumerator witness
+   (`enumeratorOf`, computed in `Assembler` from each seq class's `GetEnumerator` impl return
+   type). Keyed by whole depth-carrying nominal, never by bare arrow leaf.
+   **BOUNDARY:** collision-freedom holds for LINEAR chains (each closure at a structurally-distinct
+   depth). A multi-source combinator (`zip`/`combine` of two same-typed seqs with different
+   closures) would collide (two identical OLD nominals → different NEW, last-write-wins); none
+   exists or is planned (single-source struct-seq, §9.5). The true fix would be node-tagged frozen
+   types. Flagged in code at `substituteVerdictClosures`.
 
 ## 8. Cross-references
 

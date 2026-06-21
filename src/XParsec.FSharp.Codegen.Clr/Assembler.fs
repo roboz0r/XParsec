@@ -215,15 +215,69 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 closureValueTypeByNode.[c.Node] <- ft
                 closureTypeDefByNode.[c.Node] <- defHandle
 
+    // rung-4 §9: the seq→enumerator witness the closure-verdict rewrite needs to
+    // rewrite a chained binding's nested `'E` ENUMERATOR slot node-keyed (NOT by
+    // arrow shape). For a project-local seq class, its `GetEnumerator` interface-impl
+    // member's RETURN type is the enumerator over the class's declaring typars; map
+    // each seq class key → that template, then `enumeratorOf` instantiates it by a
+    // concrete (already-rewritten) seq nominal's args. This is the structural
+    // seq→enumerator relationship the type system defines — the codegen analog of
+    // `EmitResolve.tryInterfaceWitness`, computed here from the front-end class decls
+    // because `env.Classes` is not yet populated at the up-front field pass.
+    let enumeratorTemplateByClass =
+        let d = Dictionary<SymbolKey, FrozenType>()
+
+        for cd in classDecls do
+            let template =
+                cd.Interfaces
+                |> List.tryPick (fun (_, members) ->
+                    members
+                    |> List.tryPick (fun (m: Frozen.TTypeMember) ->
+                        if m.Name = "GetEnumerator" then Some m.ReturnTy else None
+                    )
+                )
+
+            match template with
+            | Some t -> d.[cd.Decl.Key] <- t
+            | None -> ()
+
+        d
+
+    // Instantiate a seq class's declaring-typar enumerator template by a concrete
+    // nominal's args: `FTTypar(Declaring, i) := args.[i]` throughout. `ValueNone`
+    // when the nominal is not a project-local seq class (no recorded template).
+    let enumeratorOf (seqTy: FrozenType) : FrozenType voption =
+        let rec instDeclaring (args: FrozenType[]) (t: FrozenType) : FrozenType =
+            match t with
+            | FTTypar(TyparAxis.Declaring, i) when i >= 0 && i < args.Length -> args.[i]
+            | FTFun(a, b) -> FTFun(instDeclaring args a, instDeclaring args b)
+            | FTTuple items -> FTTuple(EqArray.map (instDeclaring args) items)
+            | FTConst(n, xs) -> FTConst(n, EqArray.map (instDeclaring args) xs)
+            | FTClass(k, xs) -> FTClass(k, EqArray.map (instDeclaring args) xs)
+            | FTRecord(k, xs) -> FTRecord(k, EqArray.map (instDeclaring args) xs)
+            | FTUnion(k, xs) -> FTUnion(k, EqArray.map (instDeclaring args) xs)
+            | FTOr ms -> FTOr(EqArray.map (instDeclaring args) ms)
+            | FTTypar _
+            | FTUnknown _ -> t
+
+        match seqTy with
+        | FTClass(key, args) ->
+            match enumeratorTemplateByClass.TryGetValue key with
+            | true, template -> ValueSome(instDeclaring (args.AsSpan().ToArray()) template)
+            | false, _ -> ValueNone
+        | _ -> ValueNone
+
     // rung-4 M6: the closure-verdict TAST rewrite, built from backend-neutral inputs
     // (the already-minted value-struct closure types + the front-end's result-typar
-    // verdicts + the stored module values). It owns `substituteVerdictClosures` /
-    // `retypeBody` / `retypeDecl` and the field-slot lookup; see `ClosureVerdictRewrite`.
-    // Built here (after the mint `do` above) so the field pass below can consult it.
+    // verdicts + the stored module values + the seq→enumerator witness). It owns
+    // `substituteVerdictClosures` / `retypeBody` / `retypeDecl` and the field-slot
+    // lookup; see `ClosureVerdictRewrite`. Built here (after the mint `do` above) so
+    // the field pass below can consult it.
     let verdict =
         ClosureVerdictRewrite.build
             closureValueTypeByNode
             tast.FunVerdicts
+            enumeratorOf
             [ for mv in plan.ModuleValueFieldOrder -> mv.Key, mv.Ty, mv.Init ]
 
     let retypeBody = verdict.RetypeBody
@@ -301,12 +355,16 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Arity = List.length fn.Params
                     Groups = fn.Groups
                     ResultTy = fn.ResultTy
+                    // rung-4 §9 (Direction B): `plan.StaticFnTypars` is the max method
+                    // index over params + result + BODY, so a generic combinator emits
+                    // a `MethodSpec` slot for each phantom typar surviving in its body
+                    // (`fold`'s `'E`) — the call site solves those from `Constraints`.
                     Typars = plan.StaticFnTypars.[fn.Key]
                     ParamTys = fn.Params |> List.map (fun p -> p.Ty)
                     ReturnsVoid = fn.ReturnsVoid
-                    // rung-4 §9.4 Stage 2 (DORMANT): carry the frozen typar bounds
-                    // from the front-end scheme. Unread until the Stage-3 solve;
-                    // `Typars` stays the `staticFnTypars`-derived count above.
+                    // rung-4 §9 (Direction B): the frozen typar bounds the call-site
+                    // phantom-typar solve (`EmitCall`) reads to recover the phantom
+                    // method-typar slots no parameter/result mentions.
                     Constraints = fn.Constraints
                 }
         )

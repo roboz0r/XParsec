@@ -12,10 +12,18 @@ open XParsec.FSharp.SemanticAnalysis
 /// stored slot / `constrained.` dispatch token disagrees with the value (corruption /
 /// `EntryPointNotFoundException`). Given the value-struct closures' minted nominal
 /// types (`closureValueTypeByNode`) and the front end's result-typar verdicts
-/// (`FunVerdict.ResultTyparPos`), this pass rewrites the `'TFunc`-position leaf — in stored
-/// module-value field types, in body references to them, and in the `'TFunc`-as-arrow
-/// leaves of consuming-combinator `for-in` enumerator descriptors — to the
-/// value-struct nominal, so token and value agree.
+/// (`FunVerdict.ResultTyparPos`), this pass rewrites the *producing* `'TFunc`-position
+/// leaf — in stored module-value field types and in body references to them
+/// (`substituteVerdictClosures` / `ModuleValueSlotType`), and in the inline `App`-result
+/// type of a transformer call used directly as an argument (`appOwnVerdict` /
+/// `rewriteAppResultByVerdict`) — to the value-struct nominal, so token and value agree.
+/// Both paths are node-identity keyed.
+///
+/// The CONSUMING combinator's `for-in` enumerator (`fold`'s `for y in source`) is NO
+/// LONGER rewritten here: rung-4 §9 (Direction B) makes that body genuinely generic over
+/// the phantom enumerator typar `'E`, so the closure rides in as a real `MethodSpec`
+/// type-argument the call site solves (`EmitCall`) — there is no grounded arrow leaf to
+/// patch, and the old collision-prone arrow-equality rewrite is gone.
 ///
 /// Pure `Frozen.TExpr` / `FrozenType` / `NodeKey` traffic — the same family
 /// `TastLower` already shares between backends. It depends on NOTHING CLR-specific (no
@@ -48,10 +56,16 @@ module internal ClosureVerdictRewrite =
     /// * `funVerdicts` — a source-lambda node's `NodeKey` → its `FunVerdict`; the
     ///   `ResultTyparPos` names the type-arg POSITION its `'TFunc` occupies in the
     ///   producing transformer's result nominal (the only field this pass reads).
+    /// * `enumeratorOf` — the seq→enumerator witness: given a (rewritten) seq nominal,
+    ///   the enumerator type its seq-interface impl produces, or `ValueNone` for a
+    ///   non-seq nominal. The structural relationship the type system defines (the
+    ///   codegen analog of `EmitResolve.tryInterfaceWitness`); used to rewrite a chained
+    ///   binding's nested `'E` slot NODE-KEYED, never by matching an arrow leaf.
     /// * `moduleValues` — each stored module value as `(key, declared type, initialiser)`.
     let build
         (closureValueTypeByNode: IReadOnlyDictionary<Frozen.TExpr, FrozenType>)
         (funVerdicts: Map<NodeKey, FunVerdict>)
+        (enumeratorOf: FrozenType -> FrozenType voption)
         (moduleValues: (NodeKey * FrozenType * Frozen.TExpr) seq)
         : Rewrite =
 
@@ -89,6 +103,14 @@ module internal ClosureVerdictRewrite =
         // Returns the rewritten container type (the slot the field table encodes) and the
         // `arrow → closure` leaf replacements it made (so a projection `h.F : arrow` off
         // this binding can be retyped to the closure value-struct in the body).
+        // Each verdict module value's rewritten field type + its `arrow → closure` leaf
+        // replacements (consumed by `ModuleValueSlotType` + `retypeBody`). Empty unless a
+        // stored binding's initialiser feeds a value-struct lambda into a typar-carrying
+        // result. Built in DECLARATION order so a chained binding (`let s2 = map g s1`)
+        // can read the ALREADY-rewritten type of an earlier source binding (`s1`).
+        let verdictBindings =
+            Dictionary<NodeKey, FrozenType * (FrozenType * FrozenType) list>()
+
         let substituteVerdictClosures
             (ty: FrozenType)
             (init: Frozen.TExpr)
@@ -99,10 +121,100 @@ module internal ClosureVerdictRewrite =
             // reference), so consult it directly rather than re-deriving the NodeKey.
             let slots = Dictionary<int, FrozenType>()
 
+            // A chained source binding (`let s2 = map g s1`) references an EARLIER verdict
+            // binding `s1` by `Var`. Inference froze `s2`'s type BEFORE any closure was
+            // minted, so every nested position that came from `s1` — its `'S` source slot
+            // (`s1`'s whole seq type) AND its `'E` enumerator slot (`s1`'s enumerator,
+            // which buries `s1`'s `'TFunc` arrow inside a `MapEnumerator<…, arrow, …>`) —
+            // still carries arrows where `s1`'s ALREADY-rewritten field lays out the
+            // `<closure>$` value-struct. Left stale, the consuming combinator's recovered
+            // `'E` (the constrained `GetEnumerator` interface instantiation) mismatches
+            // `s1`'s actual impl → `EntryPointNotFoundException`.
+            //
+            // `nestedSubst` maps each such nested OLD nominal subtree to its NEW one. It is
+            // populated NODE-KEYED, never by arrow shape: for the referenced binding `s1`
+            // we have, by reference identity, both its old frozen type (`varTy`) and its
+            // already-rewritten type (`verdictBindings.[k]`), and we record the structural
+            // correspondence between the two by a LOCKSTEP walk (`recordNominalDiff`). Each
+            // recorded key is a WHOLE NOMINAL (`FTClass`/`FTConst`/…), so its full nesting
+            // depth + nominal head is part of the key — two structurally-identical `'TFunc`
+            // arrows at different chain depths live inside DIFFERENT enclosing nominals and
+            // therefore never collide. Bare arrow leaves are deliberately NOT keyed (an
+            // `int->int` leaf is ambiguous across the chain); they are only ever rewritten
+            // (a) at this binding's own `'TFunc` slot via the node-keyed `slots`, or
+            // (b) inside a matched whole nominal, which `deep` returns WITHOUT descending.
+            //
+            // BOUNDARY (linear chains only): collision-freedom relies on each nested
+            // closure sitting at a structurally-distinct depth, which holds for a LINEAR
+            // pipeline (`map |> map |> fold`). A multi-source combinator (a hypothetical
+            // `zip s1 s2` / `combine` taking TWO same-typed seq args bound to DIFFERENT
+            // closures) would record two structurally-identical OLD nominals with
+            // different NEW ones into `nestedSubst` (last write wins) → a collision. No
+            // such combinator exists or is planned (the struct-seq design is single-source
+            // per §9); the true fix would be node-tagged frozen types. Revisit here if a
+            // multi-source seq combinator is ever added.
+            let nestedSubst = Dictionary<FrozenType, FrozenType>()
+
+            // Lockstep walk of a referenced binding's (old, rewritten) type pair: record
+            // every differing NOMINAL subtree as an old→new pair, then recurse pairwise
+            // into its args so inner differing nominals (a deeper binding's enumerator) are
+            // captured too. Stops at equal subtrees and never records a bare arrow leaf —
+            // a leaf is disambiguated only by the whole nominal that encloses it. Heads are
+            // compared by case + key/name + arity; a shape mismatch means the rewrite
+            // changed the head (it doesn't here) and is left to the outer-nominal pair.
+            let recordArgs recurse (ao: EqArray<FrozenType>) (an: EqArray<FrozenType>) =
+                for i in 0 .. ao.Length - 1 do
+                    recurse ao.[i] an.[i]
+
+            let rec recordNominalDiff (oldT: FrozenType) (newT: FrozenType) =
+                if oldT <> newT then
+                    match oldT, newT with
+                    | FTClass(ko, ao), FTClass(kn, an) when ko = kn && ao.Length = an.Length ->
+                        nestedSubst.[oldT] <- newT
+                        recordArgs recordNominalDiff ao an
+                    | FTUnion(ko, ao), FTUnion(kn, an) when ko = kn && ao.Length = an.Length ->
+                        nestedSubst.[oldT] <- newT
+                        recordArgs recordNominalDiff ao an
+                    | FTRecord(ko, ao), FTRecord(kn, an) when ko = kn && ao.Length = an.Length ->
+                        nestedSubst.[oldT] <- newT
+                        recordArgs recordNominalDiff ao an
+                    | FTConst(no, ao), FTConst(nn, an) when no = nn && ao.Length = an.Length ->
+                        nestedSubst.[oldT] <- newT
+                        recordArgs recordNominalDiff ao an
+                    | FTTuple ao, FTTuple an when ao.Length = an.Length ->
+                        nestedSubst.[oldT] <- newT
+                        recordArgs recordNominalDiff ao an
+                    // A differing leaf (`FTFun` arrow → `<closure>$`, or a head swap):
+                    // record the whole nominal pair at THIS level only (the caller has the
+                    // enclosing nominal); do NOT key a bare arrow leaf on its own — that is
+                    // the structural collision this redesign removes.
+                    | _ -> ()
+
             let rec collect (e: Frozen.TExpr) =
                 match closureNodeVerdict.TryGetValue e with
                 | true, struct (closureFt, idx) -> slots.[idx] <- closureFt
                 | false, _ -> ()
+
+                match e with
+                | TExprG.Var(k, varTy, _) ->
+                    match verdictBindings.TryGetValue k with
+                    | true, (newTy, _) ->
+                        // The referenced binding `s_{n-1}` contributes TWO nested positions
+                        // to THIS binding's frozen type: its `'S` source slot (its whole seq
+                        // type, `varTy`→`newTy`) and its `'E` enumerator slot (its enumerator,
+                        // which buries `s_{n-1}`'s `'TFunc` arrow). Both are recorded by a
+                        // node-keyed lockstep diff of the old/new pair. The enumerator pair is
+                        // derived from the seq→enumerator witness applied to the SAME old/new
+                        // seq types — never from the arrow leaf — so `s_{n-1}`'s closure rides
+                        // into the enumerator at its OWN depth, distinct from any other
+                        // chain level's structurally-identical arrow.
+                        recordNominalDiff varTy newTy
+
+                        match enumeratorOf varTy, enumeratorOf newTy with
+                        | ValueSome eOld, ValueSome eNew -> recordNominalDiff eOld eNew
+                        | _ -> ()
+                    | false, _ -> ()
+                | _ -> ()
 
                 TastLower.iterChildren collect e
 
@@ -116,28 +228,35 @@ module internal ClosureVerdictRewrite =
                 // so the body must retype that projection to the closure value-struct.
                 let replaced = ResizeArray<FrozenType * FrozenType>()
 
-                // Replace the arg at each recorded position with its closure value-type;
-                // recurse into the others so a nested transformer result is also rewritten.
-                let rec rw (t: FrozenType) : FrozenType = TastLower.mapFrozenArgs rwArgs t
+                // Deep rewrite of a non-`'TFunc` arg: replace it WHOLESALE if it is a
+                // recorded earlier-binding nominal (`nestedSubst`, keyed by the whole
+                // depth-carrying nominal — collision-free); otherwise recurse into its
+                // children. A matched whole nominal is returned as-is WITHOUT descending,
+                // so an arrow leaf buried inside it is never reached by a (collision-prone)
+                // leaf lookup — its closure already rode in via the recorded NEW nominal.
+                let rec deep (t: FrozenType) : FrozenType =
+                    match nestedSubst.TryGetValue t with
+                    | true, newTy -> newTy
+                    | false, _ -> TastLower.mapFrozenArgs (EqArray.map deep) t
 
-                and rwArgs (args: EqArray<FrozenType>) : EqArray<FrozenType> =
+                // Replace the arg at each recorded position with this binding's own
+                // closure value-type (node-keyed `slots`); for a non-recorded position,
+                // deep-rewrite it — substituting any referenced earlier-binding nominal
+                // (`'S` source / `'E` enumerator) wholesale with its already-laid-out
+                // rewritten form. NO position-keyed recursion and NO arrow-shape lookup
+                // that would clobber a nested nominal's own `'TFunc` slot with THIS
+                // binding's closure (the multi-map nested-layout collision).
+                let rwArgs (args: EqArray<FrozenType>) : EqArray<FrozenType> =
                     args
                     |> EqArray.mapi (fun i a ->
                         match slots.TryGetValue i with
                         | true, closureFt ->
                             replaced.Add(a, closureFt)
                             closureFt
-                        | false, _ -> rw a
+                        | false, _ -> deep a
                     )
 
-                rw ty, List.ofSeq replaced
-
-        // Each verdict module value's rewritten field type + its `arrow → closure` leaf
-        // replacements (consumed by `ModuleValueSlotType` + `retypeBody`). Empty unless a
-        // stored binding's initialiser feeds a value-struct lambda into a typar-carrying
-        // result.
-        let verdictBindings =
-            Dictionary<NodeKey, FrozenType * (FrozenType * FrozenType) list>()
+                TastLower.mapFrozenArgs rwArgs ty, List.ofSeq replaced
 
         for (key, ty, init) in moduleValues do
             match substituteVerdictClosures ty init with
@@ -145,9 +264,9 @@ module internal ClosureVerdictRewrite =
             | newTy, replaced -> verdictBindings.[key] <- (newTy, replaced)
 
         // True iff ANY value-struct closure carries a transformer verdict — the cheap
-        // gate that keeps the consuming-combinator rewrite (`retypeBody`'s `App` + `ForIn`
-        // arms) a no-op on the green named-struct / terminal-only paths, even when no
-        // stored verdict binding exists (the nested-temp `fold f 0 (map …)` shape).
+        // gate that keeps the inline `App`-result rewrite (`retypeBody`'s `App` arm) a
+        // no-op on the green named-struct / terminal-only paths, even when no stored
+        // verdict binding exists (the nested-temp `fold f 0 (map …)` shape).
         let hasTransformerVerdict = closureNodeVerdict.Count > 0
 
         // The transformer verdict the lambda argument of a single application produces:
@@ -178,59 +297,6 @@ module internal ClosureVerdictRewrite =
             // its own. An out-of-range `pos` matches no index, leaving the type unchanged.
             resultTy
             |> TastLower.mapFrozenArgs (EqArray.mapi (fun i a -> if i = pos then closureFt else a))
-
-        // The consuming combinator's `for-in` enumerator descriptor (`fold`'s `for y in
-        // source`) carries the SOURCE seq's frozen types with the producing transformer's
-        // `'TFunc` STILL the arrow (encoded to the `Fun`/`Fun2` INTERFACE). The receiver
-        // is the value-struct-instantiated seq, so the `constrained. callvirt
-        // GetEnumerator` interface-map lookup misses (impl keyed on the closure, token on
-        // the arrow) → `EntryPointNotFoundException`. Rewriting those nested `'TFunc`
-        // arrow leaves to the `<closure>$` value-struct aligns the token with the
-        // receiver's actual impl.
-        //
-        // KNOWN LIMITATION (design doc M6): unlike the App-result path (`appOwnVerdict`,
-        // node-identity keyed), this match is necessarily by arrow EQUALITY. The for-in
-        // being rewritten lives in the GROUNDED consuming-combinator body (`fold`'s
-        // `for y in source`), which does NOT lexically contain the producing lambda —
-        // that lambda is in the caller's `let s1 = map …` / nested-temp initialiser. So
-        // there is no node in this body to key on; the leaf↔closure link can only be the
-        // arrow type. Two same-typed transformer lambdas (two `int->int` maps) whose
-        // grounded arrows are structurally equal therefore collide here (first wins) — the
-        // `ptest "M6 P-d: multi-map chain"` case. Removing the collision needs call-site→
-        // body verdict propagation (thread which closure each `fold` instantiation uses
-        // into the rewrite of that grounded body); deferred future work, and today's
-        // shipping pipeline does not surface it.
-        let verdictArrowToClosure =
-            [
-                for KeyValue(node, struct (closureFt, _)) in closureNodeVerdict ->
-                    (TastLower.typeOfExpr node, closureFt)
-            ]
-
-        let rec rewriteClosureLeaves (t: FrozenType) : FrozenType =
-            match
-                verdictArrowToClosure
-                |> List.tryPick (fun (a, c) -> if a = t then Some c else None)
-            with
-            | Some closureFt -> closureFt
-            | None -> TastLower.mapFrozenArgs (EqArray.map rewriteClosureLeaves) t
-
-        let rewriteForInEnumerator (en: Frozen.ForInEnumerator) : Frozen.ForInEnumerator =
-            match en with
-            | ForInEnumeratorG.Interface -> en
-            | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, isValueType, dispose) ->
-                let getEnum' =
-                    match getEnum with
-                    | ForInGetEnumG.ConstrainedInterface(k, args) ->
-                        ForInGetEnumG.ConstrainedInterface(k, EqArray.map rewriteClosureLeaves args)
-                    | _ -> getEnum
-
-                let members' =
-                    match members with
-                    | ForInEnumMembersG.ConstrainedInterface(k, args) ->
-                        ForInEnumMembersG.ConstrainedInterface(k, EqArray.map rewriteClosureLeaves args)
-                    | _ -> members
-
-                ForInEnumeratorG.Pattern(rewriteClosureLeaves enumeratorTy, getEnum', members', isValueType, dispose)
 
         // Retype a body expression so a reference to a verdict binding (and its field
         // projections) carries the `<closure>$` value-struct type rather than the frozen
@@ -283,24 +349,6 @@ module internal ClosureVerdictRewrite =
                             e
                         else
                             TExprG.FieldGet(recv', name, ty', tok)
-                    | TExprG.ForIn(pat, src, body, enumerator, ty, tok) ->
-                        // The `for y in source` of a consuming combinator (`fold`)
-                        // iterates a verdict-typed seq; its enumerator descriptor carries
-                        // the source's frozen `'TFunc`-as-arrow leaves. Rewrite them to the
-                        // `<closure>$` value-struct so the `constrained. callvirt
-                        // GetEnumerator` token matches the receiver's value-struct impl.
-                        let src' = rw src
-                        let body' = rw body
-                        let enumerator' = rewriteForInEnumerator enumerator
-
-                        if
-                            System.Object.ReferenceEquals(src', src)
-                            && System.Object.ReferenceEquals(body', body)
-                            && System.Object.ReferenceEquals(enumerator', enumerator)
-                        then
-                            e
-                        else
-                            TExprG.ForIn(pat, src', body', enumerator', ty, tok)
                     | TExprG.App(fn, arg, ty, tok) ->
                         // rung-4 M6 P-d: a *transformer* call (`map (fun x -> x+1) src`)
                         // whose result type carries the lambda's `'TFunc`
