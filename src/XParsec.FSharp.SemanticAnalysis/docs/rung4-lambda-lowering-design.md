@@ -227,7 +227,10 @@ From `function-representation-plan.md`, and confirmed by the A/B/C landing:
 - **`Fun3`/`Fun4`** — additive only when a concrete combinator demands an arity-3+ flat slot.
 - **A frozen per-axis typar-constraint table** — the fully general alternative to §2.4's
   node-keyed verdict (make every typar's `:> FunN`, and other, bound durably available at
-  codegen). Deferred until a SECOND, codegen-native consumer of typar bounds exists. It is real
+  codegen). **The PROJECT-LOCAL slice is now being built — see §9** (Direction B): the
+  consuming-combinator for-in `'E` recovery is exactly the "second codegen-native consumer of
+  typar bounds" this item said would justify it. The EXTERNAL slice (the codegen-view reopening)
+  stays deferred to M7. Deferred until a SECOND, codegen-native consumer of typar bounds exists. It is real
   work and splits in two because the binder surfaces differ:
   - *project-local*: a new `FrozenConstraint` DU (none exists today), a freeze step
     `SemanticConstraint`→`FrozenConstraint` indexed by the method axis (the inference-side
@@ -340,9 +343,11 @@ Sub-milestones, each smallest-test-first, review-gated:
   combinator's `for-in` carries no verdict of its own to key on. Two same-typed transformer
   lambdas (two `int->int` maps) have structurally identical frozen arrows → they collide
   (first wins), and a genuine same-typed function value in a for-in/body would be miscoerced.
-  P-d must replace the type-keyed match with a node-identity / position-keyed mechanism (thread
-  the producing call's verdict to its consumer), restoring P-a's `FunResultTypar` discipline to
-  the consuming-body path. The multi-`map` test is what forces and validates this.
+  P-d must eliminate arrow-equality. **SUPERSEDED — see §9:** the original framing ("thread the
+  producing call's verdict to its consumer") is unworkable while `fold`'s body is emitted once
+  and shared (one grounded body cannot serve multiple instantiations). The LOCKED fix (Direction
+  B) instead removes the grounding entirely — `'E` becomes a real call-site-recoverable generic
+  parameter — so there is no baked body to disambiguate. The multi-`map` `ptest` is the gate.
 - Regression gate every milestone: re-run the green M1/M2/M3 suite (terminal path must stay
   untouched — `substituteVerdictClosures` is a no-op when no matching leaf exists).
 
@@ -389,6 +394,162 @@ lambdas. **Proves:** the pass survives the strict package path, not just inline 
   (`env.UserTypes.[key]`), never a `TypeSpec`; mirror F#'s grammar ([[feedback_match_fsharp_grammar]]).
 
 ---
+
+## 9. Redesign: eliminate arrow-equality keying (Direction B — the §5 project-local slice)
+
+**Status:** LOCKED direction, not yet implemented. Supersedes the P-d "make the
+consuming-body rewrite collision-safe" bullet (§6) and promotes the §5 frozen-constraint
+table from "deferred" to "doing it now, project-local only". Delete the
+`ClosureVerdictRewrite` for-in arm (and this section's open items) once it lands.
+
+### 9.1 What is wrong today
+
+`ClosureVerdictRewrite` (CLR codegen) rewrites the `'TFunc`-arrow leaf to the
+`<closure>$` value-struct in three places. Two are **node/position-keyed and
+collision-safe**:
+- the stored module-value slot (`substituteVerdictClosures`, keyed by the producing
+  lambda node's reference identity);
+- the inline `App`-result type (`appOwnVerdict`, keyed by walking the call's own
+  argument spine).
+
+The third — the **consuming combinator's `for-in` enumerator descriptor**
+(`rewriteForInEnumerator` / `verdictArrowToClosure` / `rewriteClosureLeaves`) — falls
+back to **program-wide arrow-TYPE equality**: it builds `[(typeOfExpr lambdaNode,
+closureFt)]` and replaces any structurally-equal `FrozenType` leaf. Two same-typed
+transformer lambdas (two `int -> int` maps) share one frozen arrow and **collide**
+(first wins); a genuine same-typed function value would be miscoerced. This is the
+`ptest "rung 4 (M6 P-d): multi-map chain"` wall. Accepting arrow-equality was the
+original mistake.
+
+### 9.2 Root cause — a front-end representation defect, not a codegen bug
+
+The for-in path *cannot* use node identity because the arrow it must rewrite lives in
+`fold`'s **own grounded body**, which does not lexically contain the producing lambda
+(that lambda is in the caller's `map (fun x -> …) s0`). The arrow is there at all
+because of a chain of front-end decisions:
+
+1. `fold`'s enumerator typar `'E` is a **phantom constraint typar** — it appears in no
+   parameter or result, only in `'S :> IStructSeq<'T,'E>` (`InferControlFlow.fs`
+   `tryTyparSeqSource`, which freezes the for-in's `ConstrainedInterface` ifaceArgs from
+   `resolveStep` of `'T`/`'E`).
+2. `generalise` (`InferGeneralize.fs:378-394`) *does* quantify `'E` (the dependent-typar
+   fixpoint over `Coercion` bounds), so `fold`'s scheme is `∀ 'TFunc 'State 'T 'S 'E. …`.
+3. But `instantiate` (`InferGeneralize.fs:53-95`) **deliberately leaves phantom
+   quantified roots verbatim** in the per-call constraint substitution ("the body
+   grounds them at the binding") — only *surface* roots are freshened. So the single
+   `fold` call unifies the **original** `'E` root with the concrete
+   `MapEnumerator<…, 'TFunc, …>`, grounding it — and the body's for-in, which references
+   that original root, freezes with the concrete enumerator carrying the arrow.
+4. Codegen compounds this: `staticFnTypars` (`EmitClosures.fs:609-638`) counts method
+   typars **only from param/result types**, so even if `'E` survived as a typar it would
+   not be emitted as a generic slot, and `matchInstantiation` (`TastLower.fs:99`)
+   recovers typars **only by matching params against args**, so `'E` (in no param) is
+   unrecoverable. Both mechanisms *require* `'E` to be grounded.
+
+So the arrow in the body is the grounded `'E`, and arrow-equality is a codegen
+symptom-patch for "the front end baked one call's concrete enumerator (with the arrow
+where the value-struct closure belongs) into a method that is supposed to be generic
+over `'E`."
+
+### 9.3 The fix is the faithful F# representation
+
+These two are equivalent F# definitions (confirmed semantics):
+
+```fsharp
+let fold (f: 'TFunc when 'TFunc :> Fun2<'State,'T,'State>) (seed: 'State)
+         (source: 'S when 'S :> IStructSeq<'T,'E> and 'E :> IStructEnumerator<'T>) : 'State = …
+// ≡
+let fold<'TFunc,'T,'State,'S,'E when 'TFunc :> Fun2<'State,'T,'State>
+                                 and 'S :> IStructSeq<'T,'E>
+                                 and 'E :> IStructEnumerator<'T>>
+        (f: 'TFunc) (seed: 'State) (source: 'S) : 'State = …
+```
+
+F# generalizes phantom constraint typars (`'E`) into the method's generic parameter
+list; both forms compile to **one generic method of arity 5** with the same three
+constraints and the same `MethodSpec`-per-call obligation. The only difference is
+type-parameter *order* (implementation-defined for the inline form; observable only
+under explicit `fold<…>` application). **Direction B makes Vesper model `'E` as the
+real, call-site-recoverable generic parameter F# already treats it as.** Today's
+grounding is the divergence.
+
+### 9.4 The plan (stages are COUPLED — must land together, gated on the M6 `ptest`)
+
+Flipping the front end without the codegen recovery yields a body with `!E` and no
+MethodSpec slot → invalid IL / `matchInstantiation` failwith. So:
+
+1. **Phantom typars become independent generic slots.** Flip `instantiate` to freshen
+   phantom-quantified roots in the constraint substitution too (seed `constraintSubst`
+   from the full `subst`, not the surface restriction — the operative lines are
+   `InferGeneralize.fs:81-85`; rationale comment runs to `:101`) so each call gets its
+   own `'E` and the body's `'E` stays free → freezes as `FTTypar(Method, idx_E)`.
+   **The index minter already handles phantoms** — `Elaborate.mkMethodQuantEnv`
+   (`Elaborate.fs:218-267`) runs the identical dependent-typar `Coercion` fixpoint
+   (`:257-265`) `generalise` does, so once `'E` survives un-grounded it gets its
+   `FTTypar(Method, idx_E)` index with NO change to the minter. Then carry the scheme's
+   true quantified-typar **count** to codegen (source: `mkMethodQuantEnv`'s `acc.Count`
+   / `scheme.Quantified.Length`; `CompiledFns.gather` currently zeroes `ValRepr.Typars`,
+   `CompiledFns.fs:95`) and retire the param/result-only `staticFnTypars` re-derivation
+   (`EmitClosures.fs:609-638` — the same fragile-reconstruction anti-pattern already
+   deleted from `collectStackLambdaArgs`).
+2. **Carry typar bounds to codegen** — the project-local half of §5's frozen-constraint
+   table. Add method-axis-indexed `FrozenConstraint`s on `StaticFn`/`StaticMethodRef`,
+   populated at freeze (`Elaborate.run`, which holds `ctx` and mints the indices) from
+   `TypeScheme.Constraints` (`SemanticInfo.fs:989-998`; scheme lives in
+   `ctx.Bindings.Scheme`), snapshotted onto `TastFile` exactly like `FunVerdicts`
+   (`Pipeline.fs:43-54`) and threaded `TastFile → HolderPlan → StaticFn/StaticMethodRef`
+   like `StaticFnTypars`. Reuse the `ExternalConstraint.Coercion` frozen-target model
+   (`ExternalSymbols.fs:39-53`, `Coercion of typarIndex:int * target:FrozenType`) as the
+   DU shape.
+3. **Call-site phantom-typar solve** (`EmitCall.fs:252-324`). Three coupled parts the
+   verified map surfaced:
+   - **(3a)** Relax `matchInstantiation` (`TastLower.fs:135-140`) — it currently hard-
+     `failwith`s on any unrecovered index; a phantom typar in no param/result is
+     unrecoverable by param-matching, so leave those slots unresolved (`ValueNone`) /
+     partition the typar set, rather than failing.
+   - **(3b)** Give codegen an interface-impl walk. `EmittedClass` (`EmitTypes.fs:160-203`)
+     carries NO interface-impl list today — the impl templates exist only at the
+     emission-input layer (`ClassDecl.Interfaces`, `CodegenTypes.fs:36`) and are
+     discarded after nominal emission. Add an impl field onto `EmittedClass`, populate it
+     from `ClassDecl.Interfaces`, and write a `FrozenType` impl-walk — the codegen analog
+     of front-end `Engine.tryUpcastWitness` / `subtypeInterfacesOf` (`Engine.fs:553-611`),
+     which instantiates an impl template by the receiver's args via `instantiateMember`.
+   - **(3c)** The solve (insert just after the M1/M2/M3 closure-override loop,
+     `EmitCall.fs:309`, before `StaticFnMethodSpec` `:311`): for `'S :> IStructSeq<'T,'E>`
+     with `'S := instArr.[idx_S]` (already the node-key-rewritten `<closure>$`-bearing
+     type, since `'S` is param-visible), run (3b)'s `IStructSeq` witness over
+     `instArr.[idx_S]` and read `'E := MapEnumerator<…,<closure>$,…>` from the bound's
+     template. **The closure rides in for free** through `'S`'s already-rewritten arg
+     (§9.1 path 1/2 is node-keyed) — collision-free, no arrow-equality anywhere.
+4. **Delete** `rewriteForInEnumerator` / `verdictArrowToClosure` / `rewriteClosureLeaves`
+   and the `ForIn` arm of `retypeBody`. `ClosureVerdictRewrite` keeps only the
+   stored-binding-slot and `App`-result paths (the *producing* `'TFunc`, a recoverable
+   param — those stay node-keyed).
+5. **Un-`ptest` the multi-map test**; regression-gate M1/M2/M3/P-a/P-b/P-c + wall-iv.
+
+### 9.5 Scope and risk
+
+- **Project-local only now.** Every current test defines `map`/`fold` in source, so the
+  bounds come from `TypeScheme.Constraints` and the impl walk from the type registry.
+- **External head (M7) deferred.** Carrying `ExternalConstraint.Coercion` onto the
+  *codegen* view (`CodegenOpenSignature` / `ICodegenSymbols`, deliberately constraint-free
+  — `ExternalSymbols.fs:597-604`) is the genuinely wall-reopening half (§5). No external
+  consumer exists until the `buildPackage` client of `Vesper.Seq` (M7), so it waits.
+- **Risk:** Stage 1's `instantiate` flip inverts a load-bearing decision; the regression
+  gate is the existing green phantom-typar tests (the chained-`wrap` GeneralisationTests
+  case, the rung-3 generic struct-seq for-in tests). Stage 3's impl walk is new codegen
+  reach into typar bounds — the cost §5 names; here it is paid only for project-local
+  types whose impls the registry already holds.
+
+### 9.6 Why this is better than the alternative kept-grounding fix
+
+Threading the producing call's verdict into the *consuming body* (the literal P-d
+wording) cannot work while `fold`'s body is emitted once and shared: a single grounded
+body can serve only one instantiation. Direction B removes the grounding entirely, so
+there is no shared baked body to disambiguate — the body is genuinely generic and the
+closure identity flows through the normal `MethodSpec` instantiation, the same channel
+every other type argument already uses. The collision is not *patched*, it is made
+*impossible*.
 
 ## 8. Cross-references
 
