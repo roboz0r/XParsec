@@ -289,13 +289,59 @@ is already the un-split `f.Invoke(a).Invoke(b)` chain (`core-types.fs:19`) and c
 §3.1-gap-1 freeze bug being fixed. Risk: medium.
 
 ### M6 — end-to-end zero-alloc `ofArray |> map |> fold` from SOURCE lambdas
-**Depends on:** M3–M5. **Smallest test:** the rung-4 "wall iv" pipeline but with
+**Depends on:** M3. **Smallest test:** the rung-4 "wall iv" pipeline but with
 `map (fun x -> x+1)` / `fold (fun acc x -> acc+x)` SOURCE lambdas instead of hand-written
 `AddN`/`SumAcc` structs. Assert identical output (`14`) AND the same no-`box`
-constrained-dispatch IL. **Proves:** the whole epic composes. Risk: low (integration).
+constrained-dispatch IL. **Proves:** the whole epic composes.
 
-### M7 — library graduation (capstone)
-**Depends on:** M6. **Smallest test:** a `buildPackage`-gated client of `Vesper.Seq`
+**M6 is NOT integration — it surfaced a real gap (verified `fd77db1`).** The M3 verdict +
+`EmitCall`'s `!TF` override fix the CALL site, so a **terminal** combinator whose result type
+does not mention the function typar (`fold : … -> 'State`, `apply2 : … -> int`) works with
+source lambdas today. But a **transformer** combinator whose result type CARRIES the typar
+(`map : … -> MapSeq<…,'TFunc,…>`) breaks: the front end freezes the result/receiver type with
+`'TFunc := arrow`, which `encodeType` lowers to the `Vesper.Fun`/`Fun2` INTERFACE (reference),
+while the call actually returns the `<closure>$` value-struct instantiation — a struct↔reference
+layout mismatch in the receiving slot (`NullReferenceException`/`InvalidProgram`). Fails in BOTH
+nested (`fold f 0 (map g (ofArray xs))`) and stored (`let s1 = map g s0`) top-level forms.
+
+#### M6 sub-plan — verdict-keyed result-type propagation (Approach B, P-a…P-e)
+
+LOCKED approach: **B (freeze-/codegen-time substitution)**, NOT inference-side (Approach A
+would reopen §4.5's structural-unifier lock for a late-minted identity), and a NARROW
+verdict-propagation — NOT §5's full frozen constraint table. Reuse the `<closure>$`
+value-type `FrozenType` already minted in `Assembler.BindClosures`
+(`ClosureValueTypeByNode`); add a recursive `substituteVerdictClosures : FrozenType ->
+FrozenType` that replaces the matching `'TFunc`-position leaf of a binding/temp's frozen type
+with that lambda's closure value-type, applied at every slot-type derivation site
+(`collectModuleValues`/`collectGenericModuleValues` and the Main-local path).
+
+- **Match by typar POSITION, not just `FTFun` shape** (largest risk): a genuine
+  function-valued field of the same shape must not be miscoerced. Thread the result-typar
+  index forward from `InferApp` (the one place it is known), keyed like `FunSlotArity`.
+- **Verify the mint-vs-consume ordering FIRST**: `substituteVerdictClosures` can only read
+  `ClosureValueTypeByNode` if the closure value-type is minted before slot types are chosen.
+  If not, the rewrite moves to field-emission time. This determines where the code lives.
+- **§5 still deferred:** B fires only on GROUND binding types. Storing a mapped seq in a
+  *generic* helper (receiver type is `FTTypar`, not `FTClass(MapSeq,[…FTFun…])`) needs §5; out
+  of scope for M6/M7 (the pipeline is ground at top level).
+
+Sub-milestones, each smallest-test-first, review-gated:
+- **P-a** — single `map`, stored, consumed: the reduced repro (`mk : ('TF:>Fun<int,int>) ->
+  Holder<'TF>`; `let h = mk (fun x -> x+1)`; assert the field sig's `'TF` arg is
+  `ELEMENT_TYPE_VALUETYPE <closure>$`, not `class Fun\`2`). Resolves the position-vs-shape
+  question in the simplest setting.
+- **P-b** — nested temp (`fold f 0 (map g (ofArray xs))`): forces the Main-local slot path.
+- **P-c** — the M6 capstone: un-`ptest` the committed M6 fixture; full `let s1=…; let total=…`
+  pipeline → `14`, no box.
+- **P-d** — multi-`map` chain (`map g0 |> map g1 |> fold f`): forces the RECURSIVE rewrite over
+  nested `MapSeq<MapSeq<…>,…>` with two distinct `<closure>$` slots.
+- Regression gate every milestone: re-run the green M1/M2/M3 suite (terminal path must stay
+  untouched — `substituteVerdictClosures` is a no-op when no matching leaf exists).
+
+### M7 — library graduation (capstone) — the P-e milestone of the M6 sub-plan
+**Depends on:** M6 P-c/P-d. Also confirms the result-type propagation survives the EXTERNAL
+combinator head (the `MapSeq` result type comes from the contract's `FrozenType` template /
+`ExternalSignature`, not a project-local decl). **Smallest test:** a `buildPackage`-gated client of `Vesper.Seq`
 ([[reference_buildpackage_gates_on_diagnostics]]) calling `StructSeq.map`/`fold` with source
 lambdas. **Proves:** the pass survives the strict package path, not just inline `compileSource`
 (the package path surfaces front-end gaps the lenient path hides). Risk: low-medium.
