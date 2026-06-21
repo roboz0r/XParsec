@@ -794,6 +794,15 @@ type TastFileG<'ty, 'tok> =
         /// `discoverClosures` to size the value-struct closure's flat `Invoke`. A
         /// lambda absent here is an ordinary curried closure.
         FunSlotArity: Map<uint64, int>
+        /// rung-4 M6 P-a: a SOURCE-lambda argument's `NodeKey.Raw` → the type-arg
+        /// POSITION its constrained `'TFunc` occupies in the combinator's RESULT
+        /// nominal (e.g. `0` for `mk : ('TF:>Fun) -> Holder<'TF>`). Snapshotted from
+        /// `ctx.FunResultTypar`; read by codegen's `substituteVerdictClosures` to
+        /// lay a stored binding's `'TFunc` slot out as the lambda's `<closure>$`
+        /// value-struct rather than the `Fun`/`Fun2` interface. A lambda absent here
+        /// flows into a result type that does not mention its typar (a terminal
+        /// combinator), so no binding-slot rewrite is needed.
+        FunResultTypar: Map<uint64, int>
     }
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;

@@ -50,6 +50,12 @@ module Pipeline =
                     ctx.FunSlotArity.AsDictionary()
                     |> Seq.map (fun kv -> kv.Key.Raw, kv.Value)
                     |> Map.ofSeq
+                // rung-4 M6 P-a: the sibling result-typar-position verdict, snapshotted
+                // the same way so `substituteVerdictClosures` reaches it at codegen.
+                FunResultTypar =
+                    ctx.FunResultTypar.AsDictionary()
+                    |> Seq.map (fun kv -> kv.Key.Raw, kv.Value)
+                    |> Map.ofSeq
             }
         // TAST→TAST promotion of `let mutable` cells captured by escaping closures.
         // Reads `ctx.Bindings.Escape` / `ctx.Bindings.Binding`;

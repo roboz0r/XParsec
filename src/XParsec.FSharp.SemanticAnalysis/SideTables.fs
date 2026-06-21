@@ -1143,6 +1143,20 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// reads it to size the value-struct closure's flat `Invoke`. A lambda with no
     /// entry is the ordinary curried closure.
     member val FunSlotArity = SideTable<int>() with get
+    /// rung-4 M6 P-a: keyed by the SAME SOURCE-lambda argument NodeKey as
+    /// `FunSlotArity`; the value is the type-argument POSITION (index into the
+    /// immediate result nominal's type-args) the lambda's constrained `'TFunc`
+    /// occupies in the combinator's RESULT type. `mk : ('TF:>Fun<int,int>) ->
+    /// Holder<'TF>` records index `0` (the lambda's typar is `Holder`'s 0th arg).
+    /// Recorded in `inferApp` alongside the arity verdict, by locating `dom`'s
+    /// typar root among the spine result's nominal args. `ValueNone` (absent) when
+    /// the typar does not appear at the top level of the result (a terminal
+    /// combinator like `fold`/`apply2`, whose result type does not mention `'TF`) —
+    /// such a binding needs no slot rewrite. Codegen's `substituteVerdictClosures`
+    /// reads it to replace that binding-type leaf with the lambda's `<closure>$`
+    /// value-struct, so a stored result lays the `'TFunc` slot out as the struct,
+    /// not the `Fun`/`Fun2` interface.
+    member val FunResultTypar = SideTable<int>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar

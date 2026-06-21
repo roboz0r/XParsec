@@ -1548,6 +1548,92 @@ let structSeqTests =
                     "the constrained fold loop IL contains no `box` (non-allocating)"
             }
 
+            // rung-4 M6 P-a: a STORED binding whose type CARRIES the function typar,
+            // fed by a value-struct source lambda, must lay out its `'TFunc` slot as the
+            // `<closure>$` value-struct, NOT the `Vesper.Fun`2` INTERFACE (reference).
+            // The reduced repro from the M6 ptest comment: `mk : ('TF:>Fun<int,int>) ->
+            // Holder<'TF>`; `let h = mk (fun x -> x+1)`. Before P-a the module field `h`
+            // is `valuetype Holder`1<class Fun`2<int,int>>` (sig blob ends `15 12 05 …`,
+            // GENERICINST CLASS) and the stored struct↔reference layout disagreement
+            // corrupts the read (`h.F.Invoke 41`). After P-a the field's `'TF` arg is
+            // GENERICINST VALUETYPE `<closure>$…` (`15 11 …`) and the round-trip yields 42.
+            test "rung4 (M6 P-a): a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct>]"
+                            "type Holder<'TFunc when 'TFunc :> Fun<int, int>> ="
+                            "    val F : 'TFunc"
+                            "    new(f: 'TFunc) = { F = f }"
+                            "let mk (f: 'TFunc when 'TFunc :> Fun<int, int>) : Holder<'TFunc> = Holder<'TFunc>(f)"
+                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
+                            // The STORED binding `h` is the P-a target: its `Holder` field
+                            // must lay out `'TFunc` as the `<closure>$` value-struct. The
+                            // closure is then dispatched by passing `h.F` through a typar
+                            // combinator (`apply`) — the M1/M2 constrained-dispatch path —
+                            // which reads `h.F`'s (rewritten) value-struct type for the
+                            // `!TF` MethodSpec, so the read of the stored struct is correct.
+                            "let h = mk (fun x -> x + 1)"
+                            "printfn \"%d\" (apply h.F 41)"
+                        ]
+
+                let tast, artifact = compileSource "M6PaStoredHolder" src
+                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-a diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "h.F.Invoke 41 = 42"
+
+                // The module field `h`'s signature: walk its blob and assert the
+                // `Holder<…>` instantiation's single type-argument is GENERICINST
+                // VALUETYPE (ELEMENT_TYPE_VALUETYPE = 0x11), NOT ELEMENT_TYPE_CLASS
+                // (0x12). The broken layout encoded the typar slot as the `Fun` class.
+                use peReader = openPe bytes
+                let md = peReader.GetMetadataReader()
+
+                let hFieldSig =
+                    md.TypeDefinitions
+                    |> Seq.collect (fun tdh -> (md.GetTypeDefinition tdh).GetFields())
+                    |> Seq.tryPick (fun fh ->
+                        let fd = md.GetFieldDefinition fh
+
+                        if md.GetString fd.Name = "h" then
+                            Some fd.Signature
+                        else
+                            None
+                    )
+                    |> function
+                        | Some s -> s
+                        | None -> failwith "module field 'h' not found"
+
+                // Decode the FIELD sig properly: `h : valuetype Holder`1<arg0>` is
+                //   FIELD(0x06) GENERICINST(0x15) VALUETYPE(0x11) <Holder token>
+                //   <argCount=1> <arg0 element type> …
+                // The DISCRIMINATING byte is arg0's element-type head, NOT the byte
+                // after the first 0x15 (that is Holder's own VALUETYPE marker — always
+                // 0x11 since Holder is `[<Struct>]`, identical in the broken encoding).
+                // Use BlobReader so the compressed Holder token / arg-count are skipped
+                // correctly regardless of their width. arg0 must be VALUETYPE (0x11 =
+                // the `<closure>$` struct); the bug encoded it GENERICINST(0x15) CLASS
+                // (0x12) `Fun`2`. (0x11 = ELEMENT_TYPE_VALUETYPE, 0x15 = GENERICINST.)
+                let mutable br = md.GetBlobReader hFieldSig
+                Expect.equal (br.ReadByte()) 0x06uy "FIELD sig header"
+                Expect.equal (br.ReadByte()) 0x15uy "Holder is a generic instance (GENERICINST)"
+                Expect.equal (br.ReadByte()) 0x11uy "Holder itself is a value type (VALUETYPE)"
+                br.ReadCompressedInteger() |> ignore // Holder TypeDef/TypeRef coded token
+                Expect.equal (br.ReadCompressedInteger()) 1 "Holder`1 has one type argument"
+                let arg0Head = br.ReadByte()
+
+                Expect.equal
+                    arg0Head
+                    0x11uy
+                    (sprintf
+                        "h's Holder<…> type-arg is a value-struct closure (VALUETYPE 0x11); the bug encoded it GENERICINST(0x15) CLASS Fun`2. arg0 head = 0x%02X"
+                        arg0Head)
+            }
+
             // rung-4 M6 (end-to-end integration capstone): the SAME `ofArray |> map
             // |> fold` pipeline as the wall-iv proof above, but the two hand-written
             // struct closures (`AddN`/`SumAcc`) are replaced by SOURCE lambdas —

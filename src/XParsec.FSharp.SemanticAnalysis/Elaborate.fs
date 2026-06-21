@@ -1486,4 +1486,5 @@ module Elaborate =
             // rung-4 M3 `Fun`-arity verdict — snapshotted by the Pipeline from
             // `ctx.FunSlotArity` alongside `ClosureReprs`.
             FunSlotArity = Map.empty
+            FunResultTypar = Map.empty
         }

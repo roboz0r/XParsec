@@ -82,6 +82,7 @@ let tests =
                         TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
                         FunSlotArity = Map.empty
+                        FunResultTypar = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count
@@ -138,6 +139,7 @@ let tests =
                         TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
                         FunSlotArity = Map.empty
+                        FunResultTypar = Map.empty
                     }
 
                 let before = ctx.Diagnostics.Count

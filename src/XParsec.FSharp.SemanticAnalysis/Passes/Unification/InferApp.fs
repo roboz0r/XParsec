@@ -94,6 +94,12 @@ module internal UnificationInferApp =
             // (which would erase the bound). A non-lambda argument or a non-`Fun` slot
             // records nothing.
             (let mutable currTy = fnTy
+             // The lambda verdicts recorded in the spine walk, paired with the typar
+             // `dom` (its union-find root) the lambda landed on — so a SECOND pass over
+             // the spine RESULT can record `lambda → result-typar position` (M6 P-a)
+             // once `currTy` reaches the tail. Recording the position in the loop is
+             // premature: `currTy` is still the residual arrow, not the result nominal.
+             let lambdaSlots = ResizeArray<NodeKey * SemType>()
 
              for i in 0 .. args.Length - 1 do
                  match resolveStep currTy with
@@ -117,11 +123,53 @@ module internal UnificationInferApp =
                          | ValueSome arity ->
                              let lamKey = NodeKey.ofToken (CstKeys.firstTokenOfPat arg0Pat) NodeKind.ExprLambda
                              ctx.FunSlotArity.Set(lamKey, arity)
+                             lambdaSlots.Add(lamKey, dom)
                          | ValueNone -> ()
                      | ValueNone -> ()
 
                      currTy <- cod
-                 | _ -> currTy <- TyVar(freshTyVar ctx))
+                 | _ -> currTy <- TyVar(freshTyVar ctx)
+
+             // rung-4 M6 P-a: record the result-typar POSITION for each verdict lambda.
+             // `currTy` is now the spine's result type; a *transformer* combinator's
+             // result is a nominal (`Holder<'TF>`, `MapSeq<…,'TF,…>`) carrying the
+             // lambda's typar at some top-level arg index. Match by typar IDENTITY (the
+             // arg's union-find root equals `dom`'s root), NOT by shape — a genuine
+             // function-valued arg of the same arrow shape would otherwise be conflated.
+             // A *terminal* combinator (`fold`/`apply2`, result `'State`/`int`) records
+             // nothing, so its stored bindings are never rewritten.
+             if lambdaSlots.Count > 0 then
+                 match resolveStep currTy with
+                 | TyConst(_, resArgs)
+                 | TyRecord(_, resArgs)
+                 | TyUnion(_, resArgs)
+                 | TyClass(_, resArgs)
+                 | TyTuple resArgs ->
+                     // Typar identity = the union-find ROOT (reference-stable); a free
+                     // `TyVar`'s `resolveStep` re-wraps a fresh `TyVar` each call, so
+                     // compare the underlying roots, not the wrappers.
+                     let rootOf (t: SemType) : TypeVar voption =
+                         match resolveStep t with
+                         | TyVar tv -> ValueSome(UnionFind.find tv)
+                         | _ -> ValueNone
+
+                     for (lamKey, dom) in lambdaSlots do
+                         match rootOf dom with
+                         | ValueSome domRoot ->
+                             let mutable found = ValueNone
+
+                             for i in 0 .. resArgs.Length - 1 do
+                                 if ValueOption.isNone found then
+                                     match rootOf resArgs.[i] with
+                                     | ValueSome r when System.Object.ReferenceEquals(r, domRoot) ->
+                                         found <- ValueSome i
+                                     | _ -> ()
+
+                             match found with
+                             | ValueSome idx -> ctx.FunResultTypar.Set(lamKey, idx)
+                             | ValueNone -> ()
+                         | ValueNone -> ()
+                 | _ -> ())
 
             tryFillOptionalCall ctx key fn args argTys
             |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
