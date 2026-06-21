@@ -487,7 +487,7 @@ module NameResolutionMemberRegistration =
                 // cross-kind union check is arity-aware. Records / abbreviations
                 // are not arity-overloaded, so their checks stay bare (a
                 // same-bare-name class + record is still a duplicate).
-                let classArity = (typarNamesOfTypeName ctx tn).Length
+                let classArity = arityOfTypeName ctx tn
 
                 if
                     TypeRegistry.containsRecord ctx.Types name

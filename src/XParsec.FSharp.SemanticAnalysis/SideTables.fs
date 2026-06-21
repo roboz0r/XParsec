@@ -646,6 +646,51 @@ module TypeRegistry =
     /// name share one rule.
     let keyFor (name: string) (arity: int) : string = SymbolKeyOps.arityName name arity
 
+    // --- Arity-overload mechanism (shared by Union and Class) --------------------
+    // F# / .NET overload a type *name* by generic arity (`Choice\`2`/`Choice\`3`,
+    // `Fun\`2`/`Fun\`3`). Such a kind is keyed by `keyFor name arity`; a *single*
+    // registered arity also keeps a bare-name alias so every legacy bare-name read
+    // still resolves, and the alias is withdrawn (sentinel `-1`) once a second arity
+    // collides. `table` + its `bareArity` companion are the only things that differ
+    // between the union and class registries — so the mechanism lives here once.
+
+    /// Register `info` under its arity-key, maintaining (or withdrawing) the
+    /// bare-name alias. The `-1` sentinel in `bareArity` marks a demoted name that
+    /// is resolvable only by its arity-key. Idempotent for a repeat `(name, arity)`.
+    let private registerArityKeyed
+        (table: Dictionary<string, 'T>)
+        (bareArity: Dictionary<string, int>)
+        (name: string)
+        (arity: int)
+        (info: 'T)
+        : unit =
+        table.[keyFor name arity] <- info
+
+        if arity > 0 then
+            match bareArity.TryGetValue name with
+            | false, _ ->
+                table.[name] <- info
+                bareArity.[name] <- arity
+            | true, a when a = arity -> table.[name] <- info // refresh the same-arity alias
+            | true, -1 -> () // already demoted: only the arity-key resolves
+            | true, _ ->
+                // A second distinct arity for this short name: withdraw the now-
+                // ambiguous bare alias; both arities resolve only by their key.
+                table.Remove name |> ignore
+                bareArity.[name] <- -1
+
+    /// Resolve an arity-overloaded type by its project-local `SymbolKey`. The key's
+    /// `TypeKey` `name` component *is* the registry key (both route through
+    /// `SymbolKeyOps.arityName`), so this reads it VERBATIM — no `simpleName` strip.
+    /// A non-`TypeKey` key never names such a type, so it misses.
+    let private tryByTypeKey (table: Dictionary<string, 'T>) (key: SymbolKey) : 'T voption =
+        match key with
+        | SymbolKey.TypeKey(name = name) ->
+            match table.TryGetValue name with
+            | true, info -> ValueSome info
+            | false, _ -> ValueNone
+        | _ -> ValueNone
+
     // --- Records / classes / abbreviations --------------------------------------
     // These aren't arity-overloaded today (unlike unions), so the key is the bare
     // short name. The wrappers exist so project-local *identity creation* for every
@@ -672,26 +717,10 @@ module TypeRegistry =
     let tryRecordByKey (types: PassContextTypes) (key: SymbolKey) : RecordTypeInfo voption =
         tryRecord types (SymbolKeyOps.simpleName key)
 
-    /// Register a class under its arity-key, maintaining the bare-name alias while
-    /// the short name is single-arity and withdrawing it once a second arity
-    /// collides. Exact mirror of `registerUnion` (`ClassBareArity` ↔ `UnionBareArity`).
-    /// The bare alias is what lets every existing single-arity class read by bare
-    /// name keep resolving unchanged.
+    /// Register a class under its arity-key, keeping the bare-name alias while the
+    /// short name is single-arity (`ClassBareArity`). See `registerArityKeyed`.
     let registerClass (types: PassContextTypes) (name: string) (arity: int) (info: ClassTypeInfo) : unit =
-        types.Class.[keyFor name arity] <- info
-
-        if arity > 0 then
-            match types.ClassBareArity.TryGetValue name with
-            | false, _ ->
-                types.Class.[name] <- info
-                types.ClassBareArity.[name] <- arity
-            | true, a when a = arity -> types.Class.[name] <- info // refresh the same-arity alias
-            | true, -1 -> () // already demoted: only the arity-key resolves
-            | true, _ ->
-                // A second distinct arity for this short name: withdraw the now-
-                // ambiguous bare alias; both arities resolve only by their key.
-                types.Class.Remove name |> ignore
-                types.ClassBareArity.[name] <- -1
+        registerArityKeyed types.Class types.ClassBareArity name arity info
 
     /// True iff a class with this exact `(name, arity)` is registered (the arity-
     /// key, never the bare alias) — the duplicate-definition test (mirror
@@ -716,19 +745,9 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
-    /// Resolve a class by its project-local `SymbolKey` — the arity-qualified
-    /// `TypeKey(None, _, name\`arity)` minted onto `ClassTypeInfo.Key`. The key's
-    /// `name` component *is* the registry key (both it and `keyFor` route through
-    /// the one `SymbolKeyOps.arityName` rule), so this reads the name VERBATIM (it
-    /// does NOT strip the arity via `simpleName`) — the class analogue of
-    /// `tryUnionByKey`. A non-`TypeKey` key never names a class, so it misses.
-    let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption =
-        match key with
-        | SymbolKey.TypeKey(name = name) ->
-            match types.Class.TryGetValue name with
-            | true, info -> ValueSome info
-            | false, _ -> ValueNone
-        | _ -> ValueNone
+    /// Resolve a class by its project-local `SymbolKey` — the class analogue of
+    /// `tryUnionByKey`. See `tryByTypeKey`.
+    let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info
@@ -740,24 +759,10 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
-    /// Register a union under its arity-key, maintaining the bare-name alias while
-    /// the short name is single-arity and withdrawing it once a second arity
-    /// collides. Idempotent for a repeat of the same `(name, arity)`.
+    /// Register a union under its arity-key, keeping the bare-name alias while the
+    /// short name is single-arity (`UnionBareArity`). See `registerArityKeyed`.
     let registerUnion (types: PassContextTypes) (name: string) (arity: int) (info: UnionTypeInfo) : unit =
-        types.Union.[keyFor name arity] <- info
-
-        if arity > 0 then
-            match types.UnionBareArity.TryGetValue name with
-            | false, _ ->
-                types.Union.[name] <- info
-                types.UnionBareArity.[name] <- arity
-            | true, a when a = arity -> types.Union.[name] <- info // refresh the same-arity alias
-            | true, -1 -> () // already demoted: only the arity-key resolves
-            | true, _ ->
-                // A second distinct arity for this short name: withdraw the now-
-                // ambiguous bare alias; both arities resolve only by their key.
-                types.Union.Remove name |> ignore
-                types.UnionBareArity.[name] <- -1
+        registerArityKeyed types.Union types.UnionBareArity name arity info
 
     /// True iff a union with this exact `(name, arity)` is registered (the arity-
     /// key, never the bare alias) — the duplicate-definition test.
@@ -778,13 +783,7 @@ module TypeRegistry =
     /// `SymbolKeyOps.arityName` rule, so this is a direct `Union` lookup with
     /// no arity re-derivation. A non-`TypeKey` key (a value / member) never names a
     /// union, so it misses. The reader-side seam for SymbolKey-first resolution.
-    let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption =
-        match key with
-        | SymbolKey.TypeKey(name = name) ->
-            match types.Union.TryGetValue name with
-            | true, info -> ValueSome info
-            | false, _ -> ValueNone
-        | _ -> ValueNone
+    let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
 
     /// The declaring union of a registered case, resolved by its `(UnionName,
     /// UnionArity)`. The case came from a registered union, so this is total in

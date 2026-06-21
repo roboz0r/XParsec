@@ -112,8 +112,7 @@ module Unification =
                     let name = ctx.NameOf nameLi.Idents.[0]
                     // Resolve by (name, arity) so an arity-overloaded union
                     // (`Choice\`2`…`Choice\`7`) fills the *right* case fields.
-                    let arity =
-                        NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
+                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
 
                     match TypeRegistry.tryUnion ctx.Types name arity with
                     | ValueSome info ->
@@ -904,9 +903,7 @@ module Unification =
                     // Carry the generic arity so the member-prototype linker resolves
                     // the right `(name, arity)` class (an overloaded `Box\`1`/`Box\`2`
                     // has no bare alias).
-                    let arity =
-                        NameResolutionTypeRegistration.typarNamesOfTypeName ctx d.TypeName
-                        |> List.length
+                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
 
                     ValueSome(ctx.NameOf nameLi.Idents.[0], arity, d.PrimaryConstr, d.Body)
                 else
@@ -1027,8 +1024,7 @@ module Unification =
                     extensions = ValueSome(TypeExtensionElements(elements = elems))) when nameLi.Idents.Length = 1 ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    let arity =
-                        NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
+                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
 
                     match TypeRegistry.tryUnion ctx.Types name arity with
                     | ValueSome info when not (Array.isEmpty info.Members) ->

@@ -1390,7 +1390,7 @@ module TypeDefn =
                             }
                         )
                         |> opt
-                        |>> (fun r -> r = ValueSome true)
+                        |>> ValueOption.defaultValue false
 
                     if isInterfaceImpl then
                         // Implicit class with an interface-impl body — same path as a

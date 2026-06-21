@@ -1239,8 +1239,7 @@ module Elaborate =
         let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
-            let arity =
-                NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length
+            let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
 
             match tryInterfaceMethods ctx name arity body with
             | Some(typars, methods, env) ->
@@ -1277,7 +1276,7 @@ module Elaborate =
                 ctx
                 ns
                 (typeNameSimple ctx tn)
-                (NameResolutionTypeRegistration.typarNamesOfTypeName ctx tn |> List.length)
+                (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
                 body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext

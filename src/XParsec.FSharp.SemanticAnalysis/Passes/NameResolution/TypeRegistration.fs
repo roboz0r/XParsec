@@ -73,6 +73,13 @@ module NameResolutionTypeRegistration =
 
         prefix @ main
 
+    /// The generic arity that keys this type in the registries (`0` for a
+    /// non-generic name). The single source for the `(name, arity)` overload key —
+    /// every arity-qualified `registerClass`/`tryClassArity`/duplicate-test site
+    /// derives its arity through here rather than re-spelling the `List.length`.
+    let arityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =
+        typarNamesOfTypeName ctx tn |> List.length
+
     /// The `when 'a : ...` clause on a `TypeName`, if any. Captured onto the
     /// registry entry so Unification's fill pass attaches each constraint to the
     /// prototype TyVars without re-walking the CST.
