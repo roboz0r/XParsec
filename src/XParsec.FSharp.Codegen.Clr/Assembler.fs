@@ -308,6 +308,78 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             | _, [] -> ()
             | newTy, replaced -> verdictBindings.[mv.Key] <- (newTy, replaced)
 
+    // rung-4 M6 P-b/P-c: the union of every verdict binding's `arrow → closure`
+    // leaf replacements — a global "this frozen arrow leaf IS that `<closure>$`
+    // value-struct" table. When a *transformer* result (`s1 : MapSeq<…,'TFunc,…>`)
+    // is consumed by a combinator that iterates it (`fold`'s `for y in source`),
+    // the consuming combinator's body carries the SOURCE's frozen seq types — the
+    // `for-in`'s `ConstrainedInterface` ifaceArgs + enumerator type
+    // (`IStructSeq<'U, MapEnumerator<…,'TFunc,…>>`) — with `'TFunc` STILL the arrow
+    // (encoded to the `Fun`/`Fun2` INTERFACE = CLASS). The receiver is the
+    // value-struct-instantiated seq, so the `constrained. callvirt` interface-map
+    // lookup misses (the impl is keyed on the closure, the token on the arrow) →
+    // the call falls through to the abstract slot (`EntryPointNotFoundException`).
+    // Rewriting these nested `'TFunc` leaves to the closure value-struct aligns the
+    // token with the receiver's actual interface impl. The arrow leaf is the verdict
+    // lambda's OWN grounded arrow (`typeOfExpr lambdaNode`) — the same `'TFunc`
+    // instance inference unified, so the identical frozen leaf appears wherever that
+    // transformer's result flows (the binding type, P-a; the temp/nested-call result,
+    // P-b; the consuming for-in's seq types, P-c). Only a value-struct closure that
+    // is a *transformer* argument (has a `FunResultTypar` verdict — its typar appears
+    // in the combinator RESULT) is included; a *terminal* lambda (`fold`'s `fun acc x
+    // -> …`, dispatched solely by the call-site `!TF` MethodSpec override) records no
+    // verdict and contributes no leaf, so a same-shaped genuine function value at a
+    // non-result position is never miscoerced.
+    let arrowClosurePairs =
+        [
+            for c in closures do
+                if c.IsValueStruct then
+                    match closureValueTypeByNode.TryGetValue c.Node with
+                    | true, closureFt ->
+                        let k = NodeKey.ofToken (TastWalk.exprTok c.Node) NodeKind.ExprLambda
+
+                        match Map.tryFind k.Raw tast.FunResultTypar with
+                        | Some _ -> yield (TastLower.typeOfExpr c.Node, closureFt)
+                        | None -> ()
+                    | false, _ -> ()
+        ]
+
+    // Replace, in a frozen TYPE, every leaf structurally equal to a recorded verdict
+    // arrow with that arrow's `<closure>$` value-struct. Recursive over the nominal
+    // spine (closes P-d's nested `MapSeq<MapSeq<…>,…>` for free). A no-op when no
+    // arrow matches (the terminal-combinator / no-verdict case).
+    let rec rewriteClosureLeaves (t: FrozenType) : FrozenType =
+        match arrowClosurePairs |> List.tryPick (fun (a, c) -> if a = t then Some c else None) with
+        | Some closureFt -> closureFt
+        | None ->
+            match t with
+            | FTClass(key, args) -> FTClass(key, EqArray.map rewriteClosureLeaves args)
+            | FTRecord(key, args) -> FTRecord(key, EqArray.map rewriteClosureLeaves args)
+            | FTUnion(key, args) -> FTUnion(key, EqArray.map rewriteClosureLeaves args)
+            | FTConst(name, args) -> FTConst(name, EqArray.map rewriteClosureLeaves args)
+            | FTTuple items -> FTTuple(EqArray.map rewriteClosureLeaves items)
+            | _ -> t
+
+    // Rewrite a `for-in` enumerator descriptor's frozen TYPE payloads (enumerator
+    // type + both `ConstrainedInterface` ifaceArgs) through `rewriteClosureLeaves`.
+    let rewriteForInEnumerator (en: Frozen.ForInEnumerator) : Frozen.ForInEnumerator =
+        match en with
+        | ForInEnumeratorG.Interface -> en
+        | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, isValueType, dispose) ->
+            let getEnum' =
+                match getEnum with
+                | ForInGetEnumG.ConstrainedInterface(k, args) ->
+                    ForInGetEnumG.ConstrainedInterface(k, EqArray.map rewriteClosureLeaves args)
+                | _ -> getEnum
+
+            let members' =
+                match members with
+                | ForInEnumMembersG.ConstrainedInterface(k, args) ->
+                    ForInEnumMembersG.ConstrainedInterface(k, EqArray.map rewriteClosureLeaves args)
+                | _ -> members
+
+            ForInEnumeratorG.Pattern(rewriteClosureLeaves enumeratorTy, getEnum', members', isValueType, dispose)
+
     // Retype a body expression so a reference to a verdict binding (and its field
     // projections) carries the `<closure>$` value-struct type rather than the frozen
     // arrow. Rebuilds only the affected nodes (a no-op deep copy elsewhere). A
@@ -316,7 +388,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // replacements; the receiver itself is retyped to the rewritten container so its
     // field-`MemberRef` `TypeSpec` matches the value-struct-instantiated field row.
     let retypeBody (e: Frozen.TExpr) : Frozen.TExpr =
-        if verdictBindings.Count = 0 then
+        if verdictBindings.Count = 0 && List.isEmpty arrowClosurePairs then
             e
         else
             // The verdict binding a (possibly nested-field) receiver bottoms out in,
@@ -357,6 +429,49 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                         e
                     else
                         TExprG.FieldGet(recv', name, ty', tok)
+                | TExprG.ForIn(pat, src, body, enumerator, ty, tok) ->
+                    // rung-4 M6 P-b/P-c: the `for y in source` of a consuming
+                    // combinator (`fold`) iterates a verdict-typed seq; its enumerator
+                    // descriptor carries the source's frozen `MapEnumerator<…,'TFunc,…>`
+                    // / `IStructSeq<…>` ifaceArgs with `'TFunc` still the arrow. Rewrite
+                    // those nested leaves to the `<closure>$` value-struct so the
+                    // `constrained. callvirt` token matches the receiver's actual
+                    // value-struct interface impl. The pattern's bound element type
+                    // (`'U` = int here) is rewritten too for completeness.
+                    let src' = rw src
+                    let body' = rw body
+                    let enumerator' = rewriteForInEnumerator enumerator
+
+                    if
+                        System.Object.ReferenceEquals(src', src)
+                        && System.Object.ReferenceEquals(body', body)
+                        && System.Object.ReferenceEquals(enumerator', enumerator)
+                    then
+                        e
+                    else
+                        TExprG.ForIn(pat, src', body', enumerator', ty, tok)
+                | TExprG.App(fn, arg, ty, tok) ->
+                    // rung-4 M6 P-b: a *transformer* call (`map (fun x -> x+1) src`) whose
+                    // result type carries the lambda's `'TFunc` (`MapSeq<…,arrow,…>`),
+                    // used directly as an argument to a consuming combinator (`fold f 0
+                    // (map …)`) WITHOUT a stored `let s1`. The fold call's `'S` MethodSpec
+                    // reads `typeOfExpr` of this App, so its result type must lay the
+                    // `'TFunc` slot out as the `<closure>$` value-struct. `rewriteClosure
+                    // Leaves` replaces the arrow leaf by structural identity (the verdict
+                    // lambda's own grounded arrow); a terminal call (`fold …`, result
+                    // `int`) carries no arrow leaf and is left unchanged.
+                    let fn' = rw fn
+                    let arg' = rw arg
+                    let ty' = rewriteClosureLeaves ty
+
+                    if
+                        System.Object.ReferenceEquals(fn', fn)
+                        && System.Object.ReferenceEquals(arg', arg)
+                        && System.Object.ReferenceEquals(ty', ty)
+                    then
+                        e
+                    else
+                        TExprG.App(fn', arg', ty', tok)
                 | _ ->
                     // Recurse without forcing a rebuild: rebuild only if a child node
                     // actually changed identity (preserving Lambda reference identity).
@@ -816,6 +931,14 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             // `FTTypar(Method, i)` (freeze-quantified), which the encoder maps to
             // `!!i` directly — no ambient typar window.
             let typarCount = staticMethods.[fn.Key].Typars
+
+            // rung-4 M6 P-b/P-c: a *consuming* combinator (`fold`) whose body iterates
+            // a verdict-typed seq carries the source's frozen `'TFunc`-as-arrow leaves
+            // in its `for-in` enumerator descriptor; `retypeBody` rewrites those to the
+            // `<closure>$` value-struct so the `constrained. callvirt GetEnumerator`
+            // token matches the value-struct receiver's interface impl. A no-op when
+            // there are no verdict bindings (the green named-struct path is untouched).
+            let fn = { fn with Body = retypeBody fn.Body }
 
             let bodyOffset =
                 Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticMethod emitCtx fn))

@@ -1551,7 +1551,7 @@ let structSeqTests =
             // rung-4 M6 P-a: a STORED binding whose type CARRIES the function typar,
             // fed by a value-struct source lambda, must lay out its `'TFunc` slot as the
             // `<closure>$` value-struct, NOT the `Vesper.Fun`2` INTERFACE (reference).
-            // The reduced repro from the M6 ptest comment: `mk : ('TF:>Fun<int,int>) ->
+            // The reduced repro of the M6 capstone gap: `mk : ('TF:>Fun<int,int>) ->
             // Holder<'TF>`; `let h = mk (fun x -> x+1)`. Before P-a the module field `h`
             // is `valuetype Holder`1<class Fun`2<int,int>>` (sig blob ends `15 12 05 …`,
             // GENERICINST CLASS) and the stored struct↔reference layout disagreement
@@ -1634,45 +1634,35 @@ let structSeqTests =
                         arg0Head)
             }
 
-            // rung-4 M6 (end-to-end integration capstone): the SAME `ofArray |> map
-            // |> fold` pipeline as the wall-iv proof above, but the two hand-written
+            // rung-4 M6 (end-to-end integration capstone, P-c): the SAME `ofArray |>
+            // map |> fold` pipeline as the wall-iv proof above, but the two hand-written
             // struct closures (`AddN`/`SumAcc`) are replaced by SOURCE lambdas —
             // `map (fun x -> x + 1)` (a saturated 1-arg `Fun` slot, M1/M2 verdict
             // arity 1) and `fold (fun acc x -> acc + x)` (a saturated 2-arg `Fun2`
-            // slot, M3 verdict arity 2). Should prove the whole epic composes: the
-            // node-keyed verdict fires per application site regardless of how the
-            // combinators nest, and BOTH lambdas lower to zero-alloc value-struct
-            // closures with no box; output identical to wall-iv (14).
+            // slot, M3 verdict arity 2). Proves the whole epic composes: the node-keyed
+            // verdict fires per application site regardless of how the combinators nest,
+            // and BOTH lambdas lower to zero-alloc value-struct closures with no box;
+            // output identical to wall-iv (14).
             //
-            // PENDING — blocked on a verdict-propagation gap the M3 mechanism does not
-            // cover (see `docs/rung4-lambda-lowering-design.md` §2.4 / §5). The §2.4
-            // node-keyed verdict rewrites only the *call site* (`EmitCall`'s `!TF`
-            // MethodSpec override binds `'TFunc` to the closure value-type). It does NOT
-            // flow into the **type of a binding that stores the combinator's result**:
-            // `let s1 = map (fun x -> x+1) s0` freezes `s1 : MapSeq<…,'TFunc,…>` with
-            // `'TFunc` still grounded to the ARROW (which encodes to the `Fun`/`Fun2`
-            // INTERFACE — a reference type), so the Program static field for `s1` is laid
-            // out as `MapSeq<…, class Fun<int,int>, …>` while `map` returns the value-
-            // struct-instantiated `MapSeq<…, <closure>$, …>`. The struct↔reference layout
-            // mismatch corrupts the stored value → a `NullReferenceException` when `fold`
-            // reads `this.F` (captureless closure) / `InvalidProgram` (capturing).
-            //
-            // Reduced repro (verified): `let h = mk (fun x -> x + 1)` where
-            // `mk : ('TFunc :> Fun<int,int>) -> Holder<'TFunc>` — the module field `h`
-            // is emitted `valuetype Holder`1<class Fun`2<int,int>>` (field-sig blob
-            // `06 15 11 08 01 15 12 05 02 08 08`), not `Holder`1<<closure>$>`. The same
-            // pipeline WITHOUT a stored result (construct + dispatch inside one generic
-            // body, or a `let g = f` local copy) runs correctly — confirming the gap is
-            // specifically result-type propagation into the binding, not the closure
-            // emission, the constrained dispatch, or the call-site MethodSpec (all of
-            // which the M1/M2/M3 tests prove green).
-            //
-            // The fix is NOT a localized integration patch: it requires the verdict to
-            // propagate through the combinator's RETURN type into the frozen type of the
-            // value that binds it (the deferred per-axis constraint table of §5, or an
-            // equivalent freeze-time substitution). Left PENDING per the no-speculative-
-            // broadening guardrail; the orchestrator decides the follow-up milestone.
-            ptest "rung 4 (M6): SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
+            // GREEN as of M6 P-b/P-c. Two distinct verdict-propagation rewrites compose
+            // here (Approach B, codegen-time substitution — see
+            // `docs/rung4-lambda-lowering-design.md` §2.4 / §6):
+            //  (P-a) the stored binding's `'TFunc` FIELD/`Var` type
+            //        (`s1 : MapSeq<…,'TFunc,…>`) is laid out as the `<closure>$` value-
+            //        struct by position (`substituteVerdictClosures`), so the `fold`
+            //        call's `'S` MethodSpec instantiates `MapSeq<…,<closure>$,…>`.
+            //  (P-b/P-c) the CONSUMING combinator's body — `fold`'s `for y in source`
+            //        — carried the source's frozen seq types
+            //        (`IStructSeq<'U, MapEnumerator<…,'TFunc,…>>` ifaceArgs + enumerator
+            //        type) with `'TFunc` STILL the arrow (encoded to the `Fun`/`Fun2`
+            //        INTERFACE = CLASS). The receiver is the value-struct-instantiated
+            //        seq, so the `constrained. callvirt GetEnumerator` token's nested
+            //        `'TFunc` (CLASS) mismatched the receiver's actual value-struct
+            //        interface impl → the call fell through to the abstract slot
+            //        (`EntryPointNotFoundException`). `rewriteClosureLeaves` (run over
+            //        StaticFn bodies + the for-in enumerator descriptor) rewrites those
+            //        nested arrow leaves to the `<closure>$` value-struct.
+            test "rung 4 (M6): SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
                 let src =
                     String.concat
                         "\n"
@@ -1731,6 +1721,7 @@ let structSeqTests =
                 let tast, artifact = compileSource "StructSeqRung4M6SourceLambda" src
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "M6 source-lambda pipeline diagnostics: %A" tast.Diagnostics)
+
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 // (1+1)+(2+1)+(3+1)+(4+1) = 2+3+4+5 = 14 — identical to the wall-iv proof.
@@ -1783,6 +1774,129 @@ let structSeqTests =
                 Expect.isTrue
                     (closureBases |> List.forall (fun b -> b = "ValueType"))
                     (sprintf "both source-lambda closures are value types: %A" closureBases)
+            }
+
+            // rung-4 M6 P-b: the SAME `ofArray |> map |> fold` source-lambda pipeline,
+            // but FULLY NESTED into one expression with NO stored `let s1` — `fold (fun
+            // acc x -> acc + x) 0 (map (fun x -> x + 1) (ofArray xs))`. The mapped seq
+            // is a Main-local / temp slot (the `total` initialiser's sub-expression),
+            // not a module-value field, so it exercises the temp-slot side of the
+            // verdict propagation: `map`'s value-struct result flows directly into
+            // `fold`'s `'S` MethodSpec (the call-site instantiation) and `fold`'s
+            // `for y in source` for-in still carries the arrow-as-`'TFunc` seq types,
+            // both rewritten to the `<closure>$` value-struct (P-b/P-c machinery). Same
+            // output (14), same no-box constrained dispatch.
+            test "rung 4 (M6 P-b): nested-temp source-lambda map/fold pipeline runs non-allocating" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IStructEnumerator<'T> ="
+                            "    abstract member MoveNext : unit -> bool"
+                            "    abstract member Current : 'T"
+                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
+                            "    abstract member GetEnumerator : unit -> 'E"
+                            "[<Struct>]"
+                            "type ArrayEnumerator<'T> ="
+                            "    val Arr : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
+                            "    interface IStructEnumerator<'T> with"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Arr.Length"
+                            "        member this.Current : 'T = this.Arr.[this.Idx]"
+                            "[<Struct>]"
+                            "type ArraySeq<'T> ="
+                            "    val Arr : 'T[]"
+                            "    new(arr: 'T[]) = { Arr = arr }"
+                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
+                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
+                            "[<Struct>]"
+                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val mutable Source : 'E"
+                            "    val F : 'TFunc"
+                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructEnumerator<'U> with"
+                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
+                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
+                            "[<Struct>]"
+                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
+                            "    val Source : 'S"
+                            "    val F : 'TFunc"
+                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
+                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
+                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
+                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
+                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
+                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
+                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "    let mutable state = seed"
+                            "    for y in source do"
+                            "        state <- f.Invoke(state, y)"
+                            "    state"
+                            "let xs = [| 1; 2; 3; 4 |]"
+                            // fully nested: NO stored `let s1` — the mapped seq is a temp
+                            // sub-expression of the `total` initialiser.
+                            "let total = fold (fun acc x -> acc + x) 0 (map (fun x -> x + 1) (ofArray xs))"
+                            "printfn \"%d\" total"
+                        ]
+
+                let tast, artifact = compileSource "StructSeqRung4M6PbNested" src
+                let bytes = Codegen.toBytes artifact
+                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-b nested pipeline diagnostics: %A" tast.Diagnostics)
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "14" "nested map (+1) then fold (+) yields 14"
+
+                let curIl = peMethodIlWhere bytes "MapEnumerator`4" (fun n -> n.EndsWith "Current")
+
+                let curConstrained =
+                    curIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue curConstrained "MapEnumerator.Current dispatches via `constrained.`"
+                Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
+
+                let programFoldIl =
+                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    |> Array.filter (fun il ->
+                        il
+                        |> Array.windowed 2
+                        |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+                    )
+
+                Expect.isNonEmpty programFoldIl "the fold loop contains a `constrained.` prefix"
+
+                Expect.isFalse
+                    (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
+                    "the constrained fold loop IL contains no `box` (non-allocating)"
+
+                let closureBases =
+                    use pr = openPe bytes
+                    let m = pr.GetMetadataReader()
+
+                    m.TypeDefinitions
+                    |> Seq.choose (fun tdh ->
+                        let td = m.GetTypeDefinition tdh
+
+                        if (m.GetString td.Name).StartsWith "<closure>$" then
+                            match td.BaseType.Kind with
+                            | HandleKind.TypeReference ->
+                                Some(
+                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
+                                )
+                            | _ -> Some "<none>"
+                        else
+                            None
+                    )
+                    |> Seq.toList
+
+                Expect.isTrue
+                    (closureBases |> List.forall (fun b -> b = "ValueType"))
+                    (sprintf "both nested source-lambda closures are value types: %A" closureBases)
             }
 
             // rung-4 M3 (external-head sibling of the project-local `apply2` test):
