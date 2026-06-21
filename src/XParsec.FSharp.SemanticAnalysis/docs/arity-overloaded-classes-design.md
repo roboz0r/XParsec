@@ -1,7 +1,7 @@
 # Design: arity-overloaded project-local classes / interfaces
 
 **Deliberate design doc — written BEFORE any implementation, the way `Fun2` was
-designed (`rung3-handoff.md` §2).** *Ephemeral plan doc* per
+designed (`rung4-lambda-lowering-design.md` §4).** *Ephemeral plan doc* per
 [[feedback_plan_docs_ephemeral]] — scoped to exactly one body of work (giving
 `PassContextTypes.Class` an `(name, arity)` key so `Fun<,>` and `Fun<,,>` coexist
 as the same overloaded name, then migrating `Fun2` → `Fun<,,>`). Delete this file
@@ -27,14 +27,14 @@ question**, not invented.
 
 ## 0. The constraint being lifted
 
-`rung3-handoff.md` §2 (`:43-48`) locks the *current* reason `Fun2` is a distinct
-nominal type rather than `Fun<,,>`:
+`rung4-lambda-lowering-design.md` §4 (locked decision 1) locks the *current* reason
+`Fun2` is a distinct nominal type rather than `Fun<,,>`:
 
 > Vesper's project-local class/interface registry (`Types.Class`) is keyed by
 > **bare name** with no arity dimension (unlike unions, which are `(name, arity)`-keyed),
 > so declaring two interfaces both named `Fun` collides.
 
-`rung3-handoff.md` §4 (`:104-108`) states the deferral and the size estimate:
+`rung4-lambda-lowering-design.md` §5 states the deferral and the size estimate:
 
 > give `Types.Class` an `(name, arity)` key + update the ~47
 > name-resolution/freeze/codegen lookups, mirroring the union machinery.
@@ -137,7 +137,7 @@ has two arities, so only `Fun`'s bare alias is ever withdrawn.
 
 ## 2. Inventory of lookup / update sites, by layer
 
-The estimate is "~47" (`rung3-handoff.md` §4). The **reconciled count of sites that
+The estimate is "~47" (`rung4-lambda-lowering-design.md` §5). The **reconciled count of sites that
 actually need touching is ~22 front-end call sites + 6 registry-API definitions +
 the registry type/`empty` — codegen needs ZERO new arity plumbing**. The "~47" was
 an over-estimate that almost certainly counted (a) codegen `UserTypes`/`Layout`
@@ -259,7 +259,7 @@ closure emission paths (`Layout.fs:443,842`; `ClrEnv.fs:450,470`).
   source in the same tree (no external consumers pin it), the break is contained:
   every consumer (`struct-seq.{fsi,fs}`, `StructSeqTests.fs`) recompiles against
   the new name. The committed `Vesper.Core.dll` reference must be regenerated
-  (`REGEN_VESPER_CORE_REF=1`, `rung3-handoff.md` §5) as part of the rename step.
+  (`REGEN_VESPER_CORE_REF=1`, `rung4-lambda-lowering-design.md` §7) as part of the rename step.
 
 ---
 
@@ -299,7 +299,7 @@ alias for `Fun` is withdrawn on the second registration (`ClassBareArity` →`-1
 mirror `SideTables.fs:702-706`). Every read of `Fun` must now be arity-qualified —
 which is why Step A must already have threaded arity through the load-bearing reads
 (§6). Regenerate `Vesper.Core.dll` ref. Update `.parsed` goldens for the changed
-`.fsi`/`.fs` (`rung3-handoff.md` §5).
+`.fsi`/`.fs` (`rung4-lambda-lowering-design.md` §7).
 
 If any load-bearing bare-`Fun` read is still un-arity'd after Step A, Step B will
 mis-resolve `Fun` (alias withdrawn → bare read misses). So Step A's acceptance gate
@@ -405,8 +405,7 @@ isolation test that forces the capability, then diagnose → fix → iterate. Or
 by dependency and risk. The FIRST milestone is a **red** test demonstrating the
 current collision.
 
-> Build/test ONLY via `./claude_tools.cmd` (`rung3-handoff.md` §5) — **but another
-> agent is editing the tree concurrently; do not build while that holds.**
+> Build/test ONLY via `./claude_tools.cmd` (`rung4-lambda-lowering-design.md` §7).
 
 ### M0 — RED: demonstrate the current collision
 **Smallest test:** a single source file declaring two interfaces of the same name,
@@ -481,10 +480,8 @@ surfaces front-end gaps the inline path hides).
 
 ## 8. Cross-references
 
-- `rung3-handoff.md` — §2 (`:43-48`) the constraint lifted; §4 (`:104-108`) the
-  deferral + "~47".
 - `rung4-lambda-lowering-design.md` — the sibling epic; shared `Fun2` touch-point
-  (§5 here).
+  (§5 here). §4 (locked decision 1) is the constraint lifted; §5 the deferral + "~47".
 - `SideTables.fs:622-767` `module TypeRegistry` — the union (name,arity) machinery
   this mirrors; `:638-644` the comment anticipating the class arity seam.
 - `SymbolKeyOps.fs:40-44` `arityName` — the single `` Name`n `` rule (CLR

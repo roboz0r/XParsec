@@ -1878,7 +1878,7 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
-            // §2.1 sub-gap 2 (rung3-handoff): the §7.2 escape-hatch shape. A *generic*
+            // Generic struct-interface-impl escape-hatch shape (rung-4, landed): A *generic*
             // class `C<'T>` implementing `IEnumerable<'T>` + the non-generic `IEnumerable`
             // upcasts its OWN-TYPAR-instantiated `IEnumerator<'T>` to the non-generic base
             // `IEnumerator` (`e :> System.Collections.IEnumerator`). The upcast target's
