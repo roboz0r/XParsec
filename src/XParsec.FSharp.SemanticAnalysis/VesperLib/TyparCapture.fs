@@ -255,6 +255,18 @@ module VesperLibTyparCapture =
         /// The default (`fun _ -> ValueNone`) is the dependency-free, no-metadata
         /// case: any caller that builds a context in isolation.
         member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
+        /// The implicit open prefixes contributed by this package's dependency
+        /// providers (their `AmbientOpenPrefixes` — e.g. Vesper.Core's `"Vesper"`,
+        /// where `Fun` / `Fun2` / `Ref` live). Seeded by
+        /// `ReferencedProject.buildProviderWith` from the dependency composite, and
+        /// used as the lowest-priority open prefixes during this package's own
+        /// extraction (`extractSymbols`), so a `.fsi` can name a dependency's
+        /// ambiently-available type unqualified — exactly as the consumer's
+        /// front end resolves it through the composite's `AmbientOpenPrefixes`.
+        /// Without this, a cross-package short name reachable only via a dependency's
+        /// prelude (a `'TFunc :> Fun<_,_>` coercion target) froze as `FTUnknown`.
+        /// The default `[]` is the dependency-free / isolated-context case.
+        member val DependencyAmbientPrefixes: string list = [] with get, set
         /// This package's own **home assembly** simple name (`Some "Vesper.Option"`),
         /// set by the wrapped builder (`ReferencedProject.buildProviderWith`) from
         /// `manifest.Name`. During extraction a

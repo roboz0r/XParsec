@@ -443,6 +443,7 @@ module ReferencedProject =
     let buildProviderWith
         (target: string option)
         (ambientShapes: string -> ExternalTypeShape voption)
+        (dependencyAmbientPrefixes: string list)
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
         match loadManifest manifestPath with
@@ -451,6 +452,10 @@ module ReferencedProject =
             let dir = Path.GetDirectoryName manifestPath
             let ctx = VesperLib.ExtractCtx.empty ()
             ctx.AmbientShapes <- ambientShapes
+            // The dependency composite's ambient open prefixes (`Vesper`, …) so this
+            // package's own extraction resolves a dependency's ambiently-available
+            // type by bare name (`Fun` / `Fun2`), the way the consumer front end does.
+            ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
             // The package's own home assembly, so `mkNominal` stamps it onto own-type
             // keys whose extraction-time origin is still Empty (Phase 6) — matching
             // the `Some manifest.Name` origin the `wrap` below stamps for consumers.
@@ -552,7 +557,7 @@ module ReferencedProject =
     let buildProvider
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
-        buildProviderWith None (fun _ -> ValueNone) manifestPath
+        buildProviderWith None (fun _ -> ValueNone) [] manifestPath
 
     /// Lazy cache keyed by the (normalised) manifest path so repeated callers
     /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.

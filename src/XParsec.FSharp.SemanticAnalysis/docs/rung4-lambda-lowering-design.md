@@ -49,36 +49,73 @@ zero-alloc, including a multi-`map` chain of structurally-identical closures. Al
 `Vesper.Seq` calling `StructSeq.map` / `StructSeq.fold` with **source lambdas**, proving the
 whole epic survives the strict package path and an EXTERNAL combinator head.
 
-**The blocker — the EXTERNAL half of the frozen-constraint table.** Direction B's call-site
-phantom-typar solve (§1) works for a PROJECT-LOCAL combinator head: the bound comes from
-`TypeScheme.Constraints` → `FrozenConstraint`, and the interface-impl witness walks
-`env.Classes`. When the head is external (`StructSeq.map`/`fold` resolved from the
-`Vesper.Seq` contract), neither is reachable:
-- The bound lives on `ExternalSymbol.Constraints` (`ExternalConstraint.Coercion`,
-  `ExternalSymbols.fs:39-53` — already a `FrozenType` template over the symbol's typars) but
-  is **deliberately stripped from the codegen view**: `CodegenOpenSignature`
-  (`ExternalSymbols.fs:578-595`) and `ICodegenSymbols` (`:605-619`) carry no constraints, by
-  the explicit decision at `:597-604` ("emission can no longer reach Instantiate /
-  constraints"). M7 must re-open this — the wall the architecture closed on purpose.
-- The interface-impl witness (`tryInterfaceWitness`) is project-local-only; an external seq
-  type's impls come from the contract metadata, not `env.Classes`.
+M7 is **four stages**, not the three the earlier sketch assumed — empirical probing of the
+extracted `Vesper.Seq` contract (the "verify before building" step) found the contract symbol
+itself was wrong BEFORE the codegen-view question even arose. Stage 0 is now LANDED.
 
-**Sketch (verify before building):**
-1. Carry `ExternalConstraint.Coercion` from the inference surface onto the codegen view —
-   add a constraints channel to `CodegenOpenSignature` / `ICodegenSymbols` (the §5
-   reopening). Map it into the same `FrozenConstraint`-shaped data `EmitCall`'s solve
-   already consumes, so the solve is head-agnostic.
-2. Give the witness walk an external arm: resolve an external seq nominal's implemented
-   interfaces (with instantiation) from the contract — the external analog of
-   `tryInterfaceWitness` over `env.Classes`.
-3. Confirm the external `MapSeq` result type (from the contract `FrozenType` template /
-   `ExternalSignature`) flows through the producing `App`-result / stored-slot rewrites the
-   same way the project-local one does.
+### Stage 0 — contract extraction yields the full generalised symbol — LANDED
+
+The `.fsi`-extracted `StructSeq.fold` symbol was malformed in two independent ways (both
+proven by a throwaway probe over `SymbolProviders.buildContract`, both fixed; the producer/impl
+side — `struct-seq.fs` compiled — was always correct, this is purely the consumer-facing
+contract extraction):
+
+1. **PHANTOM typars were not counted.** `fold`'s `'T`/`'E` appear only in its `when` clauses
+   (`'S :> IStructSeq<'T,'E>`), never in a parameter/result. `finalizeVal` (`VesperLib.fs`)
+   snapshotted `typarCount = dc.Typars.Count` BEFORE `resolveConstraints` — but the
+   `when`-clause-only typars are interned only while their coercion targets are translated,
+   INSIDE `resolveConstraints`. So `fold` extracted with **3** typars, the phantom `'E`'s
+   constraint index (4) overran the 3-element fresh array, and `Instantiate` threw
+   `IndexOutOfRange`. **Fix:** snapshot `typarCount` AFTER `resolveConstraints` (the contract
+   analogue of the impl-side `mkMethodQuantEnv` dependent-typar pass) — `fold` now carries all
+   5 typars `'TFunc,'T,'State,'S,'E`, `Instantiate` succeeds.
+2. **Dependency-prelude bounds froze as `FTUnknown`.** The `'TFunc :> Fun<…>` / `Fun2<…>`
+   targets resolved to `FTUnknown "Fun"` / `"Fun2"` — extraction's `resolveTypeName` only
+   tried the file's own open prefixes (`["Vesper.Collections"]`), never the dependency
+   providers' `AmbientOpenPrefixes` (`Vesper`, where `Fun`/`Fun2` live), which the *consumer*
+   front end uses. **Fix:** thread the dependency composite's `AmbientOpenPrefixes` through
+   `composeProviders` → `buildProviderWith` → `ExtractCtx.DependencyAmbientPrefixes`, seeding
+   them as lowest-priority file opens in `extractSymbols`. The bounds now resolve to the real
+   `Vesper.Fun`2` / `Fun2`3` nominals. Regression-gated by the full Codegen.Clr (1051),
+   SemanticAnalysis (627), Vesper.Tests (47), PackageBuild (10) suites.
+
+### Remaining blocker — the EXTERNAL half of the frozen-constraint table
+
+Direction B's call-site phantom-typar solve (§1) works for a PROJECT-LOCAL combinator head:
+the bound comes from `TypeScheme.Constraints` → `FrozenConstraint`, and the interface-impl
+witness walks `env.Classes`. With the head external, the (now-correct) `ExternalSymbol`
+carries the bounds but they are not yet reachable by emission, and the witness has no data:
+- The bound on `ExternalSymbol.Constraints` (`ExternalConstraint.Coercion`) is **stripped from
+  the codegen view**: `CodegenOpenSignature` (`ExternalSymbols.fs:578-595`) / `ICodegenSymbols`
+  (`:605-619`) carry no constraints, by the explicit decision at `:597-604`. M7 must re-open
+  this — the wall the architecture closed on purpose. Also: `Inline.openMethodSignature`
+  currently walks ONLY the signature, so it still misses the phantom `'T`/`'E` (the consumer's
+  analogue of the Stage-0 count bug) — it must run the same dependent-typar fixpoint over the
+  instantiated symbol's constraints so its reconstructed method-typar order matches the
+  producer's emitted IL (params-then-result, then bounds).
+- The interface-impl witness (`tryInterfaceWitness`) is project-local-only, and an external
+  seq type's impls live on `ExternalClassShape.FrozenInterfaces` — which the `.fsi` extractor
+  **does not populate** (always `ExternalClassShape.basic`'s empty default; only the metadata
+  layer fills it). Publishing `FrozenInterfaces` from the `.fsi` `interface …` declarations is
+  its own extraction stage, a prerequisite for the witness's external arm.
+
+**Remaining sketch (verify before building):**
+1. Codegen-view reopening: add a `FrozenConstraint list` channel to `CodegenOpenSignature` /
+   `ICodegenSymbols`; extend `openMethodSignature` to append phantom typars via the constraint
+   fixpoint (matching producer order) and emit the bounds, mapped into the same
+   `FrozenConstraint` shape `EmitCall`'s solve already consumes, so the solve is head-agnostic.
+2. Publish `ExternalClassShape.FrozenInterfaces` from `.fsi` class/struct `interface …` decls
+   (frozen over declaring typars), then give `tryInterfaceWitness` an external arm reading it
+   via `ICodegenSymbols.TryLookupType`.
+3. Run the phantom solve in `ClrRecipes.emitExternalCall` before minting the `MethodSpec`
+   (the external analogue of the `EmitCall` project-local block), and confirm the external
+   `MapSeq` result flows through the producing `App`-result / stored-slot rewrites unchanged.
 
 **Smallest test:** a `buildPackage` client `let total = StructSeq.fold (fun a x -> a+x) 0
 (StructSeq.map (fun x -> x+1) (StructSeq.ofArray xs))` → same output + no-box constrained
-dispatch as the inline project-local M6 test. Risk: medium — the codegen-view reopening is
-the real cost; everything downstream is shared with the (landed) project-local path.
+dispatch as the inline project-local M6 test. Risk: medium — the codegen-view reopening and the
+`FrozenInterfaces` publish are the real cost; the solve itself is shared with the (landed)
+project-local path.
 
 ---
 

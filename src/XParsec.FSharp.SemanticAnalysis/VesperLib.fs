@@ -301,10 +301,23 @@ module VesperLib =
             // Per-val skips go to `Skipped`, not `Diagnostics`.
             ctx.Skipped.Add(dv.File, sprintf "%s: %s" dv.Compiled e)
         | Ok template ->
-            let typarCount = dc.Typars.Count
-
             let resolved =
                 resolveConstraints ctx dc.Lexed dc.Input dc.Opens dc.Typars (constraints.Snapshot())
+
+            // Snapshot the typar count AFTER `resolveConstraints`, not before: a
+            // `when`-clause-only typar — a PHANTOM typar present in no parameter/
+            // result, only inside a coercion target (`fold`'s enumerator `'E` /
+            // element `'T` in `'S :> IStructSeq<'T,'E>`) — is interned into the
+            // collector while that target is translated, which happens inside
+            // `resolveConstraints`. Reading the count beforehand under-counted the
+            // symbol's typars: the phantom's constraint index then overran the
+            // `typarCount`-sized fresh-TyVar array (`IndexOutOfRange` at
+            // `Instantiate`). Counting after makes the extracted symbol carry every
+            // generalised typar — the contract analogue of the impl-side
+            // `mkMethodQuantEnv` dependent-typar pass — and satisfies
+            // `makeInstantiate`'s invariant that every constraint index lands in
+            // `freshTvs` (its `.Count`).
+            let typarCount = dc.Typars.Count
 
             // Capture the SOURCE arity for a module FUNCTION (Step C). The `.fsi`'s
             // `CurriedSig`/`ArgsSpec` already encodes the grouping the bare curried
@@ -1514,16 +1527,25 @@ module VesperLib =
                 extractModuleSigElement ctx file lexed input opens pathRev sourcePathRev elems.[i]
 
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
+        // The dependency providers' ambient prefixes (`Vesper`, …) seed the file's
+        // open scope at lowest priority — fileOpens flows to the tail of each
+        // descended scope (`ownOpens @ (nsName :: fileOpens)`), so an explicit
+        // `open` / the enclosing namespace still wins. This lets a `.fsi` reference
+        // a dependency's ambiently-available type (`Fun` / `Fun2` from Core) by
+        // bare name, matching the consumer front end's composite resolution.
+        let fileOpens = ctx.DependencyAmbientPrefixes
+
         match parsed.Ast with
         | FSharpAst.SignatureFile sf ->
             match sf with
             | SignatureFile.Namespaces groups ->
                 for i in 0 .. groups.Length - 1 do
                     // Each namespace decl group starts a fresh open scope.
-                    extractNamespaceGroup ctx parsed.File parsed.Lexed parsed.Input [] groups.[i]
-            | SignatureFile.NamedModule nm -> extractNamedModuleSig ctx parsed.File parsed.Lexed parsed.Input [] nm
+                    extractNamespaceGroup ctx parsed.File parsed.Lexed parsed.Input fileOpens groups.[i]
+            | SignatureFile.NamedModule nm ->
+                extractNamedModuleSig ctx parsed.File parsed.Lexed parsed.Input fileOpens nm
             | SignatureFile.AnonymousModule elems ->
-                let opens = collectOpens parsed.Lexed parsed.Input elems
+                let opens = collectOpens parsed.Lexed parsed.Input elems @ fileOpens
 
                 for i in 0 .. elems.Length - 1 do
                     extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] [] elems.[i]

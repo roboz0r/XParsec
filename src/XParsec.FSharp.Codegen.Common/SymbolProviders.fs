@@ -51,8 +51,15 @@ module SymbolProviders =
 
             let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
+            // The dependency providers' implicit open prefixes (`Vesper` from Core,
+            // where `Fun`/`Fun2`/`Ref` live), so this package's extraction resolves a
+            // dependency's ambiently-available type by bare name — mirroring the
+            // consumer composite's `AmbientOpenPrefixes`. Dedup, dependency order.
+            let depAmbientPrefixes =
+                depProviders |> List.collect (fun p -> p.AmbientOpenPrefixes) |> List.distinct
+
             // Qualify `Result.Ok`/`Error`: `open ...SemanticAnalysis` shadows bare cases.
-            match ReferencedProject.buildProviderWith target ambientShapes path with
+            match ReferencedProject.buildProviderWith target ambientShapes depAmbientPrefixes path with
             | Result.Ok(provider, _) ->
                 built.Add provider
                 byPath.[key] <- provider
