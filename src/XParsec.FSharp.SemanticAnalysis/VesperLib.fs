@@ -48,6 +48,18 @@ module VesperLib =
         with BodylessExternalShape _ ->
             ExternalSymbols.unfreezable
 
+    /// Split a frozen `interface <ty>` declaration into the `(compiled-name,
+    /// type-args)` pair `ExternalClassShape.FrozenInterfaces` holds (args over the
+    /// declaring typars, `FTTypar(Declaring,i)`) — the `.fsi` analogue of the
+    /// metadata layer's `buildClassInterfaces`. `None` for a non-nominal freeze (an
+    /// unresolved name → `FTUnknown`), which carries no witness.
+    let private nominalInterface (ft: FrozenType) : (string * FrozenType[]) option =
+        match ft with
+        | FTClass(k, args)
+        | FTRecord(k, args)
+        | FTUnion(k, args) -> Some(SymbolKeyOps.qualifiedName k, args.AsSpan().ToArray())
+        | _ -> None
+
     /// Translate a stashed member-signature CST to its two-axis `ExternalSignature`
     /// template, splitting the head `FTFun(params, ret)` (or treating the whole
     /// result as the value, for a property). `ValueNone` means **drop the member**,
@@ -472,16 +484,23 @@ module VesperLib =
                     ExternalTypeShape.Union(arity, cases', origin)
                 | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev(dc, rhs)) ->
                     ExternalTypeShape.Abbrev(arity, freezeBodyType ctx dc rhs)
-                // A class's deferred `inherit <type>` base, frozen now the registry is
-                // complete (the base may forward-reference a sibling). The members ride
-                // the separate `DeferredMembers` channel (loop below); this loop fills
-                // only `FrozenBaseType`, which a consumer's subtype walk
-                // (`Engine.subtypeParentOf` → `instantiateBaseType`) reads to reconcile
-                // through the contract inherit chain — the Step-8 JS exception hierarchy.
-                | ExternalTypeShape.Class shape, (true, DeferredBody.Class(dc, baseOpt, _)) ->
+                // A class's deferred `inherit <type>` base + `interface <type>` impls,
+                // frozen now the registry is complete (either may forward-reference a
+                // sibling). The members ride the separate `DeferredMembers` channel (loop
+                // below); this loop fills `FrozenBaseType` (read by a consumer's subtype
+                // walk `Engine.subtypeParentOf` → `instantiateBaseType` to reconcile
+                // through the contract inherit chain — the Step-8 JS exception hierarchy)
+                // and `FrozenInterfaces` (read by the interface-impl witness
+                // `tryInterfaceWitness`' external arm to recover a phantom typar from a
+                // struct seq's `IStructSeq<'T,'E>` impl — rung-4 M7).
+                | ExternalTypeShape.Class shape, (true, DeferredBody.Class(dc, baseOpt, ifaces, _)) ->
                     ExternalTypeShape.Class
                         { shape with
                             FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
+                            FrozenInterfaces =
+                                ifaces
+                                |> List.choose (fun t -> nominalInterface (freezeBodyType ctx dc t))
+                                |> List.toArray
                         }
                 | _ -> shape
 
@@ -557,7 +576,7 @@ module VesperLib =
         // `InvalidOperationException "msg"` without host metadata.
         for k in shapeKeys do
             match ctx.DeferredBodies.TryGetValue k with
-            | true, DeferredBody.Class(dc, _, ctors) when not (List.isEmpty ctors) ->
+            | true, DeferredBody.Class(dc, _, _, ctors) when not (List.isEmpty ctors) ->
                 let arity =
                     match ctx.TypeShapes.TryGetValue k with
                     | true, ExternalTypeShape.Class shape -> shape.Arity
@@ -1318,12 +1337,14 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty))
 
-                // An `inherit <type>` clause and any `new: … -> T` constructors are
-                // deferred (like the body templates) so a base / ctor type that
-                // forward-references a sibling resolves once the registry is complete;
-                // the finalize pass freezes the base into `FrozenBaseType` and each ctor
-                // into a `.ctor` member. Only a class that declares one of them registers
-                // a deferred body — the previously-empty common case is untouched.
+                // An `inherit <type>` clause, any directly-declared `interface <type>`
+                // impls, and any `new: … -> T` constructors are deferred (like the body
+                // templates) so a base / interface / ctor type that forward-references a
+                // sibling resolves once the registry is complete; the finalize pass
+                // freezes the base into `FrozenBaseType`, each interface into
+                // `FrozenInterfaces`, and each ctor into a `.ctor` member. Only a class
+                // that declares one of them registers a deferred body — the
+                // previously-empty common case is untouched.
                 let inheritBase =
                     elements
                     |> Seq.tryPick (fun e ->
@@ -1331,6 +1352,14 @@ module VesperLib =
                         | TypeSignatureElement.Inherit(ClassInheritsDecl(typ = t)) -> Some t
                         | _ -> None
                     )
+
+                let interfaces =
+                    [
+                        for e in elements do
+                            match e with
+                            | TypeSignatureElement.Interface(InterfaceSpec(typ = t)) -> t
+                            | _ -> ()
+                    ]
 
                 let ctors =
                     [
@@ -1342,8 +1371,8 @@ module VesperLib =
                             | _ -> ()
                     ]
 
-                match inheritBase, ctors with
-                | None, [] -> ()
+                match inheritBase, interfaces, ctors with
+                | None, [], [] -> ()
                 | _ ->
                     let collector = collectorForTypeName lexed input typeName
 
@@ -1358,6 +1387,7 @@ module VesperLib =
                             (match inheritBase with
                              | Some t -> ValueSome t
                              | None -> ValueNone),
+                            interfaces,
                             ctors
                         )
 

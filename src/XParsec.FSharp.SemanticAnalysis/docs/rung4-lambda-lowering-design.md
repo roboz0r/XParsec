@@ -43,79 +43,117 @@ zero-alloc, including a multi-`map` chain of structurally-identical closures. Al
 
 ---
 
-## 2. NEXT — M7: library graduation (the only remaining milestone)
+## 2. M7 — library graduation (stages 0–2 LANDED; stage 3 is the last)
 
 **Goal:** a `buildPackage`-gated ([[reference_buildpackage_gates_on_diagnostics]]) client of
 `Vesper.Seq` calling `StructSeq.map` / `StructSeq.fold` with **source lambdas**, proving the
 whole epic survives the strict package path and an EXTERNAL combinator head.
 
-M7 is **four stages**, not the three the earlier sketch assumed — empirical probing of the
-extracted `Vesper.Seq` contract (the "verify before building" step) found the contract symbol
-itself was wrong BEFORE the codegen-view question even arose. Stage 0 is now LANDED.
+M7 is **four stages** (0–3). **Stages 0, 1, and 2 have landed**; **stage 3** — the codegen
+consumption in `emitExternalCall` — is the only remaining work and the only thing between here
+and the headline test. Stages 1+2 are behavior-neutral on their own (the data they thread is
+unconsumed until stage 3), gated green by Codegen.Clr (1051) + SemanticAnalysis (628).
 
 ### Stage 0 — contract extraction yields the full generalised symbol — LANDED
 
-The `.fsi`-extracted `StructSeq.fold` symbol was malformed in two independent ways (both
-proven by a throwaway probe over `SymbolProviders.buildContract`, both fixed; the producer/impl
-side — `struct-seq.fs` compiled — was always correct, this is purely the consumer-facing
-contract extraction):
+The `.fsi`-extracted `StructSeq.fold` symbol was malformed two ways, both fixed: (1) **phantom
+typars not counted** — `finalizeVal` (`VesperLib.fs`) now snapshots `typarCount` AFTER
+`resolveConstraints`, so `fold` carries all 5 typars `'TFunc,'T,'State,'S,'E` and `Instantiate`
+succeeds; (2) **dependency-prelude bounds froze as `FTUnknown`** — the dependency composite's
+`AmbientOpenPrefixes` are now threaded through `composeProviders` → `buildProviderWith` →
+`ExtractCtx.DependencyAmbientPrefixes`, so `'TFunc :> Fun<…>` / `Fun2<…>` resolve to the real
+`Vesper.Fun`2` / `Fun2`3` nominals.
 
-1. **PHANTOM typars were not counted.** `fold`'s `'T`/`'E` appear only in its `when` clauses
-   (`'S :> IStructSeq<'T,'E>`), never in a parameter/result. `finalizeVal` (`VesperLib.fs`)
-   snapshotted `typarCount = dc.Typars.Count` BEFORE `resolveConstraints` — but the
-   `when`-clause-only typars are interned only while their coercion targets are translated,
-   INSIDE `resolveConstraints`. So `fold` extracted with **3** typars, the phantom `'E`'s
-   constraint index (4) overran the 3-element fresh array, and `Instantiate` threw
-   `IndexOutOfRange`. **Fix:** snapshot `typarCount` AFTER `resolveConstraints` (the contract
-   analogue of the impl-side `mkMethodQuantEnv` dependent-typar pass) — `fold` now carries all
-   5 typars `'TFunc,'T,'State,'S,'E`, `Instantiate` succeeds.
-2. **Dependency-prelude bounds froze as `FTUnknown`.** The `'TFunc :> Fun<…>` / `Fun2<…>`
-   targets resolved to `FTUnknown "Fun"` / `"Fun2"` — extraction's `resolveTypeName` only
-   tried the file's own open prefixes (`["Vesper.Collections"]`), never the dependency
-   providers' `AmbientOpenPrefixes` (`Vesper`, where `Fun`/`Fun2` live), which the *consumer*
-   front end uses. **Fix:** thread the dependency composite's `AmbientOpenPrefixes` through
-   `composeProviders` → `buildProviderWith` → `ExtractCtx.DependencyAmbientPrefixes`, seeding
-   them as lowest-priority file opens in `extractSymbols`. The bounds now resolve to the real
-   `Vesper.Fun`2` / `Fun2`3` nominals. Regression-gated by the full Codegen.Clr (1051),
-   SemanticAnalysis (627), Vesper.Tests (47), PackageBuild (10) suites.
+### Stage 1 — codegen-view constraint channel reopened — LANDED
 
-### Remaining blocker — the EXTERNAL half of the frozen-constraint table
+Reopens the wall `ExternalSymbols.fs` `CodegenOpenSignature` / `ICodegenSymbols` closed on
+purpose (the `Constraints`-stripped codegen view), and fixes the consumer-side analogue of the
+Stage-0 count bug:
 
-Direction B's call-site phantom-typar solve (§1) works for a PROJECT-LOCAL combinator head:
-the bound comes from `TypeScheme.Constraints` → `FrozenConstraint`, and the interface-impl
-witness walks `env.Classes`. With the head external, the (now-correct) `ExternalSymbol`
-carries the bounds but they are not yet reachable by emission, and the witness has no data:
-- The bound on `ExternalSymbol.Constraints` (`ExternalConstraint.Coercion`) is **stripped from
-  the codegen view**: `CodegenOpenSignature` (`ExternalSymbols.fs:578-595`) / `ICodegenSymbols`
-  (`:605-619`) carry no constraints, by the explicit decision at `:597-604`. M7 must re-open
-  this — the wall the architecture closed on purpose. Also: `Inline.openMethodSignature`
-  currently walks ONLY the signature, so it still misses the phantom `'T`/`'E` (the consumer's
-  analogue of the Stage-0 count bug) — it must run the same dependent-typar fixpoint over the
-  instantiated symbol's constraints so its reconstructed method-typar order matches the
-  producer's emitted IL (params-then-result, then bounds).
-- The interface-impl witness (`tryInterfaceWitness`) is project-local-only, and an external
-  seq type's impls live on `ExternalClassShape.FrozenInterfaces` — which the `.fsi` extractor
-  **does not populate** (always `ExternalClassShape.basic`'s empty default; only the metadata
-  layer fills it). Publishing `FrozenInterfaces` from the `.fsi` `interface …` declarations is
-  its own extraction stage, a prerequisite for the witness's external arm.
+- **`Inline.openMethodSignature`** now runs the dependent-typar fixpoint (the consumer mirror
+  of `Elaborate.mkMethodQuantEnv`): after the signature pre-order `collect`, a `ResizeArray`
+  worklist walks each collected typar's `Coercion` bounds, appending phantom typars (the `'E`
+  in `'S :> IStructSeq<'T,'E>`) to a fixpoint. So `MethodArity` now counts them and the
+  reconstructed method-typar ORDER matches the producer's emitted IL. For `fold` this yields
+  arity **5**, order `['TFunc,'State,'S,'T,'E]` — identical to the producer's
+  `mkMethodQuantEnv` emit order. Kept `zonk`-free (link-chased through `collect`) per the
+  existing "UnificationEngine compiles later" constraint. It also emits the bounds as a
+  `FrozenConstraint list` over the method axis (`typarIndex` = the constrained `'S` slot;
+  `target` = `IStructSeq<'T,'E>` carrying the phantom slots), the SAME shape `EmitCall`'s
+  project-local solve already consumes — so the stage-3 solve is head-agnostic.
+- A **`Constraints: FrozenConstraint list`** field added to `Inline.OpenMethodSignature` and to
+  `CodegenOpenSignature`; `CodegenSymbols.ofProvider` threads `os.Constraints` through.
+- Latent gap flagged in a code comment: the fixpoint chases only DIRECTLY-named target typars,
+  not a freshly-interned typar's own further bounds (transitively). None of the struct-seq
+  signatures need it (`'E :> IStructEnumerator<'T>` only reintroduces `'T`, already named by
+  `'S`'s bound). Harden to a full transitive fixpoint only if a future signature needs it.
 
-**Remaining sketch (verify before building):**
-1. Codegen-view reopening: add a `FrozenConstraint list` channel to `CodegenOpenSignature` /
-   `ICodegenSymbols`; extend `openMethodSignature` to append phantom typars via the constraint
-   fixpoint (matching producer order) and emit the bounds, mapped into the same
-   `FrozenConstraint` shape `EmitCall`'s solve already consumes, so the solve is head-agnostic.
-2. Publish `ExternalClassShape.FrozenInterfaces` from `.fsi` class/struct `interface …` decls
-   (frozen over declaring typars), then give `tryInterfaceWitness` an external arm reading it
-   via `ICodegenSymbols.TryLookupType`.
-3. Run the phantom solve in `ClrRecipes.emitExternalCall` before minting the `MethodSpec`
-   (the external analogue of the `EmitCall` project-local block), and confirm the external
-   `MapSeq` result flows through the producing `App`-result / stored-slot rewrites unchanged.
+### Stage 2 — `FrozenInterfaces` published from the `.fsi` — LANDED
 
-**Smallest test:** a `buildPackage` client `let total = StructSeq.fold (fun a x -> a+x) 0
-(StructSeq.map (fun x -> x+1) (StructSeq.ofArray xs))` → same output + no-box constrained
-dispatch as the inline project-local M6 test. Risk: medium — the codegen-view reopening and the
-`FrozenInterfaces` publish are the real cost; the solve itself is shared with the (landed)
-project-local path.
+The `.fsi` extractor now fills `ExternalClassShape.FrozenInterfaces` (was always
+`basic`'s empty default; only the metadata layer filled it), mirroring the existing
+`inherit` → `FrozenBaseType` deferral:
+
+- **`DeferredBody.Class`** (`VesperLib/TyparCapture.fs`) gains an `interfaces: Type list`
+  channel.
+- The **Class/Anon extraction arm** (`VesperLib.fs`) collects
+  `TypeSignatureElement.Interface(InterfaceSpec(typ = t))` decls and defers them (the interface
+  type may forward-reference a sibling). NOTE the seq types are `[<Struct>]`-ATTRIBUTED, so
+  they parse through the Class/Anon arm, NOT `TypeSignature.Struct` (the `struct…end` form).
+- The **finalize `DeferredBody.Class` arm** freezes each into `FrozenInterfaces` via the new
+  `nominalInterface` helper (splits a frozen nominal into `(qualifiedName, FrozenType[])` over
+  the declaring typars — the `.fsi` analogue of the metadata layer's `buildClassInterfaces`).
+  A BCL interface that doesn't resolve in the `.fsi` (e.g. `IEnumerable<'T>`) freezes to
+  `FTUnknown` and `nominalInterface` skips it — harmless, the witness only needs `IStructSeq`.
+- Verified by a new `VesperLibTests.fs` test: a `[<Struct>] type Holder<'T>` with
+  `interface IBox<'T>` extracts `FrozenInterfaces = [("…IBox`1", [FTTypar(Declaring,0)])]`.
+
+### Stage 3 — NEXT — consume it all in `emitExternalCall`
+
+The external analogue of the project-local `EmitCall` block (`§1`). All the data is now flowing
+(stage-1 `Constraints` + arity on the open signature, stage-2 `FrozenInterfaces` on the shape);
+stage 3 wires it into emission:
+
+1. Give **`EmitResolve.tryInterfaceWitness`** an EXTERNAL arm: today it only walks project-local
+   `env.Classes`; add a branch that reads `ICodegenSymbols.TryLookupType name` →
+   `ExternalClassShape.FrozenInterfaces` and instantiates the matching interface's args over the
+   receiver's declaring args (the data-form `ExternalSymbols.instantiateInterfaces` already does
+   this realisation — reuse or mirror it).
+2. In **`ClrRecipes.emitExternalCall`**: the open signature now reports `MethodArity` = 5 and
+   carries `Constraints`. `recoverOpenTypars 0 methodArity openSig.Signature fnTy` recovers only
+   the signature-reachable slots (`'TFunc,'State,'S` — and `'T` if it appears) but CANNOT
+   recover the phantom `'E` (in no param/result). Run the phantom solve — the
+   `FrozenConstraint.Coercion` fixpoint from `EmitCall.fs:314-388`, now reading
+   `openSig.Constraints` and calling the stage-1 external `tryInterfaceWitness` — to fill the
+   phantom slots BEFORE minting the `MethodSpec`, and encode the member-ref `msig` with
+   `genericParameterCount = methodArity` (already 5). Confirm the external `MapSeq` result flows
+   through the producing `App`-result / stored-slot rewrites unchanged.
+
+**Likely sub-task uncovered during stage 1/2:** `[<Struct>]`-ATTRIBUTED types extract from the
+`.fsi` with `IsValueType = false` — the Class/Anon arm does not decode the `[<Struct>]`
+attribute (only the `struct…end` form sets `Flags.IsValueType`). The no-box / `constrained.`
+dispatch on an external `MapSeq` may need that flag set from the `.fsi`; if the stage-3 test
+shows a box or a `value type mismatch`, decoding `[<Struct>]` in the Class/Anon arm (or via the
+attribute decoder) becomes part of stage 3.
+
+**Smallest test (now a near one-liner — the harness landed):** the consumption harness is in
+place ([[reference_declarative_package_test_harness]]) — `runPackagesInspect ["Vesper.Seq"] src`
+compiles a driver against the built `Vesper.Seq` (+ transitive deps) in `packageAlc`, runs it,
+AND returns the emitted bytes for a `peMethodsIlWhere` no-box / `constrained.` scan in one pass.
+So the M7 test is:
+
+```fsharp
+let (exit, out), bytes =
+    runPackagesInspect ["Vesper.Seq"]
+        "let xs = [|1;2;3;4|]\n\
+         let total = StructSeq.fold (fun a x -> a + x) 0 (StructSeq.map (fun x -> x + 1) (StructSeq.ofArray xs))\n\
+         printfn \"%d\" total"
+// assert exit 0, out = "14", and bytes carry constrained./no box on the Invoke + fold sites
+```
+
+→ same output + no-box constrained dispatch as the inline project-local M6 test
+(`StructSeqTests.fs`). Risk: medium — the witness external arm + the `[<Struct>]` flag are the
+real cost; the solve itself is shared with the (landed) project-local path.
 
 ---
 
@@ -161,7 +199,8 @@ combinator is ever added.
 - Memories: [[project_seq_struct_pipeline_ladder]] (authoritative landed state),
   [[project_struct_codegen]], [[project_function_method_compiled_form]],
   [[reference_constrained_callvirt_nonvirtual_struct]],
-  [[reference_buildpackage_gates_on_diagnostics]].
+  [[reference_buildpackage_gates_on_diagnostics]],
+  [[reference_declarative_package_test_harness]] (the `runPackagesInspect` M7 test seam).
 - Dev workflow / IL-inspection gotchas (build via `./claude_tools.cmd`, `peMethodIlWhere`
   etc., crash semantics): unchanged from prior revisions — see
   [[project_seq_struct_pipeline_ladder]] and `§7`-era git history if needed.

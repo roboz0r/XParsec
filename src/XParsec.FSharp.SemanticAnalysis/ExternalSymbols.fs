@@ -592,6 +592,14 @@ type CodegenOpenSignature =
         /// reconstruction. The compiled form is never stored alongside — it is fully
         /// determined by the `ValRepr`.
         ValRepr: Frozen.ValRepr voption
+        /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar axis
+        /// (`FTTypar(Method, i)` leaves), in the SAME `FrozenConstraint` shape the
+        /// project-local `EmitCall` phantom-typar solve consumes. Re-opens the channel
+        /// the codegen view deliberately stripped (M7 stage 1): the external head's
+        /// phantom-typar solve (stage 3) recovers a phantom slot (`fold`'s `'E`) from
+        /// the constrained source's interface witness, exactly as the project-local
+        /// head does. Empty for a symbol with no subtype bounds.
+        Constraints: FrozenConstraint list
     }
 
 /// The **codegen-facing** view of the external-symbol contract. Where `IExternalSymbolProvider` exposes the

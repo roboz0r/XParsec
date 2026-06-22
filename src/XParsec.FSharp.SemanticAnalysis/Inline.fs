@@ -338,8 +338,17 @@ module Inline =
             /// `FTTypar(Method, i)`: the codegen-facing open signature is immutable
             /// `FrozenType` data, not a `SemType`.
             Signature: FrozenType
-            /// Count of distinct method typars — the `MethodSpec` generic-parameter count.
+            /// Count of distinct method typars — the `MethodSpec` generic-parameter
+            /// count. INCLUDES phantom typars present only in `Coercion` bounds (the
+            /// enumerator `'E` in `'S :> IStructSeq<'T,'E>`), recovered by the
+            /// dependent-typar pass so the count matches the producer's emitted IL.
             MethodArity: int
+            /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar
+            /// axis (`FTTypar(Method, i)` leaves) in the SAME `FrozenConstraint` shape
+            /// the project-local `EmitCall` phantom-typar solve consumes — so the
+            /// external solve (M7 stage 3) is head-agnostic. Empty for a symbol with
+            /// no subtype bounds.
+            Constraints: FrozenConstraint list
         }
 
     /// Instantiate `sym` and rewrite its method-owned typars to positional
@@ -354,6 +363,9 @@ module Inline =
     let openMethodSignature (sym: ExternalSymbol) : OpenMethodSignature =
         let monoSig = sym.Instantiate 0
         let order = Dictionary<TypeVar, int>(HashIdentity.Reference)
+        // Method typars in first-appearance order — both the `order` index source and
+        // the worklist the dependent-typar pass below grows.
+        let ordered = ResizeArray<TypeVar>()
 
         let rec collect (t: SemType) =
             match t with
@@ -365,6 +377,7 @@ module Inline =
                 | ValueNone ->
                     if not (order.ContainsKey root) then
                         order.[root] <- order.Count
+                        ordered.Add root
             | TyFun(a, b) ->
                 collect a
                 collect b
@@ -382,6 +395,30 @@ module Inline =
             | TyTypar _ -> ()
 
         collect monoSig
+
+        // Dependent (phantom) typars — the consumer-side mirror of the producer's
+        // `Elaborate.mkMethodQuantEnv` pass. A collected typar's `Coercion` bound may
+        // name typars present in NO parameter/result (the enumerator `'E` in
+        // `'S :> IStructSeq<'T,'E>`): F# generalises these as genuine method typars
+        // AFTER the signature ones, so the producer's emitted IL carries them as extra
+        // `!!i` slots. Fold each collected root's `Coercion` targets in to a fixpoint
+        // (a bound may itself name a typar with its own bound), the `ResizeArray`
+        // growth driving the worklist, so the reconstructed method-typar ORDER + arity
+        // match the producer's. Link-chased through `collect` (no `zonk` — see the
+        // type doc), where `mkMethodQuantEnv` uses `Unification.zonk` (compiled later).
+        // NOTE: only DIRECTLY-named target typars are chased per root; a bound naming a
+        // freshly-interned typar's OWN further bounds is not re-followed (none of the
+        // struct-seq signatures need it — `'E :> IStructEnumerator<'T>` reintroduces
+        // only `'T`, already named by `'S`'s bound).
+        let mutable depIdx = 0
+
+        while depIdx < ordered.Count do
+            for c in ordered.[depIdx].Constraints do
+                match c.Kind with
+                | SemanticConstraintKind.Coercion target -> collect target
+                | _ -> ()
+
+            depIdx <- depIdx + 1
 
         let rec toOpen (t: SemType) : SemType =
             match t with
@@ -403,7 +440,23 @@ module Inline =
             | TyOr members -> members.Map toOpen
             | (TyUnknown _ | TyTypar _) as other -> other
 
+        // The `Coercion` bounds, frozen over the method-typar axis, in the SAME
+        // `FrozenConstraint` shape `EmitCall`'s project-local solve consumes — so the
+        // external phantom-typar solve (M7 stage 3) is head-agnostic. `typarIndex` is
+        // the CONSTRAINED typar's method index (the `'S` receiver `EmitCall` reads);
+        // `target` (e.g. `IStructSeq<'T,'E>`) carries the phantom typars to recover.
+        let constraints =
+            [
+                for root in ordered do
+                    for c in root.Constraints do
+                        match c.Kind with
+                        | SemanticConstraintKind.Coercion target ->
+                            FrozenConstraint.Coercion(order.[root], toFrozen (toOpen target))
+                        | _ -> ()
+            ]
+
         {
             Signature = toFrozen (toOpen monoSig)
             MethodArity = order.Count
+            Constraints = constraints
         }

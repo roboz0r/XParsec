@@ -698,6 +698,73 @@ let tests =
                 | ValueNone -> failtestf "struct registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
+            test "A type's `interface <ty>` impls publish into FrozenInterfaces (rung-4 M7)" {
+                // The contract-layer twin of the metadata layer's `buildClassInterfaces`:
+                // a type's directly-declared `interface IBox<'T>` must surface on the
+                // extracted shape's `FrozenInterfaces` (args over the declaring typars),
+                // so a consumer's interface-impl witness (`tryInterfaceWitness`' external
+                // arm) can recover a phantom typar from a struct seq's `IStructSeq<'T,'E>`
+                // impl — the `.fsi` half of the struct-seq external-head graduation. Filled
+                // by the deferred finalize pass (the interface type may forward-reference a
+                // sibling), so the previously-empty `basic` default is overwritten.
+                let input =
+                    "namespace App\n\nmodule M =\n    type IBox<'T> =\n        abstract member Get: unit -> 'T\n\n    [<Struct>]\n    type Holder<'T> =\n        new: value: 'T -> Holder<'T>\n        interface IBox<'T>\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+                // `FrozenInterfaces` is deferred (the interface type may forward-reference a
+                // sibling), so it is only filled once the finalize pass runs.
+                VesperLib.finalizeDeferred ctx
+
+                let holderShape =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "Holder`1" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match holderShape with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    match shape.FrozenInterfaces with
+                    | [| (name, args) |] ->
+                        Expect.isTrue (name.EndsWith "IBox`1") (sprintf "the IBox interface is published; got %s" name)
+                        Expect.equal args.Length 1 "IBox<'T> carries one type arg"
+
+                        match args.[0] with
+                        | FTTypar(TyparAxis.Declaring, 0) -> ()
+                        | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
+                    | other -> failtestf "expected exactly one published interface (IBox); got %A" other
+                | ValueSome other -> failtestf "expected a Class shape for the struct; got %A" other
+                | ValueNone -> failtestf "Holder registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+            }
+
             test "A GADT-cased union extracts as a genuine Union shape" {
                 // The cons-list shape (operator cases with explicit return types):
                 // `([])` and `(::)` are GADT-syntax. GADT-case extraction
