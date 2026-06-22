@@ -132,7 +132,7 @@ type internal FieldKey =
     | ClassStaticField of SymbolKey * name: string
     | ClosureCapture of closure: string * index: int
     /// A non-capturing, monomorphic closure's `static readonly` singleton field —
-    /// the one cached instance every construction site `ldsfld`s (rung-4 Step B).
+    /// the one cached instance every construction site `ldsfld`s.
     | ClosureCached of closure: string
     /// A module-level value's `public static` holder field.
     | ModuleValue of NodeKey
@@ -179,7 +179,7 @@ type internal MethodKey =
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
     /// A non-capturing, monomorphic closure's `.cctor` — `newobj`s the closure once
-    /// and `stsfld`s it into `FieldKey.ClosureCached` (rung-4 Step B). Present only
+    /// and `stsfld`s it into `FieldKey.ClosureCached`. Present only
     /// for a cached closure; a capturing/generic closure has none.
     | ClosureCctor of closure: string
     | HolderCctor of Emit.HolderKey
@@ -578,8 +578,8 @@ module internal Layout =
                 plan.StaticFnKeys
                 plan.ModuleValueKeys
                 plan.StaticFnTypars
-                // rung-4 Step C: the node-keyed value-struct closure verdicts (design
-                // §2.4), snapshotted in `Pipeline` like `ClosureReprs`.
+                // The node-keyed value-struct closure verdicts,
+                // snapshotted in `Pipeline` like `ClosureReprs`.
                 // `discoverClosures` marks a source-lambda argument a value-struct (and
                 // at what flat arity) by node membership — no structural re-derivation.
                 tast.FunVerdicts
@@ -839,7 +839,7 @@ module internal Layout =
                                 }
                         ]
 
-                    // The singleton field (Step B): `static readonly` of the closure's
+                    // The singleton field: `static readonly` of the closure's
                     // own type. Its `Ty` is unused — the writer mints the self-type
                     // signature from the closure's TypeDef handle, not from `Ty` (a
                     // closure type has no `FrozenType` the encoder resolves).

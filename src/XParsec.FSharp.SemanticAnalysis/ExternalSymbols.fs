@@ -296,8 +296,8 @@ type ExternalMember =
 /// Capability flags on an external class or interface. The metadata layer reads
 /// them off the .NET `TypeAttributes` plus
 /// `[<AllowNullLiteral>]` attribute decoding; the contract layer leaves them at
-/// `Default` until a `.fsi` learns to publish them. B-1 (class emission) reads
-/// `IsSealed` on the declared base type; B-8 (`[<AllowNullLiteral>]`) reads
+/// `Default` until a `.fsi` learns to publish them. Class emission reads
+/// `IsSealed` on the declared base type; `[<AllowNullLiteral>]` support reads
 /// `AllowNullLiteral` off both user-declared and external classes.
 type ExternalClassFlags =
     {
@@ -325,8 +325,8 @@ type ExternalClassFlags =
 
 /// The shape of an external class or interface. Lifted out of `ExternalTypeShape.Class`
 /// so the DU header stays narrow and the
-/// member set is reachable to consumers (B-2's `interface … with member …`
-/// conformance check, B-1's base-type lookup, etc.) without having to round-trip
+/// member set is reachable to consumers (the `interface … with member …`
+/// conformance check, the base-type lookup, etc.) without having to round-trip
 /// through `TryLookupMember` per name.
 ///
 /// `FrozenInterfaces`, `FrozenBaseType`, and each member's `Signature` are
@@ -339,7 +339,7 @@ type ExternalClassShape =
         Arity: int
         IsInterface: bool
         /// All public declared methods + properties whose signature maps via
-        /// the §6.1 `tryBuildType`. Sibling members the metadata layer can't
+        /// the `tryBuildType`. Sibling members the metadata layer can't
         /// map (e.g. a member with its own generic params, or a by-ref
         /// parameter) are filtered out, not faked. Contract-layer providers
         /// leave this empty until the `.fsi` extractor learns to publish
@@ -386,7 +386,7 @@ type ExternalTypeShape =
     /// Field order matches source. `origin` is filled by the layer that knows
     /// where the type lives (`ReferencedProject.wrap` from the manifest's
     /// assembly + namespace); the inner extractor records `SymbolOrigin.Empty`.
-    /// Records-handoff Phase 2 follow-up F2 reads it to mint a `TypeRef` for
+    /// A follow-up reads it to mint a `TypeRef` for
     /// cross-package record emission (an external `RecordCons` / field access).
     | Record of arity: int * fields: ExternalFieldShape[] * origin: SymbolOrigin
     /// Case order matches source. `origin` is filled by the layer that knows
@@ -397,8 +397,8 @@ type ExternalTypeShape =
     | Union of arity: int * cases: ExternalCaseShape[] * origin: SymbolOrigin
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
     /// `ValueNone` today). The members / interfaces / base-type / flags ride
-    /// inside `ExternalClassShape`, lifted out of the DU header so the sprint's
-    /// B-2 (interface conformance) and B-1 (base-type lookup) can reach them
+    /// inside `ExternalClassShape`, lifted out of the DU header so interface
+    /// conformance and base-type lookup can reach them
     /// directly. Contract-layer providers stamp `ExternalClassShape.basic`; the
     /// metadata layer fills the rich form.
     | Class of shape: ExternalClassShape
@@ -595,8 +595,8 @@ type CodegenOpenSignature =
         /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar axis
         /// (`FTTypar(Method, i)` leaves), in the SAME `FrozenConstraint` shape the
         /// project-local `EmitCall` phantom-typar solve consumes. Re-opens the channel
-        /// the codegen view deliberately stripped (M7 stage 1): the external head's
-        /// phantom-typar solve (stage 3) recovers a phantom slot (`fold`'s `'E`) from
+        /// the codegen view deliberately stripped: the external head's
+        /// phantom-typar solve recovers a phantom slot (`fold`'s `'E`) from
         /// the constrained source's interface witness, exactly as the project-local
         /// head does. Empty for a symbol with no subtype bounds.
         Constraints: FrozenConstraint list

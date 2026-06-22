@@ -383,14 +383,14 @@ module UnificationEngine =
 
     /// The bare (arity-suffix-stripped) qualified name of the canonical function
     /// interface `Vesper.Fun`2` — the codegen contract `SemType.TyFun` lowers to.
-    /// `subsumes` consults this for the single arrow→`Fun` discharge rule (rung-4
-    /// Step A); the unifier otherwise keeps `TyFun` purely structural.
+    /// `subsumes` consults this for the single arrow→`Fun` discharge rule;
+    /// the unifier otherwise keeps `TyFun` purely structural.
     [<Literal>]
     let private funInterfaceQualifiedName = "Vesper.Fun"
 
     /// The canonical FLAT 2-arg function interface `Vesper.Fun2`3<'A,'B,'C>` — the
     /// arity-2 sibling of `funInterfaceQualifiedName`. A curried arrow
-    /// `TyFun(a, TyFun(b,c))` subsumes into it (rung-4 M3); see the `subsumes` arm.
+    /// `TyFun(a, TyFun(b,c))` subsumes into it; see the `subsumes` arm.
     [<Literal>]
     let private fun2InterfaceQualifiedName = "Vesper.Fun2"
 
@@ -582,8 +582,8 @@ module UnificationEngine =
     /// itself when its name is `tgtName`. Read-only (it only *reads* the class
     /// table / provider, like `subsumes`); the caller `unify`s the returned args
     /// against the target's so a free var in the target is pinned. The single
-    /// authoritative subtype walk: direct interfaces at each level (class→interface,
-    /// G19/G20), then up the `inherit` chain (class→base, user + BCL); `subsumes`
+    /// authoritative subtype walk: direct interfaces at each level (class→interface),
+    /// then up the `inherit` chain (class→base, user + BCL); `subsumes`
     /// is layered on top of it. `seen` short-circuits a cyclic `inherit` chain.
     let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtName: string) : EqArray<SemType> voption =
         let nominalOf = subtypeNominalOf ctx
@@ -679,7 +679,7 @@ module UnificationEngine =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // The arrow↔`Fun` correspondence (rung-4 Step A): a structural arrow
+        // The arrow↔`Fun` correspondence: a structural arrow
         // `TyFun(a,b)` IS a subtype of the canonical `Vesper.Fun`2<a,b>` interface.
         // This is the ONE place the two layers meet — the unifier keeps seeing
         // `TyFun` as the structural arrow everywhere else (function-representation
@@ -687,7 +687,7 @@ module UnificationEngine =
         // through here. Args are invariant (same rule as `subsumesNominal`): the
         // arrow's domain/codomain must each be `Equal` to the `Fun`'s type args. This
         // is a read-only check, not a `unify` — grounding a still-free `Fun`-arg FROM
-        // the arrow is deferred (design-doc §5.2 Q1), not yet exercised. Arity-1 `Fun`2` only for Step A
+        // the arrow is deferred, not yet exercised. Arity-1 `Fun`2`
         // — a curried `TyFun(a, TyFun(b,c))` against `Fun`2` falls out naturally
         // (codomain = the inner arrow), with no flat-`Fun2`/`Fun3` special-casing.
         | TyFun(a, b), (TyClass(tk, targs)) when
@@ -701,10 +701,10 @@ module UnificationEngine =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // The FLAT-2 arrow↔`Fun2` correspondence (rung-4 M3): a CURRIED arrow
+        // The FLAT-2 arrow↔`Fun2` correspondence: a CURRIED arrow
         // `TyFun(a, TyFun(b,c))` IS a subtype of the canonical
         // `Vesper.Fun2`3<a,b,c>` interface — a saturated 2-arg slot. Sibling of the
-        // arity-1 `Vesper.Fun` arm above (`Fun2` does NOT inherit `Fun`, design §4.2,
+        // arity-1 `Vesper.Fun` arm above (`Fun2` does NOT inherit `Fun`,
         // so the two arms are independent). Same read-only, invariant-arg discipline:
         // the two arrow domains and the final codomain must each be `Equal` to the
         // `Fun2`'s three type args. The caller records the arity-2 verdict for the
@@ -753,7 +753,7 @@ module UnificationEngine =
             else
                 SubsumeOutcome.Unrelated
 
-    /// rung-4 M3: the flat `FunN` arity a parameter slot constrains its argument to,
+    /// The flat `FunN` arity a parameter slot constrains its argument to,
     /// or `ValueNone` for an ordinary (non-`Fun`-bounded) parameter. A combinator
     /// param `'TF :> Fun<a,b>` is arity 1; `'TF :> Fun2<a,b,c>` is arity 2. The
     /// `subsumes` arm decides the arrow↔`FunN` correspondence; this reads the SAME
@@ -802,7 +802,7 @@ module UnificationEngine =
         // The full key rides along so `resolveDotSource` can both project the simple
         // name (project-local table lookups: `ctx.Types.Record` bare, `tryUnion`
         // re-deriving arity from args) and recover the qualified name for an external
-        // class's provider lookup (G22).
+        // class's provider lookup.
         | TyRecord(n, args) -> ValueSome(NominalKind.Record, n, args)
         | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)
         | TyUnion(n, args) -> ValueSome(NominalKind.Union, n, args)
@@ -845,7 +845,7 @@ module UnificationEngine =
         | ClassChain of name: string * args: EqArray<SemType>
         /// An *external* class/interface (not in `ctx.Types.Class`): a deferred
         /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
-        /// (`System.Collections.IEqualityComparer`, G22). The drain resolves the
+        /// (`System.Collections.IEqualityComparer`). The drain resolves the
         /// member through the provider — the deferred mirror of `resolveFieldStep`'s
         /// external arm — keyed by the *qualified* name (`qualName`).
         | ExternalClass of qualName: string * args: EqArray<SemType>
@@ -1163,7 +1163,7 @@ module UnificationEngine =
                         ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" name d.MemberName)
             | DotSource.ExternalClass(qualName, args) ->
                 // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
-                // TyVar resolved to a BCL/contract class or interface (G22, e.g. the
+                // TyVar resolved to a BCL/contract class or interface (e.g. the
                 // `comparer: IEqualityComparer` parameter of an `IStructuralEquatable`
                 // member, pinned by the interface-conformance unify only *after* the
                 // body — and its dot-accesses — were deferred). Resolve each member
@@ -1438,8 +1438,8 @@ module UnificationEngine =
                     | _ -> ()
                 | _ -> ()
 
-                // The INVERSE direction for the arrow↔`Fun`/`Fun2` correspondence
-                // (rung-4 Step A / M3): a source lambda whose arrow has STILL-FREE
+                // The INVERSE direction for the arrow↔`Fun`/`Fun2` correspondence:
+                // a source lambda whose arrow has STILL-FREE
                 // domains (`fun x y -> x + y` — no literal pins `x`/`y`) coerced into a
                 // GROUND constrained slot (`'TF :> Fun2<int,int,int>`) must ground from
                 // the slot's args, so the lambda body's SRTP operators resolve instead
@@ -1748,7 +1748,7 @@ module UnificationEngine =
 
     /// Unify an *argument* against its expected parameter type, admitting the
     /// implicit class→interface / class→base upcast F# inserts at a coercion
-    /// point (G19): a `Comparer<'T>` value flows into an `IComparer<'T>` slot, a
+    /// point: a `Comparer<'T>` value flows into an `IComparer<'T>` slot, a
     /// derived class into a base-typed slot. `tryCoerceUpcast` both accepts the
     /// subtype and unifies its type args; anything that isn't a subtype defers to
     /// plain `unify`, which links type variables and reports a genuine mismatch.

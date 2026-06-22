@@ -64,34 +64,15 @@ module VesperLib =
     /// `[<Struct>] type X = …` (the ATTRIBUTE form, e.g. the struct-seq types) parses
     /// through the Class/Anon arm rather than `TypeSignature.Struct` (the
     /// `struct … end` form), so its value-type-ness is on the `TypeName`'s
-    /// attributes, not the syntactic body. Decode it the same way `Attributes.fs`
-    /// does (last-ident short name, `Struct`/`StructAttribute`), but `PassContext`-free
-    /// (the extractor has only `lexed`/`input`). Without this an external struct in a
+    /// attributes, not the syntactic body. Shares `AttributeDecode` with the
+    /// name-resolution pass (here the resolver is `nameOfTok lexed input`, the
+    /// extractor has only `lexed`/`input`). Without this an external struct in a
     /// signature encodes as `CLASS` not `ELEMENT_TYPE_VALUETYPE` and a consumer's
     /// member-ref misses the value-type method (`MissingMethodException` / "value type
-    /// mismatch") — rung-4 M7 stage 3.
+    /// mismatch").
     let private typeNameHasStructAttr (lexed: Lexed) (input: string) (typeName: TypeName<SyntaxToken>) : bool =
         let (TypeName(attributes = attrs)) = typeName
-
-        match attrs with
-        | ValueNone -> false
-        | ValueSome sets ->
-            sets
-            |> Seq.exists (fun (AttributeSet(attributes = entries)) ->
-                entries
-                |> Seq.exists (fun (Attribute(construction = construction), _sep) ->
-                    let attrTy =
-                        match construction with
-                        | ObjectConstruction(typ = t) -> t
-                        | InterfaceConstruction(typ = t) -> t
-
-                    match attrTy with
-                    | Type.NamedType li when li.Idents.Length > 0 ->
-                        let n = nameOfTok lexed input li.Idents.[li.Idents.Length - 1]
-                        n = "Struct" || n = "StructAttribute"
-                    | _ -> false
-                )
-            )
+        (AttributeDecode.decodeClassAttributes (nameOfTok lexed input) attrs).IsValueType
 
     /// Translate a stashed member-signature CST to its two-axis `ExternalSignature`
     /// template, splitting the head `FTFun(params, ret)` (or treating the whole
@@ -364,7 +345,7 @@ module VesperLib =
             // `freshTvs` (its `.Count`).
             let typarCount = dc.Typars.Count
 
-            // Capture the SOURCE arity for a module FUNCTION (Step C). The `.fsi`'s
+            // Capture the SOURCE arity for a module FUNCTION. The `.fsi`'s
             // `CurriedSig`/`ArgsSpec` already encodes the grouping the bare curried
             // `template` loses (a tupled group `a * b ->` is one `ArgsSpec` of width
             // 2; a single tuple param `(a*b) ->` is width 1), so each group's
@@ -525,7 +506,7 @@ module VesperLib =
                 // through the contract inherit chain — the Step-8 JS exception hierarchy)
                 // and `FrozenInterfaces` (read by the interface-impl witness
                 // `tryInterfaceWitness`' external arm to recover a phantom typar from a
-                // struct seq's `IStructSeq<'T,'E>` impl — rung-4 M7).
+                // struct seq's `IStructSeq<'T,'E>` impl).
                 | ExternalTypeShape.Class shape, (true, DeferredBody.Class(dc, baseOpt, ifaces, _)) ->
                     ExternalTypeShape.Class
                         { shape with

@@ -14,6 +14,7 @@
     <Compile Include="SemTypeOps.fs" />
     <Compile Include="RuntimeNames.fs" />
     <Compile Include="OperatorNames.fs" />
+    <Compile Include="AttributeDecode.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
     <Compile Include="SideTypes.fs" />

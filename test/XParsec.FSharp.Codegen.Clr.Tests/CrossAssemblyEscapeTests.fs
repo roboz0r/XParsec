@@ -17,17 +17,17 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //     static method never existed; the consumer's `Producer.addOne` member-ref
 //     then bound nothing → `MissingMethodException` at JIT. `forceExportedStaticFns`
 //     keeps the flat method, so the consumer binds it.
-//   * Step C tupled-group flattening — `addPair (x, y)` (`int * y: int ->` in the
+//   * tupled-group flattening — `addPair (x, y)` (`int * y: int ->` in the
 //     `.fsi`) binds a 2-flat-param member-ref `addPair(int, int)`, not a single
 //     `ValueTuple` param.
-//   * Step C lone-unit erasure — `getUnit ()` (`unit ->`) binds a parameterless
+//   * lone-unit erasure — `getUnit ()` (`unit ->`) binds a parameterless
 //     member-ref `getUnit()`.
 //
 // The producer is built through this repo's own backend (like the `buildPackage`
 // Vesper.* fixtures) and loaded into the Default ALC so a fresh-ALC consumer run
 // resolves it by simple name. Its `.fsi`/`.fs`/`manifest.toml` are written to the
 // repo `tmp/` dir so the consumer's contract provider extracts the producer's
-// `ValRepr`/`CompiledForm` from the recorded arity — the exact Step C path.
+// `ValRepr`/`CompiledForm` from the recorded arity — the exact tupled/unit path.
 
 /// The producer contract: the arity the consumer reconciles its call spines
 /// against. `addPair`'s `*`-separated group is a TUPLED group (2 flat params);
@@ -42,9 +42,9 @@ let private producerFsi =
             "    /// Used higher-order inside the producer (`bumpTwice`) yet exported:"
             "    /// the public-function escape gap. Must still emit a flat static method."
             "    val addOne: x: int -> int"
-            "    /// A TUPLED source group → 2 flat CLR params cross-assembly (Step C)."
+            "    /// A TUPLED source group → 2 flat CLR params cross-assembly."
             "    val addPair: int * int -> int"
-            "    /// A LONE unit group → a parameterless method cross-assembly (Step C)."
+            "    /// A LONE unit group → a parameterless method cross-assembly."
             "    val getUnit: unit -> int"
             "    /// Drives the intra-assembly higher-order use of `addOne`."
             "    val bumpTwice: x: int -> int"
@@ -118,7 +118,7 @@ let private producerDll: Lazy<string> =
          outPath)
 
 /// Compile a consumer program against the default contract stack PLUS the producer
-/// manifest (so its module functions resolve, carrying the Step C `ValRepr`) with
+/// manifest (so its module functions resolve, carrying the `ValRepr`) with
 /// the producer DLL referenced, run it in-process, and assert stdout.
 let private runConsumer (expected: string list) (src: string) : unit =
     let dll = producerDll.Value
@@ -162,8 +162,8 @@ let tests =
                     [
                         "6" // Producer.addOne 5 — the escape-gap method; pre-fix this member-ref bound nothing
                         "7" // Producer.bumpTwice 5 = addOne (addOne 5) — the producer's intra-assembly higher-order use
-                        "7" // Producer.addPair (3, 4) — tupled group → flat addPair(int, int) (Step C)
-                        "42" // Producer.getUnit () — lone unit group → parameterless getUnit() (Step C)
+                        "7" // Producer.addPair (3, 4) — tupled group → flat addPair(int, int)
+                        "42" // Producer.getUnit () — lone unit group → parameterless getUnit()
                     ]
                     (String.concat
                         "\n"

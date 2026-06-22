@@ -425,7 +425,7 @@ module Regions =
         | TExpr.Upcast(src, ty, _) ->
             // The upcast rides the source's region, but boxing to `obj` / upcasting
             // to the `Vesper.Fun<_,_>` interface materialises a heap value — seed
-            // the source region as an Axis-2 heap-repr sink (§Axis 2).
+            // the source region as an Axis-2 heap-repr sink.
             let r = inferRegion s ctx src
 
             if isHeapReprTarget ty then
@@ -847,7 +847,7 @@ module Regions =
                 ctx.Bindings.Escape.Set(kv.Key, state.[tv.Region.Raw])
                 ctx.Bindings.Repr.Set(kv.Key, repr.[tv.Region.Raw])
 
-    /// Fold the RS3 codegen verdict for every binder: `ClosureRepr.Stack` iff the
+    /// Fold the codegen stack/heap verdict for every binder: `ClosureRepr.Stack` iff the
     /// binder is both frame-confined by lifetime (`Axis 1` `EscapeState.LocalStack`)
     /// and free of any heap-repr channel (`Axis 2` `RegionRepr.StackOnlyEligible`);
     /// everything else is `Heap`. Keyed by `NodeKey.Raw`. The map covers all

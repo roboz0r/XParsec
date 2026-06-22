@@ -106,7 +106,7 @@ type ClrProvider
 
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
-    /// rung-4 M3: the flat `Vesper.Fun2`3<a,b,c>` interface `TypeSpec` a flat-2
+    /// The flat `Vesper.Fun2`3<a,b,c>` interface `TypeSpec` a flat-2
     /// value-struct closure implements.
     member _.Fun2InterfaceSpec(a: FrozenType, b: FrozenType, c: FrozenType) : EntityHandle =
         recipes.Fun2InterfaceSpec(a, b, c)
@@ -141,7 +141,7 @@ type ClrProvider
 
     member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder = enc.InvokeSignature(a, b)
 
-    /// rung-4 M3: the flat `instance c Invoke(a, b)` signature of a `Fun2` closure.
+    /// The flat `instance c Invoke(a, b)` signature of a `Fun2` closure.
     member _.InvokeSignature2(a: FrozenType, b: FrozenType, c: FrozenType) : BlobBuilder = enc.InvokeSignature2(a, b, c)
 
     member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder = enc.ClosureCtorSignature captures
@@ -173,7 +173,7 @@ type ClrProvider
                 DefHandle = defHandle
             }
 
-    /// rung-4 Step C (M1): register a captureless `Stack` (value-struct) closure
+    /// Register a captureless `Stack` (value-struct) closure
     /// under a synthetic project-local `SymbolKey` and return the `FrozenType` that
     /// names it. A closure has no `FrozenType` of its own (it is keyed by
     /// `TypeKey.Closure name`, codegen-only), but a value-struct closure must be

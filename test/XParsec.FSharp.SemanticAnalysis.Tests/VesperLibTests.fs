@@ -830,7 +830,7 @@ let tests =
             }
 
             test "extraction records [<RequireQualifiedAccess>] unions and stamps their cases" {
-                // opens-overhaul-plan Gap 1: the `[<RequireQualifiedAccess>]` attribute
+                // The `[<RequireQualifiedAccess>]` attribute
                 // on an extracted union is read into `ctx.RqaTypes` and rides through
                 // the reverse case-name index as `ExternalUnionCase.IsRequireQualifiedAccess`,
                 // so a consumer's bare reference to an RQA case can be rejected.
@@ -997,7 +997,7 @@ let tests =
             }
 
             test "qualified-name lookup goes through the lib first, MockBuiltins second" {
-                // Phase 3 fixture: chain `buildProvider <libRoot>` ahead of
+                // Fixture: chain `buildProvider <libRoot>` ahead of
                 // `MockBuiltins.provider` and confirm both surfaces still
                 // answer for their respective name spaces.
                 let libProvider, _ = builtProvider.Value
@@ -1009,7 +1009,7 @@ let tests =
                 | ValueSome _ -> ()
 
                 // `op_Addition` is no longer auto-opened *inside* the provider
-                // (O3): the provider answers only the qualified name directly,
+                // — it answers only the qualified name directly,
                 // with the universal SRTP signature `^T1 -> ^T2 -> ^T3` (typars
                 // free at instantiation; generalisation-time defaulting closes the
                 // gap to `int` for `1 + 2`). The short form is surfaced as the
@@ -1035,7 +1035,7 @@ let tests =
                 | ValueSome _ -> failtest "missing names should not resolve through the chain"
             }
 
-            test "Phase 4: option<'T> abbreviation resolves through TryLookupType" {
+            test "option<'T> abbreviation resolves through TryLookupType" {
                 // `'T option = Option<'T>` in prim-types.fsi. The abbreviation
                 // body should be retrievable as an Abbrev shape; substituting
                 // `int` for the typar must yield `TyRecord("...Option", [int])`.
@@ -1061,7 +1061,7 @@ let tests =
                 | other -> failtestf "Expected Abbrev shape; got %A" other
             }
 
-            test "Phase 4: Result<_,_> union exposes Ok / Error cases" {
+            test "Result<_,_> union exposes Ok / Error cases" {
                 let provider, _ = builtProvider.Value
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.Result`2" with
@@ -1140,7 +1140,7 @@ let tests =
                 | _ -> ()
             }
 
-            test "objnull abbrev (`obj | null`) extracts to obj [Set G5 root 1]" {
+            test "objnull abbrev (`obj | null`) extracts to obj" {
                 // `type objnull = obj | null` (prim-types-object.fsi) is a *nullable
                 // reference type*; its abbrev RHS parses to `Type.UnionType(obj, |,
                 // null)`. The contract extractor's `translateType` used to refuse every
@@ -1209,14 +1209,14 @@ let tests =
                     failtestf "objnull abbrev registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
-            test "Phase 5: `when 'T : equality` captured + applied to fresh TyVar" {
+            test "`when 'T : equality` captured + applied to fresh TyVar" {
                 // `Seq.contains` in seq.fsi declares
                 //   val inline contains: value:'T -> source: seq<'T> -> bool when 'T: equality
-                // — a trait-table constraint that Phase 5a applies directly
+                // — a trait-table constraint applied directly
                 // to the fresh TyVar at instantiation. The Equality
                 // constraint should land on both:
                 //   - The symbol's structured `Constraints` list (for
-                //     Phase 5b introspection); and
+                //     introspection); and
                 //   - Every freshly-minted TyVar bound to the constrained
                 //     typar position.
                 let provider, _ = builtProvider.Value
@@ -1270,7 +1270,7 @@ let tests =
                 Expect.isTrue anyEquality "fresh TyVar carries Equality on its Constraints list"
             }
 
-            test "Phase 5: SRTP member-trait clause captured as opaque MemberTrait marker" {
+            test "SRTP member-trait clause captured as opaque MemberTrait marker" {
                 // `Seq.sum` in seq.fsi declares
                 //   val inline sum: source: seq< ^T > -> ^T
                 //       when ^T: (static member (+): ^T * ^T -> ^T)
@@ -1301,7 +1301,7 @@ let tests =
                     Expect.isTrue hasMemberTrait "Sum carries an SRTP MemberTrait clause"
             }
 
-            test "Phase 4: unknown type-name lookup returns ValueNone" {
+            test "unknown type-name lookup returns ValueNone" {
                 let provider, _ = builtProvider.Value
 
                 match provider.TryLookupType "NoSuch.Type.Name" with
@@ -1310,7 +1310,7 @@ let tests =
             }
 
             test "end-to-end: `let x = 1 + 2` types as int with chained provider" {
-                // The smallest plausible Phase-3 closing fixture: lex + parse
+                // The smallest plausible closing fixture: lex + parse
                 // a user program, run the full pipeline against the chained
                 // provider, and assert `x : int`. Operator resolution flows
                 // through `MockBuiltins` (still authoritative for ops in v1);
@@ -1335,8 +1335,8 @@ let tests =
                 | ValueNone -> failtest "no TypeVar for x"
             }
 
-            test "Phase 5b: `let x = 1 + 2` types as int through lib-only provider" {
-                // The proof point for Phase 5b defaulting: with MockBuiltins
+            test "`let x = 1 + 2` types as int through lib-only provider" {
+                // The proof point for defaulting: with MockBuiltins
                 // removed from the chain, `op_Addition` resolves through the
                 // lib's auto-open prefix to `Microsoft.FSharp.Core.Operators.op_Addition`
                 // — universal SRTP signature `^T1 -> ^T2 -> ^T3 with default
@@ -1364,7 +1364,7 @@ let tests =
                 | ValueNone -> failtest "no TypeVar for x"
             }
 
-            test "Phase 5b.2: V + V dispatches via SRTP member-trait" {
+            test "V + V dispatches via SRTP member-trait" {
                 // V with a static `op_Addition : V * V -> V`. The lib's
                 // `(+) : ^T1 -> ^T2 -> ^T3` carries the SRTP member-trait
                 // clause; instantiation stamps it on the fresh TyVars;

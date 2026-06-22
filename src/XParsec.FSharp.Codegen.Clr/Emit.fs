@@ -103,7 +103,7 @@ module Emit =
         let args = Dictionary<NodeKey, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
 
-        // rung-4 M3: a flat-2 (`Fun2`) value-struct closure has a SECOND flat
+        // A flat-2 (`Fun2`) value-struct closure has a SECOND flat
         // parameter at `ldarg.2` — the peeled inner-`Lambda` binder.
         match closure.Param2 with
         | ValueSome(p2, _, _) -> args.[p2] <- 2
@@ -156,7 +156,7 @@ module Emit =
 
         buildExpr env b fn.Body
 
-        // A `unit`-returning module function emits genuine CLR `void` (Step B): the
+        // A `unit`-returning module function emits genuine CLR `void`: the
         // body leaves the `unit`-as-value `System.ValueTuple` on the stack (every
         // Vesper expression yields a value), so pop it before `ret` — the same drain
         // `buildMember` performs for a `void` member. A body that terminates
@@ -371,7 +371,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// A non-capturing, monomorphic closure's `.cctor` (rung-4 Step B): `newobj` the
+    /// A non-capturing, monomorphic closure's `.cctor`: `newobj` the
     /// closure once and `stsfld` it into the singleton `instance` field. Runs before
     /// the first `ldsfld` of that field (every construction site), so a stateless
     /// lambda allocates exactly once instead of per construction.

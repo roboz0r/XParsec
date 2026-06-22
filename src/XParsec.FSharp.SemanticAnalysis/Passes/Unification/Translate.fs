@@ -306,12 +306,12 @@ module internal UnificationTranslate =
         | Type.Null _ ->
             // The `null` literal type — a real *member* of an anonymous union
             // (`T | null`), not a nominal type. Resolves to the reserved
-            // `TyConst "null"` (RuntimeNames, Stage 3b); erased per backend at
+            // `TyConst "null"` (RuntimeNames); erased per backend at
             // codegen. Bare `null` outside a union is just `TyConst "null"` — its
             // (lack of) assignability is decided later, like any other member.
             TyConst(RuntimeNames.nullTypeName, EqArray.empty)
         | Type.UnionType(left = l; right = r) ->
-            // TypeScript-style anonymous structural union (`X | Y`, Stage 3c). The
+            // TypeScript-style anonymous structural union (`X | Y`). The
             // CST is a binary node (left-nested for `a | b | c`); translate both
             // sides and hand them to `mkUnion`, which flattens nested unions,
             // dedups, sorts to canonical order, and collapses a singleton — so

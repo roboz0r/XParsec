@@ -66,7 +66,7 @@ module Inline =
                 for m in members.Members do
                     go m
             | TyUnknown _ -> ()
-            // TODO(frozen-type Phase 2): once `freeze` emits `TyTypar` for an
+            // TODO(frozen-type): once `freeze` emits `TyTypar` for an
             // inline binding's quantified typars, this collector must yield them
             // by `index` instead of by `TyVar` root. No-op until then.
             | TyTypar _ -> ()
@@ -95,7 +95,7 @@ module Inline =
         // set, so re-canonicalise rather than `EqArray.map` (see `Engine.zonk`).
         | TyOr members -> members.Map(substType subst)
         | TyUnknown _ -> t
-        // TODO(frozen-type Phase 2): substitute by `(axis,index)` once inline
+        // TODO(frozen-type): substitute by `(axis,index)` once inline
         // bindings carry `TyTypar`. Passthrough until then.
         | TyTypar _ -> t
 
@@ -346,7 +346,7 @@ module Inline =
             /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar
             /// axis (`FTTypar(Method, i)` leaves) in the SAME `FrozenConstraint` shape
             /// the project-local `EmitCall` phantom-typar solve consumes — so the
-            /// external solve (M7 stage 3) is head-agnostic. Empty for a symbol with
+            /// external solve is head-agnostic. Empty for a symbol with
             /// no subtype bounds.
             Constraints: FrozenConstraint list
         }
@@ -396,16 +396,24 @@ module Inline =
 
         collect monoSig
 
-        // Dependent (phantom) typars — the consumer-side mirror of the producer's
-        // `Elaborate.mkMethodQuantEnv` pass. A collected typar's `Coercion` bound may
-        // name typars present in NO parameter/result (the enumerator `'E` in
-        // `'S :> IStructSeq<'T,'E>`): F# generalises these as genuine method typars
-        // AFTER the signature ones, so the producer's emitted IL carries them as extra
-        // `!!i` slots. Fold each collected root's `Coercion` targets in to a fixpoint
-        // (a bound may itself name a typar with its own bound), the `ResizeArray`
-        // growth driving the worklist, so the reconstructed method-typar ORDER + arity
-        // match the producer's. Link-chased through `collect` (no `zonk` — see the
-        // type doc), where `mkMethodQuantEnv` uses `Unification.zonk` (compiled later).
+        // Dependent (phantom) typars — the CONSUMER-side arity derivation, which MUST
+        // STAY IN LOCKSTEP with the PRODUCER's (`EmitClosures.staticFnTypars`' frozen-
+        // body sweep): the same method, built then consumed across the package boundary,
+        // has to agree on its `MethodSpec` arity or the minted spec's arg count mismatches
+        // the emitted IL. The two derivations read different data at different stages
+        // (this one folds `SemType` `Coercion` bounds at the contract boundary; the
+        // producer sweeps the frozen `TExpr` body), so nothing structural ties them — the
+        // graduation test ("ofArray |> map |> fold against the external Vesper.Seq
+        // package") exercises producer-then-consumer end to end and fails on divergence.
+        //
+        // A collected typar's `Coercion` bound may name typars present in NO parameter/
+        // result (the enumerator `'E` in `'S :> IStructSeq<'T,'E>`): F# generalises these
+        // as genuine method typars AFTER the signature ones, so the producer's emitted IL
+        // carries them as extra `!!i` slots. Fold each collected root's `Coercion` targets
+        // in to a fixpoint (a bound may itself name a typar with its own bound), the
+        // `ResizeArray` growth driving the worklist, so the reconstructed method-typar
+        // ORDER + arity match the producer's. Link-chased through `collect` (no `zonk` —
+        // see the type doc); `mkMethodQuantEnv` uses `Unification.zonk` (compiled later).
         // NOTE: only DIRECTLY-named target typars are chased per root; a bound naming a
         // freshly-interned typar's OWN further bounds is not re-followed (none of the
         // struct-seq signatures need it — `'E :> IStructEnumerator<'T>` reintroduces
@@ -442,7 +450,7 @@ module Inline =
 
         // The `Coercion` bounds, frozen over the method-typar axis, in the SAME
         // `FrozenConstraint` shape `EmitCall`'s project-local solve consumes — so the
-        // external phantom-typar solve (M7 stage 3) is head-agnostic. `typarIndex` is
+        // external phantom-typar solve is head-agnostic. `typarIndex` is
         // the CONSTRAINED typar's method index (the `'S` receiver `EmitCall` reads);
         // `target` (e.g. `IStructSeq<'T,'E>`) carries the phantom typars to recover.
         let constraints =

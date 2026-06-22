@@ -158,7 +158,7 @@ let tests =
             // arms deleted from
             // `translateType`, a primitive type annotation must still pin to
             // `TyConst("int", EqArray.empty)` even when NO provider supplies an `Intrinsic` shape —
-            // via the step-6 opaque fallback (`TyConst name`). Uses the true
+            // via the opaque fallback (`TyConst name`). Uses the true
             // `nullProvider` (every `TryLookupType` is `ValueNone`) so nothing but
             // the fallback can produce the type.
             test "primitive annotations pin to TyConst via the opaque fallback with a null provider" {

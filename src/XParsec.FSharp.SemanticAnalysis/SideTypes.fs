@@ -47,7 +47,7 @@ type ModuleMemberInfo =
         Name: string
     }
 
-/// rung-4 M3 / M6 P-a: the per-source-lambda value-struct closure verdict, keyed
+/// The per-source-lambda value-struct closure verdict, keyed
 /// (in the side table / `TastFile`) by the lambda argument's `NodeKey`. One record
 /// makes the subset invariant explicit: a lambda threaded through a `:> Fun`/`:> Fun2`
 /// slot always has an `Arity`; only one whose constrained `'TFunc` *also* surfaces in
@@ -66,7 +66,7 @@ type FunVerdict =
         ResultTyparPos: int voption
     }
 
-/// rung-4 §9 (Direction B): a project-local generalised binding's typar
+/// A project-local generalised binding's typar
 /// `when 'a :> <ty>` bound, frozen as a method-axis-indexed template. The sibling
 /// of `ExternalConstraint` (`ExternalSymbols.fs`) for the project-local head —
 /// `target` is a `FrozenType` over the binding's METHOD typars, i.e. its typar
@@ -101,7 +101,7 @@ type ForInGetEnumG<'ty> =
     /// through `EmitResolve.resolveInstanceMember` against the source expression's
     /// type — no key needed.
     | Local
-    /// Rung-3: the source is a *generic typar* (or a value whose only enumerable
+    /// The source is a *generic typar* (or a value whose only enumerable
     /// surface is a custom interface) constrained to a project-local seq interface
     /// `iface<ifaceArgs>` declaring `GetEnumerator(): E`. Codegen addresses the
     /// source receiver and emits `constrained. <Source> callvirt iface::GetEnumerator`,
@@ -122,7 +122,7 @@ type ForInEnumMembersG<'ty> =
     /// `E` is a *project-local* `TypeDef`: codegen resolves both members through
     /// `EmitResolve.resolveInstanceMember` against `EnumeratorTy`.
     | Local
-    /// Rung-3: `E` is itself a *generic typar* constrained to an enumerator interface
+    /// `E` is itself a *generic typar* constrained to an enumerator interface
     /// `iface<ifaceArgs>` declaring `MoveNext(): bool` and a `Current` property.
     /// Codegen emits `constrained. <E> callvirt iface::MoveNext / iface::get_Current`,
     /// dispatching a struct enumerator typar by address (no box). The slots are
@@ -131,12 +131,12 @@ type ForInEnumMembersG<'ty> =
 
 [<RequireQualifiedAccess>]
 type ForInEnumeratorG<'ty> =
-    /// The §4.2 interface path: lower through the `IEnumerable<'T>` /
+    /// The interface path: lower through the `IEnumerable<'T>` /
     /// `IEnumerator<'T>` interface slots with `callvirt`. The default for the
     /// range form and for every source whose enumerable surface is (or includes)
     /// the interface.
     | Interface
-    /// The §4.4 / Gap 2-3 *pattern* (duck-typed) path: the source exposes a public
+    /// The *pattern* (duck-typed) path: the source exposes a public
     /// parameterless `GetEnumerator()` returning a concrete enumerator `E`
     /// (`EnumeratorTy`) that exposes `MoveNext(): bool` and a `Current` property
     /// *without* the source implementing `IEnumerable<'T>` (C#'s non-boxing

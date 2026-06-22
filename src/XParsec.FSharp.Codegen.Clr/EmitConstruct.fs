@@ -290,12 +290,12 @@ module EmitConstruct =
         | true, closure -> closure
         | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
-    /// rung-4 Step C (M1/M2): a `Stack` (value-struct) closure is a readonly struct,
-    /// constructed BY-VALUE (NO `newobj`, NO Step-B `ldsfld`), leaving the struct
+    /// A `Stack` (value-struct) closure is a readonly struct,
+    /// constructed BY-VALUE (NO `newobj`, NO cached `ldsfld`), leaving the struct
     /// VALUE on the stack; the call site passes it into the constrained `!TF` slot,
     /// so `constrained.` devirtualises with no box.
-    ///   * Captureless (M1): a zero-field struct — `ldloca; initobj; ldloc`.
-    ///   * Capturing (M2): `initobj` only zeroes a fieldless struct, so push each
+    ///   * Captureless: a zero-field struct — `ldloca; initobj; ldloc`.
+    ///   * Capturing: `initobj` only zeroes a fieldless struct, so push each
     ///     capture (in capture-field order) and `call` the value-type ctor
     ///     (`buildStructCtor` stores `ldarg.(i+1)` into field `i`), writing through
     ///     the `&slot` managed pointer. Value-type ctor stack discipline: address
@@ -364,8 +364,8 @@ module EmitConstruct =
     /// A `Lambda` value: construct its closure. The three construction modes
     /// partition the closure space (`EmitTypes.closureIsCached`), so this is a flat
     /// dispatch with no sub-expression evaluation (no `Recur` seam):
-    ///   * value-struct (Step C) — by-value, keyed in `ClosureValueTypeByNode`;
-    ///   * cached singleton (Step B) — stateless heap closure `ldsfld`'d once;
+    ///   * value-struct — by-value, keyed in `ClosureValueTypeByNode`;
+    ///   * cached singleton — stateless heap closure `ldsfld`'d once;
     ///   * heap `newobj` (v1) — everything else.
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with

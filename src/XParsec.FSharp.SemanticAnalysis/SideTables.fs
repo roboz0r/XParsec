@@ -135,7 +135,7 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// as prototype TyVars keyed by source name. Empty for a non-generic member.
     member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
     /// `true` when the source declares the member with `MemberKeyword.Override`
-    /// or `MemberKeyword.Default`. Stamped by Phase 2's `registerInheritedSlots`
+    /// or `MemberKeyword.Default`. Stamped by the `registerInheritedSlots`
     /// post-pass; consumed by Freeze/Codegen to choose `call` vs `callvirt`.
     member val IsOverride: bool = false with get, set
 
@@ -283,7 +283,7 @@ type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, typeCst: Type<Sy
     member val TypeCst = typeCst
     member val DeclKey = declKey
 
-/// A class-level `static let x = <init>` (B-10).
+/// A class-level `static let x = <init>`.
 /// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
 /// by Unification's `fillClassMembers` once the `Init` expression is inferred.
 /// `Init` is the CST initialiser, re-read by Unification (to infer) and Freeze (to
@@ -297,7 +297,7 @@ type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<
     member val DeclKey = declKey
     member val Init = init
 
-/// A secondary constructor (`new(args) = SelfType(primaryArgs)`, B-11).
+/// A secondary constructor (`new(args) = SelfType(primaryArgs)`).
 /// `Params` are the secondary ctor's own
 /// parameters (their types start as placeholder TyVars, linked by Unification's
 /// `fillClassMembers` from the annotations / chain-call unification, exactly like
@@ -317,7 +317,7 @@ type ClassSecondaryCtorInfo
     member val ParamPat = paramPat
     member val Body = body
 
-/// A registered `interface IFace with member …` block on a class (B-2).
+/// A registered `interface IFace with member …` block on a class.
 /// `InterfaceCst` is the parsed interface
 /// `Type` — re-read by Unification's `fillClassMembers` (the external provider
 /// isn't available at NameResolution time) to resolve + verify the target is an
@@ -372,25 +372,25 @@ type ClassTypeInfo
     /// member body in this class.
     member val ThisKey = thisKey
     /// Synthetic NodeKey for the `base` binder, mirroring `ThisKey`. Used by
-    /// Phase 2's inheritance plumbing (`base.M()` non-virtual dispatch +
+    /// the inheritance plumbing (`base.M()` non-virtual dispatch +
     /// `inherit Base(args)` ctor lowering); always allocated, only read when
     /// `BaseType` is `ValueSome`.
     member val BaseKey = baseKey
     /// Parent type from `inherit Base(args)` once resolved. Stays `ValueNone`
-    /// in Phase 1 (B-1) — Phase 2's `registerInheritedSlots` walk fills it.
+    /// until the `registerInheritedSlots` walk fills it.
     /// `ValueNone` ⇒ codegen emits `TypeDefinition.BaseType = Object`.
     member val BaseType: SemType voption = ValueNone with get, set
     /// CST expression for the constructor arguments to the base type
     /// (`inherit Base(arg1, arg2)`'s `(arg1, arg2)` shape). `ValueNone` for
-    /// classes without an `inherit` clause and Phase 1 placeholders; Phase 2
+    /// classes without an `inherit` clause; the inheritance pass
     /// stamps it from `ClassInheritsDecl.expr`.
     member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
-    /// `[<Sealed>]` (B-8). Stamped by
+    /// `[<Sealed>]`. Stamped by
     /// `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// `Freeze` projects it onto `TTypeKind.Class.isSealed` so codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`.
     member val IsSealed: bool = false with get, set
-    /// Class-level `static let` bindings (B-10) in
+    /// Class-level `static let` bindings in
     /// declaration order. Stamped by `NameResolution.registerClassTypeDefn` from
     /// the class's `classPreamble`; types are linked by Unification's
     /// `fillClassMembers`; `Freeze` projects each onto a `TStaticLet`. Empty unless
@@ -398,7 +398,7 @@ type ClassTypeInfo
     /// per-instantiation cache lowering is deferred), so this is only populated for
     /// monomorphic classes.
     member val StaticLets: ClassStaticLetInfo[] = [||] with get, set
-    /// Secondary constructors (B-11) in declaration
+    /// Secondary constructors in declaration
     /// order. Stamped by `NameResolution.registerClassTypeDefn`; param types are
     /// linked by Unification's `fillClassMembers`; `Freeze` projects each onto a
     /// `TSecondaryCtor`. Empty unless the class declares `new(...)` overloads.
@@ -411,24 +411,24 @@ type ClassTypeInfo
     /// for the val-field form (else it collides with a parameterless `new()`).
     /// Defaults `true` so any path that doesn't stamp it keeps the prior behaviour.
     member val HasPrimaryCtor: bool = true with get, set
-    /// `[<AllowNullLiteral>]` (B-8). Stamped
+    /// `[<AllowNullLiteral>]`. Stamped
     /// by `NameResolution.registerClassTypeDefn` from the type's attributes;
     /// read only by Unification's `Expr.Null` arm so `null` unifies with the
     /// class. Never reaches codegen (no IL flag for it).
     member val AllowNullLiteral: bool = false with get, set
-    /// `interface IFace with member …` blocks (B-2).
+    /// `interface IFace with member …` blocks.
     /// Stamped by `NameResolution.registerClassTypeDefn`; each impl's interface
     /// type is resolved + verified, and its member bodies typed, by Unification's
     /// `fillClassMembers`. Empty unless the class declares an `interface … with`
     /// block. `Freeze` projects them onto `TTypeKind.Class.interfaces` for codegen
-    /// (Step 5.3, deferred).
+    /// (deferred).
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `when 'a : ...` / `when 'a :> IFace` clause attached to the class's typar
     /// list, if any. Stamped by `NameResolution.registerClassTypeDefn`; Unification's
     /// `fillClassMembers` walks it (under the class typar scope) and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams` — so a member body's
     /// `this.field` access on an interface-constrained class typar (`'S :> IBox<'T>`)
-    /// resolves through the interface (rung-3 `CallVia.Interface`). Mirrors
+    /// resolves through the interface (`CallVia.Interface`). Mirrors
     /// `RecordTypeInfo.TyparConstraints`. `ValueNone` for an unconstrained class.
     member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]` (or the `type X = struct … end` shape).
@@ -840,7 +840,7 @@ type PassContextBindings =
         /// frame-local closure held in an aggregate is `LocalStack` here yet
         /// `RequiresHeapRepr` there.
         Repr: SideTable<RegionRepr>
-        /// Module-level bindings inside a named `module Foo = …` (R3 deferred): each
+        /// Module-level bindings inside a named `module Foo = …`: each
         /// binding's `NodeKey` → where its emitted static method belongs (a real
         /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
         /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
@@ -896,7 +896,7 @@ type PassContextResolution =
         /// declared typars; when this seed is set it reuses the prototype TyVar
         /// for a matching name instead of allocating a fresh one. `fillTypeMembers`
         /// sets it from a generic member's `TypeMemberInfo.MethodTypeParams`
-        /// (B-12) so the typars flowing into the inferred signature are the same
+        /// so the typars flowing into the inferred signature are the same
         /// roots `Freeze` surfaces and codegen installs as the ambient `!!i` set;
         /// `ValueNone` for every other binding (fresh typars, the existing
         /// behaviour).
@@ -922,7 +922,7 @@ type PassContextResolution =
         /// Keyed by a member-access node's `NodeKey` (`Expr.DotLookup`): the resolved
         /// external member (`TryLookupMember` hit) for a `<externalType>.Member` or
         /// static `Type.Member` access. Freeze reads it to mint a `TExpr.ExternalMember`
-        /// stamping the resolved `SymbolKey` (P3). Absent
+        /// stamping the resolved `SymbolKey`. Absent
         /// for project-local member access (resolved via `Types.Class` / `Types.Union`).
         ExternalAccess: SideTable<ResolvedExternalMember>
         /// Keyed by an external *method-call head*'s `NodeKey` (the same key
@@ -939,7 +939,7 @@ type PassContextResolution =
         /// Keyed by a member-access node's `NodeKey` (the folded `LongIdent` /
         /// `DotLookup` head of `x.M(...)`): the constraining *interface*'s
         /// `SymbolKey.TypeKey` when the receiver's type is a generic typar coerced
-        /// to a project-local interface (`'T :> IFace`, rung-3 Wall B). Recorded by
+        /// to a project-local interface (`'T :> IFace`). Recorded by
         /// `Unification.resolveFieldStep`'s typar arm when it resolves the member
         /// through the typar's `Coercion` constraint, and read by `Freeze` to mint a
         /// `TExpr.MethodCall` with `CallVia.Interface` (the declaring type is the
@@ -985,7 +985,7 @@ type PassContextResolution =
         /// Keyed by a `for x in src do …` node's `NodeKey`: how the source yields
         /// its enumerator. Recorded by `Unification.inferForIn` and read by `Freeze`
         /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`
-        /// (range sources and the §4.2 interface path); present with
+        /// (range sources and the interface path); present with
         /// `ForInEnumerator.Pattern` for a source exposing only a pattern-based
         /// `GetEnumerator()`.
         ForInShape: SideTable<ForInEnumerator>
@@ -997,11 +997,11 @@ type PassContextResolution =
         /// `TypeGeneric` keys) as a union annotation resolves. Read by the type-decl
         /// emitter (`Freeze.tryUnionType`) to recover the union by key instead of
         /// re-deriving `(name, arity)`; the use-site stamps are populate-only
-        /// groundwork until a Phase 3 consumer keys off them. Unions only for now
+        /// groundwork until a consumer keys off them. Unions only for now
         /// (the proven-out case); records / classes / abbrevs follow as their
         /// consumers migrate.
         ResolvedType: SideTable<SymbolKey>
-        /// G15/G16: project-local *module* member registry. Maps a local module's
+        /// Project-local *module* member registry. Maps a local module's
         /// short name (`SetTree`) → its directly-declared `let` value/function
         /// bindings (member name → the binding-site `NodeKey` `bindingsOfPat` mints
         /// for the head pattern). Populated by `NameResolution.registerLocalModules`,
@@ -1011,11 +1011,11 @@ type PassContextResolution =
         /// qualified-name path (`SetTree.add` resolves to the member's binding site,
         /// recorded as a use-site `Binding` entry so Unification/Freeze treat it as
         /// an ordinary local reference) and by the nested-type body walk (an
-        /// enclosing module's bindings enter the type-body scope, unqualified — G16).
+        /// enclosing module's bindings enter the type-body scope, unqualified).
         /// The `SetTree` *module* and a same-named `SetTree<'T>` *type* coexist:
         /// this table is keyed independently of `Types.Class`.
         LocalModules: Dictionary<string, Dictionary<string, NodeKey>>
-        /// G16: maps a local *type*'s short name (`SetIterator`) → the short name
+        /// Maps a local *type*'s short name (`SetIterator`) → the short name
         /// of the module it is declared inside (`SetTree`). Populated alongside
         /// `LocalModules`; consulted by the nested-type body walk to merge the
         /// enclosing module's bindings into the member-body scope. Absent for a
@@ -1133,7 +1133,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
     /// the existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
-    /// rung-4 M3 / M6 P-a: the node-keyed value-struct closure verdict. Keyed by a
+    /// The node-keyed value-struct closure verdict. Keyed by a
     /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
     /// arity (always) and, for a transformer combinator, the result-typar position.
     /// Recorded in `inferApp` when an argument lambda lands on a typar parameter
@@ -1144,7 +1144,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `ClosureVerdictRewrite` reads `ResultTyparPos` for the slot/result rewrite. A
     /// lambda with no entry is the ordinary curried closure.
     member val FunVerdicts = SideTable<FunVerdict>() with get
-    /// rung-4 §9 (Direction B): a project-local generalised binding's
+    /// A project-local generalised binding's
     /// `NodeKey` → its frozen typar bounds (`FrozenConstraint` list). Written by
     /// `Elaborate.translateModuleElem` at the single index-minting point (so the
     /// bounds' typar leaves carry the SAME method-axis indices the body freezes
@@ -1162,7 +1162,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
     /// the threshold for "which TyVars do I quantify?".
     member val CurrentLevel = 0 with get, set
-    /// Bare-program list literals (R3): each `[…]` whose container type was left
+    /// Bare-program list literals: each `[…]` whose container type was left
     /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
     /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to
     /// the Vesper list, otherwise it defaults to FSharp.Core's `list`. Drained by

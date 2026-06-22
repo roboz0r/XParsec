@@ -203,7 +203,7 @@ module EmitCall =
             // by Freeze when the front-end resolved the name through the symbol
             // provider — codegen routes by identity, not name suffix.
             //
-            // rung-4 §9 (Direction B): when a SOURCE-LAMBDA argument lowered to a
+            // When a SOURCE-LAMBDA argument lowered to a
             // value-struct closure (an external struct-seq combinator: `StructSeq.map`
             // / `fold`), the head's frozen type is stale for the instantiation recovery
             // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`/`Fun2`
@@ -240,7 +240,7 @@ module EmitCall =
             | ValueSome recipe ->
                 // The spine split keys off the SOURCE-group count when the recipe
                 // carries one (`Grouped` — an external module function with a captured
-                // `ValRepr`, Step C): one spine element per source group, then each
+                // `ValRepr`): one spine element per source group, then each
                 // group flattened to its pushed CLR values exactly as the in-assembly
                 // static-fn arm does. `Flat` pushes every leading element one-to-one.
                 let leading, rest =
@@ -260,7 +260,7 @@ module EmitCall =
                 b.Add(ILInstr.Recipe recipe)
 
                 // A `void` recipe (`Pushes = 0`, a now-`void` external module
-                // function, Step B) left nothing on the stack; reify a `unit` for the
+                // function) left nothing on the stack; reify a `unit` for the
                 // value-position result, as every other unit-returning call does.
                 // `rest` is empty for such a call (`unit` is not applicable), so the
                 // `foldInvoke` below is a no-op.
@@ -316,14 +316,14 @@ module EmitCall =
                         | [] -> sm.ParamTys @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
                         | _ -> sm.ParamTys, flatActualTys
 
-                    // rung-4 §9 (Direction B): partial recovery — a PHANTOM
+                    // Partial recovery — a PHANTOM
                     // constraint typar (`fold`'s enumerator `'E`, in no param/result)
                     // is unrecoverable by param-matching and stays `ValueNone`; it is
                     // solved below from `sm.Constraints`. The strict failwith moved
                     // to the post-solve finalize.
                     let instArr = matchInstantiationPartial sm.Typars defTys actualTys
 
-                    // rung-4 Step C (M1): a captureless `Stack` (value-struct) lambda
+                    // A captureless `Stack` (value-struct) lambda
                     // argument fed a bare method-typar parameter (the constrained
                     // `'TF :> Fun<_,_>` slot) must instantiate `!TF` with the
                     // closure's own struct `TypeDef`, NOT the arrow (which encodes to
@@ -345,7 +345,7 @@ module EmitCall =
                         | false, _ -> ()
                     )
 
-                    // rung-4 §9 (Direction B) — the call-site PHANTOM-typar solve.
+                    // The call-site PHANTOM-typar solve.
                     // A phantom constraint typar (`fold`'s enumerator `'E` in
                     // `'S :> IStructSeq<'T,'E>`) is in no param/result, so it is still
                     // `ValueNone`; solve it from `sm.Constraints` via the project-local
@@ -368,7 +368,7 @@ module EmitCall =
 
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
-            // A `unit`-returning static fn is emitted `void` (Step B): the `call`
+            // A `unit`-returning static fn is emitted `void`: the `call`
             // declares 0 results and a `unit` value is reified for a value-position
             // consumer — the `unit → void` convention the instance path uses. `rest`
             // is empty for a void fn (`unit` is not applicable), so `foldInvoke` is a

@@ -194,7 +194,7 @@ module ReferencedProject =
             | Ok doc -> parseManifest dirName doc
 
     /// Resolve a `depends-on` package name to its `manifest.toml` path, relative
-    /// to a dependent manifest's location. By the package-split-plan convention a
+    /// to a dependent manifest's location. By convention a
     /// package's directory name *is* its identity (`src/Vesper.Core` ⇒
     /// `"Vesper.Core"`, the `Manifest.Name` fallback), so a dependency
     /// `"Vesper.Core"` of the manifest at `src/Vesper.List/manifest.toml` lives at
@@ -457,7 +457,7 @@ module ReferencedProject =
             // type by bare name (`Fun` / `Fun2`), the way the consumer front end does.
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
             // The package's own home assembly, so `mkNominal` stamps it onto own-type
-            // keys whose extraction-time origin is still Empty (Phase 6) — matching
+            // keys whose extraction-time origin is still Empty — matching
             // the `Some manifest.Name` origin the `wrap` below stamps for consumers.
             ctx.HomeAssembly <- Some manifest.Name
 

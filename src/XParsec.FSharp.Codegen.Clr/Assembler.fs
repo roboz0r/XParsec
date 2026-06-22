@@ -56,7 +56,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let closures = layout.Closures
     let closureByNode = layout.ClosureByNode
 
-    // rung-4 Step C (M1): closure name → its `Closure` record, so the type-layout
+    // closure name → its `Closure` record, so the type-layout
     // pass (keyed only by `TypeKey.Closure name`) can branch a value-struct closure
     // onto struct attrs / `System.ValueType` base.
     let closureByName = Dictionary<string, Emit.Closure>()
@@ -73,12 +73,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let ctorHandleByNode =
         Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
-    // A non-capturing, monomorphic closure's cached singleton field (rung-4
-    // Step B): its construction sites `ldsfld` this instead of `newobj`ing.
+    // A non-capturing, monomorphic closure's cached singleton field: its
+    // construction sites `ldsfld` this instead of `newobj`ing.
     let cachedClosureFieldByNode =
         Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
-    // rung-4 Step C (M1): a captureless `Stack` (value-struct) closure's synthetic
+    // A captureless `Stack` (value-struct) closure's synthetic
     // encodable `FrozenType` (the by-value local + the constrained-slot `MethodSpec`
     // type-argument) and its closure-`TypeDef` handle (`initobj` operand).
     let closureValueTypeByNode =
@@ -168,7 +168,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
 
             // A *generic* interface (`IStructSeq<'E>`) also enters the generic-class
-            // registry so a constrained-typar dispatch (rung-3 `CallVia.Interface`)
+            // registry so a constrained-typar dispatch (`CallVia.Interface`)
             // can mint its abstract slot as a `MemberRef` on the instantiated
             // interface `TypeSpec` (`IStructSeq\`1<!E>::GetEnumerator`) via
             // `UserGenericMemberRef`. An interface has no ctor params or fields, so
@@ -199,10 +199,10 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 )
         )
 
-    // rung-4 Step C (M1)/M6 P-a: mint each captureless value-struct closure's
+    // Mint each captureless value-struct closure's
     // synthetic encodable `FrozenType` + `TypeDef` handle NOW, before the field
-    // table is written — the module-value field substitution (`substituteVerdictClosures`,
-    // M6 P-a) must read `closureValueTypeByNode` while encoding a stored binding's
+    // table is written — the module-value field substitution
+    // (`substituteVerdictClosures`) must read `closureValueTypeByNode` while encoding a stored binding's
     // `'TFunc` slot, and that slot's field is in the up-front field pass below.
     // `BindClosures` (called later from `Codegen.assemble`) reads these already-minted
     // entries rather than re-minting (`RegisterStackClosureValueType` is single-shot —
@@ -215,7 +215,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 closureValueTypeByNode.[c.Node] <- ft
                 closureTypeDefByNode.[c.Node] <- defHandle
 
-    // rung-4 §9: the seq→enumerator witness the closure-verdict rewrite needs to
+    // The seq→enumerator witness the closure-verdict rewrite needs to
     // rewrite a chained binding's nested `'E` ENUMERATOR slot node-keyed (NOT by
     // arrow shape). For a project-local seq class, its `GetEnumerator` interface-impl
     // member's RETURN type is the enumerator over the class's declaring typars; map
@@ -244,30 +244,19 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         d
 
     // Instantiate a seq class's declaring-typar enumerator template by a concrete
-    // nominal's args: `FTTypar(Declaring, i) := args.[i]` throughout. `ValueNone`
-    // when the nominal is not a project-local seq class (no recorded template).
+    // nominal's args: `FTTypar(Declaring, i) := args.[i]` throughout (the canonical
+    // `FrozenTypeBridge.substituteDeclaring` — a `GetEnumerator`-return template
+    // carries only the declaring axis, so its loud method-axis arm is unreachable).
+    // `ValueNone` when the nominal is not a project-local seq class (no template).
     let enumeratorOf (seqTy: FrozenType) : FrozenType voption =
-        let rec instDeclaring (args: FrozenType[]) (t: FrozenType) : FrozenType =
-            match t with
-            | FTTypar(TyparAxis.Declaring, i) when i >= 0 && i < args.Length -> args.[i]
-            | FTFun(a, b) -> FTFun(instDeclaring args a, instDeclaring args b)
-            | FTTuple items -> FTTuple(EqArray.map (instDeclaring args) items)
-            | FTConst(n, xs) -> FTConst(n, EqArray.map (instDeclaring args) xs)
-            | FTClass(k, xs) -> FTClass(k, EqArray.map (instDeclaring args) xs)
-            | FTRecord(k, xs) -> FTRecord(k, EqArray.map (instDeclaring args) xs)
-            | FTUnion(k, xs) -> FTUnion(k, EqArray.map (instDeclaring args) xs)
-            | FTOr ms -> FTOr(EqArray.map (instDeclaring args) ms)
-            | FTTypar _
-            | FTUnknown _ -> t
-
         match seqTy with
         | FTClass(key, args) ->
             match enumeratorTemplateByClass.TryGetValue key with
-            | true, template -> ValueSome(instDeclaring (args.AsSpan().ToArray()) template)
+            | true, template -> ValueSome(substituteDeclaring (args.AsSpan().ToArray()) template)
             | false, _ -> ValueNone
         | _ -> ValueNone
 
-    // rung-4 M6: the closure-verdict TAST rewrite, built from backend-neutral inputs
+    // The closure-verdict TAST rewrite, built from backend-neutral inputs
     // (the already-minted value-struct closure types + the front-end's result-typar
     // verdicts + the stored module values + the seq→enumerator witness). It owns
     // `substituteVerdictClosures` / `retypeBody` / `retypeDecl` and the field-slot
@@ -307,7 +296,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     // type, encoded from its TypeDef handle (no `FrozenType`).
                     | FieldKey.ClosureCached name ->
                         provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeKey.Closure name)))
-                    // rung-4 M6 P-a: a stored module value whose initialiser feeds a
+                    // A stored module value whose initialiser feeds a
                     // value-struct source lambda into a `'TFunc`-carrying result type —
                     // rewrite the typar-position leaf to the `<closure>$` value-struct so
                     // the field slot matches the value the call returns.
@@ -355,14 +344,14 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Arity = List.length fn.Params
                     Groups = fn.Groups
                     ResultTy = fn.ResultTy
-                    // rung-4 §9 (Direction B): `plan.StaticFnTypars` is the max method
+                    // `plan.StaticFnTypars` is the max method
                     // index over params + result + BODY, so a generic combinator emits
                     // a `MethodSpec` slot for each phantom typar surviving in its body
                     // (`fold`'s `'E`) — the call site solves those from `Constraints`.
                     Typars = plan.StaticFnTypars.[fn.Key]
                     ParamTys = fn.Params |> List.map (fun p -> p.Ty)
                     ReturnsVoid = fn.ReturnsVoid
-                    // rung-4 §9 (Direction B): the frozen typar bounds the call-site
+                    // The frozen typar bounds the call-site
                     // phantom-typar solve (`EmitCall`) reads to recover the phantom
                     // method-typar slots no parameter/result mentions.
                     Constraints = fn.Constraints
@@ -517,15 +506,15 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 ctorHandleByNode.[c.Node] <- toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
 
             // A non-capturing, monomorphic closure is cached: the construction site
-            // `ldsfld`s its singleton field instead of `newobj`ing (rung-4 Step B).
+            // `ldsfld`s its singleton field instead of `newobj`ing.
             if Emit.closureIsCached c then
                 cachedClosureFieldByNode.[c.Node] <- toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
-            // rung-4 Step C (M1): a captureless `Stack` (value-struct) closure is
+            // A captureless `Stack` (value-struct) closure is
             // constructed by-value (`initobj` to a local) and its struct `TypeDef`
             // is the constrained-slot `MethodSpec` type-argument at the call site.
             // Its synthetic value-type `FrozenType` + `TypeDef` handle were already
-            // minted in the constructor (before the field pass, so M6 P-a's stored-slot
+            // minted in the constructor (before the field pass, so the stored-slot
             // substitution could read them); `RegisterStackClosureValueType` is
             // single-shot, so this only asserts they are present — never re-mints.
             if c.IsValueStruct && not (closureValueTypeByNode.ContainsKey c.Node) then
@@ -623,7 +612,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     handleForUse
                 )
 
-            // rung-4 Step C (M1): a `Stack` closure is a value type — its ctor
+            // A `Stack` closure is a value type — its ctor
             // does NOT chain `System.Object::.ctor` (value types have none and do
             // not chain), so use the struct-ctor builder. A captureless Stack
             // closure's ctor is the trivial `ret`; construction is by-value
@@ -653,7 +642,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 }
             )
 
-            // rung-4 M3: a flat-2 (`Fun2`) closure's `Invoke` is `Invoke(a, b) : c`;
+            // A flat-2 (`Fun2`) closure's `Invoke` is `Invoke(a, b) : c`;
             // arity-1 keeps the single-arg `Invoke(a) : b`.
             let invokeSignature, invokeParamNames =
                 match c.Param2 with
@@ -671,8 +660,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             )
 
             // A non-capturing, monomorphic closure caches its single instance: a
-            // `.cctor` `newobj`s the ctor once and `stsfld`s the singleton field
-            // (rung-4 Step B). Construction sites then `ldsfld` it (`BindClosures`
+            // `.cctor` `newobj`s the ctor once and `stsfld`s the singleton field.
+            // Construction sites then `ldsfld` it (`BindClosures`
             // populated `cachedClosureFieldByNode`).
             if Emit.closureIsCached c then
                 let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
@@ -696,7 +685,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
             // `Fun\`2<param, result>` interface `TypeSpec` — closure ambient
             // still installed, so free `TyVar`s encode to `!i`. A flat-2 (`Fun2`)
-            // value-struct closure (rung-4 M3) implements `Fun2`3<a,b,c>` instead.
+            // value-struct closure implements `Fun2`3<a,b,c>` instead.
             let ifaceSpec =
                 match c.Param2 with
                 | ValueSome(_, p2ty, _) -> provider.Fun2InterfaceSpec(c.ParamTy, p2ty, c.ResultTy)
@@ -714,7 +703,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 TypeKey.Closure c.Name,
                 {
                     Interfaces = [ ifaceSpec ]
-                    // rung-4 Step C (M1): a `Stack` closure is a value type, so it
+                    // A `Stack` closure is a value type, so it
                     // derives from `System.ValueType`; the heap closure from `Object`.
                     BaseType =
                         (if isStack then
@@ -731,7 +720,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             // `!!i` directly — no ambient typar window.
             let typarCount = staticMethods.[fn.Key].Typars
 
-            // rung-4 M6: retype the body so a reference to a verdict module value (a
+            // Retype the body so a reference to a verdict module value (a
             // stored transformer result, `Var h` / `h.F`) or an inline transformer call
             // dispatches on the `<closure>$` value-struct nominal rather than the frozen
             // arrow. A no-op when there are no verdicts (the green named-struct path).
@@ -743,7 +732,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             let paramTys = fn.Params |> List.map (fun p -> p.Ty)
 
             // A `unit`-returning module function now encodes genuine CLR `void`
-            // (Step B, "void everywhere"), matching the consumer convention the
+            // ("void everywhere"), matching the consumer convention the
             // instance path already used. A generic void static fn reuses the
             // generic-method void encoder with `isInstanceMethod = false`.
             let signature =
@@ -815,7 +804,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
     member this.PrepareMain() =
         if layout.EmitEntryPoint then
-            // rung-4 M6 P-a: retype the Main decls so a reference to a verdict module
+            // Retype the Main decls so a reference to a verdict module
             // value (and its field projections) dispatches on the `<closure>$` value-
             // struct nominal, not the frozen arrow.
             let mainDecls = lowered |> List.map retypeDecl
@@ -943,8 +932,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 slot.Typars
                 |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
-            // Unions and records are always sealed (rung 2 forbids
-            // inheritance); a class opts in via `[<Sealed>]` / `[<Struct>]`.
+            // Unions and records are always sealed (subclassing /
+            // inheritance forbidden); a class opts in via `[<Sealed>]` / `[<Struct>]`.
             | TypeSlotKind.Union
             | TypeSlotKind.Record -> addNominalRow slot (classAttrsOf true false) false
 
@@ -963,7 +952,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     | true, e -> e
                     | _ -> failwithf "Layout: closure slot '%s' was never prepared" slot.MetaName
 
-                // rung-4 Step C (M1): a `Stack` closure is a `[<Struct>]` value
+                // A `Stack` closure is a `[<Struct>]` value
                 // type (sealed, sequential layout) deriving from `System.ValueType`
                 // (set on `extras.BaseType` in `PrepareClosures`); the heap closure
                 // keeps the sealed-class `closureAttrs` over `System.Object`.

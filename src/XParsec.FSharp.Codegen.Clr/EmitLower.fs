@@ -55,8 +55,7 @@ module EmitLower =
 
         /// compiled name → (arity, body builder over the operand expressions).
         /// `&&` / `||` are intentionally absent — they short-circuit and freeze to
-        /// `IfThenElse`, not an opcode. Ordering uses `clt`/`cgt` (IEEE on floats,
-        /// O7); bitwise/shift use the signed/default IL form (the `ops-platform.fs`
+        /// `IfThenElse`, not an opcode. Ordering uses `clt`/`cgt` (IEEE on floats); bitwise/shift use the signed/default IL form (the `ops-platform.fs`
         /// contract bodies, with narrow-int/unsigned refinements, win at a ground
         /// use site — these serve the un-ground fallback).
         let private table: Map<string, int * (EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr)> =

@@ -181,7 +181,7 @@ module internal UnificationInferRecordAccess =
             else
                 errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" typeName memberName)
 
-    /// Wall B (rung 3): resolve `memberName` on a typar receiver through an
+    /// Resolve `memberName` on a typar receiver through an
     /// interface the typar is coerced to (`'T :> IFace`). Scans the root's
     /// `Coercion` constraints; for each whose target zonks to a project-local
     /// *interface* `TyClass`, walks its members (and inherited interface members)
@@ -262,7 +262,7 @@ module internal UnificationInferRecordAccess =
                 | ValueSome ty -> ty
                 | ValueNone ->
                     // An explicit `val x: T` instance field read (struct enumerator
-                    // state, B-7-adjacent). Instantiate the field's declared type
+                    // state). Instantiate the field's declared type
                     // with the receiver's type args, mirroring the member path.
                     match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
                     | Some fld -> instantiateMember (info.TypeParams, args) fld.Type
@@ -293,7 +293,7 @@ module internal UnificationInferRecordAccess =
                     memberSig
                 | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
-            // Union instance member access (P3d.3) — mirrors the `TyClass` arm
+            // Union instance member access — mirrors the `TyClass` arm
             // against the union's augmentation members.
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
@@ -339,12 +339,12 @@ module internal UnificationInferRecordAccess =
         | TyVar tv ->
             let root = UnionFind.find tv
 
-            // Wall B (rung 3): the receiver is a generic typar (`'T`) constrained to
+            // The receiver is a generic typar (`'T`) constrained to
             // an interface (`'T :> IFace`). The typar never grounds to a nominal, so
             // the `PendingDotAccess` drain would never fire (and the binding wouldn't
             // generalise); instead resolve the member *now* through the interface the
             // typar is coerced to. The constraint's target zonks to the interface's
-            // `TyClass` (Wall A registers a project-local interface in `Types.Class`
+            // `TyClass` (a project-local interface is registered in `Types.Class`
             // with `IsInterface` set). Record the interface key so Freeze mints a
             // `CallVia.Interface` dispatch (codegen → `constrained. callvirt`).
             match tryTyparInterfaceMember ctx diagKey root memberName with

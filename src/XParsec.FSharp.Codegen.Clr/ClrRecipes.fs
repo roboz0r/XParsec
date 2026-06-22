@@ -336,7 +336,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     /// `Vesper.Fun2`3<a,b,c>` as a `TypeSpec` — the FLAT 2-arg interface a flat-2
-    /// value-struct closure implements (rung-4 M3). Sibling of `funInterfaceSpec`.
+    /// value-struct closure implements. Sibling of `funInterfaceSpec`.
     let fun2InterfaceSpec (a: FrozenType) (b: FrozenType) (c: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -414,33 +414,14 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             scope
 
-    /// Substitute a nominal's declaring-typar leaves throughout a `FrozenType`
-    /// TEMPLATE: every `FTTypar(TyparAxis.Declaring, i)` becomes `args.[i]` — the
-    /// `FrozenType`-space mirror of `EmitResolve.instantiateDeclaring` /
-    /// `ExternalSymbols.instantiateInterfaces` (whose realiser yields `SemType`, the
-    /// wrong axis for codegen emission). An out-of-range index passes through; a
-    /// method-axis typar is left alone (interface templates carry only the declaring
-    /// axis).
-    let rec instantiateDeclaringFt (args: FrozenType[]) (t: FrozenType) : FrozenType =
-        match t with
-        | FTTypar(TyparAxis.Declaring, i) when i >= 0 && i < args.Length -> args.[i]
-        | FTFun(a, b) -> FTFun(instantiateDeclaringFt args a, instantiateDeclaringFt args b)
-        | FTTuple items -> FTTuple(EqArray.map (instantiateDeclaringFt args) items)
-        | FTConst(n, xs) -> FTConst(n, EqArray.map (instantiateDeclaringFt args) xs)
-        | FTClass(k, xs) -> FTClass(k, EqArray.map (instantiateDeclaringFt args) xs)
-        | FTRecord(k, xs) -> FTRecord(k, EqArray.map (instantiateDeclaringFt args) xs)
-        | FTUnion(k, xs) -> FTUnion(k, EqArray.map (instantiateDeclaringFt args) xs)
-        | FTOr ms -> FTOr(EqArray.map (instantiateDeclaringFt args) ms)
-        | FTTypar _
-        | FTUnknown _ -> t
-
-    /// rung-4 §9.4 M7 stage 3 — the EXTERNAL arm of `EmitResolve.tryInterfaceWitness`:
-    /// given a referenced-package nominal receiver `FTClass/FTUnion/FTRecord(key, args)`
-    /// and a wanted `ifaceKey`, look the type's shape up through the codegen symbol
-    /// provider (`ICodegenSymbols.TryLookupType`), find the matching
+    /// The EXTERNAL head of the seq-interface witness
+    /// (`FrozenTypeBridge.pickInterfaceWitness` is the shared tail;
+    /// `EmitResolve.tryInterfaceWitness` is the project-local head). Given a
+    /// referenced-package nominal receiver `FTClass/FTUnion/FTRecord(key, args)` and a
+    /// wanted `ifaceKey`, look the type's shape up through the codegen symbol provider
+    /// (`ICodegenSymbols.TryLookupType`) and pick the matching
     /// `ExternalClassShape.FrozenInterfaces` template (its args over the declaring
-    /// typars, `FTTypar(Declaring,i)`), and return that interface's args instantiated by
-    /// `FTTypar(Declaring, i) := args.[i]` — the interface as seen at THIS receiver.
+    /// typars), instantiated at THIS receiver (`FTTypar(Declaring, i) := args.[i]`).
     /// `ValueNone` for a non-nominal receiver, an unknown / non-class shape, or no
     /// matching interface. Direct-declared interfaces only (the `.fsi` extractor's
     /// `FrozenInterfaces` is the frozen direct-impl set), matching the project-local
@@ -448,32 +429,18 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// sides — `FrozenInterfaces` from `nominalInterface`, `ifaceKey` from the frozen
     /// constraint target).
     let tryExternalInterfaceWitness (receiver: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
-        let nominal =
-            match receiver with
-            | FTClass(k, args)
-            | FTUnion(k, args)
-            | FTRecord(k, args) -> ValueSome(k, args)
-            | _ -> ValueNone
-
-        match nominal with
-        | ValueNone -> ValueNone
-        | ValueSome(rKey, rArgs) ->
+        match receiver with
+        | FTClass(rKey, rArgs)
+        | FTUnion(rKey, rArgs)
+        | FTRecord(rKey, rArgs) ->
             match symbols.TryLookupType(SymbolKeyOps.qualifiedName rKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                let target = SymbolKeyOps.qualifiedName ifaceKey
-                let declArgs = rArgs.AsSpan().ToArray()
-
-                shape.FrozenInterfaces
-                |> Array.tryPick (fun (iname, ifaceArgs) ->
-                    if iname = target then
-                        Some(ifaceArgs |> Array.map (instantiateDeclaringFt declArgs) |> EqArray.ofArray)
-                    else
-                        None
-                )
-                |> function
-                    | Some ia -> ValueSome ia
-                    | None -> ValueNone
+                pickInterfaceWitness
+                    (SymbolKeyOps.qualifiedName ifaceKey)
+                    (rArgs.AsSpan().ToArray())
+                    shape.FrozenInterfaces
             | _ -> ValueNone
+        | _ -> ValueNone
 
     /// General external module-function call: a `call` to a static method `<ns>::<name>` compiled into
     /// a referenced package by our own backend, generalised from `emitFold`. `declFullName` is the
@@ -513,7 +480,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let peelN n t = TastLower.peelArrowDomains n t
 
             // The flat parameter vector + `void`-vs-value decision come from the SOURCE
-            // `ValRepr` the symbol carries (Step C): its groups drive the tuple-flatten
+            // `ValRepr` the symbol carries: its groups drive the tuple-flatten
             // / lone-`unit`-erase (mirroring the producer's `compiledOf`), and the
             // result peeled to exactly that arity decides `void`. The parameter TYPES
             // come from peeling the open template (its method typars are already
@@ -521,7 +488,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // captured `ValRepr` (a value, a metadata-layer symbol), fall back to the
             // bare-`decurryFrozen` reconstruction — the curried calling convention,
             // correct for an all-`GSimple` signature. A `unit` source result is emitted
-            // genuine CLR `void` by the producer (Step B, "void everywhere"), so the
+            // genuine CLR `void` by the producer ("void everywhere"), so the
             // member-ref must encode `void` too or a `System.ValueTuple` return misses
             // the void method (`MissingMethodException`) — hence both arms read void
             // from the same `isUnitReturn` of the (exactly-peeled) source result.
@@ -591,7 +558,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     methodSpec memberRef methodArgs
                 else
-                    // rung-4 §9 (Direction B), M7 stage 3 — the EXTERNAL analogue of the
+                    // The EXTERNAL analogue of the
                     // project-local phantom-typar solve (`EmitCall.buildAppCall`). The open
                     // template carries a phantom constraint typar (`fold`'s enumerator `'E` in
                     // `'S :> IStructSeq<'T,'E>`, in no param/result) that `recoverOpenTypars`
@@ -1025,8 +992,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     /// A `TypeSpec` token for an arbitrary `FrozenType`, for the type operand of
-    /// `isinst` / `castclass` / `box` / `unbox.any` (inheritance-plan §`:>` /
-    /// `:?` / `:?>`). `encodeType` maps user types to their `TypeDefinition`,
+    /// `isinst` / `castclass` / `box` / `unbox.any` (`:>` / `:?` / `:?>`).
+    /// `encodeType` maps user types to their `TypeDefinition`,
     /// generic instances to instantiated specs, and externals through the
     /// provider — a `TypeSpec` token is a legal `TypeDefOrRefOrSpec` operand for
     /// all of them, so one path serves mono and generic targets alike.

@@ -175,7 +175,7 @@ module Elaborate =
     /// generic union's declaring-typar remap (`remapDeclTypars`) through the whole
     /// member body, so a typar-typed local / scrutinee / bound variable carries the
     /// `TyConst "'T"` marker the backend's generic-member encoder consumes — just as
-    /// the case-field types do (P3d.4 generalised to member bodies for R2).
+    /// the case-field types do (generalised to member bodies).
     let private mapExprTypes (f: SemType -> SemType) (e: TExpr) : TExpr =
         TastWalk.mapExpr
             { TastWalk.identityMapper with
@@ -278,7 +278,7 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
-    /// rung-4 §9 (Direction B): for a generalised binding, record its frozen typar
+    /// For a generalised binding, record its frozen typar
     /// BOUNDS, keyed by the binding's `NodeKey`, onto `ctx.GenericFnSchemes`. Each
     /// `Coercion` bound is frozen as a `FrozenConstraint.Coercion(idx, target)`
     /// template over the METHOD typars: the target is remapped through the SAME
@@ -286,7 +286,7 @@ module Elaborate =
     /// `FTTypar(Method, idx)` indices) and then `toFrozen`-converted. The constrained
     /// typar's `idx` is its position in `quantEnv`. A constraint whose typar or
     /// target is not (yet) a `quantEnv` method typar is dropped — only method-axis
-    /// bounds are carried. Read by the codegen call-site phantom-typar solve (§9).
+    /// bounds are carried. Read by the codegen call-site phantom-typar solve.
     /// (A binding with no recorded scheme has no bounds and records nothing — its
     /// absence from the table is equivalent to an empty list; the emitted typar
     /// arity comes independently from `staticFnTypars`' body sweep.)
@@ -300,22 +300,16 @@ module Elaborate =
             | ValueNone -> ()
             | ValueSome scheme ->
                 // Index of `tv`'s zonked root in `quantEnv` (its `TyTypar(Method, i)`).
-                let methodIndexOf (tv: TypeVar) : int voption =
+                let methodIndexOf (tv: TypeVar) : int option =
                     match Unification.zonk (TyVar tv) with
                     | TyVar root ->
                         quantEnv
                         |> List.tryPick (fun (r, target) ->
-                            if Object.ReferenceEquals(r, root) then
-                                match target with
-                                | TyTypar(TyparAxis.Method, i) -> Some i
-                                | _ -> None
-                            else
-                                None
+                            match target with
+                            | TyTypar(TyparAxis.Method, i) when Object.ReferenceEquals(r, root) -> Some i
+                            | _ -> None
                         )
-                        |> function
-                            | Some i -> ValueSome i
-                            | None -> ValueNone
-                    | _ -> ValueNone
+                    | _ -> None
 
                 let constraints =
                     [
@@ -323,12 +317,12 @@ module Elaborate =
                             match sc.Kind with
                             | SemanticConstraintKind.Coercion target ->
                                 match methodIndexOf tv with
-                                | ValueSome idx ->
+                                | Some idx ->
                                     // Freeze the target with the SAME typar env the body
                                     // uses, so its leaves carry matching method indices.
                                     let frozenTarget = toFrozen (remapDeclTypars quantEnv target)
                                     FrozenConstraint.Coercion(idx, frozenTarget)
-                                | ValueNone -> ()
+                                | None -> ()
                             | _ -> ()
                     ]
 
@@ -470,7 +464,7 @@ module Elaborate =
     /// method signature, no base type, no `let`/`do` preamble — and build its
     /// methods from the *resolved* member signatures in `ctx.Types.Class` (an
     /// `Anon`/`Interface` registers as a class). None for a concrete
-    /// member/field/inherit (a class or later rung) or a never-registered type.
+    /// member/field/inherit (a class or other later construct) or a never-registered type.
     let private tryInterfaceMethods
         (ctx: PassContext)
         (name: string)
@@ -553,7 +547,7 @@ module Elaborate =
     /// from. Unique per declared member (it carries the member's source offset), so
     /// it disambiguates *same-name overloads* that share a name + kind + static-ness
     /// — which a name-only `Array.tryFind` cannot. Used to recover the *right*
-    /// overload's `MethodTypeParams` (Gap A: without it every `Fmt` overload took
+    /// overload's `MethodTypeParams` (without it every `Fmt` overload took
     /// the first one's typars, so the others' own `'T` was never generalised and
     /// froze ungrounded).
     let private memberKeyOfBinding (b: Binding<SyntaxToken>) : NodeKey voption =
@@ -638,7 +632,7 @@ module Elaborate =
                             Body = translateExpr ctx b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
                             // Generic methods on union augmentations are out of
-                            // B-12 scope (class-only); always non-generic here.
+                            // scope (class-only); always non-generic here.
                             MethodTypeParams = EqArray.empty
                         }
                 | ValueNone -> ValueNone
@@ -666,7 +660,7 @@ module Elaborate =
 
     /// Rewrite each `static let`-bound name reference (`TExpr.Var(staticLetKey)`)
     /// in a member body or a `.cctor` initialiser to `TExpr.StaticFieldGet(class,
-    /// name)` (B-10) — the static analogue of the
+    /// name)` — the static analogue of the
     /// primary-ctor-param → `FieldGet` rewrite. Applies to instance and static
     /// member bodies alike (a `static let` is in scope for both).
     let private rewriteStaticLetRefs (staticLetByKey: Map<NodeKey, string>) (declKey: SymbolKey) (body: TExpr) : TExpr =
@@ -694,7 +688,7 @@ module Elaborate =
     /// ctor argument through the same field-access mechanism every other
     /// nominal type uses (codegen never sees the ctor-param NodeKey). Static
     /// members don't see ctor params (front-end's `staticScope` is empty), so
-    /// the rewrite is a no-op there. Phase 2 (B-4) will extend the dispatch
+    /// the rewrite is a no-op there. A later slice will extend the dispatch
     /// path to consult `info.BaseType` for `base.M` resolution.
     let private translateClassMember
         (ctx: PassContext)
@@ -750,7 +744,7 @@ module Elaborate =
                 let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Key
                 if isStatic then body else rewriteCtorParamRefs body
 
-            // The member's own generic parameters (B-12), recovered from the
+            // The member's own generic parameters, recovered from the
             // registered `TypeMemberInfo`. Each prototype TyVar is zonked to the
             // union-find root the member's signature / body actually references
             // (mirrors the abstract-method path); entries that unified away to a
@@ -770,7 +764,7 @@ module Elaborate =
                 // Match the *exact* overload by its registration `DeclKey` first —
                 // same-name overloads share `Name`/`Kind`/`IsStatic`, so a name-only
                 // `tryFind` would return the first overload's typars for every one,
-                // dropping the others' own `'T` (Gap A). Fall back to the name match
+                // dropping the others' own `'T`. Fall back to the name match
                 // for any member whose binding key didn't resolve (operator heads,
                 // auto-properties — none of which overload generically).
                 let byKey =
@@ -837,7 +831,7 @@ module Elaborate =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Translate one secondary constructor (B-11) into a `TSecondaryCtor`. The
+    /// Translate one secondary constructor into a `TSecondaryCtor`. The
     /// params / preamble / chain-call args are translated verbatim; each
     /// `let`-preamble binding becomes a `TCtorLet`, the final chain call's
     /// arguments become `PrimaryArgs`. A generic class's declaring typars ride as
@@ -1086,9 +1080,9 @@ module Elaborate =
     /// `TDecl.Type` from the resolved `ClassTypeInfo`. Ctor params and member
     /// signatures are remapped through the declaring-type typars (the same
     /// `mkTypeMarkers` + `remapDeclTypars` pipeline records / unions use).
-    /// Phase 1 (B-1) leaves `fields` empty (no mutable instance fields yet) and
-    /// `baseType` `ValueNone` (codegen defaults to `Object`); Phase 2 fills the
-    /// base type and Phase 5 (§5.3) projects `info.InterfaceImpls` onto
+    /// An early slice left `fields` empty (no mutable instance fields yet) and
+    /// `baseType` `ValueNone` (codegen defaults to `Object`); a later slice fills the
+    /// base type and another projects `info.InterfaceImpls` onto
     /// `interfaces`.
     let private tryClassType
         (ctx: PassContext)
@@ -1141,7 +1135,7 @@ module Elaborate =
             let selfTy = TyClass(info.Key, declTyparArgs info.TypeParams)
 
             // Surface a member when the declaring type is generic (declaring axis)
-            // *or* the member itself is generic (method axis, B-12): stamp its
+            // *or* the member itself is generic (method axis): stamp its
             // self-type and fold its method typars into the decl env, so
             // `freezeTypars` later flips both axes. A generic method on a
             // *monomorphic* class still needs its `'C` cut to `TyTypar(Method, i)`,
@@ -1169,7 +1163,7 @@ module Elaborate =
                     }
                 )
 
-            // `static let` fields + `.cctor` initialisers (B-10). The front-end
+            // `static let` fields + `.cctor` initialisers. The front-end
             // rejects `static let` on a generic class, so `info.StaticLets` is
             // only ever non-empty for a monomorphic class — no typar remap needed.
             // A later static-let initialiser referencing an earlier one is rewritten
@@ -1189,13 +1183,13 @@ module Elaborate =
                     }
                 )
 
-            // Secondary constructors (B-11). Each `new(...)` overload becomes a
+            // Secondary constructors. Each `new(...)` overload becomes a
             // `TSecondaryCtor`; codegen emits a `.ctor` overload chaining to the
             // primary ctor. Empty unless the class declares any.
             let secondaryCtors =
                 EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx sc })
 
-            // Inheritance (B-4 Step 2.5). `baseType` is the parent's resolved
+            // Inheritance. `baseType` is the parent's resolved
             // `TyClass`, carried with this class's declaring typars as `TyVar` roots
             // so `freezeTypars` encodes a generic parent (`SetTree\`1<!0>`) against
             // this class's own generic parameters; codegen reads it for the IL
@@ -1205,7 +1199,7 @@ module Elaborate =
             // and the translated arg expressions.
             let baseType = info.BaseType
 
-            // Interface implementations (B-2).
+            // Interface implementations.
             // Each registered `interface IFace with member …` block becomes an
             // `(ifaceTy, members)` entry: the resolved interface `TyClass` (carrying
             // this class's declaring typars as roots so a generic arg like
@@ -1214,7 +1208,7 @@ module Elaborate =
             // through the *class* `info` exactly like the class's own members —
             // `this` and ctor-param references rewrite identically — but read their
             // elements from the impl's own `Elements`. Impls whose interface failed
-            // to resolve (`Resolved = ValueNone`, the §5.1 diagnostic already fired)
+            // to resolve (`Resolved = ValueNone`, the diagnostic already fired)
             // are dropped.
             let interfaces =
                 EqArray.ofSeq (
@@ -1342,8 +1336,8 @@ module Elaborate =
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
         li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-    /// `holder` is the enclosing named module's compiled holder-type name (R3
-    /// deferred): `Some` for elements inside a `module Foo = …`, `None` at the
+    /// `holder` is the enclosing named module's compiled holder-type name:
+    /// `Some` for elements inside a `module Foo = …`, `None` at the
     /// namespace/file top level. A `let` binding under a holder records its
     /// `NodeKey` → `ModuleMemberInfo` so the backend emits it as a named public
     /// static method on that holder (e.g. `ListModule::fold`) rather than on the
@@ -1435,7 +1429,7 @@ module Elaborate =
                             | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv declTy
                             | _ -> []
 
-                    // rung-4 §9 (Direction B): record the binding's frozen typar
+                    // Record the binding's frozen typar
                     // bounds using THIS `quantEnv` (the same env `freezeTypars` freezes
                     // the body with, so the bounds' typar indices line up). Read by the
                     // call-site phantom-typar solve (`EmitCall`).
@@ -1489,7 +1483,7 @@ module Elaborate =
     /// `TyVar`-carrying (no `TyTypar`). Each decl is paired with the typar `env`
     /// it quantifies — the declaring / method / static-fn typar roots, collected at
     /// this single index-minting point. `freezeTypars` consumes that `env` to make
-    /// the `TyVar → TyTypar` cut. (Step 3A-1 will slot the inline-expansion pass
+    /// the `TyVar → TyTypar` cut. (A later change will slot the inline-expansion pass
     /// between `elaborate` and the freeze cut, where `zonk` / union-find are native;
     /// today nothing runs between them and the output is byte-identical to the old
     /// fused pass.)
@@ -1531,24 +1525,24 @@ module Elaborate =
             Decls = EqArray.ofList decls
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the
-            // representation string (G7) without the PassContext.
+            // representation string without the PassContext.
             IntrinsicReprTypes =
                 ctx.Types.IntrinsicReprTypes
                 |> Seq.map (fun kv -> kv.Key, kv.Value)
                 |> Map.ofSeq
-            // Snapshot the named-module placements (R3 deferred): the backend keys
+            // Snapshot the named-module placements: the backend keys
             // off a binding's `NodeKey.Raw` to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
             // Snapshot the top-level (implicit-Program-module) binding names so the
             // backend can name a top-level value's static field.
             TopLevelNames = ctx.Bindings.TopLevelNames |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-            // The RS3 closure verdict is filled in by the Pipeline after
+            // The closure stack/heap verdict is filled in by the Pipeline after
             // `Regions.run` — escape analysis hasn't run at elaboration time.
             ClosureReprs = Map.empty
-            // rung-4 M3 / M6 value-struct closure verdicts — snapshotted by the
+            // The value-struct closure verdicts — snapshotted by the
             // Pipeline from `ctx.FunVerdicts` alongside `ClosureReprs`.
             FunVerdicts = Map.empty
-            // rung-4 §9 (Direction B): the per-binding frozen typar bounds, filled by
+            // The per-binding frozen typar bounds, filled by
             // `recordGenericFnScheme` during `elaborate` (above) at the index-minting
             // point — snapshot here, not in the Pipeline, because the indices are
             // minted in this pass. Read by the call-site phantom-typar solve.

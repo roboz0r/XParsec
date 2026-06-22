@@ -83,7 +83,7 @@ module HolderPlan =
     /// method / field emission orders.
     let create
         (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
-        // rung-4 §9 (Direction B): forwarded to `collectStaticFns` to populate
+        // Forwarded to `collectStaticFns` to populate
         // `StaticFn.Constraints`, which drives the call-site phantom-typar solve
         // (`EmitCall`). The emitted arity is re-derived independently by the
         // `Emit.staticFnTypars` body sweep.
@@ -223,7 +223,7 @@ module HolderPlan =
         cctorRefKeys.UnionWith programValueKeys
         Emit.validateModuleValueInits cctorRefKeys staticFnKeys programCctorValues
 
-        // rung-4 §9 (Direction B): the emitted generic-method arity is the max
+        // The emitted generic-method arity is the max
         // `FTTypar(Method, i)` index over params + result + BODY. The body sweep is
         // the change — it catches a phantom constraint typar (`fold`'s enumerator
         // `'E`) that param/result cannot see but that survives un-grounded in the

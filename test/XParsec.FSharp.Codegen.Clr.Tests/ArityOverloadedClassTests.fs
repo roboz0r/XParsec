@@ -6,13 +6,11 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Step A of the arity-overloaded-classes epic
-// (`src/.../docs/arity-overloaded-classes-design.md`). The project-local
-// class/interface registry was keyed by bare short name, so two interfaces
-// `Fun<'a,'b>` and `Fun<'a,'b,'c>` collided ("Duplicate type definition: Fun").
-// Step A gives that registry an `(name, arity)` key (mirroring the union
-// machinery) while keeping a bare-name alias for single-arity classes, so every
-// existing single-arity reference keeps resolving. No `Fun2` rename here (Step B).
+// The project-local class/interface registry was keyed by bare short name, so two
+// interfaces `Fun<'a,'b>` and `Fun<'a,'b,'c>` collided ("Duplicate type definition:
+// Fun"). The registry now has an `(name, arity)` key (mirroring the union machinery)
+// while keeping a bare-name alias for single-arity classes, so every existing
+// single-arity reference keeps resolving.
 
 [<Tests>]
 let tests =
@@ -22,11 +20,10 @@ let tests =
     testList
         "ArityOverloadedClasses"
         [
-            // M1 (the positive form of the M0-red collision): two same-named
-            // interfaces of different generic arity coexist — the arity key
-            // disambiguates them. Before Step A this fragment raised
-            // "Duplicate type definition: Fun" (the M0 wall); `typeChecks`
-            // asserting NO error is the green form of that red probe.
+            // Two same-named interfaces of different generic arity coexist — the
+            // arity key disambiguates them. Previously this fragment raised
+            // "Duplicate type definition: Fun"; `typeChecks` asserting NO error
+            // confirms the fix.
             test "two same-named interfaces of different arity coexist (no duplicate diagnostic)" {
                 typeChecks (
                     String.concat
@@ -58,8 +55,8 @@ let tests =
                 )
             }
 
-            // M2 acceptance witness, in-suite: a single-arity interface still
-            // resolves by its bare written name (the bare alias survives).
+            // A single-arity interface still resolves by its bare written name
+            // (the bare alias survives).
             test "a single-arity interface still resolves by bare name (bare alias survives)" {
                 typeChecks (
                     String.concat
@@ -72,14 +69,13 @@ let tests =
                 )
             }
 
-            // M3: two CLASSES (not interfaces) of different arity, each with a
+            // Two CLASSES (not interfaces) of different arity, each with a
             // distinct instance method, both emit (`Box\`1` / `Box\`2` metadata
             // names) and dispatch to the right member — proving codegen needs no
             // new arity plumbing (the arity-suffixed SymbolKey already separates
             // them). Construction uses explicit `new Box<…>(…)` so the front-end
             // resolves each by its arity-qualified key; bare `Box(…)` application
-            // across two arities is the deferred written-arity-resolution hazard
-            // (design §6 risk 2), out of Step A's scope.
+            // across two arities is a deferred written-arity-resolution hazard.
             test "two same-named classes of different arity emit as Box`1 / Box`2 and dispatch correctly" {
                 let _, artifact =
                     compileSource
@@ -118,7 +114,7 @@ let tests =
                 Expect.equal (m2.Invoke(inst2, [||]) :?> int) 2 "Box`2.Two() dispatches to the arity-2 member"
             }
 
-            // M4: cross-kind name overlap — a class `Foo<'A, 'B>` alongside a
+            // Cross-kind name overlap — a class `Foo<'A, 'B>` alongside a
             // union `Foo<'A>` of different arity. Today the union duplicate guard
             // checks `containsUnion name arity || containsRecord name` (no class
             // cross-check), and the class guard checks the union bare alias.

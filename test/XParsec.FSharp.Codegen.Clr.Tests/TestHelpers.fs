@@ -42,8 +42,7 @@ let (|TyClass|_|) (t: SemType) =
 
 /// Project an `EqArray<'T>` as a plain `'T list` inside a pattern match — lets
 /// tests written against the pre-EqArray TAST keep their list-literal arms
-/// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip
-/// (docs/tast-eqarray-list.md Stage 2).
+/// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip.
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
 /// Lex + parse a source string; script fragments wrap as `AnonymousModule`.
@@ -105,7 +104,7 @@ let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
 /// so their function values + promoted-mutable cells reference this DLL.
 /// Compiled with **no** core injected — `Vesper.Core` *defines* `Fun` and
 /// `Ref`. The cons-list is its own package now (`vesperListDll` →
-/// `Vesper.List.dll`, package-split-plan PS2), not concatenated here.
+/// `Vesper.List.dll`), not concatenated here.
 let vesperCoreDll: Lazy<string> =
     lazy
         (let outDir = tmpDir "vesper-core"
@@ -125,7 +124,7 @@ let vesperCoreDll: Lazy<string> =
                  IO.File.ReadAllText(vesperCoreSource "prim-types-min.fs")
                  IO.File.ReadAllText(vesperCoreSource "core-types.fs")
                  // The `%A` structural-format interfaces (`IFormatSink` /
-                 // `IStructuralFormattable`, P3 step 3.2) — Core-owned so a
+                 // `IStructuralFormattable`) — Core-owned so a
                  // synthesised record/DU `Format` implements a Core type.
                  IO.File.ReadAllText(vesperCoreSource "structural-format.fs")
              ]
@@ -143,9 +142,9 @@ let vesperCoreDll: Lazy<string> =
 
 /// Compile `Vesper.List.dll` from `src/Vesper.List/list.fs` — the
 /// `Vesper.Collections.List\`1` cons-list (`Cons`/`Empty` + `IsEmpty`/`Head`/`Tail`)
-/// **and** the `Vesper.Collections.ListModule::fold` static method (R3 deferred:
-/// `fold` is compiled into the DLL now) — as its own package (package-split-plan
-/// PS2), load it into the *Default* `AssemblyLoadContext`, and return its path.
+/// **and** the `Vesper.Collections.ListModule::fold` static method
+/// (`fold` is compiled into the DLL now) — as its own package,
+/// load it into the *Default* `AssemblyLoadContext`, and return its path.
 /// Compiled with the core injected: `fold`'s folder parameter is a `Vesper.Fun`,
 /// so the DLL now carries a `Vesper.Core` `AssemblyRef` (it was BCL-only while only
 /// the list type shipped). It needs no external *list* (it defines the list
@@ -235,7 +234,7 @@ let private packageAlc = PackageLoadContext()
 let private packageBuildCache =
     Collections.Concurrent.ConcurrentDictionary<string, Lazy<Assembly * ClrArtifact>>(StringComparer.Ordinal)
 
-/// Pre-1: compile `src/<package>/`'s `impl` `.fs` files (in manifest order) to a
+/// Compile `src/<package>/`'s `impl` `.fs` files (in manifest order) to a
 /// DLL through our own backend, resolving `depends-on`
 /// recursively — each dependency is built + loaded first, its DLL added to
 /// `References` and its `manifest.toml` to the contract stack. Caches per package
@@ -310,9 +309,9 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // A contract-only package (`impl = []`: Vesper.Comparison, whose
                  // operators are inlined) compiles to an *empty* DLL here — it carries
                  // no runtime types. `Vesper.Printf` is a special case: it now carries a
-                 // *real* Vesper-compiled `Vesper.Formatter` (PP6, `formatter.fs`), but
+                 // *real* Vesper-compiled `Vesper.Formatter` (`formatter.fs`), but
                  // its runtime peer is still the C#-built `Vesper.Printf.dll` (which also
-                 // holds `StructuralPrinter`, the `%A` engine left as C# in PP7, and the
+                 // holds `StructuralPrinter`, the `%A` engine left as C#, and the
                  // printf module surface). Registering either in `packageAlc` would
                  // shadow that host-loaded assembly: a driver `printfn` would bind
                  // `Vesper.Formatter` / `StructuralPrinter` to the wrong copy and fail.
@@ -356,8 +355,8 @@ let vesperPrintfDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath path |> ignore
          path)
 
-/// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`, R1), `Vesper.List.dll` (for
-/// `Vesper.Collections.List`, package-split-plan PS2), and the Vesper-compiled
+/// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`), `Vesper.List.dll` (for
+/// `Vesper.Collections.List`), and the Vesper-compiled
 /// `Vesper.Printf.dll` (for `Vesper.Formatter`, the happy-path printf/`%A` handler)
 /// to a project's `References`, so a program's function
 /// values, list literals, and `printf` calls resolve. Each path is added only when
@@ -400,7 +399,7 @@ let private compileContract
     : TastFile * ClrArtifact =
     let provider = SymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
-    // 3B-4 checkpoint: callers assert on the returned `SemType` tast, but the real
+    // Callers assert on the returned `SemType` tast, but the real
     // `analyse` output is frozen — return the SemType tree, compile the frozen one.
     let tast = Pipeline.analyseSemFor project.AssemblyName provider input lexed file
     let artifact = Codegen.compile provider (withCore project) (Freeze.run tast)
@@ -663,7 +662,7 @@ let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
 
 /// Run `src` through both printf handlers in dedicated ALCs and assert the two
 /// produce byte-identical (CRLF-normalised, trimmed) stdout, exit 0 each — the
-/// PP7e bring-up safety net before PP7f deletes the C# handler. Returns the
+/// bring-up safety net before the C# handler is deleted. Returns the
 /// shared output so a caller can additionally pin it against an oracle.
 let runsDifferential (src: string) : string =
     let runWith handler =
@@ -704,7 +703,7 @@ let runsDifferentialEq (expected: string) (src: string) : unit =
     if actual <> expected then
         failwithf "expected %A but both handlers produced %A for:\n%s" expected actual src
 
-// ---- PP7 step 2: drive the `%A` golden oracle on the VESPER engine ------------
+// ---- Drive the `%A` golden oracle on the VESPER engine ------------
 // `StructuralFormatTests` is fsc-compiled and used to bind the C#
 // `Vesper.StructuralPrinter.Print` at compile time. To exercise the
 // *Vesper-compiled* engine instead (`structural-printer.fs`, including its cons-list
@@ -819,7 +818,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     m.CreateDelegate(typeof<Func<obj, int, int, string>>) :?> Func<obj, int, int, string>
 
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
-// The one-liners the suite was missing (docs/codegen-test-strategy-plan.md):
+// The one-liners the suite was missing:
 // the dominant assertion — "run this source, get this stdout, exit 0" — had no
 // short form, so the cheap broad cases never got written. These wrap the
 // existing `compileSource` + `runEntryPoint` machinery and carry `src` in every
@@ -1160,7 +1159,7 @@ let typeChecksArray (src: string) : unit =
 // A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` (a
 // real BCL `IEnumerable<int>`) — the Vesper cons-list declares `IEnumerable<'T>`
 // in its `.fsi` but does not implement it in `list.fs`, so a list value is not a
-// runtime seq (get-enumerator-gaps.md Gap 2). `Range` sidesteps that entirely.
+// runtime seq. `Range` sidesteps that entirely.
 
 let runsSeq (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Seq" ] expected src
@@ -1262,6 +1261,31 @@ let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string vo
             None
     )
     |> Option.defaultValue ValueNone
+
+/// The base-type SIMPLE name (`ValueType` / `Object`, not the qualified form)
+/// of every synthesised `<closure>$…` type-def in the PE — one entry per closure,
+/// so a struct-seq test can assert "all source-lambda closures are value types"
+/// (`= "ValueType"`). `<none>` for a closure whose base handle isn't a
+/// `TypeReference` (it never is for a real closure; surfaced rather than dropped
+/// so an unexpected shape fails loudly). Unlike `peTypeBaseTypeName` this lists
+/// ALL closure type-defs, not just the first match.
+let peClosureBaseTypeNames (bytes: byte[]) : string list =
+    use peReader = openPe bytes
+    let md = peReader.GetMetadataReader()
+
+    md.TypeDefinitions
+    |> Seq.choose (fun tdh ->
+        let td = md.GetTypeDefinition tdh
+
+        if (md.GetString td.Name).StartsWith "<closure>$" then
+            match td.BaseType.Kind with
+            | HandleKind.TypeReference ->
+                Some(md.GetString (md.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name)
+            | _ -> Some "<none>"
+        else
+            None
+    )
+    |> Seq.toList
 
 /// List every method-def's `(declaringType, methodName)` in the PE. The
 /// declaring type's name comes through `peTypeDefNames`'s formatting.

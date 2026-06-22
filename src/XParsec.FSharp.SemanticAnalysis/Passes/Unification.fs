@@ -358,7 +358,7 @@ module Unification =
         ctx.Resolution.TyparScope <- classScope
         ctx.Resolution.TyparScopeStrict <- true
         // Keep the class typars in scope across each member body's `inferBinding`
-        // (which mints a fresh scope and would otherwise drop them) — G11.
+        // (which mints a fresh scope and would otherwise drop them).
         ctx.Resolution.EnclosingTypars <- ValueSome classScope
 
         try
@@ -411,7 +411,7 @@ module Unification =
                                 | _ -> ()
                             | None -> ()
 
-                            // Seed the binding's own `<'C, …>` typars (B-12) with
+                            // Seed the binding's own `<'C, …>` typars with
                             // their registration prototypes so `inferBinding`
                             // reuses them in its fresh binding scope. The signature
                             // it infers then shares roots with the member's
@@ -430,14 +430,14 @@ module Unification =
                                 ctx.Resolution.BindingTyparSeed <- ValueSome seed
 
                                 // Keep the member's own typars (explicit `<'C>` +
-                                // implicit signature typars, G12) in `EnclosingTypars`
+                                // implicit signature typars) in `EnclosingTypars`
                                 // for the body walk, alongside the class typars — so a
                                 // nested `let comparer = Comparer<'U>.Default` in the
                                 // body resolves `'U` rather than diagnosing it free.
                                 // `inferBinding` clears `BindingTyparSeed` after the
                                 // member's own binding, so without this the member
-                                // typars would vanish in nested scopes (mirror G11's
-                                // class-typar persistence).
+                                // typars would vanish in nested scopes (mirror the
+                                // class-typar persistence above).
                                 let memberEnclosing =
                                     Dictionary<string, TypeVar>(classScope, System.StringComparer.Ordinal)
 
@@ -615,7 +615,7 @@ module Unification =
                 | Expr.HighPrecedenceApp(argExpr = argExpr) ->
                     let argTy = infer ctx argExpr
                     // Chain call to the primary ctor: admit an implicit
-                    // class→interface upcast on the args (G19), e.g.
+                    // class→interface upcast on the args, e.g.
                     // `new() = Set(Comparer<'T>.Default, …)` into an `IComparer<'T>`
                     // primary-ctor param.
                     unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
@@ -640,7 +640,7 @@ module Unification =
                         | Some fieldTy -> unify ctx (CstKeys.ofExpr e) initTy fieldTy
                         | None -> ()
 
-    /// Type every secondary ctor (B-11) of a class under its typar scope: link
+    /// Type every secondary ctor of a class under its typar scope: link
     /// param annotations, seed param binding-site TyVars, then infer each body.
     let private fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
         if info.SecondaryCtors.Length > 0 then
@@ -651,7 +651,7 @@ module Unification =
             ctx.Resolution.TyparScope <- classScope
             ctx.Resolution.TyparScopeStrict <- true
             // Class typars stay in scope across each secondary ctor body's
-            // `inferBinding` (G11), mirroring `fillTypeMembers`.
+            // `inferBinding`, mirroring `fillTypeMembers`.
             ctx.Resolution.EnclosingTypars <- ValueSome classScope
 
             try
@@ -689,7 +689,7 @@ module Unification =
                 ctx.Resolution.TyparScopeStrict <- savedStrict
                 ctx.Resolution.EnclosingTypars <- savedEnclosing
 
-    /// Type the `inherit Base(args)` invocation (Step 2.2) against the parent's
+    /// Type the `inherit Base(args)` invocation against the parent's
     /// primary-ctor signature, under the derived class's typar scope (already set
     /// by `fillTypeMembers` before `PrelinkExtras` runs). The parent's ctor-param
     /// types are substituted with the args `inherit Base<…>` supplied — recovered
@@ -720,7 +720,7 @@ module Unification =
             | ValueNone -> ()
         | _ -> ()
 
-    /// Mint the `base` TyVar (Step 2.2) pre-linked to the parent's instantiated
+    /// Mint the `base` TyVar pre-linked to the parent's instantiated
     /// `TyClass` and seed `ctx.Bindings.TypeVar` at `info.BaseKey`, mirroring the
     /// `this` mint in `fillTypeMembers`. `info.BaseType` is already substituted
     /// under the derived class's typar scope by `registerInheritedSlots`, so it
@@ -735,7 +735,7 @@ module Unification =
         | ValueNone -> ()
 
     /// Type-check the member bodies of one resolved `interface IFace with member …`
-    /// block against the interface's external signatures (B-2). For each impl member, unify its
+    /// block against the interface's external signatures. For each impl member, unify its
     /// already-inferred signature with the matching `ExternalMember` looked up by
     /// name on `iface` (`TyClass(ifaceName, ifaceArgs)`), substituting the impl's
     /// interface type-args so a generic `IEnumerable<'T>::GetEnumerator() :
@@ -743,7 +743,7 @@ module Unification =
     /// `DeclaredOnly`, so a base interface's members (e.g. `IEnumerable<'T>`'s
     /// inherited non-generic `IEnumerable::GetEnumerator`) live in their *own*
     /// `interface …` block — each block therefore resolves its own `GetEnumerator`
-    /// overload unambiguously, which is the §5.2 multiple-`GetEnumerator`
+    /// overload unambiguously, which is the multiple-`GetEnumerator`
     /// disambiguation. Every declared interface member is required: a missing one
     /// diagnoses at the interface name token.
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
@@ -814,7 +814,7 @@ module Unification =
                 | ValueSome expectedTy -> unify ctx mInfo.DeclKey mInfo.Type expectedTy
                 | ValueNone -> ()
 
-    /// §5.2 resolution pre-pass (B-2): resolve
+    /// Interface-impl resolution pre-pass: resolve
     /// each `interface IFace with member …` block's interface type and stamp
     /// `impl.Resolved` *before* any member body — the class's own members or a
     /// sibling interface block — is typed. The interface type resolves under the
@@ -822,7 +822,7 @@ module Unification =
     /// binds to the class's typar); it must map to a type the provider reports as
     /// an interface, else a diagnostic fires and `Resolved` stays `ValueNone`.
     /// `subsumes` reads `InterfaceImpls.Resolved` to admit a class→interface
-    /// upcast (G19/G20: `this :> seq<_>`, a `Set` value flowing into an
+    /// upcast (`this :> seq<_>`, a `Set` value flowing into an
     /// `IComparer` slot), so the class must already know its declared interfaces
     /// at every coercion site, not only once its own block's body is reached.
     /// Body typing + conformance stay in `fillInterfaceImpls`.
@@ -867,7 +867,7 @@ module Unification =
     /// conformance-check them against the interface. Member bodies type through
     /// `fillTypeMembers` exactly like the class's own members — `this` re-binds to
     /// the class instance via `info.ThisKey`. Once typed, each body's signature is
-    /// conformance-checked against the interface (§5.2, `checkInterfaceConformance`).
+    /// conformance-checked against the interface (`checkInterfaceConformance`).
     /// Runs after `resolveInterfaceImpls` (so every `impl.Resolved` is stamped) and
     /// after the class's own `fillTypeMembers` / `fillSecondaryCtors`, so ctor
     /// params and the base call are already seeded and `PrelinkExtras` is a no-op here.
@@ -888,7 +888,7 @@ module Unification =
                     Generalise = false
                 }
 
-            // §5.2: now the bodies are typed, conform each member's signature to
+            // Now the bodies are typed, conform each member's signature to
             // the interface's external signature. Skipped when resolution failed
             // (`Resolved = ValueNone`) — that diagnostic already fired.
             checkInterfaceConformance ctx impl
@@ -922,7 +922,7 @@ module Unification =
                             // to the prototype TyVars (under the class typar scope, set
                             // by `fillTypeMembers` before this runs) — so a member-body
                             // `this.field` access on an interface-constrained class typar
-                            // resolves through the interface (rung-3 `CallVia.Interface`).
+                            // resolves through the interface (`CallVia.Interface`).
                             // Mirrors `fillRecordFieldTypes`/`fillUnionFieldTypes`.
                             match info.TyparConstraints with
                             | ValueSome cs -> translateConstraints ctx cs
@@ -951,7 +951,7 @@ module Unification =
                                     (UnionFind.find tv).Link <- ValueSome translated
                                 | _ -> ()
 
-                            // Inheritance (Step 2.2): type the base-ctor call and
+                            // Inheritance: type the base-ctor call and
                             // bring `base` into scope before any member body walks.
                             // Both no-op for parent-less classes. Runs after the
                             // ctor-param binding sites are seeded so an `inherit
@@ -960,7 +960,7 @@ module Unification =
                             fillBaseCtorCall ctx info
                             mintBaseTyVar ctx info
 
-                            // `static let` initialisers (B-10): infer each in
+                            // `static let` initialisers: infer each in
                             // declaration order (an earlier static-let binder is
                             // already seeded, so a later initialiser can reference
                             // it), link the placeholder TyVar to the inferred type,
@@ -985,7 +985,7 @@ module Unification =
                         // Interface-impl types are resolved up front by
                         // `resolveInterfaceImplsForElem` (walkElems), before *any*
                         // module-function body or class member is typed — so every
-                        // `:>` / argument-coercion / `for x in (c: C)` site (G19/G20)
+                        // `:>` / argument-coercion / `for x in (c: C)` site
                         // sees the class's declared interfaces, including from a module
                         // function inferred ahead of `fillClassMembers`.
                         fillTypeMembers
@@ -1063,7 +1063,7 @@ module Unification =
                     | _ -> ()
             | _ -> ()
 
-    /// Stamp every project-local class's `InterfaceImpls.Resolved` (G19/G20) up
+    /// Stamp every project-local class's `InterfaceImpls.Resolved` up
     /// front — before module-function bodies or class members type — so a `:>` /
     /// argument-coercion / `for x in (c: C)` site sees the class's declared
     /// interfaces even when it lives in a module function inferred ahead of
@@ -1105,7 +1105,7 @@ module Unification =
             ctx.Resolution.OpenScope <- openScope
             resolveInterfaceImplsForElem ctx m
 
-        // G19 residue: seed annotation-derived schemes for module-level functions
+        // Seed annotation-derived schemes for module-level functions
         // *before* class member bodies are typed, so a class member's forward
         // reference to a sibling-module function (`SetTree.add`) instantiates a
         // fresh signature and the argument-coercion site can upcast a subtype
@@ -1143,8 +1143,8 @@ module Unification =
             fillUnionMembers ctx m
             walkModuleElem ctx m
 
-    /// Resolve the bare-program list literals left flexible by `listLiteralTy`
-    /// (R3), after the whole file is walked so every consumer has had its say:
+    /// Resolve the bare-program list literals left flexible by `listLiteralTy`,
+    /// after the whole file is walked so every consumer has had its say:
     ///   - still free (no consumer drove it, e.g. `printfn "%A" [1;2;3]`) → link to
     ///     FSharp.Core's `list`, its element carried through;
     ///   - flipped to a list-like type (`List.fold`'s `Vesper.Collections.List`
@@ -1245,7 +1245,7 @@ module Unification =
             | ValueNone -> ()
 
     /// Enforce the semantic contract of a `Custom` equality / comparison posture
-    /// on a class (Phase 3). Runs AFTER `walkElems` so every
+    /// on a class. Runs AFTER `walkElems` so every
     /// `InterfaceImpls[].Resolved` has been stamped by `resolveInterfaceImpls`.
     ///   - `EqualitySupport = Custom` ⇒ the class must implement
     ///     `System.IEquatable<Self>`.

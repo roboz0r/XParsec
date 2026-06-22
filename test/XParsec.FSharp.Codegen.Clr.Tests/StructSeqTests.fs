@@ -9,12 +9,12 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Vertical slice toward the zero-allocation struct `Seq` module
-// (`brainstorm-seq-module.md`). These fixtures stand in for the eventual
+// Vertical slice toward the zero-allocation struct `Seq` module.
+// These fixtures stand in for the eventual
 // `src/Vesper.Seq` struct types; they stay inline F# until the codegen shape is
 // proven, then graduate to real library source.
 //
-// RUNG 2 — landed. The struct pipeline relies on chained `this.field.Method(args)`
+// The struct pipeline relies on chained `this.field.Method(args)`
 // calls (e.g. `this.Source.GetEnumerator()`, `this.Source.MoveNext()`). Two fixes
 // made this work, both with isolation tests below:
 //   1. Front-end: a method call through a 3+-segment folded LongIdent chain is now
@@ -30,16 +30,16 @@ let structSeqTests =
     testList
         "StructSeq"
         [
-            // Rung 4 (struct closures) — the dispatch half. The perf-mature shape of a
+            // The struct-closure dispatch half. The perf-mature shape of a
             // value-type closure dispatched non-allocating is a `[<Struct>]`
             // implementing the source-nameable `Vesper.Fun<'A,'B>` interface
             // (`prim-types-min.fsi`), applied through a combinator generic over
             // `'TF :> Fun<int,int>` calling `.Invoke` — which should lower to
-            // `constrained. !TF callvirt Vesper.Fun::Invoke`, the rung-3 machinery
-            // addressing the struct by `ldloca` with NO box.
+            // `constrained. !TF callvirt Vesper.Fun::Invoke`, the constrained-dispatch
+            // machinery addressing the struct by `ldloca` with NO box.
             //
-            // LANDED — the three-layer EXTERNAL-interface constrained-dispatch gap is
-            // closed (rung 3 deferred it). The dispatch now flows symmetrically with the
+            // The three-layer EXTERNAL-interface constrained-dispatch gap is
+            // closed. The dispatch now flows symmetrically with the
             // project-local case:
             //   1. front-end (`InferRecordAccess.tryTyparInterfaceMember`): when the
             //      coercion target is *not* a local interface, the member is looked up
@@ -55,8 +55,7 @@ let structSeqTests =
             //      in the LOCAL `env.Interfaces` registry mints the `constrained.
             //      callvirt` slot via `env.Provider.ExternalMemberRefOn` against the
             //      interface's instantiated `TypeSpec`.
-            test
-                "a struct closure implementing Vesper.Fun dispatches via constrained callvirt with no box (rung 4 target shape)" {
+            test "a struct closure implementing Vesper.Fun dispatches via constrained callvirt with no box" {
                 let src =
                     String.concat
                         "\n"
@@ -91,18 +90,18 @@ let structSeqTests =
                     "apply IL contains no `box` (non-allocating struct Fun dispatch)"
             }
 
-            // rung-4 Step A: feed a SOURCE lambda (structural TyFun) into the SAME
+            // Feed a SOURCE lambda (structural TyFun) into the SAME
             // `apply` combinator whose param is a constrained `'TF :> Fun<int,int>`
-            // typar. The M0 probe established that the front-end REJECTED this —
+            // typar. The front-end originally REJECTED this —
             // `subsumes` (Engine.fs `checkConstraint` Coercion arm) returned
-            // `Unrelated` for (TyFun, Fun`2). Step A added the single arrow→`Fun`
-            // discharge rule to `subsumes`: `subsumes(TyFun(a,b), Fun`2<a,b>) =
+            // `Unrelated` for (TyFun, Fun`2). A single arrow→`Fun`
+            // discharge rule was added to `subsumes`: `subsumes(TyFun(a,b), Fun`2<a,b>) =
             // Subtype` (args invariant-Equal). The typar `'TF` then binds to the
             // arrow and the existing heap-closure emission (a System.Object subclass
             // implementing Vesper.Fun`2) dispatches via `callvirt Fun::Invoke`, so
             // it compiles + runs 42. The no-box/`constrained.` struct-repr IL ideal
-            // is Step C — NOT asserted here.
-            test "rung4 Step A: source lambda into a constrained 'TF :> Fun slot compiles + runs" {
+            // is asserted in the value-struct test below, NOT here.
+            test "source lambda into a constrained 'TF :> Fun slot compiles + runs" {
                 let src =
                     String.concat
                         "\n"
@@ -123,28 +122,28 @@ let structSeqTests =
                 Expect.equal exitCode 0 "M0 Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "M0 apply (fun x -> x+1) 41 = 42"
 
-            // Step A only proves front-end accept + correct runtime. The IL-ideal
+            // This only proves front-end accept + correct runtime. The IL-ideal
             // (a `constrained.` prefix `0xFE 0x16` and NO `box` `0x8C` in `apply`)
-            // is the later struct-repr milestone — assert it there, not here.
+            // is the later struct-repr work — assert it there, not here.
             }
 
-            // rung-4 Step B: a NON-capturing source lambda is STATELESS, so a single
+            // A NON-capturing source lambda is STATELESS, so a single
             // shared instance suffices (fsc caches it in a `static readonly` field and
             // allocates once). The lambda is emitted as a cached singleton: its
             // closure type gains a `static readonly instance` field initialised by a
             // `.cctor` (`newobj` once), and every construction site `ldsfld`s it
             // instead of `newobj`ing. This kills per-construction allocation
-            // independent of the value-struct work (Step C). The heap closure shape is
-            // UNCHANGED — Step B is only the caching.
+            // independent of the value-struct work. The heap closure shape is
+            // UNCHANGED — this is only the caching.
             //
             // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int` (an ordinary
-            // higher-order function), NOT a constrained `'TF :> Fun` typar. Step C
-            // (M1) intercepts ONLY the bare-method-typar slot — the value-struct shape
-            // needs a typar to instantiate `!TF` at the struct `TypeDef` — so a plain
-            // arrow HOF still takes the Step-B heap-singleton path. (The
+            // higher-order function), NOT a constrained `'TF :> Fun` typar. The
+            // value-struct lowering intercepts ONLY the bare-method-typar slot — the
+            // value-struct shape needs a typar to instantiate `!TF` at the struct
+            // `TypeDef` — so a plain arrow HOF still takes the heap-singleton path. (The
             // constrained-typar shape these tests previously used now lowers to a
-            // value-struct; that is the dedicated "Step C (M1)" test above.)
-            test "rung4 Step B: a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
+            // value-struct; that is the dedicated value-struct test above.)
+            test "a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
                 let src =
                     String.concat
                         "\n"
@@ -175,13 +174,13 @@ let structSeqTests =
                 Expect.isTrue (Array.contains 0x80uy cctorIl) ".cctor stsflds the singleton (0x80)"
             }
 
-            // rung-4 Step B: caching is per-closure-TYPE, so constructing the SAME
+            // Caching is per-closure-TYPE, so constructing the SAME
             // non-capturing lambda at TWO call sites allocates ONCE — both sites share
             // the one cached singleton. Proven by counting closure types (one) and the
             // total `newobj` in its `.cctor` (one), while both use sites `ldsfld`.
-            test "rung4 Step B: the same non-capturing lambda at two sites allocates once" {
-                // Plain arrow `int -> int` parameter ⇒ the Step-B heap-caching path (a
-                // constrained typar would take the Step C value-struct path instead).
+            test "the same non-capturing lambda at two sites allocates once" {
+                // Plain arrow `int -> int` parameter ⇒ the heap-caching path (a
+                // constrained typar would take the value-struct path instead).
                 let src =
                     String.concat
                         "\n"
@@ -213,18 +212,18 @@ let structSeqTests =
                     Expect.equal newobjs 1 (sprintf "%s .cctor newobjs exactly once" ty)
             }
 
-            // rung-4 Step B guard: a CAPTURING lambda differs per construction (its
+            // Caching guard: a CAPTURING lambda differs per construction (its
             // captured value is distinct each time), so caching would be WRONG. The
             // HEAP capturing path is UNTOUCHED — it still `newobj`s per construction
             // (no `.cctor`, no cached field). Proven by the construction site (here the
             // body of `outer`, a `fn$` static method) still containing `newobj`.
             //
             // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int`, NOT a constrained
-            // `'TF :> Fun` typar. Step C (M2) now lowers a capturing lambda through the
-            // CONSTRAINED slot to a by-value value-struct (no `newobj`); the plain-arrow
-            // HOF is the genuine heap path this guard still describes (the dedicated
-            // "Step C (M2)" test above asserts the value-struct shape).
-            test "rung4 Step B: a capturing lambda is NOT cached (still newobjs per construction)" {
+            // `'TF :> Fun` typar. The value-struct lowering now lowers a capturing lambda
+            // through the CONSTRAINED slot to a by-value value-struct (no `newobj`); the
+            // plain-arrow HOF is the genuine heap path this guard still describes (the
+            // dedicated value-struct test above asserts the value-struct shape).
+            test "a capturing lambda is NOT cached (still newobjs per construction)" {
                 let src =
                     String.concat
                         "\n"
@@ -258,12 +257,12 @@ let structSeqTests =
                 Expect.isEmpty closureCctors "no capturing closure was given a caching .cctor"
             }
 
-            // The IDEAL rung-4 shape: a CAPTURELESS struct closure (no field, no
+            // The IDEAL shape: a CAPTURELESS struct closure (no field, no
             // ctor) whose only body is the interface impl — exactly what a stateless
             // source `fun x -> x + 1` lowers to. This previously could not be written
             // (a fieldless `[<Struct>]` with only an interface impl tripped parse
-            // recovery, so the rung-4 test above had to add a `val N`/`new` to give
-            // the closure spurious state). Now that the parser admits it, the
+            // recovery, so the struct-closure test above had to add a `val N`/`new` to
+            // give the closure spurious state). Now that the parser admits it, the
             // captureless form compiles and dispatches with no box.
             test "a CAPTURELESS struct closure (no field) dispatches via constrained callvirt with no box" {
                 let src =
@@ -300,16 +299,16 @@ let structSeqTests =
                     "apply IL contains no `box` (non-allocating captureless struct Fun dispatch)"
             }
 
-            // rung-4 Step C (M1): the IDEAL — a CAPTURELESS SOURCE lambda
+            // The IDEAL — a CAPTURELESS SOURCE lambda
             // (`fun x -> x + 1`) fed into the constrained `'TF :> Fun<int,int>` slot
             // is now lowered to a zero-alloc VALUE-STRUCT closure, dispatched with
-            // `constrained.` devirt and NO box. Step A made it typecheck (arrow →
-            // `Fun\`2` subsumes) and run on the heap; Step B cached the heap
-            // singleton. Step C synthesises the closure as a `System.ValueType` and
+            // `constrained.` devirt and NO box. The arrow→`Fun\`2` subsumes rule made
+            // it typecheck and run on the heap; the heap singleton was cached. The
+            // value-struct lowering synthesises the closure as a `System.ValueType` and
             // overrides the call-site `!TF` instantiation to the struct `TypeDef`, so
             // the source lambda now reaches the SAME no-box shape the hand-written
             // `[<Struct>] Add1` fixture above proves.
-            test "rung4 Step C (M1): a captureless source lambda lowers to a no-box value-struct closure" {
+            test "a captureless source lambda lowers to a no-box value-struct closure" {
                 let src =
                     String.concat
                         "\n"
@@ -336,13 +335,13 @@ let structSeqTests =
                     "the captureless closure is a value type (base System.ValueType)"
 
                 // (2) Construction is by-value: the construction site (`Main`) must NOT
-                // `newobj` (0x73) the closure, and must NOT `ldsfld` (0x7E) a Step-B
+                // `newobj` (0x73) the closure, and must NOT `ldsfld` (0x7E) a
                 // cached singleton — it `initobj`s a local instead.
                 let mainIl = peMethodIlWhere bytes "Program" (fun n -> n = "Main")
                 Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
                 Expect.isFalse (Array.contains 0x7Euy mainIl) "Main does NOT ldsfld a cached singleton (0x7E)"
 
-                // No Step-B caching `.cctor` was minted for this closure.
+                // No caching `.cctor` was minted for this closure.
                 let closureCctors =
                     peMethodNames bytes
                     |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
@@ -367,16 +366,16 @@ let structSeqTests =
                     "apply IL contains no `box` (non-allocating value-struct dispatch)"
             }
 
-            // rung-4 Step C (M2): a CAPTURING source lambda (`fun y -> y + n`,
+            // A CAPTURING source lambda (`fun y -> y + n`,
             // capturing `n`) fed into the SAME constrained `'TF :> Fun<int,int>` slot
-            // also lowers to a zero-alloc VALUE-STRUCT closure. M1 stored ZERO fields
-            // (`initobj`); M2 stores the capture by value into a struct field and
-            // constructs via the value-type ctor (`ldloca; <push n>; call .ctor`), NOT
-            // `initobj` (which only zeroes a fieldless struct). Dispatch is still
-            // `constrained.` devirt with NO box. The helper `mk` makes the capture
-            // real (the lambda's `n` is `mk`'s parameter), so the closure has one
-            // genuine capture field.
-            test "rung4 Step C (M2): a capturing source lambda lowers to a no-box value-struct closure" {
+            // also lowers to a zero-alloc VALUE-STRUCT closure. The captureless case
+            // stored ZERO fields (`initobj`); this stores the capture by value into a
+            // struct field and constructs via the value-type ctor (`ldloca; <push n>;
+            // call .ctor`), NOT `initobj` (which only zeroes a fieldless struct).
+            // Dispatch is still `constrained.` devirt with NO box. The helper `mk` makes
+            // the capture real (the lambda's `n` is `mk`'s parameter), so the closure
+            // has one genuine capture field.
+            test "a capturing source lambda lowers to a no-box value-struct closure" {
                 let src =
                     String.concat
                         "\n"
@@ -418,7 +417,7 @@ let structSeqTests =
 
                 // (3) Construction is by-value: the construction site (`mk`, a `fn$`
                 // static method) must NOT `newobj` (0x73), NOT `ldsfld` (0x7E) a
-                // cached singleton, and there must be no Step-B caching `.cctor`. The
+                // cached singleton, and there must be no caching `.cctor`. The
                 // capture is pushed and a `call` (0x28) to the value-type ctor stores
                 // it by value.
                 let mkIls = peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
@@ -457,15 +456,15 @@ let structSeqTests =
                 Expect.isFalse anyBox "no fn$ method contains a `box` (non-allocating capturing value-struct dispatch)"
             }
 
-            // rung-4 Step C (M3): a SATURATED 2-arg SOURCE lambda (`fun x y -> x + y`)
+            // A SATURATED 2-arg SOURCE lambda (`fun x y -> x + y`)
             // fed into a constrained `'TF :> Fun2<int,int,int>` slot lowers to a
             // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b)` (the
             // peeled curried body), dispatched `constrained.` with NO box — the
-            // arity-2 analog of the M1/M2 single-arg case. Proves (a) the new
+            // arity-2 analog of the single-arg case. Proves (a) the new
             // `subsumes(TyFun(a,TyFun(b,c)), Fun2`3<a,b,c>)` arm, (b) the node-keyed
             // `Fun`-arity verdict threaded like `ClosureReprs`, (c) the 2-param flat
             // `Invoke` emission.
-            test "rung4 Step C (M3): a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
+            test "a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
                 let src =
                     String.concat
                         "\n"
@@ -545,7 +544,7 @@ let structSeqTests =
                     "apply2 IL contains no `box` (non-allocating flat-2 value-struct dispatch)"
             }
 
-            // Rung-4 foundation: a generic struct whose FIELD is a function typar
+            // A generic struct whose FIELD is a function typar
             // `'TFunc :> Fun<'T,'U>` (the EXTERNAL Vesper.Fun interface instantiated at
             // the struct's OWN typars `'T`/`'U`), applied via `this.F.Invoke(x)` in a
             // member body — `constrained. !TFunc callvirt` with no box. This is the
@@ -590,13 +589,13 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy il) "Apply IL contains no `box`"
             }
 
-            // Wall B+C (rung 3): a member call on a value whose type is a generic
+            // A member call on a value whose type is a generic
             // typar constrained to a project-local interface (`'T :> IGetVal`).
-            // The receiver is a bare TyVar carrying a `Coercion` constraint; Wall B
-            // resolves the member through the interface's members and mints a
-            // `CallVia.Interface` node, Wall C emits `constrained. <typar> callvirt`
+            // The receiver is a bare TyVar carrying a `Coercion` constraint; resolution
+            // looks the member up through the interface's members and mints a
+            // `CallVia.Interface` node, and codegen emits `constrained. <typar> callvirt`
             // so it RUNS end-to-end.
-            test "typar receiver constrained to a local interface dispatches via constrained callvirt (Wall C)" {
+            test "typar receiver constrained to a local interface dispatches via constrained callvirt" {
                 let src =
                     String.concat
                         "\n"
@@ -620,12 +619,12 @@ let structSeqTests =
                     "constrained typar interface dispatch returns the impl value"
             }
 
-            // Wall C, the non-allocating payoff: the SAME generic `callIt` applied to a
+            // The non-allocating payoff: the SAME generic `callIt` applied to a
             // `[<Struct>]` argument. The constrained-typar dispatch addresses the struct
             // (`ldloca`) and `constrained. !!T callvirt`s the interface slot, so the JIT
             // resolves the struct's impl directly — no boxing. Asserted on `callIt`'s IL:
             // a `constrained.` prefix (0xFE 0x16) is present and there is NO `box` (0x8C).
-            test "constrained typar dispatch on a struct arg does not box (Wall C)" {
+            test "constrained typar dispatch on a struct arg does not box" {
                 let src =
                     String.concat
                         "\n"
@@ -661,11 +660,11 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy il) "callIt IL contains no `box` (non-allocating struct dispatch)"
             }
 
-            // Rung-3 generic payoff, step 0: a typar constrained to a *generic*
+            // A typar constrained to a *generic*
             // interface instantiated at a CONCRETE arg (`'T :> IBox<int>`). Forces
             // the `CallVia.Interface` slot to be minted on the instantiated interface
             // `TypeSpec` (`IBox`1<int>`) rather than the bare definition — the case
-            // Wall C deferred (`iface.Typars` non-empty).
+            // the struct-dispatch test deferred (`iface.Typars` non-empty).
             test "constrained typar dispatch on a generic interface (concrete arg) does not box" {
                 let src =
                     String.concat
@@ -704,7 +703,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy il) "callIt IL contains no `box`"
             }
 
-            // Rung-3 generic payoff, step 1: a generic struct whose field is a typar
+            // A generic struct whose field is a typar
             // (`'S`) constrained to a generic interface whose arg is ANOTHER typar of
             // the enclosing struct (`'S :> IBox<'T>`). The constrained dispatch must
             // mint the slot on `IBox\`1<!T>` where `!T` is the struct's own typar —
@@ -741,7 +740,7 @@ let structSeqTests =
                     "generic-struct typar-arg interface dispatch returns the impl value"
             }
 
-            // Rung-3 sub-task 1 (north-star probe gap): a [<Struct>] implementing an
+            // A [<Struct>] implementing an
             // interface that declares an abstract *property* (`Current`). The impl
             // property getter must be wired (MethodImpl / get_-getter) to the
             // interface's getter slot, else TypeLoadException "Method 'Current' ...
@@ -780,7 +779,7 @@ let structSeqTests =
                     "struct interface property dispatch returns the impl value"
             }
 
-            // rung-3 §2.1 sub-gap 1: a *generic* struct implementing a *generic*
+            // A *generic* struct implementing a *generic*
             // local interface AT ITS OWN TYPAR (`Box<'T> : IBox<'T>`). Every other
             // interface-impl fixture instantiates the interface at a CONCRETE arg
             // (`IBox<int>`, `IStructSeq<ArrayEnumerator>`); here the impl member's
@@ -789,8 +788,7 @@ let structSeqTests =
             // emitted as a generic MethodImpl so the dispatch round-trips at any
             // instantiation. Boxing the struct to the interface and calling `Unwrap`
             // is the producer-side proof.
-            test
-                "a generic struct implements a generic local interface at its own typar and dispatches (rung 3 §2.1 sub-gap 1)" {
+            test "a generic struct implements a generic local interface at its own typar and dispatches" {
                 let src =
                     String.concat
                         "\n"
@@ -818,7 +816,7 @@ let structSeqTests =
                     "generic struct implementing a generic interface at its own typar dispatches the impl value"
             }
 
-            // Wall A (rung 3): a project-local class implementing a project-local
+            // A project-local class implementing a project-local
             // interface, dispatched through the interface. Existing interface-impl
             // tests all use BCL interfaces; `resolveInterfaceImpls` only recognises an
             // interface via the external provider, so a local interface errors with
@@ -944,7 +942,7 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "local-headed chained method call works"
             }
 
-            // Rung-3 payoff, for-in step 1: `for y in s` over a GENERIC typar source
+            // `for y in s` over a GENERIC typar source
             // (`'S :> ISeq`) whose `GetEnumerator` is reached through a project-local
             // *custom* (non-`IEnumerable`) interface. The source receiver is a typar, so
             // `GetEnumerator` must dispatch via `constrained. !S callvirt ISeq::GetEnumerator`.
@@ -991,7 +989,7 @@ let structSeqTests =
                     "for-in over a typar seq source sums via constrained dispatch"
             }
 
-            // Rung-3 payoff, for-in step 2a: `for y in s` over a generic typar source
+            // `for y in s` over a generic typar source
             // whose seq interface is GENERIC instantiated at a CONCRETE enumerator
             // (`'S :> IStructSeq<ArrayEnumerator>`). `GetEnumerator` dispatches via
             // `constrained. !S callvirt IStructSeq`1<ArrayEnumerator>::GetEnumerator` —
@@ -1037,12 +1035,12 @@ let structSeqTests =
                     "for-in over a typar source via a generic seq interface sums"
             }
 
-            // Rung-3 payoff, for-in step 2b (the §2 north-star): a fully generic
+            // A fully generic
             // `sumSeq` over ANY struct sequence — both the seq interface arg `'E` and
             // the enumerator are typars (`'S :> IStructSeq<'E> and 'E :> IStructEnumerator`).
             // `GetEnumerator` and the enumerator's `MoveNext`/`Current` ALL dispatch via
             // `constrained. callvirt`, with `'E` inferred from `ArraySeq`'s interface impl.
-            test "for-in over a fully generic struct seq source (north-star)" {
+            test "for-in over a fully generic struct seq source" {
                 let src =
                     String.concat
                         "\n"
@@ -1086,11 +1084,11 @@ let structSeqTests =
                     "fully generic struct seq sums via constrained dispatch"
             }
 
-            // Rung 2 target: a concrete `[<Struct>] MapSeq` holding a concrete
+            // A concrete `[<Struct>] MapSeq` holding a concrete
             // `[<Struct>] ArraySeq` field + a reference-type closure, walked by
-            // `for y in s` — the value-type-source (rung 1) + chained struct-field
+            // `for y in s` — the value-type-source + chained struct-field
             // dispatch (`this.Source.GetEnumerator()` / `this.Source.MoveNext()`).
-            test "concrete struct MapSeq pipeline maps and folds (rung 2)" {
+            test "concrete struct MapSeq pipeline maps and folds" {
                 let src =
                     String.concat
                         "\n"
@@ -1135,7 +1133,7 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "2\n4\n6\ndone" "maps the struct pipeline in order"
             }
 
-            // Rung-3 payoff, step 2a: a GENERIC `MapSeq<'S>` whose source field is a
+            // A GENERIC `MapSeq<'S>` whose source field is a
             // typar (`'S :> IStructSeq<ArrayEnumerator>`), instantiated at a CONCRETE
             // `ArraySeq` at the use site, walked by `for y in s`. Two capabilities meet:
             //   - inside `MapSeq.GetEnumerator`, `this.Source.GetEnumerator()` is a
@@ -1144,8 +1142,8 @@ let structSeqTests =
             //     (`MapSeq`1<ArraySeq>`), so the for-in pattern walk addresses a
             //     generic-struct value by address and calls its pattern `GetEnumerator`.
             // The enumerator (`MapEnumerator`) stays concrete to isolate the generic
-            // *source* from a generic *enumerator* (step 2b).
-            test "for-in over a generic MapSeq wrapping a concrete ArraySeq (rung 3 step 2a)" {
+            // *source* from a generic *enumerator*.
+            test "for-in over a generic MapSeq wrapping a concrete ArraySeq" {
                 let src =
                     String.concat
                         "\n"
@@ -1197,15 +1195,15 @@ let structSeqTests =
                     "generic MapSeq over concrete ArraySeq maps in order"
             }
 
-            // Rung-3 payoff, step 2b: the FULLY GENERIC map pipeline. Both `MapSeq` and
+            // The FULLY GENERIC map pipeline. Both `MapSeq` and
             // `MapEnumerator` are generic; the enumerator chains a generic inner
             // enumerator `'E :> IStructEnumerator` — so `MapEnumerator<'E>.MoveNext` /
             // `.Current` dispatch on a typar field via `constrained. !E callvirt`. The
             // for-in source `s` is a concrete instantiation `MapSeq`2<ArraySeq,
             // ArrayEnumerator>`; its `GetEnumerator` yields a concrete-but-generic
             // `MapEnumerator`1<ArrayEnumerator>`. This is the `ArraySeq → map` tree, all
-            // generic, the keystone of the §2 north-star.
-            test "fully generic struct map pipeline chains a generic enumerator (rung 3 step 2b)" {
+            // generic, the keystone of the fully generic struct seq.
+            test "fully generic struct map pipeline chains a generic enumerator" {
                 let src =
                     String.concat
                         "\n"
@@ -1262,7 +1260,7 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "12" "fully generic map pipeline sums the mapped values"
             }
 
-            // §2.2 graduation prerequisite: the consuming TERMINAL `fold`. Every
+            // The consuming TERMINAL `fold`. Every
             // prior fixture sums inline with `total <- total + y`; none drives a
             // generic struct seq through a `fold` that threads a STATE accumulator
             // and applies a passed reference-type closure `(fun acc x -> acc + x)`
@@ -1270,13 +1268,13 @@ let structSeqTests =
             // a free generic function `fold f seed s`, generic over the struct seq
             // `'S`/enumerator `'E`, walking `for y in s` and folding. Proves the
             // terminal codegens + runs before the library graduation.
-            // §7.2 escape hatch: a generic struct sequence/enumerator (generic over
+            // Escape hatch: a generic struct sequence/enumerator (generic over
             // `'T`) ALSO implements the BCL `IEnumerable<'T>` / `IEnumerator<'T>` /
             // `IEnumerator` / `IDisposable` so it boxes transparently when handed to a
             // standard .NET API. Proves the generic-struct-implements-generic-BCL-interface
-            // declaration + the `IEnumerator<'T> :> IEnumerator` upcast (§2.1 sub-gap 2)
+            // declaration + the `IEnumerator<'T> :> IEnumerator` upcast
             // round-trip: the struct upcast to `IEnumerable<int>` enumerates 1,2,3.
-            test "generic struct seq implements IEnumerable<'T> escape hatch and enumerates (§7.2)" {
+            test "generic struct seq implements IEnumerable<'T> escape hatch and enumerates" {
                 let src =
                     String.concat
                         "\n"
@@ -1322,7 +1320,7 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "6" "escape-hatch enumerates via IEnumerable<'T>"
             }
 
-            test "fold over a fully generic struct seq threads state through a closure (rung 3 §2.2)" {
+            test "fold over a fully generic struct seq threads state through a closure" {
                 let src =
                     String.concat
                         "\n"
@@ -1384,7 +1382,7 @@ let structSeqTests =
                             // A value-type flat 2-arg closure. A fieldless `[<Struct>]`
                             // whose body is ONLY an interface impl trips parse recovery
                             // ("Skipped tokens at module level"); a `val`/`new` preamble
-                            // (the rung-4 `Add1` shape) parses, so carry a dummy field.
+                            // (the `Add1` shape) parses, so carry a dummy field.
                             "[<Struct>]"
                             "type Add2 ="
                             "    val Z : int"
@@ -1416,7 +1414,7 @@ let structSeqTests =
                     "flat Invoke(a,b), curryFun round-trip, and flatten of a curried value all yield 42"
             }
 
-            // RUNG 4 PROOF (wall iv): the WHOLE struct-seq pipeline dispatched via
+            // The WHOLE struct-seq pipeline dispatched via
             // constrained struct-closure typars — the `src/Vesper.Seq/struct-seq`
             // flip in miniature. Hand-written struct closures (an `AddN : Fun<int,int>`
             // for `map` and a `SumAcc : Fun2<int,int,int>` for `fold`) drive
@@ -1431,7 +1429,7 @@ let structSeqTests =
             // `src/Vesper.Seq/struct-seq.fs`) so the proof is self-contained against
             // `compileSource` (which tolerates the Seq contract not being stacked);
             // the library form is proven separately by `buildPackage "Vesper.Seq"`.
-            test "rung 4: struct-closure-typar map/fold pipeline runs non-allocating (wall iv proof)" {
+            test "struct-closure-typar map/fold pipeline runs non-allocating" {
                 let src =
                     String.concat
                         "\n"
@@ -1548,16 +1546,16 @@ let structSeqTests =
                     "the constrained fold loop IL contains no `box` (non-allocating)"
             }
 
-            // rung-4 M6 P-a: a STORED binding whose type CARRIES the function typar,
+            // A STORED binding whose type CARRIES the function typar,
             // fed by a value-struct source lambda, must lay out its `'TFunc` slot as the
             // `<closure>$` value-struct, NOT the `Vesper.Fun`2` INTERFACE (reference).
-            // The reduced repro of the M6 capstone gap: `mk : ('TF:>Fun<int,int>) ->
-            // Holder<'TF>`; `let h = mk (fun x -> x+1)`. Before P-a the module field `h`
-            // is `valuetype Holder`1<class Fun`2<int,int>>` (sig blob ends `15 12 05 …`,
+            // The reduced repro of the capstone gap: `mk : ('TF:>Fun<int,int>) ->
+            // Holder<'TF>`; `let h = mk (fun x -> x+1)`. Originally the module field `h`
+            // was `valuetype Holder`1<class Fun`2<int,int>>` (sig blob ends `15 12 05 …`,
             // GENERICINST CLASS) and the stored struct↔reference layout disagreement
-            // corrupts the read (`h.F.Invoke 41`). After P-a the field's `'TF` arg is
+            // corrupted the read (`h.F.Invoke 41`). With the fix the field's `'TF` arg is
             // GENERICINST VALUETYPE `<closure>$…` (`15 11 …`) and the round-trip yields 42.
-            test "rung4 (M6 P-a): a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
+            test "a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
                 let src =
                     String.concat
                         "\n"
@@ -1568,10 +1566,10 @@ let structSeqTests =
                             "    new(f: 'TFunc) = { F = f }"
                             "let mk (f: 'TFunc when 'TFunc :> Fun<int, int>) : Holder<'TFunc> = Holder<'TFunc>(f)"
                             "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            // The STORED binding `h` is the P-a target: its `Holder` field
+                            // The STORED binding `h` is the target: its `Holder` field
                             // must lay out `'TFunc` as the `<closure>$` value-struct. The
                             // closure is then dispatched by passing `h.F` through a typar
-                            // combinator (`apply`) — the M1/M2 constrained-dispatch path —
+                            // combinator (`apply`) — the constrained-dispatch path —
                             // which reads `h.F`'s (rewritten) value-struct type for the
                             // `!TF` MethodSpec, so the read of the stored struct is correct.
                             "let h = mk (fun x -> x + 1)"
@@ -1634,33 +1632,33 @@ let structSeqTests =
                         arg0Head)
             }
 
-            // rung-4 M6 (end-to-end integration capstone, P-c): the SAME `ofArray |>
-            // map |> fold` pipeline as the wall-iv proof above, but the two hand-written
+            // The SAME `ofArray |>
+            // map |> fold` pipeline as the proof above, but the two hand-written
             // struct closures (`AddN`/`SumAcc`) are replaced by SOURCE lambdas —
-            // `map (fun x -> x + 1)` (a saturated 1-arg `Fun` slot, M1/M2 verdict
+            // `map (fun x -> x + 1)` (a saturated 1-arg `Fun` slot, verdict
             // arity 1) and `fold (fun acc x -> acc + x)` (a saturated 2-arg `Fun2`
-            // slot, M3 verdict arity 2). Proves the whole epic composes: the node-keyed
+            // slot, verdict arity 2). Proves the whole epic composes: the node-keyed
             // verdict fires per application site regardless of how the combinators nest,
             // and BOTH lambdas lower to zero-alloc value-struct closures with no box;
-            // output identical to wall-iv (14).
+            // output identical to the hand-written proof (14).
             //
-            // GREEN as of M6 P-b/P-c. Two distinct verdict-propagation rewrites compose
-            // here (Approach B, codegen-time substitution — see
+            // Two distinct verdict-propagation rewrites compose
+            // here (codegen-time substitution — see
             // `project_seq_struct_pipeline_ladder` memory + `ClosureVerdictRewrite.fs`):
-            //  (P-a) the stored binding's `'TFunc` FIELD/`Var` type
-            //        (`s1 : MapSeq<…,'TFunc,…>`) is laid out as the `<closure>$` value-
-            //        struct by position (`substituteVerdictClosures`), so the `fold`
-            //        call's `'S` MethodSpec instantiates `MapSeq<…,<closure>$,…>`.
-            //  (§9 Direction B) the CONSUMING combinator's body — `fold`'s
-            //        `for y in source` — is GENERIC over its phantom enumerator typar
-            //        `'E`; the `<closure>$` is no longer baked into a grounded body.
-            //        The `fold` call's MethodSpec solves `'E` from its
-            //        `'S :> IStructSeq<'T,'E>` bound by walking the (already value-
-            //        struct-instantiated) `'S` arg's seq impl, so the `constrained.
-            //        callvirt GetEnumerator` token's nested `'TFunc` is the
-            //        `<closure>$` value-struct and matches the receiver's impl. No
-            //        arrow-equality rewrite (the old `rewriteClosureLeaves` is gone).
-            test "rung 4 (M6): SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
+            //  (1) the stored binding's `'TFunc` FIELD/`Var` type
+            //      (`s1 : MapSeq<…,'TFunc,…>`) is laid out as the `<closure>$` value-
+            //      struct by position (`substituteVerdictClosures`), so the `fold`
+            //      call's `'S` MethodSpec instantiates `MapSeq<…,<closure>$,…>`.
+            //  (2) the CONSUMING combinator's body — `fold`'s
+            //      `for y in source` — is GENERIC over its phantom enumerator typar
+            //      `'E`; the `<closure>$` is no longer baked into a grounded body.
+            //      The `fold` call's MethodSpec solves `'E` from its
+            //      `'S :> IStructSeq<'T,'E>` bound by walking the (already value-
+            //      struct-instantiated) `'S` arg's seq impl, so the `constrained.
+            //      callvirt GetEnumerator` token's nested `'TFunc` is the
+            //      `<closure>$` value-struct and matches the receiver's impl. No
+            //      arrow-equality rewrite (the old `rewriteClosureLeaves` is gone).
+            test "SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
                 let src =
                     String.concat
                         "\n"
@@ -1722,7 +1720,7 @@ let structSeqTests =
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
-                // (1+1)+(2+1)+(3+1)+(4+1) = 2+3+4+5 = 14 — identical to the wall-iv proof.
+                // (1+1)+(2+1)+(3+1)+(4+1) = 2+3+4+5 = 14 — identical to the hand-written proof.
                 Expect.equal (output.Replace("\r", "").Trim()) "14" "map (+1) then fold (+) yields 14"
 
                 let curIl = peMethodIlWhere bytes "MapEnumerator`4" (fun n -> n.EndsWith "Current")
@@ -1749,32 +1747,14 @@ let structSeqTests =
                     (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
                     "the constrained fold loop IL contains no `box` (non-allocating)"
 
-                let closureBases =
-                    use pr = openPe bytes
-                    let m = pr.GetMetadataReader()
-
-                    m.TypeDefinitions
-                    |> Seq.choose (fun tdh ->
-                        let td = m.GetTypeDefinition tdh
-
-                        if (m.GetString td.Name).StartsWith "<closure>$" then
-                            match td.BaseType.Kind with
-                            | HandleKind.TypeReference ->
-                                Some(
-                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
-                                )
-                            | _ -> Some "<none>"
-                        else
-                            None
-                    )
-                    |> Seq.toList
+                let closureBases = peClosureBaseTypeNames bytes
 
                 Expect.isTrue
                     (closureBases |> List.forall (fun b -> b = "ValueType"))
                     (sprintf "both source-lambda closures are value types: %A" closureBases)
             }
 
-            // rung-4 M6 P-b: the SAME `ofArray |> map |> fold` source-lambda pipeline,
+            // The SAME `ofArray |> map |> fold` source-lambda pipeline,
             // but FULLY NESTED into one expression with NO stored `let s1` — `fold (fun
             // acc x -> acc + x) 0 (map (fun x -> x + 1) (ofArray xs))`. The mapped seq
             // is a Main-local / temp slot (the `total` initialiser's sub-expression),
@@ -1782,9 +1762,9 @@ let structSeqTests =
             // verdict propagation: `map`'s value-struct result flows directly into
             // `fold`'s `'S` MethodSpec (the call-site instantiation) and `fold`'s
             // `for y in source` for-in still carries the arrow-as-`'TFunc` seq types,
-            // both rewritten to the `<closure>$` value-struct (P-b/P-c machinery). Same
+            // both rewritten to the `<closure>$` value-struct. Same
             // output (14), same no-box constrained dispatch.
-            test "rung 4 (M6 P-b): nested-temp source-lambda map/fold pipeline runs non-allocating" {
+            test "nested-temp source-lambda map/fold pipeline runs non-allocating" {
                 let src =
                     String.concat
                         "\n"
@@ -1872,39 +1852,21 @@ let structSeqTests =
                     (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
                     "the constrained fold loop IL contains no `box` (non-allocating)"
 
-                let closureBases =
-                    use pr = openPe bytes
-                    let m = pr.GetMetadataReader()
-
-                    m.TypeDefinitions
-                    |> Seq.choose (fun tdh ->
-                        let td = m.GetTypeDefinition tdh
-
-                        if (m.GetString td.Name).StartsWith "<closure>$" then
-                            match td.BaseType.Kind with
-                            | HandleKind.TypeReference ->
-                                Some(
-                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
-                                )
-                            | _ -> Some "<none>"
-                        else
-                            None
-                    )
-                    |> Seq.toList
+                let closureBases = peClosureBaseTypeNames bytes
 
                 Expect.isTrue
                     (closureBases |> List.forall (fun b -> b = "ValueType"))
                     (sprintf "both nested source-lambda closures are value types: %A" closureBases)
             }
 
-            // rung-4 M3 (external-head sibling of the project-local `apply2` test):
-            // the SAME node-keyed verdict mechanism (§2.4) must lower a SOURCE lambda
+            // External-head sibling of the project-local `apply2` test:
+            // the SAME node-keyed verdict mechanism must lower a SOURCE lambda
             // fed into `fold`'s `'TFunc :> Fun2<'State,'T,'State>` parameter — the
             // combinator here stands in for the eventual external `StructSeq.fold`.
             // No `collectStackLambdaArgs` extension is needed for the head: the verdict
             // is recorded at the application site by `subsumes`' caller regardless of
             // whether the head is project-local or external.
-            test "rung4 Step C (M3): a SOURCE lambda through fold's Fun2 slot lowers to a no-box value-struct" {
+            test "a SOURCE lambda through fold's Fun2 slot lowers to a no-box value-struct" {
                 let src =
                     String.concat
                         "\n"
@@ -1951,7 +1913,7 @@ let structSeqTests =
                 Expect.equal closureBase (ValueSome "System.ValueType") "the fold source lambda is a value-struct"
             }
 
-            // rung-4 M6 P-d: a MULTI-`map` chain — two transformers before the terminal,
+            // A MULTI-`map` chain — two transformers before the terminal,
             // whose lambdas have STRUCTURALLY IDENTICAL frozen arrows (`int -> int`):
             //   s1 = map (fun x -> x + 1) s0   // closure A
             //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
@@ -1962,7 +1924,7 @@ let structSeqTests =
             // table picked FIRST. Expected output:
             // ((1+1)*2)+((2+1)*2)+((3+1)*2)+((4+1)*2) = 4+6+8+10 = 28.
             //
-            // FIXED by rung-4 §9 (Direction B). `fold`'s phantom enumerator typar `'E` is
+            // `fold`'s phantom enumerator typar `'E` is
             // no longer grounded into its shared body; it is a real generic method slot the
             // call site solves from the `'S :> IStructSeq<'T,'E>` bound by walking the
             // (already `<closure>$`-rewritten) source arg's seq interface impl. So the body
@@ -1972,7 +1934,7 @@ let structSeqTests =
             // doubly-nested `MapSeq<MapSeq<…>,…>` receiver) is gone — no shared baked body
             // to disambiguate. The closure identity rides through `'S`'s rewritten arg, so
             // the two same-typed `int->int` maps stay distinct.
-            test "rung 4 (M6 P-d): multi-map chain lowers each closure to its OWN value-struct slot" {
+            test "multi-map chain lowers each closure to its OWN value-struct slot" {
                 let src =
                     String.concat
                         "\n"
@@ -2037,7 +1999,7 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "28" "(x+1)*2 mapped then summed = 28"
             }
 
-            // rung-4 M6 P-d regression: a THREE-`map` chain whose three transformer
+            // A THREE-`map` chain whose three transformer
             // lambdas all share the STRUCTURALLY IDENTICAL frozen arrow (`int -> int`):
             //   s1 = map (fun x -> x + 1) s0   // closure A
             //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
@@ -2052,7 +2014,7 @@ let structSeqTests =
             // for all three positions, corrupting the stored seq signature
             // (`EntryPointNotFoundException` class). Only NODE identity disambiguates.
             // Expected output: for [1;2;3;4], each e -> ((e+1)*2)+3 = 7,9,11,13; sum = 40.
-            test "rung 4 (M6 P-d): three-map chain keeps each same-typed closure in its OWN slot" {
+            test "three-map chain keeps each same-typed closure in its OWN slot" {
                 let src =
                     String.concat
                         "\n"
@@ -2141,44 +2103,26 @@ let structSeqTests =
                     (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
                     "the constrained fold loop IL contains no `box` (non-allocating)"
 
-                let closureBases =
-                    use pr = openPe bytes
-                    let m = pr.GetMetadataReader()
-
-                    m.TypeDefinitions
-                    |> Seq.choose (fun tdh ->
-                        let td = m.GetTypeDefinition tdh
-
-                        if (m.GetString td.Name).StartsWith "<closure>$" then
-                            match td.BaseType.Kind with
-                            | HandleKind.TypeReference ->
-                                Some(
-                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
-                                )
-                            | _ -> Some "<none>"
-                        else
-                            None
-                    )
-                    |> Seq.toList
+                let closureBases = peClosureBaseTypeNames bytes
 
                 Expect.isTrue
                     (closureBases |> List.forall (fun b -> b = "ValueType"))
                     (sprintf "all three source-lambda closures are value types: %A" closureBases)
             }
 
-            // rung-4 §9.4 M7 stage 3 — library GRADUATION, the headline epic test.
+            // Library GRADUATION, the headline epic test.
             // `ofArray |> map |> fold` from SOURCE LAMBDAS against the REAL, separately
             // built `Vesper.Seq` package (an EXTERNAL combinator head) through the strict
-            // `buildPackage` path — not the inline single-`compileSource` slice the M6
-            // tests above use. Stage 3 wired the external analogue of the project-local
-            // phantom-typar solve into `ClrRecipes.emitExternalCall`: `StructSeq.fold`'s
-            // enumerator typar `'E` (in `'S :> IStructSeq<'T,'E>` only — no param/result,
-            // so `recoverOpenTypars` can't see it) is recovered from the source `'S`'s
-            // EXTERNAL seq impl (`ExternalClassShape.FrozenInterfaces`, via
+            // `buildPackage` path — not the inline single-`compileSource` slice the
+            // tests above use. The external analogue of the project-local
+            // phantom-typar solve was wired into `ClrRecipes.emitExternalCall`:
+            // `StructSeq.fold`'s enumerator typar `'E` (in `'S :> IStructSeq<'T,'E>` only —
+            // no param/result, so `recoverOpenTypars` can't see it) is recovered from the
+            // source `'S`'s EXTERNAL seq impl (`ExternalClassShape.FrozenInterfaces`, via
             // `tryExternalInterfaceWitness`) before the `MethodSpec` is minted, so the
             // external call type-checks AND the value-struct closures ride by value — the
-            // same payoff the inline M6 test proves, now across the package boundary.
-            test "rung4 M7: ofArray |> map |> fold from source lambdas against the external Vesper.Seq package (no box)" {
+            // same payoff the inline test proves, now across the package boundary.
+            test "ofArray |> map |> fold from source lambdas against the external Vesper.Seq package (no box)" {
                 let src =
                     String.concat
                         "\n"
@@ -2197,25 +2141,7 @@ let structSeqTests =
                 // the combinator head is EXTERNAL — `substituteVerdictClosures` rewrote
                 // their frozen types so the external-call `MethodSpec` instantiates
                 // `'TFunc` at the struct `TypeDef`, not the `Fun` interface.
-                let closureBases =
-                    use pr = openPe bytes
-                    let m = pr.GetMetadataReader()
-
-                    m.TypeDefinitions
-                    |> Seq.choose (fun tdh ->
-                        let td = m.GetTypeDefinition tdh
-
-                        if (m.GetString td.Name).StartsWith "<closure>$" then
-                            match td.BaseType.Kind with
-                            | HandleKind.TypeReference ->
-                                Some(
-                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
-                                )
-                            | _ -> Some "<none>"
-                        else
-                            None
-                    )
-                    |> Seq.toList
+                let closureBases = peClosureBaseTypeNames bytes
 
                 Expect.isNonEmpty closureBases "the driver emits source-lambda closures"
 

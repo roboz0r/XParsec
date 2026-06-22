@@ -64,65 +64,39 @@ module EmitResolve =
         let instT = curriedFun argTys resultTy
         env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
 
-    /// Substitute a nominal's declaring-typar leaves throughout a `FrozenType`
-    /// TEMPLATE: every `FTTypar(TyparAxis.Declaring, i)` becomes `args.[i]`. The
-    /// codegen analog of the front end's `instantiateMember` over the declaring
-    /// axis (`Engine.subtypeInterfacesOf` uses it to instantiate an interface-impl
-    /// template by the receiver's type args). Method-axis typars are left alone (a
-    /// member-axis template is not what this rewrites). An out-of-range declaring
-    /// index passes through unchanged — defensive only; well-formed templates index
-    /// within the class's typar count.
-    let rec private instantiateDeclaring (args: FrozenType[]) (t: FrozenType) : FrozenType =
-        match t with
-        | FTTypar(TyparAxis.Declaring, i) when i >= 0 && i < args.Length -> args.[i]
-        | FTFun(a, b) -> FTFun(instantiateDeclaring args a, instantiateDeclaring args b)
-        | FTTuple items -> FTTuple(EqArray.map (instantiateDeclaring args) items)
-        | FTConst(n, xs) -> FTConst(n, EqArray.map (instantiateDeclaring args) xs)
-        | FTClass(k, xs) -> FTClass(k, EqArray.map (instantiateDeclaring args) xs)
-        | FTRecord(k, xs) -> FTRecord(k, EqArray.map (instantiateDeclaring args) xs)
-        | FTUnion(k, xs) -> FTUnion(k, EqArray.map (instantiateDeclaring args) xs)
-        | FTOr ms -> FTOr(EqArray.map (instantiateDeclaring args) ms)
-        | FTTypar _
-        | FTUnknown _ -> t
-
-    /// rung-4 §9.4 Stage 3 (3b): the codegen analog of front-end
-    /// `Engine.tryUpcastWitness` / `subtypeInterfacesOf`. Given a project-local
-    /// nominal `FTClass(classKey, classArgs)` (structs are `FTClass` with
-    /// `IsValueType = true`; records/unions carry their impls elsewhere so are not
-    /// covered here), look up the class in `env.Classes`, find an implemented-
-    /// interface TEMPLATE (`EmittedClass.Interfaces`, over the class's declaring
-    /// typars) whose head matches `ifaceKey`, and return that interface's args
-    /// instantiated by `FTTypar(Declaring, i) := classArgs.[i]` — i.e. the
-    /// interface as seen at THIS receiver. `ValueNone` when the nominal is not a
-    /// project-local class or implements no matching interface.
+    /// The codegen analog of front-end
+    /// `Engine.tryUpcastWitness` / `subtypeInterfacesOf`, and the project-local head
+    /// of the seq-interface witness (`FrozenTypeBridge.pickInterfaceWitness` is the
+    /// shared tail; `ClrRecipes.tryExternalInterfaceWitness` is the external head).
+    /// Given a project-local nominal `FTClass(classKey, classArgs)` (structs are
+    /// `FTClass` with `IsValueType = true`; records/unions carry their impls
+    /// elsewhere so are not covered here), look the class up in `env.Classes` and
+    /// pick the implemented-interface TEMPLATE (`EmittedClass.Interfaces`, over the
+    /// class's declaring typars) matching `ifaceKey`, instantiated at THIS receiver
+    /// (`FTTypar(Declaring, i) := classArgs.[i]`). `ValueNone` when the nominal is
+    /// not a project-local class or implements no matching interface.
     ///
     /// Direct-declared interfaces only (the registry's `Interfaces` list is the
     /// frozen direct-impl set); the front-end walk additionally recurses base
     /// classes / transitive interfaces — deferred until a consumer needs it. Read by
-    /// the rung-4 §9 (Direction B) call-site phantom-typar solve (`EmitCall`) to
+    /// the call-site phantom-typar solve (`EmitCall`) to
     /// recover a phantom enumerator typar from the constrained source's seq impl.
     let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
         match nominal with
         | FTClass(classKey, classArgs) ->
             match env.Classes.TryGetValue classKey with
             | true, cls ->
-                let target = SymbolKeyOps.qualifiedName ifaceKey
-                let args = classArgs.AsSpan().ToArray()
-
-                let witness =
+                let ifaces =
                     cls.Interfaces
-                    |> List.tryPick (fun ifaceTmpl ->
+                    |> List.choose (fun ifaceTmpl ->
                         match ifaceTmpl with
                         | FTClass(k, ifaceArgs)
                         | FTRecord(k, ifaceArgs)
-                        | FTUnion(k, ifaceArgs) when SymbolKeyOps.qualifiedName k = target ->
-                            Some(EqArray.map (instantiateDeclaring args) ifaceArgs)
+                        | FTUnion(k, ifaceArgs) -> Some(SymbolKeyOps.qualifiedName k, ifaceArgs.AsSpan().ToArray())
                         | _ -> None
                     )
 
-                match witness with
-                | Some ia -> ValueSome ia
-                | None -> ValueNone
+                pickInterfaceWitness (SymbolKeyOps.qualifiedName ifaceKey) (classArgs.AsSpan().ToArray()) ifaces
             | false, _ -> ValueNone
         | _ -> ValueNone
 
@@ -301,7 +275,7 @@ module EmitResolve =
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
     /// The static-member equivalent. Generic-union *static* augmentation members
-    /// are out of scope in R2 (a static member's typars aren't tied to the type's
+    /// are out of scope (a static member's typars aren't tied to the type's
     /// via `this`, so the front-end leaves them un-remapped — the type's generic
     /// `Cons` / `Empty` come from its case factories instead), so a generic union
     /// fails here loudly rather than minting a malformed `Def` call. Classes
@@ -332,13 +306,13 @@ module EmitResolve =
         // typars. Calling `Set<'T>.Empty` from inside the *non-generic* `SetModule`
         // holder (where `Set.empty<'T>` lowers to a method-typar `!!0`) with the
         // hardcoded declaring `!0` minted `Set\`1<!0>::Empty`, an open typar with no
-        // owning generic context — a `BadImageFormatException` at JIT (handoff
-        // "deferred gap 1"). The instantiation is recovered from the node's *result*
+        // owning generic context — a `BadImageFormatException` at JIT.
+        // The instantiation is recovered from the node's *result*
         // type when its head is the declaring type (every self-returning static
         // member — `Empty`/`Singleton`/`Intersection`/`Union` in `set.fs`).
         //
         // When the result type does not surface the instantiation (`Box<'T>.Describe
-        // (x: 'T) : int` from a concrete context — Outstanding-2 gap A), recover it
+        // (x: 'T) : int` from a concrete context), recover it
         // by structurally matching the member's declared open signature against the
         // call's actual argument + result types (`RecoverOpenTypars`, declaring
         // axis) — the static analogue of the generic-instance-method recovery in

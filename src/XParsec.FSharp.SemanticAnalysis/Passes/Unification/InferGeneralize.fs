@@ -61,7 +61,7 @@ module internal UnificationInferGeneralize =
             subst.[qRoot] <- TyVar fresh
             freshOf.[qRoot] <- fresh
 
-        // Direction B (§9): EVERY quantified root is freshened per call in the
+        // EVERY quantified root is freshened per call in the
         // constraint substitution, INCLUDING purely PHANTOM quantified roots (e.g.
         // the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`, absent from the
         // surface type). Previously phantom roots were left verbatim so the body
@@ -289,7 +289,7 @@ module internal UnificationInferGeneralize =
                     if tryDefault tv then
                         changed <- true
 
-    /// Settle the flexible list-literal containers (R3) reachable from a binding's
+    /// Settle the flexible list-literal containers reachable from a binding's
     /// type *before* it generalises, so the bare container `TypeVar` is never
     /// quantified as `∀L. L`:
     ///   - element still free (`let xs = []`) → link the container to FSharp.Core's

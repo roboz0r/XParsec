@@ -37,13 +37,13 @@ module Pipeline =
         // region graph is built over the closures codegen actually emits. Populates
         // `ctx.Bindings.Escape` (keyed by binder `NodeKey`) for the next pass.
         Regions.run ctx tast0.Decls
-        // Snapshot the RS3 closure stack/heap verdict (Axis 1 ∧ Axis 2) onto the
+        // Snapshot the closure stack/heap verdict (Axis 1 ∧ Axis 2) onto the
         // TastFile now that both escape side tables are populated — codegen has no
         // PassContext, so this is how the verdict reaches `discoverClosures`.
         let tast0 =
             { tast0 with
                 ClosureReprs = Regions.closureReprSnapshot ctx
-                // rung-4 M3 / M6: snapshot the node-keyed value-struct closure
+                // Snapshot the node-keyed value-struct closure
                 // verdicts (decided in `inferApp`) onto the TastFile alongside
                 // `ClosureReprs` — codegen has no PassContext, so this is how
                 // `discoverClosures` / `ClosureVerdictRewrite` reach them.

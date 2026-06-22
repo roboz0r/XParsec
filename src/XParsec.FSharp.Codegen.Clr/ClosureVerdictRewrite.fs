@@ -3,7 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-/// rung-4 M6: the closure-verdict TAST type rewrite, lifted out of `Assembler`.
+/// The closure-verdict TAST type rewrite, lifted out of `Assembler`.
 ///
 /// A *transformer* combinator (`map`, `mk : ('TF:>Fun) -> Holder<'TF>`) returns a
 /// nominal carrying the lambda's function typar; the front end freezes that result
@@ -20,7 +20,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// Both paths are node-identity keyed.
 ///
 /// The CONSUMING combinator's `for-in` enumerator (`fold`'s `for y in source`) is NO
-/// LONGER rewritten here: rung-4 §9 (Direction B) makes that body genuinely generic over
+/// LONGER rewritten here: that body is genuinely generic over
 /// the phantom enumerator typar `'E`, so the closure rides in as a real `MethodSpec`
 /// type-argument the call site solves (`EmitCall`) — there is no grounded arrow leaf to
 /// patch, and the old collision-prone arrow-equality rewrite is gone.
@@ -69,7 +69,7 @@ module internal ClosureVerdictRewrite =
         (moduleValues: (NodeKey * FrozenType * Frozen.TExpr) seq)
         : Rewrite =
 
-        // rung-4 M6 P-d: per-value-struct-closure VERDICT, keyed by the closure's
+        // Per-value-struct-closure VERDICT, keyed by the closure's
         // Lambda node (reference identity) → its `<closure>$` value-struct + the
         // RESULT-typar POSITION its `'TFunc` occupies in the producing transformer's
         // result nominal. `closureValueTypeByNode`'s keys ARE exactly the value-struct
@@ -148,12 +148,27 @@ module internal ClosureVerdictRewrite =
             // closure sitting at a structurally-distinct depth, which holds for a LINEAR
             // pipeline (`map |> map |> fold`). A multi-source combinator (a hypothetical
             // `zip s1 s2` / `combine` taking TWO same-typed seq args bound to DIFFERENT
-            // closures) would record two structurally-identical OLD nominals with
-            // different NEW ones into `nestedSubst` (last write wins) → a collision. No
-            // such combinator exists or is planned (the struct-seq design is single-source
-            // per §9); the true fix would be node-tagged frozen types. Revisit here if a
-            // multi-source seq combinator is ever added.
+            // closures) would record one OLD nominal against two different NEW ones → a
+            // collision. No such combinator exists or is planned (the struct-seq design is
+            // single-source); the true fix would be node-tagged frozen types. The
+            // `record` guard below makes that collision a LOUD failure (not silent
+            // last-write-wins corruption surfacing later as `EntryPointNotFoundException`),
+            // naming this boundary — revisit here if a multi-source seq combinator is added.
             let nestedSubst = Dictionary<FrozenType, FrozenType>()
+
+            // Guarded write: an OLD nominal must map to exactly ONE NEW nominal. A repeat
+            // with the same target is idempotent (the lockstep walk can revisit a shared
+            // subtree); a repeat with a DIFFERENT target is the multi-source collision the
+            // BOUNDARY note forbids — fail loud rather than corrupt the stored signature.
+            let record (oldT: FrozenType) (newT: FrozenType) =
+                match nestedSubst.TryGetValue oldT with
+                | true, existing when existing <> newT ->
+                    failwithf
+                        "ClosureVerdictRewrite: nested-substitution collision — one OLD nominal mapped to two NEW ones (multi-source seq combinator? see the BOUNDARY note):\n  old: %A\n  new1: %A\n  new2: %A"
+                        oldT
+                        existing
+                        newT
+                | _ -> nestedSubst.[oldT] <- newT
 
             // Lockstep walk of a referenced binding's (old, rewritten) type pair: record
             // every differing NOMINAL subtree as an old→new pair, then recurse pairwise
@@ -170,19 +185,19 @@ module internal ClosureVerdictRewrite =
                 if oldT <> newT then
                     match oldT, newT with
                     | FTClass(ko, ao), FTClass(kn, an) when ko = kn && ao.Length = an.Length ->
-                        nestedSubst.[oldT] <- newT
+                        record oldT newT
                         recordArgs recordNominalDiff ao an
                     | FTUnion(ko, ao), FTUnion(kn, an) when ko = kn && ao.Length = an.Length ->
-                        nestedSubst.[oldT] <- newT
+                        record oldT newT
                         recordArgs recordNominalDiff ao an
                     | FTRecord(ko, ao), FTRecord(kn, an) when ko = kn && ao.Length = an.Length ->
-                        nestedSubst.[oldT] <- newT
+                        record oldT newT
                         recordArgs recordNominalDiff ao an
                     | FTConst(no, ao), FTConst(nn, an) when no = nn && ao.Length = an.Length ->
-                        nestedSubst.[oldT] <- newT
+                        record oldT newT
                         recordArgs recordNominalDiff ao an
                     | FTTuple ao, FTTuple an when ao.Length = an.Length ->
-                        nestedSubst.[oldT] <- newT
+                        record oldT newT
                         recordArgs recordNominalDiff ao an
                     // A differing leaf (`FTFun` arrow → `<closure>$`, or a head swap):
                     // record the whole nominal pair at THIS level only (the caller has the
@@ -350,14 +365,14 @@ module internal ClosureVerdictRewrite =
                         else
                             TExprG.FieldGet(recv', name, ty', tok)
                     | TExprG.App(fn, arg, ty, tok) ->
-                        // rung-4 M6 P-d: a *transformer* call (`map (fun x -> x+1) src`)
+                        // A *transformer* call (`map (fun x -> x+1) src`)
                         // whose result type carries the lambda's `'TFunc`
                         // (`MapSeq<…,arrow,…>`), used directly as an argument to a consuming
                         // combinator (`fold f 0 (map …)`) WITHOUT a stored `let s1`. The
                         // fold call's `'S` MethodSpec reads `typeOfExpr` of this App, so its
                         // result type must lay the `'TFunc` slot out as the value-struct.
                         //
-                        // COLLISION-SAFE (P-d): the rewrite is keyed on THIS application's
+                        // COLLISION-SAFE: the rewrite is keyed on THIS application's
                         // own produced closure — `appOwnVerdict` walks this `App`'s argument
                         // spine, finds the value-struct lambda node it feeds (by reference
                         // identity), and rewrites ONLY that closure's recorded

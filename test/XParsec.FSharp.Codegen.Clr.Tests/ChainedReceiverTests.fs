@@ -7,8 +7,8 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Isolation tests for the chained method-call-receiver freeze gap (rung-4
-// prerequisite, fixed `eed60c7`): a chained method-call receiver
+// Isolation tests for the chained method-call-receiver freeze gap (fixed
+// `eed60c7`): a chained method-call receiver
 // `f.Invoke(a).Invoke(b)` (a method call on the RESULT of a method call) as the
 // body/return of an interface-impl member mis-types the member's return as the
 // INNER call's result; the OUTER application is dropped at freeze. The identical

@@ -768,7 +768,7 @@ let staticTests =
             // `.cctor` in declaration order — so a later leading value reads an earlier
             // one (`ldsfld`, already set). A member then reads them, and a trailing
             // `printfn` confirms the runtime values.
-            test "§10: leading top-level values are Program-holder initonly fields, cctor-initialised in order" {
+            test "leading top-level values are Program-holder initonly fields, cctor-initialised in order" {
                 let _, artifact =
                     compileSource
                         "TopLevelLeading"
@@ -801,7 +801,7 @@ let staticTests =
                 Expect.isTrue (field "b").IsInitOnly "b (leading) is initonly — set by the Program .cctor"
             }
 
-            test "§10: a member reads a top-level (leading) value via a Program-holder initonly field" {
+            test "a member reads a top-level (leading) value via a Program-holder initonly field" {
                 let _, artifact =
                     compileSource
                         "TopLevelValMember"
@@ -835,7 +835,7 @@ let staticTests =
             // static *field* (a non-generic Program holder has no type parameter to
             // type it), so it lowers to a **zero-arg generic static method** on the
             // Program holder, `call`ed at the use-site instantiation.
-            test "§10.5: a generic top-level value is a generic static method on Program (not a field)" {
+            test "a generic top-level value is a generic static method on Program (not a field)" {
                 let _, artifact =
                     compileSource
                         "TopLevelGeneric"
@@ -882,7 +882,7 @@ let staticTests =
             // the partition: `r`'s init side effect runs in `Main` *after* the leading
             // value is printed (not pre-`Main`); `p` (leading) is initonly, `r`
             // (trailing) is not.
-            test "§10.3: a top-level value after a statement is a Main-written mutable static field (trailing)" {
+            test "a top-level value after a statement is a Main-written mutable static field (trailing)" {
                 let _, artifact =
                     compileSource
                         "TopLevelTrailing"
@@ -1167,7 +1167,7 @@ let genericTests =
                 Expect.equal result "hi" "Box(\"hi\").V = \"hi\""
             }
 
-            // B-1 bug fix: a *generic* class with more than one instance field must
+            // A *generic* class with more than one instance field must
             // round-trip *every* field, not just the first. The single-field
             // `Box<'a>(v: 'a)` tests above never exercised a field at index >= 1, so
             // the generic non-first-field gap (ctor `stfld` / member-body `ldfld`
@@ -1262,7 +1262,7 @@ let genericMethodTests =
                     "Box<int>(0).Echo<string>(\"hi\") = \"hi\""
             }
 
-            // The decisive B-12 case: the same signature mixes the *method* typar
+            // The decisive case: the same signature mixes the *method* typar
             // (the `'b` param, `!!0`) and the *type* typar (the `'a` return, `!0`).
             // A swapped index would either fail to load or return the wrong slot.
             test "a generic method's own typar (!!0) and its class's typar (!0) stay distinct" {
@@ -1708,7 +1708,7 @@ let interfaceImplTests =
                 | false, _ -> failtest "class C was not registered"
             }
 
-            // rung-3 §2.1 sub-gap 1: a *generic* struct implementing a *generic*
+            // A *generic* struct implementing a *generic*
             // local interface must thread the class typar `'T` into the impl
             // member's scope — the impl member's return type `'T` is the enclosing
             // type's type parameter, NOT a free typar, so it must not trip the
@@ -1753,7 +1753,7 @@ let interfaceImplTests =
                 | false, _ -> failtest "struct Box was not registered"
             }
 
-            // §5.2 step 2: argument + return types must match the interface
+            // Argument + return types must match the interface
             // signature. `CompareTo` returning a `string` where `IComparable`
             // promises an `int` is a conformance failure.
             test "a member whose signature does not match the interface is diagnosed" {
@@ -1780,7 +1780,7 @@ let interfaceImplTests =
                     "the diagnostic reports a type mismatch"
             }
 
-            // §5.2 step 1 + 3: a member the interface does not declare is rejected,
+            // A member the interface does not declare is rejected,
             // and the required-but-unimplemented member is reported missing.
             test "a wrongly-named member is rejected and the required member reported missing" {
                 let provider = SymbolProviders.buildContract defaultManifests
@@ -1878,7 +1878,7 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
-            // Generic struct-interface-impl escape-hatch shape (rung-4, landed): A *generic*
+            // Generic struct-interface-impl escape-hatch shape: A *generic*
             // class `C<'T>` implementing `IEnumerable<'T>` + the non-generic `IEnumerable`
             // upcasts its OWN-TYPAR-instantiated `IEnumerator<'T>` to the non-generic base
             // `IEnumerator` (`e :> System.Collections.IEnumerator`). The upcast target's

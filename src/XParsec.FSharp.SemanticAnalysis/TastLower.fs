@@ -94,7 +94,7 @@ module TastLower =
     /// As `matchInstantiation`, but returns the recovery array WITH `ValueNone`
     /// holes for typars that no parameter/result mentions — a phantom constraint
     /// typar (e.g. `fold`'s enumerator `'E`) is unrecoverable by param-matching and
-    /// must be solved separately from its bounds at the call site (EmitCall §9).
+    /// must be solved separately from its bounds at the call site (EmitCall).
     let matchInstantiationPartial
         (typarCount: int)
         (defTys: FrozenType list)
@@ -136,8 +136,8 @@ module TastLower =
         List.iter2 go defTys actualTys
         result
 
-    /// Recover a generic static method's per-typar instantiation at a call site
-    /// (R3): structurally match each declared parameter type (`defTys`, carrying
+    /// Recover a generic static method's per-typar instantiation at a call site:
+    /// structurally match each declared parameter type (`defTys`, carrying
     /// the method's typar `TypeVar`s) against the actual argument type. First
     /// occurrence wins. A recursive self-call yields the method's own typars
     /// (encoded `!!i`); an external call yields concrete types. Strict: every
@@ -153,7 +153,7 @@ module TastLower =
                 | ValueNone -> failwithf "Emit: could not infer instantiation for static-method type parameter %d" i
         ]
 
-    /// rung-4 §9 (Direction B) — the call-site PHANTOM-typar solve, shared by the
+    /// The call-site PHANTOM-typar solve, shared by the
     /// project-local static-fn call (`EmitCall.buildAppCall`) and the EXTERNAL
     /// module-fn call (`ClrRecipes.emitExternalCall`); `tryWitness` is the only
     /// head-specific seam (project-local `env.Classes` vs the external provider's
@@ -348,7 +348,7 @@ module TastLower =
 
     /// The placeholder key for a destructuring tuple lambda parameter — its
     /// tuple value is `bindPattern`ed into the real leaf
-    /// bindings, so the key itself is never referenced (Step 5).
+    /// bindings, so the key itself is never referenced.
     let mintTupleParamKey () : NodeKey = mintSyntheticParamKey ()
 
     /// The synthetic key for a `use _ = e` binder. The value is still bound to a
@@ -716,7 +716,7 @@ module TastLower =
             | _ -> mapChildren lowerExpr e
 
         // Split a folded top-level statement sequence back into standalone decls
-        // in source order (module-representation §10.3 Stage 2). The parser folds
+        // in source order. The parser folds
         // consecutive top-level statements/lets into ONE `TDecl.Expression` whose
         // expr is a `Sequential` / `let … in …` chain, so a value *after* a
         // statement (a *trailing* value) arrives nested as a `TExpr.Let` the

@@ -305,7 +305,7 @@ module EmitClosures =
                         Body = value
                         ResultTy = ty
                         ReturnsVoid = false
-                        // rung-4 §9: a generic module VALUE carries no front-end
+                        // A generic module VALUE carries no front-end
                         // function scheme bounds; `staticFnTypars` still derives its
                         // emitted typar count.
                         Constraints = []
@@ -575,7 +575,7 @@ module EmitClosures =
     /// lambda whose key was never eligible) is left for closure discovery.
     let collectStaticFns
         (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
-        // rung-4 §9 (Direction B): per-binding frozen typar bounds from the front-end
+        // Per-binding frozen typar bounds from the front-end
         // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
         // `StaticFn.Constraints` and read by the call-site phantom-typar solve.
         (genericFnSchemes: Map<NodeKey, FrozenConstraint list>)
@@ -617,7 +617,7 @@ module EmitClosures =
     /// then return, then any body-only index), so the count is `max i + 1` over the
     /// method's parameter + result types AND the body. Parameter/result positions
     /// reconstruct the declared signature; the body sweep additionally catches a
-    /// rung-4 §9 PHANTOM constraint typar (`fold`'s enumerator `'E`) that appears in
+    /// PHANTOM constraint typar (`fold`'s enumerator `'E`) that appears in
     /// NO param/result but survives un-grounded as a real `FTTypar(Method, idx_E)`
     /// leaf in the `for-in` enumerator descriptor — so `fold` emits at its true
     /// arity (e.g. 5) and the call site solves `'E` from its bound. Using the body
@@ -628,6 +628,13 @@ module EmitClosures =
     /// regression). `0` ⇒ a monomorphic method, emitted unchanged. The backend's
     /// `FTTypar(Method, i)` encoder maps these to `!!i` directly (no ambient window).
     /// A closure walked from this fn's body inherits the count on its `Closure.Typars`.
+    ///
+    /// This is the PRODUCER arity; it MUST STAY IN LOCKSTEP with the CONSUMER's
+    /// (`Inline.openMethodSignature`' dependent-typar fixpoint) — the same method,
+    /// built here then consumed across a package boundary, has to agree on its arity or
+    /// the consumer's `MethodSpec` arg count mismatches this emitted IL. Nothing
+    /// structural ties the two (this sweeps the frozen `TExpr` body; the consumer folds
+    /// `SemType` bounds), so the graduation test guards divergence end to end.
     let staticFnTypars (fn: StaticFn) : int =
         let mutable maxIx = -1
 
@@ -712,17 +719,17 @@ module EmitClosures =
             Body: Frozen.TExpr
         }
 
-    /// rung-4 Step C: the source-lambda argument nodes that lower onto a zero-alloc
+    /// The source-lambda argument nodes that lower onto a zero-alloc
     /// value-struct, each mapped to the FLAT `FunN` arity its constrained slot
     /// demands (`1` for `Fun<_,_>`, `2` for `Fun2<_,_,_>`). The decision is the
-    /// node-keyed verdict `inferApp` recorded when Step A's / M3's
-    /// `subsumes(TyFun, Fun`/`Fun2)` arm fired (design §2.4) — codegen no longer
+    /// node-keyed verdict `inferApp` recorded when the
+    /// `subsumes(TyFun, Fun`/`Fun2)` arm fired — codegen no longer
     /// re-derives it structurally (the prior all-`GSimple` + bare-method-typar walk
     /// was a fragile reconstruction of what `subsumes` already knew, and could not
     /// see an external combinator head). A lambda's frozen node carries the same
     /// `fun`-keyword token its CST node keyed off, so its `NodeKey` (recomputed
     /// `ofToken … ExprLambda`) indexes the verdict map. Walking every lambda and
-    /// testing membership covers project-local and (M6) external heads in one path.
+    /// testing membership covers project-local and external heads in one path.
     let private collectStackLambdaArgs
         (funVerdicts: Map<NodeKey, FunVerdict>)
         (decls: Frozen.TDecl list)
@@ -766,7 +773,7 @@ module EmitClosures =
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
 
-        // rung-4 Step C: source lambdas threaded through a constrained `Fun`/`Fun2`
+        // Source lambdas threaded through a constrained `Fun`/`Fun2`
         // slot — eligible for the value-struct closure shape, mapped to their flat
         // arity (1 or 2). The node-keyed verdict (`TastFile.FunVerdicts`).
         let stackLambdaArgs = collectStackLambdaArgs funVerdicts decls memberRoots
@@ -783,7 +790,7 @@ module EmitClosures =
         // static method / member (or, for inner closures, the enclosing closure
         // verbatim); `declaringOffset` is how many of those are the enclosing
         // class's typars (the leading slots) — `0` for a static-fn closure.
-        // rung-4 M3: the arity of a value-struct lambda node (1 by default; 2 for a
+        // The arity of a value-struct lambda node (1 by default; 2 for a
         // flat `Fun2` slot). Only an anonymous monomorphic lambda the verdict reached.
         let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) : int =
             if currentTypars = 0 && ValueOption.isNone selfKey then
@@ -820,7 +827,7 @@ module EmitClosures =
                 (body: Frozen.TExpr)
                 (lamTy: FrozenType)
                 =
-                // rung-4 M3: a flat-2 (`Fun2`) value-struct closure peels the inner
+                // A flat-2 (`Fun2`) value-struct closure peels the inner
                 // `Lambda` — its second parameter + the real (inner) body + the inner
                 // arrow's codomain. Arity-1 keeps the curried `ResultTy = codomain`.
                 let arity = valueStructArity currentTypars selfKey e
@@ -868,14 +875,14 @@ module EmitClosures =
 
                 let captures = freeVars nonCaptured paramBound selfKey body
 
-                // rung-4 Step C: the CODEGEN value-struct trigger — the stricter gate
+                // The CODEGEN value-struct trigger — the stricter gate
                 // (necessary-not-sufficient `Repr` is NOT consulted). An *anonymous*
                 // lambda (`ValueNone` selfKey — a `let`-bound closure keeps its heap
                 // shape) threaded through a constrained `Fun`/`Fun2` slot, monomorphic;
-                // the node-keyed verdict (`valueStructArity` ≥ 1 ⇒ in the table). M2
-                // dropped M1's `List.isEmpty captures` restriction: a CAPTURING such
-                // lambda is also a value-struct (captures stored by value); M3 adds the
-                // flat-2 arity. A plain value struct copies by value, so passing it into
+                // the node-keyed verdict (`valueStructArity` ≥ 1 ⇒ in the table). A
+                // CAPTURING such lambda is also a value-struct (captures stored by
+                // value); the flat-2 arity is supported too. A plain value struct
+                // copies by value, so passing it into
                 // the combinator stays escape-free (no `ref struct`). Everything else is
                 // heap.
                 let isValueStruct =

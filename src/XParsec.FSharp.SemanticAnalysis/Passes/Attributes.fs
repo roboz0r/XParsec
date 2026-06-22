@@ -46,17 +46,11 @@ module Attributes =
         [ "CustomComparison"; "CustomComparisonAttribute" ]
 
     /// The attribute "class" lives inside `ObjectConstruction.typ` as the
-    /// long-ident the user wrote (`StructuralEquality`, or
-    /// `Microsoft.FSharp.Core.StructuralEquality`). Yield the last segment so
-    /// we match the F# resolution rule on short name. Generic / dotted / array
-    /// / function shapes can't sit at the attribute head, so they yield
-    /// `ValueNone`.
+    /// long-ident the user wrote; yield the last segment so we match the F#
+    /// resolution rule on short name. Pass-binding `PassContext.NameOf` to the
+    /// shared `AttributeDecode` resolver.
     let private attributeShortName (ctx: PassContext) (typ: Type<SyntaxToken>) : string voption =
-        match typ with
-        | Type.NamedType li when li.Idents.Length > 0 ->
-            let last = li.Idents.[li.Idents.Length - 1]
-            ValueSome(ctx.NameOf last)
-        | _ -> ValueNone
+        AttributeDecode.attributeShortName ctx.NameOf typ
 
     // Per-axis verdict resolution + the FS0382 / FS0377 attribute validation
     // lives in `validateEqCompAttributes` below (the single entry point for every
@@ -312,83 +306,10 @@ module Attributes =
         let (TypeName(attributes = a)) = tn
         a
 
-    /// Canonical class-relevant short names. `[<Sealed>]` opts a class INTO
-    /// sealed emission (`TypeAttributes.Sealed`); `[<AllowNullLiteral>]` lets
-    /// `null` unify with the class type (B-8).
-    let private sealedNames = [ "Sealed"; "SealedAttribute" ]
-
-    let private allowNullLiteralNames =
-        [ "AllowNullLiteral"; "AllowNullLiteralAttribute" ]
-
-    /// `[<Struct>]` opts a class-shaped type into value-type (`System.ValueType`)
-    /// emission. The bare
-    /// `type X = struct … end` shape (no attribute) lands as `TypeDefn.Struct`
-    /// and is normalised to the same flag by `registerClassTypeDefn`.
-    let private structNames = [ "Struct"; "StructAttribute" ]
-
-    /// `[<IsByRefLike>]` marks a value type as byref-like (a `ref struct`):
-    /// codegen stamps `System.Runtime.CompilerServices.IsByRefLikeAttribute` so
-    /// the CLR confines it to the stack. Implies value-type emission (a ref
-    /// struct is necessarily a struct); the `.fsi` surface pairs it with
-    /// `[<Struct>]` (`Vesper.Printf/formatter.fsi`).
-    let private byRefLikeNames = [ "IsByRefLike"; "IsByRefLikeAttribute" ]
-
-    /// Decoded class-shaping attributes. `IsSealed` flips
-    /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
-    /// `AllowNullLiteral` is consumed only by the front end (Unification's
-    /// `Expr.Null` arm); `IsValueType` flips `System.ValueType` base +
-    /// value-type layout (`[<Struct>]`, B-7-adjacent); `IsByRefLike` additionally
-    /// stamps the byref-like marker (and implies `IsValueType`). All default to
-    /// `false` — silently ignored attributes (`[<DefaultValue>]`, etc.) leave
-    /// them unchanged.
-    [<Struct>]
-    type ClassAttributeVerdict =
-        {
-            IsSealed: bool
-            AllowNullLiteral: bool
-            IsValueType: bool
-            IsByRefLike: bool
-        }
-
-        static member Default =
-            {
-                IsSealed = false
-                AllowNullLiteral = false
-                IsValueType = false
-                IsByRefLike = false
-            }
-
-    /// Decode an attribute set list into a `ClassAttributeVerdict`. Mirrors
-    /// `decodeEqualityAttributes` — a recognised short name flips its flag;
-    /// everything else is silently ignored. The two flags are independent.
-    let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : ClassAttributeVerdict =
-        match attrs with
-        | ValueNone -> ClassAttributeVerdict.Default
-        | ValueSome sets ->
-            let mutable isSealed = false
-            let mutable allowNullLiteral = false
-            let mutable isValueType = false
-            let mutable isByRefLike = false
-
-            for AttributeSet(attributes = entries) in sets do
-                for Attribute(construction = construction), _sep in entries do
-                    let attrTy =
-                        match construction with
-                        | ObjectConstruction(typ = t) -> t
-                        | InterfaceConstruction(typ = t) -> t
-
-                    match attributeShortName ctx attrTy with
-                    | ValueSome n when List.contains n sealedNames -> isSealed <- true
-                    | ValueSome n when List.contains n allowNullLiteralNames -> allowNullLiteral <- true
-                    | ValueSome n when List.contains n structNames -> isValueType <- true
-                    | ValueSome n when List.contains n byRefLikeNames -> isByRefLike <- true
-                    | _ -> ()
-
-            {
-                IsSealed = isSealed
-                AllowNullLiteral = allowNullLiteral
-                // A ref struct is necessarily a value type, even without an
-                // explicit `[<Struct>]` alongside `[<IsByRefLike>]`.
-                IsValueType = isValueType || isByRefLike
-                IsByRefLike = isByRefLike
-            }
+    /// Decode the class-shaping attributes (`[<Sealed>]`, `[<AllowNullLiteral>]`,
+    /// `[<Struct>]`, `[<IsByRefLike>]`) off a type's CST sets, binding the pass's
+    /// `NameOf` resolver to the shared `AttributeDecode` decoder (the `.fsi`
+    /// contract extractor uses the same decoder with its own resolver, so the
+    /// canonical short names live in exactly one place).
+    let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) =
+        AttributeDecode.decodeClassAttributes ctx.NameOf attrs

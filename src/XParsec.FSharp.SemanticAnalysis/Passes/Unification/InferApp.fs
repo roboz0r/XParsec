@@ -21,7 +21,7 @@ open UnificationInferIdentExpr
 
 module internal UnificationInferApp =
 
-    /// rung-4 M3 / M6 P-a: record the node-keyed `Fun`-arity verdict (and its
+    /// Record the node-keyed `Fun`-arity verdict (and its
     /// result-typar position) for each source-lambda argument of an application.
     /// Walk the head's curried domains in lockstep with the source arguments; when a
     /// SOURCE lambda lands on a parameter whose typar bound is `:> Fun`/`:> Fun2`
@@ -34,7 +34,7 @@ module internal UnificationInferApp =
         let mutable currTy = fnTy
         // The lambda verdicts recorded in the spine walk, paired with the typar `dom`
         // (its union-find root) the lambda landed on — so a SECOND pass over the spine
-        // RESULT can record `lambda → result-typar position` (M6 P-a) once `currTy`
+        // RESULT can record `lambda → result-typar position` once `currTy`
         // reaches the tail. Recording the position in the loop is premature: `currTy`
         // is still the residual arrow, not the result nominal.
         let lambdaSlots = ResizeArray<NodeKey * SemType>()
@@ -77,7 +77,7 @@ module internal UnificationInferApp =
                 currTy <- cod
             | _ -> currTy <- TyVar(freshTyVar ctx)
 
-        // rung-4 M6 P-a: record the result-typar POSITION for each verdict lambda.
+        // Record the result-typar POSITION for each verdict lambda.
         // `currTy` is now the spine's result type; a *transformer* combinator's result
         // is a nominal (`Holder<'TF>`, `MapSeq<…,'TF,…>`) carrying the lambda's typar
         // at some top-level arg index. Match by typar IDENTITY (the arg's union-find
@@ -156,7 +156,7 @@ module internal UnificationInferApp =
                 match resolveStep currTy with
                 | TyFun(dom, cod) ->
                     // Allow an implicit class→interface / class→base upcast on the
-                    // argument (G19): a `Comparer<'T>` value flows into an
+                    // argument: a `Comparer<'T>` value flows into an
                     // `IComparer<'T>` parameter. `unifyArg` accepts a ground subtype
                     // and otherwise falls back to plain unification (which links vars
                     // and reports a genuine mismatch).
@@ -192,7 +192,7 @@ module internal UnificationInferApp =
             let fnTy = infer ctx fn
             let argTys = [| for a in args -> infer ctx a |]
 
-            // rung-4 M3 / M6 P-a: record the node-keyed `Fun`-arity + result-typar
+            // Record the node-keyed `Fun`-arity + result-typar
             // verdicts for any source-lambda arguments, BEFORE the curried-application
             // loop below links each domain to its arrow (which would erase the `:> Fun`
             // bound the verdict reads).
@@ -368,14 +368,14 @@ module internal UnificationInferApp =
             // byref/`out` parameter (`Int32.TryParse(string, int&)`). The operand
             // must be an addressable mutable local; that is enforced at codegen
             // (a `Var` bound to a slot), deferred here per the relax-then-reject
-            // convention (PP5d).
+            // convention.
             //
             // TODO(byref-producer): this is the *consume* side only — `&local` as an
             // argument into an external method. Vesper source cannot yet *declare* a
             // byref parameter / return, nor use the `byref<'T>` / `inref<'T>` /
             // `outref<'T>` type aliases as annotations (no alias → byref-intrinsic
             // resolution is wired; only the `&` prefix is). `Formatter`/printf needs
-            // neither (its byref returns come from BCL `Span.get_Item`, PP2b), so the
+            // neither (its byref returns come from BCL `Span.get_Item`), so the
             // producer side is unbuilt.
             TyConst(RuntimeNames.byrefName, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->

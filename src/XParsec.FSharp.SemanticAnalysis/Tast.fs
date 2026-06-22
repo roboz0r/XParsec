@@ -138,11 +138,11 @@ type HoleSpecG<'ty, 'tok> =
 /// `override` doesn't recurse into itself. Set by Freeze when the receiver's
 /// head binding site is a class's `BaseKey`; read by codegen to pick the call opcode.
 /// `Interface` is a constrained dispatch on a *generic typar* receiver coerced to
-/// an interface (`'T :> IFace`, rung-3 Wall B): the `MethodCall`'s `key` declaring
+/// an interface (`'T :> IFace`): the `MethodCall`'s `key` declaring
 /// type is the interface, the receiver's type is the typar, and codegen emits
 /// `constrained. <typar> callvirt <iface-slot>` (no box for a struct typar, a
 /// reference dispatch for a class typar). Set by Freeze when the receiver resolved
-/// through `TyparInterfaceCall`; read by codegen (Wall C). The carried `ifaceArgs`
+/// through `TyparInterfaceCall`; read by codegen. The carried `ifaceArgs`
 /// are the interface's instantiation type arguments (`'E` in `'T :> IStructSeq<'E>`),
 /// threaded from the typar's `Coercion` constraint so codegen can mint the slot on
 /// the *instantiated* interface `TypeSpec`; empty for a non-generic interface.
@@ -162,17 +162,17 @@ type TExprG<'ty, 'tok> =
     /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
     /// `key` interns the resolved `SymbolKey` so codegen reads the binding off the
     /// node instead of re-resolving by name;
-    /// `ValueNone` until Freeze stamps it (P3) — every site is name-only today.
+    /// `ValueNone` until Freeze stamps it — every site is name-only today.
     | External of compiledName: string * key: SymbolKey voption * ty: 'ty * tok: 'tok
     | Lambda of param: TPatG<'ty, 'tok> * body: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     | App of fn: TExprG<'ty, 'tok> * arg: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * body: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
-    /// `use x = value in body` (B-5). Same shape as `Let`; the distinction is that
+    /// `use x = value in body`. Same shape as `Let`; the distinction is that
     /// codegen wraps `body` in a `try … finally x.Dispose()` exception region so
     /// `x` is disposed on every exit. `ty` is the body's type — the expression's
     /// result. `dispose` selects the disposal path:
     /// `ValueNone` lowers a direct `x.Dispose()` call on the binder (the duck-typed
-    /// path for *user* types — no `IDisposable` upcast, §4.1); `ValueSome key`
+    /// path for *user* types — no `IDisposable` upcast); `ValueSome key`
     /// disposes an *external* (BCL) binder through the keyed `Dispose` member that
     /// the front-end resolved (its declared `Dispose`, or `System.IDisposable`'s
     /// when the type implements it), emitted as an `ExternalMemberRef` `callvirt`.
@@ -208,8 +208,8 @@ type TExprG<'ty, 'tok> =
     /// — pinned to `int` for range sources, left as a free TypeVar otherwise.
     /// `body` types as unit. `enumerator` records how the source yields its
     /// enumerator (the front-end resolution): `Interface` lowers through the
-    /// `IEnumerable<'T>` interface slots (§4.2, the range form too); `Pattern`
-    /// carries a pattern-based struct/class `GetEnumerator()` (§4.4 / Gap 2-3).
+    /// `IEnumerable<'T>` interface slots (the range form too); `Pattern`
+    /// carries a pattern-based struct/class `GetEnumerator()`.
     /// Codegen can't re-derive this from the element type.
     | ForIn of
         pat: TPatG<'ty, 'tok> *
@@ -285,7 +285,7 @@ type TExprG<'ty, 'tok> =
     /// `SymbolKey.MemberKey`.
     | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     | StaticPropertyGet of key: SymbolKey * ty: 'ty * tok: 'tok
-    /// Read of a class-level `static let` backing field (B-10). Lowered from a `static let`-bound name reference in a member
+    /// Read of a class-level `static let` backing field. Lowered from a `static let`-bound name reference in a member
     /// body (Freeze rewrites the resolved `Var` exactly as a primary-ctor param
     /// becomes a `FieldGet`). Codegen emits `ldsfld` against the class's private
     /// static field — there is no method call (a static *property* would be a
@@ -346,7 +346,7 @@ type TExprG<'ty, 'tok> =
         defaultExpr: TExprG<'ty, 'tok> *
         ty: 'ty *
         tok: 'tok
-    /// `e :> T` static upcast (inheritance-plan §`:>`). `source`'s runtime type
+    /// `e :> T` static upcast. `source`'s runtime type
     /// is a subtype of `ty` (validated by Unification's `subsumes`). Codegen
     /// erases it for ref types (the JIT treats a derived reference as the base)
     /// and emits `box` for a value-type source.
@@ -499,7 +499,7 @@ and TTypeDeclG<'ty, 'tok> =
         /// synthesised), records / unions consume it in the codegen loops to
         /// decide whether to emit the `IComparable<Self>` / `IComparable`
         /// `InterfaceImpl`s and the `CompareTo(Self)` / `CompareTo(object)`
-        /// pair. Per brainstorm-comparison §9 the default is **opt-in**, so an
+        /// pair. The default is **opt-in**, so an
         /// unannotated record / union skips the pair.
         ComparisonSupport: ComparisonVerdict
     }
@@ -516,15 +516,15 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// (`with member …` / `static member …`) — empty for v1, where records carry
     /// only their field shape.
     | Record of fields: EqArray<TRecordFieldG<'ty>> * members: EqArray<TTypeMemberG<'ty, 'tok>>
-    /// Class type emission (B-1).
-    /// `fields` are mutable instance fields — empty in B-1 (the classes-plan v1
-    /// cut); `ctorParams` borrows the `TRecordField` shape for the primary
+    /// Class type emission.
+    /// `fields` are mutable instance fields (currently empty);
+    /// `ctorParams` borrows the `TRecordField` shape for the primary
     /// constructor's parameter list (name / type / mutability=false).
     /// `members` carries every instance / static method / property (the
     /// instance-vs-static split is the member's own `IsStatic`).
-    /// `baseType` is `ValueNone` in B-1 (codegen defaults the IL
-    /// `TypeDefinition.BaseType` to `Object`); Phase 2 (B-4) fills it from
-    /// `ClassTypeInfo.BaseType`. `interfaces` is empty in B-1; Phase 5 (B-2)
+    /// `baseType` is `ValueNone` (codegen defaults the IL
+    /// `TypeDefinition.BaseType` to `Object`); a later slice fills it from
+    /// `ClassTypeInfo.BaseType`. `interfaces` is empty; another slice
     /// fills it from the interface-impl registry — each entry pairs the
     /// resolved interface type (a `TyClass`, remapped onto this class's typar
     /// markers so a generic interface arg like `IEnumerable<'T>` encodes against
@@ -532,18 +532,17 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// bodies. Codegen emits one `InterfaceImpl` row per entry and one
     /// `MethodDefinition` per member (implicit impl — bound by name + signature;
     /// explicit `.override` rows are deferred with the `MethodImpl` table).
-    /// `isSealed` reflects `[<Sealed>]` (B-8): when `true`, codegen flips
+    /// `isSealed` reflects `[<Sealed>]`: when `true`, codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition` — derivation
-    /// is rejected at use sites (Phase 2's `subsumes` already excludes
+    /// is rejected at use sites (`subsumes` already excludes
     /// `Sealed`).
-    /// `staticLets` are class-level `static let` bindings (B-10): codegen emits
+    /// `staticLets` are class-level `static let` bindings: codegen emits
     /// one private static field each and a synthesised `.cctor` running the
     /// initialisers in declaration order. Empty unless the class has `static let`s.
-    /// `secondaryCtors` are `new(args) = SelfType(primaryArgs)` overloads (B-11):
+    /// `secondaryCtors` are `new(args) = SelfType(primaryArgs)` overloads:
     /// codegen emits each as a `.ctor` overload whose body runs the let-preamble
     /// then chains to the primary `.ctor`. Empty unless the class declares any.
-    /// `baseCtorCall` is the `inherit Base(args)` invocation (Phase 2 / B-4 Step
-    /// 2.5): codegen makes the primary `.ctor` chain to the parent's `.ctor` with
+    /// `baseCtorCall` is the `inherit Base(args)` invocation: codegen makes the primary `.ctor` chain to the parent's `.ctor` with
     /// these args before storing fields. `ValueNone` for a parent-less class (the
     /// primary `.ctor` then chains to `System.Object::.ctor`). Always present
     /// together with a `ValueSome baseType`.
@@ -558,7 +557,7 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// a mutable one admits `this.x <- …`.
     | Class of TClassG<'ty, 'tok>
 
-/// The payload of `TTypeKindG.Class` (B-1), lifted out of an 11-wide positional
+/// The payload of `TTypeKindG.Class`, lifted out of an 11-wide positional
 /// tuple into a named record. See the `Class` case doc for per-field semantics.
 and TClassG<'ty, 'tok> =
     {
@@ -609,7 +608,7 @@ and [<RequireQualifiedAccess>] TMemberKind =
     | Method
     /// A parameterless getter, read through `TExpr.PropertyGet` /
     /// `TExpr.StaticPropertyGet`. Emitted as a `get_<Name>` method (no
-    /// `PropertyDefinition` row yet — see P3d.3).
+    /// `PropertyDefinition` row yet).
     | Property
 
 /// An instance member's body sees `this` (its `ThisKey`, resolved to `ldarg.0`)
@@ -630,8 +629,8 @@ and TTypeMemberG<'ty, 'tok> =
         IsOverride: bool
         /// Instance members only; `ValueNone` for a static member.
         ThisKey: NodeKey voption
-        /// The synthetic `base` binder of the declaring class (inheritance-plan
-        /// §Subtle migrations), shared across every member body. A `base.M(...)`
+        /// The synthetic `base` binder of the declaring class, shared across every
+        /// member body. A `base.M(...)`
         /// receiver is a `TExpr.Var(BaseKey, parentTy)`; codegen maps it to the
         /// same `ldarg.0` as `this`, so this key is loaded identically — the
         /// `CallVia.Base` discriminator (not the receiver) drives non-virtual
@@ -646,7 +645,7 @@ and TTypeMemberG<'ty, 'tok> =
         Params: EqArray<NodeKey * 'ty>
         Body: TExprG<'ty, 'tok>
         ReturnTy: 'ty
-        /// The member's *own* generic parameters (`member this.Map<'C> …`, B-12) — distinct from the declaring
+        /// The member's *own* generic parameters (`member this.Map<'C> …`) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
         /// (`"'C"`, for the `GenericParam` row) with the post-unification
         /// union-find *root* `TypeVar`. `Freeze.remapMemberTypes` uses these roots to
@@ -659,13 +658,13 @@ and TTypeMemberG<'ty, 'tok> =
         MethodTypeParams: EqArray<string * TypeVar>
     }
 
-/// A class-level `static let x = <init>` (B-10).
+/// A class-level `static let x = <init>`.
 /// Codegen emits one private static field per entry and concatenates the
 /// `Init` expressions into a synthesised `.cctor`; a `static let`-bound name
 /// referenced in a member body lowers to `TExpr.StaticFieldGet`. On a *generic*
 /// class the field rides the open `TypeDefinition` (one per closed instantiation,
 /// `.cctor`-initialised) and the read/store mint a `MemberRef` on the self-
-/// `TypeSpec` at the declaring typars (G13).
+/// `TypeSpec` at the declaring typars.
 and TStaticLetG<'ty, 'tok> =
     {
         Name: string
@@ -697,7 +696,7 @@ and TCtorFieldInitG<'ty, 'tok> =
         Init: TExprG<'ty, 'tok>
     }
 
-/// A secondary constructor (B-11). Codegen emits a
+/// A secondary constructor. Codegen emits a
 /// `.ctor` overload: `Params` are the overload's parameters (`ldarg` after
 /// `this`); `Lets` run as locals in declaration order. The body then takes one
 /// of two shapes, never both:
@@ -719,7 +718,7 @@ and TSecondaryCtorG<'ty, 'tok> =
         FieldInits: EqArray<TCtorFieldInitG<'ty, 'tok>>
     }
 
-/// An `inherit Base(args)` base-constructor invocation (B-4 Step 2.5). Codegen wires the primary `.ctor` to chain to the
+/// An `inherit Base(args)` base-constructor invocation. Codegen wires the primary `.ctor` to chain to the
 /// parent's `.ctor`: `ldarg.0; <Args>; call instance void Base::.ctor(…)` before
 /// storing the derived class's own fields. `CtorParams` are the *derived* class's
 /// primary-ctor parameters (the `ldarg` mapping the base-ctor `Args` reference —
@@ -787,7 +786,7 @@ type TastFileG<'ty, 'tok> =
         /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
         /// still forces heap.
         ClosureReprs: Map<NodeKey, ClosureRepr>
-        /// rung-4 M3 / M6 P-a: a SOURCE-lambda argument's `NodeKey` → its
+        /// A SOURCE-lambda argument's `NodeKey` → its
         /// value-struct closure verdict (`FunVerdict`: the flat `FunN` arity, plus
         /// the result-typar position for a transformer combinator). Snapshotted from
         /// `ctx.FunVerdicts`; `discoverClosures` reads `Arity` to size the closure's
@@ -796,7 +795,7 @@ type TastFileG<'ty, 'tok> =
         /// than the `Fun`/`Fun2` interface. A lambda absent here is an ordinary
         /// curried closure.
         FunVerdicts: Map<NodeKey, FunVerdict>
-        /// rung-4 §9 (Direction B): a project-local generalised binding's
+        /// A project-local generalised binding's
         /// `NodeKey` → its frozen typar bounds (method-axis-indexed
         /// `FrozenConstraint` templates). Snapshotted at `Elaborate.run` (where the
         /// method-typar indices are minted, so the bounds' typar leaves line up with

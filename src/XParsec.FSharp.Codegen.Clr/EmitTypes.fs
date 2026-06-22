@@ -54,17 +54,17 @@ module EmitTypes =
             /// codegen trigger (which is the stricter `IsValueStruct` gate below).
             /// On its own it remains inert (it changes no IL).
             Repr: ClosureRepr
-            /// rung-4 Step C: the CODEGEN decision to emit this closure as a
+            /// The CODEGEN decision to emit this closure as a
             /// zero-alloc value-struct (`System.ValueType` base, by-value
             /// construction, constrained-slot `!TF` override). `true` for a
             /// monomorphic, *anonymous* lambda threaded through a constrained `Fun`
-            /// slot — captureless (M1, `initobj`) or capturing (M2, value-type ctor).
+            /// slot — captureless (`initobj`) or capturing (value-type ctor).
             /// Distinct from `Repr`: the front-end `Stack` verdict is necessary but
             /// not sufficient, so this is the single source of truth for the struct
             /// path.
             IsValueStruct: bool
-            /// rung-4 M3: the FLAT `FunN` arity this closure implements. `1` (the
-            /// default / M1+M2 path) is the single-arg `Vesper.Fun<P,R>` interface
+            /// The FLAT `FunN` arity this closure implements. `1` (the
+            /// default / arity-1 path) is the single-arg `Vesper.Fun<P,R>` interface
             /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun2<P1,P2,R>` interface
             /// with one flat `Invoke(P1,P2):R` — the curried 2-arg source lambda
             /// `fun x y -> …` peeled so the inner arrow is NOT a separate closure.
@@ -82,12 +82,12 @@ module EmitTypes =
     /// STATELESS — a single shared instance suffices, so it is cached in a
     /// `static readonly` singleton field on the closure type itself, `newobj`'d once
     /// in the closure's `.cctor`, and every construction site `ldsfld`s it instead of
-    /// allocating (rung-4 Step B; fsc's no-capture-closure caching). A capturing
+    /// allocating (fsc's no-capture-closure caching). A capturing
     /// closure differs per construction (caching would be wrong), and a generic one
     /// needs a per-instantiation singleton (deferred) — both keep `newobj`.
-    /// A value-struct (rung-4 Step C) closure is constructed by-value (`initobj`),
+    /// A value-struct closure is constructed by-value (`initobj`),
     /// never cached as a heap singleton — the two paths are mutually exclusive.
-    /// Only the heap non-capturing monomorphic closure caches (Step B).
+    /// Only the heap non-capturing monomorphic closure caches.
     let closureIsCached (c: Closure) : bool =
         List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
 
@@ -200,7 +200,7 @@ module EmitTypes =
             /// the instantiated `TypeSpec` from the param types (in declaring-typar
             /// markers).
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
-            /// rung-4 §9.4 Stage 3 (3b): the implemented-interface `FrozenType`
+            /// The implemented-interface `FrozenType`
             /// TEMPLATES, each written over THIS class's declaring typars (its arg
             /// leaves are `FTTypar(TyparAxis.Declaring, i)`). Sourced from
             /// `ClassDecl.Interfaces` (the `fst` of each impl pair). The codegen
@@ -208,7 +208,7 @@ module EmitTypes =
             /// `Engine.subtypeInterfacesOf` instantiates by the receiver's args —
             /// `EmitResolve.tryInterfaceWitness` walks these to recover a phantom
             /// enumerator typar's bound at a call site. Carried but UNREAD until that
-            /// Stage-3 solve calls the witness.
+            /// solve calls the witness.
             Interfaces: FrozenType list
         }
 
@@ -272,7 +272,7 @@ module EmitTypes =
             /// body pops the trailing `unit`, and a
             /// value-position call reifies a `unit` after the `call`.
             ReturnsVoid: bool
-            /// rung-4 §9 (Direction B): the binding's frozen typar bounds, method-axis-
+            /// The binding's frozen typar bounds, method-axis-
             /// indexed templates over the method typars (`FrozenConstraint.Coercion`).
             /// Read by the call-site phantom-typar solve (`EmitCall`) to recover a
             /// phantom typar (`fold`'s `'E`) no parameter/result mentions.
@@ -321,7 +321,7 @@ module EmitTypes =
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool
-            /// rung-4 §9 (Direction B): the method's frozen typar bounds (mirrors
+            /// The method's frozen typar bounds (mirrors
             /// `StaticFn.Constraints`), method-axis-indexed templates over the method
             /// typars. Read by the call-site phantom-typar solve (`EmitCall`) to
             /// recover a phantom typar (`fold`'s `'E`) from its bound's seq impl.
@@ -339,11 +339,11 @@ module EmitTypes =
             Ctx: MetadataContext
             ClosureByNode: Dictionary<Frozen.TExpr, Closure>
             CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
-            /// A non-capturing, monomorphic closure's cached `instance` field
-            /// (rung-4 Step B): a `Lambda` node here loads its one cached singleton
+            /// A non-capturing, monomorphic closure's cached `instance` field:
+            /// a `Lambda` node here loads its one cached singleton
             /// with `ldsfld` instead of `newobj`'ing per construction.
             CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
-            /// rung-4 Step C (M1): a captureless `Stack` (value-struct) closure
+            /// A captureless `Stack` (value-struct) closure
             /// `Lambda` node → its synthetic encodable `FrozenType` (its by-value
             /// local + the constrained-slot `MethodSpec` type-argument) and its
             /// closure-`TypeDef` handle (`initobj` operand).
@@ -380,10 +380,10 @@ module EmitTypes =
             Slots: Dictionary<NodeKey, int>
             ClosureByNode: Dictionary<Frozen.TExpr, Closure>
             CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
-            /// Cached non-capturing closure singleton fields (rung-4 Step B);
+            /// Cached non-capturing closure singleton fields;
             /// a `Lambda` value here `ldsfld`s instead of `newobj`ing.
             CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
-            /// rung-4 Step C (M1) value-struct closures: synthetic encodable
+            /// Value-struct closures: synthetic encodable
             /// `FrozenType` + closure-`TypeDef` handle per `Stack` `Lambda` node.
             ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
             ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>

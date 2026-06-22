@@ -37,7 +37,7 @@ type SymbolOrigin =
     /// `Type.Namespace`, so this hides the null check at the seam. Used by
     /// codegen `TypeRef` minting (`externalClassRef` / `externalRecordRef`)
     /// and metadata `SymbolKey.TypeKey` decomposition (`declTypeKey`) —
-    /// Phase 1's user-class emit needs
+    /// user-class emit needs
     /// the same split for its `TypeDefinition` row construction.
     static member StripNamespace (ns: string) (fullName: string) : string =
         if not (System.String.IsNullOrEmpty ns) && fullName.StartsWith(ns + ".") then
@@ -87,9 +87,9 @@ type SymbolKey =
     | MemberKey of decl: SymbolKey * memberName: string * argSig: EqArray<string> * kind: MemberKind
 
 /// What kind of member a `SymbolKey.MemberKey` denotes. `Method` and `Property` are the today-resolvable shapes; `InterfaceMethod`
-/// and `ExplicitInterfaceImpl` land their consumers with B-2 (interface conformance
-/// + `(this :> iface).M()` syntax) — until then both are unused, but the field
-/// is wide enough to carry the interface's `SymbolKey` so B-2 doesn't have to
+/// and `ExplicitInterfaceImpl` land their consumers with interface conformance
+/// + `(this :> iface).M()` syntax — until then both are unused, but the field
+/// is wide enough to carry the interface's `SymbolKey` so that work doesn't have to
 /// re-shape the key.
 and [<RequireQualifiedAccess>] MemberKind =
     | Method
@@ -100,7 +100,7 @@ and [<RequireQualifiedAccess>] MemberKind =
     /// method (`IEnumerable<'T>::GetEnumerator()` vs
     /// `IEnumerable::GetEnumerator()`).
     | InterfaceMethod of iface: SymbolKey
-    /// An explicit interface implementation on a class (B-2):
+    /// An explicit interface implementation on a class:
     /// `Set<'T>::System.Collections.IEnumerable.GetEnumerator`. `iface` pins
     /// which interface's slot is being overridden, the token codegen needs to
     /// emit the `.override` row.
@@ -751,7 +751,7 @@ and [<Sealed>] TypeVar() =
     /// resolve against record fields vs class members. Authoritative on
     /// the union-find root.
     member val PendingDotAccess: DeferredMemberAccess list = [] with get, set
-    /// Default-constraint chain for this TyVar (Phase 5b). Built from
+    /// Default-constraint chain for this TyVar. Built from
     /// `ExternalConstraint.Default` clauses captured on external symbols
     /// (notably `(+)`, `(-)` etc.): `default ^T3 : ^T1` records `TyVar t1`
     /// here, `default ^T1 : int` records `TyConst "int"`. Order matches
@@ -790,7 +790,7 @@ module MeasureTerm =
 /// `TyVar` is the sole case with no `FrozenType` counterpart (the point of the
 /// split): `toFrozen` rejects it with a hard error mirroring `ClrEncoder`'s
 /// existing `cannot encode SemType: TyVar` crash, so a stray metavar fails here
-/// — one hop out from where the catch-all failed before. AutoOpen so 3B-2's
+/// — one hop out from where the catch-all failed before. AutoOpen so the
 /// boundary callers can wrap a `.ty` in `toFrozen` unqualified.
 [<AutoOpen>]
 module FrozenTypeBridge =
@@ -975,6 +975,31 @@ module FrozenTypeBridge =
         | FTTypar(TyparAxis.Method, j) ->
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
         | FTUnknown name -> FTUnknown name
+
+    /// The shared tail of the project-local and external seq-interface witnesses
+    /// (`EmitResolve.tryInterfaceWitness` / `ClrRecipes.tryExternalInterfaceWitness`):
+    /// find the impl whose compiled name equals `target` (a `qualifiedName`) among
+    /// `ifaces` (each `(compiled-name, args-over-declaring-typars)`) and return its
+    /// args instantiated at THIS receiver — `FTTypar(Declaring,i) := declArgs.[i]`
+    /// via `substituteDeclaring`. `ValueNone` if none matches. Each head reads its
+    /// own registry (`env.Classes` vs the codegen symbol provider) and adapts it to
+    /// the `(name, args)` shape; this picks + substitutes so the two can't drift.
+    let pickInterfaceWitness
+        (target: string)
+        (declArgs: FrozenType[])
+        (ifaces: (string * FrozenType[]) seq)
+        : EqArray<FrozenType> voption =
+        match
+            ifaces
+            |> Seq.tryPick (fun (iname, ifaceArgs) ->
+                if iname = target then
+                    Some(ifaceArgs |> Array.map (substituteDeclaring declArgs) |> EqArray.ofArray)
+                else
+                    None
+            )
+        with
+        | Some ia -> ValueSome ia
+        | None -> ValueNone
 
 /// `∀ Quantified . Body`. Built by `Unification.generalise` and stored in
 /// `PassContext.Bindings.Scheme` keyed by the binding's headPat NodeKey. Each

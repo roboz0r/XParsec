@@ -488,7 +488,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 toEntity (ctx.TypeSpec tsB)
 
             // `instance void .ctor(!0…!{n-1})` — pushing the elements then `newobj`
-            // this leaves the struct on the stack (Step 3).
+            // this leaves the struct on the stack.
             let ctorRef =
                 let s = BlobBuilder()
 
@@ -506,7 +506,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 toEntity (ctx.MemberRef(typeSpec, ".ctor", s))
 
             // `public !i Item{i+1}` — `ValueTuple` exposes public *fields*, not
-            // properties, so element access is `ldfld`, not `call get_ItemN` (Step 4).
+            // properties, so element access is `ldfld`, not `call get_ItemN`.
             let itemFields =
                 [|
                     for i in 0 .. arity - 1 ->
@@ -724,7 +724,7 @@ type internal ClrEncoder(env: ClrEnv) =
         msig
 
     /// `instance c Invoke(a, b)` — a FLAT 2-arg (`Fun2`) closure's `Invoke`
-    /// override signature (rung-4 M3). The arity-2 sibling of `InvokeSignature`.
+    /// override signature. The arity-2 sibling of `InvokeSignature`.
     member _.InvokeSignature2(a: FrozenType, b: FrozenType, c: FrozenType) : BlobBuilder =
         let msig = BlobBuilder()
 
@@ -766,7 +766,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// A field signature whose type is the closure's OWN (reference) type, given its
     /// `TypeDefinition` handle directly — a closure type has no `FrozenType` the
-    /// encoder resolves, so the cached-singleton field (rung-4 Step B) is encoded
+    /// encoder resolves, so the cached-singleton field is encoded
     /// here from its handle rather than through `FieldSignature ty`.
     member _.ClosureSelfFieldSignature(closureTypeHandle: EntityHandle) : BlobBuilder =
         let blob = BlobBuilder()

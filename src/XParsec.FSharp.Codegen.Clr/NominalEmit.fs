@@ -597,8 +597,8 @@ module internal NominalEmit =
             // (`MissingMethodException`), which is exactly what bit the Vesper-compiled
             // `Vesper.Formatter` (its `AppendFormatted`/`AppendStructured` are
             // generic `unit`-returning instance methods the printf recipe calls void).
-            // A STATIC `unit` member now also encodes `void` (Step B,
-            // "void everywhere": the `NominalEmit.fs:595` static asymmetry is
+            // A STATIC `unit` member now also encodes `void`
+            // ("void everywhere": the static asymmetry is
             // removed). The flip is safe because the re-read invariant
             // (`MetadataSymbols.frozenParams` maps a parameterless `void` back to
             // `unit -> unit`) round-trips it, and every call site already treats a
@@ -648,7 +648,7 @@ module internal NominalEmit =
                         // header, so a consumer's generic void member-ref binds.
                         provider.GenericMethodOnTypeSignatureVoid(methodTypars.Length, paramTys, not mem.IsStatic)
                     elif returnsVoid && mem.IsStatic then
-                        // A `unit`-returning static member — `void` return (Step B).
+                        // A `unit`-returning static member — `void` return.
                         provider.StaticMethodSignatureVoid paramTys
                     elif returnsVoid then
                         // A `unit`-returning instance method — `void` return, not the

@@ -92,7 +92,7 @@ module VesperLibTyparCapture =
         /// base lets a consumer's subtype walk reconcile through the *contract*
         /// inherit chain (the JS exception hierarchy, `InvalidOperationException :
         /// exn`) independent of BCL metadata; the interfaces let a consumer's
-        /// interface-impl witness (`tryInterfaceWitness`' external arm, rung-4 M7)
+        /// interface-impl witness (`tryInterfaceWitness`' external arm)
         /// recover a phantom typar (`fold`'s `'E`) from a struct seq's
         /// `IStructSeq<'T,'E>` impl; the ctors let a BCL-free provider type the
         /// constructor-as-function application (`InvalidOperationException "msg"`).

@@ -209,8 +209,8 @@ let tests =
                 Expect.isTrue (hasMismatch tast) "second use at bool conflicts with int from first use"
             }
 
-            test "chained generic combinator with constraint-bound result typar (P-d front-end)" {
-                // Minimal isolation of the rung-4 M6 P-d wall — NO Fun/AddN/struct.
+            test "chained generic combinator with constraint-bound result typar" {
+                // Minimal isolation of the multi-map chain wall — NO Fun/AddN/struct.
                 // `wrap` is a generic combinator: `'S :> I<'T,'E>` carries a PHANTOM
                 // enumerator typar `'E` (also in the result `W<'S,'E,'T>`). Chaining
                 // `wrap` twice (the second over a `W<…>` produced by the first) must
