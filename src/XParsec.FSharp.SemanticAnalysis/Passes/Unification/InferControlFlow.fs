@@ -59,7 +59,7 @@ module internal UnificationInferControlFlow =
                 // TODO on the local-enumerator branch of `tryLocalDuckTypedEnumerator`.)
                 let disposable =
                     ExternalSymbols.instantiateInterfaces enumShape enumArgs
-                    |> Array.exists (fun (n, _) -> n = "System.IDisposable")
+                    |> Array.exists (fun (n, _) -> RuntimeNames.isIDisposableName n)
 
                 ValueSome
                     {
@@ -118,7 +118,7 @@ module internal UnificationInferControlFlow =
                         match impl.Resolved with
                         | ValueSome resolved ->
                             match inst resolved with
-                            | TyClass(ifaceKey, _) -> SymbolKeyOps.qualifiedName ifaceKey = "System.IDisposable"
+                            | TyClass(ifaceKey, _) -> RuntimeNames.isIDisposableKey ifaceKey
                             | _ -> false
                         | ValueNone -> false
                     )
@@ -436,8 +436,6 @@ module internal UnificationInferControlFlow =
         (nameKey: SymbolKey)
         (args: EqArray<SemType>)
         : (SemType * ForInEnumerator) voption =
-        let ienumName = "System.Collections.Generic.IEnumerable`1"
-
         match TypeRegistry.tryClassByKey ctx.Types nameKey with
         | ValueSome info ->
             let picked =
@@ -447,7 +445,7 @@ module internal UnificationInferControlFlow =
                     | ValueSome resolved ->
                         match zonk (instantiateMember (info.TypeParams, args) resolved) with
                         | TyClass(ifaceKey, ifaceArgs) when
-                            SymbolKeyOps.qualifiedName ifaceKey = ienumName && ifaceArgs.Length = 1
+                            RuntimeNames.isIEnumerableKey ifaceKey && ifaceArgs.Length = 1
                             ->
                             Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
                         | _ -> None
@@ -577,10 +575,8 @@ module internal UnificationInferControlFlow =
     /// `'T` so `inferForIn` can pin the loop pattern's type, plus the
     /// `ForInEnumerator` codegen reads off the frozen node.
     and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
-        let ienumName = "System.Collections.Generic.IEnumerable`1"
-
         match zonk srcTy with
-        | TyClass(nameKey, args) when SymbolKeyOps.qualifiedName nameKey = ienumName && args.Length = 1 ->
+        | TyClass(nameKey, args) when RuntimeNames.isIEnumerableKey nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
             match ExternalSymbols.tryLookupType ctx.Provider nameKey with
@@ -599,7 +595,12 @@ module internal UnificationInferControlFlow =
                 | ValueNone ->
                     match
                         ExternalSymbols.instantiateInterfaces shape argArr
-                        |> Array.tryPick (fun (n, ta) -> if n = ienumName && ta.Length = 1 then Some ta.[0] else None)
+                        |> Array.tryPick (fun (n, ta) ->
+                            if RuntimeNames.isIEnumerableName n && ta.Length = 1 then
+                                Some ta.[0]
+                            else
+                                None
+                        )
                     with
                     | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone

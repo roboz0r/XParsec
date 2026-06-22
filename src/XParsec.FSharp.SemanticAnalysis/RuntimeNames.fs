@@ -104,6 +104,53 @@ module RuntimeNames =
     let private systemObjectKey: SymbolKey =
         SymbolKey.TypeKey(Some "System.Runtime", "System", "Object")
 
+    // --- Well-known BCL contract interfaces -------------------------------------------
+    //
+    // The handful of BCL interface identities the *target-agnostic* passes still
+    // resolve against directly: `for … in` enumeration (`IEnumerable<'T>`),
+    // `use`/`for-in` disposal (`IDisposable`), and the `[<CustomEquality>]` /
+    // `[<CustomComparison>]` conformance checks (`IEquatable<'T>` / `IComparable<'T>`).
+    // These are CLR/BCL contracts — on a JS target the same *capabilities* (the
+    // iterable protocol, shape-based equality) wear different identities. Hoisting
+    // them here does NOT make the passes target-independent; it collapses the
+    // identities that were scattered as ad-hoc string literals across `InferControlFlow`
+    // / `Infer` / `Unification` into one auditable place (matching the singleton-key
+    // precedent above), so the CLR coupling is visible in a single file and can't
+    // drift. Making them provider-resolved per target is the deferred next step.
+    //
+    // `asm = Some "System.Runtime"` mirrors `systemObjectKey`; it is a don't-care
+    // for the asm-blind recognisers / qualified-name projections built below.
+
+    /// Canonical identity for `System.Collections.Generic.IEnumerable<'T>` (arity 1) —
+    /// the interface a `for … in` source is resolved against.
+    let private ienumerableKey: SymbolKey =
+        SymbolKey.TypeKey(Some "System.Runtime", "System.Collections.Generic", "IEnumerable`1")
+
+    /// Canonical identity for `System.IDisposable` — the interface whose presence
+    /// gates `use` / `for-in` disposal (the `finally` is emitted iff the source is
+    /// `IDisposable`).
+    let private idisposableKey: SymbolKey =
+        SymbolKey.TypeKey(Some "System.Runtime", "System", "IDisposable")
+
+    /// Canonical identity for `System.IEquatable<'T>` (arity 1) — a `[<CustomEquality>]`
+    /// type must implement it (FS0378).
+    let private iequatableKey: SymbolKey =
+        SymbolKey.TypeKey(Some "System.Runtime", "System", "IEquatable`1")
+
+    /// Canonical identity for `System.IComparable<'T>` (arity 1) — a
+    /// `[<CustomComparison>]` type must implement it (FS0378).
+    let private icomparableKey: SymbolKey =
+        SymbolKey.TypeKey(Some "System.Runtime", "System", "IComparable`1")
+
+    /// The rendered qualified name of `System.IEquatable<'T>` —
+    /// `"System.IEquatable\`1"` — for the consumer comparing against a member's
+    /// rendered interface name (`Unification.implementsSelf`, keyed on a string).
+    let iequatableQualifiedName: string = SymbolKeyOps.qualifiedName iequatableKey
+
+    /// The rendered qualified name of `System.IComparable<'T>` —
+    /// `"System.IComparable\`1"`. Pairs with `iequatableQualifiedName`.
+    let icomparableQualifiedName: string = SymbolKeyOps.qualifiedName icomparableKey
+
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
     /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
@@ -120,6 +167,14 @@ module RuntimeNames =
     /// drift. Used where the param model is a *rendered* signature string rather than
     /// a `SymbolKey` (an external member's `argSig`).
     let systemObjectQualifiedName: string = SymbolKeyOps.qualifiedName systemObjectKey
+
+    /// The BCL `System.IO.TextWriter` nominal name, carried as the `SemType` of a
+    /// printf writer *sink* (`fprintf`/`bprintf`, `PrintfSpec.tyTextWriter`). A CLR
+    /// contract with no JS analogue — single-sourced here so the one consumer's
+    /// hardcoded literal is an auditable, named coupling rather than a bare string
+    /// buried in the printf spec (the deferred target-independent model resolves the
+    /// sink type through the provider per target).
+    let textWriterTypeName: string = "System.IO.TextWriter"
 
     /// The canonical identity name for a rank-`rank` array, sourced from the
     /// `prim-types-min.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;
@@ -245,6 +300,27 @@ module RuntimeNames =
     /// True iff `k` denotes the BCL `System.Object`. Asm-blind (the consumers — the
     /// unify equality/derives predicates — never compared the home assembly).
     let isSystemObjectKey (k: SymbolKey) : bool = sameTypeAsmBlind systemObjectKey k
+
+    /// True iff `k` denotes `System.Collections.Generic.IEnumerable<'T>` — the
+    /// `for … in` source interface. Asm-blind; the caller still checks the arg arity.
+    let isIEnumerableKey (k: SymbolKey) : bool = sameTypeAsmBlind ienumerableKey k
+
+    /// True iff the *rendered* qualified interface name `s` denotes
+    /// `System.Collections.Generic.IEnumerable<'T>` — the string-keyed analogue of
+    /// `isIEnumerableKey`, for the consumer scanning rendered names from
+    /// `ExternalSymbols.instantiateInterfaces`. The caller still checks the arg arity.
+    let isIEnumerableName (s: string) : bool =
+        s = SymbolKeyOps.qualifiedName ienumerableKey
+
+    /// True iff `k` denotes `System.IDisposable` — the disposal interface gating a
+    /// `use` / `for-in` `finally`. Asm-blind, matching the list/object recognisers.
+    let isIDisposableKey (k: SymbolKey) : bool = sameTypeAsmBlind idisposableKey k
+
+    /// True iff the *rendered* qualified interface name `s` denotes `System.IDisposable`
+    /// — the string-keyed analogue of `isIDisposableKey`, for the consumers holding a
+    /// rendered name from `ExternalSymbols.instantiateInterfaces` rather than a key.
+    let isIDisposableName (s: string) : bool =
+        s = SymbolKeyOps.qualifiedName idisposableKey
 
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
     /// format type a `printf` / `sprintf` literal freezes to. Asm-blind, matching the

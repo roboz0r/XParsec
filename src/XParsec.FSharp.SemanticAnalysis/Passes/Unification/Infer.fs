@@ -127,7 +127,7 @@ module UnificationInfer =
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) when
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
-                |> Array.exists (fun (n, _) -> n = "System.IDisposable")
+                |> Array.exists (fun (n, _) -> RuntimeNames.isIDisposableName n)
                 ->
                 ValueSome(
                     SymbolKey.MemberKey(

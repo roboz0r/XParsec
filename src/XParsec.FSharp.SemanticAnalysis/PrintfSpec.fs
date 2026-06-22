@@ -50,7 +50,9 @@ module PrintfSpec =
 
     let private tyUnit: SemType = TyConst("unit", EqArray.empty)
     let private tyString: SemType = TyConst("string", EqArray.empty)
-    let private tyTextWriter: SemType = TyConst("System.IO.TextWriter", EqArray.empty)
+
+    let private tyTextWriter: SemType =
+        TyConst(RuntimeNames.textWriterTypeName, EqArray.empty)
 
     /// Target-agnostic classification of a printf entry point's output sink,
     /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
