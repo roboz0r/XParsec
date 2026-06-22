@@ -1646,7 +1646,7 @@ let structSeqTests =
             //
             // GREEN as of M6 P-b/P-c. Two distinct verdict-propagation rewrites compose
             // here (Approach B, codegen-time substitution — see
-            // `docs/rung4-lambda-lowering-design.md` §2.4 / §6):
+            // `project_seq_struct_pipeline_ladder` memory + `ClosureVerdictRewrite.fs`):
             //  (P-a) the stored binding's `'TFunc` FIELD/`Var` type
             //        (`s1 : MapSeq<…,'TFunc,…>`) is laid out as the `<closure>$` value-
             //        struct by position (`substituteVerdictClosures`), so the `fold`
@@ -2164,5 +2164,63 @@ let structSeqTests =
                 Expect.isTrue
                     (closureBases |> List.forall (fun b -> b = "ValueType"))
                     (sprintf "all three source-lambda closures are value types: %A" closureBases)
+            }
+
+            // rung-4 §9.4 M7 stage 3 — library GRADUATION, the headline epic test.
+            // `ofArray |> map |> fold` from SOURCE LAMBDAS against the REAL, separately
+            // built `Vesper.Seq` package (an EXTERNAL combinator head) through the strict
+            // `buildPackage` path — not the inline single-`compileSource` slice the M6
+            // tests above use. Stage 3 wired the external analogue of the project-local
+            // phantom-typar solve into `ClrRecipes.emitExternalCall`: `StructSeq.fold`'s
+            // enumerator typar `'E` (in `'S :> IStructSeq<'T,'E>` only — no param/result,
+            // so `recoverOpenTypars` can't see it) is recovered from the source `'S`'s
+            // EXTERNAL seq impl (`ExternalClassShape.FrozenInterfaces`, via
+            // `tryExternalInterfaceWitness`) before the `MethodSpec` is minted, so the
+            // external call type-checks AND the value-struct closures ride by value — the
+            // same payoff the inline M6 test proves, now across the package boundary.
+            test "rung4 M7: ofArray |> map |> fold from source lambdas against the external Vesper.Seq package (no box)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open Vesper.Collections"
+                            "let xs = [| 1; 2; 3; 4 |]"
+                            "let total = StructSeq.fold (fun a x -> a + x) 0 (StructSeq.map (fun x -> x + 1) (StructSeq.ofArray xs))"
+                            "printfn \"%d\" total"
+                        ]
+
+                let (exitCode, output), bytes = runPackagesInspect [ "Vesper.Seq" ] src
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "14" "(x+1) over [1;2;3;4] summed = 14"
+
+                // The driver's source lambdas lower to VALUE-STRUCT closures even though
+                // the combinator head is EXTERNAL — `substituteVerdictClosures` rewrote
+                // their frozen types so the external-call `MethodSpec` instantiates
+                // `'TFunc` at the struct `TypeDef`, not the `Fun` interface.
+                let closureBases =
+                    use pr = openPe bytes
+                    let m = pr.GetMetadataReader()
+
+                    m.TypeDefinitions
+                    |> Seq.choose (fun tdh ->
+                        let td = m.GetTypeDefinition tdh
+
+                        if (m.GetString td.Name).StartsWith "<closure>$" then
+                            match td.BaseType.Kind with
+                            | HandleKind.TypeReference ->
+                                Some(
+                                    m.GetString (m.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name
+                                )
+                            | _ -> Some "<none>"
+                        else
+                            None
+                    )
+                    |> Seq.toList
+
+                Expect.isNonEmpty closureBases "the driver emits source-lambda closures"
+
+                Expect.isTrue
+                    (closureBases |> List.forall (fun b -> b = "ValueType"))
+                    (sprintf "both source-lambda closures are value types: %A" closureBases)
             }
         ]

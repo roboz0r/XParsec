@@ -153,6 +153,89 @@ module TastLower =
                 | ValueNone -> failwithf "Emit: could not infer instantiation for static-method type parameter %d" i
         ]
 
+    /// rung-4 §9 (Direction B) — the call-site PHANTOM-typar solve, shared by the
+    /// project-local static-fn call (`EmitCall.buildAppCall`) and the EXTERNAL
+    /// module-fn call (`ClrRecipes.emitExternalCall`); `tryWitness` is the only
+    /// head-specific seam (project-local `env.Classes` vs the external provider's
+    /// `FrozenInterfaces`), so the solve itself is head-agnostic.
+    ///
+    /// `instArr` already carries every signature-reachable method typar (recovered by
+    /// `matchInstantiationPartial` / the encoder's `recoverOpenTypars`); a phantom
+    /// constraint typar (`fold`'s enumerator `'E`, present only in a
+    /// `'S :> IStructSeq<'T,'E>` bound, in no param/result) is still `ValueNone`. For
+    /// each `Coercion(ci, target)` whose constrained typar `ci` is already resolved
+    /// (e.g. `'S := instArr.[idx_S]`, the node-key-rewritten `<closure>$`-bearing arg
+    /// type), `tryWitness` walks the constrained type's interface impl for `target`'s
+    /// interface and the typars `target` mentions (incl. `'E`) are structurally
+    /// recovered from the concrete witness. Iterate to a fixpoint — one bound's target
+    /// may mention a typar another bound just solved.
+    ///
+    /// The witness is AUTHORITATIVE for a bound-mentioned typar even when the signature
+    /// already recovered it: a combinator carrying `'E` in BOTH its bound AND its result
+    /// can have a stale arrow in the result occurrence (a chained source's `'TFunc`
+    /// buried in its frozen enumerator type), whereas the witness reads it from the
+    /// source's ACTUAL `<closure>$`-bearing seq impl — so every bound-mentioned index is
+    /// overridden with the witness value. Mutates `instArr` in place.
+    let solvePhantomTypars
+        (typarCount: int)
+        (constraints: FrozenConstraint list)
+        (tryWitness: FrozenType -> SymbolKey -> EqArray<FrozenType> voption)
+        (instArr: FrozenType voption[])
+        : unit =
+        if not (List.isEmpty constraints) then
+            // Indices the bounds can recover — those the witness may overwrite.
+            let boundMentioned = System.Collections.Generic.HashSet<int>()
+
+            let rec mention (t: FrozenType) =
+                match t with
+                | FTTypar(TyparAxis.Method, i) -> boundMentioned.Add i |> ignore
+                | FTFun(a, b) ->
+                    mention a
+                    mention b
+                | FTConst(_, xs)
+                | FTTuple xs
+                | FTRecord(_, xs)
+                | FTUnion(_, xs)
+                | FTClass(_, xs)
+                | FTOr xs -> EqArray.iter mention xs
+                | FTUnknown _
+                | FTTypar(TyparAxis.Declaring, _) -> ()
+
+            for c in constraints do
+                match c with
+                | FrozenConstraint.Coercion(_, target) -> mention target
+
+            let mutable changed = true
+
+            while changed do
+                changed <- false
+
+                for c in constraints do
+                    match c with
+                    | FrozenConstraint.Coercion(ci, target) ->
+                        if ci >= 0 && ci < instArr.Length then
+                            match instArr.[ci], target with
+                            | ValueSome receiver, FTClass(ifaceKey, _) ->
+                                match tryWitness receiver ifaceKey with
+                                | ValueSome witnessArgs ->
+                                    let holes =
+                                        matchInstantiationPartial
+                                            typarCount
+                                            [ target ]
+                                            [ FTClass(ifaceKey, witnessArgs) ]
+
+                                    for j in 0 .. instArr.Length - 1 do
+                                        match holes.[j] with
+                                        | ValueSome t when
+                                            instArr.[j] <> ValueSome t
+                                            && (instArr.[j] = ValueNone || boundMentioned.Contains j)
+                                            ->
+                                            instArr.[j] <- ValueSome t
+                                            changed <- true
+                                        | _ -> ()
+                                | ValueNone -> ()
+                            | _ -> ()
+
     /// The single structural recursion the lowering map, the closure collector,
     /// and the free-variable walk all share (the latter two via `iterChildren`).
     let mapChildren (f: Frozen.TExpr -> Frozen.TExpr) (e: Frozen.TExpr) : Frozen.TExpr =

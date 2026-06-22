@@ -60,6 +60,39 @@ module VesperLib =
         | FTUnion(k, args) -> Some(SymbolKeyOps.qualifiedName k, args.AsSpan().ToArray())
         | _ -> None
 
+    /// Does a `[<Struct>]`-attributed type declaration carry the attribute? A
+    /// `[<Struct>] type X = …` (the ATTRIBUTE form, e.g. the struct-seq types) parses
+    /// through the Class/Anon arm rather than `TypeSignature.Struct` (the
+    /// `struct … end` form), so its value-type-ness is on the `TypeName`'s
+    /// attributes, not the syntactic body. Decode it the same way `Attributes.fs`
+    /// does (last-ident short name, `Struct`/`StructAttribute`), but `PassContext`-free
+    /// (the extractor has only `lexed`/`input`). Without this an external struct in a
+    /// signature encodes as `CLASS` not `ELEMENT_TYPE_VALUETYPE` and a consumer's
+    /// member-ref misses the value-type method (`MissingMethodException` / "value type
+    /// mismatch") — rung-4 M7 stage 3.
+    let private typeNameHasStructAttr (lexed: Lexed) (input: string) (typeName: TypeName<SyntaxToken>) : bool =
+        let (TypeName(attributes = attrs)) = typeName
+
+        match attrs with
+        | ValueNone -> false
+        | ValueSome sets ->
+            sets
+            |> Seq.exists (fun (AttributeSet(attributes = entries)) ->
+                entries
+                |> Seq.exists (fun (Attribute(construction = construction), _sep) ->
+                    let attrTy =
+                        match construction with
+                        | ObjectConstruction(typ = t) -> t
+                        | InterfaceConstruction(typ = t) -> t
+
+                    match attrTy with
+                    | Type.NamedType li when li.Idents.Length > 0 ->
+                        let n = nameOfTok lexed input li.Idents.[li.Idents.Length - 1]
+                        n = "Struct" || n = "StructAttribute"
+                    | _ -> false
+                )
+            )
+
     /// Translate a stashed member-signature CST to its two-axis `ExternalSignature`
     /// template, splitting the head `FTFun(params, ret)` (or treating the whole
     /// result as the value, for a property). `ValueNone` means **drop the member**,
@@ -1334,8 +1367,21 @@ module VesperLib =
                 // (no `interface` keyword), but an all-abstract body IS an interface.
                 let isInterface = bodyIsInterface elements
 
+                // A `[<Struct>]`-attributed class-shaped type (the struct-seq
+                // `ArraySeq`/`MapSeq`/… nodes) is a value type — publish the flag so a
+                // consumer encodes it `ELEMENT_TYPE_VALUETYPE`, mirroring the
+                // `struct … end` arm above and the metadata layer's `Type.IsValueType`.
+                let isValueType = typeNameHasStructAttr lexed input typeName
+
                 ctx.TypeShapes.[compiled] <-
-                    ExternalTypeShape.Class(ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty))
+                    ExternalTypeShape.Class(
+                        { ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty) with
+                            Flags =
+                                { ExternalClassFlags.Default with
+                                    IsValueType = isValueType
+                                }
+                        }
+                    )
 
                 // An `inherit <type>` clause, any directly-declared `interface <type>`
                 // impls, and any `new: … -> T` constructors are deferred (like the body

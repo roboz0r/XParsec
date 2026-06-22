@@ -414,6 +414,67 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             scope
 
+    /// Substitute a nominal's declaring-typar leaves throughout a `FrozenType`
+    /// TEMPLATE: every `FTTypar(TyparAxis.Declaring, i)` becomes `args.[i]` — the
+    /// `FrozenType`-space mirror of `EmitResolve.instantiateDeclaring` /
+    /// `ExternalSymbols.instantiateInterfaces` (whose realiser yields `SemType`, the
+    /// wrong axis for codegen emission). An out-of-range index passes through; a
+    /// method-axis typar is left alone (interface templates carry only the declaring
+    /// axis).
+    let rec instantiateDeclaringFt (args: FrozenType[]) (t: FrozenType) : FrozenType =
+        match t with
+        | FTTypar(TyparAxis.Declaring, i) when i >= 0 && i < args.Length -> args.[i]
+        | FTFun(a, b) -> FTFun(instantiateDeclaringFt args a, instantiateDeclaringFt args b)
+        | FTTuple items -> FTTuple(EqArray.map (instantiateDeclaringFt args) items)
+        | FTConst(n, xs) -> FTConst(n, EqArray.map (instantiateDeclaringFt args) xs)
+        | FTClass(k, xs) -> FTClass(k, EqArray.map (instantiateDeclaringFt args) xs)
+        | FTRecord(k, xs) -> FTRecord(k, EqArray.map (instantiateDeclaringFt args) xs)
+        | FTUnion(k, xs) -> FTUnion(k, EqArray.map (instantiateDeclaringFt args) xs)
+        | FTOr ms -> FTOr(EqArray.map (instantiateDeclaringFt args) ms)
+        | FTTypar _
+        | FTUnknown _ -> t
+
+    /// rung-4 §9.4 M7 stage 3 — the EXTERNAL arm of `EmitResolve.tryInterfaceWitness`:
+    /// given a referenced-package nominal receiver `FTClass/FTUnion/FTRecord(key, args)`
+    /// and a wanted `ifaceKey`, look the type's shape up through the codegen symbol
+    /// provider (`ICodegenSymbols.TryLookupType`), find the matching
+    /// `ExternalClassShape.FrozenInterfaces` template (its args over the declaring
+    /// typars, `FTTypar(Declaring,i)`), and return that interface's args instantiated by
+    /// `FTTypar(Declaring, i) := args.[i]` — the interface as seen at THIS receiver.
+    /// `ValueNone` for a non-nominal receiver, an unknown / non-class shape, or no
+    /// matching interface. Direct-declared interfaces only (the `.fsi` extractor's
+    /// `FrozenInterfaces` is the frozen direct-impl set), matching the project-local
+    /// witness's depth. Names compare on `qualifiedName` (arity suffix retained on both
+    /// sides — `FrozenInterfaces` from `nominalInterface`, `ifaceKey` from the frozen
+    /// constraint target).
+    let tryExternalInterfaceWitness (receiver: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
+        let nominal =
+            match receiver with
+            | FTClass(k, args)
+            | FTUnion(k, args)
+            | FTRecord(k, args) -> ValueSome(k, args)
+            | _ -> ValueNone
+
+        match nominal with
+        | ValueNone -> ValueNone
+        | ValueSome(rKey, rArgs) ->
+            match symbols.TryLookupType(SymbolKeyOps.qualifiedName rKey) with
+            | ValueSome(ExternalTypeShape.Class shape) ->
+                let target = SymbolKeyOps.qualifiedName ifaceKey
+                let declArgs = rArgs.AsSpan().ToArray()
+
+                shape.FrozenInterfaces
+                |> Array.tryPick (fun (iname, ifaceArgs) ->
+                    if iname = target then
+                        Some(ifaceArgs |> Array.map (instantiateDeclaringFt declArgs) |> EqArray.ofArray)
+                    else
+                        None
+                )
+                |> function
+                    | Some ia -> ValueSome ia
+                    | None -> ValueNone
+            | _ -> ValueNone
+
     /// General external module-function call: a `call` to a static method `<ns>::<name>` compiled into
     /// a referenced package by our own backend, generalised from `emitFold`. `declFullName` is the
     /// declaring module's compiled holder name (the call key's `ns`, e.g. `Vesper.OptionModule`),
@@ -522,10 +583,40 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let callHandle =
                 if methodArity = 0 then
                     memberRef
-                else
+                elif List.isEmpty openSig.Constraints then
                     // Use-site instantiation: match the open template (its `FTTypar(Method, i)`) against
-                    // the call's concrete type, recovering each method arg by its index.
+                    // the call's concrete type, recovering each method arg by its index. No phantom
+                    // constraint typars, so every method typar is signature-reachable.
                     let _, methodArgs = recoverOpenTypars 0 methodArity openSig.Signature fnTy
+
+                    methodSpec memberRef methodArgs
+                else
+                    // rung-4 §9 (Direction B), M7 stage 3 — the EXTERNAL analogue of the
+                    // project-local phantom-typar solve (`EmitCall.buildAppCall`). The open
+                    // template carries a phantom constraint typar (`fold`'s enumerator `'E` in
+                    // `'S :> IStructSeq<'T,'E>`, in no param/result) that `recoverOpenTypars`
+                    // cannot recover — it would fail loud. Recover the signature-reachable slots
+                    // partially, then solve the phantom from `openSig.Constraints` via the source's
+                    // external seq impl (`tryExternalInterfaceWitness`), exactly as the in-assembly
+                    // path solves it from `env.Classes`. The member-ref's `genericParameterCount`
+                    // already encodes `methodArity` (= 5 for `fold`), so the minted `MethodSpec`
+                    // carries the full method instantiation incl. `'E`.
+                    let instArr =
+                        TastLower.matchInstantiationPartial methodArity [ openSig.Signature ] [ fnTy ]
+
+                    TastLower.solvePhantomTypars methodArity openSig.Constraints tryExternalInterfaceWitness instArr
+
+                    let methodArgs =
+                        [
+                            for i in 0 .. methodArity - 1 ->
+                                match instArr.[i] with
+                                | ValueSome t -> t
+                                | ValueNone ->
+                                    failwithf
+                                        "emitExternalCall: could not infer instantiation for method type parameter %d of %s (phantom-typar solve found no witness)"
+                                        i
+                                        compiledFullName
+                        ]
 
                     methodSpec memberRef methodArgs
 

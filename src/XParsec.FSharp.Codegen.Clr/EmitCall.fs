@@ -202,7 +202,41 @@ module EmitCall =
             // curried type. `key` is the resolved `SymbolKey.ValueKey` stamped
             // by Freeze when the front-end resolved the name through the symbol
             // provider — codegen routes by identity, not name suffix.
-            match env.Provider.TryEmitCall(name, key, typeOfExpr head) with
+            //
+            // rung-4 §9 (Direction B): when a SOURCE-LAMBDA argument lowered to a
+            // value-struct closure (an external struct-seq combinator: `StructSeq.map`
+            // / `fold`), the head's frozen type is stale for the instantiation recovery
+            // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`/`Fun2`
+            // INTERFACE), and a chained `'S` source slot still carries the producing
+            // transformer's arrow rather than its already-rewritten `<closure>$`
+            // value-struct. Reconstruct the recovery type from the ACTUAL (closure-
+            // rewritten) spine argument types + result instead, overriding each value-
+            // struct-closure position with its `<closure>$` nominal — the external
+            // analogue of the project-local `StaticMethods`-arm override + rewritten
+            // `actualTys`. Gated on the presence of a value-struct closure so every
+            // existing external call keeps the (identical) head-type recovery.
+            let recipeFnTy =
+                if
+                    spineArgs
+                    |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
+                then
+                    // NOTE the spine tuple's middle element is the partial-application
+                    // RESULT type at that step, not the argument's own type — read the
+                    // argument type from `typeOfExpr arg` (already closure-rewritten by
+                    // `ClosureVerdictRewrite` for a chained source slot).
+                    let argTys =
+                        spineArgs
+                        |> List.map (fun (arg, _, _) ->
+                            match env.ClosureValueTypeByNode.TryGetValue arg with
+                            | true, closureFt -> closureFt
+                            | false, _ -> typeOfExpr arg
+                        )
+
+                    List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
+                else
+                    typeOfExpr head
+
+            match env.Provider.TryEmitCall(name, key, recipeFnTy) with
             | ValueSome recipe ->
                 // The spine split keys off the SOURCE-group count when the recipe
                 // carries one (`Grouped` — an external module function with a captured
@@ -314,77 +348,12 @@ module EmitCall =
                     // rung-4 §9 (Direction B) — the call-site PHANTOM-typar solve.
                     // A phantom constraint typar (`fold`'s enumerator `'E` in
                     // `'S :> IStructSeq<'T,'E>`) is in no param/result, so it is still
-                    // `ValueNone`. Solve it from `sm.Constraints`: for each
-                    // `Coercion(ci, target)` whose CONSTRAINED typar `ci` is already
-                    // resolved (e.g. `'S := instArr.[idx_S]`, ALREADY the node-key-
-                    // rewritten `<closure>$`-bearing arg type), walk the constrained
-                    // type's interface impl for `target`'s iface and structurally
-                    // recover the typars `target` mentions (incl. `'E`) from the
-                    // concrete witness. The closure rides in through `'S`'s rewritten
-                    // arg — collision-free, no arrow-equality. Iterate to a fixpoint:
-                    // one bound's target may mention a typar another bound just solved.
-                    //
-                    // The witness is AUTHORITATIVE for a bound-mentioned typar even if
-                    // `matchInstantiation` already recovered it from the result: a
-                    // combinator like `map` carries `'E` in BOTH its `'S :> IStructSeq<'T,'E>`
-                    // bound AND its `… -> MapSeq<'S,'E,…>` result, and the RESULT occurrence
-                    // can still embed a stale arrow (a chained source `s1`'s `'TFunc` buried
-                    // in its frozen enumerator type), whereas the witness reads it from the
-                    // source's ACTUAL `<closure>$`-bearing seq impl. So override every typar
-                    // index that appears inside a Coercion target with the witness value.
-                    if not (List.isEmpty sm.Constraints) then
-                        // Indices the bounds can recover — those the witness may overwrite.
-                        let boundMentioned = System.Collections.Generic.HashSet<int>()
-
-                        let rec mention (t: FrozenType) =
-                            match t with
-                            | FTTypar(TyparAxis.Method, i) -> boundMentioned.Add i |> ignore
-                            | FTFun(a, b) ->
-                                mention a
-                                mention b
-                            | FTConst(_, xs)
-                            | FTTuple xs
-                            | FTRecord(_, xs)
-                            | FTUnion(_, xs)
-                            | FTClass(_, xs)
-                            | FTOr xs -> EqArray.iter mention xs
-                            | FTUnknown _
-                            | FTTypar(TyparAxis.Declaring, _) -> ()
-
-                        for c in sm.Constraints do
-                            match c with
-                            | FrozenConstraint.Coercion(_, target) -> mention target
-
-                        let mutable changed = true
-
-                        while changed do
-                            changed <- false
-
-                            for c in sm.Constraints do
-                                match c with
-                                | FrozenConstraint.Coercion(ci, target) ->
-                                    if ci >= 0 && ci < instArr.Length then
-                                        match instArr.[ci], target with
-                                        | ValueSome receiver, FTClass(ifaceKey, _) ->
-                                            match tryInterfaceWitness env receiver ifaceKey with
-                                            | ValueSome witnessArgs ->
-                                                let holes =
-                                                    matchInstantiationPartial
-                                                        sm.Typars
-                                                        [ target ]
-                                                        [ FTClass(ifaceKey, witnessArgs) ]
-
-                                                for j in 0 .. instArr.Length - 1 do
-                                                    match holes.[j] with
-                                                    | ValueSome t when
-                                                        instArr.[j] <> ValueSome t
-                                                        && (instArr.[j] = ValueNone || boundMentioned.Contains j)
-                                                        ->
-                                                        instArr.[j] <- ValueSome t
-                                                        changed <- true
-                                                    | _ -> ()
-                                            | ValueNone -> ()
-                                        | _ -> ()
+                    // `ValueNone`; solve it from `sm.Constraints` via the project-local
+                    // interface-impl witness (`env.Classes`). The closure rides in
+                    // through `'S`'s rewritten arg — collision-free, no arrow-equality.
+                    // The same solve serves the external module-fn call
+                    // (`ClrRecipes.emitExternalCall`); only `tryWitness` differs.
+                    TastLower.solvePhantomTypars sm.Typars sm.Constraints (tryInterfaceWitness env) instArr
 
                     let inst =
                         [

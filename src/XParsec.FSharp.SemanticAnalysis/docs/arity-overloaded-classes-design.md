@@ -1,7 +1,8 @@
 # Design: arity-overloaded project-local classes / interfaces
 
-**Deliberate design doc — written BEFORE any implementation, the way `Fun2` was
-designed (`rung4-lambda-lowering-design.md` §4).** *Ephemeral plan doc* per
+**Deliberate design doc — written BEFORE any implementation, the way the `Fun2`
+flat-arity-2 interface was designed up front (the rung-4 source-lambda epic, now
+landed — see [[project_seq_struct_pipeline_ladder]]).** *Ephemeral plan doc* per
 [[feedback_plan_docs_ephemeral]] — scoped to exactly one body of work (giving
 `PassContextTypes.Class` an `(name, arity)` key so `Fun<,>` and `Fun<,,>` coexist
 as the same overloaded name, then migrating `Fun2` → `Fun<,,>`). Delete this file
@@ -19,22 +20,25 @@ question**, not invented.
 > predicted; the site count ran modestly above the ~10-15 estimate (the seven bare
 > reads filed as "not load-bearing" turned out load-bearing once a name has two
 > arities). ⏳ **Step B (the `Fun2 → Fun<,,>` rename) is DEFERRED** — it edits the
-> rung4-shared `core-types.fs` block and is a binary-breaking contract change, so it
-> must be sequenced with the rung4 lambda-lowering epic, not parallelized. Do NOT
-> delete this doc until Step B lands.
+> `core-types.fs` `Fun2`/`Curried`/`Flattened` block and is a binary-breaking
+> contract change. The rung-4 lambda-lowering epic it was coupled to has now LANDED
+> (all of M3–M7, against the `Fun2` name — see [[project_seq_struct_pipeline_ladder]]),
+> so Step B is now a free-standing rename: it must update every LANDED reference to
+> `Fun2` in code + the `Vesper.Core` contract, but is no longer sequenced against
+> in-flight rung-4 work. Do NOT delete this doc until Step B lands.
 
 ---
 
 ## 0. The constraint being lifted
 
-`rung4-lambda-lowering-design.md` §4 (locked decision 1) locks the *current* reason
-`Fun2` is a distinct nominal type rather than `Fun<,,>`:
+The rung-4 epic locked (as decision 1) the *current* reason `Fun2` is a distinct
+nominal type rather than `Fun<,,>` ([[project_seq_struct_pipeline_ladder]]):
 
 > Vesper's project-local class/interface registry (`Types.Class`) is keyed by
 > **bare name** with no arity dimension (unlike unions, which are `(name, arity)`-keyed),
 > so declaring two interfaces both named `Fun` collides.
 
-`rung4-lambda-lowering-design.md` §5 states the deferral and the size estimate:
+It deferred the lift to this epic, with a size estimate:
 
 > give `Types.Class` an `(name, arity)` key + update the ~47
 > name-resolution/freeze/codegen lookups, mirroring the union machinery.
@@ -137,7 +141,7 @@ has two arities, so only `Fun`'s bare alias is ever withdrawn.
 
 ## 2. Inventory of lookup / update sites, by layer
 
-The estimate is "~47" (`rung4-lambda-lowering-design.md` §5). The **reconciled count of sites that
+The original estimate was "~47" ([[project_seq_struct_pipeline_ladder]]). The **reconciled count of sites that
 actually need touching is ~22 front-end call sites + 6 registry-API definitions +
 the registry type/`empty` — codegen needs ZERO new arity plumbing**. The "~47" was
 an over-estimate that almost certainly counted (a) codegen `UserTypes`/`Layout`
@@ -259,7 +263,7 @@ closure emission paths (`Layout.fs:443,842`; `ClrEnv.fs:450,470`).
   source in the same tree (no external consumers pin it), the break is contained:
   every consumer (`struct-seq.{fsi,fs}`, `StructSeqTests.fs`) recompiles against
   the new name. The committed `Vesper.Core.dll` reference must be regenerated
-  (`REGEN_VESPER_CORE_REF=1`, `rung4-lambda-lowering-design.md` §7) as part of the rename step.
+  (`REGEN_VESPER_CORE_REF=1`) as part of the rename step.
 
 ---
 
@@ -299,7 +303,7 @@ alias for `Fun` is withdrawn on the second registration (`ClassBareArity` →`-1
 mirror `SideTables.fs:702-706`). Every read of `Fun` must now be arity-qualified —
 which is why Step A must already have threaded arity through the load-bearing reads
 (§6). Regenerate `Vesper.Core.dll` ref. Update `.parsed` goldens for the changed
-`.fsi`/`.fs` (`rung4-lambda-lowering-design.md` §7).
+`.fsi`/`.fs`.
 
 If any load-bearing bare-`Fun` read is still un-arity'd after Step A, Step B will
 mis-resolve `Fun` (alias withdrawn → bare read misses). So Step A's acceptance gate
@@ -308,39 +312,36 @@ or provably recognition-only (bare alias OK). M2 below pins this.
 
 ---
 
-## 5. Interaction with the §3 lambda-lowering design + §3.1 gaps
+## 5. Interaction with the (now-landed) lambda-lowering epic
 
-`rung4-lambda-lowering-design.md` is the sibling epic (source lambdas riding the
-struct-`Seq` pipeline). Shared touch-points:
+The rung-4 source-lambda epic (lambdas riding the struct-`Seq` pipeline) has LANDED
+end-to-end — all of M3–M7, against the `Fun2` name ([[project_seq_struct_pipeline_ladder]]).
+So this is no longer a coordinate-two-in-flight-epics problem; it is a rename over
+LANDED code. Shared touch-points the rename must update:
 
-1. **`Fun2` is referenced by name throughout rung4's design** (`§2.1`, `§3`,
-   `§5.1.1`, e.g. `rung4-…:236-244` "Saturated 2-arg → flat `Fun2<'A,'B,'C>`").
-   After the §4 rename those become `Fun<,,>`. **Coordination:** the rung4 pass
-   synthesises `App` nodes around `curryFun`/`flatten` and retypes params to
-   `Fun`/`Fun2` constrained typars — it resolves those types **by name through the
-   provider stack** ([[project_contract_demotion]]). If rung4 lands its
-   name-resolution of `Fun2` BEFORE this epic's rename, the rename must update
-   rung4's resolved-symbol lookup too. **Recommendation: land this epic's Step A
-   (key) independently of rung4; sequence Step B (rename) and rung4's `Fun2`
-   references in one coordinated change, or land rung4 first against `Fun2` and
-   rename last.** They must not both edit `core-types.fs`'s `Fun2`/`Curried`/
-   `Flattened` block concurrently.
+1. **`Fun2` is referenced by name throughout the landed lambda-lowering code** — the
+   `subsumes(TyFun(a,TyFun(b,c)), Fun2\`3)` flat-2 arm, the node-keyed `FunVerdict`,
+   `MapEnumerator\`4`/`MapSeq\`5`'s `'TFunc :> Fun2<…>` bounds, and the `Vesper.Seq`
+   `.fsi`/`.fs` (`fold` rides `'TFunc :> Fun2<'State,'T,'State>`). These resolve
+   **by name through the provider stack** ([[project_contract_demotion]]), so the §4
+   rename must update both the project-local registrations AND the published
+   `Vesper.Core` contract for `Fun2` → `Fun\`3`, then regenerate the committed
+   `Vesper.Core.dll` ref so every consumer recompiles against the new name.
 
-2. **§3.1 gap 1 (chained-receiver freeze mistype)** — `core-types.fs` `Flattened.Invoke`
-   carries the `let`-split workaround (`rung4-…:213-214,256-267`). The §4 rename
-   edits that exact method body. **Do not drop the `let`-split during the rename**
-   unless gap 1 is independently fixed; the rename is a pure name change, not a
-   body change.
+2. **`core-types.fs` `Flattened.Invoke` carries a `let`-split workaround** (the
+   chained-receiver freeze mistype). The §4 rename edits that exact method body.
+   **Do not drop the `let`-split during the rename** unless that gap is independently
+   fixed; the rename is a pure name change, not a body change.
 
-3. **§3.1 gap 2 (fieldless `[<Struct>]` parse recovery)** is orthogonal — it bites
-   rung4's synthesised closures and rung4's isolation tests, NOT this epic's
-   registry change. This epic's isolation tests declare *interfaces* (no fields), so
-   they are unaffected; but M1's "two same-named interfaces" test should be written
-   as plain `type Fun<'A,'B> = abstract …` interface decls, which don't trip the
-   struct-recovery path.
+3. **Fieldless `[<Struct>]` parse recovery** is orthogonal — it bit the
+   lambda-lowering epic's synthesised closures, NOT this epic's registry change. This
+   epic's isolation tests declare *interfaces* (no fields), so they are unaffected;
+   M1's "two same-named interfaces" test is written as plain
+   `type Fun<'A,'B> = abstract …` interface decls, which don't trip struct-recovery.
 
-**Net:** the ONLY hard conflict is the `core-types.fs` `Fun2` block. Both epics
-want to touch it. Sequence them; do not parallelize Step B with rung4.
+**Net:** the ONLY hard conflict surface is the `core-types.fs` `Fun2` block + the
+`Vesper.Core` contract. Both are now LANDED, so Step B is a self-contained rename —
+no in-flight epic to sequence against.
 
 ---
 
@@ -405,7 +406,7 @@ isolation test that forces the capability, then diagnose → fix → iterate. Or
 by dependency and risk. The FIRST milestone is a **red** test demonstrating the
 current collision.
 
-> Build/test ONLY via `./claude_tools.cmd` (`rung4-lambda-lowering-design.md` §7).
+> Build/test ONLY via `./claude_tools.cmd` (the `xparsec-dev` skill).
 
 ### M0 — RED: demonstrate the current collision
 **Smallest test:** a single source file declaring two interfaces of the same name,
@@ -480,8 +481,9 @@ surfaces front-end gaps the inline path hides).
 
 ## 8. Cross-references
 
-- `rung4-lambda-lowering-design.md` — the sibling epic; shared `Fun2` touch-point
-  (§5 here). §4 (locked decision 1) is the constraint lifted; §5 the deferral + "~47".
+- [[project_seq_struct_pipeline_ladder]] — the (landed) rung-4 source-lambda epic;
+  the shared `Fun2` touch-point (§5 here), the locked "distinct `FunN` names" decision
+  this lifts, and the original "~47" estimate. (Its design doc was deleted on landing.)
 - `SideTables.fs:622-767` `module TypeRegistry` — the union (name,arity) machinery
   this mirrors; `:638-644` the comment anticipating the class arity seam.
 - `SymbolKeyOps.fs:40-44` `arityName` — the single `` Name`n `` rule (CLR
