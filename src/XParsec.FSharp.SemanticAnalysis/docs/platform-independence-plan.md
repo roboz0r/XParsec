@@ -485,14 +485,30 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
    moves to the extractor (commit 3)**. **Gate met:** new golden fixture
    `sig_16_extern_with.fsi` (bare extern + `extern with interface … member …`); parser suite
    1418 pass; no existing snapshot shifted; SemanticAnalysis 628 unchanged. Backend-free.
-3. **Extractor + core `.fsi` capability names — also owns the opt-in gate** (§6, §12.4 last
-   bullet). Consume the new AST field → populate `ExternalClassShape.Members` /
-   `FrozenInterfaces`; declare the `disposable` alias + equatable/comparable interface
-   identities as `extern with …` in the core `.fsi` (`seq` already present). **The gate lives
-   here now:** the extractor honours the trailing members only when the compilation opts in,
-   else ignores/rejects them (the negative case that the parser no longer enforces). **Gate:**
-   frozen-tree assertion that an `extern with` type surfaces its members/interfaces into
-   `ExternalClassShape` (and the gate-off negative); 628 still green.
+3. **SPLIT into 3a (extractor mechanism, now) and 3b (core `.fsi` capability declarations,
+   deferred to just before commit 9).** Rationale: commit 1's CLR-literal fallback already
+   resolves all four capabilities, so the CLR front-end slices (4/6/8) need NOTHING from the
+   core `.fsi` — only the literal-deletion (commit 9) and the JS slices (5/7) do. And the
+   gate is dropped entirely (decided: the extractor always consumes; the construct is
+   toolchain-only). So:
+   - **3a — `extern with` extractor arm (LANDED/now).** Consume the new AST `members` field:
+     when present and the type resolves to the `Class`/interface branch, register the deferred
+     class body (so `finalizeDeferred` fills `FrozenInterfaces`, and interface `Members`) and
+     reuse `extractTypeMembers` (members → `ctx.TypeMembers`, served via `TryLookupMember`) —
+     mirroring the `Anon`/`Class` arm. The `Intrinsic`-carrying-members case (`string = extern
+     with member`, the `StringIntrinsics` migration, §12.3) is **explicitly deferred** — left
+     as a TODO. **No `Vesper.Core` change.** **Gate:** a new extraction test on an in-test
+     `extern with interface IBar member M` fixture asserts a `Class` shape with `IBar` in
+     `FrozenInterfaces`; 628 + parser 1418 green.
+   - **3b — declare the capability interfaces in `Vesper.Core` `.fsi` + per-target `.fs`
+     (DEFERRED, lands right before commit 9).** The high-stakes shipping-contract decision:
+     whether `disposable`/`equatable`/`comparable` are abbreviations (à la `seq<'T> ≡
+     IEnumerable<'T>`, declared in `Vesper.List/list.fsi`, NOT a new keyword), `extern with`
+     aliases, or distinct interfaces, and how each maps per target (CLR → `System.IDisposable`
+     etc.; JS → `Symbol.dispose`). Designed when commit 9 / the JS slices actually need it.
+     (`seq` already exists; Vesper.Core declares its own interfaces today only as
+     abstract-member bodies — `IFormatSink`, `IStructuralFormattable` — never as BCL
+     re-exports, so this needs deliberate design, not a guess now.)
 4. **Slice — Enumerable, front-end (§5.1).** Resolve the iterable identity via `CapabilityIds`;
    confirm structural-preferred still holds; the interface-only fallbacks read the resolved
    id. **Gate:** `SemanticAnalysis.Tests` + `Codegen.Clr.Tests` (`for-in`) green **and** a

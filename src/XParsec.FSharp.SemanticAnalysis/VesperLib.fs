@@ -1222,6 +1222,97 @@ module VesperLib =
 
         hasAbstract && not hasConcrete
 
+    /// Register a class-shaped type from a member body: the bodiless `basic`
+    /// `Class` shape plus its deferred inherit/interface/ctor body and extracted
+    /// members. Shared by the `Anon`/`Class` arm and the `extern with …`
+    /// capability-surface arm (a non-intrinsic `extern` type whose `with` body
+    /// publishes interfaces + members exactly as a bodied class does).
+    let private extractBodiedClassLike
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (input: string)
+        (opens: string list)
+        (compiled: string)
+        (arity: int)
+        (typeName: TypeName<SyntaxToken>)
+        (elements: TypeElementsSignature<SyntaxToken>)
+        : unit =
+        // `type X = abstract member …` parses as an implicit-body `Anon`/`Class`
+        // (no `interface` keyword), but an all-abstract body IS an interface.
+        let isInterface = bodyIsInterface elements
+
+        // A `[<Struct>]`-attributed class-shaped type (the struct-seq
+        // `ArraySeq`/`MapSeq`/… nodes) is a value type — publish the flag so a
+        // consumer encodes it `ELEMENT_TYPE_VALUETYPE`, mirroring the
+        // `struct … end` arm above and the metadata layer's `Type.IsValueType`.
+        let isValueType = typeNameHasStructAttr lexed input typeName
+
+        ctx.TypeShapes.[compiled] <-
+            ExternalTypeShape.Class(
+                { ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty) with
+                    Flags =
+                        { ExternalClassFlags.Default with
+                            IsValueType = isValueType
+                        }
+                }
+            )
+
+        // An `inherit <type>` clause, any directly-declared `interface <type>`
+        // impls, and any `new: … -> T` constructors are deferred (like the body
+        // templates) so a base / interface / ctor type that forward-references a
+        // sibling resolves once the registry is complete; the finalize pass
+        // freezes the base into `FrozenBaseType`, each interface into
+        // `FrozenInterfaces`, and each ctor into a `.ctor` member. Only a class
+        // that declares one of them registers a deferred body — the
+        // previously-empty common case is untouched.
+        let inheritBase =
+            elements
+            |> Seq.tryPick (fun e ->
+                match e with
+                | TypeSignatureElement.Inherit(ClassInheritsDecl(typ = t)) -> Some t
+                | _ -> None
+            )
+
+        let interfaces =
+            [
+                for e in elements do
+                    match e with
+                    | TypeSignatureElement.Interface(InterfaceSpec(typ = t)) -> t
+                    | _ -> ()
+            ]
+
+        let ctors =
+            [
+                for e in elements do
+                    match e with
+                    | TypeSignatureElement.Constructor(signature = UncurriedSig(ArgsSpec(args, _), _, retTy)) ->
+                        let paramTys = [| for ArgSpec(typ = t) in args -> t |]
+                        (paramTys, retTy)
+                    | _ -> ()
+            ]
+
+        match inheritBase, interfaces, ctors with
+        | None, [], [] -> ()
+        | _ ->
+            let collector = collectorForTypeName lexed input typeName
+
+            ctx.DeferredBodies.[compiled] <-
+                DeferredBody.Class(
+                    {
+                        Lexed = lexed
+                        Input = input
+                        Opens = opens
+                        Typars = collector
+                    },
+                    (match inheritBase with
+                     | Some t -> ValueSome t
+                     | None -> ValueNone),
+                    interfaces,
+                    ctors
+                )
+
+        extractTypeMembers ctx lexed input opens compiled arity typeName elements
+
     let private extractTypeSig
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -1268,7 +1359,7 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
 
-        | TypeSignature.Extern(typeName = typeName) ->
+        | TypeSignature.Extern(typeName = typeName; members = members) ->
             // An `extern` type is either an intrinsic-repr primitive (its sibling
             // `.fs` carries `type x = (# "<repr>" #)`, harvested into
             // `ctx.IntrinsicReprs` before extraction) or an opaque abstract type
@@ -1277,36 +1368,51 @@ module VesperLib =
             // nominal `TyConst name`, the repr feeding codegen / `subsumes`); the
             // latter falls through to `Class` exactly as a non-extern nominal
             // does.
+            //
+            // A trailing `with interface … / member …` on a NON-intrinsic extern
+            // publishes a capability surface: it registers exactly as a bodied
+            // class/interface (`extractBodiedClassLike`), so a consumer's
+            // structural probe sees the members and `FrozenInterfaces`.
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 let short = shortNameOfTypeName lexed input typeName
+                let isIntrinsic = ctx.IntrinsicBaseReprs.ContainsKey short
 
-                // Two repr faces: `canon` is the
-                // `.fsi` name itself — the platform-invariant front-end identity that
-                // drives `canonName`. Whether this `extern` is a primitive at all is
-                // decided by the BASE `.fs` `(# … #)` companion (`IntrinsicBaseReprs`),
-                // NOT the per-target repr — so a target that omits a primitive
-                // (`decimal` ships no `.js.fs`) still publishes it as an `Intrinsic`
-                // and keeps its `canon` identity, just with `platform = None` ("no
-                // representation on this target"). The `platform` face itself is the
-                // compiling target's `(# … #)` repr (`IntrinsicReprs`). An `extern`
-                // with no base companion repr is a real opaque `Class`.
-                //
-                // `arity` rides along (NOT always 0): the structural constructors are
-                // intrinsics too (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is
-                // representable by construction, so `PlatformTypes` only treats a
-                // `platform = None` as fatal when `arity = 0` — see the shape's docs.
-                if ctx.IntrinsicBaseReprs.ContainsKey short then
-                    let platform =
-                        match ctx.IntrinsicReprs.TryGetValue short with
-                        | true, repr -> Some repr
-                        | _ -> None
+                match members with
+                | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not isIntrinsic ->
+                    extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
+                | _ ->
+                    // Two repr faces: `canon` is the
+                    // `.fsi` name itself — the platform-invariant front-end identity that
+                    // drives `canonName`. Whether this `extern` is a primitive at all is
+                    // decided by the BASE `.fs` `(# … #)` companion (`IntrinsicBaseReprs`),
+                    // NOT the per-target repr — so a target that omits a primitive
+                    // (`decimal` ships no `.js.fs`) still publishes it as an `Intrinsic`
+                    // and keeps its `canon` identity, just with `platform = None` ("no
+                    // representation on this target"). The `platform` face itself is the
+                    // compiling target's `(# … #)` repr (`IntrinsicReprs`). An `extern`
+                    // with no base companion repr is a real opaque `Class`.
+                    //
+                    // `arity` rides along (NOT always 0): the structural constructors are
+                    // intrinsics too (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is
+                    // representable by construction, so `PlatformTypes` only treats a
+                    // `platform = None` as fatal when `arity = 0` — see the shape's docs.
+                    //
+                    // TODO (DEFERRED — StringIntrinsics migration): a capability surface
+                    // on an INTRINSIC primitive (`type string = extern with member …`)
+                    // is dropped here — the `Intrinsic` shape carries no member/interface
+                    // slots. Handle when that migration lands.
+                    if isIntrinsic then
+                        let platform =
+                            match ctx.IntrinsicReprs.TryGetValue short with
+                            | true, repr -> Some repr
+                            | _ -> None
 
-                    ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(short, arity, platform)
-                else
-                    ctx.TypeShapes.[compiled] <-
-                        ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
+                        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(short, arity, platform)
+                    else
+                        ctx.TypeShapes.[compiled] <-
+                            ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
 
         | TypeSignature.Struct(typeName = typeName) ->
             // A `type X = struct … end` value type. Same nominal `Class` shape as a
@@ -1344,81 +1450,7 @@ module VesperLib =
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
-                // `type X = abstract member …` parses as an implicit-body `Anon`/`Class`
-                // (no `interface` keyword), but an all-abstract body IS an interface.
-                let isInterface = bodyIsInterface elements
-
-                // A `[<Struct>]`-attributed class-shaped type (the struct-seq
-                // `ArraySeq`/`MapSeq`/… nodes) is a value type — publish the flag so a
-                // consumer encodes it `ELEMENT_TYPE_VALUETYPE`, mirroring the
-                // `struct … end` arm above and the metadata layer's `Type.IsValueType`.
-                let isValueType = typeNameHasStructAttr lexed input typeName
-
-                ctx.TypeShapes.[compiled] <-
-                    ExternalTypeShape.Class(
-                        { ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty) with
-                            Flags =
-                                { ExternalClassFlags.Default with
-                                    IsValueType = isValueType
-                                }
-                        }
-                    )
-
-                // An `inherit <type>` clause, any directly-declared `interface <type>`
-                // impls, and any `new: … -> T` constructors are deferred (like the body
-                // templates) so a base / interface / ctor type that forward-references a
-                // sibling resolves once the registry is complete; the finalize pass
-                // freezes the base into `FrozenBaseType`, each interface into
-                // `FrozenInterfaces`, and each ctor into a `.ctor` member. Only a class
-                // that declares one of them registers a deferred body — the
-                // previously-empty common case is untouched.
-                let inheritBase =
-                    elements
-                    |> Seq.tryPick (fun e ->
-                        match e with
-                        | TypeSignatureElement.Inherit(ClassInheritsDecl(typ = t)) -> Some t
-                        | _ -> None
-                    )
-
-                let interfaces =
-                    [
-                        for e in elements do
-                            match e with
-                            | TypeSignatureElement.Interface(InterfaceSpec(typ = t)) -> t
-                            | _ -> ()
-                    ]
-
-                let ctors =
-                    [
-                        for e in elements do
-                            match e with
-                            | TypeSignatureElement.Constructor(signature = UncurriedSig(ArgsSpec(args, _), _, retTy)) ->
-                                let paramTys = [| for ArgSpec(typ = t) in args -> t |]
-                                (paramTys, retTy)
-                            | _ -> ()
-                    ]
-
-                match inheritBase, interfaces, ctors with
-                | None, [], [] -> ()
-                | _ ->
-                    let collector = collectorForTypeName lexed input typeName
-
-                    ctx.DeferredBodies.[compiled] <-
-                        DeferredBody.Class(
-                            {
-                                Lexed = lexed
-                                Input = input
-                                Opens = opens
-                                Typars = collector
-                            },
-                            (match inheritBase with
-                             | Some t -> ValueSome t
-                             | None -> ValueNone),
-                            interfaces,
-                            ctors
-                        )
-
-                extractTypeMembers ctx lexed input opens compiled arity typeName elements
+                extractBodiedClassLike ctx lexed input opens compiled arity typeName elements
 
         | TypeSignature.AbstractType typeName ->
             // An opaque abstract type (`type T`) with no body shape. Resolve as a

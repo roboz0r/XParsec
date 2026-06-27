@@ -765,6 +765,89 @@ let tests =
                 | ValueNone -> failtestf "Holder registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
+            test "`extern with` publishes interfaces into FrozenInterfaces and members" {
+                // A NON-intrinsic `extern` type whose trailing `with` body declares
+                // interfaces + members publishes a capability surface: it registers
+                // exactly as a bodied class would — `interface IBar<'T>` lands in
+                // `FrozenInterfaces` (deferred → filled by `finalizeDeferred`) and
+                // `member M` lands in `ctx.TypeMembers`. (The intrinsic-primitive
+                // `extern with` form — `type string = extern with …` — is deferred
+                // separately; this exercises only the class/interface branch.)
+                let input =
+                    "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member M: unit -> 'T\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "App"
+                                Relative = "app.fsi"
+                                Absolute = "app.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let fooShape =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "Foo`1" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match fooShape with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    match shape.FrozenInterfaces with
+                    | [| (name, args) |] ->
+                        Expect.isTrue (name.EndsWith "IBar`1") (sprintf "the IBar interface is published; got %s" name)
+                        Expect.equal args.Length 1 "IBar<'T> carries one type arg"
+
+                        match args.[0] with
+                        | FTTypar(TyparAxis.Declaring, 0) -> ()
+                        | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
+                    | other -> failtestf "expected exactly one published interface (IBar); got %A" other
+                | ValueSome other -> failtestf "expected a Class shape for the extern type; got %A" other
+                | ValueNone -> failtestf "Foo registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+
+                // The `with member M` rides `ctx.TypeMembers` (a non-interface class's
+                // members are served through `TryLookupMember`, not the shape).
+                let fooMembers =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeMembers do
+                        if found.IsNone && kv.Key.EndsWith "Foo`1" then
+                            found <- ValueSome kv.Value
+
+                    found
+
+                match fooMembers with
+                | ValueSome members ->
+                    Expect.isTrue
+                        (members |> Seq.exists (fun m -> m.Name = "M"))
+                        (sprintf "member M is published; got %A" [ for m in members -> m.Name ])
+                | ValueNone ->
+                    failtestf "Foo registered no members. Member tables: %A" (Seq.toList ctx.TypeMembers.Keys)
+            }
+
             test "A GADT-cased union extracts as a genuine Union shape" {
                 // The cons-list shape (operator cases with explicit return types):
                 // `([])` and `(::)` are GADT-syntax. GADT-case extraction
