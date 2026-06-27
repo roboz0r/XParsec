@@ -251,6 +251,8 @@ module JsPrint =
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"
         | JsStatement.Block body -> block body
         | JsStatement.Throw e -> text "throw " ++ expr e ++ text ";"
+        | JsStatement.TryFinally(tryBody, finallyBody) ->
+            text "try " ++ block tryBody ++ text " finally " ++ block finallyBody
         | JsStatement.Class(name, fields, methods, export) ->
             let methodDecl (m: JsClassMethod) =
                 memberDecl

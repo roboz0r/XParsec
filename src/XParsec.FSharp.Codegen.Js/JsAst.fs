@@ -118,6 +118,10 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// arms binding the same name don't collide as sibling `const`s.
     | Block of body: JsStatement list
     | Throw of JsExpr
+    /// `try { … } finally { … }` — the lowering of an F# `use` binding. `tryBody`
+    /// runs the `use` body; `finallyBody` disposes the binder on every exit
+    /// (a null-guarded `x.Dispose()` call), matching F#'s null-safe RAII semantics.
+    | TryFinally of tryBody: JsStatement list * finallyBody: JsStatement list
 
 /// An instance method attached to an emitted JS class — `Name(params) { body }`.
 /// Distinct from a free, receiver-first member function: an attached method binds

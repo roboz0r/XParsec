@@ -624,6 +624,21 @@ module EmitJs =
         // `buildStatements` produces the hoisted-limit `const` + the `for` statement.
         | TExprG.ForTo _ -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
 
+        // `use x = value in body` in expression position. JS `try/finally` is a
+        // statement, so it lowers to a zero-arg IIFE that parks the binder, `return`s
+        // the body's value from the `try`, and disposes in the `finally`. The body is
+        // a single expression (`Sequential` becomes a comma expression, a nested `let`
+        // its own IIFE), so returning `buildExpr ctx body` preserves the result through
+        // the disposal in the `finally`.
+        | TExprG.Use(binding, value, body, dispose, _ty, _tok) ->
+            let name = useBinderName ctx binding
+
+            let tryFinally =
+                JsStatement.TryFinally([ JsStatement.Return(buildExpr ctx body) ], disposeStmts ctx binding dispose name)
+
+            let block = [ JsStatement.Const(name, buildExpr ctx value); tryFinally ]
+            JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block block, loc), [], loc)
+
         // `e :> obj` (value→`obj` box, synthesised at Freeze for an `obj` parameter/field).
         // JS is dynamically typed — every value is already a boxed `obj` — so the box is a
         // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
@@ -1290,7 +1305,56 @@ module EmitJs =
                     buildStatements ctx body
                 )
             ]
+        // `use x = value in body` — park the binder in a `const`, run the body inside a
+        // `try`, and dispose the binder in the `finally` (the IL backend's exception
+        // region, lowered to JS `try/finally`). The body keeps statement position.
+        | TExprG.Use(binding, value, body, dispose, _ty, _tok) ->
+            let name = useBinderName ctx binding
+
+            [
+                JsStatement.Const(name, buildExpr ctx value)
+                JsStatement.TryFinally(buildStatements ctx body, disposeStmts ctx binding dispose name)
+            ]
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
+
+    /// The JS binder name for a `use` pattern. A wildcard binder (`use _ = …`, the
+    /// RAII-guard form) has no source name, so it gets a fresh `_use<tok>` slot — the
+    /// value is still parked and disposed even though the body can't name it.
+    and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string =
+        match binding with
+        | TPatG.NamedSimple(k, _, _) -> identName ctx.Source k
+        | TPatG.Wildcard(_, tok) -> "_use" + string tok.StartIndex
+        | other -> failwithf "EmitJs: unsupported `use` binder pattern %A" other
+
+    /// The `finally` body that disposes a `use` binder: a null-guarded `Dispose` call.
+    /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`
+    /// (matching the `Null` pattern convention). A project-local member emits as a free
+    /// receiver-first function (not an attached method), so disposal is `<Type>__Dispose(x)`,
+    /// the duck-typed path mangled off the binder's type (no `IDisposable` upcast).
+    /// TODO(platform-independence-plan slice C): honour the external `dispose = ValueSome`
+    /// path through `Symbol.dispose` rather than the keyed member's free fn.
+    and private disposeStmts
+        (ctx: WalkCtx)
+        (binding: Frozen.TPat)
+        (dispose: SymbolKey voption)
+        (name: string)
+        : JsStatement list =
+        let binder = JsExpr.Identifier(name, ValueNone)
+        let guard = JsExpr.Binary("!=", binder, JsExpr.Identifier("null", ValueNone), ValueNone)
+
+        let disposeFn =
+            match dispose with
+            // External/keyed disposable: the front end resolved a `Dispose` member key;
+            // call that member's free function (the genuine `Symbol.dispose` path is later).
+            | ValueSome key -> Members.localFn ctx key false false ValueNone
+            // Project-local duck-typed disposable: mangle `<Type>__Dispose` from the binder
+            // type's nominal key (its emitted free receiver-first function).
+            | ValueNone ->
+                let tyKey = nominalKey "Use" (TastLower.typeOfPat binding)
+                JsExpr.Identifier(Members.mangledName (Members.typeName ctx tyKey) false false "Dispose", ValueNone)
+
+        let disposeCall = JsExpr.Call(disposeFn, [ binder ], ValueNone)
+        [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
     /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.
     let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
