@@ -1148,12 +1148,12 @@ turns it on for **both** targets at once — and CLR would emit a `GetEnumerator
 against a `Vesper.List.dll` whose union doesn't implement `IEnumerable`. So CLR can't be
 deferred. Also `List`'s `.fsi` `interface IEnumerable` is **vestigial today**:
 `ExternalTypeShape.Union` has no interfaces field and `extractUnionBody` drops them. Parts:
-- **W2 (enumerable anchor — independent, do first).** `list.fsi`'s `seq` is `List`'s OWN
-  contract, so `resolveCapabilities`' `Enumerable = resolveAbbrevHead "Vesper.Collections.seq\`1"`
-  is `ValueNone` when building `List` itself (circular). Add an `enumerable` capability anchor
-  to `Vesper.Core` (`capabilities.{fsi,fs,js.fs}`, mirroring disposable/equatable/comparable)
-  and switch `Enumerable = resolveIntrinsic "Vesper.enumerable"`. *Gate:* suites green;
-  `caps.Enumerable` resolves in a Core-only build.
+- **W2 (break the circular `seq` resolution) — DONE (`13563057`).** Rather than a redundant
+  `enumerable` anchor (the user's call), **moved the `seq<'T>` abbreviation itself** from
+  `list.fsi` to `Vesper.Core/capabilities.fsi`, keeping its `Vesper.Collections` namespace —
+  so the resolver (`resolveAbbrevHead "Vesper.Collections.seq\`1"`) and every bare `seq<'T>`
+  reference are unchanged, but it resolves from Core (always a dep) while building `List`.
+  Conformance known-drift updated. All suites green.
 - **Slice 2 (CLR union interface emission — independent).** Factor `NominalEmit.fs`'s class
   interface-row + impl-method emission to run for the union kind. *Gate:* `Codegen.Clr.Tests`
   — a local union implementing an interface emits + dispatches it (runtime test).
