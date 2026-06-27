@@ -761,4 +761,53 @@ let unionInterfaceImplTests =
                     Expect.equal members.[0].Name "Describe" "the carried member is Describe"
                 | ValueNone -> failtest "no union U carrying interface impls surfaced"
             }
+
+            // A union whose ONLY member is an interface impl whose body READS `this`
+            // (via `match this`). Before the NameResolution guard was relaxed, a
+            // members-empty union never had its impl bodies name-resolved, so `this`
+            // (and the case-payload binders) resolved to an unbound `External` →
+            // "unsupported external value". This is the gating fix for a union (e.g.
+            // `List`) implementing `seq` whose `GetEnumerator` must reference `this`.
+            test "a union interface-impl body can read `this` (match self) without an unbound-external error" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IRank ="
+                            "    abstract member Rank : unit -> int"
+                            ""
+                            "type V ="
+                            "    | Lo"
+                            "    | Hi of int"
+                            ""
+                            "    interface IRank with"
+                            "        member this.Rank() ="
+                            "            match this with"
+                            "            | Lo -> 0"
+                            "            | Hi n -> n"
+                        ]
+
+                let tast = analyse src
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                Expect.isEmpty errors (sprintf "no front-end errors — `this`/payload resolve in the impl body (%A)" errors)
+
+                // And the impl still freezes onto the union (the body typed cleanly).
+                let carried =
+                    tast.Decls
+                    |> EqArray.tryFind (fun d ->
+                        match d with
+                        | TDecl.Type { Name = "V"; Kind = TTypeKind.Union _ } -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.bind (fun d ->
+                        match d with
+                        | TDecl.Type { Kind = TTypeKind.Union(_, _, ifaces) } -> ValueSome ifaces
+                        | _ -> ValueNone
+                    )
+
+                match carried with
+                | ValueSome ifaces -> Expect.equal ifaces.Length 1 "the IRank impl is carried on the frozen union"
+                | ValueNone -> failtest "no union V carrying interface impls surfaced"
+            }
         ]

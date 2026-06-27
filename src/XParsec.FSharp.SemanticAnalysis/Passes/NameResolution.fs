@@ -365,7 +365,13 @@ module NameResolution =
                     let name = ctx.NameOf nameLi.Idents.[0]
 
                     match ctx.Types.Union.TryGetValue name with
-                    | true, info when not (Array.isEmpty info.Members) ->
+                    // Walk the bodies when the union has augmentation members OR
+                    // `interface … with` impls — a union with ONLY an interface impl
+                    // still needs its impl bodies name-resolved so `this` (and any
+                    // `match this with | Case payload` binders) get a `Binding` entry.
+                    // Mirrors `Unification.fillUnionMembers`, which fills the interface
+                    // impls outside the same `Members`-non-empty guard.
+                    | true, info when not (Array.isEmpty info.Members && Array.isEmpty info.InterfaceImpls) ->
                         walkTypeBodies
                             ctx
                             walker
