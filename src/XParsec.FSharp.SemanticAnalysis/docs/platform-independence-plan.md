@@ -1025,16 +1025,30 @@ Both Q1/Q2 funnel through the same two net-new JS-backend prerequisites, then sp
   with the user, 2026-06-27 — see §14.5): iteration → `Symbol.iterator`, disposal →
   `Symbol.dispose`, equality → `Symbol.for("vesper.equality")`, comparison →
   `Symbol.for("vesper.comparison")`, hashing → `Symbol.for("vesper.hash")`.
-- **Track I — iteration (Q1):** lift union-interface-impl restriction → `List` implements
-  `seq` → slice 3 emits `[Symbol.iterator]` (+ `GetEnumerator → { next(): {value,done} }`
-  adapter) → `for x in xs` executable. *Gate:* `runJs` prints list elements in order.
+- **Track I — iteration (Q1):**
+  - **DONE for CLASSES (`e952f0d3`):** slices 2+3 landed — a class implementing `seq<'T>`
+    emits a `*[Symbol.iterator]()` generator (`emitIteratorMethod`) driving the enumerator
+    protocol; `for x in (c :> seq<int>)` runs `0\n1\n2` under Node. `JsClassMethod` gained
+    `Computed`/`Generator`; `JsStatement.Yield` added; `JsNativeSymbols` surfaces
+    `IEnumerable\`1`/`IEnumerator\`1`; a general `FieldSet` arm (`r.X <- v`) landed too.
+  - **REMAINING:** lift the union-interface-impl restriction so bare `List` implements `seq`
+    (no `:> seq` upcast / no `ListSeq` wrapper) → `for x in xs` over a literal list. Big
+    front-end + union-codegen slice.
 - **Track II — disposal (Q2):** slice 4 (`disposable` `extern with` member surface) →
   slice 5 (disposal model flip: interface-required + `ref struct` carve-out) → slice 3
   emits `[Symbol.dispose]` → `use` lowers to `obj[Symbol.dispose]()`. *Gate:* `runJs`
   disposal ordering over an interface-implementing disposable.
 
 **Landed so far (this effort):** JS `use`→try/finally (`9f74732c`), `for…in`→for…of
-(`8b2e69e9`), `capabilities.js.fs` equatable/comparable (`cb32ab94`, full JS suite green).
+(`8b2e69e9`), `capabilities.js.fs` equatable/comparable (`cb32ab94`, full JS suite green),
+class-`seq`→`*[Symbol.iterator]()` slices 2+3 (`e952f0d3`, executable under Node).
+
+**Next candidates (any order; all gated):** (i) the §14.5 eq/comp/hash registry-symbol
+re-key — the computed-key machinery now exists, so this is the emission re-key + the
+`Vesper.Core`/`Vesper.Comparison` runtime dispatch flip, landed together; (ii) Track II
+disposal — slice 4 (`disposable` `extern with` member surface) + slice 5 (model flip) +
+`[Symbol.dispose]` via the same `emitIteratorMethod`-style mechanism; (iii) Track I union
+lift (bare `List` iterability).
 
 ### 14.5 Uniform symbol-keyed capability dispatch on JS (decided 2026-06-27)
 
