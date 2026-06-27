@@ -1020,8 +1020,11 @@ Both Q1/Q2 funnel through the same two net-new JS-backend prerequisites, then sp
   `JsClassMethod` + `[expr](){}` rendering in `JsPrint`. Pure-additive JS backend, no
   front-end touch. *Done first — both tracks need it.*
 - **Shared — slice 3 (capability-impl → protocol-member mapping):** in
-  `partitionClassMembers`, route an attached impl whose interface is
-  `CapabilityIds.{Enumerable,Disposable}` to `[Symbol.iterator]`/`[Symbol.dispose]`.
+  `partitionClassMembers`, route an attached impl whose interface is a capability to a
+  computed-key method `obj[<symbol>](…)`. **Uniform across ALL FOUR capabilities** (decided
+  with the user, 2026-06-27 — see §14.5): iteration → `Symbol.iterator`, disposal →
+  `Symbol.dispose`, equality → `Symbol.for("vesper.equality")`, comparison →
+  `Symbol.for("vesper.comparison")`, hashing → `Symbol.for("vesper.hash")`.
 - **Track I — iteration (Q1):** lift union-interface-impl restriction → `List` implements
   `seq` → slice 3 emits `[Symbol.iterator]` (+ `GetEnumerator → { next(): {value,done} }`
   adapter) → `for x in xs` executable. *Gate:* `runJs` prints list elements in order.
@@ -1032,3 +1035,40 @@ Both Q1/Q2 funnel through the same two net-new JS-backend prerequisites, then sp
 
 **Landed so far (this effort):** JS `use`→try/finally (`9f74732c`), `for…in`→for…of
 (`8b2e69e9`), `capabilities.js.fs` equatable/comparable (`cb32ab94`, full JS suite green).
+
+### 14.5 Uniform symbol-keyed capability dispatch on JS (decided 2026-06-27)
+
+**Decision:** every capability protocol member on JS is a **computed-key method**
+`obj[<symbol>](…)`, never a string-named method:
+
+| Capability | JS symbol key | Kind |
+|---|---|---|
+| iteration | `Symbol.iterator` | native global well-known |
+| disposal | `Symbol.dispose` | native global well-known |
+| equality | `Symbol.for("vesper.equality")` | Vesper registry |
+| comparison | `Symbol.for("vesper.comparison")` | Vesper registry |
+| hashing | `Symbol.for("vesper.hash")` | Vesper registry |
+
+**Why a symbol (not the current `.Equals`/`.CompareTo` name) for eq/comp/hash.** These
+three have **no native JS protocol** — nothing in the engine ever dispatches them; only
+Vesper's own runtime (`Vesper.Core.mjs` / `Vesper.Comparison.mjs`) does. Today that runtime
+**duck-types on the string `.Equals`/`.CompareTo` presence**, a heuristic that misfires when
+it walks a *foreign* object carrying an unrelated method of that name. A unique symbol is
+present **only** on types that opted into the protocol — collision-proof. Iteration/disposal
+*must* be the native symbols (the language's `for…of`/`using` demand those exact keys); the
+registry symbols make eq/comp/hash uniform with them.
+
+**Why `Symbol.for(...)` (registry) not `Symbol()` + a shared module.** `Symbol.for("vesper.X")`
+resolves to the same symbol in every module with **no import wiring** — each emitted class
+module and each runtime independently obtains it. A `Symbol()` in a shared `Vesper.Symbol.mjs`
+would force an `import` on every overriding class. Registry wins.
+
+**Scope — JS emission + runtime dispatch ONLY.** Unchanged: the front-end capability
+resolution (`CapabilityIds` / the FS0378 nominal `IEquatable`/`IComparable` check) and **CLR**
+(keeps the real BCL interface slots — backend-owns-dialect, exactly as iterate/dispose already
+differ per target). The migration is **load-bearing-coupled**: the attached-method *emission*
+(re-key `Equals`/`CompareTo`/`GetHashCode` → the registry symbols) and the *runtime dispatch*
+(`obj.Equals` → `obj[Symbol.for("vesper.equality")]`) MUST flip together, or the 4 (now green)
+`ClassEmitTests` break. Sequence it as its own gated sub-slice of slice 3, after the
+`Symbol.iterator` iteration work (the originally-scoped piece). It cleanly subsumes the
+currently-green custom-eq/comp path into the same uniform mechanism.
