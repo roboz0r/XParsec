@@ -474,17 +474,25 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
    fallback, repoint the eight recognizer sites + the `PrintfSpec` producer at it.
    **Gate:** the 628 `SemanticAnalysis.Tests` stay green (behavior-preserving — same
    identities, new source) + full build. *Shared foundation; no JS behavior yet.*
-2. **`extern with` parser + AST (`XParsec.FSharp`), own commit, new opt-in gate** (§12.4).
-   Parser arm + the optional `members` field on `Signature.Extern` (+ the mechanical `_` in
-   every match arm, cross-assembly). **Gate:** new **parser golden files** for
-   `type X = extern with member … / interface …` (and a negative: gate-off ⇒ trailing
-   members ignored/rejected). Backend-free — this is the proof that `extern with` is
-   independently testable ahead of any codegen.
-3. **Extractor + core `.fsi` capability names** (§6, §12.4 last bullet). Consume the new AST
-   field → populate `ExternalClassShape.Members` / `FrozenInterfaces`; declare the
-   `disposable` alias + equatable/comparable interface identities as `extern with …` in the
-   core `.fsi` (`seq` already present). **Gate:** frozen-tree assertion that an `extern with`
-   type surfaces its members/interfaces into `ExternalClassShape`; 628 still green.
+2. **`extern with` parser + AST (`XParsec.FSharp`), own commit. — LANDED (`b81e5dbf`).**
+   Optional `members: TypeExtensionElementsSignature voption` field on `TypeSignature.Extern`;
+   the `KWExtern` arm parses the trailing `with` block via the verbatim record-arm
+   `opt (choiceL [parse; parseLight])`; `AstTraversal` walks it only when `ValueSome`.
+   **GATE DECISION (changed from the §12.4 draft): parsed UNCONDITIONALLY — no `ParseState`
+   feature flag.** The golden-test harness parses every `.fsi` fixture through a fixed
+   `ParseState`, so a parse-time flag can't be toggled per-fixture; and the construct only
+   appears in toolchain-controlled `.fsi`. Per §12.4's sanctioned fallback, the **opt-in gate
+   moves to the extractor (commit 3)**. **Gate met:** new golden fixture
+   `sig_16_extern_with.fsi` (bare extern + `extern with interface … member …`); parser suite
+   1418 pass; no existing snapshot shifted; SemanticAnalysis 628 unchanged. Backend-free.
+3. **Extractor + core `.fsi` capability names — also owns the opt-in gate** (§6, §12.4 last
+   bullet). Consume the new AST field → populate `ExternalClassShape.Members` /
+   `FrozenInterfaces`; declare the `disposable` alias + equatable/comparable interface
+   identities as `extern with …` in the core `.fsi` (`seq` already present). **The gate lives
+   here now:** the extractor honours the trailing members only when the compilation opts in,
+   else ignores/rejects them (the negative case that the parser no longer enforces). **Gate:**
+   frozen-tree assertion that an `extern with` type surfaces its members/interfaces into
+   `ExternalClassShape` (and the gate-off negative); 628 still green.
 4. **Slice — Enumerable, front-end (§5.1).** Resolve the iterable identity via `CapabilityIds`;
    confirm structural-preferred still holds; the interface-only fallbacks read the resolved
    id. **Gate:** `SemanticAnalysis.Tests` + `Codegen.Clr.Tests` (`for-in`) green **and** a
@@ -572,11 +580,13 @@ Still open: *(none — the disposable-slot question below is now traced and answ
   *presence* and gates the commit; the JS arm proves *sufficiency*. Equatable/comparable is a
   pure FS0378 diagnostic with **no JS arm** (structural asymmetry, not a deferral). Commits
   5/7 additionally depend on the `tsc`-extracted JS provider.
-- **`XParsec.FSharp` parser + AST in its own commit, behind a new opt-in gate (§12.4).**
-  No extern-parsing flag exists today; one is added as part of this work. **AST
-  blast-radius:** adding the optional `members` field to `Signature.Extern` touches every
-  `Signature.Extern` match arm across `XParsec.FSharp` *and* SemanticAnalysis (each adds a
-  `_`) — mechanical but cross-assembly.
+- **`XParsec.FSharp` parser + AST in its own commit — LANDED (`b81e5dbf`); gate is SEMANTIC,
+  not parse-time.** The parse-time `ParseState` flag was rejected (golden harness can't toggle
+  it per-fixture); `extern with` parses unconditionally and the opt-in gate moves to the
+  extractor (commit 3), per §12.4's fallback. **AST blast-radius (as predicted, smaller in
+  practice):** only the positional `AstTraversal.walkTypeSignature` arm and the
+  `SignatureParsing` constructor were compile-forced; the SemanticAnalysis consumers
+  (`Conformance.fs`, `VesperLib.fs`) use named/wildcard patterns and did not need edits.
 
 ### Resolved (captured in §12)
 - **Member → target binding** — reuse the existing `(# "…" #)` intrinsic-expression
@@ -657,20 +667,20 @@ sidecars migrate **only** if they back a language feature — general helpers do
 
 ### 12.4 Build work
 
-> **Cross-assembly + commit/gating note.** The parser + AST changes here live in the
-> **`XParsec.FSharp`** project (`SignatureParsing.fs`, `Signatures.fs`,
-> `AstTraversal.fs`), *not* the `XParsec.FSharp.SemanticAnalysis` owner-seam — the
-> extractor change crosses back into SemanticAnalysis. **Land the `XParsec.FSharp` parser
-> + AST change in its own commit.** And gate it: `extern` parses **unconditionally** today
-> (`SignatureParsing.fs:378` has no guard) and there is **no existing feature flag** for
-> it — so `extern with` is net-new gated grammar and needs a **new opt-in gate**. Lightest
-> home that fits the codebase: a feature flag on the *input* side of `ParseState` (the
-> `ParsingTypes.fs:203` TODO already wants the unchanged-input fields split from the
-> mutable ones — a parse-time feature set belongs there), defaulted off, set by the parse
-> entry point. Fallback if parser threading proves heavy: a **semantic gate** — parse
-> `extern with` always, but have the extractor ignore/reject the trailing members unless
-> the compilation opts in (the construct only appears in `.fsi` contracts the toolchain
-> controls, so an ungated parser surface is low-blast-radius).
+> **Cross-assembly + commit/gating note. — RESOLVED: semantic gate, not parse-time flag.**
+> The parser + AST changes live in the **`XParsec.FSharp`** project (`SignatureParsing.fs`,
+> `Signatures.fs`, `AstTraversal.fs`), *not* the `XParsec.FSharp.SemanticAnalysis` owner-seam
+> — the extractor change crosses back into SemanticAnalysis. The parser + AST change landed
+> in its own commit (`b81e5dbf`). **The parse-time `ParseState` feature flag was evaluated
+> and REJECTED:** the golden-test harness auto-discovers `.fsi` fixtures and parses each
+> through a fixed `ParseState` (no per-fixture knob), so a parse-time flag couldn't be
+> toggled from the suite — it would make the positive golden test impossible while adding a
+> record field + both `create` factories + both `Reader.ofLexed` factories + harness
+> threading. **Adopted §12.4's documented fallback — the semantic gate:** `extern with`
+> parses **unconditionally**; the extractor (commit 3) honours the trailing members only when
+> the compilation opts in. The construct only appears in toolchain-controlled `.fsi`, so the
+> ungated parser surface is low-blast-radius. (The `ParsingTypes.fs:203` "split input from
+> mutable state" TODO is now untouched by this work.)
 
 `extern with` **fails to parse today** — the `KWExtern` arm
 (`SignatureParsing.fs:378-381`) returns `TypeSignature.Extern` immediately after
