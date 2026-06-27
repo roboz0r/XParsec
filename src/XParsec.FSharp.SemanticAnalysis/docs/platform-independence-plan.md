@@ -1130,26 +1130,45 @@ with the class path + symmetric TAST additions** (user's prior, confirmed):
 
 **Slicing (each committable, gated). Unions first (the `List` goal); records a follow-up
 reusing the same generalized machinery.**
-1. **Front-end: `Interfaces` on the union.** Add the field to `TTypeKindG.Union`
-   (mirror `TClass.Interfaces`) + `InterfaceImpls` to `UnionTypeInfo`; wire
-   `registerUnionMembers` → `extractInterfaceImpls`; generalize conformance / `resolve` /
-   `fill` to the union info; Freeze populates via `translateUnionMember`. Update the ~6
-   `Union(cases, members)` deconstruction sites. *Gate:* `SemanticAnalysis.Tests` green +
-   a frozen-TAST assertion the union carries the impl. *(Wide but mechanical blast radius.)*
-2. **CLR: emit union user interfaces.** Factor `NominalEmit.fs`'s class interface-row +
-   impl-method emission to run for the union kind. *Gate:* `Codegen.Clr.Tests` — a union
-   implementing an interface emits + dispatches it.
-3. **JS: union base-class methods.** Add `baseMethods` to `JsStatement.Union` + `JsPrint`
-   rendering; route the union's `Interfaces` through `partitionClassMembers`, attaching the
-   iterator/protocol methods to the base class. *Gate:* `Codegen.Js.Tests` — a union
-   implementing `seq` emits `*[Symbol.iterator]()` on the base class + runs under Node.
-4. **`List` implements `seq` directly.** Declare `interface seq<'T>` on the `List` union in
-   `list.fs`/`list.js.fs` with a real `GetEnumerator`/enumerator; retire `ListSeq` (both
-   targets, per the CLR decision). *Gate:* `for x in [1;2;3]` (bare list, no upcast) iterates
-   under Node AND on CLR; full suites green.
+1. **Front-end: `Interfaces` on the union. — DONE (`201da968`).** `TTypeKindG.Union` 3rd
+   field + `UnionTypeInfo.InterfaceImpls` + the `IInterfaceImplHost` generalization of
+   conformance/resolve/fill + Freeze via `translateUnionMember`. Frozen-TAST test green.
+3. **JS: union base-class methods. — DONE (`18312a74`).** `JsStatement.Union.baseMethods` +
+   `JsPrint`; `partitionClassMembers` generalized to `(interfaces, members)`; `PendingUnion`;
+   `subtypeNominalOf` `TyUnion` arm. A union implementing `seq` emits `*[Symbol.iterator]()`
+   on the base class, runs under Node (with `:> seq` upcast).
+3b. **Front-end: name-resolve a union's impl bodies. — DONE (`e544569c`).** Relax
+    `walkUnionBodies`' `Members`-non-empty guard so a union with ONLY an interface impl gets
+    `this`/payload binders. Gating fix for `List.GetEnumerator` reading `this`.
+
+**Slice 4 — `List` implements `seq` natively (bare `for x in [1;2;3]`) — REVISED (grounded).**
+The bare-list goal is a coordinated four-part effort and **cannot land JS-only**: the
+front-end admission is a single shared contract+extractor+resolver, so admitting a bare list
+turns it on for **both** targets at once — and CLR would emit a `GetEnumerator` callvirt
+against a `Vesper.List.dll` whose union doesn't implement `IEnumerable`. So CLR can't be
+deferred. Also `List`'s `.fsi` `interface IEnumerable` is **vestigial today**:
+`ExternalTypeShape.Union` has no interfaces field and `extractUnionBody` drops them. Parts:
+- **W2 (enumerable anchor — independent, do first).** `list.fsi`'s `seq` is `List`'s OWN
+  contract, so `resolveCapabilities`' `Enumerable = resolveAbbrevHead "Vesper.Collections.seq\`1"`
+  is `ValueNone` when building `List` itself (circular). Add an `enumerable` capability anchor
+  to `Vesper.Core` (`capabilities.{fsi,fs,js.fs}`, mirroring disposable/equatable/comparable)
+  and switch `Enumerable = resolveIntrinsic "Vesper.enumerable"`. *Gate:* suites green;
+  `caps.Enumerable` resolves in a Core-only build.
+- **Slice 2 (CLR union interface emission — independent).** Factor `NominalEmit.fs`'s class
+  interface-row + impl-method emission to run for the union kind. *Gate:* `Codegen.Clr.Tests`
+  — a local union implementing an interface emits + dispatches it (runtime test).
+- **W1 (shared FE admission — coupled with W3+W4).** Add an interfaces field to
+  `ExternalTypeShape.Union`; `extractUnionBody` captures the `.fsi` union's `interface` decls;
+  `tryForInEnumerator` gains an `ExternalTypeShape.Union` arm (mirror the `Class` arm,
+  `InferControlFlow.fs:601-629`) → `ForInEnumeratorG.Interface`. This admits the bare list on
+  BOTH targets, so it MUST ship with W4.
+- **W3 (JS) + W4 (CLR) `List` impl.** `list.js.fs` + `list.fs` union implement
+  `interface seq<'T> with member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> _)`
+  (mutual-recursion `and ListEnumerator`, a `val mutable` cursor walking the cons cells via
+  `match`); retire `ListSeq`/`toSeq`-via-wrapper. *Gate (the real one):* a CLR **runtime**
+  test AND a JS `runJs` both iterating a bare `[1;2;3]` → `1\n2\n3`, full suites green.
+  **Risk:** W1's shared nature silently generating broken CLR IL — gate on a CLR *run*, not
+  just type-check.
+
 5. **Records (follow-up).** Thread `ext` into `tryRecordType` + `registerRecordMembers`; reuse
    everything; the record's single `JsStatement.Class` needs no new emission shape.
-
-**Biggest risk:** slice 1's wide blast radius (every `Union` deconstruction) is low-risk but
-broad; the genuine design care is slice 3 (base-class method container) and slice 2 (CLR union
-interface emission, previously only synthesized eq/comp).
