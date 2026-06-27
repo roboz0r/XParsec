@@ -512,9 +512,10 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// augmentation members (`with member …` / `static member …`). `interfaces`
     /// mirrors `TClassG.Interfaces`: each entry pairs a resolved interface type
     /// with its already-typed member bodies (the `interface IFace with member …`
-    /// blocks declared on the union). Empty for a plain union; codegen emission is
-    /// deferred (the front end now carries the representation so the impl is no
-    /// longer silently dropped).
+    /// blocks declared on the union). Empty for a plain union. The JS backend emits
+    /// these as the union BASE class's capability protocol members (an enumerable impl
+    /// → `[Symbol.iterator]`, inherited by every case subclass); the CLR backend's
+    /// emission is still deferred.
     | Union of
         cases: EqArray<TUnionCaseG<'ty>> *
         members: EqArray<TTypeMemberG<'ty, 'tok>> *

@@ -1523,6 +1523,20 @@ module EmitJs =
             Protocols: (string * Frozen.TTypeMember) list
         }
 
+    /// One locally-emitted union whose interface impls became BASE-class methods
+    /// (`[Symbol.iterator]` / eq-comp-hash protocols). Like `PendingClass`, the method
+    /// bodies are built later in `buildProgram` once the full `WalkCtx` exists; an
+    /// interface-free union needs none of this and is emitted directly in `collectTypes`.
+    type private PendingUnion =
+        {
+            Name: string
+            Brand: string
+            Cases: JsUnionCaseDecl list
+            Attached: Frozen.TTypeMember list
+            Iterators: Frozen.TTypeMember list
+            Protocols: (string * Frozen.TTypeMember) list
+        }
+
     /// The split of a class's members across the JS emission forms.
     type private PartitionedMembers =
         {
@@ -1571,7 +1585,8 @@ module EmitJs =
     let private partitionClassMembers
         (caps: RuntimeNames.CapabilityIds)
         (typeName: string)
-        (cls: Frozen.TClass)
+        (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>)
+        (members: EqArray<Frozen.TTypeMember>)
         : PartitionedMembers =
         let attached = ResizeArray<Frozen.TTypeMember>()
         let iterators = ResizeArray<Frozen.TTypeMember>()
@@ -1588,7 +1603,7 @@ module EmitJs =
         // generator, and an equatable (`IEquatable<Self>`) / comparable (`IComparable<Self>`)
         // impl drives a registry-symbol `[Symbol.for("vesper.X")]` method (plan §14.5) —
         // neither claims a string name slot.
-        for (iface, ifaceMembers) in cls.Interfaces do
+        for (iface, ifaceMembers) in interfaces do
             let isEnumerable = capMatches caps.Enumerable iface
             let isEquatable = capMatches caps.Equatable iface
             let isComparable = capMatches caps.Comparable iface
@@ -1616,7 +1631,7 @@ module EmitJs =
 
         let free = ResizeArray<Frozen.TTypeMember>()
 
-        for m in cls.Members do
+        for m in members do
             if m.IsOverride && m.Name = "Equals" then
                 // `obj`-typed `Object.Equals` override is redundant on JS — the typed
                 // `IEquatable<Self>.Equals` impl holds the equality dispatch slot
@@ -1656,6 +1671,7 @@ module EmitJs =
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
         let classes = System.Collections.Generic.Dictionary<SymbolKey, string>()
         let pendingClasses = ResizeArray<PendingClass>()
+        let pendingUnions = ResizeArray<PendingUnion>()
         let members = ResizeArray<string * Frozen.TTypeMember>()
 
         let addMembers (typeName: string) (ms: EqArray<Frozen.TTypeMember>) =
@@ -1685,15 +1701,40 @@ module EmitJs =
                             [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
 
                     unions.[td.Key] <- info
-                    // Brand = qualified type name — a single value across modules, so an
-                    // imported case class and any same-type value agree on `$type`.
-                    ordered.Add(JsStatement.Union(td.Name, SymbolKeyOps.qualifiedName td.Key, caseDecls, exportTypes))
-                    addMembers td.Name unionMembers
-                    // TODO: union interface-impl emission is deferred — the front end
-                    // now carries the representation, but the JS backend emits no
-                    // attached-member impls for a union's interfaces yet.
-                    if not unionInterfaces.IsEmpty then
-                        ()
+                    let brand = SymbolKeyOps.qualifiedName td.Key
+
+                    if unionInterfaces.IsEmpty then
+                        // No interface impls → no base methods; emit directly (no ctx
+                        // needed). Brand = qualified type name — a single value across
+                        // modules, so an imported case class and any same-type value
+                        // agree on `$type`.
+                        ordered.Add(JsStatement.Union(td.Name, brand, caseDecls, [], exportTypes))
+                        addMembers td.Name unionMembers
+                    else
+                        // The union carries interface impls. Route them through the SAME
+                        // partition the class path uses: enumerable → `[Symbol.iterator]`,
+                        // eq/comp/hash → registry symbols, others → attached. These attach
+                        // to the BASE class so every case subclass inherits them and
+                        // dispatch lands on a case instance. The augmentation `members`
+                        // split into Free (free receiver-first fns, via `addMembers`) vs
+                        // the rest — but a union's augmentation members are all non-interface
+                        // here, so `parts.Free` carries exactly `unionMembers` (no double
+                        // emission: only `parts.Free` reaches `addMembers`). The base-method
+                        // bodies need the full `WalkCtx`, so defer like a `PendingClass`.
+                        let parts = partitionClassMembers caps td.Name unionInterfaces unionMembers
+
+                        pendingUnions.Add
+                            {
+                                Name = td.Name
+                                Brand = brand
+                                Cases = caseDecls
+                                Attached = parts.Attached
+                                Iterators = parts.Iterators
+                                Protocols = parts.Protocols
+                            }
+
+                        for m in parts.Free do
+                            members.Add(td.Name, m)
                 | TTypeKindG.Class cls ->
                     classes.[td.Key] <- td.Name
 
@@ -1711,7 +1752,7 @@ module EmitJs =
                     // Split members into attached dispatch slots, free receiver-first
                     // functions, and enumerable-capability iterator impls (interface-impl
                     // / override / capability policy in `partitionClassMembers`).
-                    let parts = partitionClassMembers caps td.Name cls
+                    let parts = partitionClassMembers caps td.Name cls.Interfaces cls.Members
 
                     pendingClasses.Add
                         {
@@ -1727,7 +1768,13 @@ module EmitJs =
                 | _ -> ()
             | _ -> ()
 
-        List.ofSeq ordered, records, unions, classes, List.ofSeq pendingClasses, List.ofSeq members
+        List.ofSeq ordered,
+        records,
+        unions,
+        classes,
+        List.ofSeq pendingClasses,
+        List.ofSeq pendingUnions,
+        List.ofSeq members
 
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
@@ -1747,7 +1794,7 @@ module EmitJs =
                     RuntimeNames.CapabilityIds.Comparable = ValueNone
                 }
 
-        let recordUnionDecls, recordTable, unionTable, classTable, pendingClasses, memberDefs =
+        let recordUnionDecls, recordTable, unionTable, classTable, pendingClasses, pendingUnions, memberDefs =
             collectTypes caps ctx0.ExportTopLevel tast
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
@@ -1788,6 +1835,26 @@ module EmitJs =
                     )
             ]
 
+        // Unions whose interface impls became base-class methods are built now too —
+        // their `[Symbol.iterator]` / protocol bodies need the full ctx (the method
+        // bodies may `new` a class), exactly like the pending classes. They render
+        // base-first so the case subclasses inherit the protocol members.
+        let pendingUnionDecls =
+            [
+                for pu in pendingUnions ->
+                    JsStatement.Union(
+                        pu.Name,
+                        pu.Brand,
+                        pu.Cases,
+                        [
+                            for m in pu.Attached -> emitAttachedMethod ctx m
+                            for m in pu.Iterators -> emitIteratorMethod ctx m
+                            for (sym, m) in pu.Protocols -> emitProtocolMethod ctx sym m
+                        ],
+                        ctx.ExportTopLevel
+                    )
+            ]
+
         // Member functions emitted after the class decls (they reference the classes
         // via `new`/match, and `const` arrows are not hoisted) and before the body.
         let memberDecls = [ for (typeName, m) in memberDefs -> emitMemberFn ctx typeName m ]
@@ -1817,6 +1884,7 @@ module EmitJs =
                 JsImports.importStatements ctx.Imports
                 @ recordUnionDecls
                 @ classDecls
+                @ pendingUnionDecls
                 @ memberDecls
                 @ body
         }

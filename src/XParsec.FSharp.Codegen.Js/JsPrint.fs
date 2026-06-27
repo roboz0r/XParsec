@@ -216,6 +216,21 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
+    /// One instance method of an emitted class or union base class. `Generator`
+    /// prefixes `*` (so the body may `yield`); `Computed` renders a `[expr]` key
+    /// (`[Symbol.iterator]`, `[Symbol.for("vesper.X")]`) instead of the string name.
+    and private methodDecl (m: JsClassMethod) : Doc =
+        let star = if m.Generator then text "*" else Nil
+
+        let key =
+            match m.Computed with
+            | ValueSome keyExpr -> text "[" ++ expr keyExpr ++ text "]"
+            | ValueNone -> text m.Name
+
+        memberDecl
+            (star ++ key ++ text "(" ++ commaList (List.map text m.Params) ++ text ")")
+            [ for s in m.Body -> statement s ]
+
     and private statement (s: JsStatement) : Doc =
         match s with
         | JsStatement.Expression e -> expr e ++ text ";"
@@ -257,37 +272,29 @@ module JsPrint =
         | JsStatement.TryFinally(tryBody, finallyBody) ->
             text "try " ++ block tryBody ++ text " finally " ++ block finallyBody
         | JsStatement.Class(name, fields, methods, export) ->
-            let methodDecl (m: JsClassMethod) =
-                let star = if m.Generator then text "*" else Nil
-
-                let key =
-                    match m.Computed with
-                    | ValueSome keyExpr -> text "[" ++ expr keyExpr ++ text "]"
-                    | ValueNone -> text m.Name
-
-                memberDecl
-                    (star ++ key ++ text "(" ++ commaList (List.map text m.Params) ++ text ")")
-                    [ for s in m.Body -> statement s ]
-
             classDecl export name None (ctorDecl fields [] fields :: [ for m in methods -> methodDecl m ])
-        | JsStatement.Union(baseName, brand, cases, export) ->
+        | JsStatement.Union(baseName, brand, cases, baseMethods, export) ->
             let baseClass =
                 classDecl
                     export
                     baseName
                     None
                     [
-                        ctorDecl [ "tag" ] [] [ "tag" ]
+                        yield ctorDecl [ "tag" ] [] [ "tag" ]
                         // Non-enumerable type brand (prototype getter, so absent from
                         // own-keys): the structural runtime distinguishes types by it.
-                        memberDecl (text "get $type()") [ text (sprintf "return %s;" (JsEscape.quoted brand)) ]
-                        memberDecl
-                            (text "cases()")
-                            [
-                                text "return ["
-                                ++ commaList [ for c in cases -> text (JsEscape.quoted c.CaseName) ]
-                                ++ text "];"
-                            ]
+                        yield memberDecl (text "get $type()") [ text (sprintf "return %s;" (JsEscape.quoted brand)) ]
+                        yield
+                            memberDecl
+                                (text "cases()")
+                                [
+                                    text "return ["
+                                    ++ commaList [ for c in cases -> text (JsEscape.quoted c.CaseName) ]
+                                    ++ text "];"
+                                ]
+                        // Capability protocol members (`[Symbol.iterator]`, eq/comp/hash):
+                        // attached to the BASE class so every case subclass inherits them.
+                        for m in baseMethods -> methodDecl m
                     ]
 
             let subclass (c: JsUnionCaseDecl) =

@@ -116,8 +116,15 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `Vesper.Core`/`Vesper.Comparison` runtimes dispatch on `$type` + own-keys); a
     /// type with custom equality/comparison emits its own `Equals`/`CompareTo` and the
     /// runtimes pick it up by method presence. `export` (library mode) exports every
-    /// class so consumers import them.
-    | Union of baseName: string * brand: string * cases: JsUnionCaseDecl list * export: bool
+    /// class so consumers import them. `baseMethods` are the union's capability
+    /// protocol members (`[Symbol.iterator]`, eq/comp/hash) — they attach to the BASE
+    /// class so every case subclass inherits them and dispatch lands on a case instance.
+    | Union of
+        baseName: string *
+        brand: string *
+        cases: JsUnionCaseDecl list *
+        baseMethods: JsClassMethod list *
+        export: bool
     /// A bare lexical block `{ … }` — scopes a match arm's pattern bindings so two
     /// arms binding the same name don't collide as sibling `const`s.
     | Block of body: JsStatement list

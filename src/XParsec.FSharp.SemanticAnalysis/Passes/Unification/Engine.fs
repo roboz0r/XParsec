@@ -508,6 +508,11 @@ module UnificationEngine =
         // `canonName`'s repr map. `parentOf` splits the simple segment back off
         // for the project-local class lookup.
         | TyClass(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
+        // A named DU enters the nominal subtype walk too, so its declared
+        // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
+        // `tryInterfaceImplHost`) admit `(u :> ISomeIface)` exactly like a class's.
+        // (Anonymous `TyOr` unions resolve structurally in `subsumes`, never here.)
+        | TyUnion(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
         | TyConst(n, args) -> ValueSome(struct (canonName ctx n, args))
         | _ -> ValueNone
 
