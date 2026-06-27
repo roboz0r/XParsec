@@ -125,14 +125,11 @@ open System.Collections.Generic
     /// <summary>An abbreviation for the CLI type <see cref="T:System.Collections.Generic.List`1"/></summary>
     type ResizeArray<'T> = System.Collections.Generic.List<'T>
 
-    /// <summary>An abbreviation for the CLI type <see cref="T:System.Collections.Generic.IEnumerable`1"/></summary>
-    ///
-    /// <remarks>
-    ///  See the <see cref="T:Microsoft.FSharp.Collections.SeqModule"/> module for further operations related to sequences.
-    ///
-    ///  See also <a href="https://learn.microsoft.com/dotnet/fsharp/language-reference/sequences">F# Language Guide - Sequences</a>.
-    ///</remarks>
-    type seq<'T> = IEnumerable<'T>
+    // `seq<'T>` (the `IEnumerable<'T>` abbreviation) now lives in `Vesper.Core`
+    // (`capabilities.fsi`, kept in this `Vesper.Collections` namespace) — moved there so
+    // the enumerable-capability resolution isn't circular when building `Vesper.List`
+    // itself. Bare `seq<'T>` references below still resolve (same namespace, via the
+    // Vesper.Core dependency).
 
     /// Operations over `'T list`. `fold` first — it is what the canonical sample
     /// exercises; the rest of the

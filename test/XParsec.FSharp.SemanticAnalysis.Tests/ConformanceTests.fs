@@ -210,10 +210,12 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
         "ref is a sig-only alias of Ref<'T>",
         [ Conformance.ConformanceError.MissingInImpl "ref" ]
 
-        // `ResizeArray<'T>` and `seq<'T>` are abbreviations of BCL types
-        // (`System.Collections.Generic.List<'T>` / `IEnumerable<'T>`, list.fsi:126/135);
-        // they alias the runtime BCL type directly, so there is no companion type
-        // in `list.fs` (which defines only the cons-list `List<'T>`).
+        // `ResizeArray<'T>` is an abbreviation of the BCL type
+        // (`System.Collections.Generic.List<'T>`, list.fsi:126); it aliases the runtime
+        // BCL type directly, so there is no companion type in `list.fs` (which defines
+        // only the cons-list `List<'T>`). (`seq<'T>` was also here, but moved to
+        // `Vesper.Core/capabilities.fsi` to break the enumerable-capability resolution
+        // circularity — so it no longer drifts against `list.fs`.)
         //
         // `ListSeq` / `ListEnumerator` are the private enumerable-adapter helpers
         // `list.fs`'s `List.toSeq` ships — a wrapper class over the cons-list plus a
@@ -224,10 +226,9 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
         "Vesper.List",
         "list.fsi",
         "list.fs",
-        "ResizeArray/seq are BCL abbreviations; ListSeq/ListEnumerator are private toSeq adapters",
+        "ResizeArray is a BCL abbreviation; ListSeq/ListEnumerator are private toSeq adapters",
         [
             Conformance.ConformanceError.MissingInImpl "ResizeArray"
-            Conformance.ConformanceError.MissingInImpl "seq"
             Conformance.ConformanceError.MissingInSig "ListEnumerator"
             Conformance.ConformanceError.MissingInSig "ListSeq"
         ]
