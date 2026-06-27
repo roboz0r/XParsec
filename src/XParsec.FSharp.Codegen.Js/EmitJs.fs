@@ -1676,7 +1676,7 @@ module EmitJs =
                     records.[td.Key] <- info
                     ordered.Add(JsStatement.Class(info.Name, info.Fields, [], exportTypes))
                     addMembers td.Name recMembers
-                | TTypeKindG.Union(cases, unionMembers) ->
+                | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
                     // Local union: `Home = ValueNone` — its case classes are emitted here.
                     let info, caseDecls =
                         buildUnionInfo
@@ -1689,6 +1689,11 @@ module EmitJs =
                     // imported case class and any same-type value agree on `$type`.
                     ordered.Add(JsStatement.Union(td.Name, SymbolKeyOps.qualifiedName td.Key, caseDecls, exportTypes))
                     addMembers td.Name unionMembers
+                    // TODO: union interface-impl emission is deferred — the front end
+                    // now carries the representation, but the JS backend emits no
+                    // attached-member impls for a union's interfaces yet.
+                    if not unionInterfaces.IsEmpty then
+                        ()
                 | TTypeKindG.Class cls ->
                     classes.[td.Key] <- td.Name
 

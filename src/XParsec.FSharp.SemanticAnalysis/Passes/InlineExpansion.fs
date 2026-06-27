@@ -647,7 +647,12 @@ module InlineExpansion =
             let walkKind (k: TTypeKind) : TTypeKind =
                 match k with
                 | TTypeKind.Interface _ -> k
-                | TTypeKind.Union(cases, members) -> TTypeKind.Union(cases, members |> EqArray.map walkMember)
+                | TTypeKind.Union(cases, members, interfaces) ->
+                    TTypeKind.Union(
+                        cases,
+                        members |> EqArray.map walkMember,
+                        interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember)
+                    )
                 | TTypeKind.Record(fields, members) -> TTypeKind.Record(fields, members |> EqArray.map walkMember)
                 | TTypeKind.Class c ->
                     TTypeKind.Class

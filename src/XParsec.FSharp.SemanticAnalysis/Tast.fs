@@ -509,8 +509,16 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// field.
     | Interface of methods: EqArray<TAbstractMethodG<'ty>>
     /// `cases` in declaration order (the index is the runtime tag), plus any
-    /// augmentation members (`with member …` / `static member …`).
-    | Union of cases: EqArray<TUnionCaseG<'ty>> * members: EqArray<TTypeMemberG<'ty, 'tok>>
+    /// augmentation members (`with member …` / `static member …`). `interfaces`
+    /// mirrors `TClassG.Interfaces`: each entry pairs a resolved interface type
+    /// with its already-typed member bodies (the `interface IFace with member …`
+    /// blocks declared on the union). Empty for a plain union; codegen emission is
+    /// deferred (the front end now carries the representation so the impl is no
+    /// longer silently dropped).
+    | Union of
+        cases: EqArray<TUnionCaseG<'ty>> *
+        members: EqArray<TTypeMemberG<'ty, 'tok>> *
+        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
     /// (`with member …` / `static member …`) — empty for v1, where records carry

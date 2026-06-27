@@ -158,6 +158,53 @@ type UnionCaseInfo
     member val FieldNames = fieldNames
     member val DeclKey = declKey
 
+/// A registered `interface IFace with member …` block on a class or union.
+/// `InterfaceCst` is the parsed interface
+/// `Type` — re-read by Unification's `fillClassMembers` (the external provider
+/// isn't available at NameResolution time) to resolve + verify the target is an
+/// interface, linking `Resolved`. `Members` are the impl's method / property
+/// placeholders (same shape as a class augmentation member, types linked by
+/// `fillTypeMembers`); their bodies live in `Elements` — each interface
+/// `MemberDefn` re-wrapped as a `TypeDefnElement.Member` so the NameResolution /
+/// Unification member walks consume them unchanged. `DeclKey` anchors a
+/// "not an interface" diagnostic at the interface type's name token.
+[<Sealed>]
+type ClassInterfaceImplInfo
+    (
+        interfaceCst: Type<SyntaxToken>,
+        members: TypeMemberInfo[],
+        elements: TypeDefnElements<SyntaxToken>,
+        declKey: NodeKey
+    ) =
+    member val InterfaceCst = interfaceCst
+    member val Members = members
+    member val Elements = elements
+    member val DeclKey = declKey
+    /// Resolved interface type, filled by Unification's `fillClassMembers` once
+    /// the external provider can map `InterfaceCst`. `ValueNone` until then, and
+    /// left `ValueNone` if resolution fails (the diagnostic already fired).
+    member val Resolved: SemType voption = ValueNone with get, set
+
+/// The shared surface a nominal type exposes to the interface-impl machinery —
+/// implemented by both `ClassTypeInfo` and `UnionTypeInfo` so Unification's
+/// `resolveInterfaceImpls` / `fillInterfaceImpls`, the `subsumes` interface
+/// admission and the custom-eq/comp conformance check operate over *either* kind
+/// without forking the (already kind-agnostic) logic. `MkSelfType` is the only
+/// kind-dependent piece: a class yields `TyClass(Key, args)`, a union
+/// `TyUnion(Key, args)`, so the `this`-type seeding inside an impl body is exact.
+type IInterfaceImplHost =
+    abstract member Key: SymbolKey
+    abstract member DeclKey: NodeKey
+    abstract member TypeParams: EqArray<string * TypeVar>
+    abstract member ThisKey: NodeKey
+    abstract member InterfaceImpls: ClassInterfaceImplInfo[]
+    abstract member Members: TypeMemberInfo[]
+    abstract member EqualitySupport: EqualityVerdict
+    abstract member ComparisonSupport: ComparisonVerdict
+    /// Build the host's own nominal Self type at the given type args
+    /// (`TyClass` for a class, `TyUnion` for a union).
+    abstract member MkSelfType: EqArray<SemType> -> SemType
+
 /// `TypeParams` mirrors `RecordTypeInfo.TypeParams`. Case field types may
 /// reference these TyVars directly.
 [<Sealed>]
@@ -207,6 +254,24 @@ type UnionTypeInfo
     /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
+    /// `interface IFace with member …` blocks declared on the union.
+    /// Stamped by `NameResolution.registerUnionMembers`; each impl's interface type
+    /// is resolved + verified, and its member bodies typed, by Unification's
+    /// `fillUnionMembers` (mirroring `ClassTypeInfo.InterfaceImpls`). Empty unless
+    /// the union declares an `interface … with` block. `Freeze` projects them onto
+    /// `TTypeKind.Union.interfaces`; codegen emission is deferred.
+    member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+
+    interface IInterfaceImplHost with
+        member this.Key = this.Key
+        member this.DeclKey = this.DeclKey
+        member this.TypeParams = this.TypeParams
+        member this.ThisKey = this.ThisKey
+        member this.InterfaceImpls = this.InterfaceImpls
+        member this.Members = this.Members
+        member this.EqualitySupport = this.EqualitySupport
+        member this.ComparisonSupport = this.ComparisonSupport
+        member this.MkSelfType args = TyUnion(this.Key, args)
 
 /// `InProgress` is set while translating the RHS so a re-entry through
 /// `translateType` can detect a cycle and short-circuit. `Filled` is terminal —
@@ -316,33 +381,6 @@ type ClassSecondaryCtorInfo
     /// primary ctor's `fillClassCtorParamTypes`).
     member val ParamPat = paramPat
     member val Body = body
-
-/// A registered `interface IFace with member …` block on a class.
-/// `InterfaceCst` is the parsed interface
-/// `Type` — re-read by Unification's `fillClassMembers` (the external provider
-/// isn't available at NameResolution time) to resolve + verify the target is an
-/// interface, linking `Resolved`. `Members` are the impl's method / property
-/// placeholders (same shape as a class augmentation member, types linked by
-/// `fillTypeMembers`); their bodies live in `Elements` — each interface
-/// `MemberDefn` re-wrapped as a `TypeDefnElement.Member` so the NameResolution /
-/// Unification member walks consume them unchanged. `DeclKey` anchors a
-/// "not an interface" diagnostic at the interface type's name token.
-[<Sealed>]
-type ClassInterfaceImplInfo
-    (
-        interfaceCst: Type<SyntaxToken>,
-        members: TypeMemberInfo[],
-        elements: TypeDefnElements<SyntaxToken>,
-        declKey: NodeKey
-    ) =
-    member val InterfaceCst = interfaceCst
-    member val Members = members
-    member val Elements = elements
-    member val DeclKey = declKey
-    /// Resolved interface type, filled by Unification's `fillClassMembers` once
-    /// the external provider can map `InterfaceCst`. `ValueNone` until then, and
-    /// left `ValueNone` if resolution fails (the diagnostic already fired).
-    member val Resolved: SemType voption = ValueNone with get, set
 
 [<Sealed>]
 type ClassTypeInfo
@@ -468,6 +506,17 @@ type ClassTypeInfo
     /// for `[<StructuralComparison>]` and `Custom` for `[<CustomComparison>]`.
     /// `Unification`/`Freeze` read this like the record/union ones.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
+
+    interface IInterfaceImplHost with
+        member this.Key = this.Key
+        member this.DeclKey = this.DeclKey
+        member this.TypeParams = this.TypeParams
+        member this.ThisKey = this.ThisKey
+        member this.InterfaceImpls = this.InterfaceImpls
+        member this.Members = this.Members
+        member this.EqualitySupport = this.EqualitySupport
+        member this.ComparisonSupport = this.ComparisonSupport
+        member this.MkSelfType args = TyClass(this.Key, args)
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. A record rather than a 2-tuple so
@@ -748,6 +797,19 @@ module TypeRegistry =
     /// Resolve a class by its project-local `SymbolKey` — the class analogue of
     /// `tryUnionByKey`. See `tryByTypeKey`.
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
+
+    /// Resolve a nominal type that may carry `interface … with` impls — a class
+    /// *or* a union — by bare short name, surfaced as the shared
+    /// `IInterfaceImplHost`. The `subsumes` interface-admission walk uses this so a
+    /// union's declared interfaces participate in subtyping exactly like a class's.
+    /// Classes win a name collision (they always have for the bare-alias reads).
+    let tryInterfaceImplHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
+        match types.Class.TryGetValue name with
+        | true, info -> ValueSome(info :> IInterfaceImplHost)
+        | false, _ ->
+            match types.Union.TryGetValue name with
+            | true, info -> ValueSome(info :> IInterfaceImplHost)
+            | false, _ -> ValueNone
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info

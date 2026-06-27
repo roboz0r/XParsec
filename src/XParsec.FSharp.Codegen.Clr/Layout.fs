@@ -315,7 +315,13 @@ module internal Layout =
             | TDeclG.Type td ->
                 match td.Kind with
                 | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
-                | TTypeKindG.Union(cases, members) ->
+                | TTypeKindG.Union(cases, members, interfaces) ->
+                    // TODO: union interface-impl emission is deferred — the front end
+                    // now carries the representation, but the CLR backend emits no
+                    // `InterfaceImpl` rows / member bodies for a union yet.
+                    if not interfaces.IsEmpty then
+                        ()
+
                     unions.Add
                         {
                             Decl = td

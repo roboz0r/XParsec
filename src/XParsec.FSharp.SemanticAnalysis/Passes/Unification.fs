@@ -826,7 +826,7 @@ module Unification =
     /// `IComparer` slot), so the class must already know its declared interfaces
     /// at every coercion site, not only once its own block's body is reached.
     /// Body typing + conformance stay in `fillInterfaceImpls`.
-    let private resolveInterfaceImpls (ctx: PassContext) (info: ClassTypeInfo) : unit =
+    let private resolveInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         for impl in info.InterfaceImpls do
             let resolved =
                 let savedScope = ctx.Resolution.TyparScope
@@ -871,7 +871,7 @@ module Unification =
     /// Runs after `resolveInterfaceImpls` (so every `impl.Resolved` is stamped) and
     /// after the class's own `fillTypeMembers` / `fillSecondaryCtors`, so ctor
     /// params and the base call are already seeded and `PrelinkExtras` is a no-op here.
-    let private fillInterfaceImpls (ctx: PassContext) (info: ClassTypeInfo) : unit =
+    let private fillInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         for impl in info.InterfaceImpls do
             fillTypeMembers
                 ctx
@@ -879,7 +879,7 @@ module Unification =
                     TypeParams = info.TypeParams
                     Members = impl.Members
                     ThisKey = info.ThisKey
-                    MkSelfType = fun args -> TyClass(info.Key, args)
+                    MkSelfType = info.MkSelfType
                     PrelinkExtras = ignore
                     Elements = impl.Elements
                     AllowAbstractSig = false
@@ -1009,7 +1009,7 @@ module Unification =
                         // in Elaborate, so the override must be non-generic first.
                         checkObjectOverrideConformance ctx info
                         fillSecondaryCtors ctx info
-                        fillInterfaceImpls ctx info
+                        fillInterfaceImpls ctx (info :> IInterfaceImplHost)
                     | ValueNone -> ()
                 | ValueNone -> ()
         | _ -> ()
@@ -1027,20 +1027,29 @@ module Unification =
                     let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
 
                     match TypeRegistry.tryUnion ctx.Types name arity with
-                    | ValueSome info when not (Array.isEmpty info.Members) ->
-                        fillTypeMembers
-                            ctx
-                            {
-                                TypeParams = info.TypeParams
-                                Members = info.Members
-                                ThisKey = info.ThisKey
-                                MkSelfType = fun args -> TyUnion(info.Key, args)
-                                PrelinkExtras = ignore
-                                Elements = elems
-                                AllowAbstractSig = false
-                                Generalise = true
-                            }
-                    | _ -> ()
+                    | ValueSome info ->
+                        if not (Array.isEmpty info.Members) then
+                            fillTypeMembers
+                                ctx
+                                {
+                                    TypeParams = info.TypeParams
+                                    Members = info.Members
+                                    ThisKey = info.ThisKey
+                                    MkSelfType = fun args -> TyUnion(info.Key, args)
+                                    PrelinkExtras = ignore
+                                    Elements = elems
+                                    AllowAbstractSig = false
+                                    Generalise = true
+                                }
+
+                        // Type + conformance-check each `interface … with` block's
+                        // member bodies (a no-op when the union declares none). Runs
+                        // after `resolveInterfaceImplsForElem` stamped every
+                        // `impl.Resolved`. A union with *only* an interface impl (no
+                        // augmentation members) reaches here too — its impl must still
+                        // fill — so this sits outside the `Members`-non-empty guard.
+                        fillInterfaceImpls ctx (info :> IInterfaceImplHost)
+                    | ValueNone -> ()
                 | _ -> ()
         | _ -> ()
 
@@ -1079,9 +1088,20 @@ module Unification =
 
                     if nameLi.Idents.Length = 1 then
                         match ctx.Types.Class.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                        | true, info -> resolveInterfaceImpls ctx info
+                        | true, info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
                         | false, _ -> ()
-                | ValueNone -> ()
+                | ValueNone ->
+                    // A union may also declare `interface … with` blocks; resolve them
+                    // up front on the same path so a `:>` / coercion site sees them.
+                    match td with
+                    | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn)) when nameLi.Idents.Length = 1 ->
+                        let name = ctx.NameOf nameLi.Idents.[0]
+                        let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
+
+                        match TypeRegistry.tryUnion ctx.Types name arity with
+                        | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
+                        | ValueNone -> ()
+                    | _ -> ()
         | _ -> ()
 
     let private walkElems (ctx: PassContext) (pairs: (ModuleElem<SyntaxToken> * OpenScope) list) =
@@ -1269,18 +1289,18 @@ module Unification =
                     Severity = Severity.Error
                 }
 
-        // The declaring class's own nominal key — Self is `TyClass(info.Key, _)`.
-        let argIsSelf (info: ClassTypeInfo) (arg: SemType) : bool =
+        // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.Key, _)`.
+        let argIsSelf (info: IInterfaceImplHost) (arg: SemType) : bool =
             match zonk arg with
             | TyClass(k, _)
             | TyRecord(k, _)
             | TyUnion(k, _) -> SymbolKeyOps.qualifiedName k = SymbolKeyOps.qualifiedName info.Key
             | _ -> false
 
-        // Does the class implement `ifaceQualified<Self>` among its resolved
+        // Does the type implement `ifaceQualified<Self>` among its resolved
         // interface impls? Best-effort on the arg: a head match with a Self arg
         // (or a head match with no readable arg) satisfies the requirement.
-        let implementsSelf (info: ClassTypeInfo) (ifaceQualified: string) : bool =
+        let implementsSelf (info: IInterfaceImplHost) (ifaceQualified: string) : bool =
             info.InterfaceImpls
             |> Array.exists (fun impl ->
                 match impl.Resolved with
@@ -1290,8 +1310,9 @@ module Unification =
                 | _ -> false
             )
 
-        for kv in ctx.Types.Class do
-            let info = kv.Value
+        // Kind-agnostic per-type body: a `[<CustomEquality>]`/`[<CustomComparison>]`
+        // class *or* union must implement the corresponding capability interface.
+        let checkHost (info: IInterfaceImplHost) =
             let nameKey = info.DeclKey
 
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
@@ -1335,6 +1356,12 @@ module Unification =
                 // Coherence: custom comparison demands custom equality.
                 if not needsEq then
                     addDiag nameKey "FS0379" "A type with [<CustomComparison>] must also have [<CustomEquality>]."
+
+        for kv in ctx.Types.Class do
+            checkHost (kv.Value :> IInterfaceImplHost)
+
+        for kv in ctx.Types.Union do
+            checkHost (kv.Value :> IInterfaceImplHost)
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the

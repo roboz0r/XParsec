@@ -375,7 +375,7 @@ module Elaborate =
         match k with
         | TTypeKind.Interface methods ->
             TTypeKind.Interface(methods |> EqArray.map (fun am -> { am with Signature = f am.Signature }))
-        | TTypeKind.Union(cases, members) ->
+        | TTypeKind.Union(cases, members, interfaces) ->
             let cases =
                 cases
                 |> EqArray.map (fun c ->
@@ -384,7 +384,11 @@ module Elaborate =
                     }
                 )
 
-            TTypeKind.Union(cases, members |> EqArray.map (freezeMember f))
+            TTypeKind.Union(
+                cases,
+                members |> EqArray.map (freezeMember f),
+                interfaces |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
+            )
         | TTypeKind.Record(fields, members) ->
             TTypeKind.Record(fields |> EqArray.map field, members |> EqArray.map (freezeMember f))
         | TTypeKind.Class c ->
@@ -1002,6 +1006,18 @@ module Elaborate =
 
             let selfTy = TyUnion(info.Key, declTyparArgs info.TypeParams)
 
+            // A generic union remaps each member's self-type to declaring-typar
+            // roots and folds in its (always-empty here) method markers, exactly
+            // like the class surfacer's `elaborateOne`. A monomorphic union keeps
+            // the `TyUnion(key, [])` self-type byte-identical.
+            let elaborateOne (m: TTypeMember) : TTypeMember =
+                if List.isEmpty declTypars then
+                    m
+                else
+                    let m, methodMarkers = elaborateMember selfTy m
+                    env.AddRange methodMarkers
+                    m
+
             let members =
                 match ext with
                 | ValueNone -> EqArray.empty
@@ -1010,16 +1026,38 @@ module Elaborate =
                         seq {
                             for el in elems do
                                 match translateUnionMember ctx info el with
-                                | ValueSome m ->
-                                    if List.isEmpty declTypars then
-                                        yield m
-                                    else
-                                        let m, methodMarkers = elaborateMember selfTy m
-                                        env.AddRange methodMarkers
-                                        yield m
+                                | ValueSome m -> yield elaborateOne m
                                 | ValueNone -> ()
                         }
                     )
+
+            // Interface implementations (`interface IFace with member …`).
+            // Each registered impl whose interface resolved becomes an
+            // `(ifaceTy, members)` entry — the resolved interface `TyClass` paired
+            // with its already-typed member bodies, translated through the *union*
+            // `info` (so `this` rebinds via `info.ThisKey`) exactly as the class
+            // recipe does. Impls whose interface failed to resolve are dropped
+            // (the diagnostic already fired). Codegen emission is deferred.
+            let interfaces =
+                EqArray.ofSeq (
+                    seq {
+                        for impl in info.InterfaceImpls do
+                            match impl.Resolved with
+                            | ValueSome ifaceTy ->
+                                let implMembers =
+                                    EqArray.ofSeq (
+                                        seq {
+                                            for el in impl.Elements do
+                                                match translateUnionMember ctx info el with
+                                                | ValueSome m -> yield elaborateOne m
+                                                | ValueNone -> ()
+                                        }
+                                    )
+
+                                yield (ifaceTy, implMembers)
+                            | ValueNone -> ()
+                    }
+                )
 
             Some(
                 mkTypeDecl
@@ -1027,7 +1065,7 @@ module Elaborate =
                     info.Key
                     ns
                     (EqArray.ofList declTypars)
-                    (TTypeKind.Union(cases, members))
+                    (TTypeKind.Union(cases, members, interfaces))
                     info.EqualitySupport
                     info.ComparisonSupport,
                 List.ofSeq env

@@ -165,7 +165,7 @@ let tests =
                         match d with
                         | TDecl.Type td ->
                             match td.Kind with
-                            | TTypeKind.Union(cs, _) -> acc.Add(td.Name, cs)
+                            | TTypeKind.Union(cs, _, _) -> acc.Add(td.Name, cs)
                             | _ -> ()
                         | _ -> ()
 
@@ -304,7 +304,7 @@ let tests =
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Union(_, ms) } -> ValueSome ms
+                        | TDecl.Type { Kind = TTypeKind.Union(_, ms, _) } -> ValueSome ms
                         | _ -> ValueNone
                     )
 

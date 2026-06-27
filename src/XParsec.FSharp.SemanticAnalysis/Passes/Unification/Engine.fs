@@ -557,8 +557,10 @@ module UnificationEngine =
         : struct (string * EqArray<SemType>) list =
         let simple = SymbolKeyOps.shortName name
 
-        match ctx.Types.Class.TryGetValue simple with
-        | true, info ->
+        // A class *or* a union may declare `interface … with` impls; the subtype
+        // walk treats both kinds' interface lists identically.
+        match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
+        | ValueSome info ->
             [
                 for impl in info.InterfaceImpls do
                     match impl.Resolved with
@@ -568,7 +570,7 @@ module UnificationEngine =
                         | ValueNone -> ()
                     | ValueNone -> ()
             ]
-        | false, _ ->
+        | ValueNone ->
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())

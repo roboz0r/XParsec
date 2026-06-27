@@ -131,8 +131,11 @@ module PlatformTypes =
             // yet (the JS back end does not), so flagging a type they reference would
             // be a premature reject — match the set the emitter actually lowers.
             match td.Kind with
+            // Union interface-impl member bodies are intentionally NOT walked: the
+            // backend emits nothing for them yet (deferred), so flagging a type they
+            // reference would be a premature reject — match the set the emitter lowers.
             | TTypeKindG.Record(_, members)
-            | TTypeKindG.Union(_, members) ->
+            | TTypeKindG.Union(_, members, _) ->
                 for m in members do
                     TastWalk.iterExpr iter m.Body
             | _ -> ()

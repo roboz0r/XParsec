@@ -682,7 +682,7 @@ type private Renderer() =
                     push (tyStr m.Signature)
 
                 push " end"
-            | TTypeKind.Union(cases, members) ->
+            | TTypeKind.Union(cases, members, _) ->
                 push " ="
 
                 for c in cases do

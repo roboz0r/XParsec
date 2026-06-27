@@ -218,8 +218,12 @@ module TastConvert =
     let kind (f: 'a -> 'b) (k: TTypeKindG<'a, 'tok>) : TTypeKindG<'b, 'tok> =
         match k with
         | TTypeKindG.Interface methods -> TTypeKindG.Interface(EqArray.map (abstractMethod f) methods)
-        | TTypeKindG.Union(cases, members) ->
-            TTypeKindG.Union(EqArray.map (unionCase f) cases, EqArray.map (typeMember f) members)
+        | TTypeKindG.Union(cases, members, interfaces) ->
+            TTypeKindG.Union(
+                EqArray.map (unionCase f) cases,
+                EqArray.map (typeMember f) members,
+                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
+            )
         | TTypeKindG.Record(fields, members) ->
             TTypeKindG.Record(EqArray.map (recordField f) fields, EqArray.map (typeMember f) members)
         | TTypeKindG.Class c ->

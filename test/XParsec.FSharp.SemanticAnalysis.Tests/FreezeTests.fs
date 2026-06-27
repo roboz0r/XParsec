@@ -396,7 +396,7 @@ module private UnionCaseSyntaxHelpers =
             match d with
             | TDecl.Type td ->
                 match td.Kind with
-                | TTypeKind.Union(cs, _) -> acc.Add(td, cs)
+                | TTypeKind.Union(cs, _, _) -> acc.Add(td, cs)
                 | _ -> ()
             | _ -> ()
 
@@ -658,7 +658,7 @@ let unionMemberTests =
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Union(_, ms) } -> ValueSome(EqArray.toList ms)
+                        | TDecl.Type { Kind = TTypeKind.Union(_, ms, _) } -> ValueSome(EqArray.toList ms)
                         | _ -> ValueNone
                     )
 
@@ -696,5 +696,69 @@ let unionMemberTests =
                     )
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics for xs.Head / Lst.Empty / Lst.Single"
+            }
+        ]
+
+[<Tests>]
+let unionInterfaceImplTests =
+    // A union implementing an interface (`interface IFace with member …`) now
+    // CARRIES the impl in its frozen representation
+    // (`TTypeKind.Union(cases, members, interfaces)`) instead of being silently
+    // dropped for lack of one. Front-end only this slice — the impl resolves +
+    // conformance-checks and surfaces on the frozen union; codegen emits nothing
+    // for it yet. A project-local interface is used so the resolution does not lean
+    // on the external provider knowing any BCL interface.
+    let src =
+        String.concat
+            "\n"
+            [
+                "type IDescribe ="
+                "    abstract member Describe : unit -> int"
+                ""
+                "type U ="
+                "    | A"
+                "    | B"
+                ""
+                "    interface IDescribe with"
+                "        member this.Describe() = 1"
+            ]
+
+    testList
+        "UnionInterfaceImpl"
+        [
+            test "a union implementing a local interface surfaces the impl on TTypeKind.Union.interfaces" {
+                let tast = analyse src
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                // Pre-slice this froze as `Union(cases, members)` with the impl gone;
+                // post-slice the third positional `interfaces` carries it.
+                let interfaces =
+                    tast.Decls
+                    |> EqArray.tryFind (fun d ->
+                        match d with
+                        | TDecl.Type { Name = "U"; Kind = TTypeKind.Union _ } -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.bind (fun d ->
+                        match d with
+                        | TDecl.Type { Kind = TTypeKind.Union(_, _, ifaces) } -> ValueSome ifaces
+                        | _ -> ValueNone
+                    )
+
+                match interfaces with
+                | ValueSome ifaces ->
+                    Expect.equal ifaces.Length 1 "exactly one interface impl is carried on the frozen union"
+
+                    let (ifaceTy, members) = ifaces.[0]
+
+                    match ifaceTy with
+                    | TyClass(name, _) -> Expect.stringContains name "IDescribe" "the impl heads the IDescribe interface"
+                    | other -> failtestf "interface head is not a TyClass: %A" other
+
+                    Expect.equal members.Length 1 "the Describe member body is carried with the impl"
+                    Expect.equal members.[0].Name "Describe" "the carried member is Describe"
+                | ValueNone -> failtest "no union U carrying interface impls surfaced"
             }
         ]

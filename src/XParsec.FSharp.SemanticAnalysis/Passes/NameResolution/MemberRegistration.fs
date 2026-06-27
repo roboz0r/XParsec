@@ -865,6 +865,9 @@ module NameResolutionMemberRegistration =
                     | true, info ->
                         let unionTyparNames = [ for (n, _) in info.TypeParams -> n ]
                         info.Members <- extractMembers ctx info.DeclKey unionTyparNames elems
+                        // `interface IFace with member …` blocks on the union — the
+                        // same kind-agnostic collection the class registration uses.
+                        info.InterfaceImpls <- extractInterfaceImpls ctx unionTyparNames elems
                         info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
                     | false, _ -> ()
                 | _ -> ()
