@@ -1,14 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Multi-targeted so the compiler stack (net8.0) and Fable (netstandard2.0)
+         can both consume it as the manifest interchange; net10.0 kept for the
+         existing scratch/test usage. -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <!-- false prevents fsdocs generation -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="JsonParser.fs" />
+    <Compile Include="JsonWriter.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec\XParsec.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Collections.Immutable" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
   </ItemGroup>
 </Project>

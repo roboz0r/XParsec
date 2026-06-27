@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 0,
+  "package": "greeter",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "shout",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "message",
+              "type": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Greeter",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "greeting",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "greet",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [
+                {
+                  "name": "name",
+                  "type": {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ]
+}

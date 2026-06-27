@@ -5,7 +5,8 @@
   "type": "module",
   "main": "-",
   "scripts": {
-    "test": "dotnet fable ./test/XParsec.Tests/XParsec.Tests.fsproj -o ./test/XParsec.Tests/js -s && node ./test/XParsec.Tests/js/Main.js"
+    "test": "dotnet fable ./test/XParsec.Tests/XParsec.Tests.fsproj -o ./test/XParsec.Tests/js -s && node ./test/XParsec.Tests/js/Main.js",
+    "extractor:build": "dotnet fable ./src/Vesper.Ts.Extractor/Vesper.Ts.Extractor.fsproj -o ./src/Vesper.Ts.Extractor/dist"
   },
   "repository": {
     "type": "git",
@@ -16,5 +17,8 @@
   "bugs": {
     "url": "https://github.com/roboz0r/XParsec/issues"
   },
-  "homepage": "https://github.com/roboz0r/XParsec#readme"
+  "homepage": "https://github.com/roboz0r/XParsec#readme",
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
 }

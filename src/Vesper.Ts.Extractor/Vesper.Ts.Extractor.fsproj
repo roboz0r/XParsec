@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Fable project: compiled to JS via `dotnet fable` and run under Node. The
+       TFM is only for tooling/IDE; Fable compiles from source. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Skeleton: the ts.* binding surface is unimplemented (failwith TODO),
+         so don't fail the repo build on incomplete-match / unused warnings here. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="vendor/TypeScript.fs" />
+    <Compile Include="Extractor.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Vesper.Ts.Manifest.Schema\Vesper.Ts.Manifest.Schema.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Fable.Core" />
+  </ItemGroup>
+</Project>

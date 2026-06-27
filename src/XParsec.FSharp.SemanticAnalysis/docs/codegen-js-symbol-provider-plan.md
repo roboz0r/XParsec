@@ -69,7 +69,7 @@ The brainstorm's *file:line anchors are out of date*; the current seam:
   DU vs native anonymous union) is **decided: native**, scoped in
   the anonymous-union front-end (`TyOr`). `T | null | undefined` and general
   `number | string` map to `TyOr`, not a synthetic `Core.Js` library type (with
-  `null`/`undefined` ↦ `unit` — see the resolved subsection below). This
+  `null`/`undefined` as distinct JS intrinsics — see the resolved subsection below). This
   is the faithful TS match (TS unions *are* anonymous structural unions) and
   reuses the parser surface the CST already accepts.
 
@@ -98,7 +98,7 @@ builder closures. Not a per-lookup RPC into a live Node checker, because:
 | `unknown` | top, forbids access until narrowed | map to `obj` in v1 |
 | `never` | bottom | `TyOr []` |
 | general `number \| string` | **native union** | `TyOr [members]` |
-| `T \| null \| undefined` | **native union**, not `option` (resolved — see below) | `TyOr [T; unit]` |
+| `T \| null \| undefined` | **native union**, not `option`; `null`/`undefined` distinct intrinsics, **not** `unit` (resolved — see below) | `TyOr [T; null; undefined]` |
 | intersection `A & B` | **v1 erase; flatten later** (resolved — see below) | `obj` → later `TyRecord(hash,…)` |
 | literal `"GET" \| "POST"` | erase to base (v1); nominal enum once literal precision lands | `string`/`number` |
 | conditional/mapped (`Partial<T>`, `ReturnType<F>`) | query the *evaluated* type | concrete `SemType` snapshot; generic form lost |
@@ -116,12 +116,30 @@ therefore reintroduces **runtime marshalling at every FFI boundary** (box into
 `Some`, turn `undefined` into `None`) — destroying the zero-marshalling property
 that motivated `TyOr`, and losing the fact that the surface was a JS nullable.
 
-So: `T | null | undefined` → `TyOr [T; unit]`, erased, zero-cost. Mechanics that
-already exist: `undefined` ↦ the `unit` repr (`unit` *is* `undefined` on JS —
-`JsEmitHelpers.fs`), and `null` collapses to that same absence member, matching
-`TPatG.Null`'s `== null` (which deliberately matches both `null` and `undefined`
-— `EmitJs.fs`). Option-promotion stays available as an **opt-in `retype`
-override / backend sugar**, never baked into the neutral extractor.
+So: `T | null | undefined → TyOr [T; null; undefined]`, including exactly the
+absence members TS wrote (`T | undefined → TyOr [T; undefined]`, etc.). `null` and
+`undefined` are **JS-platform intrinsic types** (canon `"null"`/`"undefined"`, JS
+reprs `"null"`/`"undefined"`), **distinct from `unit`**.
+
+Earlier this folded `undefined ↦ unit` because both emit JS `undefined` — that was
+wrong. A codegen repr coincidence is **not** type identity (the freeze /
+backend-knowledge separation): `unit` is inhabited (`()`); `null`/`undefined`
+are absence sentinels. Folding them would make `string | undefined` interoperate
+with `string | unit` and erase the nullability the checker must reason about.
+(`TPatG.Null`'s `== null` conflation is a codegen-level pattern convenience, not
+the type-level model.)
+
+Nullability then needs **no separate machinery**: it is union membership, and
+soundness rides the directional `subsumes` layer where `TyOr` already lives —
+`T <: T|null` holds, `T|null <: T` does not, and narrowing (`!= null`,
+`!== undefined`) is union-member removal, the same operation general TS-union
+narrowing needs (deferred to that milestone). Collapsing to one `nullish`, or
+promoting to `option`, stays an **opt-in `retype`/backend transform**, never baked
+into the neutral extractor.
+
+**Follow-up:** register `null`/`undefined` as JS intrinsics (`IntrinsicRepr` + the
+JS `prim-types` companion) so they resolve and `validatePlatformTypes`-pass;
+structurally the provider already maps them as `FTConst`/`TyConst` union members.
 
 ### intersection `A & B` → erase in v1, flatten later (resolved)
 

@@ -92,7 +92,9 @@ type JsonParsers<'Input when 'Input :> IReadable<char, 'Input>> =
         }
 
     static let pHexDigit =
-        satisfyL Char.IsAsciiHexDigit ("Hex digit")
+        // Explicit range rather than Char.IsAsciiHexDigit: the latter is net7+ only
+        // and unsupported by Fable.
+        satisfyL (fun c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) "Hex digit"
         |>> function
             | c when c >= '0' && c <= '9' -> int c - int '0'
             | c when c >= 'a' && c <= 'f' -> int c - int 'a' + 10

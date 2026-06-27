@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net8.0 for the compiler-stack loader; netstandard2.0 so Fable can
+         compile it as a source dependency of the extractor. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Schema.fs" />
+    <Compile Include="Codec.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XParsec.Json\XParsec.Json.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="System.Collections.Immutable" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+  </ItemGroup>
+</Project>

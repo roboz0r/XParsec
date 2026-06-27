@@ -16,6 +16,13 @@
           "System.Collections.Immutable": "8.0.0"
         }
       },
+      "vesper.ts.manifest.schema": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.300, )",
+          "XParsec.Json": "[1.0.0, )"
+        }
+      },
       "xparsec": {
         "type": "Project",
         "dependencies": {
@@ -43,6 +50,12 @@
           "FSharp.Core": "[8.0.300, )",
           "XParsec.FSharp": "[1.0.0, )",
           "XParsec.Toml": "[1.0.0, )"
+        }
+      },
+      "xparsec.json": {
+        "type": "Project",
+        "dependencies": {
+          "XParsec": "[1.0.0, )"
         }
       },
       "xparsec.toml": {

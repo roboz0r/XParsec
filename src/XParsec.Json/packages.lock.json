@@ -14,6 +14,20 @@
         "resolved": "8.0.300",
         "contentHash": "Jv44fV7TNglyMku89lQcA4Q6mFKLyHb2bs1Yb72nvSVc+cHplEnoZ4XQUaaTLJGUTx/iMqcrkYGtaLzkkIhpaA=="
       }
+    },
+    "net8.0": {
+      "xparsec": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.300, )"
+        }
+      },
+      "FSharp.Core": {
+        "type": "CentralTransitive",
+        "requested": "[8.0.300, )",
+        "resolved": "8.0.300",
+        "contentHash": "Jv44fV7TNglyMku89lQcA4Q6mFKLyHb2bs1Yb72nvSVc+cHplEnoZ4XQUaaTLJGUTx/iMqcrkYGtaLzkkIhpaA=="
+      }
     }
   }
 }
