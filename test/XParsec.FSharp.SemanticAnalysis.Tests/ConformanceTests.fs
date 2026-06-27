@@ -217,20 +217,17 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
         // `Vesper.Core/capabilities.fsi` to break the enumerable-capability resolution
         // circularity — so it no longer drifts against `list.fs`.)
         //
-        // `ListSeq` / `ListEnumerator` are the private enumerable-adapter helpers
-        // `list.fs`'s `List.toSeq` ships — a wrapper class over the cons-list plus a
-        // `[<Struct>]` cursor (mirroring `Set` / `SetIterator`) — deliberately not in
-        // the public `list.fsi` contract. They exist because interface impls on union
-        // types are not yet supported, so the enumerable surface rides the adapter
-        // rather than `List<'T>` itself (`Set.ofList`).
+        // `ListEnumerator` is the private `[<Struct>]` cursor `List<'T>`'s
+        // `IEnumerable<'T>` impl walks — deliberately not in the public `list.fsi`
+        // contract. (The old `ListSeq` wrapper class is retired now that `List<'T>`
+        // implements `IEnumerable<'T>` directly — the cons-list IS a `seq<'T>`.)
         "Vesper.List",
         "list.fsi",
         "list.fs",
-        "ResizeArray is a BCL abbreviation; ListSeq/ListEnumerator are private toSeq adapters",
+        "ResizeArray is a BCL abbreviation; ListEnumerator is the private enumerator cursor",
         [
             Conformance.ConformanceError.MissingInImpl "ResizeArray"
             Conformance.ConformanceError.MissingInSig "ListEnumerator"
-            Conformance.ConformanceError.MissingInSig "ListSeq"
         ]
 
         // `SetTree` / `SetTreeNode` / `SetIterator` are the private AVL-tree

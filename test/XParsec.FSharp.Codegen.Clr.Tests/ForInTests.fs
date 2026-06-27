@@ -451,6 +451,23 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the value-type source in order"
             }
 
+            // §14.6 capstone (W1+W4): a BARE cons-list `[1;2;3]` — NO `:> seq` upcast —
+            // iterates over the REAL `Vesper.List` DLL. The front-end admits it because
+            // the `.fsi` union's `interface IEnumerable<'T>` now rides
+            // `ExternalTypeShape.Union.interfaces` (`tryForInEnumerator`'s union arm);
+            // codegen emits a `GetEnumerator` callvirt against `IEnumerable<int>`, which
+            // dispatches to `List<'T>`'s native impl (its `ListEnumerator` cursor walk).
+            // THE load-bearing gate: this RUNS the emitted IL (W1's shared admission
+            // could type-check yet emit a callvirt against a List that lacks the
+            // interface — a runtime fault). `runsPackages` builds Vesper.List through our
+            // own backend and runs the driver in `packageAlc`.
+            test "a BARE cons-list `for x in [1;2;3]` iterates the real Vesper.List on CLR (runtime)" {
+                let src =
+                    String.concat "\n" [ "for x in [1; 2; 3] do"; "    printfn \"%d\" x" ]
+
+                runsPackages [] "1\n2\n3" src
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

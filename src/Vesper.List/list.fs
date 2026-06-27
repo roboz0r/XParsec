@@ -29,19 +29,26 @@ type List<'T> =
         | [] -> failwith "The input list was empty."
         | _ :: t -> t
 
-and 'T list = List<'T>
+    // The cons-list IS a `seq<'T>`: it implements `IEnumerable<'T>` directly,
+    // walking its cells through the `ListEnumerator` cursor (mutual recursion
+    // `and ListEnumerator`). This retires the old `ListSeq` wrapper — `for x in xs`
+    // over a bare list now drives `GetEnumerator` on the list itself.
+    interface IEnumerable<'T> with
+        member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> IEnumerator<'T>)
 
-// Enumeration wrapper class; union types cannot directly implement IEnumerable.
+    interface IEnumerable with
+        member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> IEnumerator)
+
 // Struct enumerator: advance/read logic is inlined in interface members (a struct
-// member calling another on `this` copies `this`, losing the mutation).
-[<NoEquality; NoComparison>]
-[<Struct>]
-type ListEnumerator<'T> =
-    val mutable cursor: 'T list
+// member calling another on `this` copies `this`, losing the mutation). The `'T
+// list` abbreviation stays LAST in the rec group (mirroring the original
+// declaration order); `ListEnumerator` sits between `List` and the abbreviation.
+and [<NoEquality; NoComparison; Struct>] ListEnumerator<'T> =
+    val mutable cursor: List<'T>
     val mutable started: bool
-    val source: 'T list
+    val source: List<'T>
 
-    new(s: 'T list) =
+    new(s: List<'T>) =
         {
             cursor = s
             started = false
@@ -72,13 +79,7 @@ type ListEnumerator<'T> =
     interface IDisposable with
         member this.Dispose() = ()
 
-[<Sealed>]
-type ListSeq<'T>(source: 'T list) =
-    interface IEnumerable<'T> with
-        member _.GetEnumerator() = (new ListEnumerator<'T>(source) :> IEnumerator<'T>)
-
-    interface IEnumerable with
-        member _.GetEnumerator() = (new ListEnumerator<'T>(source) :> IEnumerator)
+and 'T list = List<'T>
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -142,8 +143,7 @@ module List =
         | [] -> []
         | h :: t -> append (rev t) (h :: [])
 
-    // `toSeq` wraps the list in the `ListSeq` enumerable adapter (the cons-list
-    // union cannot carry interface impls directly yet). `ofSeq` stays contract-only
-    // (`for x in IEnumerable`).
-    let toSeq (list: 'T list) : IEnumerable<'T> =
-        (new ListSeq<'T>(list) :> IEnumerable<'T>)
+    // `toSeq` upcasts the list directly — the cons-list IS a `seq<'T>` now that
+    // `List<'T>` implements `IEnumerable<'T>` (the `ListSeq` wrapper is retired).
+    // `ofSeq` stays contract-only (`for x in IEnumerable`).
+    let toSeq (list: 'T list) : IEnumerable<'T> = (list :> IEnumerable<'T>)

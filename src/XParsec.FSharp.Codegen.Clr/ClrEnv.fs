@@ -461,7 +461,7 @@ type internal ClrEnv
     /// The bare-vs-arity-suffixed registration split is reconciled once inside `lookupTypeByKey`.
     let externalUnionShape (key: SymbolKey) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Union(a, cases, origin)) when a = arity && origin.Assembly.IsSome ->
+        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Assembly.IsSome ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 

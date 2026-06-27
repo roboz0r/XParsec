@@ -140,4 +140,21 @@ let tests =
               | Some(code, out) ->
                   Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                   Expect.equal out "0\n1\n2" "`for x in (u :> seq<int>)` walks the union's enumerator in order"
+          }
+
+          // §14.6 capstone (W1+W3): a BARE cons-list `[1;2;3]` — NO `:> seq` upcast —
+          // iterates over the REAL `Vesper.List` JS runtime. `runJs` materialises the
+          // committed `Vesper.List.mjs` (regenerated from `list.js.fs`, now carrying the
+          // base-class `*[Symbol.iterator]()` adapter over its `ListEnumerator` cursor)
+          // beside the program, so the emitted `for…of` over the list drives the list's
+          // own iterator under Node.
+          test "a BARE cons-list `for x in [1;2;3]` iterates the real Vesper.List on JS (Node)" {
+              let src =
+                  String.concat "\n" [ "for x in [1; 2; 3] do"; "    printfn \"%d\" x" ]
+
+              match runJs "forin-bare-list" src with
+              | None -> skiptest "node not found on PATH"
+              | Some(code, out) ->
+                  Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                  Expect.equal out "1\n2\n3" "`for x in [1;2;3]` walks the list's native iterator in order"
           } ]

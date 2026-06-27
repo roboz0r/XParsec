@@ -83,8 +83,11 @@ module VesperLibTyparCapture =
         /// One field-type CST per record field, in declaration order.
         | Record of DeferredCtx * fields: Type<SyntaxToken>[]
         /// One field-type CST array per union case (in case order), each indexed
-        /// by the case's fields.
-        | Union of DeferredCtx * cases: Type<SyntaxToken>[][]
+        /// by the case's fields, plus the union's directly-declared `interface
+        /// <type>` impl CSTs (frozen into the shape's `interfaces` field — the union
+        /// analogue of the `Class` arm's `interfaces`, so a bare cons-list's
+        /// `interface seq<'T>` reaches `tryForInEnumerator`). `[]` interfaces ⇒ none.
+        | Union of DeferredCtx * cases: Type<SyntaxToken>[][] * interfaces: Type<SyntaxToken> list
         /// A class's `inherit <type>` base CST (if any), its directly-declared
         /// `interface <type>` impl CSTs, and its `new: … -> T` constructor
         /// signatures — frozen by the finalize pass into the shape's
@@ -346,7 +349,7 @@ module VesperLibTyparCapture =
                     // would shadow a user union's same-named ctor. This exclusion is
                     // what the old `op_Nil`/`op_ColonColon` extraction form provided.
                     | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName kv.Key -> ()
-                    | ExternalTypeShape.Union(arity, cases, origin) ->
+                    | ExternalTypeShape.Union(arity, cases, _, origin) ->
                         let rqa = ctx.RqaTypes.Contains kv.Key
 
                         for case in cases do

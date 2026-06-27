@@ -196,7 +196,7 @@ module EmitJs =
             | ValueNone -> ValueNone
             | ValueSome provider ->
                 match ExternalSymbols.tryLookupType provider key with
-                | ValueSome(ExternalTypeShape.Union(_, cases, _)) ->
+                | ValueSome(ExternalTypeShape.Union(_, cases, _, _)) ->
                     let baseName = SymbolKeyOps.simpleName key
 
                     let home =
@@ -260,7 +260,7 @@ module EmitJs =
                     match ctx.Provider with
                     | ValueSome provider ->
                         match ExternalSymbols.tryLookupType provider key with
-                        | ValueSome(ExternalTypeShape.Union(_, _, o))
+                        | ValueSome(ExternalTypeShape.Union(_, _, _, o))
                         | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
                         | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
                         | _ -> None

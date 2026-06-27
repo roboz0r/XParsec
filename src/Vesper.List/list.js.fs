@@ -40,7 +40,50 @@ type List<'T> =
     | ([]): 'T list
     | (::): Head: 'T * Tail: 'T list -> 'T list
 
+    // The cons-list IS a `seq<'T>`: its `IEnumerable<'T>` impl lands on the base
+    // class `List` (a JS union value is a case-subclass instance, so the
+    // `*[Symbol.iterator]()` adapter must be inherited by every case), driving the
+    // `ListEnumerator` cursor. `for x in xs` over a bare list now drives this — no
+    // `:> seq` upcast. Because the JS union emits NO `.Head`/`.Tail` accessors, the
+    // enumerator walks the cells with cons-pattern `match`, not member access.
+    interface System.Collections.Generic.IEnumerable<'T> with
+        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> =
+            (new ListEnumerator<'T>(this) :> System.Collections.Generic.IEnumerator<'T>)
+
 and 'T list = List<'T>
+
+// JS-target cons enumerator: a `val mutable` cursor walked by `MoveNext`/`Current`
+// (the duck-typed protocol the `*[Symbol.iterator]()` generator adapter drives).
+// `started` makes the first `MoveNext` "start" the walk (cursor stays at the head);
+// each later call advances to the tail. Mirrors `list.fs`'s `ListEnumerator` but
+// pattern-matches the cons cells (no `.Head`/`.IsEmpty` members on the JS union).
+and ListEnumerator<'T> =
+    val mutable cursor: 'T list
+    val mutable started: bool
+
+    new(s: 'T list) = { cursor = s; started = false }
+
+    interface System.Collections.Generic.IEnumerator<'T> with
+        member this.MoveNext() : bool =
+            if this.started then
+                match this.cursor with
+                | [] -> false
+                | _ :: t ->
+                    this.cursor <- t
+                    match this.cursor with
+                    | [] -> false
+                    | _ :: _ -> true
+            else
+                this.started <- true
+
+                match this.cursor with
+                | [] -> false
+                | _ :: _ -> true
+
+        member this.Current : 'T =
+            match this.cursor with
+            | [] -> failwith "The input list was empty."
+            | h :: _ -> h
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

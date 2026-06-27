@@ -486,7 +486,7 @@ module VesperLib =
                         )
 
                     ExternalTypeShape.Record(arity, fields', origin)
-                | ExternalTypeShape.Union(arity, cases, origin), (true, DeferredBody.Union(dc, caseCsts)) ->
+                | ExternalTypeShape.Union(arity, cases, _, origin), (true, DeferredBody.Union(dc, caseCsts, ifaceCsts)) ->
                     let cases' =
                         cases
                         |> Array.mapi (fun i c ->
@@ -495,7 +495,16 @@ module VesperLib =
                             }
                         )
 
-                    ExternalTypeShape.Union(arity, cases', origin)
+                    // Freeze the union's `interface <ty>` impls into `(name, args)`
+                    // pairs (the `Class` arm's `FrozenInterfaces` step, mirrored) so
+                    // `tryForInEnumerator` can match a bare cons-list's `interface
+                    // seq<'T>` against the enumerable capability.
+                    let frozenIfaces =
+                        ifaceCsts
+                        |> List.choose (fun t -> nominalInterface (freezeBodyType ctx dc t))
+                        |> List.toArray
+
+                    ExternalTypeShape.Union(arity, cases', frozenIfaces, origin)
                 | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev(dc, rhs)) ->
                     ExternalTypeShape.Abbrev(arity, freezeBodyType ctx dc rhs)
                 // A class's deferred `inherit <type>` base + `interface <type>` impls,
@@ -954,6 +963,7 @@ module VesperLib =
         (arity: int)
         (typeName: TypeName<SyntaxToken>)
         (cases: UnionTypeCases<SyntaxToken>)
+        (interfaces: Type<SyntaxToken> list)
         : unit =
         let collector = collectorForTypeName lexed input typeName
         let caseShapes = ResizeArray<ExternalCaseShape>(cases.Length)
@@ -1060,7 +1070,10 @@ module VesperLib =
             // `Origin` is filled later by `ReferencedProject.wrap` (which knows the
             // package's assembly + namespace from the manifest); the extractor
             // records `Empty`.
-            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), SymbolOrigin.Empty)
+            // `interfaces` start empty; the finalize pass freezes the deferred
+            // `interface <ty>` CSTs into them (forward-references resolve once the
+            // registry is complete, exactly as the `Class` arm does).
+            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), [||], SymbolOrigin.Empty)
 
             ctx.DeferredBodies.[compiled] <-
                 DeferredBody.Union(
@@ -1070,7 +1083,8 @@ module VesperLib =
                         Opens = opens
                         Typars = collector
                     },
-                    caseCsts.ToArray()
+                    caseCsts.ToArray(),
+                    interfaces
                 )
 
     /// Extract the augmentation `member`s declared inside a type body's
@@ -1339,7 +1353,24 @@ module VesperLib =
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
-                extractUnionBody ctx file lexed input opens compiled arity typeName cases
+                // A union's trailing `with interface <ty> with …` impls ride the
+                // shared extension-elements list (no union-specific parser field);
+                // capture the `interface <ty>` head types so the finalize pass can
+                // freeze them into the union shape's `interfaces` (the `Class` arm's
+                // `interfaces` capture, mirrored). The impl bodies (the `member`
+                // elements) still flow through `extractTypeMembers`.
+                let interfaceCsts =
+                    match extensions with
+                    | ValueSome(TypeExtensionElementsSignature(_, elems, _)) ->
+                        [
+                            for e in elems do
+                                match e with
+                                | TypeSignatureElement.Interface(InterfaceSpec(typ = t)) -> t
+                                | _ -> ()
+                        ]
+                    | ValueNone -> []
+
+                extractUnionBody ctx file lexed input opens compiled arity typeName cases interfaceCsts
 
                 match extensions with
                 | ValueSome(TypeExtensionElementsSignature(_, elems, _)) ->

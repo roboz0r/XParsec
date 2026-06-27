@@ -436,7 +436,7 @@ module VesperLibTypeTranslate =
             | None -> ctx.HomeAssembly
 
         match ExtractCtx.shapeOf ctx compiled with
-        | ValueSome(ExternalTypeShape.Union(_, _, origin)) ->
+        | ValueSome(ExternalTypeShape.Union(_, _, _, origin)) ->
             FTUnion(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Class info) ->
             FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)

@@ -348,7 +348,7 @@ let tests =
                 // `Union` shape) at extraction time. The corpus's
                 // real cross-package references are all abbreviations to unresolvable
                 // BCL/GADT types, so this synthetic fixture exercises the path directly.
-                let widgetShape = ExternalTypeShape.Union(1, [||], SymbolOrigin.Empty)
+                let widgetShape = ExternalTypeShape.Union(1, [||], [||], SymbolOrigin.Empty)
 
                 let ambient name =
                     if name = "Dep.Widget" then
@@ -900,7 +900,7 @@ let tests =
                     found
 
                 match thingShape with
-                | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
+                | ValueSome(ExternalTypeShape.Union(arity, cases, _, _)) ->
                     Expect.equal arity 1 "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases extracted"
                     Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"
@@ -1149,7 +1149,7 @@ let tests =
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.Result`2" with
                 | ValueNone -> failtest "Result shape not found"
-                | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
+                | ValueSome(ExternalTypeShape.Union(arity, cases, _, _)) ->
                     Expect.equal arity 2 "Result has two typars"
 
                     let names = cases |> Array.map (fun c -> c.Name) |> Array.sort
@@ -1209,7 +1209,7 @@ let tests =
                 | _ -> failtest "option abbrev not found"
 
                 match provider.TryLookupType "Microsoft.FSharp.Core.Result`2" with
-                | ValueSome(ExternalTypeShape.Union(arity, cases, _)) ->
+                | ValueSome(ExternalTypeShape.Union(arity, cases, _, _)) ->
                     for c in cases do
                         c.FrozenFieldTypes
                         |> Array.iteri (fun i ft -> checkTemplate (sprintf "Result.%s field %d" c.Name i) arity ft)

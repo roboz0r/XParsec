@@ -635,6 +635,34 @@ module internal UnificationInferControlFlow =
                 match tryLocalDuckTypedEnumerator ctx nameKey args with
                 | ValueSome r -> ValueSome r
                 | ValueNone -> tryLocalInterfaceEnumerator ctx nameKey args
+        // A nominal UNION source (a bare cons-list `[1;2;3]` is `TyUnion(List, [elem])`).
+        // The external union carries its directly-declared `interface <ty>` impls in
+        // `ExternalTypeShape.Union.interfaces` (the `.fsi` union's `interface seq<'T>`);
+        // match that against the enumerable capability exactly as the class arm does,
+        // returning the boxing `Interface` enumerator (the union's `GetEnumerator` impl
+        // is dispatched through `IEnumerable<'T>` — `List` implements it on both targets).
+        | TyUnion(nameKey, args) ->
+            match ExternalSymbols.tryLookupType ctx.Provider nameKey with
+            | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _)) ->
+                let argArr = args.AsSpan().ToArray()
+
+                match
+                    ExternalSymbols.instantiateUnionInterfaces interfaces argArr
+                    |> Array.tryPick (fun (n, ta) ->
+                        let matchesEnumerable =
+                            match ctx.CapabilityIds.Enumerable with
+                            | ValueSome en -> en.MatchesName n
+                            | ValueNone -> false
+
+                        if matchesEnumerable && ta.Length = 1 then
+                            Some ta.[0]
+                        else
+                            None
+                    )
+                with
+                | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
+                | None -> ValueNone
+            | _ -> ValueNone
         // Rung-3: a *generic typar* source (`'S :> ISeq`/`IStructSeq<'E>`) — resolve
         // its enumerable surface through the `Coercion` constraint, dispatching
         // `GetEnumerator` via `constrained. callvirt` (the zero-alloc struct path).
@@ -654,6 +682,28 @@ module internal UnificationInferControlFlow =
         // recovered from its interface set and the loop pattern unified with it.
         let srcTy = infer ctx src
         let patTy = inferPat ctx pat
+
+        // A bare list-literal source (`for x in [1;2;3]`) is left flexible by R3
+        // (`listLiteralTy` registers it in `ctx.ListLiterals`, deferring the
+        // FSharpList-vs-Vesper choice to `resolveListLiterals`). The for-in needs the
+        // source pinned NOW to read its enumerable surface, and the only list the
+        // compiler emits is the Vesper cons-list — which implements `seq<'T>` (§14.6).
+        // So pin the literal to `TyUnion(vesperListKey, [elem])` here, exactly the flip
+        // a `List.fold` consumer triggers — and the union arm of `tryForInEnumerator`
+        // then admits it. (`1 :: 2 :: 3 :: []` already types as the Vesper union, so it
+        // bypasses this and is admitted directly.)
+        (match zonk srcTy with
+         | TyVar tv ->
+             let root = UnionFind.find tv
+
+             let litElem =
+                 ctx.ListLiterals
+                 |> Seq.tryPick (fun (lv, elemTy) -> if UnionFind.find lv = root then Some elemTy else None)
+
+             match litElem with
+             | Some elemTy -> unify ctx key srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
+             | None -> ()
+         | _ -> ())
 
         let isRangeSource =
             match src with

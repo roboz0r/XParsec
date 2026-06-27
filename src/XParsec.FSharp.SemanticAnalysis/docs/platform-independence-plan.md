@@ -1162,13 +1162,23 @@ deferred. Also `List`'s `.fsi` `interface IEnumerable` is **vestigial today**:
   `tryForInEnumerator` gains an `ExternalTypeShape.Union` arm (mirror the `Class` arm,
   `InferControlFlow.fs:601-629`) → `ForInEnumeratorG.Interface`. This admits the bare list on
   BOTH targets, so it MUST ship with W4.
-- **W3 (JS) + W4 (CLR) `List` impl.** `list.js.fs` + `list.fs` union implement
+- **W3 (JS) + W4 (CLR) `List` impl. — DONE.** `list.js.fs` + `list.fs` union implement
   `interface seq<'T> with member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> _)`
   (mutual-recursion `and ListEnumerator`, a `val mutable` cursor walking the cons cells via
-  `match`); retire `ListSeq`/`toSeq`-via-wrapper. *Gate (the real one):* a CLR **runtime**
-  test AND a JS `runJs` both iterating a bare `[1;2;3]` → `1\n2\n3`, full suites green.
-  **Risk:** W1's shared nature silently generating broken CLR IL — gate on a CLR *run*, not
-  just type-check.
+  `match`); `ListSeq` retired, `List.toSeq` is now `xs :> seq<'T>`. CLR `ListEnumerator`
+  survives (private impl cursor; conformance known-drift updated). *Gate (the real one)
+  PASSED:* CLR `runsPackages [] "1\n2\n3"` over the real `Vesper.List.dll` AND JS `runJs`,
+  both iterating a bare `[1;2;3]` (no `:> seq`) → `1\n2\n3`. All suites green
+  (Clr 1055, Js 170, SemA 632, Vesper.Tests 49).
+  - **W1 follow-on (list-literal flip).** A consumer's `[1;2;3]` is a flexible list literal
+    (R3), not the Vesper union, so `for x in [1;2;3]` would not reach the union arm. Added a
+    pin in `inferForIn`: a list-literal for-in source flips to `TyUnion(vesperListKey,[elem])`
+    (the same flip a `List.fold` consumer triggers), then the union arm admits it. `1::2::3::[]`
+    bypasses this (types as the union directly).
+  - **list.fs ordering gotcha:** the `'T list` postfix abbreviation must stay LAST in the
+    `type List … and ListEnumerator … and 'T list = List<'T>` rec group; inserting it mid-chain
+    leaves the abbreviation unexpanded (`Cons` field freezes to `FTConst("list")`, codegen
+    encode failure).
 
 5. **Records (follow-up).** Thread `ext` into `tryRecordType` + `registerRecordMembers`; reuse
    everything; the record's single `JsStatement.Class` needs no new emission shape.

@@ -394,7 +394,12 @@ type ExternalTypeShape =
     /// assembly + namespace); the inner extractor records `SymbolOrigin.Empty`.
     /// Codegen reads it to mint a `TypeRef` for the case factories on a
     /// cross-package `Some`/`None` construction exactly as `Record` does for `RecordCons`.
-    | Union of arity: int * cases: ExternalCaseShape[] * origin: SymbolOrigin
+    /// `interfaces` are the union's directly-declared `interface <ty>` impls as
+    /// `(compiled-name, type-args)` pairs (each interface's args with the declaring
+    /// typars baked as `FTTypar(Declaring,i)`) — the union analogue of
+    /// `ExternalClassShape.FrozenInterfaces`. It lets `tryForInEnumerator` admit a
+    /// bare cons-list whose `.fsi` union declares `interface seq<'T>`.
+    | Union of arity: int * cases: ExternalCaseShape[] * interfaces: (string * FrozenType[])[] * origin: SymbolOrigin
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
     /// `ValueNone` today). The members / interfaces / base-type / flags ride
     /// inside `ExternalClassShape`, lifted out of the DU header so interface
@@ -776,6 +781,17 @@ module ExternalSymbols =
         shape.FrozenInterfaces
         |> Array.map (fun (name, fts) -> name, fts |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs))
 
+    /// Realise a *union*'s directly-implemented interfaces (the
+    /// `ExternalTypeShape.Union.interfaces` field) as `(compiled-name, type-args)`
+    /// pairs — the union analogue of `instantiateInterfaces` so `tryForInEnumerator`
+    /// can read a bare cons-list's `interface seq<'T>` declaration.
+    let instantiateUnionInterfaces
+        (interfaces: (string * FrozenType[])[])
+        (declaringArgs: SemType[])
+        : (string * SemType[])[] =
+        interfaces
+        |> Array.map (fun (name, fts) -> name, fts |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs))
+
     /// Realise a class's declared base type, if any. The data-form replacement
     /// for `shape.BaseType |> ValueOption.map (fun b -> b args)`.
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
@@ -923,7 +939,7 @@ module ExternalSymbols =
                     match shape with
                     | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
-                    | ExternalTypeShape.Union(arity, cases, _) -> ExternalTypeShape.Union(arity, cases, o)
+                    | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
                     | ExternalTypeShape.Abbrev _
                     | ExternalTypeShape.Intrinsic _
                     | ExternalTypeShape.Opaque _ -> shape
