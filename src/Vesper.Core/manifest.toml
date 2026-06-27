@@ -43,6 +43,7 @@ files = [
     "prim-types-attr.fsi",
     "compiler-attributes.fsi",
     "core-types.fsi",
+    "capabilities.fsi",
     "structural-format.fsi",
     "ops-platform.fsi",
     "ops-std.fsi",

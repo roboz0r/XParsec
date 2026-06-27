@@ -1,0 +1,30 @@
+namespace       'namespace'       KWNamespace         tok=   0  pos=   0
+                'Vesper'          Identifier          tok=   2  pos=  10
+  Type:
+    type        'type'            KWType              tok=  50  pos=1397
+    TypeSig.Extern:
+      TypeName  'disposable'      Identifier          tok=  52  pos=1402
+      =         '='               OpEquality          tok=  54  pos=1413
+      extern    'extern'          KWExtern            tok=  56  pos=1415
+  Type:
+    type        'type'            KWType              tok=  67  pos=1623
+    TypeSig.Extern:
+      TypeName  'equatable'       Identifier          tok=  69  pos=1628
+      TyparDefns:
+        <       '<'               op_LessThan         tok=  70  pos=1637
+        Typar.Named:
+                ''T'              TypeParameter       tok=  71  pos=1638
+        >       '>'               op_GreaterThan      tok=  72  pos=1640
+      =         '='               OpEquality          tok=  74  pos=1642
+      extern    'extern'          KWExtern            tok=  76  pos=1644
+  Type:
+    type        'type'            KWType              tok=  87  pos=1857
+    TypeSig.Extern:
+      TypeName  'comparable'      Identifier          tok=  89  pos=1862
+      TyparDefns:
+        <       '<'               op_LessThan         tok=  90  pos=1872
+        Typar.Named:
+                ''T'              TypeParameter       tok=  91  pos=1873
+        >       '>'               op_GreaterThan      tok=  92  pos=1875
+      =         '='               OpEquality          tok=  94  pos=1877
+      extern    'extern'          KWExtern            tok=  96  pos=1879

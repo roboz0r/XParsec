@@ -113,6 +113,38 @@ let tests =
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
+            test "the language-capability anchors resolve as Intrinsic shapes carrying their CLR repr" {
+                // commit 3b: `capabilities.fsi` declares `disposable`/`equatable`/
+                // `comparable` as bare `extern`, paired with their `capabilities.fs`
+                // `(# "<BCL interface>" #)` reprs. Each surfaces as an `Intrinsic`:
+                // `canon` is the `.fsi` short name, `platform` is the CLR interface
+                // name. The generic ones (`equatable`/`comparable`) carry the metadata
+                // backtick-arity suffix in BOTH the lookup name (`Vesper.equatable`1`,
+                // arity-suffixed compiled name) and the `platform` repr
+                // (``System.IEquatable`1``) — exactly the string the resolver matches
+                // against `instantiateInterfaces` for `disposable === System.IDisposable`
+                // reconciliation. The reverse-canon entry (`platform -> canon`) feeds
+                // `Engine.canonName`. (Iteration has no anchor here — it rides the
+                // existing `seq` abbreviation; see `ExternalSymbols.resolveCapabilities`.)
+                let provider, _ = builtProvider.Value
+
+                let expectIntrinsic (lookup: string) (canonExpected: string) (platformExpected: string) =
+                    match provider.TryLookupType lookup with
+                    | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
+                        Expect.equal canon canonExpected (sprintf "%s canon is its `.fsi` short name" lookup)
+                        Expect.equal platform platformExpected (sprintf "%s platform is its `.fs` CLR repr" lookup)
+
+                        Expect.equal
+                            (Map.tryFind platformExpected provider.IntrinsicReverseCanon)
+                            (Some canonExpected)
+                            (sprintf "reverse-canon maps %s -> %s" platformExpected canonExpected)
+                    | other -> failtestf "expected %s as an Intrinsic shape, got %A" lookup other
+
+                expectIntrinsic "Vesper.disposable" "disposable" "System.IDisposable"
+                expectIntrinsic "Vesper.equatable`1" "equatable" "System.IEquatable`1"
+                expectIntrinsic "Vesper.comparable`1" "comparable" "System.IComparable`1"
+            }
+
             test "Fun resolves (qualified) as a Class shape with a non-empty Origin" {
                 let provider, _ = builtProvider.Value
 
