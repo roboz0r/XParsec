@@ -377,8 +377,22 @@ module TypeSignature =
 
                 | Token.KWExtern ->
                     // `type int = extern` — intrinsic primitive (no Vesper representation).
+                    // Optional `with member … / interface …` publishes the capability
+                    // surface a later extractor consumes; parsed unconditionally here —
+                    // the opt-in gate lives at the extractor, not the parser.
                     let! ext = pExtern
-                    return TypeSignature.Extern(typeName, equals, ext)
+
+                    let! members =
+                        opt (
+                            choiceL
+                                [
+                                    TypeExtensionElementsSignature.parse
+                                    TypeExtensionElementsSignature.parseLight
+                                ]
+                                "Type Extension"
+                        )
+
+                    return TypeSignature.Extern(typeName, equals, ext, members)
 
                 | _ when isImplicitClassStart next ->
                     // Implicit anonymous body: no explicit class/struct/begin keyword.

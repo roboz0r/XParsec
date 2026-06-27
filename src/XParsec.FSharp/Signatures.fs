@@ -107,8 +107,14 @@ type TypeSignature<'T> =
     // Intrinsic primitive signature: `type int = extern`. Declares "the target
     // provides this; there is no Vesper representation" — the impl-side pair is a
     // `TypeDefn.Abbrev` whose RHS is `Type.ILIntrinsic`. Distinct from `AbstractType`
-    // (opaque/abstract) and from `Abbrev` (a real type alias).
-    | Extern of typeName: TypeName<'T> * equals: 'T * externToken: 'T
+    // (opaque/abstract) and from `Abbrev` (a real type alias). The optional trailing
+    // `with member … / interface …` (same surface as `Record`'s extension) publishes
+    // the capability surface a later extractor consumes; `ValueNone` is the bare form.
+    | Extern of
+        typeName: TypeName<'T> *
+        equals: 'T *
+        externToken: 'T *
+        members: TypeExtensionElementsSignature<'T> voption
 
 // Represents: type-signatures := type-signature ... and ... type-signature
 // The first item has no preceding 'and'; subsequent items each carry their 'and' token.
