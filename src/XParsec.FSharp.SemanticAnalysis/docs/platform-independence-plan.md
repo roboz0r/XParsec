@@ -484,8 +484,10 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
   backend+provider work out of this sprint's scope (per §9's "its own tracked effort").
 - **REMAINING in this sprint:** 3b (declare the capabilities in `Vesper.Core` `.fsi` + per-target
   `.fs`) and 9 (delete the four literals, provider-resolve `CapabilityIds`). Architectural +
-  shipping-contract; design-first (the CLR premise: how a neutral capability key still lowers to
-  `System.IDisposable::Dispose` through the backend).
+  shipping-contract; investigated and designed in **§13 (NEXT SESSION STARTS HERE)** — the CLR
+  premise is confirmed: it rides the `exn === System.Exception` intrinsic-repr reconciliation,
+  which already generalizes to interfaces. §13 has the concrete file changes, the resolver
+  relocation, the gates, and the three open sub-decisions.
 
 ### Commit-by-commit
 
@@ -759,3 +761,136 @@ what lets the contract express the shapes the JS provider answers, so the JS arm
 commits 5/7) build on it too. Per §10: §5.0 mechanism → `extern with` parser/AST (own commit,
 opt-in gate) → extractor + capability interfaces in core `.fsi` → per-capability slices
 (front-end commit + adjacent JS-arm commit) → §5.4 deletes the literals last.
+
+---
+
+## 13. Commit 3b + 9 — the finale design (NEXT SESSION STARTS HERE)
+
+**Self-contained.** Commits 1, 2, 3a, 6 have landed; commits 4/8 are subsumed by commit 1;
+the JS arms (5/7) are a deferred follow-on. What remains is **3b** (declare the four
+capability identities in the `Vesper.Core` contract so the provider can resolve them) and
+**9** (delete the four CLR literals; resolve `CapabilityIds` from the provider). This section
+is the investigated, ready-to-implement design. All premises below were verified against the
+code in the session that wrote this.
+
+### 13.1 The mechanism is the `exn === System.Exception` intrinsic-repr reconciliation
+
+The front end already treats canonical `exn` as equivalent to BCL `System.Exception`, and the
+machinery **generalizes to interfaces and generic interfaces** — verified:
+- `subtypeNominalOf` (`Engine.fs:504-512`) and `subtypeInterfacesOf` (`Engine.fs:571-576`)
+  run *every* metadata nominal/interface through `canonName` before comparison. `canonName`
+  (`Engine.fs:420-449`) folds a BCL platform name back to the canon via the `{platform->canon}`
+  reverse map (`PassContext.IntrinsicReverseCanon`, `SideTables.fs:1121-1134`; provider face
+  `IExternalSymbolProvider.IntrinsicReverseCanon`, built at `TyparCapture.fs:373-381`).
+- Nothing special-cases `exn`. A type whose metadata `GetInterfaces()` yields
+  `System.IDisposable` **will** match a canonical `disposable` — *iff* a reverse-map entry
+  `"System.IDisposable" -> "disposable"` exists. Generic interfaces work too (the canon string
+  is name-only; type args are a separate invariant-checked axis), contingent on the repr
+  string matching the metadata name exactly.
+
+This is what "the CLR symbol provider assists semantic analysis to understand
+`disposable === System.IDisposable` for casts and interface constraints" means concretely —
+it already exists. 3b just feeds it the data.
+
+### 13.2 The reverse-map entry comes ONLY from an `(# ... #)` intrinsic-repr — NOT a bare abbreviation
+
+Critical, and the one place the implementation differs from the informal description:
+- `harvestIntrinsicReprsInto` (`VesperLib.fs:1681-1707`) collects **only** `(# "<repr>" #)`
+  forms. A bare `type disposable = System.IDisposable` abbreviation in the `.fs` is **not**
+  harvested, contributes **no** reverse-canon entry, and yields **no** reconciliation.
+- The reverse map is built from `Intrinsic(canon, platform=Some p) when p <> canon` shapes
+  (`TyparCapture.fs:373-381`). So the CLR `.fs` companion MUST be the intrinsic-repr form:
+  `type disposable = (# "System.IDisposable" #)`.
+- Declaration mirrors `exn` exactly (verified `prim-types-exn.{fsi,fs,js.fs}`):
+  `.fsi` -> `type exn = extern`; CLR `.fs` -> `type exn = (# "System.Exception" #)`; JS
+  `.fs` -> `type exn = (# "Error" #)`. The per-target `.fs` is picked by **filename
+  convention** (`<base>.fs` for CLR, `<base>.js.fs` for JS — `ReferencedProject.fs:428-441`),
+  NOT a manifest key.
+
+### 13.3 The Intrinsic-vs-members conflict — and why 3b is CLR-complete WITHOUT it
+
+An `(# ... #)` repr sets `isIntrinsic = true` (`VesperLib.fs:1380`), routing extraction to the
+`Intrinsic` branch — which **drops the `extern with` member surface** (the deferred TODO at
+`VesperLib.fs:1402-1405`, the StringIntrinsics / Intrinsic-carrying-members case commit 3a
+deferred). So a capability declared `extern with member Dispose …` + CLR `.fs`
+`(# "System.IDisposable" #)` reconciles identity correctly **but its declared `Dispose` member
+is dropped on the CLR contract layer.**
+
+That is **fine for 3b/9**, because:
+- CLR identity resolution needs only the `Intrinsic` platform face (the reverse-map entry),
+  NOT the member surface — CLR gets members from metadata.
+- The member surface matters only for **JS structural probing** (deferred commits 5/7), where
+  the JS provider can't read members from metadata. That needs the Intrinsic-carrying-members
+  migration (§12.3) first — part of the deferred JS effort, not 3b.
+
+⇒ **3b decision:** declare the four capability types as bare `extern` (no `with` — the member
+surface would silently not extract on CLR anyway); add `extern with member …` later as part of
+the JS work when the Intrinsic-carrying-members migration lands. The CLR `.fs` carries the
+`(# ... #)` repr.
+
+### 13.4 Concrete 3b changes (contract)
+
+A dedicated `capabilities.{fsi,fs}` is cleaner than extending `core-types`:
+- **`src/Vesper.Core/capabilities.fsi`** (target-neutral): `type disposable = extern`,
+  `type equatable<'T> = extern`, `type comparable<'T> = extern`. (Iteration: `seq<'T>` already
+  exists — `Vesper.List/list.fsi:135`, an ABBREVIATION for `IEnumerable<'T>`; see §13.6.1.)
+- **`src/Vesper.Core/capabilities.fs`** (CLR repr — the reconciliation source):
+  `type disposable = (# "System.IDisposable" #)`, `type equatable<'T> = (# "System.IEquatable\`1" #)`,
+  `type comparable<'T> = (# "System.IComparable\`1" #)`. **VERIFY the exact repr string** the
+  metadata provider surfaces (arity-suffix spelling, namespace) — the reconciliation is an exact
+  string match. `IComparable` may need BOTH generic `` IComparable`1 `` and non-generic
+  `System.IComparable` (the `[<CustomComparison>]` rule targets the generic; metadata may surface
+  either).
+- **`src/Vesper.Core/manifest.toml`**: add `"capabilities.fsi"` to `files` (lines 33-50) — only
+  listed `.fsi` are parsed. The `.fs` is discovered by filename convention; need NOT be in `impl`.
+- **JS `.fs`** (`capabilities.js.fs`) is DEFERRED with the JS arms (without it these get
+  `platform = None` on a JS build, which `PlatformTypes` flags — fine, JS is out of scope).
+
+### 13.5 Concrete 9 changes (resolver + literal deletion)
+
+- **Compile-order problem (same as commit 1):** `RuntimeNames.fs` (fsproj line 15) compiles
+  BEFORE `ExternalSymbols.fs` (line 25), so `resolveCapabilities` **cannot name
+  `IExternalSymbolProvider` while in `RuntimeNames`**. ⇒ **Move the resolver** to a module
+  compiled after `ExternalSymbols.fs` (`SideTables.fs`, where `PassContext` already calls it,
+  or a helper in `ExternalSymbols.fs`). The `CapabilityIdentity`/`CapabilityIds` **types** stay
+  in `RuntimeNames` (they name only `SymbolKey` + `string`).
+- **New resolver (sketch):** for each capability, `provider.TryLookupType canonName` ->
+  `ExternalTypeShape.Intrinsic(platform = Some fqn)` -> build the identity by splitting the BCL
+  `fqn` into ns + name for the `Key` and using `fqn` as `QualifiedName`. `ValueNone` if the
+  provider doesn't name it. The recognizers already compare `QualifiedName` against
+  `instantiateInterfaces` output and `Key` asm-blind — both satisfied (asm is a don't-care;
+  `sameTypeAsmBlind` ignores it).
+- **Delete** the four literal keys `ienumerableKey`/`idisposableKey`/`iequatableKey`/
+  `icomparableKey` (`RuntimeNames.fs:124-143`).
+- **Resolve-on-use, not at-construction (§5.4):** make `CapabilityIds` hold
+  `CapabilityIdentity voption` per capability; recognizer SITES emit a graceful diagnostic on
+  `ValueNone` (capability exercised but unnamed). Do NOT eagerly fail in the `PassContext` ctor —
+  that would force every minimal fixture to declare all four.
+
+### 13.6 Open sub-decisions for the next session
+
+1. **Enumerable resolution path.** `seq<'T>` is an *abbreviation* (transparent), so
+   `TryLookupType "seq"` returns `Abbrev`, not `Intrinsic`. Options: (a) read the `seq` Abbrev
+   body's `IEnumerable` key; or (b) add an `iterable = extern` intrinsic to `capabilities` with
+   `(# "System.Collections.Generic.IEnumerable\`1" #)` and resolve all four uniformly via the
+   Intrinsic platform face. **Recommend (b)** for one code path (it duplicates the IEnumerable
+   identity, but uniformity wins).
+2. **Exact repr strings.** Probe what `MetadataSymbols`/`instantiateInterfaces` emit for
+   `System.IDisposable` / `` IEquatable`1 `` / `` IComparable`1 `` / `IComparable` and match the
+   `(# ... #)` reprs byte-for-byte.
+3. **MockBuiltins cost (§5.4).** The 629 `SemanticAnalysis.Tests` run on `MockBuiltins`, which
+   does NOT name the capabilities and DOES exercise the FS0378 custom-eq/comp goldens. After the
+   literals are deleted those resolve `ValueNone` and would error. Either add the capability
+   intrinsics to `MockBuiltins` or switch the affected goldens to a provider that has them.
+   Enumerate the affected tests first.
+
+### 13.7 Gate for 3b + 9
+- **3b alone:** a contract-extraction test (à la commit 3a's `VesperLibTests`) that
+  `TryLookupType "disposable"` returns `Intrinsic(platform = Some "System.IDisposable")` and that
+  `IntrinsicReverseCanon` carries `"System.IDisposable" -> "disposable"`.
+- **9:** full `SemanticAnalysis.Tests` (after the MockBuiltins fix) **and** full
+  `Codegen.Clr.Tests` (1052 today) — `use`-over-external-disposable (`UseTests.fs:105`) and
+  `for-in` disposable (`ForInTests.fs:348`) now exercise the *provider-resolved* path
+  end-to-end. Green there is the terminal proof the four literals are gone with zero CLR
+  regression. `buildContract defaultManifests` already reads `src/Vesper.Core/manifest.toml`
+  first, so `capabilities.fsi` flows in with no test wiring.
