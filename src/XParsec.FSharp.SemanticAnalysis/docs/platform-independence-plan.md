@@ -493,15 +493,20 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
   `IEnumerable`), and the FS0378 check reads `CapabilityIds` directly. Their gates — the 1052
   `Codegen.Clr.Tests` `ForInTests` and the FS0378 goldens in the 629 `SemanticAnalysis.Tests` —
   are green. So the only substantive front-end leak was commit 6 (`Infer.fs:132`), now fixed.
-- **JS arms (commits 5, 7) DEFERRED to a separate follow-on effort** (decided). `JsNativeSymbols`
-  is a hand-authored stub (only `Error`), the `tsc`-extracted JS provider doesn't exist, and
-  `EmitJs` has no `ForIn`/`Use` arm or `TryFinally` node — building all three is net-new
-  backend+provider work out of this sprint's scope (per §9's "its own tracked effort").
-- **REMAINING (out of Tier 2, deferred follow-ons):** the JS emission arms (commits 5/7 — `ForIn`/
-  `Use` lowering + `TryFinally` node + the `tsc` JS provider), the §5.3b structural eq/comp reframe,
-  and Tier 3 (tuple-arity). None block the Tier 2 de-CLR, which is done. **§13 is now a historical
-  record of the 3b/9 design** (all premises confirmed; the only deviation from the §13.4 draft was
-  dropping `iterable` for `seq`, recorded above).
+- **JS codegen arms (commits 5, 7) — PARTLY LANDED (supersedes the "fully deferred" note below).**
+  The `tsc`-extracted provider is NOT needed (decided with the user — a minimal hand-authored
+  `JsNativeSymbols` intrinsic suffices). Landed:
+  - **`use` → `try/finally`** (`9f74732c`): `JsStatement.TryFinally` node + `JsPrint` + `EmitJs.Use`
+    arm (statement + IIFE-expr); disposal is a null-guarded free-fn `<Type>__Dispose(x)` (JS emits
+    instance members as free fns). Executable + Node-tested for project-local disposables (`UseTests.fs`).
+  - **`for…in` → `for…of`** (`8b2e69e9`): `JsStatement.ForOf` node + `JsPrint` + `EmitJs.ForIn` arm.
+    Only the `Interface` enumerator (a `seq<'T>`/`IEnumerable` source) reaches JS codegen and it
+    carries no keys, so `for…of` (runtime `Symbol.iterator`) is the whole lowering. Emission-tested
+    (`ForInTests.fs`); NOT yet executable (no iterable JS runtime value — see §14).
+- **REMAINING:** executable `for…in` (a runtime-iterable Vesper collection), the disposal-model +
+  capability-interface-emission redesign (**§14** — the user's directions of 2026-06-27), the §5.3b
+  structural eq/comp reframe, and Tier 3 (tuple-arity). **§13 is a historical record of the 3b/9
+  design.**
 
 ### Commit-by-commit
 
@@ -908,3 +913,98 @@ A dedicated `capabilities.{fsi,fs}` is cleaner than extending `core-types`:
   end-to-end. Green there is the terminal proof the four literals are gone with zero CLR
   regression. `buildContract defaultManifests` already reads `src/Vesper.Core/manifest.toml`
   first, so `capabilities.fsi` flows in with no test wiring.
+
+---
+
+## 14. Capability-interface emission — the unified mechanism (NEXT, user-directed 2026-06-27)
+
+**Thesis (user):** a Vesper type that **implements a capability interface** emits the
+**target-specific protocol member** — implement `seq<'T>` ⇒ JS `[Symbol.iterator]()`
+(CLR `IEnumerable<'T>.GetEnumerator`); implement `disposable` ⇒ JS `[Symbol.dispose]()`
+(CLR `IDisposable.Dispose`); implement `equatable`/`comparable` ⇒ JS attached
+`Equals`/`CompareTo` (already the template, A1 below). The front end classifies the
+capability **neutrally** (which interface is implemented); the backend owns the dialect
+(`Symbol.dispose` vs `IDisposable`) — exactly the freeze-no-backend-knowledge invariant.
+
+This is the natural continuation of §5.1/§5.2 + §12.3, plus two genuinely new pieces:
+the **disposal-model flip** (duck-typed → interface-required) and the **`extern with`
+member surface** on the capability anchors (promoted from deferred to load-bearing).
+
+### 14.1 Grounding (verified against code)
+
+- **Attached-method codegen already exists and is correct.** Frozen `TClass.Interfaces :
+  (iface * TTypeMember list) list` (distinct from `.Members`); `partitionClassMembers`
+  (`EmitJs.fs:1408-1444`) routes interface-impl members to `emitAttachedMethod`
+  (`EmitJs.fs:1233-1253`) → `JsClassMethod { Name; Params; Body }`, printed verbatim as a
+  named method (`JsPrint.fs:258-264`). **No computed-key (`[Symbol.x]()`) emission exists**
+  — every method name prints as a plain identifier. Adding `[expr](){}` is small but net-new.
+- **The 4 `ClassEmitTests` (custom eq/comp) fail at the FRONT END, not codegen** — FS0378
+  from `validateCustomEqCompImpls` (`Unification.fs:1308-1333`) because
+  `CapabilityIds.Equatable = ValueNone` under the JS provider (no `capabilities.js.fs`, so
+  no `Intrinsic(platform = Some _)` face — `ExternalSymbols.fs:703-706,720`). The codegen
+  template is ready and gated shut by the missing JS identity.
+- **The recurring make-or-break is BCL→JS interface reconciliation.** A user impl is named
+  with BCL names (`System.IEquatable<Self>`, `IEnumerable<'T>`); `implementsSelf`
+  (`Unification.fs:1283-1291`) compares it to the capability's `QualifiedName`. On JS this
+  must reconcile via `IntrinsicReverseCanon` (the `exn === System.Exception` mechanism,
+  §13.1). `JsNativeSymbols` already surfaces erased `System.IEquatable\`1`/`IComparable\`1`,
+  so a `capabilities.js.fs` whose repr matches that spelling should reconcile — **validate
+  empirically first** (a byte-mismatch trades one FS0378 for another).
+- **A union cannot carry interface impls** front-to-back (`list.fs:34`;
+  `project_union_interface_impls_unsupported`). `List` implements `seq` only via the
+  **`ListSeq` wrapper class** (`list.fs:75-81`) over a `ListEnumerator` struct — and that
+  whole wrapper is **excluded from `list.js.fs`** (`manifest.toml:46-51`). So "`List`
+  implements `seq`" is the *wrapper*, not the union, unless the union-interface-impl
+  restriction is lifted (large front-end work).
+- **`disposable` is not implementable today** — `capabilities.fsi:26` `type disposable =
+  extern`, no members. A Vesper type cannot write `interface disposable with member
+  Dispose`. Requires the §12.3 `extern with` member-surface migration, which §13.3 notes
+  currently *drops* members on the CLR contract layer when an `(# … #)` repr is present
+  (`VesperLib.fs:1402-1405`). **Highest-risk prerequisite.**
+- **Disposal is duck-typed today, but that is ASPIRATIONAL, not F# semantics (user,
+  2026-06-27).** Real F# `use` **requires `IDisposable`**; it does NOT duck-type. The
+  duck-typing in the current code was aspirational — C#-parity for the one case F# can't
+  cover, a **`ref struct`** that can't implement interfaces (the C#8 pattern-`using`). So
+  the correct model is **interface-required** (`use` qualifies iff the binder implements
+  `disposable`), with a **`ref struct` duck-typed carve-out** as the only exception.
+  `resolveUseDispose` (`Infer.fs:151-181`) accepts ANY project-local member named `Dispose`;
+  `tryExternalDispose` (`Infer.fs:127-142`) prefers the own `Dispose`, interface as backstop
+  — both **over-permissive vs F#** and to be tightened. `UseTests`'s `type Res() = member
+  _.Dispose()` (no interface) is itself an aspirational fixture: under the corrected model it
+  must implement `disposable` (this is a *correction to match F#*, not a regression). (`for-in`
+  disposal is *already* interface-based — `InferControlFlow.fs:61-134`.) **⇒ Q2 RESOLVED:
+  interface-required + `ref struct` carve-out.**
+
+### 14.2 Slicing (each committable, with a gate)
+
+1. **`capabilities.js.fs`** (pure-additive contract). JS reprs for
+   `disposable`/`equatable`/`comparable` (mirror `prim-types-exn.js.fs`). *Gate:* the 4
+   `ClassEmitTests` advance past FS0378 (ideally pass). **First validate** the BCL→JS
+   reconciliation empirically. *This is the safe, high-value foundation — do it first
+   regardless of the §14.3 decisions.*
+2. **Computed-key attached methods** (net-new JS backend): a `computed`/key-expr field on
+   `JsClassMethod` + `[expr](){}` in `JsPrint`. *Gate:* print unit test.
+3. **Capability-impl → protocol-member mapping** (net-new JS backend): in
+   `partitionClassMembers`, when an attached impl's interface is
+   `CapabilityIds.{Enumerable,Disposable}`, emit under `[Symbol.iterator]`/`[Symbol.dispose]`
+   (+ the `GetEnumerator→{next(): {value,done}}` adapter for iteration). *Gate:*
+   `Codegen.Js.Tests` over a class implementing `seq`/`disposable`. **Risk:** the
+   MoveNext/Current ↔ next/{value,done} protocol adapter.
+4. **`extern with` member surface on `disposable`** (front-end + contract; §12.3/§13.3) —
+   lets a Vesper type *write* `interface disposable`. Heaviest; blocked on the
+   Intrinsic-carrying-members migration. Only needed once §14.3-Q2 says "interface-required".
+5. **Disposal-model flip** (breaking front-end change) — `resolveUseDispose`/
+   `tryExternalDispose` from duck-typed-primary to interface-required. **Gated on §14.3-Q2.**
+
+### 14.3 Premises (user, 2026-06-27)
+
+- **Q2 — disposal model — RESOLVED: interface-required + `ref struct` carve-out.** `use`
+  qualifies iff the binder implements `disposable` (matching real F#, which requires
+  `IDisposable` and does NOT duck-type); the sole duck-typed exception is a `ref struct`
+  that can't implement interfaces (C#8 pattern-`using` parity). Tighten `resolveUseDispose`/
+  `tryExternalDispose` accordingly; update over-permissive fixtures to implement `disposable`.
+  Needs slices 4 (`disposable` member surface, so a type can write the impl) + 5 (the flip).
+- **Q1 — `List` iterability seam — OPEN:** lift the union-interface-impl restriction so the
+  `List` union implements `seq` directly (large front-end work), OR make the existing
+  `ListSeq` wrapper class iterable on JS (emit `[Symbol.iterator]` for the wrapper; smaller,
+  keeps the union limitation)?
