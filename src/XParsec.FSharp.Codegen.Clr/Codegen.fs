@@ -37,7 +37,7 @@ module Codegen =
         // prepared body can reference any type / member / factory / static fn
         // / closure ctor with no emission-order discipline.
         for ud in asm.UnionDecls do
-            NominalEmit.register asm (NominalEmissionInput.Union ud.Cases) ud.Decl ud.Members
+            NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
         for rd in asm.RecordDecls do
             NominalEmit.register asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members
@@ -51,7 +51,7 @@ module Codegen =
         asm.PrepareInterfaces()
 
         for ud in asm.UnionDecls do
-            NominalEmit.prepare asm (NominalEmissionInput.Union ud.Cases) ud.Decl ud.Members
+            NominalEmit.prepare asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
         for rd in asm.RecordDecls do
             NominalEmit.prepare asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members

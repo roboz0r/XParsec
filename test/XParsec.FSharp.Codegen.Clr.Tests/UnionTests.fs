@@ -576,4 +576,101 @@ let tests =
                 | None -> failtest "no 2-typar generic static method was emitted"
                 | Some m -> Expect.equal (m.GetGenericArguments().Length) 2 "foldl has two generic parameters"
             }
+
+            // A union implementing a LOCAL interface whose impl reads `this`
+            // (slice 2: the CLR backend now emits a union's user `interface … with`
+            // impls — the `InterfaceImpl` row + the impl body + the interface-slot
+            // override). `(v :> IRank).Rank()` is a real interface dispatch through
+            // the union's vtable slot, so this exercises emission end to end at
+            // runtime (broken IL that type-checks would fault here).
+            test "a union implementing a local interface dispatches through the interface slot (prints 7 then 0)" {
+                let src =
+                    lines
+                        [
+                            "type IRank ="
+                            "    abstract member Rank : unit -> int"
+                            "type V ="
+                            "    | Lo"
+                            "    | Hi of int"
+                            "    interface IRank with"
+                            "        member this.Rank() = match this with | Lo -> 0 | Hi n -> n"
+                            "let hi = Hi 7"
+                            "let lo = Lo"
+                            "printfn \"%d\" ((hi :> IRank).Rank())"
+                            "printfn \"%d\" ((lo :> IRank).Rank())"
+                        ]
+
+                let tast, artifact = compileSource "UnionIfaceRank" src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let bytes = Codegen.toBytes artifact
+
+                // The user `InterfaceImpl` row lands on the union base type (alongside
+                // the synthesised structural eq/comp/format interfaces).
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "V"
+                Expect.isNotNull ty "the assembly contains the union type V"
+                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaceNames.Contains "IRank") "V reflects as implementing the user IRank"
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+
+                let outLines =
+                    output.Replace("\r", "").Split('\n') |> Array.filter (fun s -> s.Length > 0)
+
+                Expect.equal
+                    outLines
+                    [| "7"; "0" |]
+                    "Hi 7 ranks 7 (reads `this`), Lo ranks 0 — both via interface dispatch"
+            }
+
+            // The union ALSO synthesises an `IEquatable<V>` (structural equality),
+            // so the user `IRank` impl and the synthesised eq interface must coexist
+            // on the same union base type with no slot collision: reflection sees
+            // BOTH interfaces, and structural `=` and `(v :> IRank).Rank()` both work.
+            test "a union's user interface coexists with its synthesised IEquatable (no slot collision)" {
+                let src =
+                    lines
+                        [
+                            "type IRank ="
+                            "    abstract member Rank : unit -> int"
+                            "type V ="
+                            "    | Lo"
+                            "    | Hi of int"
+                            "    interface IRank with"
+                            "        member this.Rank() = match this with | Lo -> 0 | Hi n -> n"
+                            "let eq = (Hi 7 = Hi 7)"
+                            "let ne = (Hi 7 = Lo)"
+                            "printfn \"%b\" eq"
+                            "printfn \"%b\" ne"
+                            "printfn \"%d\" ((Hi 5 :> IRank).Rank())"
+                        ]
+
+                let tast, artifact = compileSource "UnionIfaceAndEq" src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "V"
+                Expect.isNotNull ty "the assembly contains the union type V"
+
+                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaceNames.Contains "IRank") "V reflects as implementing the user IRank"
+
+                Expect.isTrue
+                    (ifaceNames.Contains "IEquatable`1")
+                    "V reflects as implementing the synthesised IEquatable<V>"
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+
+                let outLines =
+                    output.Replace("\r", "").Split('\n') |> Array.filter (fun s -> s.Length > 0)
+
+                Expect.equal
+                    outLines
+                    [| "true"; "false"; "5" |]
+                    "structural `=` (synthesised IEquatable) and `Rank()` (user IRank) both dispatch correctly"
+            }
         ]

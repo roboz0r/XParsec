@@ -316,17 +316,12 @@ module internal Layout =
                 match td.Kind with
                 | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKindG.Union(cases, members, interfaces) ->
-                    // TODO: union interface-impl emission is deferred — the front end
-                    // now carries the representation, but the CLR backend emits no
-                    // `InterfaceImpl` rows / member bodies for a union yet.
-                    if not interfaces.IsEmpty then
-                        ()
-
                     unions.Add
                         {
                             Decl = td
                             Cases = EqArray.toList cases
                             Members = EqArray.toList members
+                            Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
                 | TTypeKindG.Record(fields, members) ->
                     records.Add
@@ -524,6 +519,7 @@ module internal Layout =
                         for ud in rawPartitioned.Unions ->
                             { ud with
                                 Members = List.map expandMember ud.Members
+                                Interfaces = [ for (ty, ms) in ud.Interfaces -> ty, List.map expandMember ms ]
                             }
                     ]
                 Records =
@@ -568,6 +564,9 @@ module internal Layout =
 
                 for ud in partitioned.Unions do
                     for m in ud.Members -> root ud.Decl m
+
+                    for (_, ms) in ud.Interfaces do
+                        for m in ms -> root ud.Decl m
 
                 for rd in partitioned.Records do
                     for m in rd.Members -> root rd.Decl m
@@ -678,7 +677,20 @@ module internal Layout =
                                         Attrs = staticFactoryAttrs
                                     }
 
+                            let ownCount = List.length ud.Members
                             yield! ud.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
+
+                            // User `interface … with` impl members trail the union's own
+                            // members (same indexing `NominalEmit`'s `ifaceMembers` uses),
+                            // each forced to the `ifaceEqualsAttrs` virtual/new-slot/final
+                            // shape so the runtime binds it to the `InterfaceImpl` row.
+                            yield!
+                                [
+                                    for (_, ms) in ud.Interfaces do
+                                        yield! ms
+                                ]
+                                |> List.mapi (fun i m -> memberRow td.Key (ownCount + i) true m)
+
                             yield! equalityRows td
                             yield! comparisonRows td
                             yield! formatRows definesStructuralFormatInterfaces td

@@ -25,14 +25,19 @@ module internal NominalEmit =
     let private typarMarkersOf (td: Frozen.TTypeDecl) : FrozenType list =
         [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
-    let private ifaceMembersOf (input: NominalEmissionInput) : Frozen.TTypeMember list =
+    /// The user `interface … with` impls (interface type + member bodies) a
+    /// nominal carries. Classes and unions both carry them (records do not in v1).
+    let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * Frozen.TTypeMember list) list =
         match input with
-        | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) ->
-            [
-                for (_, ms) in interfaces do
-                    yield! ms
-            ]
-        | _ -> []
+        | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) -> interfaces
+        | NominalEmissionInput.Union(_, interfaces) -> interfaces
+        | NominalEmissionInput.Record _ -> []
+
+    let private ifaceMembersOf (input: NominalEmissionInput) : Frozen.TTypeMember list =
+        [
+            for (_, ms) in userInterfacesOf input do
+                yield! ms
+        ]
 
     let register
         (asm: Assembler)
@@ -91,7 +96,7 @@ module internal NominalEmit =
         )
 
         match input with
-        | NominalEmissionInput.Union cases ->
+        | NominalEmissionInput.Union(cases, _) ->
             let emittedCases = Dictionary<string, Emit.EmittedCase>()
 
             cases
@@ -256,7 +261,7 @@ module internal NominalEmit =
         let mutable baseTypeHandle = provider.ObjectType
 
         match input with
-        | NominalEmissionInput.Union cases ->
+        | NominalEmissionInput.Union(cases, _) ->
             let tagField = toEntity (asm.FieldDef(FieldKey.UnionTag td.Key))
             let unionCtor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
 
@@ -563,13 +568,13 @@ module internal NominalEmit =
         // Interface implementations: each `(ifaceTy, members)` entry's
         // member bodies are already-typed `Frozen.TTypeMember`s, flattened here. They
         // emit as virtual methods (`ifaceEqualsAttrs` — a new slot, `Final` since
-        // classes are sealed) that the runtime binds to the `InterfaceImpl` row by
-        // name + signature. The class's own members lead, interface-impl members
-        // trail — the same indexing the layout's `MethodKey.Member` rows use.
-        let classInterfaces =
-            match input with
-            | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) -> interfaces
-            | _ -> []
+        // classes and unions are both sealed) that the runtime binds to the
+        // `InterfaceImpl` row by name + signature. The type's own members lead,
+        // interface-impl members trail — the same indexing the layout's
+        // `MethodKey.Member` rows use. Classes and unions both carry user impls; a
+        // union additionally synthesises eq/comp/format interfaces (below), which use
+        // disjoint `MethodKey`s, so the two never collide on a method row.
+        let userInterfaces = userInterfacesOf input
 
         let ifaceMembers = ifaceMembersOf input
 
@@ -723,7 +728,7 @@ module internal NominalEmit =
         // Equality and comparison consume the identical set.
         let structuralFields () : (EntityHandle * FrozenType) list =
             match input with
-            | NominalEmissionInput.Union cases ->
+            | NominalEmissionInput.Union(cases, _) ->
                 let emitted = unions.[td.Key]
 
                 [
@@ -910,7 +915,7 @@ module internal NominalEmit =
         if emitsStructuralFormat then
             let formatIr =
                 match input with
-                | NominalEmissionInput.Union cases ->
+                | NominalEmissionInput.Union(cases, _) ->
                     let emitted = unions.[td.Key]
 
                     let formatCases =
@@ -981,7 +986,7 @@ module internal NominalEmit =
                 emitsEqualityTriple
                 || emitsComparisonPair
                 || emitsStructuralFormat
-                || not (List.isEmpty classInterfaces)
+                || not (List.isEmpty userInterfaces)
             then
                 [
                     if emitsEqualityTriple then
@@ -991,7 +996,7 @@ module internal NominalEmit =
                         provider.IComparableType
                     if emitsStructuralFormat then
                         provider.StructuralFormattableInterface
-                    for (ifaceTy, _) in classInterfaces do
+                    for (ifaceTy, _) in userInterfaces do
                         provider.InterfaceHandleOf ifaceTy
                 ]
             else

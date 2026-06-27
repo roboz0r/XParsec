@@ -12,6 +12,9 @@ type internal UnionDecl =
         Decl: Frozen.TTypeDecl
         Cases: Frozen.TUnionCase list
         Members: Frozen.TTypeMember list
+        /// User `interface … with member …` impls (same shape as `ClassDecl.Interfaces`):
+        /// each pair is an implemented interface type + its already-typed member bodies.
+        Interfaces: (FrozenType * Frozen.TTypeMember list) list
     }
 
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
@@ -57,7 +60,11 @@ type internal PartitionedTypeDecls =
 /// support records carry. Everything downstream is shared.
 [<RequireQualifiedAccess>]
 type internal NominalEmissionInput =
-    | Union of cases: Frozen.TUnionCase list
+    /// `interfaces` pairs each user-implemented `interface … with` type with its
+    /// already-typed member bodies (same shape as the class arm): codegen emits one
+    /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member,
+    /// alongside any synthesised structural eq/comp/format interfaces.
+    | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenType * Frozen.TTypeMember list) list
     | Record of fields: Frozen.TRecordField list
     /// `ctorParams` become backing fields; `baseType` defaults to `Object`
     /// (`ValueNone`) — or `System.ValueType` when `isStruct`. `fields` are the
