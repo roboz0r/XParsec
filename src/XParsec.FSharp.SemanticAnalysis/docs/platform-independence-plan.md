@@ -1090,3 +1090,66 @@ differ per target). The migration is **load-bearing-coupled**: the attached-meth
 `ClassEmitTests` break. Sequence it as its own gated sub-slice of slice 3, after the
 `Symbol.iterator` iteration work (the originally-scoped piece). It cleanly subsumes the
 currently-green custom-eq/comp path into the same uniform mechanism.
+
+### 14.6 Union (and record) implements an interface — the lift (user-directed 2026-06-27)
+
+**Goal:** a Vesper **union** (and **record**) can implement an interface natively, so
+`type List<'T>` implements `seq<'T>` and `for x in xs` (a bare cons-list, no `:> seq`
+upcast, no `ListSeq` wrapper) iterates. Track I's remaining piece.
+
+**Grounding (verified): a union-implements-interface is SILENTLY DROPPED for lack of
+representation, not actively rejected** — so the work is additive and **mostly code-sharing
+with the class path + symmetric TAST additions** (user's prior, confirmed):
+- **Parser already accepts it** — a union's trailing `interface … with …` rides the shared
+  extension-elements list (`TypeDefnParsing.fs`), no union-specific field.
+- **Front-end drops it twice:** `UnionTypeInfo` has no `InterfaceImpls` slot (`SideTables.fs`);
+  `registerUnionMembers` never calls the (kind-agnostic, already-existing) `extractInterfaceImpls`
+  (`MemberRegistration.fs:380-403`); Freeze's `translateUnionMember` returns `ValueNone` for a
+  non-`Member` element (`Elaborate.fs:613-659`); `TTypeKindG.Union = cases * members` has no
+  `Interfaces` (`Tast.fs:513`) unlike `TClassG.Interfaces` (`Tast.fs:568`).
+- **Reuse audit:** collection ~100%, conformance/`resolveInterfaceImpls`/`fillInterfaceImpls`
+  ~90% (signature generalization off `ClassTypeInfo`), Freeze ~95% (reuses `translateUnionMember`,
+  only the `ThisTy = TyUnion` differs), JS member-routing (`partitionClassMembers` /
+  `emitIteratorMethod` / `emitProtocolMethod`) ~100% (all keyed on a bare `TTypeMember`).
+- **The ONE essential kind-specific piece (JS):** a union *value* is a case-subclass instance
+  (`List_Cons extends List`), so `[Symbol.iterator]` must live on the **base class** to be
+  inherited. `JsStatement.Union` has no methods container — so the net-new JS work is: add
+  `baseMethods` to `JsStatement.Union`, render them in `JsPrint`, and feed the reused
+  `partitionClassMembers` output into that base list. (Records: a record is one
+  `JsStatement.Class`, so NO new emission shape — but records are further behind front-end:
+  `tryRecordType` ignores `ext` and registers no members yet, `Elaborate.fs:1040-1042,1333`.)
+
+**Decisions (user, 2026-06-27):**
+- **CLR scope → CLR too, now.** CLR emits the union's user interface impls (factor the
+  class-arm interface-row + impl-method-body emission in `NominalEmit.fs` to run for unions),
+  so `List` retires the `ListSeq`/`ListEnumerator` wrapper on **both** targets.
+- **Iterator body → general / class-shared.** The union carries a real `GetEnumerator` impl
+  returning an enumerator; JS reuses `emitIteratorMethod` identically to a class. For `List`,
+  port a cons-enumerator into `list.js.fs` (the `ListEnumerator` pattern). No backend cons-walk
+  magic — fully general "unions are just types".
+
+**Slicing (each committable, gated). Unions first (the `List` goal); records a follow-up
+reusing the same generalized machinery.**
+1. **Front-end: `Interfaces` on the union.** Add the field to `TTypeKindG.Union`
+   (mirror `TClass.Interfaces`) + `InterfaceImpls` to `UnionTypeInfo`; wire
+   `registerUnionMembers` → `extractInterfaceImpls`; generalize conformance / `resolve` /
+   `fill` to the union info; Freeze populates via `translateUnionMember`. Update the ~6
+   `Union(cases, members)` deconstruction sites. *Gate:* `SemanticAnalysis.Tests` green +
+   a frozen-TAST assertion the union carries the impl. *(Wide but mechanical blast radius.)*
+2. **CLR: emit union user interfaces.** Factor `NominalEmit.fs`'s class interface-row +
+   impl-method emission to run for the union kind. *Gate:* `Codegen.Clr.Tests` — a union
+   implementing an interface emits + dispatches it.
+3. **JS: union base-class methods.** Add `baseMethods` to `JsStatement.Union` + `JsPrint`
+   rendering; route the union's `Interfaces` through `partitionClassMembers`, attaching the
+   iterator/protocol methods to the base class. *Gate:* `Codegen.Js.Tests` — a union
+   implementing `seq` emits `*[Symbol.iterator]()` on the base class + runs under Node.
+4. **`List` implements `seq` directly.** Declare `interface seq<'T>` on the `List` union in
+   `list.fs`/`list.js.fs` with a real `GetEnumerator`/enumerator; retire `ListSeq` (both
+   targets, per the CLR decision). *Gate:* `for x in [1;2;3]` (bare list, no upcast) iterates
+   under Node AND on CLR; full suites green.
+5. **Records (follow-up).** Thread `ext` into `tryRecordType` + `registerRecordMembers`; reuse
+   everything; the record's single `JsStatement.Class` needs no new emission shape.
+
+**Biggest risk:** slice 1's wide blast radius (every `Union` deconstruction) is low-risk but
+broad; the genuine design care is slice 3 (base-class method container) and slice 2 (CLR union
+interface emission, previously only synthesized eq/comp).
