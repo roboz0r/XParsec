@@ -1,30 +1,56 @@
-namespace       'namespace'       KWNamespace         tok=   0  pos=   0
-                'Vesper'          Identifier          tok=   2  pos=  10
+namespace         'namespace'       KWNamespace         tok=   0  pos=   0
+                  'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type        'type'            KWType              tok=  50  pos=1397
+    type          'type'            KWType              tok=  60  pos=1884
     TypeSig.Extern:
-      TypeName  'disposable'      Identifier          tok=  52  pos=1402
-      =         '='               OpEquality          tok=  54  pos=1413
-      extern    'extern'          KWExtern            tok=  56  pos=1415
+      TypeName    'disposable'      Identifier          tok=  62  pos=1889
+      =           '='               OpEquality          tok=  64  pos=1900
+      extern      'extern'          KWExtern            tok=  66  pos=1902
   Type:
-    type        'type'            KWType              tok=  67  pos=1623
+    type          'type'            KWType              tok=  77  pos=2110
     TypeSig.Extern:
-      TypeName  'equatable'       Identifier          tok=  69  pos=1628
+      TypeName    'equatable'       Identifier          tok=  79  pos=2115
       TyparDefns:
-        <       '<'               op_LessThan         tok=  70  pos=1637
+        <         '<'               op_LessThan         tok=  80  pos=2124
         Typar.Named:
-                ''T'              TypeParameter       tok=  71  pos=1638
-        >       '>'               op_GreaterThan      tok=  72  pos=1640
-      =         '='               OpEquality          tok=  74  pos=1642
-      extern    'extern'          KWExtern            tok=  76  pos=1644
+                  ''T'              TypeParameter       tok=  81  pos=2125
+        >         '>'               op_GreaterThan      tok=  82  pos=2127
+      =           '='               OpEquality          tok=  84  pos=2129
+      extern      'extern'          KWExtern            tok=  86  pos=2131
   Type:
-    type        'type'            KWType              tok=  87  pos=1857
+    type          'type'            KWType              tok=  97  pos=2344
     TypeSig.Extern:
-      TypeName  'comparable'      Identifier          tok=  89  pos=1862
+      TypeName    'comparable'      Identifier          tok=  99  pos=2349
       TyparDefns:
-        <       '<'               op_LessThan         tok=  90  pos=1872
+        <         '<'               op_LessThan         tok= 100  pos=2359
         Typar.Named:
-                ''T'              TypeParameter       tok=  91  pos=1873
-        >       '>'               op_GreaterThan      tok=  92  pos=1875
-      =         '='               OpEquality          tok=  94  pos=1877
-      extern    'extern'          KWExtern            tok=  96  pos=1879
+                  ''T'              TypeParameter       tok= 101  pos=2360
+        >         '>'               op_GreaterThan      tok= 102  pos=2362
+      =           '='               OpEquality          tok= 104  pos=2364
+      extern      'extern'          KWExtern            tok= 106  pos=2366
+namespace         'namespace'       KWNamespace         tok= 109  pos=2374
+                  'Vesper'          Identifier          tok= 111  pos=2384
+                  'Collection...'   Identifier          tok= 113  pos=2391
+  Import:
+    open          'open'            KWOpen              tok= 116  pos=2404
+                  'System'          Identifier          tok= 118  pos=2409
+                  'Collection...'   Identifier          tok= 120  pos=2416
+                  'Generic'         Identifier          tok= 122  pos=2428
+  Type:
+    type          'type'            KWType              tok= 141  pos=2910
+    TypeSig.Abbrev:
+      TypeName    'seq'             Identifier          tok= 143  pos=2915
+      TyparDefns:
+        <         '<'               op_LessThan         tok= 144  pos=2918
+        Typar.Named:
+                  ''T'              TypeParameter       tok= 145  pos=2919
+        >         '>'               op_GreaterThan      tok= 146  pos=2921
+      =           '='               OpEquality          tok= 148  pos=2923
+        GenericType:
+          Ident   'IEnumerabl...'   Identifier          tok= 150  pos=2925
+          <       '<'               op_LessThan         tok= 151  pos=2936
+          TypeArg.Type:
+            VarType:
+              Typar.Named:
+                  ''T'              TypeParameter       tok= 152  pos=2937
+          >       '>'               op_GreaterThan      tok= 153  pos=2939
