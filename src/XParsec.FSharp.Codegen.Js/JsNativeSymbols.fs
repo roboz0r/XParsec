@@ -138,6 +138,99 @@ module JsNativeSymbols =
                 Origin = systemOrigin
             }
 
+    // --- System.Collections.Generic.IEnumerable<'T> / IEnumerator<'T> -----------
+    //
+    // The iteration capability surface, the enumerable analogue of the erased
+    // `IEquatable\`1` / `IComparable\`1` above. On JS these BCL interfaces are ERASED
+    // at runtime (a class implementing `seq<'T>` lowers to a native `[Symbol.iterator]`
+    // generator that drives the enumerator's `MoveNext()` / `Current`); they exist
+    // here as PROVIDER METADATA only so a Vesper class can WRITE the impl —
+    // `interface System.Collections.Generic.IEnumerable<int> with member GetEnumerator …`
+    // — and the front-end's interface-ness check (`Unification.fs`) + conformance
+    // (`checkInterfaceConformance`, which checks only the named interface's OWN
+    // members) accept it. `CapabilityIds.Enumerable` resolves to `IEnumerable\`1` off
+    // the `seq` abbreviation, so the codegen capability match keys on this exact name.
+    //
+    // The modelled member surface is the minimal pair the `[Symbol.iterator]` adapter
+    // drives, NOT the full BCL shape (no inherited `IEnumerator`/`IDisposable` members):
+    // `IEnumerator\`1` carries `MoveNext(): bool` + `Current: 'T`, and the conformance
+    // check requires exactly those of an implementer — so a Vesper enumerator declares
+    // just `interface IEnumerator<int> with member MoveNext … member Current …`.
+
+    let private collectionsGenericNs = "System.Collections.Generic"
+
+    let private collectionsGenericOrigin: SymbolOrigin =
+        {
+            Assembly = Some RuntimeAssembly
+            Namespace = collectionsGenericNs
+            DeclaringType = None
+        }
+
+    let private ienumeratorKey: SymbolKey =
+        SymbolKey.TypeKey(Some RuntimeAssembly, collectionsGenericNs, "IEnumerator`1")
+
+    let private ienumerableKey: SymbolKey =
+        SymbolKey.TypeKey(Some RuntimeAssembly, collectionsGenericNs, "IEnumerable`1")
+
+    /// An instance interface member of an erased `System.Collections.Generic` interface.
+    let private mkIfaceMember
+        (declKey: SymbolKey)
+        (name: string)
+        (isProperty: bool)
+        (parameters: FrozenType)
+        (ret: FrozenType)
+        : ExternalMember =
+        {
+            Name = name
+            IsStatic = false
+            IsProperty = isProperty
+            Signature =
+                {
+                    DeclaringArity = 1
+                    MethodArity = 0
+                    Parameters = parameters
+                    Return = ret
+                }
+            MethodArity = 0
+            Origin = collectionsGenericOrigin
+            Key = SymbolKey.MemberKey(declKey, name, EqArray.empty, MemberKind.InterfaceMethod declKey)
+            OptionalDefaults = []
+        }
+
+    let private mkErasedClassIface (origin: SymbolOrigin) (members: ExternalMember[]) : ExternalTypeShape =
+        ExternalTypeShape.Class
+            {
+                Arity = 1
+                IsInterface = true
+                Members = members
+                FrozenInterfaces = [||]
+                FrozenBaseType = ValueNone
+                Flags = ExternalClassFlags.Default
+                Origin = origin
+            }
+
+    /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property.
+    let private ienumeratorShape: ExternalTypeShape =
+        mkErasedClassIface
+            collectionsGenericOrigin
+            [|
+                mkIfaceMember ienumeratorKey "MoveNext" false unitTy boolTy
+                mkIfaceMember ienumeratorKey "Current" true unitTy selfTypar
+            |]
+
+    /// `IEnumerable<'T>` — `GetEnumerator(): IEnumerator<'T>`.
+    let private ienumerableShape: ExternalTypeShape =
+        mkErasedClassIface
+            collectionsGenericOrigin
+            [|
+                mkIfaceMember
+                    ienumerableKey
+                    "GetEnumerator"
+                    false
+                    unitTy
+                    (FTClass(ienumeratorKey, EqArray.ofSeq [ selfTypar ]))
+            |]
+
     /// The JS-native type table, keyed by the compiled name resolution probes:
     /// `Error` by bare global name, the generic interfaces by their arity-suffixed
     /// qualified name.
@@ -147,6 +240,8 @@ module JsNativeSymbols =
                 "Error", errorShape
                 "System.IEquatable`1", mkErasedGenericIface "IEquatable`1" "Equals" boolTy
                 "System.IComparable`1", mkErasedGenericIface "IComparable`1" "CompareTo" intTy
+                "System.Collections.Generic.IEnumerable`1", ienumerableShape
+                "System.Collections.Generic.IEnumerator`1", ienumeratorShape
             ]
 
     /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.

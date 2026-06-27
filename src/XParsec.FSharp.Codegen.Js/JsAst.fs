@@ -126,16 +126,30 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// runs the `use` body; `finallyBody` disposes the binder on every exit
     /// (a null-guarded `x.Dispose()` call), matching F#'s null-safe RAII semantics.
     | TryFinally of tryBody: JsStatement list * finallyBody: JsStatement list
+    /// `yield <e>;` — emitted only inside a generator method body (`Generator = true`
+    /// on the enclosing `JsClassMethod`). The iteration adapter's `[Symbol.iterator]`
+    /// generator yields each enumerator element, so `yield x` auto-produces the
+    /// `{ value: x, done: false }` iterator result (and end-of-body the `{ done: true }`).
+    | Yield of JsExpr
 
 /// An instance method attached to an emitted JS class — `Name(params) { body }`.
 /// Distinct from a free, receiver-first member function: an attached method binds
 /// the receiver to JS `this`, so the runtime can dispatch on method presence
 /// (`a.Equals(b)`, `a.CompareTo(b)`, `x.GetHashCode()`).
+///
+/// `Computed` carries a capability protocol member's symbol-KEY EXPRESSION when the
+/// method is keyed by a JS symbol rather than a plain name — `ValueSome e` prints the
+/// header as `[<e>](params)` (`e` is `Symbol.iterator`, a member access, or
+/// `Symbol.for("vesper.equality")`, a call). `Name` then carries only a descriptive
+/// label (ignored by the printer). `Generator` prefixes the header with `*`
+/// (`*[Symbol.iterator]()`) so the body may `yield` — the iteration adapter's form.
 and JsClassMethod =
     {
         Name: string
         Params: string list
         Body: JsStatement list
+        Computed: JsExpr voption
+        Generator: bool
     }
 
 /// `Program` with `sourceType: "module"` (ESM output).

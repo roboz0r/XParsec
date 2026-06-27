@@ -253,12 +253,20 @@ module JsPrint =
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"
         | JsStatement.Block body -> block body
         | JsStatement.Throw e -> text "throw " ++ expr e ++ text ";"
+        | JsStatement.Yield e -> text "yield " ++ expr e ++ text ";"
         | JsStatement.TryFinally(tryBody, finallyBody) ->
             text "try " ++ block tryBody ++ text " finally " ++ block finallyBody
         | JsStatement.Class(name, fields, methods, export) ->
             let methodDecl (m: JsClassMethod) =
+                let star = if m.Generator then text "*" else Nil
+
+                let key =
+                    match m.Computed with
+                    | ValueSome keyExpr -> text "[" ++ expr keyExpr ++ text "]"
+                    | ValueNone -> text m.Name
+
                 memberDecl
-                    (text m.Name ++ text "(" ++ commaList (List.map text m.Params) ++ text ")")
+                    (star ++ key ++ text "(" ++ commaList (List.map text m.Params) ++ text ")")
                     [ for s in m.Body -> statement s ]
 
             classDecl export name None (ctorDecl fields [] fields :: [ for m in methods -> methodDecl m ])

@@ -511,6 +511,17 @@ module EmitJs =
         | TExprG.FieldGet(receiver, fieldName, _, _) ->
             JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(fieldName, ValueNone), false, loc)
 
+        // `r.X <- v` → `(r.X = v)` — a mutable (`val mutable`) instance-field write,
+        // the field analogue of the mutable-local `Assignment` arm. Unit-typed in F#,
+        // so the yielded value is unused; in statement position `buildStatements`
+        // wraps it as an expression statement.
+        | TExprG.FieldSet(receiver, fieldName, value, _, _) ->
+            JsExpr.Assign(
+                JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(fieldName, ValueNone), false, loc),
+                buildExpr ctx value,
+                loc
+            )
+
         // A union constructor `Case e0 e1 …` → `new <Union>_<Case>(args…)`. The
         // args already arrive in declaration (field) order, so — unlike a record
         // literal — no reordering is needed; the subclass constructor stores them
@@ -1250,6 +1261,67 @@ module EmitJs =
             Name = m.Name
             Params = paramNames
             Body = body
+            Computed = ValueNone
+            Generator = false
+        }
+
+    /// Emit an enumerable-capability `GetEnumerator` impl as a native
+    /// `*[Symbol.iterator]()` GENERATOR — the JS realisation of "implement `seq<'T>`
+    /// ⇒ emit the target iteration protocol". The generator binds the enumerator the
+    /// impl returns (`const e = <GetEnumerator body>`, with `this` re-bound exactly as
+    /// `emitAttachedMethod`), then drives the F# enumerator protocol
+    /// (`MoveNext(): bool` + `Current`) into JS's: `while (e.MoveNext()) yield e.Current()`.
+    /// `yield` makes the protocol adaptation free — it auto-produces the
+    /// `{ value, done }` iterator results, so no object literal is built. The enumerator
+    /// is itself an `IEnumerator<'T>` implementer, so its `MoveNext`/`Current` are
+    /// ATTACHED JS methods (`e.MoveNext()` / `e.Current()`), dispatched directly on the
+    /// runtime object — not the free receiver-first form a regular member call lowers to.
+    and emitIteratorMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
+        let recvBinding =
+            match m.ThisKey with
+            | ValueSome k ->
+                let recvName = identName ctx.Source k
+
+                if recvName = "this" then
+                    []
+                else
+                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+            | ValueNone -> []
+
+        // A fresh enumerator binder, keyed on the body token so it can't shadow a
+        // source binder the `GetEnumerator` body itself introduces.
+        let eName = "_e" + string (TastWalk.exprTok m.Body).StartIndex
+        let eIdent = JsExpr.Identifier(eName, ValueNone)
+
+        // Direct attached calls on the enumerator object: `e.MoveNext()` / `e.Current()`
+        // (its `IEnumerator<'T>` impl members are attached methods, the property `Current`
+        // emitted as a zero-arg method).
+        let attachedCall (name: string) =
+            JsExpr.Call(JsExpr.Member(eIdent, JsExpr.Identifier(name, ValueNone), false, ValueNone), [], ValueNone)
+
+        let body =
+            recvBinding
+            @ [
+                JsStatement.Const(eName, buildExpr ctx m.Body)
+                JsStatement.While(attachedCall "MoveNext", [ JsStatement.Yield(attachedCall "Current") ])
+            ]
+
+        // `Symbol.iterator` — a member access (a native well-known symbol), distinct
+        // from a registry `Symbol.for("…")` call (the eq/comp/hash sub-slice, deferred).
+        let symbolIterator =
+            JsExpr.Member(
+                JsExpr.Identifier("Symbol", ValueNone),
+                JsExpr.Identifier("iterator", ValueNone),
+                false,
+                ValueNone
+            )
+
+        {
+            Name = "[Symbol.iterator]"
+            Params = []
+            Body = body
+            Computed = ValueSome symbolIterator
+            Generator = true
         }
 
     /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
@@ -1394,29 +1466,78 @@ module EmitJs =
             Name: string
             Fields: string list
             Attached: Frozen.TTypeMember list
+            /// The `GetEnumerator` impl(s) of an implemented enumerable capability
+            /// interface (`seq<'T>` / `IEnumerable<'T>`), routed away from the plain
+            /// attached path to a `[Symbol.iterator]` generator (`emitIteratorMethod`).
+            Iterators: Frozen.TTypeMember list
         }
 
+    /// The split of a class's members across the JS emission forms.
+    type private PartitionedMembers =
+        {
+            /// Instance methods bound to `this` (runtime dispatch slots).
+            Attached: Frozen.TTypeMember list
+            /// Free receiver-first functions (tree-shakeable; call sites lower to these).
+            Free: Frozen.TTypeMember list
+            /// Enumerable-capability `GetEnumerator` impls → `[Symbol.iterator]` generators.
+            Iterators: Frozen.TTypeMember list
+        }
+
+    /// The head nominal key of a frozen interface type (`FTClass(key, _)`).
+    let private ifaceHeadKey (ty: FrozenType) : SymbolKey voption =
+        match ty with
+        | FTClass(key, _) -> ValueSome key
+        | _ -> ValueNone
+
+    /// The non-generic `System.Collections.IEnumerable` — implemented alongside the
+    /// generic `IEnumerable<'T>` on a real BCL collection, but carries no JS protocol
+    /// (the native iterator is driven by the generic `[Symbol.iterator]`), so its
+    /// `GetEnumerator` impl is dropped rather than emitted as a dead attached method.
+    let [<Literal>] private nonGenericEnumerableName = "System.Collections.IEnumerable"
+
     /// Partition a class's `Members` into the ATTACHED instance methods (runtime
-    /// dispatch slots, bound to `this`) and the FREE receiver-first functions
-    /// (tree-shakeable; call sites already lower to these). Interface-impl members
-    /// claim their name slot first; the redundant `obj`-typed `Object.Equals`
-    /// override is always dropped (the typed `IEquatable<Self>.Equals` impl holds
-    /// the `.Equals` slot); every other override (`GetHashCode`, `ToString`)
-    /// attaches. A member that ends up with NO emission slot — a non-`Equals`
-    /// member whose name is already claimed by an interface impl — fails loudly
-    /// rather than silently vanishing.
+    /// dispatch slots, bound to `this`), the FREE receiver-first functions
+    /// (tree-shakeable; call sites already lower to these), and the enumerable
+    /// `GetEnumerator` ITERATOR impls (routed to `[Symbol.iterator]`). Interface-impl
+    /// members claim their name slot first — except an enumerable-capability interface
+    /// (matched against `caps.Enumerable`), whose members go to `Iterators`, and the
+    /// non-generic `IEnumerable`, dropped. The redundant `obj`-typed `Object.Equals`
+    /// override is always dropped (the typed `IEquatable<Self>.Equals` impl holds the
+    /// `.Equals` slot); every other override (`GetHashCode`, `ToString`) attaches. A
+    /// member that ends up with NO emission slot — a non-`Equals` member whose name is
+    /// already claimed by an interface impl — fails loudly rather than silently vanishing.
     let private partitionClassMembers
+        (caps: RuntimeNames.CapabilityIds)
         (typeName: string)
         (cls: Frozen.TClass)
-        : Frozen.TTypeMember list * Frozen.TTypeMember list =
+        : PartitionedMembers =
         let attached = ResizeArray<Frozen.TTypeMember>()
+        let iterators = ResizeArray<Frozen.TTypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
-        // Interface impls claim their name slot first.
-        for (_iface, ifaceMembers) in cls.Interfaces do
-            for m in ifaceMembers do
-                if claimed.Add m.Name then
-                    attached.Add m
+        // Interface impls claim their name slot first. An enumerable-capability
+        // interface (`seq<'T>` / `IEnumerable<'T>`) is the exception: its `GetEnumerator`
+        // impl drives a native `[Symbol.iterator]` generator, not a named method.
+        for (iface, ifaceMembers) in cls.Interfaces do
+            let isEnumerable =
+                match ifaceHeadKey iface with
+                | ValueSome key -> caps.Enumerable |> ValueOption.exists (fun en -> en.MatchesKey key)
+                | ValueNone -> false
+
+            let isNonGenericEnumerable =
+                match ifaceHeadKey iface with
+                | ValueSome key -> SymbolKeyOps.qualifiedName key = nonGenericEnumerableName
+                | ValueNone -> false
+
+            if isEnumerable then
+                for m in ifaceMembers do
+                    iterators.Add m
+            elif isNonGenericEnumerable then
+                ()
+            else
+                for m in ifaceMembers do
+                    if claimed.Add m.Name then
+                        attached.Add m
 
         let free = ResizeArray<Frozen.TTypeMember>()
 
@@ -1441,9 +1562,13 @@ module EmitJs =
             else
                 free.Add m
 
-        List.ofSeq attached, List.ofSeq free
+        {
+            Attached = List.ofSeq attached
+            Free = List.ofSeq free
+            Iterators = List.ofSeq iterators
+        }
 
-    let private collectTypes (exportTypes: bool) (tast: Frozen.TastFile) =
+    let private collectTypes (caps: RuntimeNames.CapabilityIds) (exportTypes: bool) (tast: Frozen.TastFile) =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
@@ -1496,19 +1621,20 @@ module EmitJs =
                         else
                             ctorFields
 
-                    // Split members into attached dispatch slots and free
-                    // receiver-first functions (interface-impl / override policy in
-                    // `partitionClassMembers`).
-                    let attached, free = partitionClassMembers td.Name cls
+                    // Split members into attached dispatch slots, free receiver-first
+                    // functions, and enumerable-capability iterator impls (interface-impl
+                    // / override / capability policy in `partitionClassMembers`).
+                    let parts = partitionClassMembers caps td.Name cls
 
                     pendingClasses.Add
                         {
                             Name = td.Name
                             Fields = fieldNames
-                            Attached = attached
+                            Attached = parts.Attached
+                            Iterators = parts.Iterators
                         }
 
-                    for m in free do
+                    for m in parts.Free do
                         members.Add(td.Name, m)
                 | _ -> ()
             | _ -> ()
@@ -1519,8 +1645,22 @@ module EmitJs =
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
+        // The language-capability identities, resolved through the provider — drives the
+        // `seq<'T>`-impl → `[Symbol.iterator]` routing in `partitionClassMembers`. A
+        // provider-less compile (`nullProvider`) names no capability.
+        let caps =
+            match ctx0.Provider with
+            | ValueSome provider -> ExternalSymbols.resolveCapabilities provider
+            | ValueNone ->
+                {
+                    RuntimeNames.CapabilityIds.Enumerable = ValueNone
+                    RuntimeNames.CapabilityIds.Disposable = ValueNone
+                    RuntimeNames.CapabilityIds.Equatable = ValueNone
+                    RuntimeNames.CapabilityIds.Comparable = ValueNone
+                }
+
         let recordUnionDecls, recordTable, unionTable, classTable, pendingClasses, memberDefs =
-            collectTypes ctx0.ExportTopLevel tast
+            collectTypes caps ctx0.ExportTopLevel tast
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
 
@@ -1551,7 +1691,10 @@ module EmitJs =
                     JsStatement.Class(
                         pc.Name,
                         pc.Fields,
-                        [ for m in pc.Attached -> emitAttachedMethod ctx m ],
+                        [
+                            for m in pc.Attached -> emitAttachedMethod ctx m
+                            for m in pc.Iterators -> emitIteratorMethod ctx m
+                        ],
                         ctx.ExportTopLevel
                     )
             ]
