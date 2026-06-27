@@ -1079,12 +1079,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
     member val Provider = provider
 
-    /// The four language-capability identities, resolved once here — the single
-    /// carrier the `for-in`/`use` lowering and the FS0378 custom-eq/comp check read,
-    /// replacing the scattered `RuntimeNames` recognizers. CLR-literal-backed for now
-    /// (temporary fallback) until the capabilities are provider-resolved and the
-    /// literals are deleted.
-    member val CapabilityIds = RuntimeNames.resolveCapabilities () with get
+    /// The four language-capability identities, resolved once here THROUGH THE
+    /// PROVIDER (`ExternalSymbols.resolveCapabilities`) from their canonical Vesper
+    /// contract names — the single carrier the `for-in`/`use` lowering and the FS0378
+    /// custom-eq/comp check read. A capability the provider does not name is
+    /// `ValueNone` (resolve-on-use, §5.4); the passes carry zero hardcoded BCL
+    /// identities.
+    member val CapabilityIds = ExternalSymbols.resolveCapabilities provider with get
 
     member val Input = input
     member val Lexed = lexed

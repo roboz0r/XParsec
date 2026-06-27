@@ -1297,8 +1297,19 @@ module Unification =
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
 
-            if needsEq && not (implementsSelf info ctx.CapabilityIds.Equatable.QualifiedName) then
-                addDiag nameKey "FS0378" "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
+            if needsEq then
+                match ctx.CapabilityIds.Equatable with
+                | ValueSome eq ->
+                    if not (implementsSelf info eq.QualifiedName) then
+                        addDiag nameKey "FS0378" "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
+                // The provider doesn't name `equatable`, yet a `[<CustomEquality>]` type
+                // exercises the conformance check. Don't skip it silently (§5.4) and
+                // don't emit a false FS0378 — report the unresolved capability honestly.
+                | ValueNone ->
+                    addDiag
+                        nameKey
+                        "FS0378"
+                        "A type with [<CustomEquality>] requires the 'equatable' capability, which this compilation's provider does not name."
 
             // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
             // (FS0344). Without one the runtimes fall back to a structural hash (JS)
@@ -1311,8 +1322,15 @@ module Unification =
                 addDiag nameKey "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
 
             if needsCmp then
-                if not (implementsSelf info ctx.CapabilityIds.Comparable.QualifiedName) then
-                    addDiag nameKey "FS0378" "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
+                (match ctx.CapabilityIds.Comparable with
+                 | ValueSome cmp ->
+                     if not (implementsSelf info cmp.QualifiedName) then
+                         addDiag nameKey "FS0378" "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
+                 | ValueNone ->
+                     addDiag
+                         nameKey
+                         "FS0378"
+                         "A type with [<CustomComparison>] requires the 'comparable' capability, which this compilation's provider does not name.")
 
                 // Coherence: custom comparison demands custom equality.
                 if not needsEq then

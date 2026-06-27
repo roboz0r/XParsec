@@ -104,44 +104,6 @@ module RuntimeNames =
     let private systemObjectKey: SymbolKey =
         SymbolKey.TypeKey(Some "System.Runtime", "System", "Object")
 
-    // --- Well-known BCL contract interfaces -------------------------------------------
-    //
-    // The handful of BCL interface identities the *target-agnostic* passes still
-    // resolve against directly: `for … in` enumeration (`IEnumerable<'T>`),
-    // `use`/`for-in` disposal (`IDisposable`), and the `[<CustomEquality>]` /
-    // `[<CustomComparison>]` conformance checks (`IEquatable<'T>` / `IComparable<'T>`).
-    // These are CLR/BCL contracts — on a JS target the same *capabilities* (the
-    // iterable protocol, shape-based equality) wear different identities. Hoisting
-    // them here does NOT make the passes target-independent; it collapses the
-    // identities that were scattered as ad-hoc string literals across `InferControlFlow`
-    // / `Infer` / `Unification` into one auditable place (matching the singleton-key
-    // precedent above), so the CLR coupling is visible in a single file and can't
-    // drift. Making them provider-resolved per target is the deferred next step.
-    //
-    // `asm = Some "System.Runtime"` mirrors `systemObjectKey`; it is a don't-care
-    // for the asm-blind recognisers / qualified-name projections built below.
-
-    /// Canonical identity for `System.Collections.Generic.IEnumerable<'T>` (arity 1) —
-    /// the interface a `for … in` source is resolved against.
-    let private ienumerableKey: SymbolKey =
-        SymbolKey.TypeKey(Some "System.Runtime", "System.Collections.Generic", "IEnumerable`1")
-
-    /// Canonical identity for `System.IDisposable` — the interface whose presence
-    /// gates `use` / `for-in` disposal (the `finally` is emitted iff the source is
-    /// `IDisposable`).
-    let private idisposableKey: SymbolKey =
-        SymbolKey.TypeKey(Some "System.Runtime", "System", "IDisposable")
-
-    /// Canonical identity for `System.IEquatable<'T>` (arity 1) — a `[<CustomEquality>]`
-    /// type must implement it (FS0378).
-    let private iequatableKey: SymbolKey =
-        SymbolKey.TypeKey(Some "System.Runtime", "System", "IEquatable`1")
-
-    /// Canonical identity for `System.IComparable<'T>` (arity 1) — a
-    /// `[<CustomComparison>]` type must implement it (FS0378).
-    let private icomparableKey: SymbolKey =
-        SymbolKey.TypeKey(Some "System.Runtime", "System", "IComparable`1")
-
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
     /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
@@ -280,32 +242,17 @@ module RuntimeNames =
         member this.MatchesName(s: string) : bool = s = this.QualifiedName
 
     /// The four language-capability identities, resolved once per compilation
-    /// (`PassContext`). Iteration/disposal back the `for-in`/`use` lowering;
-    /// equatable/comparable back the FS0378 custom-eq/comp conformance check.
+    /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).
+    /// Iteration/disposal back the `for-in`/`use` lowering; equatable/comparable back
+    /// the FS0378 custom-eq/comp conformance check. Each is a `voption`: a provider
+    /// that does not name a capability resolves it to `ValueNone` (resolve-on-use,
+    /// §5.4) — never a hardcoded BCL fallback, so the passes carry zero CLR identities.
     type CapabilityIds =
         {
-            Enumerable: CapabilityIdentity
-            Disposable: CapabilityIdentity
-            Equatable: CapabilityIdentity
-            Comparable: CapabilityIdentity
-        }
-
-    /// Resolve the capability identities. Provider-resolved per-target identities are
-    /// the deferred next step; today this returns the CLR-literal identities
-    /// unconditionally — a temporary fallback that keeps CLR green until the core
-    /// `.fsi` names the capabilities and the literals are deleted.
-    let resolveCapabilities () : CapabilityIds =
-        let ident (key: SymbolKey) : CapabilityIdentity =
-            {
-                Key = key
-                QualifiedName = SymbolKeyOps.qualifiedName key
-            }
-
-        {
-            Enumerable = ident ienumerableKey
-            Disposable = ident idisposableKey
-            Equatable = ident iequatableKey
-            Comparable = ident icomparableKey
+            Enumerable: CapabilityIdentity voption
+            Disposable: CapabilityIdentity voption
+            Equatable: CapabilityIdentity voption
+            Comparable: CapabilityIdentity voption
         }
 
     /// True iff `k` denotes the Vesper cons-list in either of its nominal forms —

@@ -128,19 +128,17 @@ module UnificationInfer =
         match ctx.Provider.TryLookupMember(name, "Dispose") with
         | ValueSome m when not m.IsStatic && not m.IsProperty -> ValueSome m.Key
         | _ ->
-            match ctx.Provider.TryLookupType name with
-            | ValueSome(ExternalTypeShape.Class shape) when
+            // The interface fallback needs a *named* disposable identity to mint the
+            // `Dispose` member key against; an unnamed disposable (`ValueNone`) means
+            // the type exposes no resolvable own `Dispose` and no capability slot to
+            // fall back to ⇒ not disposable (the downstream use-over-non-disposable
+            // handling fires). Bind it once so the verdict and the minted key agree.
+            match ctx.CapabilityIds.Disposable, ctx.Provider.TryLookupType name with
+            | ValueSome disp, ValueSome(ExternalTypeShape.Class shape) when
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
-                |> Array.exists (fun (n, _) -> ctx.CapabilityIds.Disposable.MatchesName n)
+                |> Array.exists (fun (n, _) -> disp.MatchesName n)
                 ->
-                ValueSome(
-                    SymbolKey.MemberKey(
-                        ctx.CapabilityIds.Disposable.Key,
-                        "Dispose",
-                        EqArray.empty,
-                        MemberKind.Method
-                    )
-                )
+                ValueSome(SymbolKey.MemberKey(disp.Key, "Dispose", EqArray.empty, MemberKind.Method))
             | _ -> ValueNone
 
     /// Resolve the disposal target for one `use` binding. A *project-local*

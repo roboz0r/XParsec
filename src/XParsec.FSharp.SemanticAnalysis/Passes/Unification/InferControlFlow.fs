@@ -59,8 +59,13 @@ module internal UnificationInferControlFlow =
                 // future non-`IDisposable` ref-struct pattern-`Dispose()` case, see the
                 // TODO on the local-enumerator branch of `tryLocalDuckTypedEnumerator`.)
                 let disposable =
-                    ExternalSymbols.instantiateInterfaces enumShape enumArgs
-                    |> Array.exists (fun (n, _) -> ctx.CapabilityIds.Disposable.MatchesName n)
+                    match ctx.CapabilityIds.Disposable with
+                    | ValueSome disp ->
+                        ExternalSymbols.instantiateInterfaces enumShape enumArgs
+                        |> Array.exists (fun (n, _) -> disp.MatchesName n)
+                    // Unnamed disposable: no finally fires (the structural path had its
+                    // chance; an unresolvable disposable surfaces downstream honestly).
+                    | ValueNone -> false
 
                 ValueSome
                     {
@@ -120,7 +125,10 @@ module internal UnificationInferControlFlow =
                         match impl.Resolved with
                         | ValueSome resolved ->
                             match inst resolved with
-                            | TyClass(ifaceKey, _) -> ctx.CapabilityIds.Disposable.MatchesKey ifaceKey
+                            | TyClass(ifaceKey, _) ->
+                                match ctx.CapabilityIds.Disposable with
+                                | ValueSome disp -> disp.MatchesKey ifaceKey
+                                | ValueNone -> false
                             | _ -> false
                         | ValueNone -> false
                     )
@@ -447,7 +455,10 @@ module internal UnificationInferControlFlow =
                     | ValueSome resolved ->
                         match zonk (instantiateMember (info.TypeParams, args) resolved) with
                         | TyClass(ifaceKey, ifaceArgs) when
-                            ctx.CapabilityIds.Enumerable.MatchesKey ifaceKey && ifaceArgs.Length = 1
+                            (match ctx.CapabilityIds.Enumerable with
+                             | ValueSome en -> en.MatchesKey ifaceKey
+                             | ValueNone -> false)
+                            && ifaceArgs.Length = 1
                             ->
                             Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
                         | _ -> None
@@ -578,7 +589,12 @@ module internal UnificationInferControlFlow =
     /// `ForInEnumerator` codegen reads off the frozen node.
     and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
         match zonk srcTy with
-        | TyClass(nameKey, args) when ctx.CapabilityIds.Enumerable.MatchesKey nameKey && args.Length = 1 ->
+        | TyClass(nameKey, args) when
+            (match ctx.CapabilityIds.Enumerable with
+             | ValueSome en -> en.MatchesKey nameKey
+             | ValueNone -> false)
+            && args.Length = 1
+            ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
             match ExternalSymbols.tryLookupType ctx.Provider nameKey with
@@ -598,7 +614,12 @@ module internal UnificationInferControlFlow =
                     match
                         ExternalSymbols.instantiateInterfaces shape argArr
                         |> Array.tryPick (fun (n, ta) ->
-                            if ctx.CapabilityIds.Enumerable.MatchesName n && ta.Length = 1 then
+                            let matchesEnumerable =
+                                match ctx.CapabilityIds.Enumerable with
+                                | ValueSome en -> en.MatchesName n
+                                | ValueNone -> false
+
+                            if matchesEnumerable && ta.Length = 1 then
                                 Some ta.[0]
                             else
                                 None

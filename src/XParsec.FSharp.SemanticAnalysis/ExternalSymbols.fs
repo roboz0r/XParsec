@@ -671,6 +671,55 @@ module ExternalSymbols =
                 | Some s -> ValueSome s
                 | None -> ValueNone
 
+    /// Resolve the language-capability identities THROUGH THE PROVIDER, from their
+    /// canonical language-level Vesper contract names (`Vesper.disposable` etc. —
+    /// §5.0/§6: these names are language-level, hardcoding *them* is intended; the
+    /// BCL identities they map to are not). A capability the provider does not name
+    /// resolves to `ValueNone` — no silent CLR fallback (§5.4); the consumer site
+    /// surfaces a resolve-on-use diagnostic or treats it as a non-match.
+    ///
+    /// Two resolution shapes:
+    ///   * `disposable`/`equatable`/`comparable` are dedicated `extern` anchors
+    ///     (`capabilities.fsi`) whose per-target `.fs` repr makes the provider surface
+    ///     an `Intrinsic` carrying the interface fqn as its `platform` face — the same
+    ///     per-target reconciliation `exn === System.Exception` rides. The fqn already
+    ///     carries the metadata backtick-arity suffix, so the key is minted with arity 0
+    ///     (`qualifiedTypeKeyOf None fqn 0`): `qualifiedName` round-trips to `fqn` (the
+    ///     rendered string the `.MatchesName` consumers compare) and `bareName` strips
+    ///     the suffix for the asm-blind `.MatchesKey` consumers.
+    ///   * Enumerable has no dedicated anchor — iteration already has the language type
+    ///     `seq<'T>` (`Vesper.List/list.fsi`, an abbreviation for `IEnumerable<'T>`), so
+    ///     its identity is read off that abbreviation's resolved head (an `FTClass`
+    ///     carrying the `IEnumerable`1` key) rather than a redundant intrinsic. Absent
+    ///     when `Vesper.List` isn't referenced (⇒ `ValueNone`) — harmless, since `for-in`
+    ///     resolution is structural-primary and the identity is only a fallback (§5.1).
+    let resolveCapabilities (provider: IExternalSymbolProvider) : RuntimeNames.CapabilityIds =
+        let ofKey (key: SymbolKey) : RuntimeNames.CapabilityIdentity =
+            {
+                RuntimeNames.CapabilityIdentity.Key = key
+                RuntimeNames.CapabilityIdentity.QualifiedName = SymbolKeyOps.qualifiedName key
+            }
+
+        let resolveIntrinsic (lookup: string) : RuntimeNames.CapabilityIdentity voption =
+            match provider.TryLookupType lookup with
+            | ValueSome(ExternalTypeShape.Intrinsic(platform = Some fqn)) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
+            | _ -> ValueNone
+
+        // Read the abbreviation's resolved nominal head key (`seq<'T>` → the
+        // `IEnumerable`1` `FTClass`). The home assembly on the key is a don't-care —
+        // both consumer projections (`MatchesKey` asm-blind, `MatchesName` qualified)
+        // ignore it.
+        let resolveAbbrevHead (lookup: string) : RuntimeNames.CapabilityIdentity voption =
+            match provider.TryLookupType lookup with
+            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) -> ValueSome(ofKey key)
+            | _ -> ValueNone
+
+        {
+            Enumerable = resolveAbbrevHead "Vesper.Collections.seq`1"
+            Disposable = resolveIntrinsic "Vesper.disposable"
+            Equatable = resolveIntrinsic "Vesper.equatable`1"
+            Comparable = resolveIntrinsic "Vesper.comparable`1"
+        }
 
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
