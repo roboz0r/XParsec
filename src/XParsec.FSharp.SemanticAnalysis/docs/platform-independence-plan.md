@@ -467,6 +467,26 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
 > change (§1 scope note, §9). Slice 5 (equatable/comparable) is diagnostic-only — **no JS
 > arm**.
 
+### Progress (live)
+
+- **LANDED:** commit 1 (`2a855be5` `CapabilityIds`), commit 2 (`b81e5dbf` `extern with` parser),
+  commit 3a (`7a8c6d47` `extern with` extractor), commit 6 (`use` disposal de-CLR).
+- **Commits 4 (enumerable) and 8 (equatable/comparable) are SATISFIED by commit 1 — no new
+  code.** Commit 1 routed *all four* recognizers through `CapabilityIds`, not just "the
+  mechanism." The `for-in` frozen tree carries no hardcoded BCL identity (the `Interface` case
+  has no key; `Pattern`'s `ConstrainedInterface` carries the *user's* constraint interface, not
+  `IEnumerable`), and the FS0378 check reads `CapabilityIds` directly. Their gates — the 1052
+  `Codegen.Clr.Tests` `ForInTests` and the FS0378 goldens in the 629 `SemanticAnalysis.Tests` —
+  are green. So the only substantive front-end leak was commit 6 (`Infer.fs:132`), now fixed.
+- **JS arms (commits 5, 7) DEFERRED to a separate follow-on effort** (decided). `JsNativeSymbols`
+  is a hand-authored stub (only `Error`), the `tsc`-extracted JS provider doesn't exist, and
+  `EmitJs` has no `ForIn`/`Use` arm or `TryFinally` node — building all three is net-new
+  backend+provider work out of this sprint's scope (per §9's "its own tracked effort").
+- **REMAINING in this sprint:** 3b (declare the capabilities in `Vesper.Core` `.fsi` + per-target
+  `.fs`) and 9 (delete the four literals, provider-resolve `CapabilityIds`). Architectural +
+  shipping-contract; design-first (the CLR premise: how a neutral capability key still lowers to
+  `System.IDisposable::Dispose` through the backend).
+
 ### Commit-by-commit
 
 1. **§5.0 mechanism (C).** Add `PassContext.CapabilityIds` (both `SymbolKey` *and* rendered
