@@ -116,10 +116,14 @@ module UnificationInfer =
     /// Resolve a keyed `Dispose` for a `use` binder of *external* (BCL) type.
     /// Prefer the type's *own* declared `Dispose`
     /// — a duck-typed pattern dispose, including a non-`IDisposable` ref struct —
-    /// then fall back to `System.IDisposable::Dispose` when the type implements the
-    /// interface (the common BCL case: `Dispose` is declared on a base, so
+    /// then fall back to the disposable-capability interface's `Dispose` when the
+    /// type implements it (the common BCL case: `Dispose` is declared on a base, so
     /// `TryLookupMember` — `DeclaredOnly` — misses it, but `GetInterfaces` surfaces
-    /// `IDisposable` transitively). `ValueNone` ⇒ the type exposes no `Dispose`.
+    /// the disposable interface transitively). `ValueNone` ⇒ the type exposes no
+    /// `Dispose`. The fallback key is the §5.0-resolved disposable identity
+    /// (`ctx.CapabilityIds.Disposable`), NOT a hardcoded `System.IDisposable` —
+    /// so this `dispose` key crosses Freeze target-neutrally (each backend lowers
+    /// it to its own slot: the CLR `IDisposable::Dispose`, the JS `Symbol.dispose`).
     and private tryExternalDispose (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SymbolKey voption =
         match ctx.Provider.TryLookupMember(name, "Dispose") with
         | ValueSome m when not m.IsStatic && not m.IsProperty -> ValueSome m.Key
@@ -131,7 +135,7 @@ module UnificationInfer =
                 ->
                 ValueSome(
                     SymbolKey.MemberKey(
-                        SymbolKey.TypeKey(None, "System", "IDisposable"),
+                        ctx.CapabilityIds.Disposable.Key,
                         "Dispose",
                         EqArray.empty,
                         MemberKind.Method
