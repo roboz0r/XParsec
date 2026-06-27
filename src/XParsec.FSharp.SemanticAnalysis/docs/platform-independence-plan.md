@@ -1043,12 +1043,16 @@ Both Q1/Q2 funnel through the same two net-new JS-backend prerequisites, then sp
 (`8b2e69e9`), `capabilities.js.fs` equatable/comparable (`cb32ab94`, full JS suite green),
 class-`seq`→`*[Symbol.iterator]()` slices 2+3 (`e952f0d3`, executable under Node).
 
-**Next candidates (any order; all gated):** (i) the §14.5 eq/comp/hash registry-symbol
-re-key — the computed-key machinery now exists, so this is the emission re-key + the
-`Vesper.Core`/`Vesper.Comparison` runtime dispatch flip, landed together; (ii) Track II
-disposal — slice 4 (`disposable` `extern with` member surface) + slice 5 (model flip) +
-`[Symbol.dispose]` via the same `emitIteratorMethod`-style mechanism; (iii) Track I union
-lift (bare `List` iterability).
+**eq/comp/hash registry-symbol re-key — DONE (`41197c4d`).** §14.5 realized: emission
+re-key (`emitProtocolMethod` → `[Symbol.for("vesper.equality"|"vesper.comparison"|"vesper.hash")]`)
++ the three-site `Vesper.Core`/`Vesper.Comparison` runtime dispatch flip, landed together;
+the three behavioral Node oracles are the coupling gate (167/0/0). All four capabilities now
+dispatch uniformly via `obj[<symbol>](…)`.
+
+**Next candidates (any order; all gated):** (i) Track II disposal — slice 4 (`disposable`
+`extern with` member surface) + slice 5 (model flip: interface-required + ref-struct
+carve-out) + `[Symbol.dispose]` via the same `emitProtocolMethod`-style mechanism; (ii)
+Track I union lift (bare `List` iterability, no `:> seq` upcast).
 
 ### 14.5 Uniform symbol-keyed capability dispatch on JS (decided 2026-06-27)
 
