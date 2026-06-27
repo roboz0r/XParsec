@@ -1004,7 +1004,31 @@ member surface** on the capability anchors (promoted from deferred to load-beari
   that can't implement interfaces (C#8 pattern-`using` parity). Tighten `resolveUseDispose`/
   `tryExternalDispose` accordingly; update over-permissive fixtures to implement `disposable`.
   Needs slices 4 (`disposable` member surface, so a type can write the impl) + 5 (the flip).
-- **Q1 — `List` iterability seam — OPEN:** lift the union-interface-impl restriction so the
-  `List` union implements `seq` directly (large front-end work), OR make the existing
-  `ListSeq` wrapper class iterable on JS (emit `[Symbol.iterator]` for the wrapper; smaller,
-  keeps the union limitation)?
+- **Q1 — `List` iterability seam — RESOLVED: lift the union-interface-impl restriction.**
+  Make the front end (and both backends) support a union **directly** implementing an
+  interface, so `type List<'T>` implements `seq<'T>` natively and `for x in xs` (a bare
+  list) works — matching "List should implement seq, codegen flows from there". This
+  retires the `ListSeq`/`ListEnumerator` wrapper as the iteration seam. Substantial
+  front-end + union-codegen work on both targets (see `project_union_interface_impls_unsupported`);
+  its own investigated slice.
+
+### 14.4 Two tracks + shared prerequisites (post-decision roadmap)
+
+Both Q1/Q2 funnel through the same two net-new JS-backend prerequisites, then split:
+
+- **Shared — slice 2 (computed-key attached methods):** a `computed`/key-expr field on
+  `JsClassMethod` + `[expr](){}` rendering in `JsPrint`. Pure-additive JS backend, no
+  front-end touch. *Done first — both tracks need it.*
+- **Shared — slice 3 (capability-impl → protocol-member mapping):** in
+  `partitionClassMembers`, route an attached impl whose interface is
+  `CapabilityIds.{Enumerable,Disposable}` to `[Symbol.iterator]`/`[Symbol.dispose]`.
+- **Track I — iteration (Q1):** lift union-interface-impl restriction → `List` implements
+  `seq` → slice 3 emits `[Symbol.iterator]` (+ `GetEnumerator → { next(): {value,done} }`
+  adapter) → `for x in xs` executable. *Gate:* `runJs` prints list elements in order.
+- **Track II — disposal (Q2):** slice 4 (`disposable` `extern with` member surface) →
+  slice 5 (disposal model flip: interface-required + `ref struct` carve-out) → slice 3
+  emits `[Symbol.dispose]` → `use` lowers to `obj[Symbol.dispose]()`. *Gate:* `runJs`
+  disposal ordering over an interface-implementing disposable.
+
+**Landed so far (this effort):** JS `use`→try/finally (`9f74732c`), `for…in`→for…of
+(`8b2e69e9`), `capabilities.js.fs` equatable/comparable (`cb32ab94`, full JS suite green).
