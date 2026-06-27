@@ -1297,7 +1297,7 @@ module Unification =
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
 
-            if needsEq && not (implementsSelf info RuntimeNames.iequatableQualifiedName) then
+            if needsEq && not (implementsSelf info ctx.CapabilityIds.Equatable.QualifiedName) then
                 addDiag nameKey "FS0378" "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
 
             // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
@@ -1311,7 +1311,7 @@ module Unification =
                 addDiag nameKey "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
 
             if needsCmp then
-                if not (implementsSelf info RuntimeNames.icomparableQualifiedName) then
+                if not (implementsSelf info ctx.CapabilityIds.Comparable.QualifiedName) then
                     addDiag nameKey "FS0378" "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
 
                 // Coherence: custom comparison demands custom equality.

@@ -142,15 +142,6 @@ module RuntimeNames =
     let private icomparableKey: SymbolKey =
         SymbolKey.TypeKey(Some "System.Runtime", "System", "IComparable`1")
 
-    /// The rendered qualified name of `System.IEquatable<'T>` —
-    /// `"System.IEquatable\`1"` — for the consumer comparing against a member's
-    /// rendered interface name (`Unification.implementsSelf`, keyed on a string).
-    let iequatableQualifiedName: string = SymbolKeyOps.qualifiedName iequatableKey
-
-    /// The rendered qualified name of `System.IComparable<'T>` —
-    /// `"System.IComparable\`1"`. Pairs with `iequatableQualifiedName`.
-    let icomparableQualifiedName: string = SymbolKeyOps.qualifiedName icomparableKey
-
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
     /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
@@ -271,6 +262,52 @@ module RuntimeNames =
             cns = ns && SymbolKeyOps.bareName cn = SymbolKeyOps.bareName n
         | _ -> false
 
+    /// One resolved capability identity: the `SymbolKey` plus its rendered qualified
+    /// name — the two projections the consumer sites split across (some compare a
+    /// `SymbolKey` asm-blind, some compare a rendered interface-name string from
+    /// `ExternalSymbols.instantiateInterfaces`).
+    type CapabilityIdentity =
+        {
+            Key: SymbolKey
+            QualifiedName: string
+        }
+
+        /// Asm-blind key match (same namespace + bare name) — the `SymbolKey`-keyed
+        /// consumers.
+        member this.MatchesKey(k: SymbolKey) : bool = sameTypeAsmBlind this.Key k
+
+        /// Rendered-name match — the string-keyed consumers.
+        member this.MatchesName(s: string) : bool = s = this.QualifiedName
+
+    /// The four language-capability identities, resolved once per compilation
+    /// (`PassContext`). Iteration/disposal back the `for-in`/`use` lowering;
+    /// equatable/comparable back the FS0378 custom-eq/comp conformance check.
+    type CapabilityIds =
+        {
+            Enumerable: CapabilityIdentity
+            Disposable: CapabilityIdentity
+            Equatable: CapabilityIdentity
+            Comparable: CapabilityIdentity
+        }
+
+    /// Resolve the capability identities. Provider-resolved per-target identities are
+    /// the deferred next step; today this returns the CLR-literal identities
+    /// unconditionally — a temporary fallback that keeps CLR green until the core
+    /// `.fsi` names the capabilities and the literals are deleted.
+    let resolveCapabilities () : CapabilityIds =
+        let ident (key: SymbolKey) : CapabilityIdentity =
+            {
+                Key = key
+                QualifiedName = SymbolKeyOps.qualifiedName key
+            }
+
+        {
+            Enumerable = ident ienumerableKey
+            Disposable = ident idisposableKey
+            Equatable = ident iequatableKey
+            Comparable = ident icomparableKey
+        }
+
     /// True iff `k` denotes the Vesper cons-list in either of its nominal forms —
     /// the `List` union or its lowercase `list` abbreviation (both in
     /// `Vesper.Collections`).
@@ -300,27 +337,6 @@ module RuntimeNames =
     /// True iff `k` denotes the BCL `System.Object`. Asm-blind (the consumers — the
     /// unify equality/derives predicates — never compared the home assembly).
     let isSystemObjectKey (k: SymbolKey) : bool = sameTypeAsmBlind systemObjectKey k
-
-    /// True iff `k` denotes `System.Collections.Generic.IEnumerable<'T>` — the
-    /// `for … in` source interface. Asm-blind; the caller still checks the arg arity.
-    let isIEnumerableKey (k: SymbolKey) : bool = sameTypeAsmBlind ienumerableKey k
-
-    /// True iff the *rendered* qualified interface name `s` denotes
-    /// `System.Collections.Generic.IEnumerable<'T>` — the string-keyed analogue of
-    /// `isIEnumerableKey`, for the consumer scanning rendered names from
-    /// `ExternalSymbols.instantiateInterfaces`. The caller still checks the arg arity.
-    let isIEnumerableName (s: string) : bool =
-        s = SymbolKeyOps.qualifiedName ienumerableKey
-
-    /// True iff `k` denotes `System.IDisposable` — the disposal interface gating a
-    /// `use` / `for-in` `finally`. Asm-blind, matching the list/object recognisers.
-    let isIDisposableKey (k: SymbolKey) : bool = sameTypeAsmBlind idisposableKey k
-
-    /// True iff the *rendered* qualified interface name `s` denotes `System.IDisposable`
-    /// — the string-keyed analogue of `isIDisposableKey`, for the consumers holding a
-    /// rendered name from `ExternalSymbols.instantiateInterfaces` rather than a key.
-    let isIDisposableName (s: string) : bool =
-        s = SymbolKeyOps.qualifiedName idisposableKey
 
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
     /// format type a `printf` / `sprintf` literal freezes to. Asm-blind, matching the

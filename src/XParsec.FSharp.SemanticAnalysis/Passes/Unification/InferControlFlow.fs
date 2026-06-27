@@ -37,6 +37,7 @@ module internal UnificationInferControlFlow =
     /// being `E`'s own instantiation. `ValueNone` unless both are present and
     /// `MoveNext` returns `bool`.
     let private probeExternalEnumerator
+        (ctx: PassContext)
         (enumShape: ExternalClassShape)
         (enumArgs: SemType[])
         : ExternalEnumProbe voption =
@@ -59,7 +60,7 @@ module internal UnificationInferControlFlow =
                 // TODO on the local-enumerator branch of `tryLocalDuckTypedEnumerator`.)
                 let disposable =
                     ExternalSymbols.instantiateInterfaces enumShape enumArgs
-                    |> Array.exists (fun (n, _) -> RuntimeNames.isIDisposableName n)
+                    |> Array.exists (fun (n, _) -> ctx.CapabilityIds.Disposable.MatchesName n)
 
                 ValueSome
                     {
@@ -80,6 +81,7 @@ module internal UnificationInferControlFlow =
     /// resolves the members itself via `resolveInstanceMember`). `ValueNone` unless
     /// both members are present and `MoveNext` returns `bool`.
     let private probeLocalEnumerator
+        (ctx: PassContext)
         (enumInfo: ClassTypeInfo)
         (enumArgs: EqArray<SemType>)
         : (SemType * bool * bool) voption =
@@ -118,7 +120,7 @@ module internal UnificationInferControlFlow =
                         match impl.Resolved with
                         | ValueSome resolved ->
                             match inst resolved with
-                            | TyClass(ifaceKey, _) -> RuntimeNames.isIDisposableKey ifaceKey
+                            | TyClass(ifaceKey, _) -> ctx.CapabilityIds.Disposable.MatchesKey ifaceKey
                             | _ -> false
                         | ValueNone -> false
                     )
@@ -340,7 +342,7 @@ module internal UnificationInferControlFlow =
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
                 match ExternalSymbols.tryLookupType ctx.Provider enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
-                    match probeExternalEnumerator enumShape (enumArgsEq.AsSpan().ToArray()) with
+                    match probeExternalEnumerator ctx enumShape (enumArgsEq.AsSpan().ToArray()) with
                     | ValueSome probe ->
                         // External source, external `E`: both axes external.
                         ValueSome(
@@ -395,7 +397,7 @@ module internal UnificationInferControlFlow =
                     // local struct members. Local source, local `E`: both axes
                     // project-local.
                     | ValueSome enumInfo ->
-                        probeLocalEnumerator enumInfo enumArgs
+                        probeLocalEnumerator ctx enumInfo enumArgs
                         |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
                             elemTy,
                             ForInEnumeratorG.Pattern(
@@ -415,7 +417,7 @@ module internal UnificationInferControlFlow =
                     | ValueNone ->
                         match ExternalSymbols.tryLookupType ctx.Provider enumKey with
                         | ValueSome(ExternalTypeShape.Class enumShape) ->
-                            probeExternalEnumerator enumShape (enumArgs.AsSpan().ToArray())
+                            probeExternalEnumerator ctx enumShape (enumArgs.AsSpan().ToArray())
                             |> ValueOption.map (fun probe ->
                                 probe.ElemTy,
                                 ForInEnumeratorG.Pattern(
@@ -445,7 +447,7 @@ module internal UnificationInferControlFlow =
                     | ValueSome resolved ->
                         match zonk (instantiateMember (info.TypeParams, args) resolved) with
                         | TyClass(ifaceKey, ifaceArgs) when
-                            RuntimeNames.isIEnumerableKey ifaceKey && ifaceArgs.Length = 1
+                            ctx.CapabilityIds.Enumerable.MatchesKey ifaceKey && ifaceArgs.Length = 1
                             ->
                             Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
                         | _ -> None
@@ -471,7 +473,7 @@ module internal UnificationInferControlFlow =
         | TyClass(enumKey, enumArgs) ->
             match TypeRegistry.tryClassByKey ctx.Types enumKey with
             | ValueSome enumInfo ->
-                probeLocalEnumerator enumInfo enumArgs
+                probeLocalEnumerator ctx enumInfo enumArgs
                 |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
                     elemTy, ForInEnumMembersG.Local, isValueType, dispose
                 )
@@ -576,7 +578,7 @@ module internal UnificationInferControlFlow =
     /// `ForInEnumerator` codegen reads off the frozen node.
     and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
         match zonk srcTy with
-        | TyClass(nameKey, args) when RuntimeNames.isIEnumerableKey nameKey && args.Length = 1 ->
+        | TyClass(nameKey, args) when ctx.CapabilityIds.Enumerable.MatchesKey nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
             match ExternalSymbols.tryLookupType ctx.Provider nameKey with
@@ -596,7 +598,7 @@ module internal UnificationInferControlFlow =
                     match
                         ExternalSymbols.instantiateInterfaces shape argArr
                         |> Array.tryPick (fun (n, ta) ->
-                            if RuntimeNames.isIEnumerableName n && ta.Length = 1 then
+                            if ctx.CapabilityIds.Enumerable.MatchesName n && ta.Length = 1 then
                                 Some ta.[0]
                             else
                                 None

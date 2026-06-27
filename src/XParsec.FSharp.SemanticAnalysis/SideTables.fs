@@ -1078,6 +1078,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     let types = PassContextTypes.empty ()
 
     member val Provider = provider
+
+    /// The four language-capability identities, resolved once here — the single
+    /// carrier the `for-in`/`use` lowering and the FS0378 custom-eq/comp check read,
+    /// replacing the scattered `RuntimeNames` recognizers. CLR-literal-backed for now
+    /// (temporary fallback) until the capabilities are provider-resolved and the
+    /// literals are deleted.
+    member val CapabilityIds = RuntimeNames.resolveCapabilities () with get
+
     member val Input = input
     member val Lexed = lexed
     /// The simple name of the assembly this compilation unit emits into — the
