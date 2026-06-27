@@ -25,12 +25,16 @@
 function cmpSign(d) { return d < 0 ? -1 : d > 0 ? 1 : 0; }
 
 // DISPATCHER vs STRUCTURAL CORE split, mirroring Vesper.Core.mjs's `eq`. `cmp`
-// dispatches to a per-instance `CompareTo` when present — the override slot for a
-// future `[<CustomComparison>]` type, which emits its own `CompareTo` (no shared base
-// class). `cmpStructural` is the non-dispatching shape walk and the DEFAULT path:
-// ordinary unions/records carry no `CompareTo`, so structural ordering applies. A custom
-// override must compare FIELD values (re-entering `cmp`), never call `cmp` on its own
-// `this`. A plain `{ tag, … }` cell has no `CompareTo` and stays structural.
+// dispatches to a per-instance registry-symbol method `obj[Symbol.for("vesper.comparison")]`
+// when present — the override slot a `[<CustomComparison>]` type emits (a computed-key
+// method the backend keys off the `IComparable<Self>` impl; no shared base class). A
+// registry symbol is present ONLY on a type that opted into the protocol, so it can't
+// collide with a foreign object carrying an unrelated string `.CompareTo`. `cmpStructural`
+// is the non-dispatching shape walk and the DEFAULT path: ordinary unions/records carry no
+// such symbol, so structural ordering applies. A custom override must compare FIELD values
+// (re-entering `cmp`), never call `cmp` on its own `this`. A plain `{ tag, … }` cell has no
+// symbol and stays structural.
+const COMPARISON = Symbol.for("vesper.comparison");
 function cmp(a, b) {
   if (a === b) return 0;
   if (a === null || a === undefined) return (b === null || b === undefined) ? 0 : -1;
@@ -44,7 +48,7 @@ function cmp(a, b) {
     for (let i = 0; i < n; i++) { const c = cmp(a[i], b[i]); if (c !== 0) return c; }
     return cmpSign(a.length - b.length);
   }
-  if (typeof a.CompareTo === "function" && typeof b.CompareTo === "function") return cmpSign(a.CompareTo(b));
+  if (typeof a[COMPARISON] === "function" && typeof b[COMPARISON] === "function") return cmpSign(a[COMPARISON](b));
   return cmpStructural(a, b);
 }
 

@@ -1324,6 +1324,53 @@ module EmitJs =
             Generator = true
         }
 
+    /// Emit an eq/comp/hash capability impl as a COMPUTED-KEY method
+    /// `[Symbol.for("vesper.X")](params) { … }` — the registry-symbol dispatch slot the
+    /// `Vesper.Core` / `Vesper.Comparison` runtimes look for (`a[Symbol.for("vesper.equality")](b)`,
+    /// `a[Symbol.for("vesper.comparison")](b)`, `x[Symbol.for("vesper.hash")]()`). A registry
+    /// symbol is present ONLY on a type that opted into the protocol, so it can't collide with a
+    /// foreign object carrying an unrelated `.Equals`/`.CompareTo`/`.GetHashCode`. Body emission is
+    /// exactly `emitAttachedMethod` (receiver re-bound to `this`); only the KEY differs — a
+    /// `Symbol.for("…")` CALL expression, distinct from the iterator's `Symbol.iterator`
+    /// member-access. `registryName` is the registry key (`vesper.equality` etc.).
+    and emitProtocolMethod (ctx: WalkCtx) (registryName: string) (m: Frozen.TTypeMember) : JsClassMethod =
+        let paramNames = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+
+        let recvBinding =
+            match m.ThisKey with
+            | ValueSome k ->
+                let recvName = identName ctx.Source k
+
+                if recvName = "this" then
+                    []
+                else
+                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+            | ValueNone -> []
+
+        let body = recvBinding @ [ JsStatement.Return(buildExpr ctx m.Body) ]
+
+        // `Symbol.for("vesper.X")` — a CALL on the `Symbol.for` member, resolving to the same
+        // process-wide registry symbol in every module with no import wiring.
+        let symbolForKey =
+            JsExpr.Call(
+                JsExpr.Member(
+                    JsExpr.Identifier("Symbol", ValueNone),
+                    JsExpr.Identifier("for", ValueNone),
+                    false,
+                    ValueNone
+                ),
+                [ JsExpr.Literal(JsLiteral.String registryName, ValueNone) ],
+                ValueNone
+            )
+
+        {
+            Name = "[Symbol.for(\"" + registryName + "\")]"
+            Params = paramNames
+            Body = body
+            Computed = ValueSome symbolForKey
+            Generator = false
+        }
+
     /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
     /// value routes through `emitFunction` carrying its binder key, so a
     /// recursive binding (`let rec`) can recognise its own tail calls; any other
@@ -1470,6 +1517,10 @@ module EmitJs =
             /// interface (`seq<'T>` / `IEnumerable<'T>`), routed away from the plain
             /// attached path to a `[Symbol.iterator]` generator (`emitIteratorMethod`).
             Iterators: Frozen.TTypeMember list
+            /// The eq/comp/hash capability impls, each paired with its registry-symbol
+            /// key (`vesper.equality` / `vesper.comparison` / `vesper.hash`), routed to a
+            /// computed-key `[Symbol.for("vesper.X")]` method (`emitProtocolMethod`).
+            Protocols: (string * Frozen.TTypeMember) list
         }
 
     /// The split of a class's members across the JS emission forms.
@@ -1481,7 +1532,18 @@ module EmitJs =
             Free: Frozen.TTypeMember list
             /// Enumerable-capability `GetEnumerator` impls → `[Symbol.iterator]` generators.
             Iterators: Frozen.TTypeMember list
+            /// Eq/comp/hash capability impls, paired with their registry-symbol key →
+            /// `[Symbol.for("vesper.X")]` computed-key methods.
+            Protocols: (string * Frozen.TTypeMember) list
         }
+
+    /// Registry-symbol keys for the eq/comp/hash JS capability protocols (plan §14.5).
+    /// These three protocols have no native JS dispatch, so they ride a process-wide
+    /// `Symbol.for("vesper.X")` the Vesper runtimes look up — collision-proof against a
+    /// foreign object's same-named string method.
+    let [<Literal>] private equalityRegistryKey = "vesper.equality"
+    let [<Literal>] private comparisonRegistryKey = "vesper.comparison"
+    let [<Literal>] private hashRegistryKey = "vesper.hash"
 
     /// The head nominal key of a frozen interface type (`FTClass(key, _)`).
     let private ifaceHeadKey (ty: FrozenType) : SymbolKey voption =
@@ -1513,16 +1575,23 @@ module EmitJs =
         : PartitionedMembers =
         let attached = ResizeArray<Frozen.TTypeMember>()
         let iterators = ResizeArray<Frozen.TTypeMember>()
+        let protocols = ResizeArray<string * Frozen.TTypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
-        // Interface impls claim their name slot first. An enumerable-capability
-        // interface (`seq<'T>` / `IEnumerable<'T>`) is the exception: its `GetEnumerator`
-        // impl drives a native `[Symbol.iterator]` generator, not a named method.
+        let capMatches (cap: RuntimeNames.CapabilityIdentity voption) (iface: FrozenType) =
+            match ifaceHeadKey iface with
+            | ValueSome key -> cap |> ValueOption.exists (fun c -> c.MatchesKey key)
+            | ValueNone -> false
+
+        // Interface impls claim their name slot first. The capability interfaces are the
+        // exceptions: an enumerable (`seq<'T>`) impl drives a native `[Symbol.iterator]`
+        // generator, and an equatable (`IEquatable<Self>`) / comparable (`IComparable<Self>`)
+        // impl drives a registry-symbol `[Symbol.for("vesper.X")]` method (plan §14.5) —
+        // neither claims a string name slot.
         for (iface, ifaceMembers) in cls.Interfaces do
-            let isEnumerable =
-                match ifaceHeadKey iface with
-                | ValueSome key -> caps.Enumerable |> ValueOption.exists (fun en -> en.MatchesKey key)
-                | ValueNone -> false
+            let isEnumerable = capMatches caps.Enumerable iface
+            let isEquatable = capMatches caps.Equatable iface
+            let isComparable = capMatches caps.Comparable iface
 
             let isNonGenericEnumerable =
                 match ifaceHeadKey iface with
@@ -1532,6 +1601,12 @@ module EmitJs =
             if isEnumerable then
                 for m in ifaceMembers do
                     iterators.Add m
+            elif isEquatable then
+                for m in ifaceMembers do
+                    protocols.Add(equalityRegistryKey, m)
+            elif isComparable then
+                for m in ifaceMembers do
+                    protocols.Add(comparisonRegistryKey, m)
             elif isNonGenericEnumerable then
                 ()
             else
@@ -1544,8 +1619,14 @@ module EmitJs =
         for m in cls.Members do
             if m.IsOverride && m.Name = "Equals" then
                 // `obj`-typed `Object.Equals` override is redundant on JS — the typed
-                // `IEquatable<Self>.Equals` already holds the `.Equals` dispatch slot.
+                // `IEquatable<Self>.Equals` impl holds the equality dispatch slot
+                // (the `[Symbol.for("vesper.equality")]` method).
                 ()
+            elif m.IsOverride && m.Name = "GetHashCode" then
+                // The hashing protocol slot: `hashOf` looks up `x[Symbol.for("vesper.hash")]()`,
+                // so the `override GetHashCode` becomes a registry-symbol method, NOT a named
+                // attached method (every OTHER override — `ToString` etc. — stays string-named).
+                protocols.Add(hashRegistryKey, m)
             elif m.IsOverride then
                 if claimed.Add m.Name then
                     attached.Add m
@@ -1566,6 +1647,7 @@ module EmitJs =
             Attached = List.ofSeq attached
             Free = List.ofSeq free
             Iterators = List.ofSeq iterators
+            Protocols = List.ofSeq protocols
         }
 
     let private collectTypes (caps: RuntimeNames.CapabilityIds) (exportTypes: bool) (tast: Frozen.TastFile) =
@@ -1632,6 +1714,7 @@ module EmitJs =
                             Fields = fieldNames
                             Attached = parts.Attached
                             Iterators = parts.Iterators
+                            Protocols = parts.Protocols
                         }
 
                     for m in parts.Free do
@@ -1694,6 +1777,7 @@ module EmitJs =
                         [
                             for m in pc.Attached -> emitAttachedMethod ctx m
                             for m in pc.Iterators -> emitIteratorMethod ctx m
+                            for (sym, m) in pc.Protocols -> emitProtocolMethod ctx sym m
                         ],
                         ctx.ExportTopLevel
                     )

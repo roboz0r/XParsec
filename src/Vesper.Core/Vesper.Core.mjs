@@ -36,15 +36,18 @@
 // Route B (the --compiling-fslib bootstrap) eventually replaces this hand-authored
 // file with a backend-compiled module — same shape, same imports.
 
-// DISPATCHER vs STRUCTURAL CORE split. `eq` dispatches to a per-instance `Equals` when
-// present — the override slot for a future `[<CustomEquality>]` type, which emits its
-// own `Equals` method that the backend picks up by presence (no shared base class).
-// `eqStructural` is the non-dispatching shape walk and the DEFAULT path: ordinary
-// unions/records carry no `Equals`, so structural equality (`$type` + own-keys) applies.
-// The no-loop invariant for a custom override: its `Equals` must compare FIELD values
-// (re-entering `eq`), never call `eq` on its own `this`. A plain `{ tag, … }` cell has
-// no `Equals` and falls straight to `eqStructural` — the Step 5b/6 cell-vs-instance
-// interop is preserved.
+// DISPATCHER vs STRUCTURAL CORE split. `eq` dispatches to a per-instance registry-symbol
+// method `obj[Symbol.for("vesper.equality")]` when present — the override slot a
+// `[<CustomEquality>]` type emits (a computed-key method the backend keys off the
+// `IEquatable<Self>` impl; no shared base class). A registry symbol is present ONLY on a
+// type that opted into the protocol, so it can't collide with a foreign object carrying
+// an unrelated string `.Equals`. `eqStructural` is the non-dispatching shape walk and the
+// DEFAULT path: ordinary unions/records carry no such symbol, so structural equality
+// (`$type` + own-keys) applies. The no-loop invariant for a custom override: its method
+// must compare FIELD values (re-entering `eq`), never call `eq` on its own `this`. A plain
+// `{ tag, … }` cell has no symbol and falls straight to `eqStructural` — the Step 5b/6
+// cell-vs-instance interop is preserved.
+const EQUALITY = Symbol.for("vesper.equality");
 function eq(a, b) {
   if (a === b) return true;
   if (a === null || a === undefined || b === null || b === undefined) return false;
@@ -54,7 +57,7 @@ function eq(a, b) {
     for (let i = 0; i < a.length; i++) { if (!eq(a[i], b[i])) return false; }
     return true;
   }
-  if (typeof a.Equals === "function" && typeof b.Equals === "function") return a.Equals(b);
+  if (typeof a[EQUALITY] === "function" && typeof b[EQUALITY] === "function") return a[EQUALITY](b);
   return eqStructural(a, b);
 }
 
@@ -89,10 +92,12 @@ function stringHash(s) {
 }
 
 // DISPATCHER (`hashOf`) vs STRUCTURAL CORE (`hashStructural`), same shape as `eq`:
-// `hashOf` defers to a per-instance `GetHashCode` (the override slot for a future
-// custom-equality type), else the default `hashStructural` walk. Hashing IGNORES
-// `$type` (it is non-enumerable, never an own-key), so an equal branded instance and
-// plain cell still hash equal — the brand discriminates equality, not the hash.
+// `hashOf` defers to a per-instance registry-symbol method `x[Symbol.for("vesper.hash")]`
+// (the override slot a custom-equality type's `override GetHashCode` emits), else the
+// default `hashStructural` walk. Hashing IGNORES `$type` (it is non-enumerable, never an
+// own-key), so an equal branded instance and plain cell still hash equal — the brand
+// discriminates equality, not the hash.
+const HASH = Symbol.for("vesper.hash");
 function hashOf(x) {
   if (x === null || x === undefined) return 0;
   const t = typeof x;
@@ -105,7 +110,7 @@ function hashOf(x) {
     for (let i = 0; i < x.length; i++) { h = combineHash(h, hashOf(x[i])); }
     return h;
   }
-  if (typeof x.GetHashCode === "function") return x.GetHashCode();
+  if (typeof x[HASH] === "function") return x[HASH]();
   return hashStructural(x);
 }
 

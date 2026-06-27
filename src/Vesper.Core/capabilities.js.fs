@@ -9,8 +9,9 @@ namespace Vesper
 //
 // The equatable / comparable reprs deliberately keep the SAME `System.IEquatable\`1`
 // / `System.IComparable\`1` byte-spelling as the CLR `.fs`. On JS these BCL
-// interfaces are ERASED at runtime (the runtime duck-types `.Equals` / `.CompareTo`
-// presence), but they survive as PROVIDER METADATA: `JsNativeSymbols` surfaces
+// interfaces are ERASED at runtime (the JS backend re-keys a custom-eq/comp impl to a
+// registry-symbol method `obj[Symbol.for("vesper.equality"|"vesper.comparison")]` that the
+// runtime dispatches on), but they survive as PROVIDER METADATA: `JsNativeSymbols` surfaces
 // exactly those arity-suffixed names, and a user's `interface System.IEquatable<Self>`
 // impl resolves through that provider to the same qualified name. So binding the
 // capability identity to these reprs makes `resolveCapabilities` mint a

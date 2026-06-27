@@ -87,12 +87,22 @@ let tests =
                     )
 
                 Expect.stringContains src "class Tagged {" "the custom-eq class emits"
-                // The IEquatable<Self>.Equals impl attaches as an instance method named
-                // `Equals` (the runtime hook `a.Equals(b)` finds it). The redundant
-                // obj-typed `Object.Equals` override is dropped (interface wins the slot).
-                Expect.stringContains src "Equals(other)" "typed IEquatable.Equals attaches as `Equals`"
-                // The `override GetHashCode` attaches so `hashOf` can find it.
-                Expect.stringContains src "GetHashCode()" "override GetHashCode attaches"
+                // The IEquatable<Self>.Equals impl attaches as a COMPUTED-KEY registry-symbol
+                // method `[Symbol.for("vesper.equality")](other)` (the runtime hook
+                // `a[Symbol.for("vesper.equality")](b)` finds it). The redundant obj-typed
+                // `Object.Equals` override is dropped (interface wins the slot); the old named
+                // `Equals(` method form is GONE (re-keyed to the symbol — plan §14.5).
+                Expect.stringContains
+                    src
+                    "[Symbol.for(\"vesper.equality\")](other)"
+                    "typed IEquatable.Equals attaches as the registry-symbol method"
+                Expect.isFalse (src.Contains "Equals(other)") "the named `Equals(` method form is gone (re-keyed)"
+                // The `override GetHashCode` attaches as `[Symbol.for("vesper.hash")]()` so
+                // `hashOf` can find it via the registry symbol.
+                Expect.stringContains
+                    src
+                    "[Symbol.for(\"vesper.hash\")]()"
+                    "override GetHashCode attaches as the registry-symbol method"
             }
 
             // ---- custom-equality dispatch slot: execution proves the slot is live ----
