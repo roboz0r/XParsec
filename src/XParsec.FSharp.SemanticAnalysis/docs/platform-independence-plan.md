@@ -470,7 +470,22 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
 ### Progress (live)
 
 - **LANDED:** commit 1 (`2a855be5` `CapabilityIds`), commit 2 (`b81e5dbf` `extern with` parser),
-  commit 3a (`7a8c6d47` `extern with` extractor), commit 6 (`use` disposal de-CLR).
+  commit 3a (`7a8c6d47` `extern with` extractor), commit 6 (`use` disposal de-CLR),
+  commit 3b (`1960e72e` capability anchors in `Vesper.Core`), commit 9 (`d0c5e875`
+  provider-resolved `CapabilityIds` + CLR-literal deletion). **The Tier 2 front-end de-CLR is
+  COMPLETE — the passes carry zero hardcoded BCL capability identities.**
+- **Enumerable rides `seq`, not a new `iterable` anchor (decided in the 3b/9 session).** The §13.4
+  draft declared a dedicated `iterable<'T> = extern`; it was dropped as redundant with the existing
+  `seq<'T>` (`Vesper.List/list.fsi`, an abbreviation for `IEnumerable<'T>`). `capabilities.{fsi,fs}`
+  declares only the three capabilities with NO existing language name — `disposable`/`equatable`/
+  `comparable`. `ExternalSymbols.resolveCapabilities` reads the enumerable identity off the resolved
+  `seq` abbreviation head (an `FTClass` carrying the `IEnumerable`1` key); the other three read the
+  `Intrinsic` platform face. (Considered moving `seq` into `Vesper.Core`: rejected — it cuts against
+  package-split-plan PS5, and the Core-layer-availability concern is moot since `for-in` resolution
+  is structural-primary, §5.1, so an unreferenced-`Vesper.List` ⇒ `Enumerable = ValueNone` is
+  harmless.) `CapabilityIds` fields are now `CapabilityIdentity voption` (resolve-on-use, §5.4): an
+  unnamed capability is `ValueNone`, surfaced as a non-match (disposable/enumerable) or an honest
+  diagnostic (equatable/comparable FS0378), never a CLR substitution.
 - **Commits 4 (enumerable) and 8 (equatable/comparable) are SATISFIED by commit 1 — no new
   code.** Commit 1 routed *all four* recognizers through `CapabilityIds`, not just "the
   mechanism." The `for-in` frozen tree carries no hardcoded BCL identity (the `Interface` case
@@ -482,12 +497,11 @@ Two test infrastructures carry this, and the split is what makes the sprint bise
   is a hand-authored stub (only `Error`), the `tsc`-extracted JS provider doesn't exist, and
   `EmitJs` has no `ForIn`/`Use` arm or `TryFinally` node — building all three is net-new
   backend+provider work out of this sprint's scope (per §9's "its own tracked effort").
-- **REMAINING in this sprint:** 3b (declare the capabilities in `Vesper.Core` `.fsi` + per-target
-  `.fs`) and 9 (delete the four literals, provider-resolve `CapabilityIds`). Architectural +
-  shipping-contract; investigated and designed in **§13 (NEXT SESSION STARTS HERE)** — the CLR
-  premise is confirmed: it rides the `exn === System.Exception` intrinsic-repr reconciliation,
-  which already generalizes to interfaces. §13 has the concrete file changes, the resolver
-  relocation, the gates, and the three open sub-decisions.
+- **REMAINING (out of Tier 2, deferred follow-ons):** the JS emission arms (commits 5/7 — `ForIn`/
+  `Use` lowering + `TryFinally` node + the `tsc` JS provider), the §5.3b structural eq/comp reframe,
+  and Tier 3 (tuple-arity). None block the Tier 2 de-CLR, which is done. **§13 is now a historical
+  record of the 3b/9 design** (all premises confirmed; the only deviation from the §13.4 draft was
+  dropping `iterable` for `seq`, recorded above).
 
 ### Commit-by-commit
 
