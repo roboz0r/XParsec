@@ -624,6 +624,10 @@ module EmitJs =
         // `buildStatements` produces the hoisted-limit `const` + the `for` statement.
         | TExprG.ForTo _ -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
 
+        // `for x in source do body` in expression position — same IIFE wrapper as `for…to`
+        // (the loop yields `unit`); `buildStatements` produces the `for…of`.
+        | TExprG.ForIn _ -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
+
         // `use x = value in body` in expression position. JS `try/finally` is a
         // statement, so it lowers to a zero-arg IIFE that parks the binder, `return`s
         // the body's value from the `try`, and disposes in the `finally`. The body is
@@ -1305,6 +1309,21 @@ module EmitJs =
                     buildStatements ctx body
                 )
             ]
+        // `for x in source do body` — lower to a JS `for…of`, which drives the source's
+        // own `Symbol.iterator` at runtime. Only the `Interface` enumerator (a source
+        // typed `IEnumerable<'T>`) reaches JS codegen, and it carries no member keys (the
+        // CLR backend mints the `IEnumerator` interface slots itself; JS defers to the
+        // iterator protocol), so there is nothing to resolve — `for…of` over the source is
+        // the whole lowering. A duck-typed `Pattern` enumerator never type-checks against
+        // the BCL-free JS provider, so it is unsupported here.
+        | TExprG.ForIn(pat, source, body, enumerator, _ty, _tok) ->
+            match enumerator with
+            | ForInEnumeratorG.Interface ->
+                let name = patBinderName ctx "_forin" pat
+                [ JsStatement.ForOf(name, buildExpr ctx source, buildStatements ctx body) ]
+            | ForInEnumeratorG.Pattern _ ->
+                failwith
+                    "EmitJs: duck-typed `for...in` (Pattern enumerator) is unsupported on JS; only IEnumerable<'T> sources lower to `for...of`"
         // `use x = value in body` — park the binder in a `const`, run the body inside a
         // `try`, and dispose the binder in the `finally` (the IL backend's exception
         // region, lowered to JS `try/finally`). The body keeps statement position.
@@ -1317,14 +1336,19 @@ module EmitJs =
             ]
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
-    /// The JS binder name for a `use` pattern. A wildcard binder (`use _ = …`, the
-    /// RAII-guard form) has no source name, so it gets a fresh `_use<tok>` slot — the
-    /// value is still parked and disposed even though the body can't name it.
-    and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string =
+    /// The JS binder name for a single-binder loop/scope pattern (`use x = …`,
+    /// `for x in …`). A wildcard binder has no source name, so it gets a fresh
+    /// `<prefix><tok>` slot — the value is still bound (parked/iterated) even though
+    /// the body can't name it. Only simple/wildcard binders are supported; a
+    /// destructuring binder (e.g. a tuple pattern) is rejected.
+    and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: Frozen.TPat) : string =
         match binding with
         | TPatG.NamedSimple(k, _, _) -> identName ctx.Source k
-        | TPatG.Wildcard(_, tok) -> "_use" + string tok.StartIndex
-        | other -> failwithf "EmitJs: unsupported `use` binder pattern %A" other
+        | TPatG.Wildcard(_, tok) -> prefix + string tok.StartIndex
+        | other -> failwithf "EmitJs: unsupported single binder pattern %A" other
+
+    and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string =
+        patBinderName ctx "_use" binding
 
     /// The `finally` body that disposes a `use` binder: a null-guarded `Dispose` call.
     /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`

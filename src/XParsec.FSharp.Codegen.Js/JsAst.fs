@@ -93,6 +93,10 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// already hoisted into a binding (F# evaluates `b` once), so re-reading it
     /// per iteration is side-effect-free.
     | For of var: string * init: JsExpr * limit: JsExpr * body: JsStatement list
+    /// `for (const <binder> of <source>) { … }` — the F# `for x in source do` loop
+    /// over an enumerable. JS drives the source's own `Symbol.iterator` at runtime, so
+    /// no enumerator/MoveNext/Current plumbing is emitted (unlike the IL backend).
+    | ForOf of binder: string * source: JsExpr * body: JsStatement list
     | Return of JsExpr
     | Continue
     /// `target = value;` — param-shadow mutation in a self-tail-call.
