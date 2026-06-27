@@ -1097,6 +1097,13 @@ currently-green custom-eq/comp path into the same uniform mechanism.
 `type List<'T>` implements `seq<'T>` and `for x in xs` (a bare cons-list, no `:> seq`
 upcast, no `ListSeq` wrapper) iterates. Track I's remaining piece.
 
+> **STATUS: DONE for UNIONS (commits `201da968` slice 1 · `d3531ae7` slice 2 CLR ·
+> `18312a74` slice 3 JS · `e544569c` slice 3b · `13563057` W2 seq-move · `af7f0c0a`
+> capstone W1+W3+W4).** A bare `for x in [1;2;3]` iterates `1\n2\n3` at runtime on BOTH
+> CLR (`runsPackages` over real `Vesper.List.dll`) and JS (Node). `List` implements `seq`
+> natively; `ListSeq` retired. **Only RECORDS (slice 5) remain** — a follow-up; the
+> general mechanism + the `IInterfaceImplHost`/`partitionClassMembers` reuse make it small.
+
 **Grounding (verified): a union-implements-interface is SILENTLY DROPPED for lack of
 representation, not actively rejected** — so the work is additive and **mostly code-sharing
 with the class path + symmetric TAST additions** (user's prior, confirmed):
