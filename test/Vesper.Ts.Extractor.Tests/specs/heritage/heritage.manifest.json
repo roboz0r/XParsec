@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 0,
+  "package": "heritage",
+  "version": null,
+  "exports": [
+    {
+      "export": "interface",
+      "name": "Entity",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "id",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "interface",
+      "name": "Named",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "name",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "id",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": [
+        {
+          "k": "named",
+          "name": "Entity",
+          "args": []
+        }
+      ]
+    },
+    {
+      "export": "class",
+      "name": "AnimalBase",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "legs",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "float",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": ".ctor",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "AnimalBase",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": [],
+      "import": "named"
+    },
+    {
+      "export": "class",
+      "name": "Dog",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "id",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "name",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "bark",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "legs",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "float",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": ".ctor",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "Dog",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": [
+        {
+          "k": "named",
+          "name": "AnimalBase",
+          "args": []
+        },
+        {
+          "k": "named",
+          "name": "Named",
+          "args": []
+        }
+      ],
+      "import": "named"
+    }
+  ]
+}

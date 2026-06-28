@@ -12,6 +12,7 @@ open System.Diagnostics
 open Expecto
 
 open Vesper.Ts.Manifest
+open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 
 let specsDir =
@@ -68,9 +69,24 @@ let testProviderResolves (path: string) =
             match ex with
             | Schema.Export.Function(name, _, _) ->
                 Expect.isTrue (prov.TryLookup name).IsSome $"function '{name}' should resolve"
-            | Schema.Export.Interface(name, _, members, _)
-            | Schema.Export.Class(name, _, members, _, _) ->
+            | Schema.Export.Interface(name, _, members, heritage)
+            | Schema.Export.Class(name, _, members, heritage, _) ->
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
+
+                // Heritage (Tier 4 item 16): every heritage entry must land in EXACTLY one
+                // provider slot — `FrozenInterfaces` (extended/implemented interfaces) or the
+                // single `FrozenBaseType` (base class) — so the populated count equals the
+                // emitted heritage count. Trivially satisfied for the (many) empty-heritage
+                // fixtures; exercises the disambiguation on the `heritage` fixture.
+                match prov.TryLookupType name with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    let baseCount = if shape.FrozenBaseType.IsSome then 1 else 0
+
+                    Expect.equal
+                        (shape.FrozenInterfaces.Length + baseCount)
+                        heritage.Length
+                        $"type '{name}' heritage must populate FrozenInterfaces/FrozenBaseType"
+                | _ -> ()
 
                 for m in members do
                     let resolved = prov.TryLookupMembers(name, m.Name)

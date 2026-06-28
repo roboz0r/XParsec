@@ -201,6 +201,50 @@ module TsManifestProvider =
 
             expandMethod declKey origin declArity kind mem
 
+    /// Split a flat `heritage` list into implemented/extended INTERFACES (`FrozenInterfaces`)
+    /// and the single base CLASS (`FrozenBaseType`). The schema's `heritage` is a FLAT
+    /// `TypeRef list` that does NOT, by itself, record which entry is the base class vs an
+    /// interface (no schema field — and adding one is a deliberate contract bump we avoid).
+    /// So we DISAMBIGUATE by resolving each entry's name against the manifest's own type
+    /// table (`kindOf`): a name registered as an interface → interface slot, as a class →
+    /// base-type slot. An entry we cannot resolve locally (a cross-package base, or any
+    /// non-`Named` ref) DEFAULTS to the interface slot — a cross-package base CLASS is far
+    /// rarer than a cross-package interface, and mis-slotting only loses base-member lookup
+    /// for that rare case while never corrupting interface resolution. TS guarantees at most
+    /// one base class, so a single `FrozenBaseType` slot suffices (last class-resolved entry
+    /// wins if a malformed manifest somehow lists two).
+    let private classifyHeritage
+        (kindOf: string -> bool option) // Some true = interface, Some false = class, None = unknown
+        (heritage: Schema.TypeRef list)
+        : (string * FrozenType[])[] * FrozenType voption =
+        let interfaces = ResizeArray<string * FrozenType[]>()
+        let mutable baseTy = ValueNone
+
+        for h in heritage do
+            // Heritage entries are always NOMINAL (a class/interface ref); a structural
+            // or union base is not expressible in TS, so a non-`Named` entry is a genuine
+            // anomaly — throw rather than silently drop a declared supertype.
+            let name, args =
+                match h with
+                | Schema.TypeRef.Named(name, args) -> name, args
+                | other -> failwithf "heritage entry is not a nominal type reference: %A" other
+
+            match kindOf name with
+            | Some false ->
+                // Resolves to a CLASS in this package → the single base class slot (full
+                // `FrozenType`). TS guarantees at most one base class; a second would
+                // overwrite, which only a malformed manifest could produce.
+                baseTy <- ValueSome(toFrozen h)
+            | _ ->
+                // An interface, or an unresolved (cross-package) name → the interface slot
+                // as a `(compiled-name, type-args)` pair, matching the metadata layer's
+                // `buildClassInterfaces` shape. Cross-package defaults here because a
+                // cross-package base CLASS is far rarer than a cross-package interface, and
+                // mis-slotting only loses base-member lookup for that rare case.
+                interfaces.Add(name, args |> List.map toFrozen |> Array.ofList)
+
+        interfaces.ToArray(), baseTy
+
     let private originFor (moduleSpec: string) : SymbolOrigin =
         // The home label is the symbol's MODULE SPECIFIER (the import path), not the
         // package name. For a flat single-file package the two coincide, but the
@@ -212,8 +256,12 @@ module TsManifestProvider =
             DeclaringType = None
         }
 
-    let private toTypeShape (moduleSpec: string) (ex: Schema.Export) : (string * ExternalTypeShape) option =
-        let build name tp members isInterface =
+    let private toTypeShape
+        (kindOf: string -> bool option)
+        (moduleSpec: string)
+        (ex: Schema.Export)
+        : (string * ExternalTypeShape) option =
+        let build name tp members heritage isInterface =
             let origin = originFor moduleSpec
             let key = SymbolKey.TypeKey(Some moduleSpec, "", name)
 
@@ -222,6 +270,8 @@ module TsManifestProvider =
                 |> List.collect (toExternalMembers key origin tp isInterface)
                 |> List.toArray
 
+            let frozenInterfaces, frozenBaseType = classifyHeritage kindOf heritage
+
             Some(
                 name,
                 ExternalTypeShape.Class
@@ -229,16 +279,16 @@ module TsManifestProvider =
                         Arity = tp
                         IsInterface = isInterface
                         Members = mems
-                        FrozenInterfaces = [||] // TODO: map heritage
-                        FrozenBaseType = ValueNone
+                        FrozenInterfaces = frozenInterfaces
+                        FrozenBaseType = frozenBaseType
                         Flags = ExternalClassFlags.Default
                         Origin = origin
                     }
             )
 
         match ex with
-        | Schema.Export.Interface(name, tp, members, _heritage) -> build name tp members true
-        | Schema.Export.Class(name, tp, members, _heritage, _import) -> build name tp members false
+        | Schema.Export.Interface(name, tp, members, heritage) -> build name tp members heritage true
+        | Schema.Export.Class(name, tp, members, heritage, _import) -> build name tp members heritage false
         | Schema.Export.TypeAlias(name, _tp, target) ->
             // `type X = …` maps onto the seam's transparent abbreviation shape: a use
             // site of `name` expands to the target's `FrozenType` (via
@@ -286,7 +336,21 @@ module TsManifestProvider =
         // Flat single-file package: the module specifier IS the package name. A
         // later tier supplies nested namespace paths here instead of `pkg` directly.
         let moduleSpec = pkg
-        let types = man.Exports |> List.choose (toTypeShape moduleSpec) |> Map.ofList
+        // Classify each top-level type by KIND (interface vs class) so `classifyHeritage`
+        // can name-resolve a heritage entry to a slot (interface vs base class) without a
+        // schema field. `None` for a name not in this package = cross-package / unknown.
+        let typeKinds =
+            man.Exports
+            |> List.choose (fun ex ->
+                match ex with
+                | Schema.Export.Interface(name, _, _, _) -> Some(name, true)
+                | Schema.Export.Class(name, _, _, _, _) -> Some(name, false)
+                | _ -> None
+            )
+            |> Map.ofList
+
+        let kindOf (name: string) : bool option = Map.tryFind name typeKinds
+        let types = man.Exports |> List.choose (toTypeShape kindOf moduleSpec) |> Map.ofList
         // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
         // so they share the one value map (a variable is a value, not an arrow).
         let funcs =

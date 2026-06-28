@@ -248,6 +248,54 @@ let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.Impor
     else
         Schema.ImportShape.Named
 
+/// `extends` bases of a declared class/interface type, via `checker.getBaseTypes`
+/// (item 16). For an `interface` this is EVERY extended interface (interfaces extend
+/// many); for a `class` it is the single base CLASS — TS deliberately keeps a class's
+/// `implements` interfaces OUT of `getBaseTypes`, listing only the base class there.
+/// Each base maps through the existing `mapType` (its printed nominal name → `Named`).
+/// The declared type of a class/interface symbol IS an `InterfaceType` at runtime; the
+/// `unbox` is a Fable no-op cast satisfying the binding's parameter type.
+let private extendsBases (checker: Ts.TypeChecker) (declared: Ts.Type) : Schema.TypeRef list =
+    checker.getBaseTypes (unbox<Ts.InterfaceType> declared)
+    |> Seq.map (fun bt -> mapType checker (unbox<Ts.Type> bt))
+    |> List.ofSeq
+
+/// A class's `implements` interfaces — the half `getBaseTypes` omits (see `extendsBases`).
+/// Walk the class declaration's heritage clauses, keep only the `implements` clause
+/// (classified by the `SyntaxKind.ImplementsKeyword` CONSTANT, never a raw numeric, per
+/// producer discipline), and resolve each entry's referenced interface SYMBOL to its
+/// declared type. We resolve through the symbol (`getSymbolAtLocation` on the clause
+/// expression, following an `Alias`) rather than `getTypeAtLocation` on the expression,
+/// because a type-only interface has no value meaning at that expression position — the
+/// symbol's declared type carries the nominal identity `mapType` needs. Throw on an
+/// unresolvable entry rather than silently dropping a declared interface.
+let private classImplements (checker: Ts.TypeChecker) (resolved: Ts.Symbol) : Schema.TypeRef list =
+    match resolved.declarations with
+    | None -> []
+    | Some ds ->
+        ds
+        |> Seq.collect (fun d ->
+            match (unbox<Ts.ClassLikeDeclarationBase> d).heritageClauses with
+            | Some clauses ->
+                clauses
+                |> Seq.filter (fun c -> int c.token = int Ts.SyntaxKind.ImplementsKeyword)
+                |> Seq.collect (fun c -> c.types)
+                |> Seq.map (fun e ->
+                    match checker.getSymbolAtLocation (unbox e.expression) with
+                    | Some s ->
+                        let target =
+                            if hasFlag (s.getFlags ()) Ts.SymbolFlags.Alias then
+                                checker.getAliasedSymbol s
+                            else
+                                s
+
+                        mapType checker (checker.getDeclaredTypeOfSymbol target)
+                    | None -> failwithf "class implements clause entry has no resolvable interface symbol"
+                )
+            | None -> Seq.empty
+        )
+        |> List.ofSeq
+
 let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export option =
     // Follow re-export aliases (`export { x } from …`, `export default <named>`,
     // `export = <named>`) so flags/type/name are read off the REAL underlying
@@ -297,7 +345,9 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
         let ctorMember =
             ctorMemberOf checker (declared.getConstructSignatures ()) |> Option.toList
 
-        Some(Schema.Export.Interface(name, 0, members @ ctorMember, []))
+        // Heritage (item 16): an interface's heritage is its `extends` interfaces only
+        // (an interface cannot have a base class), so `getBaseTypes` alone is faithful.
+        Some(Schema.Export.Interface(name, 0, members @ ctorMember, extendsBases checker declared))
     elif hasFlag flags Ts.SymbolFlags.Class then
         // Two distinct walks keep the static/instance split honest (item 3): the
         // DECLARED type yields the instance members; the symbol's TYPE-AT-LOCATION is
@@ -323,7 +373,14 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
         let ctorMember =
             ctorMemberOf checker (staticTy.getConstructSignatures ()) |> Option.toList
 
-        Some(Schema.Export.Class(name, 0, instanceMembers @ staticMembers @ ctorMember, [], import))
+        // Heritage (item 16): a class's `extends` base CLASS comes from `getBaseTypes`
+        // on the instance type, its `implements` interfaces from the heritage clauses
+        // (`getBaseTypes` omits them). Emitted as ONE flat list (extends first); the
+        // provider disambiguates base-class vs interface by name-resolving each entry
+        // against the manifest's type table (the schema carries no base/interface bit).
+        let heritage = extendsBases checker instanceTy @ classImplements checker resolved
+
+        Some(Schema.Export.Class(name, 0, instanceMembers @ staticMembers @ ctorMember, heritage, import))
     elif hasFlag flags Ts.SymbolFlags.Function then
         let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
