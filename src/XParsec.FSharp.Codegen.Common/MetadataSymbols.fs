@@ -493,6 +493,11 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
                             FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
                             Origin = originOf t None
+                            // The metadata layer never mints a dual-faced capability
+                            // interface — a real BCL `System.IDisposable` arrives as
+                            // itself; reconciliation to the canonical rides the
+                            // contract layer's `(# … #)` face, not this shape.
+                            CapabilityFace = ValueNone
                         }
 
                     ValueSome(ExternalTypeShape.Class shape)

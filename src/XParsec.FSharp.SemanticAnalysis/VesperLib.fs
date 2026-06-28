@@ -1413,48 +1413,76 @@ module VesperLib =
                 let short = shortNameOfTypeName lexed input typeName
                 let isIntrinsic = ctx.IntrinsicBaseReprs.ContainsKey short
 
+                // `canon` is the `.fsi` name itself — the platform-invariant front-end
+                // identity that drives `canonName`. Whether this `extern` is a primitive
+                // at all is decided by the BASE `.fs` `(# … #)` companion
+                // (`IntrinsicBaseReprs`), NOT the per-target repr — so a target that omits
+                // a primitive (`decimal` ships no `.js.fs`) still publishes it as an
+                // `Intrinsic` and keeps its `canon` identity, just with `platform = None`
+                // ("no representation on this target"). The `platform` face itself is the
+                // compiling target's `(# … #)` repr (`IntrinsicReprs`). `arity` rides along
+                // (NOT always 0): the structural constructors are intrinsics too
+                // (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is representable by
+                // construction, so `PlatformTypes` only treats a `platform = None` as fatal
+                // when `arity = 0` — see the shape's docs.
+                let registerIntrinsic () =
+                    let platform =
+                        match ctx.IntrinsicReprs.TryGetValue short with
+                        | true, repr -> Some repr
+                        | _ -> None
+
+                    ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(short, arity, platform)
+
                 match members with
-                | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not isIntrinsic ->
-                    extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
-                | _ ->
-                    // Two repr faces: `canon` is the
-                    // `.fsi` name itself — the platform-invariant front-end identity that
-                    // drives `canonName`. Whether this `extern` is a primitive at all is
-                    // decided by the BASE `.fs` `(# … #)` companion (`IntrinsicBaseReprs`),
-                    // NOT the per-target repr — so a target that omits a primitive
-                    // (`decimal` ships no `.js.fs`) still publishes it as an `Intrinsic`
-                    // and keeps its `canon` identity, just with `platform = None` ("no
-                    // representation on this target"). The `platform` face itself is the
-                    // compiling target's `(# … #)` repr (`IntrinsicReprs`). An `extern`
-                    // with no base companion repr is a real opaque `Class`.
-                    //
-                    // `arity` rides along (NOT always 0): the structural constructors are
-                    // intrinsics too (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is
-                    // representable by construction, so `PlatformTypes` only treats a
-                    // `platform = None` as fatal when `arity = 0` — see the shape's docs.
-                    if isIntrinsic then
-                        // A capability surface (`with member …/interface …`) on an INTRINSIC
-                        // primitive (`type string = extern with member …`) is not yet
-                        // modelled — the `Intrinsic` shape carries no member/interface slots
-                        // (StringIntrinsics migration). Fail loud and located rather than
-                        // silently dropping the `with` body; the intrinsic shape is still
-                        // registered below so `TryLookupType` stays total.
-                        match members with
-                        | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not (Seq.isEmpty elems) ->
-                            ctx.Diagnostics.Add(
-                                file,
-                                sprintf
-                                    "type %s: a capability surface ('with member'/'interface') on an intrinsic primitive is not yet supported"
-                                    compiled
-                            )
+                | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not (Seq.isEmpty elems) ->
+                    // A trailing `with interface … / member …` publishes a capability
+                    // surface: register as a bodied class/interface (`extractBodiedClassLike`)
+                    // so a consumer's structural probe sees the members and `FrozenInterfaces`.
+                    if not isIntrinsic then
+                        extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
+                    elif bodyIsInterface elems then
+                        // DUAL-FACED capability interface (`type disposable = extern with
+                        // abstract member …`, whose `.fs` ALSO binds `(# "System.IDisposable" #)`):
+                        // an interface member surface AND a platform face. Register the Class
+                        // (members + interface-ness), then attach the platform face from the
+                        // repr so it reconciles to its BCL spelling exactly as an `Intrinsic`
+                        // does (the reverse-canon builder reads `CapabilityFace`). A target
+                        // whose `.fs` omits the repr (JS, no `.js.fs` entry) finds no platform
+                        // here and leaves `CapabilityFace = ValueNone`, so the canonical
+                        // identity stands and the JS anchor falls to the backend symbol table.
+                        extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
+
+                        match ctx.IntrinsicReprs.TryGetValue short with
+                        | true, platform ->
+                            match ctx.TypeShapes.TryGetValue compiled with
+                            | true, ExternalTypeShape.Class shape ->
+                                ctx.TypeShapes.[compiled] <-
+                                    ExternalTypeShape.Class
+                                        { shape with
+                                            CapabilityFace = ValueSome { Canon = short; Platform = platform }
+                                        }
+                            | _ -> ()
                         | _ -> ()
+                    else
+                        // A CONCRETE (non-interface) member surface on an intrinsic primitive
+                        // (`type string = extern with member …`, the StringIntrinsics
+                        // migration) is still deferred — the `Intrinsic` shape carries no
+                        // member slots and flipping `string` to a `Class` would lose its
+                        // primitive identity. Fail loud + keep it `Intrinsic`.
+                        ctx.Diagnostics.Add(
+                            file,
+                            sprintf
+                                "type %s: a concrete member surface on an intrinsic primitive is not yet supported"
+                                compiled
+                        )
 
-                        let platform =
-                            match ctx.IntrinsicReprs.TryGetValue short with
-                            | true, repr -> Some repr
-                            | _ -> None
-
-                        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(short, arity, platform)
+                        registerIntrinsic ()
+                | _ ->
+                    // No member body. A primitive/capability anchor (`IntrinsicBaseReprs`)
+                    // publishes as `Intrinsic`; an `extern` with no base companion repr is a
+                    // real opaque `Class`.
+                    if isIntrinsic then
+                        registerIntrinsic ()
                     else
                         ctx.TypeShapes.[compiled] <-
                             ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))

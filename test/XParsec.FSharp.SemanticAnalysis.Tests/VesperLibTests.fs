@@ -1292,6 +1292,154 @@ let tests =
                     failtestf "objnull abbrev registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
+            test "extern-with-abstract-member extracts as an interface Class carrying its member surface" {
+                // Capability slice 1 (platform-independence §4): the BCL-free neutral
+                // surface `type disposable = extern with abstract member Dispose : unit ->
+                // unit` extracts to a `Class{IsInterface=true}` carrying `Dispose`, when NO
+                // `(# … #)` repr is present (isIntrinsic=false → the `not isIntrinsic` bodied
+                // arm at VesperLib.fs:1417 runs `extractBodiedClassLike`). The member-surface
+                // half of a BCL-free capability is therefore free; the remaining slice-1 work
+                // is the per-target IDENTITY (which a `.fs` abbreviation does NOT supply —
+                // the `.fs` is harvested only for `(# … #)`, and extractSymbols runs only on
+                // the `.fsi`; see §4.5 Premise 1).
+                let input =
+                    "namespace Vesper\n\ntype disposable = extern with\n    abstract member Dispose : unit -> unit\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed (extern-with-abstract-member did not parse): %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "Vesper"
+                                Relative = "capabilities.fsi"
+                                Absolute = "capabilities.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                let ctx = VesperLib.ExtractCtx.empty ()
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let key =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "disposable" then
+                            found <- ValueSome kv.Key
+
+                    match found with
+                    | ValueSome k -> k
+                    | ValueNone ->
+                        failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+
+                match ctx.TypeShapes.[key] with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.IsInterface "extern-with-abstract-member extracts as an INTERFACE Class"
+                | other -> failtestf "expected a Class shape for disposable; got %A" other
+
+                let provider = VesperLib.ExtractCtx.toProvider ctx
+
+                match provider.TryLookupMember(key, "Dispose") with
+                | ValueSome _ -> ()
+                | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
+            }
+
+            test "dual-faced capability interface: extern-with-abstract-member + (# … #) repr → Class carrying platform face + reverse-canon" {
+                // Slice 1 (platform-independence §4.6). A capability anchor whose `.fsi`
+                // declares an interface member surface AND whose `.fs` binds a platform
+                // type (`type disposable = (# "System.IDisposable" #)`) must extract to ONE
+                // dual-faced shape: a `Class{IsInterface=true}` with the member surface PLUS
+                // a `CapabilityFace` carrying `(canon, platform)`, so it reconciles to its
+                // BCL spelling by the same path `exn === System.Exception` rides — the
+                // reverse-canon folds `System.IDisposable -> disposable`. (Synthetic: the
+                // `(# … #)` repr is seeded directly into the harvest dicts, mirroring the
+                // CLR build where the base `.fs` repr seeds both `IntrinsicBaseReprs` — the
+                // primitive marker that makes `isIntrinsic` true — and `IntrinsicReprs`, the
+                // platform face. The real `capabilities.fsi` flip is slice 2.)
+                let ctx = VesperLib.ExtractCtx.empty ()
+                ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
+                ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
+
+                let input =
+                    "namespace Vesper\n\ntype disposable = extern with\n    abstract member Dispose : unit -> unit\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "Vesper"
+                                Relative = "capabilities.fsi"
+                                Absolute = "capabilities.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let key =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith "disposable" then
+                            found <- ValueSome kv.Key
+
+                    match found with
+                    | ValueSome k -> k
+                    | ValueNone -> failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+
+                match ctx.TypeShapes.[key] with
+                | ExternalTypeShape.Class shape ->
+                    Expect.isTrue shape.IsInterface "dual-faced capability is an interface Class"
+
+                    match shape.CapabilityFace with
+                    | ValueSome face ->
+                        Expect.equal face.Canon "disposable" "CapabilityFace canon is the `.fsi` short name"
+                        Expect.equal face.Platform "System.IDisposable" "CapabilityFace platform is the `.fs` repr"
+                    | ValueNone -> failtest "dual-faced Class must carry a CapabilityFace (platform face from the repr)"
+                | other -> failtestf "expected a Class shape for disposable; got %A" other
+
+                let provider = VesperLib.ExtractCtx.toProvider ctx
+
+                // The member surface survived alongside the platform face.
+                match provider.TryLookupMember(key, "Dispose") with
+                | ValueSome _ -> ()
+                | ValueNone -> failtest "Dispose member surface was dropped from the dual-faced Class"
+
+                // The reverse-canon folds the BCL spelling to the canonical — the exn mechanism.
+                match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
+                | Some canon -> Expect.equal canon "disposable" "reverse-canon folds System.IDisposable -> disposable"
+                | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
+            }
+
             test "`when 'T : equality` captured + applied to fresh TyVar" {
                 // `Seq.contains` in seq.fsi declares
                 //   val inline contains: value:'T -> source: seq<'T> -> bool when 'T: equality

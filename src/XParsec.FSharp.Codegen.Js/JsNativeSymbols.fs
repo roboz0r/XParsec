@@ -74,6 +74,7 @@ module JsNativeSymbols =
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = errorOrigin
+                CapabilityFace = ValueNone
             }
 
     // --- System.IEquatable<'T> / System.IComparable<'T> -------------------------
@@ -143,6 +144,7 @@ module JsNativeSymbols =
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = systemOrigin
+                CapabilityFace = ValueNone
             }
 
     // --- System.Collections.Generic.IEnumerable<'T> / IEnumerator<'T> -----------
@@ -224,6 +226,7 @@ module JsNativeSymbols =
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = origin
+                CapabilityFace = ValueNone
             }
 
     /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property.

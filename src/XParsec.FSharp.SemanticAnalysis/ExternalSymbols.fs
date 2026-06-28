@@ -323,6 +323,20 @@ type ExternalClassFlags =
             IsValueType = false
         }
 
+/// The two faces of a **dual-faced capability interface** — a `Class` that, like
+/// `ExternalTypeShape.Intrinsic`, reconciles to a per-target platform type while
+/// ALSO publishing a member surface (so a Vesper type can author `interface
+/// disposable` BCL-free, yet a metadata type implementing `System.IDisposable`
+/// still matches). `Canon` is the platform-invariant `.fsi` short name
+/// (`"disposable"`); `Platform` is the per-target repr the `.fs` `(# … #)`
+/// companion binds (`"System.IDisposable"` on CLR). The reverse-canon builder
+/// emits `{ Platform -> Canon }` (`TyparCapture.fs`) exactly as it does for an
+/// `Intrinsic`, so `disposable` reconciles by the same `exn === System.Exception`
+/// path; `resolveCapabilities` / codegen read the `Platform` face. Carried only on
+/// a target whose `.fs` binds the repr (CLR); `ValueNone` on JS, where the
+/// capability's anchor is the backend symbol table, not a platform type.
+type CapabilityPlatformFace = { Canon: string; Platform: string }
+
 /// The shape of an external class or interface. Lifted out of `ExternalTypeShape.Class`
 /// so the DU header stays narrow and the
 /// member set is reachable to consumers (the `interface … with member …`
@@ -355,6 +369,12 @@ type ExternalClassShape =
         FrozenBaseType: FrozenType voption
         Flags: ExternalClassFlags
         Origin: SymbolOrigin
+        /// `ValueSome` only for a dual-faced capability interface (`disposable`):
+        /// the `(canon, platform)` reconciliation faces this `Class` carries IN
+        /// ADDITION to its member surface, so it reconciles to its BCL spelling on
+        /// CLR exactly as an `Intrinsic` does (see `CapabilityPlatformFace`).
+        /// `ValueNone` for every ordinary class and on JS.
+        CapabilityFace: CapabilityPlatformFace voption
     }
 
     /// A minimally-populated class shape — the form contract-layer providers
@@ -370,6 +390,7 @@ type ExternalClassShape =
             FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
             Origin = origin
+            CapabilityFace = ValueNone
         }
 
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.
