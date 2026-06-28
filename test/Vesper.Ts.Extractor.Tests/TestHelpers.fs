@@ -65,12 +65,21 @@ let testProviderResolves (path: string) =
     | Ok man ->
         let prov = TsManifestProvider.providerOfManifest man
 
-        for ex in man.Exports do
+        // A nested export is registered/looked up under its DOTTED QUALIFIED name
+        // (`NS.Foo`), so recursion threads the namespace `prefix` and every lookup
+        // qualifies the bare export name through it — matching the provider's `qualify`.
+        let qualify (prefix: string) (name: string) =
+            if prefix = "" then name else prefix + "." + name
+
+        let rec check (prefix: string) (ex: Schema.Export) =
+            let q name = qualify prefix name
+
             match ex with
             | Schema.Export.Function(name, _, _) ->
-                Expect.isTrue (prov.TryLookup name).IsSome $"function '{name}' should resolve"
+                Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
             | Schema.Export.Interface(name, _, members, heritage)
             | Schema.Export.Class(name, _, members, heritage, _) ->
+                let name = q name
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
 
                 // Heritage (Tier 4 item 16): every heritage entry must land in EXACTLY one
@@ -107,14 +116,24 @@ let testProviderResolves (path: string) =
                             resolved.Length
                             $"overloaded member '{name}.{m.Name}' members must have distinct keys"
             | Schema.Export.Variable(name, _, _, _) ->
-                Expect.isTrue (prov.TryLookup name).IsSome $"variable '{name}' should resolve"
+                Expect.isTrue (prov.TryLookup(q name)).IsSome $"variable '{q name}' should resolve"
             | Schema.Export.TypeAlias(name, _, _) ->
-                Expect.isTrue (prov.TryLookupType name).IsSome $"type alias '{name}' should resolve"
+                Expect.isTrue (prov.TryLookupType(q name)).IsSome $"type alias '{q name}' should resolve"
             | Schema.Export.Enum(name, _) ->
                 // The enum NAME resolves (an `Opaque` shape); its MEMBERS are stubbed on
                 // the provider, so only the type-name resolution is asserted.
-                Expect.isTrue (prov.TryLookupType name).IsSome $"enum '{name}' should resolve"
-            | _ -> ()
+                Expect.isTrue (prov.TryLookupType(q name)).IsSome $"enum '{q name}' should resolve"
+            | Schema.Export.Namespace(nsName, nested) ->
+                // Item 17: the namespace container holds no symbol of its own; recurse into
+                // its members under the extended prefix so each resolves via its qualified
+                // name. Covers the nested namespace, proving the recursion folds depth.
+                let childPrefix = qualify prefix nsName
+
+                for nx in nested do
+                    check childPrefix nx
+
+        for ex in man.Exports do
+            check "" ex
 
 /// `.d.ts` and `.manifest.json` must come in pairs (a fixture with one but not the
 /// other is almost always a mistake). Returns human-readable orphan descriptions.

@@ -296,7 +296,7 @@ let private classImplements (checker: Ts.TypeChecker) (resolved: Ts.Symbol) : Sc
         )
         |> List.ofSeq
 
-let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export option =
+let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export option =
     // Follow re-export aliases (`export { x } from …`, `export default <named>`,
     // `export = <named>`) so flags/type/name are read off the REAL underlying
     // symbol, not the alias stub. The export-table entry's escaped name still
@@ -438,8 +438,32 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
         // Tier 3 (the authorial `aliasSymbol`/`aliasTypeArguments` capture lands there).
         let target = checker.getDeclaredTypeOfSymbol resolved
         Some(Schema.Export.TypeAlias(name, 0, mapType checker target))
+    elif hasFlag flags Ts.SymbolFlags.Module then
+        // `namespace NS { … }` / `module NS { … }` (item 17). `SymbolFlags.Module`
+        // is the named constant ORing `ValueModule | NamespaceModule` — the SAME
+        // classification Tier-0's `importShapeOf` uses to brand a namespace IMPORT,
+        // reused here to detect the namespace EXPORT. Recurse the namespace's
+        // exported members through `mapExport` (so a nested namespace flows through
+        // this very arm) and collect into the nested `Export list`.
+        // `getExportsOfModule` returns the members in a stable declaration order,
+        // preserved here so the canonical-form golden stays deterministic.
+        //
+        // DECLARATION MERGING: a namespace symbol can ALSO carry a class/function/
+        // interface flag (`class C {}; namespace C {}`). Those flags are tested
+        // ABOVE this arm, so a merged symbol emits its DOMINANT declaration and
+        // never reaches here — the namespace half is dropped for v1. A pure
+        // namespace (Module with no other handled flag) is the only thing that
+        // lands here.
+        // TODO(merge): a merged class+namespace loses its namespace exports; emit
+        // both halves once the seam models a type carrying a static namespace.
+        let nested =
+            checker.getExportsOfModule resolved
+            |> List.ofSeq
+            |> List.choose (mapExport checker)
+
+        Some(Schema.Export.Namespace(name, nested))
     else
-        None // TODO: Namespace (stamps `import`)
+        None
 
 // ─── drive + emit ──────────────────────────────────────────────────────────
 

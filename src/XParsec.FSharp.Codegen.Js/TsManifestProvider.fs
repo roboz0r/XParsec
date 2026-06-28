@@ -245,25 +245,40 @@ module TsManifestProvider =
 
         interfaces.ToArray(), baseTy
 
-    let private originFor (moduleSpec: string) : SymbolOrigin =
+    let private originFor (moduleSpec: string) (nsPath: string) : SymbolOrigin =
         // The home label is the symbol's MODULE SPECIFIER (the import path), not the
-        // package name. For a flat single-file package the two coincide, but the
-        // value is threaded explicitly so a later tier's namespace recursion can
-        // supply a nested path here. `Namespace` stays empty for flat files.
+        // package name. For a flat single-file package the module spec and package
+        // coincide. `Namespace` carries the symbol's namespace PATH within the module
+        // (item 17): "" for a top-level export, `NS`/`NS.Inner` for a member nested in
+        // one (or more) `export namespace`s — the JS analog of a .NET `Type.Namespace`.
         {
             Assembly = Some moduleSpec
-            Namespace = ""
+            Namespace = nsPath
             DeclaringType = None
         }
+
+    /// The lookup key a symbol declared at namespace path `nsPath` is registered/found
+    /// under: its DOTTED QUALIFIED name (`NS.Foo`, `NS.Inner.Baz`), matching exactly
+    /// the name `Passes.NameResolution` forms from a `NS.Foo` use site and hands to
+    /// `TryLookupType`/`TryLookup` — the same full-dotted-name convention `MetadataSymbols`
+    /// keys a .NET namespaced type by. A top-level export (`nsPath = ""`) keeps its bare name.
+    let private qualify (nsPath: string) (name: string) : string =
+        if nsPath = "" then name else nsPath + "." + name
 
     let private toTypeShape
         (kindOf: string -> bool option)
         (moduleSpec: string)
+        (nsPath: string)
         (ex: Schema.Export)
         : (string * ExternalTypeShape) option =
         let build name tp members heritage isInterface =
-            let origin = originFor moduleSpec
-            let key = SymbolKey.TypeKey(Some moduleSpec, "", name)
+            let origin = originFor moduleSpec nsPath
+            // The `SymbolKey.TypeKey` carries the SIMPLE name + namespace path (the
+            // codegen-minting split), while the MAP key (`qualify`) is the dotted
+            // qualified name the front end looks up by — mirroring `MetadataSymbols`,
+            // where the key's `ns`/simple-name decompose `Type.FullName` but the lookup
+            // string is the full name.
+            let key = SymbolKey.TypeKey(Some moduleSpec, nsPath, name)
 
             let mems =
                 members
@@ -273,7 +288,7 @@ module TsManifestProvider =
             let frozenInterfaces, frozenBaseType = classifyHeritage kindOf heritage
 
             Some(
-                name,
+                qualify nsPath name,
                 ExternalTypeShape.Class
                     {
                         Arity = tp
@@ -295,7 +310,7 @@ module TsManifestProvider =
             // `FrozenTypeBridge.instantiateDeclaring`), so alias-to-union / -primitive /
             // -structural all resolve through the same `toFrozen` the members use.
             // `arity = 0`: generics are Tier 3 (the producer emits `typeParams = 0`).
-            Some(name, ExternalTypeShape.Abbrev(0, toFrozen target))
+            Some(qualify nsPath name, ExternalTypeShape.Abbrev(0, toFrozen target))
         | Schema.Export.Enum(name, _members) ->
             // The seam has no enum-member representation: `ExternalTypeShape`'s doc names
             // an enum as exactly the `Opaque` (body-less) residue, so register the NAME
@@ -303,10 +318,10 @@ module TsManifestProvider =
             // the members onto the seam needs a settled front-end decision (constant
             // fields vs a union of literal types) that isn't made yet.
             // TODO: model enum members once the front end commits to a representation.
-            Some(name, ExternalTypeShape.Opaque 0)
+            Some(qualify nsPath name, ExternalTypeShape.Opaque 0)
         | _ -> None
 
-    let private toFunctionSymbol (ex: Schema.Export) : (string * ExternalSymbol) option =
+    let private toFunctionSymbol (nsPath: string) (ex: Schema.Export) : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Function(name, signatures, _import) ->
             let sg = singleSignature name signatures
@@ -317,7 +332,12 @@ module TsManifestProvider =
                 | ps -> ps |> List.map (fun p -> toSem p.Type)
 
             let semTy = List.foldBack (fun a acc -> TyFun(a, acc)) paramTypes (toSem sg.Returns)
-            Some(name, ExternalSymbols.mono name semTy)
+            // Registered/keyed under the dotted qualified name (item 17); the symbol's
+            // own `Name` carries it too so lowering emits the qualified binding. (The
+            // value-symbol origin/import threading the top-level path also defers stays
+            // a known v1 simplification — `mono` stamps `SymbolOrigin.Empty`.)
+            let qn = qualify nsPath name
+            Some(qn, ExternalSymbols.mono qn semTy)
         | _ -> None
 
     /// A `Variable` export → a singleton VALUE symbol, resolved by name via
@@ -325,9 +345,11 @@ module TsManifestProvider =
     /// directly (a VALUE, not an arrow). `isConst` carries no front-end distinction
     /// at this seam (JS lowering reads the imported binding by name regardless of
     /// mutability), so it is not consumed here.
-    let private toValueSymbol (ex: Schema.Export) : (string * ExternalSymbol) option =
+    let private toValueSymbol (nsPath: string) (ex: Schema.Export) : (string * ExternalSymbol) option =
         match ex with
-        | Schema.Export.Variable(name, ty, _isConst, _import) -> Some(name, ExternalSymbols.mono name (toSem ty))
+        | Schema.Export.Variable(name, ty, _isConst, _import) ->
+            let qn = qualify nsPath name
+            Some(qn, ExternalSymbols.mono qn (toSem ty))
         | _ -> None
 
     /// Build a provider from an already-parsed manifest.
@@ -336,26 +358,50 @@ module TsManifestProvider =
         // Flat single-file package: the module specifier IS the package name. A
         // later tier supplies nested namespace paths here instead of `pkg` directly.
         let moduleSpec = pkg
-        // Classify each top-level type by KIND (interface vs class) so `classifyHeritage`
-        // can name-resolve a heritage entry to a slot (interface vs base class) without a
-        // schema field. `None` for a name not in this package = cross-package / unknown.
-        let typeKinds =
-            man.Exports
-            |> List.choose (fun ex ->
+
+        // Flatten the export tree into (namespacePath, export) pairs (item 17): a
+        // top-level export pairs with `""`; a member nested in one (or more)
+        // `Export.Namespace`s pairs with its dotted path (`NS`, `NS.Inner`). The
+        // `Namespace` container itself produces no symbol — only its members do, each
+        // registered under its QUALIFIED name (`qualify`), so a nested symbol resolves
+        // through the SAME flat `types`/`funcs` maps as a top-level one. Recursion folds
+        // arbitrarily deep nesting.
+        let rec flatten (nsPath: string) (exports: Schema.Export list) : (string * Schema.Export) list =
+            exports
+            |> List.collect (fun ex ->
                 match ex with
-                | Schema.Export.Interface(name, _, _, _) -> Some(name, true)
-                | Schema.Export.Class(name, _, _, _, _) -> Some(name, false)
+                | Schema.Export.Namespace(nsName, nested) -> flatten (qualify nsPath nsName) nested
+                | other -> [ nsPath, other ]
+            )
+
+        let flatExports = flatten "" man.Exports
+
+        // Classify each type by KIND (interface vs class) so `classifyHeritage` can
+        // name-resolve a heritage entry to a slot (interface vs base class) without a
+        // schema field. Keyed by QUALIFIED name so a namespaced heritage reference
+        // resolves. `None` for a name not in this package = cross-package / unknown.
+        let typeKinds =
+            flatExports
+            |> List.choose (fun (nsPath, ex) ->
+                match ex with
+                | Schema.Export.Interface(name, _, _, _) -> Some(qualify nsPath name, true)
+                | Schema.Export.Class(name, _, _, _, _) -> Some(qualify nsPath name, false)
                 | _ -> None
             )
             |> Map.ofList
 
         let kindOf (name: string) : bool option = Map.tryFind name typeKinds
-        let types = man.Exports |> List.choose (toTypeShape kindOf moduleSpec) |> Map.ofList
+
+        let types =
+            flatExports
+            |> List.choose (fun (nsPath, ex) -> toTypeShape kindOf moduleSpec nsPath ex)
+            |> Map.ofList
+
         // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
         // so they share the one value map (a variable is a value, not an arrow).
         let funcs =
-            (man.Exports |> List.choose toFunctionSymbol)
-            @ (man.Exports |> List.choose toValueSymbol)
+            (flatExports |> List.choose (fun (nsPath, ex) -> toFunctionSymbol nsPath ex))
+            @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol nsPath ex))
             |> Map.ofList
 
         let membersOf (typeName: string) (memberName: string) : ExternalMember[] =

@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 0,
+  "package": "namespaces",
+  "version": null,
+  "exports": [
+    {
+      "export": "namespace",
+      "name": "Geometry",
+      "exports": [
+        {
+          "export": "function",
+          "name": "origin",
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "Shape",
+                "args": []
+              }
+            }
+          ],
+          "import": "named"
+        },
+        {
+          "export": "interface",
+          "name": "Shape",
+          "typeParams": 0,
+          "members": [
+            {
+              "name": "area",
+              "kind": "method",
+              "type": null,
+              "signatures": [
+                {
+                  "typeParams": 0,
+                  "params": [],
+                  "returns": {
+                    "k": "named",
+                    "name": "float",
+                    "args": []
+                  }
+                }
+              ],
+              "static": false,
+              "optional": false
+            }
+          ],
+          "heritage": []
+        },
+        {
+          "export": "variable",
+          "name": "tau",
+          "type": {
+            "k": "named",
+            "name": "float",
+            "args": []
+          },
+          "const": true,
+          "import": "named"
+        },
+        {
+          "export": "namespace",
+          "name": "Trig",
+          "exports": [
+            {
+              "export": "function",
+              "name": "degrees",
+              "signatures": [
+                {
+                  "typeParams": 0,
+                  "params": [
+                    {
+                      "name": "radians",
+                      "type": {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      "optional": false,
+                      "rest": false
+                    }
+                  ],
+                  "returns": {
+                    "k": "named",
+                    "name": "float",
+                    "args": []
+                  }
+                }
+              ],
+              "import": "named"
+            },
+            {
+              "export": "interface",
+              "name": "Angle",
+              "typeParams": 0,
+              "members": [
+                {
+                  "name": "radians",
+                  "kind": "property",
+                  "type": {
+                    "k": "named",
+                    "name": "float",
+                    "args": []
+                  },
+                  "signatures": [],
+                  "static": false,
+                  "optional": false
+                }
+              ],
+              "heritage": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
