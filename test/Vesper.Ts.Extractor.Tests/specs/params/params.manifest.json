@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 0,
+  "package": "params",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "join",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "separator",
+              "type": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            },
+            {
+              "name": "parts",
+              "type": {
+                "k": "named",
+                "name": "string[]",
+                "args": []
+              },
+              "optional": false,
+              "rest": true
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Formatter",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "format",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [
+                {
+                  "name": "template",
+                  "type": {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                },
+                {
+                  "name": "prefix",
+                  "type": {
+                    "k": "union",
+                    "members": [
+                      {
+                        "k": "named",
+                        "name": "undefined",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "string",
+                        "args": []
+                      }
+                    ]
+                  },
+                  "optional": true,
+                  "rest": false
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "k": "named",
+                    "name": "string[]",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": true
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ]
+}

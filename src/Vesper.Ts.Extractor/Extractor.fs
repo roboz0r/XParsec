@@ -82,12 +82,20 @@ let rec mapType (checker: Ts.TypeChecker) (t: Ts.Type) : Schema.TypeRef =
         | other -> Schema.TypeRef.Named(other, []) // TODO: generics, structurals, intersection
 
 let private mapParam (checker: Ts.TypeChecker) (p: Ts.Symbol) : Schema.Param =
+    // A parameter symbol's declaration is the `ParameterDeclaration` node carrying
+    // the syntactic optional/rest markers. Classify by TOKEN PRESENCE on the node
+    // (runtime-structural, per the producer discipline), never raw numeric flags:
+    //   optional ⇐ `x?: T` (questionToken) OR `x: T = default` (initializer);
+    //   rest     ⇐ `...x: T[]` (dotDotDotToken).
+    let decl = declOf p
+    let paramDecl = unbox<Ts.ParameterDeclaration> decl
+
     {
         Name = p.getName ()
-        Type = mapType checker (checker.getTypeOfSymbolAtLocation (p, declOf p))
-        Optional = false // TODO: questionToken / initializer
-        Rest = false
-    } // TODO: dotDotDotToken
+        Type = mapType checker (checker.getTypeOfSymbolAtLocation (p, decl))
+        Optional = paramDecl.questionToken.IsSome || paramDecl.initializer.IsSome
+        Rest = paramDecl.dotDotDotToken.IsSome
+    }
 
 let private mapSignature (checker: Ts.TypeChecker) (sg: Ts.Signature) : Schema.Signature =
     {
