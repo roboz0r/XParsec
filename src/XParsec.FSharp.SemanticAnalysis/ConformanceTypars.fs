@@ -200,6 +200,8 @@ module ConformanceTypars =
         | TTypeKindG.Union(_, members, _) -> EqArray.toList members
         | TTypeKindG.Record(_, members, _) -> EqArray.toList members
         | TTypeKindG.Interface _ -> []
+        // An enum is niladic with no augmentation members — no generic member to check.
+        | TTypeKindG.Enum _ -> []
 
     /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against
     /// its `.fsi` contract `provider`. For each such member, the published overloads

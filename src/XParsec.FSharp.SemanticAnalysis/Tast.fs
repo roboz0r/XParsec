@@ -573,6 +573,13 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// structs and classes that declare them — each emits a `FieldDefinition` and
     /// a mutable one admits `this.x <- …`.
     | Class of TClassG<'ty, 'tok>
+    /// `cases` in declaration order, each pairing a case identifier with the raw,
+    /// *unclassified* constant-value expression in value position (`| C = v`).
+    /// An enum is `'ty`-free at this skeleton stage: the value lives as a general
+    /// parser `Expr` (the permissive grammar admits `| A = 1` and `| A = "x"`
+    /// alike), not yet resolved to a literal nor classified numeric / string /
+    /// mixed. See `TEnumCaseG`.
+    | Enum of cases: EqArray<TEnumCaseG<'tok>>
 
 /// The payload of `TTypeKindG.Class`, lifted out of an 11-wide positional
 /// tuple into a named record. See the `Class` case doc for per-field semantics.
@@ -605,6 +612,23 @@ and TUnionCaseG<'ty> =
     {
         Name: string
         Fields: EqArray<string voption * 'ty>
+    }
+
+/// One case of a `TTypeKind.Enum`, in declaration order. The case is `'ty`-free:
+/// it carries the source identifier and the raw constant-value `Expr` exactly as
+/// parsed (`EnumTypeCase(ident, equals, constValue)`), with NO literal resolution
+/// and NO numeric / string / mixed classification yet.
+and TEnumCaseG<'tok> =
+    {
+        /// Case identifier (`C` in `| C = v`).
+        Name: string
+        // step 1b: resolve `RawValue` to its compile-time literal, classify the
+        // enum (all-int = numeric / all-string = string / int+string = mixed),
+        // and reject any non-literal or non-int-non-string value. The recorded
+        // case→literal table replaces this raw form.
+        /// The unclassified constant-value expression in value position. A general
+        /// parser `Expr` per the permissive grammar; semantics are checked later.
+        RawValue: Expr<'tok>
     }
 
 /// One field of a `TTypeKind.Record`. `Type` carries the field's declared
@@ -839,6 +863,7 @@ type TDecl = TDeclG<SemType, SyntaxToken>
 type TTypeDecl = TTypeDeclG<SemType, SyntaxToken>
 type TTypeKind = TTypeKindG<SemType, SyntaxToken>
 type TUnionCase = TUnionCaseG<SemType>
+type TEnumCase = TEnumCaseG<SyntaxToken>
 type TRecordField = TRecordFieldG<SemType>
 type TTypeMember = TTypeMemberG<SemType, SyntaxToken>
 type TStaticLet = TStaticLetG<SemType, SyntaxToken>
@@ -865,6 +890,8 @@ module Frozen =
     type TTypeKind = TTypeKindG<FrozenType, SyntaxToken>
     type TClass = TClassG<FrozenType, SyntaxToken>
     type TUnionCase = TUnionCaseG<FrozenType>
+    // Enum cases are `'ty`-free, so the frozen alias is identical to the SemType one.
+    type TEnumCase = TEnumCaseG<SyntaxToken>
     type TRecordField = TRecordFieldG<FrozenType>
     type TTypeMember = TTypeMemberG<FrozenType, SyntaxToken>
     type TStaticLet = TStaticLetG<FrozenType, SyntaxToken>

@@ -41,6 +41,10 @@ module Conformance =
         /// the presence check exempts it by construction (matching F#'s transparent-alias
         /// resolution), rather than the test pinning it as "expected drift".
         | Abbrev
+        /// `type X = | C = v | …` — a numeric / string enum declaration. A
+        /// first-class shape (not `Other "enum"`); it conforms exactly as a plain
+        /// nominal type does (no extern/intrinsic pairing).
+        | Enum
         /// Any other signature type (union, record, interface, …) — a CONCRETE type that
         /// does require an implementation. The label names the shape for diagnostics
         /// only; v1 does not deep-compare members.
@@ -54,6 +58,10 @@ module Conformance =
         /// `type X = (# class "repr" #)` — a HERITABLE external reference base (paired
         /// with the sig's `extern class`); distinct from the opaque `Intrinsic`.
         | IntrinsicClass of repr: string
+        /// `type X = | C = v | …` — a numeric / string enum declaration. A
+        /// first-class shape (not `Other "enum"`); it conforms exactly as a plain
+        /// nominal type does (no extern/intrinsic pairing).
+        | Enum
         /// Any other implementation type (abbrev, union, record, …).
         | Other of label: string
 
@@ -191,7 +199,7 @@ module Conformance =
         | TypeSignature.Class _ -> SigShape.Other "class"
         | TypeSignature.Struct _ -> SigShape.Other "struct"
         | TypeSignature.Interface _ -> SigShape.Other "interface"
-        | TypeSignature.Enum _ -> SigShape.Other "enum"
+        | TypeSignature.Enum _ -> SigShape.Enum
         | TypeSignature.Delegate _ -> SigShape.Other "delegate"
         | TypeSignature.TypeExtension _ -> SigShape.Other "type-extension"
         | TypeSignature.AbstractType _ -> SigShape.Other "abstract"
@@ -229,7 +237,7 @@ module Conformance =
         | TypeDefn.Class _ -> ImplShape.Other "class"
         | TypeDefn.Struct _ -> ImplShape.Other "struct"
         | TypeDefn.Interface _ -> ImplShape.Other "interface"
-        | TypeDefn.Enum _ -> ImplShape.Other "enum"
+        | TypeDefn.Enum _ -> ImplShape.Enum
         | TypeDefn.Delegate _ -> ImplShape.Other "delegate"
         | TypeDefn.TypeExtension _ -> ImplShape.Other "type-extension"
         | TypeDefn.AbstractType _ -> ImplShape.Other "abstract"
@@ -334,6 +342,10 @@ module Conformance =
                     | SigShape.Abbrev -> ()
                     | _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
                 | true, iShape ->
+                    // An enum shape conforms exactly as a plain nominal (`Other`)
+                    // does: it neither demands nor supplies an intrinsic, so it is
+                    // grouped with `Other` on both sides — preserving the former
+                    // `Other "enum"` routing now that the shape is first-class.
                     match d.Shape, iShape with
                     | SigShape.Extern, ImplShape.Intrinsic _
                     | SigShape.ExternClass, ImplShape.IntrinsicClass _ -> ()
@@ -341,14 +353,15 @@ module Conformance =
                     | SigShape.Extern, ImplShape.IntrinsicClass _
                     | SigShape.ExternClass, ImplShape.Intrinsic _ ->
                         errors.Add(ConformanceError.HeritabilityMismatch d.Name)
-                    | (SigShape.Extern | SigShape.ExternClass), ImplShape.Other _ ->
+                    | (SigShape.Extern | SigShape.ExternClass), (ImplShape.Other _ | ImplShape.Enum) ->
                         errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
-                    // An abbreviation OR a plain `Other` sig paired with an impl intrinsic is
+                    // An abbreviation, an enum, OR a plain `Other` sig paired with an impl intrinsic is
                     // a repr the contract should have declared `extern` — the sig understates
                     // it (`type foo = int` / a union, but the impl is `(# … #)`).
-                    | (SigShape.Other _ | SigShape.Abbrev), (ImplShape.Intrinsic _ | ImplShape.IntrinsicClass _) ->
+                    | (SigShape.Other _ | SigShape.Abbrev | SigShape.Enum),
+                      (ImplShape.Intrinsic _ | ImplShape.IntrinsicClass _) ->
                         errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
-                    | (SigShape.Other _ | SigShape.Abbrev), ImplShape.Other _ -> ()
+                    | (SigShape.Other _ | SigShape.Abbrev | SigShape.Enum), (ImplShape.Other _ | ImplShape.Enum) -> ()
 
         let seenImpl = HashSet<string>()
 
@@ -362,7 +375,8 @@ module Conformance =
                     match d.Shape with
                     | ImplShape.Intrinsic _
                     | ImplShape.IntrinsicClass _ -> errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
-                    | ImplShape.Other _ -> ()
+                    | ImplShape.Other _
+                    | ImplShape.Enum -> ()
 
         List.ofSeq errors
 

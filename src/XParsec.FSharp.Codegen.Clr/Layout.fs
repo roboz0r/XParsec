@@ -331,6 +331,9 @@ module internal Layout =
                             Members = EqArray.toList members
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
+                // CLR enum emission (`System.Enum` / struct-wrapper) is a later
+                // step; the skeleton collects no partition for it.
+                | TTypeKindG.Enum _ -> ()
                 | TTypeKindG.Class c ->
                     classes.Add
                         {

@@ -770,6 +770,15 @@ type private Renderer() =
                     push ")"
 
                 push " end"
+            | TTypeKind.Enum cases ->
+                // Skeleton render: case names only. The raw constant-value `Expr`
+                // is a CST node with no renderer here; it surfaces once step 1b
+                // resolves it to a literal.
+                push " = enum"
+
+                for c in cases do
+                    push " | "
+                    push c.Name
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

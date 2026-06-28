@@ -647,6 +647,8 @@ module InlineExpansion =
             let walkKind (k: TTypeKind) : TTypeKind =
                 match k with
                 | TTypeKind.Interface _ -> k
+                // An enum has no member bodies to walk.
+                | TTypeKind.Enum _ -> k
                 | TTypeKind.Union(cases, members, interfaces) ->
                     TTypeKind.Union(
                         cases,

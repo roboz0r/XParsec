@@ -406,6 +406,9 @@ module Elaborate =
                 interfaces
                 |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
             )
+        // Enum cases carry no `SemType` (raw `Expr` value), so the typar remap
+        // is a no-op.
+        | TTypeKind.Enum cases -> TTypeKind.Enum cases
         | TTypeKind.Class c ->
             let staticLet (sl: TStaticLet) =
                 { sl with
@@ -1096,6 +1099,43 @@ module Elaborate =
                 List.ofSeq env
             )
 
+    /// Surface a `TypeDefn.Enum` as a `TDecl.Type`. Skeleton: the cases are
+    /// carried **raw** — each pairs its identifier with the unresolved
+    /// constant-value `Expr` exactly as parsed; there is NO literal resolution and
+    /// NO numeric / string / mixed classification yet (deferred to step 1b, see
+    /// `TEnumCaseG`). An enum has no type parameters and no augmentation members,
+    /// so the decl is a flat case list with the canonical arity-0 type key minted
+    /// directly (mirroring the interface fallback's `LocalSymbolKey.ofType`).
+    let private tryEnumType
+        (ctx: PassContext)
+        (ns: string option)
+        (name: string)
+        (cases: EnumTypeCases<SyntaxToken>)
+        : (TDecl * (TypeVar * SemType) list) option =
+        let key = LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0
+
+        let tcases =
+            EqArray.ofSeq (
+                seq {
+                    for EnumTypeCase(ident = id; constValue = v) in cases ->
+                        { Name = ctx.NameOf id; RawValue = v }
+                }
+            )
+
+        Some(
+            mkTypeDecl
+                name
+                key
+                ns
+                (EqArray.ofList [])
+                (TTypeKind.Enum tcases)
+                // An enum synthesises no equality triple / comparison pair here;
+                // the verdict fields keep the decl record total and stay unread.
+                EqualityVerdict.Structural
+                ComparisonVerdict.NoComparison,
+            []
+        )
+
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved
     /// `RecordTypeInfo`. Field types are remapped through the declaring-type
     /// typars (a no-op for a monomorphic record — `TypeParams` empty — but the
@@ -1414,6 +1454,7 @@ module Elaborate =
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Record(typeName = tn; extensions = ext) -> tryRecordType ctx ns (typeNameSimple ctx tn) ext
+        | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx ns (typeNameSimple ctx tn) cases
         | _ -> None
 
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
