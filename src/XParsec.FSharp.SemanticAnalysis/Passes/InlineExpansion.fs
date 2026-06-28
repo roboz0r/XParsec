@@ -653,7 +653,12 @@ module InlineExpansion =
                         members |> EqArray.map walkMember,
                         interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember)
                     )
-                | TTypeKind.Record(fields, members) -> TTypeKind.Record(fields, members |> EqArray.map walkMember)
+                | TTypeKind.Record(fields, members, interfaces) ->
+                    TTypeKind.Record(
+                        fields,
+                        members |> EqArray.map walkMember,
+                        interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember)
+                    )
                 | TTypeKind.Class c ->
                     TTypeKind.Class
                         { c with

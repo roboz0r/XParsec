@@ -522,9 +522,17 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
         interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
-    /// (`with member …` / `static member …`) — empty for v1, where records carry
-    /// only their field shape.
-    | Record of fields: EqArray<TRecordFieldG<'ty>> * members: EqArray<TTypeMemberG<'ty, 'tok>>
+    /// (`with member …` / `static member …`). `interfaces` mirrors
+    /// `TClassG.Interfaces` / `Union.interfaces`: each entry pairs a resolved
+    /// interface type with its already-typed member bodies (the
+    /// `interface IFace with member …` blocks declared on the record). Empty for a
+    /// plain record. The CLR backend emits the impl methods as `InterfaceImpl` rows;
+    /// the JS backend attaches them to the record's class (local interface →
+    /// attached method; capability interface → iterator / registry symbol).
+    | Record of
+        fields: EqArray<TRecordFieldG<'ty>> *
+        members: EqArray<TTypeMemberG<'ty, 'tok>> *
+        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
     /// Class type emission.
     /// `fields` are mutable instance fields (currently empty);
     /// `ctorParams` borrows the `TRecordField` shape for the primary

@@ -811,3 +811,62 @@ let unionInterfaceImplTests =
                 | ValueNone -> failtest "no union V carrying interface impls surfaced"
             }
         ]
+
+[<Tests>]
+let recordInterfaceImplTests =
+    // §14.6 slice 5 (front-end): a record implementing a local interface CARRIES
+    // the impl in its frozen representation (`TTypeKind.Record(fields, members,
+    // interfaces)`) — the same machinery as the union slice. The impl resolves +
+    // conformance-checks and surfaces on the frozen record. A project-local
+    // interface keeps the resolution off the external provider.
+    let src =
+        String.concat
+            "\n"
+            [
+                "type IRank ="
+                "    abstract member Rank : unit -> int"
+                ""
+                "type R ="
+                "    { N: int }"
+                ""
+                "    interface IRank with"
+                "        member this.Rank() = this.N"
+            ]
+
+    testList
+        "RecordInterfaceImpl"
+        [
+            test "a record implementing a local interface surfaces the impl on TTypeKind.Record.interfaces" {
+                let tast = analyse src
+
+                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
+
+                let interfaces =
+                    tast.Decls
+                    |> EqArray.tryFind (fun d ->
+                        match d with
+                        | TDecl.Type { Name = "R"; Kind = TTypeKind.Record _ } -> true
+                        | _ -> false
+                    )
+                    |> ValueOption.bind (fun d ->
+                        match d with
+                        | TDecl.Type { Kind = TTypeKind.Record(_, _, ifaces) } -> ValueSome ifaces
+                        | _ -> ValueNone
+                    )
+
+                match interfaces with
+                | ValueSome ifaces ->
+                    Expect.equal ifaces.Length 1 "exactly one interface impl is carried on the frozen record"
+
+                    let (ifaceTy, members) = ifaces.[0]
+
+                    match ifaceTy with
+                    | TyClass(name, _) -> Expect.stringContains name "IRank" "the impl heads the IRank interface"
+                    | other -> failtestf "interface head is not a TyClass: %A" other
+
+                    Expect.equal members.Length 1 "the Rank member body is carried with the impl"
+                    Expect.equal members.[0].Name "Rank" "the carried member is Rank"
+                | ValueNone -> failtest "no record R carrying interface impls surfaced"
+            }
+        ]

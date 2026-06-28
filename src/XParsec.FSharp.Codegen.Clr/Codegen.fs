@@ -40,7 +40,7 @@ module Codegen =
             NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
         for rd in asm.RecordDecls do
-            NominalEmit.register asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members
+            NominalEmit.register asm (NominalEmissionInput.Record(rd.Fields, rd.Interfaces)) rd.Decl rd.Members
 
         for cd in asm.ClassDecls do
             NominalEmit.register asm (classInput cd) cd.Decl cd.Members
@@ -54,7 +54,7 @@ module Codegen =
             NominalEmit.prepare asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
         for rd in asm.RecordDecls do
-            NominalEmit.prepare asm (NominalEmissionInput.Record rd.Fields) rd.Decl rd.Members
+            NominalEmit.prepare asm (NominalEmissionInput.Record(rd.Fields, rd.Interfaces)) rd.Decl rd.Members
 
         for cd in asm.ClassDecls do
             NominalEmit.prepare asm (classInput cd) cd.Decl cd.Members

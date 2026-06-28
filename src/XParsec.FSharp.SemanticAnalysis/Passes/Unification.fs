@@ -1053,6 +1053,42 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
+    /// Mirror of `fillUnionMembers` for records: type the augmentation-member and
+    /// `interface … with` impl bodies registered on a `RecordTypeInfo`.
+    let private fillRecordMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Record(
+                    typeName = TypeName(ident = nameLi)
+                    extensions = ValueSome(TypeExtensionElements(elements = elems))) when nameLi.Idents.Length = 1 ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.Types.Record.TryGetValue name with
+                    | true, info ->
+                        if not (Array.isEmpty info.Members) then
+                            fillTypeMembers
+                                ctx
+                                {
+                                    TypeParams = info.TypeParams
+                                    Members = info.Members
+                                    ThisKey = info.ThisKey
+                                    MkSelfType = fun args -> TyRecord(info.Key, args)
+                                    PrelinkExtras = ignore
+                                    Elements = elems
+                                    AllowAbstractSig = false
+                                    Generalise = true
+                                }
+
+                        // Type + conformance-check each `interface … with` block's
+                        // member bodies (outside the `Members`-non-empty guard so a
+                        // record with *only* an interface impl still fills).
+                        fillInterfaceImpls ctx (info :> IInterfaceImplHost)
+                    | false, _ -> ()
+                | _ -> ()
+        | _ -> ()
+
     /// `forceFill` recurses through `translateType`, so dependencies fill
     /// DFS-style regardless of declaration order. Runs before record / union
     /// field fill so a field or case-arg referencing an abbreviation by name
@@ -1091,8 +1127,9 @@ module Unification =
                         | true, info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
                         | false, _ -> ()
                 | ValueNone ->
-                    // A union may also declare `interface … with` blocks; resolve them
-                    // up front on the same path so a `:>` / coercion site sees them.
+                    // A union or record may also declare `interface … with` blocks;
+                    // resolve them up front on the same path so a `:>` / coercion site
+                    // sees them.
                     match td with
                     | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn)) when nameLi.Idents.Length = 1 ->
                         let name = ctx.NameOf nameLi.Idents.[0]
@@ -1101,6 +1138,10 @@ module Unification =
                         match TypeRegistry.tryUnion ctx.Types name arity with
                         | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
                         | ValueNone -> ()
+                    | TypeDefn.Record(typeName = TypeName(ident = nameLi)) when nameLi.Idents.Length = 1 ->
+                        match ctx.Types.Record.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
+                        | true, info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
+                        | false, _ -> ()
                     | _ -> ()
         | _ -> ()
 
@@ -1161,6 +1202,7 @@ module Unification =
             ctx.Resolution.OpenScope <- openScope
             fillClassMembers ctx m
             fillUnionMembers ctx m
+            fillRecordMembers ctx m
             walkModuleElem ctx m
 
     /// Resolve the bare-program list literals left flexible by `listLiteralTy`,
@@ -1361,6 +1403,9 @@ module Unification =
             checkHost (kv.Value :> IInterfaceImplHost)
 
         for kv in ctx.Types.Union do
+            checkHost (kv.Value :> IInterfaceImplHost)
+
+        for kv in ctx.Types.Record do
             checkHost (kv.Value :> IInterfaceImplHost)
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =

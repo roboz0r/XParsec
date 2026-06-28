@@ -389,8 +389,12 @@ module Elaborate =
                 members |> EqArray.map (freezeMember f),
                 interfaces |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
             )
-        | TTypeKind.Record(fields, members) ->
-            TTypeKind.Record(fields |> EqArray.map field, members |> EqArray.map (freezeMember f))
+        | TTypeKind.Record(fields, members, interfaces) ->
+            TTypeKind.Record(
+                fields |> EqArray.map field,
+                members |> EqArray.map (freezeMember f),
+                interfaces |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
+            )
         | TTypeKind.Class c ->
             let staticLet (sl: TStaticLet) =
                 { sl with
@@ -654,6 +658,62 @@ module Elaborate =
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         BaseKey = ValueNone
                         ThisTy = TyUnion(info.Key, EqArray.empty)
+                        Params = EqArray.empty
+                        Body = translateExpr ctx e
+                        ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
+                        MethodTypeParams = EqArray.empty
+                    }
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// Translate one record augmentation member element into a `TTypeMember`.
+    /// Parallel to `translateUnionMember` — only differs in the `ThisTy` shape
+    /// (`TyRecord(info.Key, …)` vs `TyUnion`). Records have no primary-ctor params,
+    /// so (unlike `translateClassMember`) no ctor-param → `FieldGet` rewrite is
+    /// needed — a record field reference is already an explicit `this.N`.
+    let private translateRecordMember
+        (ctx: PassContext)
+        (info: RecordTypeInfo)
+        (el: TypeDefnElement<SyntaxToken>)
+        : TTypeMember voption =
+        match el with
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
+            let isStatic = s.IsSome
+            let isOverride = isOverrideKeyword kw
+
+            let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
+                match memberNameOfBinding ctx b with
+                | ValueSome n ->
+                    ValueSome
+                        {
+                            Name = n
+                            IsStatic = isStatic
+                            Kind = kind
+                            IsOverride = isOverride
+                            ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                            // Records are not inheritable — `base` never in scope.
+                            BaseKey = ValueNone
+                            ThisTy = TyRecord(info.Key, EqArray.empty)
+                            Params = memberParams ctx b
+                            Body = translateExpr ctx b.expr
+                            ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
+                            MethodTypeParams = EqArray.empty
+                        }
+                | ValueNone -> ValueNone
+
+            match d with
+            | MethodOrPropDefn.Method(defn = b) -> build TMemberKind.Method b
+            | MethodOrPropDefn.Property(defn = b) -> build TMemberKind.Property b
+            | MethodOrPropDefn.AutoProperty(ident = id; expr = e) ->
+                ValueSome
+                    {
+                        Name = ctx.NameOf id
+                        IsStatic = isStatic
+                        Kind = TMemberKind.Property
+                        IsOverride = isOverride
+                        ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
+                        BaseKey = ValueNone
+                        ThisTy = TyRecord(info.Key, EqArray.empty)
                         Params = EqArray.empty
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
@@ -1075,20 +1135,22 @@ module Elaborate =
     /// `RecordTypeInfo`. Field types are remapped through the declaring-type
     /// typars (a no-op for a monomorphic record — `TypeParams` empty — but the
     /// right shape for the generic record path, exactly like `tryUnionType`).
-    /// Augmentation members are out of scope for v1 — the
-    /// member list stays empty; the front end never registers them under a record
-    /// today.
+    /// Augmentation members and `interface … with` impls are surfaced from `ext`
+    /// (the registered `info.Members` / `info.InterfaceImpls`), mirroring
+    /// `tryUnionType`.
     let private tryRecordType
         (ctx: PassContext)
         (ns: string option)
         (name: string)
+        (ext: TypeExtensionElements<SyntaxToken> voption)
         : (TDecl * (TypeVar * SemType) list) option =
         match ctx.Types.Record.TryGetValue name with
         | false, _ -> None
         | true, info ->
-            // Records carry no members (v1), so the decl's freeze env is just the
-            // declaring typars; field types ride as `TyVar` roots until the cut.
             let markers = mkDeclTyparEnv info.TypeParams
+            // The decl's freeze env (declaring typars + any member method typars),
+            // collected here at the single index-minting point; mirrors `tryUnionType`.
+            let env = ResizeArray markers
 
             let fields =
                 EqArray.ofSeq (
@@ -1102,16 +1164,68 @@ module Elaborate =
                     }
                 )
 
+            let declTypars = [ for (n, _) in info.TypeParams -> n ]
+            let selfTy = TyRecord(info.Key, declTyparArgs info.TypeParams)
+
+            // A generic record remaps each member's self-type to declaring-typar
+            // roots and folds in its method markers, exactly like `tryUnionType`.
+            // A monomorphic record keeps the `TyRecord(key, [])` self-type
+            // byte-identical.
+            let elaborateOne (m: TTypeMember) : TTypeMember =
+                if List.isEmpty declTypars then
+                    m
+                else
+                    let m, methodMarkers = elaborateMember selfTy m
+                    env.AddRange methodMarkers
+                    m
+
+            let members =
+                match ext with
+                | ValueNone -> EqArray.empty
+                | ValueSome(TypeExtensionElements(elements = elems)) ->
+                    EqArray.ofSeq (
+                        seq {
+                            for el in elems do
+                                match translateRecordMember ctx info el with
+                                | ValueSome m -> yield elaborateOne m
+                                | ValueNone -> ()
+                        }
+                    )
+
+            // Interface implementations (`interface IFace with member …`), surfaced
+            // exactly as in `tryUnionType` (impls whose interface failed to resolve
+            // are dropped — that diagnostic already fired).
+            let interfaces =
+                EqArray.ofSeq (
+                    seq {
+                        for impl in info.InterfaceImpls do
+                            match impl.Resolved with
+                            | ValueSome ifaceTy ->
+                                let implMembers =
+                                    EqArray.ofSeq (
+                                        seq {
+                                            for el in impl.Elements do
+                                                match translateRecordMember ctx info el with
+                                                | ValueSome m -> yield elaborateOne m
+                                                | ValueNone -> ()
+                                        }
+                                    )
+
+                                yield (ifaceTy, implMembers)
+                            | ValueNone -> ()
+                    }
+                )
+
             Some(
                 mkTypeDecl
                     name
                     info.Key
                     ns
-                    (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
-                    (TTypeKind.Record(fields, EqArray.empty))
+                    (EqArray.ofList declTypars)
+                    (TTypeKind.Record(fields, members, interfaces))
                     info.EqualitySupport
                     info.ComparisonSupport,
-                markers
+                List.ofSeq env
             )
 
     /// Surface a `TypeDefn.Class` (or class-shaped `TypeDefn.Anon`) as a
@@ -1368,7 +1482,7 @@ module Elaborate =
                 body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
-        | TypeDefn.Record(typeName = tn) -> tryRecordType ctx ns (typeNameSimple ctx tn)
+        | TypeDefn.Record(typeName = tn; extensions = ext) -> tryRecordType ctx ns (typeNameSimple ctx tn) ext
         | _ -> None
 
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =

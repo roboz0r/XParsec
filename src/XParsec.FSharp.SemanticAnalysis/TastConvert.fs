@@ -224,8 +224,12 @@ module TastConvert =
                 EqArray.map (typeMember f) members,
                 EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
             )
-        | TTypeKindG.Record(fields, members) ->
-            TTypeKindG.Record(EqArray.map (recordField f) fields, EqArray.map (typeMember f) members)
+        | TTypeKindG.Record(fields, members, interfaces) ->
+            TTypeKindG.Record(
+                EqArray.map (recordField f) fields,
+                EqArray.map (typeMember f) members,
+                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
+            )
         | TTypeKindG.Class c ->
             TTypeKindG.Class
                 {

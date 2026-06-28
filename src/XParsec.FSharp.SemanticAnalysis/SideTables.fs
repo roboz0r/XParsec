@@ -51,60 +51,6 @@ type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKe
     member val IsMutable = isMutable
     member val DeclKey = declKey
 
-/// `TypeParams` carries declared typars in declaration order, paired with
-/// source-text names. Each TypeVar is a *prototype* — substituted out by
-/// `instantiateRecordType` at every use site so independent instantiations get
-/// independent variables. `Fields[i].Type` may reference these TyVars directly
-/// (a bare `'a` field type shares identity with the corresponding `TypeParams[i]`).
-[<Sealed>]
-type RecordTypeInfo
-    (
-        name: string,
-        typeParams: EqArray<string * TypeVar>,
-        fields: RecordFieldInfo[],
-        declKey: NodeKey,
-        typarConstraints: TyparConstraints<SyntaxToken> voption,
-        key: SymbolKey
-    ) =
-    new(name, typeParams, fields, declKey) =
-        RecordTypeInfo(
-            name,
-            typeParams,
-            fields,
-            declKey,
-            ValueNone,
-            LocalSymbolKey.ofType None "" name typeParams.Length
-        )
-
-    member val Name = name
-    /// Stable project-local nominal identity — the arity-qualified
-    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
-    /// (`asm`/`declNs` = the type's home assembly + declaring namespace). The
-    /// convenience constructor (synthesis / test paths with no namespace in scope)
-    /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
-    member val Key: SymbolKey = key
-    member val TypeParams = typeParams
-    member val Fields = fields
-    member val DeclKey = declKey
-    /// `when 'a : ...` clause attached to the type's typar list, if any.
-    /// `Unification.fillRecordFieldTypes` walks this and attaches each
-    /// constraint to the matching prototype TyVar in `TypeParams`.
-    member val TyparConstraints = typarConstraints
-    /// Equality posture for this record.
-    /// Filled during `NameResolution.registerRecordTypeDefn` from the type's
-    /// attributes; the placeholder defaults to `Structural` so any path that
-    /// overlooks the registration (mostly tests that synthesise records
-    /// directly) stays equal-by-fields. `Unification.checkConstraint` reads it
-    /// to short-circuit `NoEquality` types; `Freeze` projects it onto
-    /// `TTypeDecl.EqualitySupport` for codegen.
-    member val EqualitySupport = EqualityVerdict.Structural with get, set
-    /// Comparison posture for this record. Filled during
-    /// `NameResolution.registerRecordTypeDefn` from the type's attributes. Defaults
-    /// to `NoComparison` (opt-in). `Unification.checkConstraint` reads it to reject
-    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
-    /// `TTypeDecl.ComparisonSupport` for codegen.
-    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
-
 /// Properties in v1 are read-only (get-only); v1 `AutoProperty` also lands here
 /// as `Property`.
 [<RequireQualifiedAccess>]
@@ -204,6 +150,87 @@ type IInterfaceImplHost =
     /// Build the host's own nominal Self type at the given type args
     /// (`TyClass` for a class, `TyUnion` for a union).
     abstract member MkSelfType: EqArray<SemType> -> SemType
+
+/// `TypeParams` carries declared typars in declaration order, paired with
+/// source-text names. Each TypeVar is a *prototype* — substituted out by
+/// `instantiateRecordType` at every use site so independent instantiations get
+/// independent variables. `Fields[i].Type` may reference these TyVars directly
+/// (a bare `'a` field type shares identity with the corresponding `TypeParams[i]`).
+[<Sealed>]
+type RecordTypeInfo
+    (
+        name: string,
+        typeParams: EqArray<string * TypeVar>,
+        fields: RecordFieldInfo[],
+        declKey: NodeKey,
+        typarConstraints: TyparConstraints<SyntaxToken> voption,
+        key: SymbolKey
+    ) =
+    new(name, typeParams, fields, declKey) =
+        RecordTypeInfo(
+            name,
+            typeParams,
+            fields,
+            declKey,
+            ValueNone,
+            LocalSymbolKey.ofType None "" name typeParams.Length
+        )
+
+    member val Name = name
+    /// Stable project-local nominal identity — the arity-qualified
+    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
+    /// (`asm`/`declNs` = the type's home assembly + declaring namespace). The
+    /// convenience constructor (synthesis / test paths with no namespace in scope)
+    /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
+    member val Key: SymbolKey = key
+    member val TypeParams = typeParams
+    member val Fields = fields
+    member val DeclKey = declKey
+    /// `when 'a : ...` clause attached to the type's typar list, if any.
+    /// `Unification.fillRecordFieldTypes` walks this and attaches each
+    /// constraint to the matching prototype TyVar in `TypeParams`.
+    member val TyparConstraints = typarConstraints
+    /// Equality posture for this record.
+    /// Filled during `NameResolution.registerRecordTypeDefn` from the type's
+    /// attributes; the placeholder defaults to `Structural` so any path that
+    /// overlooks the registration (mostly tests that synthesise records
+    /// directly) stays equal-by-fields. `Unification.checkConstraint` reads it
+    /// to short-circuit `NoEquality` types; `Freeze` projects it onto
+    /// `TTypeDecl.EqualitySupport` for codegen.
+    member val EqualitySupport = EqualityVerdict.Structural with get, set
+    /// Comparison posture for this record. Filled during
+    /// `NameResolution.registerRecordTypeDefn` from the type's attributes. Defaults
+    /// to `NoComparison` (opt-in). `Unification.checkConstraint` reads it to reject
+    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `TTypeDecl.ComparisonSupport` for codegen.
+    member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
+    /// Augmentation members (`with member …` / `static member …`). Member types
+    /// start as placeholder TyVars and are linked by Unification's
+    /// `fillRecordMembers`. Empty for a plain record (mirrors `UnionTypeInfo.Members`).
+    member val Members: TypeMemberInfo[] = [||] with get, set
+    /// `this`-binding source name (default `"this"`; honours `as self`).
+    member val ThisName = "this" with get, set
+    /// Synthetic NodeKey for the `this` binder shared across every instance
+    /// member body in this record. Set during registration when there are members.
+    member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
+    /// `interface IFace with member …` blocks declared on the record.
+    /// Stamped by `NameResolution.registerRecordMembers`; each impl's interface type
+    /// is resolved + verified, and its member bodies typed, by Unification's
+    /// `fillRecordMembers` (mirroring `UnionTypeInfo.InterfaceImpls`). Empty unless
+    /// the record declares an `interface … with` block. `Freeze` projects them onto
+    /// `TTypeKind.Record.interfaces`.
+    member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+
+    interface IInterfaceImplHost with
+        member this.Key = this.Key
+        member this.DeclKey = this.DeclKey
+        member this.TypeParams = this.TypeParams
+        member this.ThisKey = this.ThisKey
+        member this.InterfaceImpls = this.InterfaceImpls
+        member this.Members = this.Members
+        member this.EqualitySupport = this.EqualitySupport
+        member this.ComparisonSupport = this.ComparisonSupport
+        member this.MkSelfType args = TyRecord(this.Key, args)
 
 /// `TypeParams` mirrors `RecordTypeInfo.TypeParams`. Case field types may
 /// reference these TyVars directly.
@@ -809,7 +836,10 @@ module TypeRegistry =
         | false, _ ->
             match types.Union.TryGetValue name with
             | true, info -> ValueSome(info :> IInterfaceImplHost)
-            | false, _ -> ValueNone
+            | false, _ ->
+                match types.Record.TryGetValue name with
+                | true, info -> ValueSome(info :> IInterfaceImplHost)
+                | false, _ -> ValueNone
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info

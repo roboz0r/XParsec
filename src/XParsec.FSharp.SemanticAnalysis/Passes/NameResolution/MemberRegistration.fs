@@ -872,3 +872,28 @@ module NameResolutionMemberRegistration =
                     | false, _ -> ()
                 | _ -> ()
         | _ -> ()
+
+    /// Stamp augmentation members + `interface … with` impls onto an
+    /// already-registered `RecordTypeInfo`. Mirrors `registerUnionMembers`: must
+    /// run after `registerRecordTypes`; reads the record's `extensions.elements`.
+    /// A record has no primary ctor / `as` alias, so `this` is always `"this"`.
+    let registerRecordMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Record(
+                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
+                    nameLi.Idents.Length = 1
+                    ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.Types.Record.TryGetValue name with
+                    | true, info ->
+                        let recordTyparNames = [ for (n, _) in info.TypeParams -> n ]
+                        info.Members <- extractMembers ctx info.DeclKey recordTyparNames elems
+                        info.InterfaceImpls <- extractInterfaceImpls ctx recordTyparNames elems
+                        info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
+                    | false, _ -> ()
+                | _ -> ()
+        | _ -> ()

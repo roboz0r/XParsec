@@ -323,12 +323,13 @@ module internal Layout =
                             Members = EqArray.toList members
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
-                | TTypeKindG.Record(fields, members) ->
+                | TTypeKindG.Record(fields, members, interfaces) ->
                     records.Add
                         {
                             Decl = td
                             Fields = EqArray.toList fields
                             Members = EqArray.toList members
+                            Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
                 | TTypeKindG.Class c ->
                     classes.Add
@@ -725,7 +726,22 @@ module internal Layout =
                                     Attrs = ctorAttrs
                                 }
 
+                            let ownCount = List.length rd.Members
                             yield! rd.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
+
+                            // User `interface … with` impl members trail the record's own
+                            // members (same indexing `NominalEmit`'s `ifaceMembers` uses),
+                            // each forced to the interface virtual/new-slot/final shape so
+                            // the runtime binds it to the `InterfaceImpl` row. Must stay
+                            // *before* the eq/comp/format rows so the structural-eq indices
+                            // do not shift.
+                            yield!
+                                [
+                                    for (_, ms) in rd.Interfaces do
+                                        yield! ms
+                                ]
+                                |> List.mapi (fun i m -> memberRow td.Key (ownCount + i) true m)
+
                             yield! equalityRows td
                             yield! comparisonRows td
                             yield! formatRows definesStructuralFormatInterfaces td

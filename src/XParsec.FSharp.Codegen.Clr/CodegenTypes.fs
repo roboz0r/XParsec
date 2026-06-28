@@ -23,6 +23,9 @@ type internal RecordDecl =
         Decl: Frozen.TTypeDecl
         Fields: Frozen.TRecordField list
         Members: Frozen.TTypeMember list
+        /// User `interface … with member …` impls (same shape as `ClassDecl.Interfaces`):
+        /// each pair is an implemented interface type + its already-typed member bodies.
+        Interfaces: (FrozenType * Frozen.TTypeMember list) list
     }
 
 /// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`
@@ -65,7 +68,11 @@ type internal NominalEmissionInput =
     /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member,
     /// alongside any synthesised structural eq/comp/format interfaces.
     | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenType * Frozen.TTypeMember list) list
-    | Record of fields: Frozen.TRecordField list
+    /// `interfaces` pairs each user-implemented `interface … with` type with its
+    /// already-typed member bodies (same shape as the class / union arms): codegen
+    /// emits one `InterfaceImpl` row per entry and one virtual `MethodDefinition`
+    /// per member.
+    | Record of fields: Frozen.TRecordField list * interfaces: (FrozenType * Frozen.TTypeMember list) list
     /// `ctorParams` become backing fields; `baseType` defaults to `Object`
     /// (`ValueNone`) — or `System.ValueType` when `isStruct`. `fields` are the
     /// explicit `val [mutable] x: T` instance fields (each a `FieldDefinition`).

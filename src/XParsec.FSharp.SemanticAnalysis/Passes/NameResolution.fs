@@ -390,6 +390,45 @@ module NameResolution =
                 | _ -> ()
         | _ -> ()
 
+    /// Mirror of `walkUnionBodies` for records — name-resolve a record's
+    /// augmentation-member and `interface … with` impl bodies so `this` (and any
+    /// `this.Field` access) get a `Binding` entry. Records have no ctor params /
+    /// static lets / secondary ctors / inherit, so those stay empty/`ValueNone`.
+    let private walkRecordBodies
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<Scope list>)
+        (m: ModuleElem<SyntaxToken>)
+        : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match td with
+                | TypeDefn.Record(
+                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
+                    nameLi.Idents.Length = 1
+                    ->
+                    let name = ctx.NameOf nameLi.Idents.[0]
+
+                    match ctx.Types.Record.TryGetValue name with
+                    | true, info when not (Array.isEmpty info.Members && Array.isEmpty info.InterfaceImpls) ->
+                        walkTypeBodies
+                            ctx
+                            walker
+                            {
+                                ThisName = info.ThisName
+                                ThisKey = info.ThisKey
+                                BaseKey = ValueNone
+                                CtorParams = [||]
+                                StaticLets = [||]
+                                SecondaryCtors = [||]
+                                InheritsExpr = ValueNone
+                                EnclosingModuleMembers = enclosingModuleMembers ctx name
+                                Elements = elems
+                            }
+                    | _ -> ()
+                | _ -> ()
+        | _ -> ()
+
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -454,6 +493,10 @@ module NameResolution =
         for (m, _, _) in pairs do
             registerUnionMembers ctx m
 
+        // Record augmentation members + interface impls register after the record itself.
+        for (m, _, _) in pairs do
+            registerRecordMembers ctx m
+
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
         // walked here with each type's own scope (`this` + ctor params), giving
         // member-body idents Binding entries before Unification types them.
@@ -466,6 +509,10 @@ module NameResolution =
         for (m, openScope, _) in pairs do
             ctx.Resolution.OpenScope <- openScope
             walkUnionBodies ctx walker m
+
+        for (m, openScope, _) in pairs do
+            ctx.Resolution.OpenScope <- openScope
+            walkRecordBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 

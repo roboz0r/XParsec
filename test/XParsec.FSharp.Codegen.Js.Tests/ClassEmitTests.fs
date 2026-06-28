@@ -211,4 +211,54 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "42" "`hash` dispatches to GetHashCode (constant 42), not a structural hash"
             }
+
+            // ---- §14.6 slice 5: a RECORD implementing a LOCAL interface ----
+            //
+            // A record is a single JS class. Implementing a non-capability local
+            // interface routes the impl through the SAME partition the class path uses:
+            // a local interface → an ATTACHED instance method on the record's class
+            // (the plain-attached path, not the registry-symbol/iterator path). The
+            // method reads a field of `this`.
+
+            test "a record implementing a local interface emits the impl as an attached method on its class" {
+                let src =
+                    emitJs (
+                        lines
+                            [
+                                "type IRank ="
+                                "    abstract member Rank : unit -> int"
+                                "type R ="
+                                "    { N: int }"
+                                "    interface IRank with"
+                                "        member this.Rank() = this.N"
+                                "let r = { N = 7 }"
+                                "printfn \"%d\" ((r :> IRank).Rank())"
+                            ]
+                    )
+
+                Expect.stringContains src "class R {" "the record emits as a JS class"
+                Expect.stringContains src "Rank()" "the IRank.Rank impl attaches as an instance method on the record class"
+            }
+
+            test "a record implementing a local interface dispatches `Rank()` through the attached method on JS (prints 7)" {
+                match
+                    runJs
+                        "record-localiface"
+                        (lines
+                            [
+                                "type IRank ="
+                                "    abstract member Rank : unit -> int"
+                                "type R ="
+                                "    { N: int }"
+                                "    interface IRank with"
+                                "        member this.Rank() = this.N"
+                                "let r = { N = 7 }"
+                                "printfn \"%d\" ((r :> IRank).Rank())"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "7" "(r :> IRank).Rank() dispatches to the attached method reading this.N (=7)"
+            }
         ]

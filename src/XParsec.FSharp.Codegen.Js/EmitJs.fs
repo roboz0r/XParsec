@@ -113,6 +113,14 @@ module EmitJs =
             /// Empty until `buildProgram`
             /// populates it from the lowered decls.
             CompiledFns: System.Collections.Generic.Dictionary<NodeKey, CompiledFns.CompiledFn>
+            /// Keys of the file's locally-declared interfaces (`TTypeKindG.Interface`).
+            /// A `MethodCall` whose member's declaring type is in this set is a call
+            /// through a local interface slot (`(r :> IRank).Rank()`): the impl is an
+            /// ATTACHED method on the receiver's class (the plain-attached partition
+            /// path), so the call lowers to `receiver.<member>(args)` rather than the
+            /// free receiver-first `<Type>__<member>` form. Empty until `buildProgram`
+            /// populates it from `tast.Decls`.
+            LocalInterfaces: System.Collections.Generic.HashSet<SymbolKey>
         }
 
     let private locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
@@ -576,10 +584,22 @@ module EmitJs =
             JsExpr.Call(Members.localFn ctx key false true ValueNone, [ buildExpr ctx receiver ], loc)
 
         | TExprG.MethodCall(receiver, key, _, args, _, _) ->
-            let withRecv =
-                JsExpr.Call(Members.localFn ctx key false false ValueNone, [ buildExpr ctx receiver ], loc)
+            // A call through a LOCAL interface slot (`(r :> IRank).Rank()`): the impl
+            // is an attached method on the receiver's class (plain-attached partition),
+            // so dispatch as a flat member call `receiver.<member>(args)` — the
+            // free-function `<Type>__<member>` form names no emitted function (an
+            // interface emits nothing).
+            if ctx.LocalInterfaces.Contains(Members.declKey key) then
+                JsExpr.Call(
+                    JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(SymbolKeyOps.simpleName key, ValueNone), false, loc),
+                    [ for a in args -> buildExpr ctx a ],
+                    loc
+                )
+            else
+                let withRecv =
+                    JsExpr.Call(Members.localFn ctx key false false ValueNone, [ buildExpr ctx receiver ], loc)
 
-            applyArgs ctx withRecv args
+                applyArgs ctx withRecv args
 
         | TExprG.StaticPropertyGet(key, _, _) -> Members.localFn ctx key true true loc
 
@@ -1682,7 +1702,7 @@ module EmitJs =
             match decl with
             | TDeclG.Type td ->
                 match td.Kind with
-                | TTypeKindG.Record(fields, recMembers) ->
+                | TTypeKindG.Record(fields, recMembers, recInterfaces) ->
                     let info =
                         {
                             Name = td.Name
@@ -1690,8 +1710,34 @@ module EmitJs =
                         }
 
                     records.[td.Key] <- info
-                    ordered.Add(JsStatement.Class(info.Name, info.Fields, [], exportTypes))
-                    addMembers td.Name recMembers
+
+                    if recInterfaces.IsEmpty then
+                        // No interface impls → a record is one plain class with no
+                        // methods; emit directly (no ctx needed). Augmentation members
+                        // ride as free receiver-first functions.
+                        ordered.Add(JsStatement.Class(info.Name, info.Fields, [], exportTypes))
+                        addMembers td.Name recMembers
+                    else
+                        // The record carries interface impls. A record is a single JS
+                        // class, so route its interfaces + members through the SAME
+                        // partition the class path uses: enumerable → `[Symbol.iterator]`,
+                        // eq/comp/hash → registry symbols, a local interface → an attached
+                        // method. The method bodies need the full `WalkCtx`, so defer like
+                        // a `PendingClass` (`parts.Free` carries the augmentation members
+                        // that stay free functions).
+                        let parts = partitionClassMembers caps td.Name recInterfaces recMembers
+
+                        pendingClasses.Add
+                            {
+                                Name = info.Name
+                                Fields = info.Fields
+                                Attached = parts.Attached
+                                Iterators = parts.Iterators
+                                Protocols = parts.Protocols
+                            }
+
+                        for m in parts.Free do
+                            members.Add(td.Name, m)
                 | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
                     // Local union: `Home = ValueNone` — its case classes are emitted here.
                     let info, caseDecls =
@@ -1809,12 +1855,22 @@ module EmitJs =
         for f in CompiledFns.gather lowered do
             compiledFns.[f.Key] <- f
 
+        // The file's locally-declared interface keys — drives the attached-method
+        // dispatch of a `(r :> ILocal).M()` call site (see `WalkCtx.LocalInterfaces`).
+        let localInterfaces = System.Collections.Generic.HashSet<SymbolKey>()
+
+        for decl in tast.Decls do
+            match decl with
+            | TDeclG.Type({ Kind = TTypeKindG.Interface _ } as td) -> localInterfaces.Add td.Key |> ignore
+            | _ -> ()
+
         let ctx =
             { ctx0 with
                 Records = recordTable
                 Unions = unionTable
                 Classes = classTable
                 CompiledFns = compiledFns
+                LocalInterfaces = localInterfaces
             }
 
         // Class decls (with their attached instance methods) are built now — their

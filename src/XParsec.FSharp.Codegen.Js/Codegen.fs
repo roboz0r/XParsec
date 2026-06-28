@@ -119,6 +119,8 @@ module Codegen =
                     | Script -> false
                 // Populated by `buildProgram` from the lowered decls.
                 CompiledFns = System.Collections.Generic.Dictionary()
+                // Populated by `buildProgram` from the file's interface decls.
+                LocalInterfaces = System.Collections.Generic.HashSet()
             }
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)

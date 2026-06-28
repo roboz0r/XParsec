@@ -131,9 +131,15 @@ module PlatformTypes =
             // yet (the JS back end does not), so flagging a type they reference would
             // be a premature reject — match the set the emitter actually lowers.
             match td.Kind with
-            | TTypeKindG.Record(_, members) ->
+            | TTypeKindG.Record(_, members, interfaces) ->
                 for m in members do
                     TastWalk.iterExpr iter m.Body
+                // The backends emit a record's interface-impl members (CLR `InterfaceImpl`
+                // rows / JS attached methods), so their bodies are lowered and an
+                // unrepresentable type in one is a real reject.
+                for (_, ifaceMembers) in interfaces do
+                    for m in ifaceMembers do
+                        TastWalk.iterExpr iter m.Body
             | TTypeKindG.Union(_, members, interfaces) ->
                 for m in members do
                     TastWalk.iterExpr iter m.Body

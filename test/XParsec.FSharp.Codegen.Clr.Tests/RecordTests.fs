@@ -350,3 +350,97 @@ let genericTests =
                     "Pair.Second = 3 (non-first field)"
             }
         ]
+
+[<Tests>]
+let interfaceImplTests =
+    testList
+        "RecordInterfaceImpl"
+        [
+            // §14.6 slice 5: a record implementing a LOCAL interface whose impl reads
+            // a field of `this`. The CLR backend emits the record's user
+            // `interface … with` impl (the `InterfaceImpl` row + the impl body + the
+            // interface-slot override) exactly like the union slice. `({ N = 7 } :>
+            // IRank).Rank()` is a real interface dispatch through the record's vtable
+            // slot — broken IL that type-checks would fault here.
+            test "a record implementing a local interface dispatches through the interface slot (prints 7)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IRank ="
+                            "    abstract member Rank : unit -> int"
+                            "type R ="
+                            "    { N: int }"
+                            "    interface IRank with"
+                            "        member this.Rank() = this.N"
+                            "let r = { N = 7 }"
+                            "printfn \"%d\" ((r :> IRank).Rank())"
+                        ]
+
+                let tast, artifact = compileSource "RecIfaceRank" src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let bytes = Codegen.toBytes artifact
+
+                // The user `InterfaceImpl` row lands on the record type (alongside any
+                // synthesised structural eq interface).
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "R"
+                Expect.isNotNull ty "the assembly contains the record type R"
+                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaceNames.Contains "IRank") "R reflects as implementing the user IRank"
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "7" "(r :> IRank).Rank() reads this.N (=7) via interface dispatch"
+            }
+
+            // The record ALSO synthesises an `IEquatable<R>` (structural equality), so
+            // the user `IRank` impl and the synthesised eq interface must coexist on
+            // the same record type with no slot collision: reflection sees BOTH
+            // interfaces, and structural `=` and `(r :> IRank).Rank()` both work.
+            test "a record's user interface coexists with its synthesised IEquatable (no slot collision)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IRank ="
+                            "    abstract member Rank : unit -> int"
+                            "type R ="
+                            "    { N: int }"
+                            "    interface IRank with"
+                            "        member this.Rank() = this.N"
+                            "let eq = ({ N = 7 } = { N = 7 })"
+                            "let ne = ({ N = 7 } = { N = 3 })"
+                            "printfn \"%b\" eq"
+                            "printfn \"%b\" ne"
+                            "printfn \"%d\" (({ N = 5 } :> IRank).Rank())"
+                        ]
+
+                let tast, artifact = compileSource "RecIfaceAndEq" src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "R"
+                Expect.isNotNull ty "the assembly contains the record type R"
+
+                let ifaceNames = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
+                Expect.isTrue (ifaceNames.Contains "IRank") "R reflects as implementing the user IRank"
+
+                Expect.isTrue
+                    (ifaceNames.Contains "IEquatable`1")
+                    "R reflects as implementing the synthesised IEquatable<R>"
+
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+
+                let outLines =
+                    output.Replace("\r", "").Split('\n') |> Array.filter (fun s -> s.Length > 0)
+
+                Expect.equal
+                    outLines
+                    [| "true"; "false"; "5" |]
+                    "structural `=` (synthesised IEquatable) and `Rank()` (user IRank) both dispatch correctly"
+            }
+        ]

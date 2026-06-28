@@ -26,12 +26,12 @@ module internal NominalEmit =
         [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
     /// The user `interface … with` impls (interface type + member bodies) a
-    /// nominal carries. Classes and unions both carry them (records do not in v1).
+    /// nominal carries. Classes, unions, and records all carry them.
     let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * Frozen.TTypeMember list) list =
         match input with
         | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) -> interfaces
         | NominalEmissionInput.Union(_, interfaces) -> interfaces
-        | NominalEmissionInput.Record _ -> []
+        | NominalEmissionInput.Record(_, interfaces) -> interfaces
 
     let private ifaceMembersOf (input: NominalEmissionInput) : Frozen.TTypeMember list =
         [
@@ -122,7 +122,7 @@ module internal NominalEmit =
                     Members = emittedMembers
                 }
 
-        | NominalEmissionInput.Record fields ->
+        | NominalEmissionInput.Record(fields, _) ->
             asm.Records.[td.Key] <-
                 {
                     Name = td.Name
@@ -319,7 +319,7 @@ module internal NominalEmit =
                 )
             )
 
-        | NominalEmissionInput.Record fields ->
+        | NominalEmissionInput.Record(fields, _) ->
             let fieldHandles =
                 [
                     for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
