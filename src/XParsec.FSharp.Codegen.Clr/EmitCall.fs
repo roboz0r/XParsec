@@ -164,7 +164,7 @@ module EmitCall =
                 |> List.iteri (fun i ety ->
                     actualTys.Add ety
                     b.Add(ILInstr.Ldloc slot)
-                    b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                    EmitPattern.emitTupleItemLoad b refs i
                 )
 
         List.ofSeq actualTys

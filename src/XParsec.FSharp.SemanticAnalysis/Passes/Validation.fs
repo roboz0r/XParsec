@@ -281,56 +281,6 @@ module Validation =
                         Severity = Severity.Error
                     }
 
-    /// `System.ValueTuple` is emitted only for arity 2–7; an 8+ tuple needs `TRest`
-    /// nesting, still deferred. Surface that as a
-    /// clean diagnostic rather than letting codegen crash in the encoder /
-    /// `ValueTupleRefs` — the same courtesy `checkUseBindings` gives unsupported
-    /// `use` destructuring.
-    [<Literal>]
-    let private MaxTupleArity = 7
-
-    let private tupleArityError (ctx: PassContext) (key: NodeKey) (arity: int) : unit =
-        ctx.Diagnostics.Add
-            {
-                Key = key
-                Message =
-                    sprintf
-                        "Tuples of %d elements are not yet supported — only 2 to 7 (8 or more requires `System.ValueTuple` `TRest` nesting)."
-                        arity
-                Code = ""
-                Severity = Severity.Error
-            }
-
-    /// Fire on any tuple *pattern*, including nested ones, whose arity exceeds the
-    /// emittable bound — `match e with Some (a, …, h) ->`, `let (a, …, h) = e`,
-    /// `fun (a, …, h) ->`, `for (a, …, h) in xs`.
-    let rec private checkTuplePat (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
-        match p with
-        | Pat.Tuple(patterns = pats)
-        | Pat.StructTuple(patterns = pats) ->
-            if pats.Length > MaxTupleArity then
-                tupleArityError ctx (CstKeys.ofPat p) pats.Length
-
-            for sub in pats do
-                checkTuplePat ctx sub
-        | Pat.EnclosedBlock(pat = inner)
-        | Pat.As(pat = inner)
-        | Pat.Typed(pat = inner)
-        | Pat.TypeTestAs(pat = inner)
-        | Pat.Attributed(pat = inner)
-        | Pat.Optional(pat = inner) -> checkTuplePat ctx inner
-        | Pat.Or(left = l; right = r)
-        | Pat.And(left = l; right = r)
-        | Pat.Cons(head = l; tail = r) ->
-            checkTuplePat ctx l
-            checkTuplePat ctx r
-        | Pat.Elems(pats = pats)
-        | Pat.Named(argumentPats = pats)
-        | Pat.OpNamed(argumentPats = pats) ->
-            for sub in pats do
-                checkTuplePat ctx sub
-        | _ -> ()
-
     let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
         {
             Visit =
@@ -339,23 +289,13 @@ module Validation =
                     | Expr.Assignment(leftExpr = l) -> checkAssignment ctx l
                     | Expr.LetOrUse(keyword = (LetOrUseKeyword.Use _ | LetOrUseKeyword.UseBang _); bindings = bindings) ->
                         checkUseBindings ctx bindings
-                    | Expr.Tuple(exprs = exprs)
-                    | Expr.StructTuple(exprs = exprs) ->
-                        if exprs.Length > MaxTupleArity then
-                            tupleArityError ctx (CstKeys.ofExpr e) exprs.Length
                     | _ -> ()
-            // Every pattern-binding position routes its head pattern through the
-            // tuple-arity check; module-level `let` heads are checked in
-            // `walkModuleElem` (they bypass `EnterBindingRhs`).
-            EnterFun =
-                fun () pats ->
-                    for p in pats do
-                        checkTuplePat ctx p
-            EnterBindingRhs = fun () _ _ b -> checkTuplePat ctx b.headPat
+            EnterFun = fun () _ -> ()
+            EnterBindingRhs = fun () _ _ _ -> ()
             EnterLetBody = fun () _ -> ()
             EnterForTo = fun () _ -> ()
-            EnterForIn = fun () p -> checkTuplePat ctx p
-            EnterMatchArm = fun () p -> checkTuplePat ctx p
+            EnterForIn = fun () _ -> ()
+            EnterMatchArm = fun () _ -> ()
         }
 
     let private walkModuleElem
@@ -375,9 +315,6 @@ module Validation =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do
-                // Module-level binding heads bypass `EnterBindingRhs`, so check
-                // their tuple arity here (e.g. `let (a, …, h) = …`).
-                checkTuplePat ctx b.headPat
                 CstWalk.iterExpr walker () b.expr
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e)) -> CstWalk.iterExpr walker () e
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e

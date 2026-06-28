@@ -60,12 +60,25 @@ module EmitPattern =
         | FTTuple xs -> EqArray.toList xs
         | other -> failwithf "Emit: expected a tuple type, got: %A" other
 
-    /// Decompose a `ValueTuple`n` value held in local `srcSlot`: for each
-    /// non-wildcard element, `ldfld` its `Item` field into a fresh local and hand
-    /// that to `recur` (a wildcard binds nothing, so its field load is skipped).
-    /// A tuple never branches on shape, so this is the one tuple-destructuring
-    /// primitive behind both the match compiler (`buildMatchTest`) and the
-    /// irrefutable binder (`bindPattern`).
+    /// Emit the `ldfld` chain that reads element `index` of a `ValueTuple` value
+    /// already on the stack. For arity ≤ 7 this is a single `Item{i+1}` load; for
+    /// the nested ≥ 8 layout an index ≥ 7 first loads `Rest` (the nested tuple
+    /// value, left on the stack — `ldfld` reads a struct field directly off the
+    /// value) then chases the residual index into it, recursively — index 7 is the
+    /// Rest slot.
+    let rec emitTupleItemLoad (b: IlBuilder) (refs: ValueTupleHandles) (index: int) : unit =
+        match refs.Rest with
+        | ValueSome rest when index >= 7 ->
+            b.Add(ILInstr.Ldfld rest.RestField)
+            emitTupleItemLoad b rest.Nested (index - 7)
+        | _ -> b.Add(ILInstr.Ldfld refs.ItemFields.[index])
+
+    /// Decompose a `ValueTuple` value held in local `srcSlot`: for each
+    /// non-wildcard element, load its slot (`emitTupleItemLoad`, Rest-chasing for
+    /// arity ≥ 8) into a fresh local and hand that to `recur` (a wildcard binds
+    /// nothing, so its field load is skipped). A tuple never branches on shape, so
+    /// this is the one tuple-destructuring primitive behind both the match compiler
+    /// (`buildMatchTest`) and the irrefutable binder (`bindPattern`).
     let destructureTuple
         (env: EmitEnv)
         (b: IlBuilder)
@@ -83,7 +96,7 @@ module EmitPattern =
             | _ ->
                 let fldSlot = b.Local(typeOfPat subPat)
                 b.Add(ILInstr.Ldloc srcSlot)
-                b.Add(ILInstr.Ldfld refs.ItemFields.[i])
+                emitTupleItemLoad b refs i
                 b.Add(ILInstr.Stloc fldSlot)
                 recur fldSlot subPat
         )

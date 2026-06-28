@@ -32,14 +32,6 @@ let tests =
                     // there (the bound value is what gets disposed), so the front end
                     // rejects it rather than letting codegen `failwithf`.
                     "simple variable patterns", "let run () =\n    use a, b = (1, 2)\n    ()\nrun ()"
-                    // an 8-element tuple — `System.ValueTuple` is emitted only for
-                    // arity 2–7 (8+ needs `TRest` nesting, still deferred), so the
-                    // front end rejects it rather than letting codegen crash in the
-                    // encoder / `ValueTupleRefs`.
-                    "elements are not yet supported", "printfn \"%A\" (1, 2, 3, 4, 5, 6, 7, 8)"
-                    // the destructuring side: an 8-element tuple *pattern* is caught
-                    // the same way (`checkTuplePat`), not just the construction site.
-                    "elements are not yet supported", "let a, b, c, d, e, f, g, h = (1, 2, 3, 4, 5, 6, 7, 8)\n()"
                     // a [<CallAtMostOnce>] parameter used more than once violates the
                     // linearity contract (the compiler can only guarantee at-most-once
                     // evaluation for a single, non-repeated use).
@@ -56,5 +48,13 @@ let tests =
             yield
                 test "duck-typed for-in over BitArray type-checks (codegen deferred)" {
                     typeChecks "let f (ba: System.Collections.BitArray) =\n    for x in ba do\n        ()"
+                }
+
+            // Tuples are unbounded: an 8+-element tuple is no longer a front-end
+            // error (it emits via `ValueTuple`8` `TRest` nesting). Guards against a
+            // regression that re-introduces an arity cap.
+            yield
+                test "an 8-element tuple type-checks (no arity cap)" {
+                    typeChecks "let a, b, c, d, e, f, g, h = (1, 2, 3, 4, 5, 6, 7, 8)\n()"
                 }
         ]

@@ -268,18 +268,33 @@ module EmitConstruct =
             // reaches here — it is flattened element-wise at the call site
             // (`buildAppCall`, the `argCount`-discriminated arm), per the .NET
             // calling convention. Here a genuine tuple value is wanted: push each
-            // element left-to-right, then `newobj` the `System.ValueTuple`n` ctor,
+            // element left-to-right, then `newobj` the `System.ValueTuple` ctor,
             // which leaves the struct on the stack (no separate local needed).
-            // The element types come from the
-            // node's own `FTTuple` so the ctor's generic instantiation matches the
-            // pushed values' static types.
+            // The element types come from the node's own `FTTuple` so the ctor's
+            // generic instantiation matches the pushed values' static types.
+            //
+            // Arity ≥ 8 nests: push slots 0–6, then build the residual tail as a
+            // nested `TRest` value (recursively, leaving it on the stack), then
+            // `newobj` the 8-arg `ValueTuple`8` ctor — the standard .NET scheme.
             let elemTys = tupleElemTys ty
-
-            for el in elems do
-                recur env b el
-
             let refs = env.Provider.ValueTupleRefs elemTys
-            b.Add(ILInstr.Newobj(refs.Ctor, elems.Length))
+            let elemArr = elems.AsSpan().ToArray()
+
+            let rec buildNested (refs: ValueTupleHandles) (els: Frozen.TExpr[]) : unit =
+                match refs.Rest with
+                | ValueSome rest ->
+                    for i in 0..6 do
+                        recur env b els.[i]
+
+                    buildNested rest.Nested els.[7..]
+                    b.Add(ILInstr.Newobj(refs.Ctor, 8))
+                | ValueNone ->
+                    for el in els do
+                        recur env b el
+
+                    b.Add(ILInstr.Newobj(refs.Ctor, els.Length))
+
+            buildNested refs elemArr
         | _ -> failwith "EmitConstruct.buildTuple: unreachable"
 
     /// The discovered `Closure` for a `Lambda` node — every construction path needs

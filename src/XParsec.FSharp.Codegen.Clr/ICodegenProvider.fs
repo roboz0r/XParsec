@@ -46,17 +46,33 @@ type CallRecipe =
 
 type CtorRecipe = { Handle: EntityHandle; ArgCount: int }
 
-/// The resolved CLR handles for one `System.ValueTuple`n` instantiation:
-/// the instantiated parent `TypeSpec`
-/// (`ValueTuple`n<t0…t_{n-1}>`), its `.ctor(!0…!{n-1})`, and the public
-/// `Item1…Itemn` field refs in element order. Construction reads `Ctor`;
-/// destructuring reads `ItemFields`; the type encoder needs only
-/// the `TypeSpec` shape, which `encodeType` builds itself.
+/// The resolved CLR handles for one `System.ValueTuple` instantiation: the
+/// instantiated parent `TypeSpec`, its `.ctor`, and the public `Item…` field
+/// refs in element order. Construction reads `Ctor`; destructuring reads
+/// `ItemFields`; the type encoder needs only the `TypeSpec` shape, which
+/// `encodeType` builds itself.
+///
+/// Arity 2–7 is the flat `ValueTuple`n<t0…t_{n-1}>` — `ItemFields` holds all
+/// `Item1…Itemn` and `Rest` is `ValueNone`. Arity ≥ 8 is the standard .NET
+/// nesting: `ValueTuple`8<t0…t6, TRest>` where `TRest` is itself the tuple of
+/// the residual elements, recursively. There `ItemFields` holds only `Item1…
+/// Item7` (the directly-stored slots), `Ctor` takes 8 args (the 7 elements +
+/// the nested `TRest` value), and `Rest` carries the `Rest` field ref plus the
+/// `Nested` handles for chasing element indices ≥ 7.
 type ValueTupleHandles =
     {
         TypeSpec: EntityHandle
         Ctor: EntityHandle
         ItemFields: EntityHandle[]
+        Rest: ValueTupleRest voption
+    }
+
+/// The `ValueTuple`8` `TRest` link: the `Rest` field ref (typed as the 8th
+/// generic parameter) and the handles of the nested residual tuple it stores.
+and ValueTupleRest =
+    {
+        RestField: EntityHandle
+        Nested: ValueTupleHandles
     }
 
 /// Which member of an emitted *generic* union a `GenericUnionMemberRef` resolves

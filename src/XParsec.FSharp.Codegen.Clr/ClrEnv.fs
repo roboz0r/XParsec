@@ -100,20 +100,24 @@ type internal ClrEnv
     let eValueTuple =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))
 
-    // The arity-≥2 tuple family: the open generic structs `System.ValueTuple`2..`7`,
-    // cached by arity. The nullary `unit` case
-    // stays on `eValueTuple` above; an N-tuple value is simply the arity-N member
-    // of the same struct family — one coherent representation, no special-casing.
-    // Only the bare generic `TypeRef` lives here; the per-call-site `.ctor` /
-    // `Item` field refs (which need the element-type instantiation) are minted on
-    // top of this by `ClrEncoder.ValueTupleRefs`. Arity ≥ 8 (`TRest` nesting) is
-    // deferred, so the resolver rejects it.
+    // The open generic tuple structs `System.ValueTuple`1..`8`, cached by arity.
+    // The nullary `unit` case stays on `eValueTuple` above; an N-tuple value is
+    // the arity-N member of the same struct family — one coherent representation,
+    // no special-casing. Only the bare generic `TypeRef` lives here; the
+    // per-call-site `.ctor` / `Item` field refs (which need the element-type
+    // instantiation) are minted on top of this by `ClrEncoder.ValueTupleRefs`.
+    // Arity ≥ 8 packs the 8th slot (`ValueTuple`8`'s `TRest`) with a nested tuple
+    // of the remaining elements, recursively — the standard .NET nesting scheme,
+    // bottoming out in a `ValueTuple`1` tail when one element remains. A
+    // *user-level* 1-tuple is not a thing — `(x)` is just `x`; `ValueTuple`1` only
+    // ever arises as an internal `TRest` tail, so the family bottoms at 1 here
+    // while `ValueTupleRefs` still rejects a top-level 1-tuple request.
     let valueTupleEntities = Dictionary<int, EntityHandle>()
 
     let eValueTupleN (arity: int) : EntityHandle =
-        if arity < 2 || arity > 7 then
+        if arity < 1 || arity > 8 then
             failwithf
-                "ClrProvider: ValueTuple arity %d is out of range — only 2–7 are emitted (≥8 `TRest` nesting is deferred)."
+                "ClrProvider: ValueTuple arity %d is out of range — only the generic family `ValueTuple`1..`8` exists (≥9 nests via `ValueTuple`8`'s `TRest`)."
                 arity
 
         match valueTupleEntities.TryGetValue arity with

@@ -260,14 +260,25 @@ type internal ClrEncoder(env: ClrEnv) =
         // construction and destructuring read the same handles via
         // `ValueTupleRefs`. The nullary `unit` case never reaches here: it encodes
         // off its `prim-types-min` repr binding (`System.ValueTuple`) in the
-        // intrinsic arm above, so this fires only for arity ≥ 2, and `EValueTupleN`
-        // rejects arity ≥ 8 (`TRest` nesting, deferred).
+        // intrinsic arm above, so this fires only for arity ≥ 2. Arity ≥ 8 packs
+        // slots 0–6 then nests the residual tail as `ValueTuple`8`'s 8th argument
+        // (`TRest`), recursively — the standard .NET tuple scheme, index 7 is Rest.
         | FTTuple items ->
-            let arity = items.Length
-            let g = te.GenericInstantiation(env.EValueTupleN arity, arity, true)
+            let rec encodeTuple (out: SignatureTypeEncoder) (elems: FrozenType[]) =
+                if elems.Length <= 7 then
+                    let g = out.GenericInstantiation(env.EValueTupleN elems.Length, elems.Length, true)
 
-            for t in items do
-                encodeType (g.AddArgument()) t
+                    for t in elems do
+                        encodeType (g.AddArgument()) t
+                else
+                    let g = out.GenericInstantiation(env.EValueTupleN 8, 8, true)
+
+                    for i in 0..6 do
+                        encodeType (g.AddArgument()) elems.[i]
+
+                    encodeTuple (g.AddArgument()) elems.[7..]
+
+            encodeTuple te (items.AsSpan().ToArray())
         // A by-ref (`T&`) is legal only in parameter / return / local position,
         // where its `ELEMENT_TYPE_BYREF` prefix is emitted at the encoder seam
         // (`mintMemberRef`'s return encoder, the local-sig encoder). Reaching the
@@ -459,69 +470,100 @@ type internal ClrEncoder(env: ClrEnv) =
         encodeType te ty
         toEntity (ctx.TypeSpec tsB)
 
-    /// Resolve the `System.ValueTuple`n` family for an N-tuple whose element types
-    /// are `elemTys` — the single source of truth
-    /// for "the .NET handles of a tuple", shared by construction and destructuring.
-    /// Arity must be 2–7 (`EValueTupleN` enforces the bound; ≥8 `TRest` nesting is
-    /// deferred). The ctor / `Item` field signatures are element-type-independent —
-    /// they name the type's own `!0…!{n-1}` — so only the parent `TypeSpec` carries
-    /// the call-site instantiation.
+    /// Resolve the `System.ValueTuple` handles for an N-tuple whose element types
+    /// are `elemTys` — the single source of truth for "the .NET handles of a
+    /// tuple", shared by construction and destructuring. The ctor / `Item` field
+    /// signatures are element-type-independent — they name the type's own `!0…` —
+    /// so only the parent `TypeSpec` carries the call-site instantiation.
+    ///
+    /// Arity ≤ 7 is the flat `ValueTuple`n`. Arity ≥ 8 packs slots 0–6 directly
+    /// and nests the residual tail in `ValueTuple`8`'s `TRest` (8th arg), built
+    /// recursively — the standard .NET scheme, index 7 is Rest.
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles =
+        // A user-level tuple is arity ≥ 2 (`unit` and `(x)` are not tuples). The
+        // `ValueTuple`1` family member is reachable only as an internal `TRest`
+        // tail in the recursion below, never as a top-level request.
+        if List.length elemTys < 2 then
+            failwithf
+                "ClrProvider: ValueTupleRefs needs arity ≥ 2, got %d (unit / 1-tuples are not tuple values)."
+                (List.length elemTys)
+
         match valueTupleRefsCache.TryGetValue elemTys with
         | true, cached -> cached
         | _ ->
+            let rec build (elems: FrozenType[]) : ValueTupleHandles =
+                let n = elems.Length
+                // The generic family member that *directly* holds these elements:
+                // the flat `ValueTuple`n` for n ≤ 7, else `ValueTuple`8` (slots
+                // 0–6 + a nested `TRest`).
+                let k = if n <= 7 then n else 8
 
-            let arity = List.length elemTys
-            let entity = env.EValueTupleN arity
+                // The full (possibly nested) tuple type, doubling as the member-ref
+                // parent `TypeSpec`. `encodeType`'s `FTTuple` arm does the recursive
+                // `TRest` nesting, so this is the genuine CLR type of the tuple.
+                let typeSpec =
+                    let tsB = BlobBuilder()
+                    let te = BlobEncoder(tsB).TypeSpecificationSignature()
+                    encodeType te (FTTuple(EqArray.ofSeq elems))
+                    toEntity (ctx.TypeSpec tsB)
 
-            // `ValueTuple`n<t0…t_{n-1}>` as the member-ref parent `TypeSpec`. The `true`
-            // marks the instantiation a value type (struct), mirroring `encodeType`'s
-            // user-struct arm — a `ValueType`-tagged generic-inst, not `Class`.
-            let typeSpec =
-                let tsB = BlobBuilder()
-                let te = BlobEncoder(tsB).TypeSpecificationSignature()
-                let g = te.GenericInstantiation(entity, arity, true)
+                // `instance void .ctor(!0…!{k-1})` — for k = 8 the last param `!7`
+                // is the nested `TRest` value. Pushing the args then `newobj` this
+                // leaves the struct on the stack.
+                let ctorRef =
+                    let s = BlobBuilder()
 
-                for t in elemTys do
-                    encodeType (g.AddArgument()) t
-
-                toEntity (ctx.TypeSpec tsB)
-
-            // `instance void .ctor(!0…!{n-1})` — pushing the elements then `newobj`
-            // this leaves the struct on the stack.
-            let ctorRef =
-                let s = BlobBuilder()
-
-                BlobEncoder(s)
-                    .MethodSignature(isInstanceMethod = true)
-                    .Parameters(
-                        arity,
-                        (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                        (fun (pars: ParametersEncoder) ->
-                            for i in 0 .. arity - 1 do
-                                pars.AddParameter().Type().GenericTypeParameter i
+                    BlobEncoder(s)
+                        .MethodSignature(isInstanceMethod = true)
+                        .Parameters(
+                            k,
+                            (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                            (fun (pars: ParametersEncoder) ->
+                                for i in 0 .. k - 1 do
+                                    pars.AddParameter().Type().GenericTypeParameter i
+                            )
                         )
-                    )
 
-                toEntity (ctx.MemberRef(typeSpec, ".ctor", s))
+                    toEntity (ctx.MemberRef(typeSpec, ".ctor", s))
 
-            // `public !i Item{i+1}` — `ValueTuple` exposes public *fields*, not
-            // properties, so element access is `ldfld`, not `call get_ItemN`.
-            let itemFields =
-                [|
-                    for i in 0 .. arity - 1 ->
-                        let s = BlobBuilder()
-                        BlobEncoder(s).FieldSignature().GenericTypeParameter i
-                        toEntity (ctx.MemberRef(typeSpec, sprintf "Item%d" (i + 1), s))
-                |]
+                // `public !i Item{i+1}` — `ValueTuple` exposes public *fields*, not
+                // properties, so element access is `ldfld`, not `call get_ItemN`.
+                // For arity ≥ 8 only the 7 directly-stored slots get `Item` fields;
+                // the tail rides the `Rest` field below.
+                let directCount = if n <= 7 then n else 7
 
-            let handles =
+                let itemFields =
+                    [|
+                        for i in 0 .. directCount - 1 ->
+                            let s = BlobBuilder()
+                            BlobEncoder(s).FieldSignature().GenericTypeParameter i
+                            toEntity (ctx.MemberRef(typeSpec, sprintf "Item%d" (i + 1), s))
+                    |]
+
+                let rest =
+                    if n <= 7 then
+                        ValueNone
+                    else
+                        // `public TRest Rest` — the 8th generic parameter (`!7`).
+                        let restField =
+                            let s = BlobBuilder()
+                            BlobEncoder(s).FieldSignature().GenericTypeParameter 7
+                            toEntity (ctx.MemberRef(typeSpec, "Rest", s))
+
+                        ValueSome
+                            {
+                                RestField = restField
+                                Nested = build elems.[7..]
+                            }
+
                 {
                     TypeSpec = typeSpec
                     Ctor = ctorRef
                     ItemFields = itemFields
+                    Rest = rest
                 }
 
+            let handles = build (List.toArray elemTys)
             valueTupleRefsCache.[elemTys] <- handles
             handles
 
