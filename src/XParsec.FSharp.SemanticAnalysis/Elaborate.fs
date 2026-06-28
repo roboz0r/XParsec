@@ -231,8 +231,18 @@ module Elaborate =
 
         let zonked = Unification.zonk declTy
 
+        // Free-fn inferred typars have no source names, so an empty `knownNames`
+        // preserves today's all-`M%d` synthesis for the appearance tail.
+        let knownNames =
+            System.Collections.Generic.Dictionary<TypeVar, string>(HashIdentity.Reference)
+            :> System.Collections.Generic.IReadOnlyDictionary<_, _>
+
         let gt =
-            GeneralizedTypars.canonical declaredFree (System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)) zonked
+            GeneralizedTypars.canonical
+                declaredFree
+                (System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference))
+                knownNames
+                zonked
 
         // The canonical roots, in ABI order, become the seed of the dependent-typar
         // worklist below.
@@ -241,34 +251,6 @@ module Elaborate =
 
         for r in acc do
             seen.Add r |> ignore
-
-        // Append the first-appearance roots of a coercion-bound target (the
-        // dependent-typar fixpoint preserved below). Mirrors the old appearance walk.
-        let rec go t =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match root.Link with
-                | ValueSome target -> go target
-                | ValueNone ->
-                    if seen.Add root then
-                        acc.Add root
-            | TyConst(_, args)
-            | TyTuple args
-            | TyRecord(_, args)
-            | TyUnion(_, args)
-            | TyClass(_, args) ->
-                for a in args do
-                    go a
-            | TyOr members ->
-                for a in members.Members do
-                    go a
-            | TyFun(a, b) ->
-                go a
-                go b
-            | TyUnknown _
-            | TyTypar _ -> ()
 
         // Dependent typars (mirrors `InferGeneralize.generalise`): a collected typar's
         // `Coercion` bound may name further typars absent from the declared (curried)
@@ -283,7 +265,10 @@ module Elaborate =
         while depIdx < acc.Count do
             for c in acc.[depIdx].Constraints do
                 match c.Kind with
-                | SemanticConstraintKind.Coercion target -> go (Unification.zonk target)
+                | SemanticConstraintKind.Coercion target ->
+                    // Append the first-appearance roots of the coercion-bound target
+                    // (link-following, deduped against the seed). The shared collector.
+                    SemTypeWalk.collectLinkedRoots acc seen (Unification.zonk target)
                 | _ -> ()
 
             depIdx <- depIdx + 1
@@ -371,10 +356,10 @@ module Elaborate =
     /// the `GenericParam` rows and the header arity).
     let private elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TypeVar * SemType) list =
         let methodMarkers =
-            if m.MethodTypeParams.IsEmpty then
+            if GeneralizedTypars.count m.MethodTypeParams = 0 then
                 []
             else
-                mkMethodTyparEnv m.MethodTypeParams
+                GeneralizedTypars.methodEnv m.MethodTypeParams
 
         { m with ThisTy = selfTy }, methodMarkers
 
@@ -544,13 +529,13 @@ module Elaborate =
                                 // A generic method's own typars join the env so
                                 // the backend routes them to `GenericMethodParameter`
                                 // (declaring typars stay `GenericTypeParameter`).
-                                if not m.MethodTypeParams.IsEmpty then
-                                    env.AddRange(mkMethodTyparEnv m.MethodTypeParams)
+                                if GeneralizedTypars.count m.Generalized > 0 then
+                                    env.AddRange(GeneralizedTypars.methodEnv m.Generalized)
 
                                 yield
                                     {
                                         Name = m.Name
-                                        MethodTypeParams = EqArray.ofSeq (seq { for (n, _) in m.MethodTypeParams -> n })
+                                        MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.Generalized)
                                         Signature = m.Type
                                         IsProperty = (m.Kind = ClassMemberKind.Property)
                                     }
@@ -673,7 +658,9 @@ module Elaborate =
                             Params = memberParams ctx b
                             Body = translateExpr ctx b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
-                            MethodTypeParams = EqArray.empty
+                            // Generic methods on union augmentations are out of
+                            // B-12 scope (class-only); always non-generic here.
+                            MethodTypeParams = GeneralizedTypars.empty
                         }
                 | ValueNone -> ValueNone
 
@@ -693,7 +680,7 @@ module Elaborate =
                         Params = EqArray.empty
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
-                        MethodTypeParams = EqArray.empty
+                        MethodTypeParams = GeneralizedTypars.empty
                     }
             | _ -> ValueNone
         | _ -> ValueNone
@@ -822,17 +809,14 @@ module Elaborate =
                 let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Key
                 if isStatic then body else rewriteCtorParamRefs body
 
-            // The member's own generic parameters, recovered from the
-            // registered `TypeMemberInfo`. Each prototype TyVar is zonked to the
-            // union-find root the member's signature / body actually references
-            // (mirrors the abstract-method path); entries that unified away to a
-            // concrete type are dropped. Codegen installs these roots as ambient
-            // method typars so they encode to `!!i`.
-            let methodTypeParams
-                (n: string)
-                (kind: TMemberKind)
-                (declKey: NodeKey voption)
-                : EqArray<string * TypeVar> =
+            // The member's own generic parameters (B-12), recovered from the
+            // registered `TypeMemberInfo`'s canonical `Generalized` order. The order
+            // flows through UNCHANGED (the carrier mints no new order); each entry's
+            // root is refreshed to its current union-find / link representative and
+            // any that pinned to a concrete type since generalise is DROPPED — both
+            // ORDER-PRESERVING, so the ABI index is untouched. Codegen installs these
+            // roots as ambient method typars so they encode to `!!i`.
+            let methodTypeParams (n: string) (kind: TMemberKind) (declKey: NodeKey voption) : GeneralizedTypars =
                 let kindMatches (mi: TypeMemberInfo) =
                     match mi.Kind, kind with
                     | ClassMemberKind.Method, TMemberKind.Method
@@ -858,15 +842,20 @@ module Elaborate =
                     )
                 with
                 | Some mi ->
-                    EqArray.ofSeq (
-                        seq {
-                            for (nm, ptv) in mi.MethodTypeParams do
-                                match Unification.zonk (TyVar ptv) with
-                                | TyVar root -> yield (nm, root)
-                                | _ -> ()
-                        }
+                    // Refresh each canonical root to its CURRENT union-find / link
+                    // representative and DROP any that pinned to a concrete type since
+                    // generalise — ORDER-PRESERVING, so the ABI index is untouched.
+                    // Mirrors the pre-split helper's per-entry `zonk`+drop: a root
+                    // unioned away keys the body's frozen `TyTypar(Method, i)` markers on
+                    // its survivor, and a root linked to a concrete type is no longer a
+                    // real typar (keeping it would inflate the GenericParam arity).
+                    mi.Generalized
+                    |> GeneralizedTypars.refreshRoots (fun tv ->
+                        match Unification.zonk (TyVar tv) with
+                        | TyVar r -> ValueSome r
+                        | _ -> ValueNone
                     )
-                | None -> EqArray.empty
+                | None -> GeneralizedTypars.empty
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
@@ -904,7 +893,7 @@ module Elaborate =
                         Body = lowerBody e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
                         // Auto-properties never carry their own generic params.
-                        MethodTypeParams = EqArray.empty
+                        MethodTypeParams = GeneralizedTypars.empty
                     }
             | _ -> ValueNone
         | _ -> ValueNone
@@ -1237,7 +1226,7 @@ module Elaborate =
             // mono member, `selfTy = TyClass(key, [])` equals the member's existing
             // `ThisTy`, so leaving it verbatim is byte-identical.
             let needsRemap (m: TTypeMember) =
-                not (List.isEmpty declTypars) || not m.MethodTypeParams.IsEmpty
+                not (List.isEmpty declTypars) || GeneralizedTypars.count m.MethodTypeParams > 0
 
             let elaborateOne (m: TTypeMember) : TTypeMember =
                 if needsRemap m then

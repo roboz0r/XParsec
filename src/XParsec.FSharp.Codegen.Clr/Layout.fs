@@ -573,7 +573,7 @@ module internal Layout =
                 let root (td: Frozen.TTypeDecl) (m: Frozen.TTypeMember) : EmitClosures.MemberClosureRoot =
                     {
                         DeclaringTypars = td.TypeParams.Length
-                        MethodTypars = m.MethodTypeParams.Length
+                        MethodTypars = GeneralizedTypars.count m.MethodTypeParams
                         Body = m.Body
                     }
 

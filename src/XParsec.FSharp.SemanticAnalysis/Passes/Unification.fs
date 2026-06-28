@@ -327,7 +327,8 @@ module Unification =
                     | TyVar r ->
                         let root = UnionFind.find r
                         if root.Link.IsNone then Some(name, root) else None
-                    | _ -> None)
+                    | _ -> None
+                )
 
             // NAME PRESERVATION: every registered method typar (explicit AND
             // annotation-implicit) has a real source name (`'a`) that F# keeps in the
@@ -351,24 +352,12 @@ module Unification =
             // appearance, excluding the enclosing class typars (`fixedRoots`). This
             // replaces the former 3-tier `explicit @ annotation @ body` append, which
             // diverged from F# whenever an annotated param followed an unannotated one.
-            let gt = GeneralizedTypars.canonical declared fixedRoots (zonk memberTy)
+            // `canonical` now labels the appearance tail from `knownNames` itself
+            // (real source name, else synthetic `M%d`), so its result is the final
+            // ABI order — no post-relabel needed.
+            let gt = GeneralizedTypars.canonical declared fixedRoots knownNames (zonk memberTy)
 
-            // Take the canonical ORDER (roots), but re-label with the preserved
-            // registered names; synthesise `M%d` (method-scoped, can't collide with
-            // class typars) only for genuinely body-inferred roots.
-            let mutable synthCount = 0
-
-            let final =
-                GeneralizedTypars.toArray gt
-                |> Array.map (fun (_, root) ->
-                    match knownNames.TryGetValue root with
-                    | true, n -> (n, root)
-                    | _ ->
-                        let n = sprintf "M%d" synthCount
-                        synthCount <- synthCount + 1
-                        (n, root))
-
-            mInfo.MethodTypeParams <- EqArray.ofArray final
+            mInfo.Generalized <- gt
         | _ -> ()
 
     /// Walk every method / property / auto-property body under a typar
@@ -565,7 +554,48 @@ module Unification =
                                         ctx.Resolution.TyparScope <- extended
 
                                     try
-                                        root.Link <- ValueSome(curriedSigToSemType ctx csig)
+                                        let sigTy = curriedSigToSemType ctx csig
+                                        root.Link <- ValueSome sigTy
+
+                                        // Abstract methods never reach `generaliseMemberTypars`,
+                                        // so mint their canonical ABI order here from the just-
+                                        // elaborated signature — same shape as that function.
+                                        if
+                                            mInfo.Kind = ClassMemberKind.Method && not mInfo.MethodTypeParams.IsEmpty
+                                        then
+                                            let fixedRoots = HashSet<TypeVar>(HashIdentity.Reference)
+
+                                            for (_, ptv) in fc.TypeParams do
+                                                match zonk (TyVar ptv) with
+                                                | TyVar r -> fixedRoots.Add(UnionFind.find r) |> ignore
+                                                | _ -> ()
+
+                                            let seed = EqArray.toList mInfo.MethodTypeParams
+
+                                            let declared =
+                                                seed
+                                                |> List.truncate mInfo.DeclaredTyparCount
+                                                |> List.choose (fun (name, ptv) ->
+                                                    match zonk (TyVar ptv) with
+                                                    | TyVar r ->
+                                                        let dRoot = UnionFind.find r
+                                                        if dRoot.Link.IsNone then Some(name, dRoot) else None
+                                                    | _ -> None
+                                                )
+
+                                            let knownNames = Dictionary<TypeVar, string>(HashIdentity.Reference)
+
+                                            for (name, ptv) in seed do
+                                                match zonk (TyVar ptv) with
+                                                | TyVar r ->
+                                                    let kRoot = UnionFind.find r
+
+                                                    if not (knownNames.ContainsKey kRoot) then
+                                                        knownNames.[kRoot] <- name
+                                                | _ -> ()
+
+                                            mInfo.Generalized <-
+                                                GeneralizedTypars.canonical declared fixedRoots knownNames (zonk sigTy)
                                     finally
                                         ctx.Resolution.TyparScope <- savedMScope
                                 | _ -> ()

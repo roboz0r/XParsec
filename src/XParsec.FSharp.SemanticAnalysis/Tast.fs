@@ -671,8 +671,9 @@ and TTypeMemberG<'ty, 'tok> =
         /// type's typars ride `TyTypar(Declaring, i)`; codegen's encoder resolves
         /// both axes by index (`!!i` / `!i`) with no ambient window. This list still
         /// feeds the `GenericParam` rows and the `GENERIC` header arity. Empty for a
-        /// non-generic member.
-        MethodTypeParams: EqArray<string * TypeVar>
+        /// non-generic member. Carries the canonical ABI order correct-by-construction
+        /// (`GeneralizedTypars`), flowed unbroken from the side-table `Generalized`.
+        MethodTypeParams: GeneralizedTypars
     }
 
 /// A class-level `static let x = <init>`.

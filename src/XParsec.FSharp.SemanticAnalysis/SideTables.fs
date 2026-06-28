@@ -79,7 +79,15 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     member val DeclKey = declKey
     /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
     /// as prototype TyVars keyed by source name. Empty for a non-generic member.
+    /// REGISTRATION SEED ONLY: this is the pre-inference identity prototype set read
+    /// by body inference (lookups are by name / root identity, so its order is
+    /// irrelevant). It is NOT the final ABI order — that lives in `Generalized`,
+    /// written post-inference. `DeclaredTyparCount` still splits the explicit prefix.
     member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
+    /// Canonical (post-inference) method typars — the ABI order, correct-by-construction.
+    /// Written ONCE by `generaliseMemberTypars` (regular methods) or the abstract-signature
+    /// path (abstract methods). `MethodTypeParams` above is only the pre-inference identity seed.
+    member val Generalized: GeneralizedTypars = GeneralizedTypars.empty with get, set
     /// How many leading entries of `MethodTypeParams` are the member's
     /// EXPLICITLY-declared `<'C, …>` typars (source order). The remaining entries
     /// are annotation-implicit typars appended at registration. Captured here
@@ -88,6 +96,18 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// (and ONLY those) as "declared-first"; `Unification.generaliseMemberTypars`
     /// passes exactly this prefix as `GeneralizedTypars.canonical`'s `declared`.
     member val DeclaredTyparCount: int = 0 with get, set
+
+    /// The method typars to use at a member CALL site: the canonical `Generalized`
+    /// once it is populated, else the registration seed (forward references within a
+    /// class can call a member before it is generalised). Order-irrelevant here —
+    /// `instantiateMemberCall` freshens by union-find root. Faithfully reproduces the
+    /// pre-split read of `MethodTypeParams` (which was seed-then-canonical).
+    member this.EffectiveMethodTypars: EqArray<string * TypeVar> =
+        if GeneralizedTypars.count this.Generalized > 0 then
+            EqArray.ofArray (GeneralizedTypars.toArray this.Generalized)
+        else
+            this.MethodTypeParams
+
     /// `true` when the source declares the member with `MemberKeyword.Override`
     /// or `MemberKeyword.Default`. Stamped by the `registerInheritedSlots`
     /// post-pass; consumed by Freeze/Codegen to choose `call` vs `callvirt`.

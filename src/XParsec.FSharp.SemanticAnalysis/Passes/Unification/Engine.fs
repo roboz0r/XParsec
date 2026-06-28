@@ -347,7 +347,8 @@ module UnificationEngine =
                         ValueSome
                             {
                                 DeclaringTy = TyClass(info.Key, args)
-                                MemberTy = instantiateMemberCall ctx (info.TypeParams, args) m.MethodTypeParams m.Type
+                                MemberTy =
+                                    instantiateMemberCall ctx (info.TypeParams, args) m.EffectiveMethodTypars m.Type
                             }
                     | None ->
                         match info.BaseType with

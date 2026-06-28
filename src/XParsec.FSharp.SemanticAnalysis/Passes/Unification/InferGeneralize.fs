@@ -16,36 +16,11 @@ module internal UnificationInferGeneralize =
     /// root predicate and dedup. A plain structural walk: it assumes `t` is already
     /// zonked and does *not* follow `Link`s, unlike `applyDefaults` /
     /// `prepareListLiterals`, which chase the link/default graph and so keep their
-    /// own bespoke walks.
+    /// own bespoke walks. A thin wrapper now: it delegates the traversal to the
+    /// shared `SemTypeWalk.iterSemTypeVars`, supplying only the `find`-then-`onRoot`
+    /// leaf policy.
     let iterTypeVarRoots (onRoot: TypeVar -> unit) (t: SemType) : unit =
-        let rec walk (t: SemType) : unit =
-            match t with
-            | TyVar tv -> onRoot (UnionFind.find tv)
-            | TyConst(_, args) ->
-                for a in args do
-                    walk a
-            | TyFun(a, r) ->
-                walk a
-                walk r
-            | TyTuple xs ->
-                for x in xs do
-                    walk x
-            | TyRecord(_, args) ->
-                for a in args do
-                    walk a
-            | TyUnion(_, args) ->
-                for a in args do
-                    walk a
-            | TyClass(_, args) ->
-                for a in args do
-                    walk a
-            | TyOr members ->
-                for m in members.Members do
-                    walk m
-            | TyUnknown _ -> ()
-            | TyTypar _ -> ()
-
-        walk t
+        t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find tv))
 
     /// Non-quantified TyVars are left alone — they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is

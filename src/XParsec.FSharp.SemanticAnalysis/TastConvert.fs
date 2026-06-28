@@ -14,7 +14,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Non-`'ty` payload is copied verbatim: NodeKey / SymbolKey / CallVia / TConstValue
 // / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the
 // side maps, AND two fields that are deliberately not `'ty`-typed —
-// `TTypeMemberG.MethodTypeParams : EqArray<string * TypeVar>` (its `TypeVar` roots
+// `TTypeMemberG.MethodTypeParams : GeneralizedTypars` (its `TypeVar` roots
 // only feed the GenericParam row names + arity post-freeze; the body's open typars
 // already rode `TyTypar`) and `TStaticOptClauseG.Constraints :
 // EqArray<TStaticOptConstraint>` (no `StaticOptimization` survives the inline pass,

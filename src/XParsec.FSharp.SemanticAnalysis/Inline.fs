@@ -34,44 +34,15 @@ module Inline =
     /// TAST lines up with the scheme that produced it. A measure-bearing root
     /// (Link set to its carrier) is *not* a typar; like `generalise` we skip
     /// it by following the Link rather than collecting the root.
+    ///
+    /// TODO(frozen-type Phase 2): once `freeze` emits `TyTypar` for an inline
+    /// binding's quantified typars, this collector must yield them by `index`
+    /// instead of by `TyVar` root (the shared `SemTypeWalk` skeleton treats
+    /// `TyTypar` as a no-op today). No-op until then.
     let quantifiedTypars (declTy: SemType) : TypeVar[] =
         let acc = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
-
-        let rec go t =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match root.Link with
-                | ValueSome target -> go target
-                | ValueNone ->
-                    if seen.Add root then
-                        acc.Add root
-            | TyConst(_, args) ->
-                for a in args do
-                    go a
-            | TyFun(a, r) ->
-                go a
-                go r
-            | TyTuple xs ->
-                for x in xs do
-                    go x
-            | TyRecord(_, args)
-            | TyUnion(_, args)
-            | TyClass(_, args) ->
-                for a in args do
-                    go a
-            | TyOr members ->
-                for m in members.Members do
-                    go m
-            | TyUnknown _ -> ()
-            // TODO(frozen-type): once `freeze` emits `TyTypar` for an
-            // inline binding's quantified typars, this collector must yield them
-            // by `index` instead of by `TyVar` root. No-op until then.
-            | TyTypar _ -> ()
-
-        go declTy
+        SemTypeWalk.collectLinkedRoots acc seen declTy
         acc.ToArray()
 
     /// Substitute typar roots present in `subst`. The frozen TAST is zonked,
