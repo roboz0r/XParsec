@@ -1,11 +1,48 @@
 # Platform-independence plan: de-CLR-ing the semantic-analysis passes
 
-**Status:** Tier 1 landed. Tier 2 (this plan) and Tier 3 are open.
 **Owner seam:** `XParsec.FSharp.SemanticAnalysis` — the target-agnostic front end.
-**Audience:** a future session picking up Tier 2 cold. Self-contained.
+**Audience:** a future session picking up the REMAINING work cold. Self-contained.
 
 > This is an **ephemeral plan doc** (per repo convention). Delete it — and the
-> `platform-independence-plan` references in any code comments — once Tier 2/3 land.
+> `platform-independence-plan` references in any code comments — once the remaining
+> work below lands.
+
+## STATUS (read this first — current as of 2026-06-27)
+
+- **Tier 1 — LANDED.** The six CLR leaks isolated into `RuntimeNames.fs` recognizers (§2).
+- **Tier 2 — LANDED.** `CapabilityIds` provider-resolved; the four CLR-literal capability
+  identities deleted; `extern with` parser/extractor; `seq`/`disposable`/`equatable`/
+  `comparable` anchored in `Vesper.Core`. The passes carry zero hardcoded BCL capability
+  identities (§5–§13 are the historical record of this).
+- **§14 — the capability-interface mechanism — LANDED (this session).** A Vesper type that
+  implements a capability interface emits the target protocol member. Concretely:
+  - JS capability dispatch is uniform `obj[<symbol>]()`: native `Symbol.iterator` /
+    `Symbol.dispose`, registry `Symbol.for("vesper.equality"|"comparison"|"hash")` (§14.5).
+  - **Unions AND records implement interfaces front-to-back on both targets** (§14.6,
+    slices 1/2/3/3b/5) — reuse via `IInterfaceImplHost` + `partitionClassMembers` +
+    `NominalEmit.userInterfacesOf`.
+  - **`List` implements `seq` natively** → bare `for x in [1;2;3]` iterates at runtime on
+    both CLR and JS; `ListSeq` retired; `seq` moved to `Vesper.Core/capabilities.fsi` (§14.6 W1–W4).
+  - **`use` is interface-required** (real-F# parity) + `[<IsByRefLike>]` carve-out; JS
+    emits/calls `obj[Symbol.dispose]()` (§14.4 Track II).
+  - Earlier this session: JS `use`→`try/finally`, `for…in`→`for…of` arms.
+
+### REMAINING WORK (a fresh session starts here)
+
+1. **Tier 3 — tuple-arity (§7).** Move `Validation.fs` `MaxTupleArity = 7` (a CLR-ABI limit)
+   into the provider / `PlatformTypes` representability model, gated on the compiling target
+   (CLR = 7, JS = unbounded). Independent of §14; self-contained. **The clearest next task.**
+2. **§5.3b — structural eq/comp reframe (§5.3 option b).** Deferred follow-up to the FS0378
+   custom-eq/comp conformance check; decide alongside the (now-unblocked) JS custom-eq/comp
+   dispatch. Lower priority.
+3. **Deferred reconsiderations (small, after the above):**
+   - `capabilities.js.fs` `disposable` keeps the `System.IDisposable` match-key spelling;
+     making the contract literally read `Symbol.dispose` needs the abstract-`disposable` /
+     `extern with` member-surface route (§12.3). User asked to revisit post-landing (§14.4).
+   - **Latent CLR gap:** a project-local `[<IsByRefLike>]` ref-struct `use` carve-out records
+     a LOCAL dispose key the CLR `ValueSome` `ExternalMemberRef` path would fault on —
+     untriggered; TODO at `EmitBindings.fs` (local-vs-external branch).
+   - `records-architecture.md` is current; other durable docs may have stale spots.
 
 ---
 
