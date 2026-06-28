@@ -20,15 +20,17 @@ namespace Vesper
 // trades one FS0378 for another, so this must stay in lock-step with
 // `JsNativeSymbols.mkErasedGenericIface`'s keys.
 //
-// `disposable` is deliberately NOT named here yet. JS disposal is `Symbol.dispose`, not
-// `System.IDisposable`, and `JsNativeSymbols` has no JS disposable surface to reconcile a
-// user impl against — so binding it to the CLR spelling would be exactly the silent
-// CLR-substitution §5.4 forbids. Nothing consumes the JS disposable identity today (no
-// `use`/`for-in` finally lowering on JS), so it stays honestly `ValueNone` until the real
-// `Symbol.dispose` protocol + matching `JsNativeSymbols` surface land (§14).
+// `disposable` keeps the SAME `System.IDisposable` byte-spelling as the CLR `.fs`:
+// `JsNativeSymbols` surfaces exactly that name (a Vesper class implementing the disposal
+// capability writes `interface System.IDisposable with member this.Dispose() = …`), so the
+// impl resolves through the JS provider to the qualified name `caps.Disposable` matches,
+// and the backend re-keys the matched `Dispose` to a native `[Symbol.dispose]()` method
+// (the disposal analogue of `seq` → `[Symbol.iterator]`). `use` then lowers to
+// `obj[Symbol.dispose]()`. Must stay in lock-step with `JsNativeSymbols`'s `System.IDisposable`.
 //
 // Iteration (`seq<'T>` / `IEnumerable<'T>`) is resolved off the existing `seq`
 // abbreviation, not anchored here — see `capabilities.fsi`.
 
+type disposable = (# "System.IDisposable" #)
 type equatable<'T> = (# "System.IEquatable`1" #)
 type comparable<'T> = (# "System.IComparable`1" #)

@@ -231,6 +231,53 @@ module JsNativeSymbols =
                     (FTClass(ienumeratorKey, EqArray.ofSeq [ selfTypar ]))
             |]
 
+    // `System.IDisposable` — the disposal capability surface, the NON-GENERIC analogue
+    // of the erased interfaces above. A Vesper class implementing `disposable` writes
+    // `interface System.IDisposable with member this.Dispose() = …`; this shape lets the
+    // BCL-free JS provider accept that impl (interface-ness + conformance), and the
+    // codegen routes the matched `Dispose` to a native `[Symbol.dispose]()` method.
+    // `CapabilityIds.Disposable` resolves to `System.IDisposable` off the `disposable`
+    // intrinsic (`capabilities.js.fs`), so the match keys on this exact name.
+    let private idisposableKey: SymbolKey =
+        SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IDisposable")
+
+    /// `System.IDisposable` — the single `Dispose(): unit` member.
+    let private idisposableShape: ExternalTypeShape =
+        ExternalTypeShape.Class
+            {
+                Arity = 0
+                IsInterface = true
+                Members =
+                    [|
+                        {
+                            Name = "Dispose"
+                            IsStatic = false
+                            IsProperty = false
+                            Signature =
+                                {
+                                    DeclaringArity = 0
+                                    MethodArity = 0
+                                    Parameters = unitTy
+                                    Return = unitTy
+                                }
+                            MethodArity = 0
+                            Origin = systemOrigin
+                            Key =
+                                SymbolKey.MemberKey(
+                                    idisposableKey,
+                                    "Dispose",
+                                    EqArray.empty,
+                                    MemberKind.InterfaceMethod idisposableKey
+                                )
+                            OptionalDefaults = []
+                        }
+                    |]
+                FrozenInterfaces = [||]
+                FrozenBaseType = ValueNone
+                Flags = ExternalClassFlags.Default
+                Origin = systemOrigin
+            }
+
     /// The JS-native type table, keyed by the compiled name resolution probes:
     /// `Error` by bare global name, the generic interfaces by their arity-suffixed
     /// qualified name.
@@ -242,6 +289,7 @@ module JsNativeSymbols =
                 "System.IComparable`1", mkErasedGenericIface "IComparable`1" "CompareTo" intTy
                 "System.Collections.Generic.IEnumerable`1", ienumerableShape
                 "System.Collections.Generic.IEnumerator`1", ienumeratorShape
+                "System.IDisposable", idisposableShape
             ]
 
     /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.
