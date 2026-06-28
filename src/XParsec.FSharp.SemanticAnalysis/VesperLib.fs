@@ -227,94 +227,6 @@ module VesperLib =
                     | Ok ft -> Some(ExternalConstraint.Coercion(i, ft))
         )
 
-    /// Build a val symbol's `Instantiate : level -> SemType` from its `FrozenType`
-    /// template and resolved constraints. A monomorphic val realises the template
-    /// once; a polymorphic val mints fresh `TyVar`s at `level` (indexed by declaring
-    /// typar), stamps each constraint onto the participating fresh vars, and realises
-    /// the template against them via `instantiateDeclaring`. Constraint targets are
-    /// realised against the SAME fresh array, so a self-referential `'e :> 'f`
-    /// resolves. The four constraint kinds are applied in fixed groups (trait →
-    /// default → SRTP → coercion), matching the prior closure path. Every constraint
-    /// index came from `resolveConstraints`'s `typars.TryIndexOf` against the same
-    /// collector whose `.Count` is `typarCount`, so it always lands in `freshTvs`.
-    let private makeInstantiate
-        (typarCount: int)
-        (template: FrozenType)
-        (resolved: ExternalConstraint list)
-        : int -> SemType =
-        let inst ft fresh =
-            FrozenTypeBridge.instantiateDeclaring ft fresh
-
-        if typarCount = 0 then
-            let semType = inst template [||]
-            fun _ -> semType
-        else
-            fun level ->
-                let freshTvs =
-                    Array.init
-                        typarCount
-                        (fun _ ->
-                            let tv = TypeVar()
-                            tv.Level <- level
-                            tv
-                        )
-
-                let fresh = freshTvs |> Array.map TyVar
-
-                for c in resolved do
-                    match c with
-                    // External symbols carry no source-side NodeKey; stamp `Unknown`
-                    // so diagnostics attribute the constraint to the use site.
-                    | ExternalConstraint.Trait(i, kind) ->
-                        let cstr: SemanticConstraint =
-                            {
-                                Kind = kind
-                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                            }
-
-                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
-                    | _ -> ()
-
-                // Defaults accumulate newest-last so source order is preserved when
-                // generalisation later walks the list for the first concrete shape.
-                for c in resolved do
-                    match c with
-                    | ExternalConstraint.Default(i, target) ->
-                        let tv = freshTvs.[i]
-                        tv.Defaults <- tv.Defaults @ [ inst target fresh ]
-                    | _ -> ()
-
-                // Shared `Resolved` ref dedupes dispatch: whichever participating
-                // typar resolves first runs the drain; the others see it flipped.
-                for c in resolved do
-                    match c with
-                    | ExternalConstraint.MemberTrait(idxs, mName, argFts, retFt) ->
-                        let sig_: MemberSignature =
-                            {
-                                MemberName = mName
-                                ArgTypes = EqArray.ofSeq (seq { for ft in argFts -> inst ft fresh })
-                                ReturnType = inst retFt fresh
-                                Resolved = false
-                            }
-
-                        for i in idxs do
-                            freshTvs.[i].SrtpBounds <- sig_ :: freshTvs.[i].SrtpBounds
-                    | _ -> ()
-
-                for c in resolved do
-                    match c with
-                    | ExternalConstraint.Coercion(i, target) ->
-                        let cstr: SemanticConstraint =
-                            {
-                                Kind = SemanticConstraintKind.Coercion(inst target fresh)
-                                DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                            }
-
-                        freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
-                    | _ -> ()
-
-                inst template fresh
-
     /// Finalize one stashed `val`: translate its signature CST to a `FrozenType`
     /// template, resolve its `when` clauses, build the complete `ExternalSymbol`, and
     /// register it (plus, for a `ModuleSuffix` module, the source-name alias). Runs in
@@ -386,12 +298,12 @@ module VesperLib =
                     ValueSome(TastLower.externalValRepr typarCount (List.zip arities paramTys) resultTy)
 
             let sym: ExternalSymbol =
-                {
-                    Name = dv.Compiled
-                    Instantiate = makeInstantiate typarCount template resolved
-                    Constraints = resolved
-                    Origin = SymbolOrigin.Empty
-                    Key = SymbolKeyOps.valueKeyOf None dv.Compiled
+                // FrozenType-scheme migration (step 4): build via the data builder. The
+                // relocated `ExternalSymbols.schemeInstantiate` derives the same
+                // `Instantiate` closure `makeInstantiate` did (identical constraint-group
+                // order), so behaviour is unchanged; only `ValRepr` is overlaid (the
+                // builder defaults it to `ValueNone`).
+                { ExternalSymbols.scheme dv.Compiled template typarCount resolved with
                     ValRepr = valReprOpt
                 }
 

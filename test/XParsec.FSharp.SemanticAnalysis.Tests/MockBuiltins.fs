@@ -39,77 +39,50 @@ module MockBuiltins =
             "op_BooleanAnd", boolInfix
             "op_BooleanOr", boolInfix
         ]
-        |> List.map (fun (n, ty) -> n, ExternalSymbols.mono n ty)
+        |> List.map (fun (n, ty) -> n, ExternalSymbols.monoFrozen n (FrozenTypeBridge.toFrozen ty))
 
-    /// Polymorphic operators built from `FSharp.Core`. Each call mints fresh
-    /// `TypeVar`s stamped at the caller's let-depth so two use-sites don't
-    /// share variables and generalisation can quantify them at the right scope.
+    // FrozenType scheme helpers: a declaring-axis typar marker and an arrow. The
+    // scheme builder (`ExternalSymbols.scheme`) freshens these typars per use-site,
+    // so the data form replaces the former `freshAt`-closure builders.
+    let private tv (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
+    let private fn (a: FrozenType) (b: FrozenType) : FrozenType = FTFun(a, b)
+
+    /// Polymorphic operators built from `FSharp.Core`, as `FrozenType` schemes over
+    /// their own typars; `ExternalSymbols.scheme` mints fresh `TypeVar`s per use-site
+    /// (stamped at the caller's let-depth) so two use-sites don't share variables.
     let private polyOps =
-        let freshAt (level: int) : SemType =
-            let tv = TypeVar()
-            tv.Level <- level
-            TyVar tv
-
         [
             // val (|>) : 'a -> ('a -> 'b) -> 'b
-            "op_PipeRight",
-            fun level ->
-                let a = freshAt level
-                let b = freshAt level
-                TyFun(a, TyFun(TyFun(a, b), b))
+            "op_PipeRight", fn (tv 0) (fn (fn (tv 0) (tv 1)) (tv 1)), 2
             // val (<|) : ('a -> 'b) -> 'a -> 'b
-            "op_PipeLeft",
-            fun level ->
-                let a = freshAt level
-                let b = freshAt level
-                TyFun(TyFun(a, b), TyFun(a, b))
+            "op_PipeLeft", fn (fn (tv 0) (tv 1)) (fn (tv 0) (tv 1)), 2
             // val (>>) : ('a -> 'b) -> ('b -> 'c) -> ('a -> 'c)
-            "op_ComposeRight",
-            fun level ->
-                let a = freshAt level
-                let b = freshAt level
-                let c = freshAt level
-                TyFun(TyFun(a, b), TyFun(TyFun(b, c), TyFun(a, c)))
+            "op_ComposeRight", fn (fn (tv 0) (tv 1)) (fn (fn (tv 1) (tv 2)) (fn (tv 0) (tv 2))), 3
             // val (<<) : ('b -> 'c) -> ('a -> 'b) -> ('a -> 'c)
-            "op_ComposeLeft",
-            fun level ->
-                let a = freshAt level
-                let b = freshAt level
-                let c = freshAt level
-                TyFun(TyFun(b, c), TyFun(TyFun(a, b), TyFun(a, c)))
+            "op_ComposeLeft", fn (fn (tv 1) (tv 2)) (fn (fn (tv 0) (tv 1)) (fn (tv 0) (tv 2))), 3
         ]
-        |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
+        |> List.map (fun (n, frozen, arity) -> n, ExternalSymbols.scheme n frozen arity [])
 
     /// Collection module functions used by the codegen slices. Registered
     /// under their *source* qualified name (`List.fold`) because that is the
     /// key NameResolution / Unification look the provider up with — the
     /// compiled name (`…ListModule.Fold`) only matters to a target backend.
     let private listFns =
-        let freshAt (level: int) : SemType =
-            let tv = TypeVar()
-            tv.Level <- level
-            TyVar tv
+        // val fold<'T,'State> : ('State -> 'T -> 'State) -> 'State -> 'T list -> 'State
+        // (typars: 'State = 0, 'T = 1).
+        //
+        // The list parameter is the *Vesper* list (R3): a bare program's `[…]`
+        // literal is flexible (`Unification.listLiteralTy`), so this drives it to
+        // `Vesper.Collections.List` — the literal then emits BCL-only and the
+        // fold runs over the Vesper list. (A literal nothing pins this way, e.g.
+        // under `%A`, defaults back to FSharp.Core's `list`.)
+        let listOfT =
+            FTRecord(SymbolKeyOps.qualifiedTypeKey "Vesper.Collections.List" 1, EqArray.singleton (tv 1))
 
-        [
-            // val fold<'T,'State> : ('State -> 'T -> 'State) -> 'State -> 'T list -> 'State
-            //
-            // The list parameter is the *Vesper* list (R3): a bare program's `[…]`
-            // literal is flexible (`Unification.listLiteralTy`), so this drives it to
-            // `Vesper.Collections.List` — the literal then emits BCL-only and the
-            // fold runs over the Vesper list. (A literal nothing pins this way, e.g.
-            // under `%A`, defaults back to FSharp.Core's `list`.)
-            "List.fold",
-            fun level ->
-                let state = freshAt level
-                let t = freshAt level
-                let folder = TyFun(state, TyFun(t, state))
+        let folder = fn (tv 0) (fn (tv 1) (tv 0))
+        let foldScheme = fn folder (fn (tv 0) (fn listOfT (tv 0)))
 
-                let listOfT =
-                    TyRecord(SymbolKeyOps.qualifiedTypeKey "Vesper.Collections.List" 1, EqArray.singleton t)
-
-                TyFun(folder, TyFun(state, TyFun(listOfT, state)))
-        ]
-        |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
+        [ "List.fold", ExternalSymbols.scheme "List.fold" foldScheme 2 [] ]
 
     /// printf-family entry points. Registered with their *generic* signature
     /// `… -> PrintfFormat<'T, …> -> 'T` so plain name resolution and the
@@ -117,14 +90,11 @@ module MockBuiltins =
     /// rule lives in `Unification` and bypasses this signature. See
     /// [front-end-gaps-plan](docs/front-end-gaps-plan.md) §B.
     let private printfOps =
-        let freshAt (level: int) : SemType =
-            let tv = TypeVar()
-            tv.Level <- level
-            TyVar tv
-
         [
             for KeyValue(name, fam) in PrintfSpec.families ->
-                name, ExternalSymbols.poly name (fun level -> PrintfSpec.genericSignature (fun () -> freshAt level) fam)
+                // One-typar scheme `… -> PrintfFormat<'T, …> -> 'T`; `scheme` freshens
+                // the printer typar per use-site (replaces the former freshAt closure).
+                name, ExternalSymbols.scheme name (PrintfSpec.genericSignatureFrozen fam) 1 []
         ]
 
     /// Core `Operators` functions the codegen slices use. `failwith` is
@@ -132,22 +102,20 @@ module MockBuiltins =
     /// a BCL-only `throw new System.Exception(msg)`, so it pins no
     /// FSharp.Core dependency.
     let private coreFns =
-        let freshAt (level: int) : SemType =
-            let tv = TypeVar()
-            tv.Level <- level
-            TyVar tv
+        let frozenString = FrozenTypeBridge.toFrozen tyString
+        let frozenInt = FrozenTypeBridge.toFrozen tyInt
 
         [
             // val failwith : string -> 'T
-            "failwith", fun level -> TyFun(tyString, freshAt level)
+            "failwith", fn frozenString (tv 0), 1
             // val hash : 'T -> int  (Operators.hash, CompiledName "Hash"). The
             // `when 'T: equality` constraint the real `.fsi` carries is the
             // contract provider's concern; MockBuiltins is the codegen test
             // provider, so it only needs the shape — `hash x` resolving and
             // typing — to drive the backend.
-            "hash", fun level -> TyFun(freshAt level, tyInt)
+            "hash", fn (tv 0) frozenInt, 1
         ]
-        |> List.map (fun (n, build) -> n, ExternalSymbols.poly n build)
+        |> List.map (fun (n, frozen, arity) -> n, ExternalSymbols.scheme n frozen arity [])
 
     let private builtins =
         (monoOps @ polyOps @ listFns @ printfOps @ coreFns) |> Map.ofList

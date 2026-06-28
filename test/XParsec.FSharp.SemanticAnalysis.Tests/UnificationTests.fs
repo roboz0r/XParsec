@@ -75,7 +75,7 @@ let tests =
                     { new IExternalSymbolProvider with
                         member _.TryLookup name =
                             if name = "broken" then
-                                ValueSome(ExternalSymbols.mono "broken" (TyUnknown "Missing.Thing"))
+                                ValueSome(ExternalSymbols.monoFrozen "broken" (FTUnknown "Missing.Thing"))
                             else
                                 ValueNone
 

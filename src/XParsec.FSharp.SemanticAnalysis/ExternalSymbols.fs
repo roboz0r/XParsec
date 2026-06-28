@@ -55,20 +55,22 @@ type ExternalConstraint =
 type ExternalSymbol =
     {
         Name: string
-        /// Returns a fresh instantiation of the symbol's type each call.
-        /// `level` is the let-depth at which the instantiation happens; fresh
-        /// TyVars must be stamped with it so Rémy's level-based generalisation
-        /// can decide which to quantify. Monomorphic symbols return the same
-        /// SemType every time and ignore the level. Polymorphic symbols
-        /// allocate fresh TypeVars at `level` per call so independent use-sites
-        /// don't unify with each other through the shared scheme.
-        ///
-        /// `Instantiate` is also responsible for applying any `Constraints` to
-        /// the fresh TyVars it mints; callers don't drain the list separately.
-        Instantiate: int -> SemType
-        /// Empty for the overwhelming majority of symbols. Surfaced out of the
-        /// closure for diagnostic introspection and to let future passes audit
-        /// which constraints are still unimplemented.
+        /// The symbol's type SCHEME over its own typars, the typars baked as
+        /// `FTTypar(Declaring,i)`. The pure-data form of the value/free-function
+        /// type: `ExternalSymbols.instantiateSymbol` realises it at a `level`,
+        /// minting a fresh `TyVar` (stamped at `level`) per typar so independent
+        /// use-sites don't share variables, and stamping `Constraints` onto them.
+        /// A monomorphic symbol (`TyparArity = 0`) realises to a fresh structurally-
+        /// identical `SemType` each call. Built by `monoFrozen` / `scheme`. This is
+        /// the contract surface a provider speaks — `SemType` never crosses it
+        /// (see `docs/external-symbol-frozen-scheme-plan.md`).
+        Scheme: FrozenType
+        /// Count of the `Scheme`'s own typars (the single axis a value/free-fn has);
+        /// `0` for a monomorphic symbol.
+        TyparArity: int
+        /// Empty for the overwhelming majority of symbols. `instantiateSymbol`
+        /// applies them to the fresh TyVars it mints; callers don't drain the list
+        /// separately. Also surfaced for diagnostic introspection.
         Constraints: ExternalConstraint list
         /// Where the symbol lives — the bridge to codegen. `SymbolOrigin.Empty`
         /// until a resolving source fills it.
@@ -87,8 +89,8 @@ type ExternalSymbol =
         /// `CompiledForm` is derived from it on demand (`TastLower.compiledOf`), never
         /// stored — it is fully determined by the `ValRepr`. `ValueNone` for
         /// everything that is not a contract-extracted function (module values,
-        /// operators, the `mono`/`poly` test builders, metadata-layer symbols) — those
-        /// keep the curried-`Instantiate` reconstruction at the codegen boundary.
+        /// operators, the `monoFrozen`/`scheme` builders, metadata-layer symbols) — those
+        /// keep the curried-`Scheme` reconstruction at the codegen boundary.
         ValRepr: Frozen.ValRepr voption
     }
 
@@ -860,35 +862,112 @@ module ExternalSymbols =
 
     let unfreezable = FTUnknown "<unfreezable external template>"
 
-    let mono (name: string) (ty: SemType) : ExternalSymbol =
+    /// Realise a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar`
+    /// (stamped at `level`) per declaring typar, the `Constraints` stamped onto them
+    /// in fixed groups (trait → default → SRTP → coercion), then the scheme realised
+    /// against that fresh array via `instantiateDeclaring`. A monomorphic scheme
+    /// (`typarCount = 0`) realises directly. The single `FrozenType → SemType`
+    /// realiser for the value/`TryLookup` channel (relocated from
+    /// `VesperLib.makeInstantiate`); the value-channel twin of `instantiateSignature`.
+    let instantiateSymbol (sym: ExternalSymbol) (level: int) : SemType =
+        let inst ft fresh =
+            FrozenTypeBridge.instantiateDeclaring ft fresh
+
+        let scheme = sym.Scheme
+        let constraints = sym.Constraints
+
+        if sym.TyparArity = 0 then
+            inst scheme [||]
+        else
+            let freshTvs =
+                Array.init
+                    sym.TyparArity
+                    (fun _ ->
+                        let tv = TypeVar()
+                        tv.Level <- level
+                        tv
+                    )
+
+            let fresh = freshTvs |> Array.map TyVar
+
+            // External symbols carry no source-side NodeKey; stamp `Unknown`
+            // so diagnostics attribute the constraint to the use site.
+            for c in constraints do
+                match c with
+                | ExternalConstraint.Trait(i, kind) ->
+                    let cstr: SemanticConstraint =
+                        {
+                            Kind = kind
+                            DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                        }
+
+                    freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+                | _ -> ()
+
+            // Defaults accumulate newest-last so source order is preserved when
+            // generalisation later walks the list for the first concrete shape.
+            for c in constraints do
+                match c with
+                | ExternalConstraint.Default(i, target) ->
+                    let tv = freshTvs.[i]
+                    tv.Defaults <- tv.Defaults @ [ inst target fresh ]
+                | _ -> ()
+
+            for c in constraints do
+                match c with
+                | ExternalConstraint.MemberTrait(idxs, mName, argFts, retFt) ->
+                    let sig_: MemberSignature =
+                        {
+                            MemberName = mName
+                            ArgTypes = EqArray.ofSeq (seq { for ft in argFts -> inst ft fresh })
+                            ReturnType = inst retFt fresh
+                            Resolved = false
+                        }
+
+                    for i in idxs do
+                        freshTvs.[i].SrtpBounds <- sig_ :: freshTvs.[i].SrtpBounds
+                | _ -> ()
+
+            for c in constraints do
+                match c with
+                | ExternalConstraint.Coercion(i, target) ->
+                    let cstr: SemanticConstraint =
+                        {
+                            Kind = SemanticConstraintKind.Coercion(inst target fresh)
+                            DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+                        }
+
+                    freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+                | _ -> ()
+
+            inst scheme fresh
+
+    /// A monomorphic value/free-function symbol from a closed `FrozenType` scheme
+    /// (no typars).
+    let monoFrozen (name: string) (scheme: FrozenType) : ExternalSymbol =
         {
             Name = name
-            Instantiate = fun _ -> ty
+            Scheme = scheme
+            TyparArity = 0
             Constraints = []
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name
             ValRepr = ValueNone
         }
 
-    /// `build level` is invoked per lookup so any `TypeVar` it allocates is
-    /// fresh and stamped at the caller's let-depth.
-    let poly (name: string) (build: int -> SemType) : ExternalSymbol =
+    /// A value/free-function symbol from a `FrozenType` scheme over `arity` declaring
+    /// typars, plus optional constraints. A polymorphic symbol is a template with
+    /// typars, freshened per use site by `instantiateSymbol` — not a closure.
+    let scheme
+        (name: string)
+        (frozen: FrozenType)
+        (arity: int)
+        (constraints: ExternalConstraint list)
+        : ExternalSymbol =
         {
             Name = name
-            Instantiate = build
-            Constraints = []
-            Origin = SymbolOrigin.Empty
-            Key = SymbolKeyOps.valueKeyOf None name
-            ValRepr = ValueNone
-        }
-
-    /// Like `poly` but carries constraints. The `build` closure is responsible
-    /// for applying them to the fresh TyVars it allocates; this helper just
-    /// records the structured shape on the symbol for introspection use.
-    let polyWith (name: string) (build: int -> SemType) (constraints: ExternalConstraint list) : ExternalSymbol =
-        {
-            Name = name
-            Instantiate = build
+            Scheme = frozen
+            TyparArity = arity
             Constraints = constraints
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name

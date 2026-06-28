@@ -396,7 +396,7 @@ module internal UnificationInferRecordAccess =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArrayLength" with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
-                unify ctx diagKey (sym.Instantiate ctx.CurrentLevel) (TyFun(rTy, resultTy))
+                unify ctx diagKey (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(rTy, resultTy))
                 resultTy
             | ValueNone ->
                 errorTy ctx diagKey "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
@@ -437,7 +437,13 @@ module internal UnificationInferRecordAccess =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArray" with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(recvTy, TyFun(idxTy, resultTy)))
+
+                unify
+                    ctx
+                    key
+                    (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                    (TyFun(recvTy, TyFun(idxTy, resultTy)))
+
                 resultTy
             | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
 
@@ -451,7 +457,13 @@ module internal UnificationInferRecordAccess =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetString" with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(recvTy, TyFun(idxTy, resultTy)))
+
+                unify
+                    ctx
+                    key
+                    (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                    (TyFun(recvTy, TyFun(idxTy, resultTy)))
+
                 resultTy
             | ValueNone -> getArrayIndex ()
 

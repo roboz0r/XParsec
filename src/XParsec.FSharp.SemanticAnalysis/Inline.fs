@@ -361,7 +361,7 @@ module Inline =
     /// dependency — `UnificationEngine` compiles later); for a fresh, unlinked
     /// instantiation that is a structural no-op.
     let openMethodSignature (sym: ExternalSymbol) : OpenMethodSignature =
-        let monoSig = sym.Instantiate 0
+        let monoSig = ExternalSymbols.instantiateSymbol sym 0
         let order = Dictionary<TypeVar, int>(HashIdentity.Reference)
         // Method typars in first-appearance order — both the `order` index source and
         // the worklist the dependent-typar pass below grows.

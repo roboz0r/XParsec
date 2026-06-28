@@ -34,7 +34,7 @@ module internal UnificationInferIdentExpr =
                 // operator module.
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym ->
-                    let ty = sym.Instantiate ctx.CurrentLevel
+                    let ty = ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
                     // The provider hands back the *built-in* operator scheme. If the
                     // operands turn out to be a project-local nominal with its own
                     // `static member (+)`, F# binds the value to that member instead —
@@ -108,7 +108,7 @@ module internal UnificationInferIdentExpr =
             let name = qualifiedNameOf ctx e
 
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
-            | ValueSome sym -> sym.Instantiate ctx.CurrentLevel
+            | ValueSome sym -> ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
             | ValueNone ->
 
                 match tryExternalStaticLongIdent ctx key e with

@@ -339,7 +339,13 @@ module internal UnificationInferApp =
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym ->
                     let resultTy = TyVar(freshTyVar ctx)
-                    unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(leftTy, TyFun(rightTy, resultTy)))
+
+                    unify
+                        ctx
+                        key
+                        (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                        (TyFun(leftTy, TyFun(rightTy, resultTy)))
+
                     resultTy
                 | ValueNone -> errorTy ctx key (sprintf "Unknown operator symbol: %s" name)
         | ValueSome DesugaredForm.ConsExpr ->
@@ -382,7 +388,7 @@ module internal UnificationInferApp =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key (sym.Instantiate ctx.CurrentLevel) (TyFun(operandTy, resultTy))
+                unify ctx key (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(operandTy, resultTy))
                 resultTy
             | ValueNone -> errorTy ctx key (sprintf "Unknown prefix operator: %s" name)
         | ValueSome _

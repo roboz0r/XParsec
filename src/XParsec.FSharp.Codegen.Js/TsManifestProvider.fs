@@ -32,34 +32,6 @@ module TsManifestProvider =
         | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 
-    // ─── TypeRef → SemType (free-function Instantiate result) ──────────────
-    // TODO: `toSem` and `toFrozen` are deliberately parallel recursions over the
-    // SAME `TypeRef` grammar, differing only in target constructor per arm
-    // (FrozenType templates for members, SemType for free-fn symbols — see the
-    // two external-symbol APIs). KEEP THEM IN SYNC: a new `TypeRef` case must be
-    // handled in both. If a third arm ever needs to genuinely diverge, that is
-    // the signal the FrozenType/SemType split is leaking and wants a shared map.
-
-    let rec private toSem (t: Schema.TypeRef) : SemType =
-        match t with
-        | Schema.TypeRef.Named(name, []) -> TyConst(name, EqArray.empty)
-        | Schema.TypeRef.Named(name, args) -> TyConst(name, EqArray.ofSeq (List.map toSem args))
-        // Declaring-axis typar (item 11), parallel to `toFrozen`'s `FTTypar(Declaring,i)`.
-        // The producer now emits typar references for generic free functions
-        // (`identity<T>`), whose own type params occupy the single `Typar` index space.
-        // NOTE: `toFunctionSymbol` wraps this via `ExternalSymbols.mono`, whose
-        // `Instantiate` returns the SAME `SemType` each lookup — so a generic free
-        // function is realised with FROZEN `TyTypar` markers, not freshened per call
-        // site. Faithful as a representation but NOT yet polymorphically instantiable;
-        // true generalisation wants a `poly`/`polyWith` builder that freshens the typars
-        // (a front-end decision flagged to the orchestrator, not taken here).
-        | Schema.TypeRef.Typar i -> TyTypar(TyparAxis.Declaring, i)
-        | Schema.TypeRef.Fun(args, ret) -> List.foldBack (fun a acc -> TyFun(toSem a, acc)) args (toSem ret)
-        | Schema.TypeRef.Tuple items -> TyTuple(EqArray.ofSeq (List.map toSem items))
-        | Schema.TypeRef.Union members -> SemType.MkUnion(List.map toSem members)
-        | Schema.TypeRef.Dynamic -> TyUnknown "any"
-        | Schema.TypeRef.Structural(hash, _) -> TyUnknown("structural:" + hash)
-
     let private unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
 
     /// .NET-tupled parameter encoding: 0 → unit, 1 → bare, N≥2 → tuple.
@@ -366,16 +338,22 @@ module TsManifestProvider =
 
             let paramTypes =
                 match sg.Params with
-                | [] -> [ TyConst("unit", EqArray.empty) ]
-                | ps -> ps |> List.map (fun p -> toSem p.Type)
+                | [] -> [ unitFrozen ]
+                | ps -> ps |> List.map (fun p -> toFrozen p.Type)
 
-            let semTy = List.foldBack (fun a acc -> TyFun(a, acc)) paramTypes (toSem sg.Returns)
+            let frozenTy =
+                List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen sg.Returns)
             // Registered/keyed under the dotted qualified name (item 17); the symbol's
             // own `Name` carries it too so lowering emits the qualified binding. (The
             // value-symbol origin/import threading the top-level path also defers stays
-            // a known v1 simplification — `mono` stamps `SymbolOrigin.Empty`.)
+            // a known v1 simplification — `scheme` stamps `SymbolOrigin.Empty`.)
+            //
+            // A GENERIC free function (`identity<T>`) carries its own typars as
+            // `FTTypar(Declaring,i)` (via `toFrozen`); `sg.TypeParams` is their count, so
+            // `scheme` freshens them per use site — genuinely polymorphic, not the frozen
+            // markers the former `mono` froze in place.
             let qn = qualify nsPath name
-            Some(qn, ExternalSymbols.mono qn semTy)
+            Some(qn, ExternalSymbols.scheme qn frozenTy sg.TypeParams [])
         | _ -> None
 
     /// A `Variable` export → a singleton VALUE symbol, resolved by name via
@@ -387,7 +365,7 @@ module TsManifestProvider =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, _import) ->
             let qn = qualify nsPath name
-            Some(qn, ExternalSymbols.mono qn (toSem ty))
+            Some(qn, ExternalSymbols.monoFrozen qn (toFrozen ty))
         | _ -> None
 
     /// Build a provider from an already-parsed manifest.

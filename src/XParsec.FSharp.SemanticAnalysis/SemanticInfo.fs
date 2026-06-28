@@ -848,7 +848,7 @@ module FrozenTypeBridge =
     // the shared `instantiateWith` walk. It is the data form of the legacy
     // `SemType[] -> SemType` closures (`BuildSignature` / `BuildType` / …):
     // inference reads templates here, codegen reads them directly. Constraint
-    // stamping is NOT part of this — it stays in `ExternalSymbol.Instantiate`,
+    // stamping is NOT part of this — it stays in `ExternalSymbols.instantiateSymbol`,
     // applied *after* freshening (the type-shape half carries no constraints).
 
     /// The placeholder a contract-layer descriptor carries between extraction and
@@ -1006,7 +1006,7 @@ module FrozenTypeBridge =
 /// `inferIdent` of a generalised binding instantiates the scheme — mints a
 /// fresh TyVar at the current level for every entry in `Quantified` and
 /// walks `Body` substituting them, so independent use sites get independent
-/// variables. Mirrors `ExternalSymbol.Instantiate` for the finitely many
+/// variables. Mirrors `ExternalSymbols.instantiateSymbol` for the finitely many
 /// `'a`s that come out of a user-written `let`. Quantified TyVars stay live
 /// in the union-find graph; they are simply no longer "free" with respect
 /// to the outer scope.

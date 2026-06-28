@@ -101,14 +101,14 @@ let tests =
                 // (NameRes doesn't yet handle the `(|>)` operator-form path
                 // from the plan's example, so we exercise the same shape via
                 // a regular-name external symbol.)
+                // `myId : 'a -> 'a` as a one-typar FrozenType scheme; `scheme` mints a
+                // fresh var per use site (replaces the former freshAt closure).
                 let myIdSymbol: ExternalSymbol =
-                    ExternalSymbols.poly
+                    ExternalSymbols.scheme
                         "myId"
-                        (fun level ->
-                            let tv = TypeVar()
-                            tv.Level <- level
-                            TyFun(TyVar tv, TyVar tv)
-                        )
+                        (FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 0)))
+                        1
+                        []
 
                 let provider: IExternalSymbolProvider =
                     { new IExternalSymbolProvider with

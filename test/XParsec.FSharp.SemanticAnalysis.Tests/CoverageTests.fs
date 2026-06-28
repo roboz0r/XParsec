@@ -905,7 +905,9 @@ let tests =
                     { new IExternalSymbolProvider with
                         member _.TryLookup name =
                             if name = "Math.pi" then
-                                ValueSome(ExternalSymbols.mono name BuiltinTypes.tyFloat)
+                                ValueSome(
+                                    ExternalSymbols.monoFrozen name (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
+                                )
                             else
                                 MockBuiltins.provider.TryLookup name
 

@@ -248,7 +248,7 @@ let tests =
                 match provider.TryLookup "Microsoft.FSharp.Core.Operators.Not" with
                 | ValueNone -> failtestf "Microsoft.FSharp.Core.Operators.Not not in provider"
                 | ValueSome sym ->
-                    let ty = sym.Instantiate 0
+                    let ty = ExternalSymbols.instantiateSymbol sym 0
 
                     match ty with
                     | TyFun(TyConst("bool", _), TyConst("bool", _)) -> ()
@@ -263,8 +263,8 @@ let tests =
                 match provider.TryLookup "Microsoft.FSharp.Core.OptionModule.Map" with
                 | ValueNone -> failtestf "Microsoft.FSharp.Core.OptionModule.Map not in provider"
                 | ValueSome sym ->
-                    let inst1 = sym.Instantiate 0
-                    let inst2 = sym.Instantiate 0
+                    let inst1 = ExternalSymbols.instantiateSymbol sym 0
+                    let inst2 = ExternalSymbols.instantiateSymbol sym 0
 
                     // `option<'T>` is a transparent abbreviation for `Option<'T>`;
                     // so the head is the union name `Option`, not the abbreviation `option`. The
@@ -313,7 +313,7 @@ let tests =
                 match provider.TryLookup "Microsoft.FSharp.Core.ResultModule.Map" with
                 | ValueNone -> failtestf "Microsoft.FSharp.Core.ResultModule.Map not in provider"
                 | ValueSome sym ->
-                    let inst = sym.Instantiate 0
+                    let inst = ExternalSymbols.instantiateSymbol sym 0
                     // Arity-suffixed compiled name (`Result`2`).
                     let resultName = "Microsoft.FSharp.Core.Result`2"
 
@@ -398,7 +398,7 @@ let tests =
 
                     for kv in ctx.Symbols do
                         if found.IsNone && kv.Key.EndsWith("." + suffix) then
-                            found <- ValueSome(kv.Value.Instantiate 0)
+                            found <- ValueSome(ExternalSymbols.instantiateSymbol kv.Value 0)
 
                     match found with
                     | ValueSome ty -> ty
@@ -462,7 +462,7 @@ let tests =
 
                 for kv in ctx.Symbols do
                     if found.IsNone && kv.Key.EndsWith(".broken") then
-                        found <- ValueSome(kv.Value.Instantiate 0)
+                        found <- ValueSome(ExternalSymbols.instantiateSymbol kv.Value 0)
 
                 match found with
                 | ValueNone ->
@@ -1053,7 +1053,7 @@ let tests =
                 match provider.TryLookup "Microsoft.FSharp.Core.OptionModule.IsSome" with
                 | ValueNone -> failtestf "IsSome not extracted"
                 | ValueSome sym ->
-                    let ty = sym.Instantiate 7
+                    let ty = ExternalSymbols.instantiateSymbol sym 7
 
                     let rec firstTyVar t =
                         match t with
@@ -1101,7 +1101,7 @@ let tests =
                 match libProvider.TryLookup "Microsoft.FSharp.Core.Operators.op_Addition" with
                 | ValueNone -> failtest "op_Addition should resolve by its qualified name through the lib provider"
                 | ValueSome sym ->
-                    match sym.Instantiate 0 with
+                    match ExternalSymbols.instantiateSymbol sym 0 with
                     | TyFun(TyVar _, TyFun(TyVar _, TyVar _)) -> ()
                     | other -> failtestf "op_Addition shape unexpected: %A" other
 
@@ -1533,7 +1533,7 @@ let tests =
 
                 Expect.isTrue equalityTrait "Constraints list carries Equality entry"
 
-                let inst = providerOrFail.Instantiate 0
+                let inst = ExternalSymbols.instantiateSymbol providerOrFail 0
 
                 let rec collectTyVars t =
                     seq {

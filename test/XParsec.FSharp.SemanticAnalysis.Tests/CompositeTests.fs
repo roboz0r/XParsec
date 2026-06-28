@@ -19,7 +19,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
         member _.TryLookup n =
             if n = name then
                 ValueSome
-                    { ExternalSymbols.mono name (TyConst(tag, EqArray.empty)) with
+                    { ExternalSymbols.monoFrozen name (FTConst(tag, EqArray.empty)) with
                         Origin = origin
                     }
             else
@@ -76,7 +76,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
 let private valueTag (provider: IExternalSymbolProvider) (name: string) : string voption =
     match provider.TryLookup name with
     | ValueSome sym ->
-        match sym.Instantiate 0 with
+        match ExternalSymbols.instantiateSymbol sym 0 with
         | TyConst(tag, _) -> ValueSome tag
         | _ -> ValueNone
     | ValueNone -> ValueNone
