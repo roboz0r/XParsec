@@ -36,6 +36,7 @@
     <Compile Include="InlineTests.fs" />
     <Compile Include="PrintfTests.fs" />
     <Compile Include="ConformanceTests.fs" />
+    <Compile Include="EnumTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

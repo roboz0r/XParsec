@@ -406,8 +406,8 @@ module Elaborate =
                 interfaces
                 |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
             )
-        // Enum cases carry no `SemType` (raw `Expr` value), so the typar remap
-        // is a no-op.
+        // Enum cases carry no `SemType` (the value is a resolved literal, not a
+        // typed term), so the typar remap is a no-op.
         | TTypeKind.Enum cases -> TTypeKind.Enum cases
         | TTypeKind.Class c ->
             let staticLet (sl: TStaticLet) =
@@ -1099,28 +1099,153 @@ module Elaborate =
                 List.ofSeq env
             )
 
-    /// Surface a `TypeDefn.Enum` as a `TDecl.Type`. Skeleton: the cases are
-    /// carried **raw** — each pairs its identifier with the unresolved
-    /// constant-value `Expr` exactly as parsed; there is NO literal resolution and
-    /// NO numeric / string / mixed classification yet (deferred to step 1b, see
-    /// `TEnumCaseG`). An enum has no type parameters and no augmentation members,
-    /// so the decl is a flat case list with the canonical arity-0 type key minted
-    /// directly (mirroring the interface fallback's `LocalSymbolKey.ofType`).
+    /// Resolve one enum case's value `Expr` to a `TEnumLiteral` via the canonical
+    /// literal readers (`FreezeLiterals.parseConst` for a numeric / bool / char
+    /// constant, `foldStringParts` for a string), classifying it as `Int` or
+    /// `String`. A non-literal expression, an interpolated string, or a
+    /// non-int-non-string constant (bool / char / float / decimal) is a hard
+    /// error (reported at the case identifier `idTok`) and yields `ValueNone` —
+    /// the only heterogeneity admitted is int + string *across* cases (the mixed
+    /// warning, raised once per enum below), never within a single case value.
+    let rec private resolveEnumCaseValue
+        (ctx: PassContext)
+        (idTok: SyntaxToken)
+        (v: Expr<SyntaxToken>)
+        : TEnumLiteral voption =
+        match v with
+        // A value-grouping paren around the literal (`| C = (1)`) is not itself
+        // the constant; peel it and resolve the inner expression.
+        | Expr.EnclosedBlock(expr = inner) -> resolveEnumCaseValue ctx idTok inner
+        | Expr.Const c ->
+            // The lexer merges `-<numeric>` into a single negative literal token
+            // (`tryMergeNegativeLiteral`), so a negative integral enum member
+            // (`| A = -1`, common: `None = -1`) arrives here as a negative `Const`,
+            // not a unary-minus `PrefixApp`. A negative *signed* literal projects
+            // cleanly (`Int -1`); a negative *unsigned* literal (`-1uy`/`-1u`) has
+            // no representation — `tryParseConst` reports it as `ValueNone` (total;
+            // it no longer throws), surfaced here as the hard error.
+            match FreezeLiterals.tryParseConst ctx c with
+            // `Int` doubles as the unsuffixed default; `UInt`/`Int64`/`Byte`
+            // preserve the authored integral width for step 2.
+            | ValueSome((TConstValue.Int _ | TConstValue.UInt _ | TConstValue.Int64 _ | TConstValue.Byte _) as iv) ->
+                ValueSome(TEnumLiteral.Int iv)
+            | ValueNone ->
+                ctx.Error(
+                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    "An enum case value is not a representable integer constant (a negative value has no unsigned representation)"
+                )
+
+                ValueNone
+            | ValueSome other ->
+                ctx.Error(
+                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    sprintf
+                        "An enum case value must be an integer or string literal; '%A' is not a valid enum constant"
+                        other
+                )
+
+                ValueNone
+        | Expr.String(kind = kind; parts = parts) ->
+            match kind with
+            // Plain / verbatim / triple-quoted string literals are constants;
+            // an interpolated string ($"…") is not — reject it as non-literal.
+            | StringKind.String _
+            | StringKind.VerbatimString _
+            | StringKind.String3 _ ->
+                ValueSome(TEnumLiteral.String(FreezeLiterals.foldStringParts ctx (fun () -> "") parts))
+            | _ ->
+                ctx.Error(
+                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    "An enum case value must be a literal string; an interpolated string is not a constant"
+                )
+
+                ValueNone
+        // A unary minus on an integer literal (`| A = -1`) parses as a PrefixApp
+        // (`-` → op_UnaryNegation), not an `Expr.Const`, yet negative integral enum
+        // members are legal and common (`None = -1`). Admit *only* a single unary
+        // minus directly on an integral literal (recursing peels an enclosing paren
+        // so `-(1)` works); the recursion stays bounded to the literal forms above,
+        // so general arithmetic (`1 + 1`, `-(1 + 1)`) still falls through to the
+        // expression error. Negating an unsigned width (`-1uy`/`-1u`) has no
+        // representation and is a hard error; a unary minus on a string (or any
+        // non-int constant, handled by the inner resolution) likewise stays an error.
+        | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
+            match resolveEnumCaseValue ctx idTok operand with
+            | ValueSome(TEnumLiteral.Int(TConstValue.Int v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int -v))
+            | ValueSome(TEnumLiteral.Int(TConstValue.Int64 v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int64 -v))
+            | ValueSome(TEnumLiteral.Int((TConstValue.UInt _ | TConstValue.Byte _))) ->
+                ctx.Error(
+                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    "A negative enum case value has no unsigned representation; use a signed integer width"
+                )
+
+                ValueNone
+            // `-"abc"` (negation of a string) or a deeper non-int form: the inner
+            // resolution either succeeded with a non-negatable shape (the residual
+            // `TEnumLiteral.Int` widths are unreachable — the `Expr.Const` arm only
+            // mints Int/UInt/Int64/Byte — but kept for exhaustiveness) or already
+            // reported its own error and yielded `ValueNone`. Either way reject.
+            | ValueSome(TEnumLiteral.String _)
+            | ValueSome(TEnumLiteral.Int _) ->
+                ctx.Error(
+                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    "An enum case value must be a literal integer or string constant, not an expression"
+                )
+
+                ValueNone
+            | ValueNone -> ValueNone
+        | _ ->
+            ctx.Error(
+                NodeKey.ofToken idTok NodeKind.DeclType,
+                "An enum case value must be a literal integer or string constant, not an expression"
+            )
+
+            ValueNone
+
+    /// Surface a `TypeDefn.Enum` as a `TDecl.Type`. Each case's constant-value
+    /// `Expr` is resolved to a `TEnumLiteral` (`resolveEnumCaseValue`) and the
+    /// ordered case→literal table recorded on the node; the numeric / string /
+    /// mixed variant is left *derivable* (`TEnumCases.classify`) rather than
+    /// stored. A mix of int and string case values is accepted with a **warning**
+    /// (heterogeneous enums are legal but discouraged; the repr is a later
+    /// freeze/backend concern). An enum has no type parameters and no augmentation
+    /// members, so the decl is a flat case list with the canonical arity-0 type
+    /// key minted directly (mirroring the interface fallback's
+    /// `LocalSymbolKey.ofType`).
     let private tryEnumType
         (ctx: PassContext)
         (ns: string option)
         (name: string)
         (cases: EnumTypeCases<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
-        let key = LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0
+        let key =
+            LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0
 
         let tcases =
             EqArray.ofSeq (
                 seq {
                     for EnumTypeCase(ident = id; constValue = v) in cases ->
-                        { Name = ctx.NameOf id; RawValue = v }
+                        {
+                            Name = ctx.NameOf id
+                            Value = resolveEnumCaseValue ctx id v
+                            Tok = id
+                        }
                 }
             )
+
+        // A mixed (int + string) enum is accepted but warned; pin the warning to
+        // the first case's token (cases are `sepBy1`, so always non-empty).
+        match TEnumCases.classify tcases with
+        | ValueSome TEnumVariant.Mixed ->
+            let (EnumTypeCase(ident = firstId)) = cases.[0]
+
+            ctx.Warn(
+                NodeKey.ofToken firstId NodeKind.DeclType,
+                sprintf
+                    "Enum '%s' mixes integer and string case values; heterogeneous enums are legal but discouraged"
+                    name
+            )
+        | _ -> ()
 
         Some(
             mkTypeDecl

@@ -62,33 +62,54 @@ module internal FreezeLiterals =
         else
             failwithf "Freeze.parseCharLiteral: unexpected char literal text %s" text
 
-    let parseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue =
-        let parseLiteral (t: SyntaxToken) : TConstValue =
+    /// Total projection of a constant literal onto `TConstValue`. `ValueNone` for
+    /// a numeric literal whose lexed text its classified width cannot represent —
+    /// notably a negative-signed *unsigned* literal (`-1uy`/`-1u`, formed by the
+    /// lexer's negative-literal merge) or an out-of-range magnitude. Bool / char /
+    /// well-formed numeric literals always resolve. The throwing `parseConst`
+    /// wrapper retains the old "broken invariant" contract for callers that have
+    /// no diagnostic channel; consumers that can report a user error (enum case
+    /// values) call this directly.
+    let tryParseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue voption =
+        let parseLiteral (t: SyntaxToken) : TConstValue voption =
             let text = ctx.NameOf t
 
             match t.Token with
-            | Token.KWTrue -> TConstValue.Bool true
-            | Token.KWFalse -> TConstValue.Bool false
-            | Token.CharLiteral -> TConstValue.Char(parseCharLiteral text)
+            | Token.KWTrue -> ValueSome(TConstValue.Bool true)
+            | Token.KWFalse -> ValueSome(TConstValue.Bool false)
+            | Token.CharLiteral -> ValueSome(TConstValue.Char(parseCharLiteral text))
             | _ ->
                 // Every remaining literal token is numeric (`Constant.Literal`
                 // admits only numeric / bool / char — `ConstantParsing.isLiteralToken`).
                 // The lexer owns the radix + suffix grammar via
                 // `Lexing.tryParseNumericLiteral` (keyed off the token's classified
                 // base/width), so Freeze just projects the value onto `TConstValue`.
+                // A non-representable literal yields `ValueNone` (the lexer parse is
+                // total — it no longer throws on a negative unsigned / overflow).
                 match Lexing.tryParseNumericLiteral t.Token text with
-                | ValueSome(NumericLiteralValue.Int32 n) -> TConstValue.Int n
-                | ValueSome(NumericLiteralValue.UInt32 n) -> TConstValue.UInt n
-                | ValueSome(NumericLiteralValue.Int64 n) -> TConstValue.Int64 n
-                | ValueSome(NumericLiteralValue.Byte n) -> TConstValue.Byte n
-                | ValueSome(NumericLiteralValue.Float n) -> TConstValue.Float n
-                | ValueSome(NumericLiteralValue.Float32 n) -> TConstValue.Float32 n
-                | ValueSome(NumericLiteralValue.Decimal n) -> TConstValue.Decimal n
-                | ValueNone -> failwithf "Freeze.parseConst: non-literal token %A in constant position" t.Token
+                | ValueSome(NumericLiteralValue.Int32 n) -> ValueSome(TConstValue.Int n)
+                | ValueSome(NumericLiteralValue.UInt32 n) -> ValueSome(TConstValue.UInt n)
+                | ValueSome(NumericLiteralValue.Int64 n) -> ValueSome(TConstValue.Int64 n)
+                | ValueSome(NumericLiteralValue.Byte n) -> ValueSome(TConstValue.Byte n)
+                | ValueSome(NumericLiteralValue.Float n) -> ValueSome(TConstValue.Float n)
+                | ValueSome(NumericLiteralValue.Float32 n) -> ValueSome(TConstValue.Float32 n)
+                | ValueSome(NumericLiteralValue.Decimal n) -> ValueSome(TConstValue.Decimal n)
+                | ValueNone -> ValueNone
 
         match c with
         | Constant.Literal t -> parseLiteral t
         | Constant.MeasuredLiteral(value = t) -> parseLiteral t
+
+    let parseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue =
+        match tryParseConst ctx c with
+        | ValueSome v -> v
+        | ValueNone ->
+            let t =
+                match c with
+                | Constant.Literal t
+                | Constant.MeasuredLiteral(value = t) -> t
+
+            failwithf "Freeze.parseConst: non-representable literal %A in constant position" t.Token
 
     /// Concatenate the literal text of every string part via `ctx.NameOf`,
     /// rendering an interpolation hole (`StringPart.Expr`) through `onHole`.

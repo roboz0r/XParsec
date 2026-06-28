@@ -230,8 +230,8 @@ module TastConvert =
                 EqArray.map (typeMember f) members,
                 EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
             )
-        // Enum cases carry no `'ty` (raw `Expr` value), so the kind passes through
-        // the SemType→FrozenType convert unchanged.
+        // Enum cases carry no `'ty` (the value is a resolved literal), so the kind
+        // passes through the SemType→FrozenType convert unchanged.
         | TTypeKindG.Enum cases -> TTypeKindG.Enum cases
         | TTypeKindG.Class c ->
             TTypeKindG.Class

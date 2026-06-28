@@ -771,14 +771,38 @@ type private Renderer() =
 
                 push " end"
             | TTypeKind.Enum cases ->
-                // Skeleton render: case names only. The raw constant-value `Expr`
-                // is a CST node with no renderer here; it surfaces once step 1b
-                // resolves it to a literal.
-                push " = enum"
+                // Render the derived variant tag + each case's resolved literal,
+                // so the snapshot pins classification *and* the preserved width.
+                let variant =
+                    match TEnumCases.classify cases with
+                    | ValueSome TEnumVariant.Numeric -> "numeric"
+                    | ValueSome TEnumVariant.String -> "string"
+                    | ValueSome TEnumVariant.Mixed -> "mixed"
+                    | ValueNone -> "?"
+
+                push " = enum<"
+                push variant
+                push ">"
+
+                let litStr (lit: TEnumLiteral) : string =
+                    match lit with
+                    // Show the authored integral width via its suffix so a
+                    // width-preservation regression is visible in the snapshot.
+                    | TEnumLiteral.Int(TConstValue.Int n) -> string n
+                    | TEnumLiteral.Int(TConstValue.UInt n) -> string n + "u"
+                    | TEnumLiteral.Int(TConstValue.Int64 n) -> string n + "L"
+                    | TEnumLiteral.Int(TConstValue.Byte n) -> string n + "uy"
+                    | TEnumLiteral.Int other -> sprintf "%A" other
+                    | TEnumLiteral.String s -> "\"" + s + "\""
 
                 for c in cases do
                     push " | "
                     push c.Name
+                    push " = "
+
+                    match c.Value with
+                    | ValueSome lit -> push (litStr lit)
+                    | ValueNone -> push "<unresolved>"
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

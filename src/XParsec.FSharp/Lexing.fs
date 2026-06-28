@@ -2679,27 +2679,39 @@ module Lexing =
             let radix = baseRadix numBase
             let inline digits () = intDigits numBase text
 
-            match TokenInfo.numericKind token with
-            | NumericKind.Int32 -> ValueSome(NumericLiteralValue.Int32(Convert.ToInt32(digits (), radix)))
-            | NumericKind.UInt32 -> ValueSome(NumericLiteralValue.UInt32(Convert.ToUInt32(digits (), radix)))
-            | NumericKind.Int64 -> ValueSome(NumericLiteralValue.Int64(Convert.ToInt64(digits (), radix)))
-            | NumericKind.Byte -> ValueSome(NumericLiteralValue.Byte(Convert.ToByte(digits (), radix)))
-            | NumericKind.IEEE64 ->
-                ValueSome(NumericLiteralValue.Float(Double.Parse(text, CultureInfo.InvariantCulture)))
-            | NumericKind.IEEE32 ->
-                ValueSome(NumericLiteralValue.Float32(Single.Parse(stripSuffix "f" text, CultureInfo.InvariantCulture)))
-            | NumericKind.Decimal ->
-                ValueSome(
+            // A literal whose lexed text is well-formed for its classified width
+            // *projects* cleanly; one whose magnitude/sign the width cannot hold
+            // (e.g. a negative-signed unsigned literal `-1uy` formed by the
+            // negative-literal merge, or an out-of-range magnitude) is not a
+            // representable constant — the `voption` result reports that as
+            // `ValueNone` rather than letting the underlying `Convert`/`Parse`
+            // throw. The consumer (`FreezeLiterals.parseConst`) surfaces the
+            // `ValueNone` as a diagnostic.
+            let project () =
+                match TokenInfo.numericKind token with
+                | NumericKind.Int32 -> NumericLiteralValue.Int32(Convert.ToInt32(digits (), radix))
+                | NumericKind.UInt32 -> NumericLiteralValue.UInt32(Convert.ToUInt32(digits (), radix))
+                | NumericKind.Int64 -> NumericLiteralValue.Int64(Convert.ToInt64(digits (), radix))
+                | NumericKind.Byte -> NumericLiteralValue.Byte(Convert.ToByte(digits (), radix))
+                | NumericKind.IEEE64 -> NumericLiteralValue.Float(Double.Parse(text, CultureInfo.InvariantCulture))
+                | NumericKind.IEEE32 ->
+                    NumericLiteralValue.Float32(Single.Parse(stripSuffix "f" text, CultureInfo.InvariantCulture))
+                | NumericKind.Decimal ->
                     NumericLiteralValue.Decimal(
                         Decimal.Parse(stripSuffix "m" text, NumberStyles.Float, CultureInfo.InvariantCulture)
                     )
-                )
-            // Widths `TConstValue` can't yet hold: fold the magnitude into
-            // `Int32` (truncating the low 32 bits), radix-aware so a hex/oct/bin
-            // magnitude no longer throws. `Convert.ToUInt64` spans every integer
-            // width up to `unativeint`; bigint stays as broken as before (its
-            // `Q`/`R`/`Z`/`I`/`G` suffix isn't a recognised integer suffix).
-            | _ -> ValueSome(NumericLiteralValue.Int32(int (Convert.ToUInt64(digits (), radix))))
+                // Widths `TConstValue` can't yet hold: fold the magnitude into
+                // `Int32` (truncating the low 32 bits), radix-aware so a hex/oct/bin
+                // magnitude no longer throws. `Convert.ToUInt64` spans every integer
+                // width up to `unativeint`; bigint stays as broken as before (its
+                // `Q`/`R`/`Z`/`I`/`G` suffix isn't a recognised integer suffix).
+                | _ -> NumericLiteralValue.Int32(int (Convert.ToUInt64(digits (), radix)))
+
+            try
+                ValueSome(project ())
+            with
+            | :? OverflowException
+            | :? FormatException -> ValueNone
 
     let (|ExpressionCtx|_|) (ctx: LexContext) =
         match ctx with

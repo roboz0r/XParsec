@@ -573,12 +573,12 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// structs and classes that declare them — each emits a `FieldDefinition` and
     /// a mutable one admits `this.x <- …`.
     | Class of TClassG<'ty, 'tok>
-    /// `cases` in declaration order, each pairing a case identifier with the raw,
-    /// *unclassified* constant-value expression in value position (`| C = v`).
-    /// An enum is `'ty`-free at this skeleton stage: the value lives as a general
-    /// parser `Expr` (the permissive grammar admits `| A = 1` and `| A = "x"`
-    /// alike), not yet resolved to a literal nor classified numeric / string /
-    /// mixed. See `TEnumCaseG`.
+    /// `cases` in declaration order, each pairing a case identifier with its
+    /// **resolved** compile-time literal (`| C = v`). An enum is `'ty`-free: a
+    /// case value is an integer or string literal, never a typed term. The
+    /// numeric / string / mixed variant is NOT stored here — it is **derived**
+    /// from the case literals on demand (`TEnumCases.classify`), the single
+    /// source of truth. See `TEnumCaseG` / `TEnumLiteral`.
     | Enum of cases: EqArray<TEnumCaseG<'tok>>
 
 /// The payload of `TTypeKindG.Class`, lifted out of an 11-wide positional
@@ -614,21 +614,42 @@ and TUnionCaseG<'ty> =
         Fields: EqArray<string voption * 'ty>
     }
 
-/// One case of a `TTypeKind.Enum`, in declaration order. The case is `'ty`-free:
-/// it carries the source identifier and the raw constant-value `Expr` exactly as
-/// parsed (`EnumTypeCase(ident, equals, constValue)`), with NO literal resolution
-/// and NO numeric / string / mixed classification yet.
+/// A resolved enum-case literal — the classified result of reading
+/// `EnumTypeCase.constValue` through the canonical literal reader
+/// (`FreezeLiterals.parseConst` / `foldStringParts`). Restricting the shape to
+/// `Int` / `String` makes the non-int-non-string values the elaborator rejects
+/// unrepresentable on the node (illegal cases never construct a `TEnumLiteral`;
+/// they record `ValueNone` on `TEnumCaseG.Value`).
+and [<RequireQualifiedAccess>] TEnumLiteral =
+    /// An integer enum-case value. The payload is the authored integral literal
+    /// exactly as `parseConst` resolved it — its `TConstValue` *case*
+    /// (`Int` = int32 / `UInt` / `Int64` / `Byte`) **is** the authored width
+    /// witness (the codebase has no separate `IntWidth` type; integral width is
+    /// modelled by the `NumericLiteralValue` / `TConstValue` case). `Int`
+    /// doubles as the unsuffixed default — step 2/freeze maps it to `I32`,
+    /// the wider/unsigned cases to their CLR underlying type. Width is therefore
+    /// *preserved*, not defaulted, here. Invariant: always one of those four
+    /// integral cases (the elaborator rejects every other `TConstValue`).
+    | Int of value: TConstValue
+    /// A string enum-case value — the stitched literal text (escapes decoded).
+    | String of value: string
+
+/// One case of a `TTypeKind.Enum`, in declaration order. `'tok` is carried for
+/// the case identifier's source token (diagnostics / source-maps), matching the
+/// token-preserving convention of the sibling AST nodes.
 and TEnumCaseG<'tok> =
     {
         /// Case identifier (`C` in `| C = v`).
         Name: string
-        // step 1b: resolve `RawValue` to its compile-time literal, classify the
-        // enum (all-int = numeric / all-string = string / int+string = mixed),
-        // and reject any non-literal or non-int-non-string value. The recorded
-        // case→literal table replaces this raw form.
-        /// The unclassified constant-value expression in value position. A general
-        /// parser `Expr` per the permissive grammar; semantics are checked later.
-        RawValue: Expr<'tok>
+        /// The case's resolved compile-time literal, classified `Int` / `String`
+        /// (`TEnumLiteral`). `ValueNone` when `constValue` failed to resolve to a
+        /// legal literal — a non-literal expression, an interpolated string, or a
+        /// non-int-non-string constant — for which a hard error was reported at
+        /// the case's source token. The case is still recorded so the enum's
+        /// shape and its sibling cases survive a single bad case.
+        Value: TEnumLiteral voption
+        /// Source token of the case identifier.
+        Tok: 'tok
     }
 
 /// One field of a `TTypeKind.Record`. `Type` carries the field's declared
@@ -847,6 +868,37 @@ type TastFileG<'ty, 'tok> =
         /// `staticFnTypars`' body sweep.
         GenericFnSchemes: Map<NodeKey, FrozenConstraint list>
     }
+
+/// The numeric / string / mixed classification of an enum, derived from its
+/// resolved case literals. NOT stored on the `Enum` node — `TEnumCases.classify`
+/// is the single source of truth, recomputed wherever a consumer needs it
+/// (elaboration's mixed-warning, the TAST renderer; step 2/freeze gives the
+/// variant its durable identity + per-backend repr).
+[<RequireQualifiedAccess>]
+type TEnumVariant =
+    | Numeric
+    | String
+    | Mixed
+
+module TEnumCases =
+    /// Derive the enum's variant from its resolved case literals. `ValueNone`
+    /// when no case resolved to a legal literal (every case errored), so a caller
+    /// can distinguish "empty / all-illegal" from a real classification.
+    let classify (cases: EqArray<TEnumCaseG<'tok>>) : TEnumVariant voption =
+        let mutable anyInt = false
+        let mutable anyStr = false
+
+        for c in cases do
+            match c.Value with
+            | ValueSome(TEnumLiteral.Int _) -> anyInt <- true
+            | ValueSome(TEnumLiteral.String _) -> anyStr <- true
+            | ValueNone -> ()
+
+        match anyInt, anyStr with
+        | true, true -> ValueSome TEnumVariant.Mixed
+        | true, false -> ValueSome TEnumVariant.Numeric
+        | false, true -> ValueSome TEnumVariant.String
+        | false, false -> ValueNone
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;
 // these aliases keep the bare TAST names stable as an additive change. The
