@@ -122,12 +122,62 @@ let private mapMember (checker: Ts.TypeChecker) (prop: Ts.Symbol) : Schema.Membe
             Optional = false
         }
 
+/// Classify a top-level export's import shape — the wire field that selects the
+/// import intrinsic at lowering. The export-TABLE entry's ESCAPED NAME carries the
+/// `export default` / `export =` brand (TS stores them under the reserved internal
+/// names `InternalSymbolName.Default` / `ExportEquals`); a module/namespace symbol
+/// surfaces as a `Namespace` import. Per the producer discipline we classify via
+/// the binding's NAME CONSTANTS and `SymbolFlags` predicates, never raw numeric
+/// flag literals (the vendored flag values can drift from the installed TS).
+/// `escaped` comes from the alias/export entry; `resolved` is the followed-through
+/// underlying symbol whose flags name the namespace case.
+let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.ImportShape =
+    if escaped = unbox<string> Ts.InternalSymbolName.Default then
+        Schema.ImportShape.Default
+    elif escaped = unbox<string> Ts.InternalSymbolName.ExportEquals then
+        Schema.ImportShape.CommonJsExport
+    elif hasFlag (resolved.getFlags ()) Ts.SymbolFlags.Module then
+        Schema.ImportShape.Namespace
+    else
+        Schema.ImportShape.Named
+
 let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export option =
-    let flags = sym.getFlags ()
-    let name = sym.getName ()
+    // Follow re-export aliases (`export { x } from …`, `export default <named>`,
+    // `export = <named>`) so flags/type/name are read off the REAL underlying
+    // symbol, not the alias stub. The export-table entry's escaped name still
+    // carries the import-shape brand, so capture it BEFORE resolving.
+    let escaped: string = unbox<string> (sym.getEscapedName ())
+
+    let resolved =
+        if hasFlag (sym.getFlags ()) Ts.SymbolFlags.Alias then
+            checker.getAliasedSymbol sym
+        else
+            sym
+
+    let flags = resolved.getFlags ()
+    let import = importShapeOf resolved escaped
+
+    // `export default function greet` stores the symbol under the reserved name
+    // "default" (it is NOT an alias, so flag-resolution above leaves it as-is);
+    // recover the authored declaration name so the binding isn't literally named
+    // "default". Re-export aliases (`export = legacy`) already resolve to a real
+    // named symbol, so this only fires for the inline-default case; an anonymous
+    // default keeps the "default" sentinel.
+    let name =
+        let raw = resolved.getName ()
+
+        if raw = unbox<string> Ts.InternalSymbolName.Default then
+            match resolved.valueDeclaration with
+            | Some d ->
+                match (unbox<Ts.NamedDeclaration> d).name with
+                | Some n -> unbox<string> (unbox<Ts.Identifier> n).escapedText
+                | None -> raw
+            | None -> raw
+        else
+            raw
 
     if hasFlag flags Ts.SymbolFlags.Interface then
-        let declared = checker.getDeclaredTypeOfSymbol sym
+        let declared = checker.getDeclaredTypeOfSymbol resolved
 
         let members =
             checker.getPropertiesOfType declared
@@ -136,13 +186,13 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
 
         Some(Schema.Export.Interface(name, 0, members, []))
     elif hasFlag flags Ts.SymbolFlags.Function then
-        let t = checker.getTypeOfSymbolAtLocation (sym, declOf sym)
+        let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
         let sigs = t.getCallSignatures () |> Seq.map (mapSignature checker) |> List.ofSeq
 
-        Some(Schema.Export.Function(name, sigs, Schema.ImportShape.Named)) // TODO: detect import shape
+        Some(Schema.Export.Function(name, sigs, import))
     else
-        None // TODO: Class / TypeAlias / Enum / Variable / Namespace
+        None // TODO: Class / TypeAlias / Enum / Variable / Namespace (each stamps `import`)
 
 // ─── drive + emit ──────────────────────────────────────────────────────────
 
@@ -163,10 +213,20 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
         match checker.getSymbolAtLocation (unbox sf) with
         | None -> failwithf "'%s' is not a module (no exports found)" dtsPath
         | Some moduleSym ->
-            let exports =
-                checker.getExportsOfModule moduleSym
-                |> Seq.choose (mapExport checker)
-                |> List.ofSeq
+            // `getExportsOfModule` deliberately omits the `export =` entry (a
+            // CommonJS `export = X` is not a named member of the module — and
+            // `tryGetMemberInModuleExports` filters it out too), so read it straight
+            // from the symbol's export table under its reserved internal name and
+            // prepend it. The entry is an alias; `mapExport` follows it through.
+            let exportSyms =
+                let named = checker.getExportsOfModule moduleSym |> List.ofSeq
+                let exportEqKey: Ts.__String = U2.Case2 Ts.InternalSymbolName.ExportEquals
+
+                match moduleSym.exports with
+                | Some tbl when tbl.has exportEqKey -> tbl.get exportEqKey :: named
+                | _ -> named
+
+            let exports = exportSyms |> List.choose (mapExport checker)
 
             {
                 SchemaVersion = Schema.SchemaVersion

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 0,
+  "package": "importshapes",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "greet",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "name",
+              "type": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
+        }
+      ],
+      "import": "default"
+    },
+    {
+      "export": "function",
+      "name": "shout",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "message",
+              "type": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    }
+  ]
+}

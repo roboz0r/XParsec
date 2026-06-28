@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 0,
+  "package": "importshapes",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "legacy",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "value",
+              "type": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
+        }
+      ],
+      "import": "commonjs"
+    }
+  ]
+}

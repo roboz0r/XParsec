@@ -126,19 +126,21 @@ module TsManifestProvider =
                 OptionalDefaults = []
             }
 
-    let private originFor (pkg: string) : SymbolOrigin =
-        // TODO: re-role to the module specifier / namespace once ImportShape is
-        // threaded through; today the package name stands in as the home label.
+    let private originFor (moduleSpec: string) : SymbolOrigin =
+        // The home label is the symbol's MODULE SPECIFIER (the import path), not the
+        // package name. For a flat single-file package the two coincide, but the
+        // value is threaded explicitly so a later tier's namespace recursion can
+        // supply a nested path here. `Namespace` stays empty for flat files.
         {
-            Assembly = Some pkg
+            Assembly = Some moduleSpec
             Namespace = ""
             DeclaringType = None
         }
 
-    let private toTypeShape (pkg: string) (ex: Schema.Export) : (string * ExternalTypeShape) option =
+    let private toTypeShape (moduleSpec: string) (ex: Schema.Export) : (string * ExternalTypeShape) option =
         let build name tp members isInterface =
-            let origin = originFor pkg
-            let key = SymbolKey.TypeKey(Some pkg, "", name)
+            let origin = originFor moduleSpec
+            let key = SymbolKey.TypeKey(Some moduleSpec, "", name)
 
             let mems =
                 members |> List.map (toExternalMember key origin tp isInterface) |> List.toArray
@@ -179,7 +181,10 @@ module TsManifestProvider =
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
         let pkg = man.Package
-        let types = man.Exports |> List.choose (toTypeShape pkg) |> Map.ofList
+        // Flat single-file package: the module specifier IS the package name. A
+        // later tier supplies nested namespace paths here instead of `pkg` directly.
+        let moduleSpec = pkg
+        let types = man.Exports |> List.choose (toTypeShape moduleSpec) |> Map.ofList
         let funcs = man.Exports |> List.choose toFunctionSymbol |> Map.ofList
 
         let membersOf (typeName: string) (memberName: string) : ExternalMember[] =
