@@ -70,36 +70,97 @@ module TsManifestProvider =
         | [] -> failwithf "symbol '%s' has no call signature" name
         | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
-    let private toExternalMember
+    /// The overload-identity string a single parameter contributes to a `MemberKey`'s
+    /// `argSig` (distinct from the `Signature.Parameters` the runtime pick reads). The
+    /// thin TS type vocabulary names primitives/nominals exactly; everything richer
+    /// collapses to `obj` — the deliberate forcing function: two ctor/method overloads
+    /// that collapse to the same argSig throw (see `expandCtor`), pointing at the
+    /// fixture whose erased distinction wants a sharper extracted type.
+    let rec private argSigOf (t: Schema.TypeRef) : string =
+        match t with
+        | Schema.TypeRef.Named(name, []) -> name
+        | Schema.TypeRef.Named(name, args) -> name + "<" + System.String.Join(",", List.map argSigOf args) + ">"
+        | Schema.TypeRef.Typar i -> "!" + string i
+        | Schema.TypeRef.Fun(args, ret) -> "(" + System.String.Join(",", List.map argSigOf args) + ")->" + argSigOf ret
+        | Schema.TypeRef.Tuple items -> "(" + System.String.Join("*", List.map argSigOf items) + ")"
+        | Schema.TypeRef.Union _
+        | Schema.TypeRef.Dynamic
+        | Schema.TypeRef.Structural _ -> "obj"
+
+    let private paramArgSig (ps: Schema.Param list) : string list =
+        ps |> List.map (fun p -> argSigOf p.Type)
+
+    let private signatureOf (declArity: int) (sg: Schema.Signature) : ExternalSignature =
+        {
+            DeclaringArity = declArity
+            MethodArity = sg.TypeParams
+            Parameters = paramsFrozen sg.Params
+            Return = toFrozen sg.Returns
+        }
+
+    /// Expand a `.ctor` member's N overload signatures into N `ExternalMember.ctor`s —
+    /// the canonical seam constructor (`Name = ".ctor"`, instance, non-property, keyed
+    /// `MemberKey(declKey, ".ctor", argSig, Method)`), the exact shape
+    /// `InferCtor.inferExternalCtorOn` → `TryLookupMembers(name, ".ctor")` →
+    /// `pickBestOverload` expects. Each ctor's `argSig` interns its parameter shape;
+    /// a duplicate argSig (same count AND types) means two overloads collapsed onto one
+    /// key, so throw rather than silently coincide.
+    let private expandCtor
+        (declKey: SymbolKey)
+        (origin: SymbolOrigin)
+        (declArity: int)
+        (mem: Schema.Member)
+        : ExternalMember list =
+        let built = mem.Signatures |> List.map (fun sg -> paramArgSig sg.Params, sg)
+
+        built
+        |> List.countBy (fun (a, _) -> System.String.Join(",", a))
+        |> List.tryFind (fun (_, n) -> n > 1)
+        |> Option.iter (fun (k, _) ->
+            failwithf
+                "type '%A' has duplicate .ctor overload argSig (%s); sharpen the extracted parameter types"
+                declKey
+                k
+        )
+
+        built
+        |> List.map (fun (argSig, sg) ->
+            ExternalMember.ctor declKey (signatureOf declArity sg) (EqArray.ofList argSig) origin []
+        )
+
+    let private toExternalMembers
         (declKey: SymbolKey)
         (origin: SymbolOrigin)
         (declArity: int)
         (isInterface: bool)
         (mem: Schema.Member)
-        : ExternalMember =
+        : ExternalMember list =
         match mem.Kind with
+        | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor declKey origin declArity mem
         | Schema.MemberKind.Property ->
             let ret =
                 match mem.Type with
                 | Some t -> toFrozen t
                 | None -> unitFrozen
 
-            {
-                Name = mem.Name
-                IsStatic = mem.Static
-                IsProperty = true
-                Signature =
-                    {
-                        DeclaringArity = declArity
-                        MethodArity = 0
-                        Parameters = unitFrozen
-                        Return = ret
-                    }
-                MethodArity = 0
-                Origin = origin
-                Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, MemberKind.Property)
-                OptionalDefaults = []
-            }
+            [
+                {
+                    Name = mem.Name
+                    IsStatic = mem.Static
+                    IsProperty = true
+                    Signature =
+                        {
+                            DeclaringArity = declArity
+                            MethodArity = 0
+                            Parameters = unitFrozen
+                            Return = ret
+                        }
+                    MethodArity = 0
+                    Origin = origin
+                    Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, MemberKind.Property)
+                    OptionalDefaults = []
+                }
+            ]
         | Schema.MemberKind.Method ->
             let sg = singleSignature mem.Name mem.Signatures
 
@@ -109,22 +170,18 @@ module TsManifestProvider =
                 else
                     MemberKind.Method
 
-            {
-                Name = mem.Name
-                IsStatic = mem.Static
-                IsProperty = false
-                Signature =
-                    {
-                        DeclaringArity = declArity
-                        MethodArity = sg.TypeParams
-                        Parameters = paramsFrozen sg.Params
-                        Return = toFrozen sg.Returns
-                    }
-                MethodArity = sg.TypeParams
-                Origin = origin
-                Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, kind)
-                OptionalDefaults = []
-            }
+            [
+                {
+                    Name = mem.Name
+                    IsStatic = mem.Static
+                    IsProperty = false
+                    Signature = signatureOf declArity sg
+                    MethodArity = sg.TypeParams
+                    Origin = origin
+                    Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, kind)
+                    OptionalDefaults = []
+                }
+            ]
 
     let private originFor (moduleSpec: string) : SymbolOrigin =
         // The home label is the symbol's MODULE SPECIFIER (the import path), not the
@@ -143,7 +200,9 @@ module TsManifestProvider =
             let key = SymbolKey.TypeKey(Some moduleSpec, "", name)
 
             let mems =
-                members |> List.map (toExternalMember key origin tp isInterface) |> List.toArray
+                members
+                |> List.collect (toExternalMembers key origin tp isInterface)
+                |> List.toArray
 
             Some(
                 name,

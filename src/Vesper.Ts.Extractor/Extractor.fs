@@ -96,7 +96,11 @@ let private mapSignature (checker: Ts.TypeChecker) (sg: Ts.Signature) : Schema.S
         Returns = mapType checker (sg.getReturnType ())
     }
 
-let private mapMember (checker: Ts.TypeChecker) (prop: Ts.Symbol) : Schema.Member =
+/// `isStatic` is supplied by the caller, not read off the symbol: instance members
+/// are walked off the class's DECLARED (instance) type and the static side off the
+/// constructor-function type, so the side is known by WHICH walk produced `prop`
+/// rather than re-derived per symbol (item 3 — the flag used to be hardcoded false).
+let private mapMember (checker: Ts.TypeChecker) (isStatic: bool) (prop: Ts.Symbol) : Schema.Member =
     let t = checker.getTypeOfSymbolAtLocation (prop, declOf prop)
     let callSigs = t.getCallSignatures ()
 
@@ -109,7 +113,7 @@ let private mapMember (checker: Ts.TypeChecker) (prop: Ts.Symbol) : Schema.Membe
             Kind = Schema.MemberKind.Method
             Type = None
             Signatures = callSigs |> Seq.map (mapSignature checker) |> List.ofSeq
-            Static = false
+            Static = isStatic
             Optional = false
         }
     else
@@ -118,9 +122,29 @@ let private mapMember (checker: Ts.TypeChecker) (prop: Ts.Symbol) : Schema.Membe
             Kind = Schema.MemberKind.Property
             Type = Some(mapType checker t)
             Signatures = []
-            Static = false
+            Static = isStatic
             Optional = false
         }
+
+/// Construct signatures (`getConstructSignatures()` on a class's constructor-function
+/// type, or on an interface carrying a `new(): T` signature) collapse to ONE `.ctor`
+/// member whose `Signatures` list holds every overload. The provider expands that one
+/// member into N `ExternalMember.ctor`s (one per signature, each keyed by its argSig),
+/// so the wire form stays a single `Member` and the seam convention lives consumer-side.
+/// `Static = false`: a constructor is an instance-producing member, per the seam.
+let private ctorMemberOf (checker: Ts.TypeChecker) (ctorSigs: ResizeArray<Ts.Signature>) : Schema.Member option =
+    if ctorSigs.Count = 0 then
+        None
+    else
+        Some
+            {
+                Name = ".ctor"
+                Kind = Schema.MemberKind.Method
+                Type = None
+                Signatures = ctorSigs |> Seq.map (mapSignature checker) |> List.ofSeq
+                Static = false
+                Optional = false
+            }
 
 /// Classify a top-level export's import shape — the wire field that selects the
 /// import intrinsic at lowering. The export-TABLE entry's ESCAPED NAME carries the
@@ -181,10 +205,42 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
 
         let members =
             checker.getPropertiesOfType declared
-            |> Seq.map (mapMember checker)
+            |> Seq.map (mapMember checker false)
             |> List.ofSeq
 
-        Some(Schema.Export.Interface(name, 0, members, []))
+        // An interface can carry a `new(): T` construct signature (the
+        // constructor-interface idiom, `interface FooCtor { new(): Foo }`); it lands
+        // on the DECLARED type itself. Append it as a `.ctor` member like a class.
+        let ctorMember =
+            ctorMemberOf checker (declared.getConstructSignatures ()) |> Option.toList
+
+        Some(Schema.Export.Interface(name, 0, members @ ctorMember, []))
+    elif hasFlag flags Ts.SymbolFlags.Class then
+        // Two distinct walks keep the static/instance split honest (item 3): the
+        // DECLARED type yields the instance members; the symbol's TYPE-AT-LOCATION is
+        // the constructor-function (static) type whose `getProperties` are the static
+        // members and whose `getConstructSignatures` are the constructors. The static
+        // side also surfaces the synthetic `prototype` slot — filter it (it is not an
+        // authored member). A class may itself be `export default class`, so it reuses
+        // the resolved `name`/`import` computed above.
+        let instanceTy = checker.getDeclaredTypeOfSymbol resolved
+        let staticTy = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
+
+        let instanceMembers =
+            checker.getPropertiesOfType instanceTy
+            |> Seq.map (mapMember checker false)
+            |> List.ofSeq
+
+        let staticMembers =
+            staticTy.getProperties ()
+            |> Seq.filter (fun p -> p.getName () <> "prototype")
+            |> Seq.map (mapMember checker true)
+            |> List.ofSeq
+
+        let ctorMember =
+            ctorMemberOf checker (staticTy.getConstructSignatures ()) |> Option.toList
+
+        Some(Schema.Export.Class(name, 0, instanceMembers @ staticMembers @ ctorMember, [], import))
     elif hasFlag flags Ts.SymbolFlags.Function then
         let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
@@ -192,7 +248,7 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
 
         Some(Schema.Export.Function(name, sigs, import))
     else
-        None // TODO: Class / TypeAlias / Enum / Variable / Namespace (each stamps `import`)
+        None // TODO: TypeAlias / Enum / Variable / Namespace (each stamps `import`)
 
 // ─── drive + emit ──────────────────────────────────────────────────────────
 
