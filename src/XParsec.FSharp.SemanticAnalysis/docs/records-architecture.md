@@ -3,10 +3,12 @@
 How the semantic-analysis pipeline and the CLR back end handle F#
 records, as built. Supersedes `records-plan.md` (the original landing
 plan): the implementation has since gained generics, equality/comparison
-postures, augmentation members, and external (referenced-package) record
-resolution, and the codebase moved to the `SemType` / `FrozenType` split,
-so the plan's data model and file:line anchors no longer describe the
-code. File:line references here are anchors, not contracts — they drift.
+postures, augmentation members, **interface implementations** (`interface
+… with member …`, front-to-back on both the CLR and JS targets), and
+external (referenced-package) record resolution, and the codebase moved to
+the `SemType` / `FrozenType` split, so the plan's data model and file:line
+anchors no longer describe the code. File:line references here are anchors,
+not contracts — they drift.
 
 Records share their machinery with discriminated unions and classes (see
 [`du-architecture.md`](du-architecture.md)): one named-type registry
@@ -89,7 +91,15 @@ type; starts as a placeholder `TyVar`, linked during fill-in),
   type-decl for codegen.
 
 Augmentation members (`with member …`) live in the shared
-`TypeMemberInfo` (`:120`) shape, the same one unions and classes use.
+`TypeMemberInfo` (`:120`) shape, the same one unions and classes use, in a
+`Members` slot; `interface … with` impls live in an `InterfaceImpls :
+ClassInterfaceImplInfo[]` slot (the same `ClassInterfaceImplInfo` unions
+and classes carry). `RecordTypeInfo` implements `IInterfaceImplHost` — the
+shared surface (`Key` / `ThisKey` / `Members` / `InterfaceImpls` /
+`MkSelfType`) the kind-agnostic interface-impl machinery operates over —
+with `MkSelfType args = TyRecord(Key, args)` as the only record-specific
+piece (cf. `TyUnion` for unions, `TyClass` for classes). See
+[Interface implementations](#interface-implementations).
 
 Storage lives on `PassContextTypes` (`SideTables.fs:453`):
 
@@ -127,6 +137,15 @@ hence "dot access", not "field access".
 - Arity-qualified duplicate check (a name collision, including a clash
   with a union of the same name, diagnoses).
 
+A record's `with`-block elements are registered by `registerRecordMembers`
+(`MemberRegistration.fs`, mirroring `registerUnionMembers`): augmentation
+members via `extractMembers` → `info.Members`, and `interface … with`
+blocks via the kind-agnostic `extractInterfaceImpls` → `info.InterfaceImpls`.
+`walkRecordBodies` (`NameResolution.fs`, mirroring `walkUnionBodies`) then
+name-resolves each member/impl body with `this` (and any `match this`
+case/field binders) in scope — without it a record whose only `with`
+element is an interface impl would leave `this` an unbound `External`.
+
 Run order (`NameResolution.fs`): records, then unions, then classes, then
 the expression walks — so a literal can resolve to a record declared
 later in source. Record field names are not part of lexical scope; `r.X`
@@ -141,6 +160,15 @@ typar scope, translates every field's CST type, `Link`s the placeholder
 field TyVar to it, and attaches `TyparConstraints` to the matching
 prototype TyVar. A field type may reference another type declared
 elsewhere in the file, since the whole registry is populated first.
+
+**Member / interface-impl fill-in.** `fillRecordMembers` (mirroring
+`fillUnionMembers`) types the augmentation-member and interface-impl bodies:
+it runs `fillTypeMembers` over `info.Members` and `fillInterfaceImpls` over
+`info.InterfaceImpls` — both kind-agnostic, parameterised on the
+`IInterfaceImplHost` so the record reuses the class/union path unchanged.
+Conformance (`validateCustomEqCompImpls`) and the `:>`-coercion subtype walk
+(`Engine.subtypeNominalOf` / `subtypeInterfacesOf` via `tryInterfaceImplHost`,
+both of which carry a `TyRecord` arm) likewise treat records identically.
 
 **Inference** (`Passes/Unification/Infer.fs`):
 
@@ -226,8 +254,42 @@ field-LHS `Expr.Assignment → FieldSet`, and `Pat.Record → TPat.Record`
 keyed `TExpr.ExternalMember` instead of a project-local `FieldGet`.
 
 The declaration itself freezes to `TDecl.Type { Kind = TTypeKind.Record
-… }` (`Tast.fs:328` — `Record of fields * members`), carrying the field
-list and augmentation members read off the registry.
+… }` (`Tast.fs` — `Record of fields * members * interfaces`, the three
+positional fields mirroring `TClass`/`Union`), carrying the field list, the
+augmentation members, and the interface impls read off the registry.
+`Elaborate.tryRecordType` now takes the `ext` block and surfaces members +
+interfaces via `translateRecordMember` (parallel to `translateUnionMember`,
+`ThisTy = TyRecord`; no ctor-param → `FieldGet` rewrite, since a record has
+no primary ctor — `this.N` is already an explicit field access).
+
+## Interface implementations
+
+A record (like a union or class) implements an interface — `type R = { N:
+int } interface IRank with member this.Rank() = this.N` — and the impl
+dispatches at runtime on **both** targets (`(r :> IRank).Rank()` → the
+record's own method). This is almost entirely **reuse** of the shared
+capability-interface machinery — the same `IInterfaceImplHost` path unions
+and classes use; the only record-specific code is the registration plumbing
+above plus the `TyRecord` arms. The cross-cutting pieces:
+
+- **Front end** — `info.InterfaceImpls` (registration) → `fillInterfaceImpls`
+  (typing + conformance) → `TTypeKind.Record.interfaces` (freeze), all via
+  `IInterfaceImplHost`. The FS0378 custom-eq/comp conformance check and the
+  `:>` subtype walk include records.
+- **CLR back end** — `NominalEmit.userInterfacesOf` returns the record's
+  interfaces; the `InterfaceImpl` rows + virtual impl methods emit on the
+  record's class, trailing its own members (`Layout.recordParts`, the same
+  `ownCount + i` indexing classes/unions use). They coexist with the
+  synthesised structural `IEquatable`/`IComparable`/`IStructuralFormattable`
+  rows — disjoint `MethodKey`s, no slot collision.
+- **JS back end** — a record is a single emitted class, so its interfaces
+  route through the same `partitionClassMembers` the class path uses
+  (enumerable → `[Symbol.iterator]`, eq/comp/hash → `Symbol.for("vesper.*")`,
+  a plain local interface → an attached method); no new emission shape (unlike
+  the union's base/case split). A call *through* a local interface slot
+  (`(r :> ILocal).M()`) lowers to `receiver.M(args)` (the attached method) via
+  `WalkCtx.LocalInterfaces`, not the free `<Type>__M` form — a local interface
+  emits no free function.
 
 ## Back end (CLR codegen)
 
@@ -300,7 +362,12 @@ A record is the DU back end minus the tag, so most of this is reuse
 - Codegen `RecordTests.fs` — construct + field-get, clone overrides one /
   shares the rest, mutable-field round-trip through `FieldSet`,
   structural equality, generic `Box<'T>` at `int` and `string`,
-  no-FSharp.Core-dependency.
+  no-FSharp.Core-dependency; plus the interface-impl runtime tests
+  (`(r :> IRank).Rank()` dispatch, coexistence with synthesised
+  `IEquatable<R>`).
+- `FreezeTests.fs` — a record carries its interface impl on
+  `TTypeKind.Record.interfaces`. JS `ClassEmitTests.fs` — the record's
+  attached interface method emits + dispatches under Node.
 - `EqualityAttributeTests.fs` — `EqualitySupport` verdict gating.
 - `StructuralComparisonTests.fs` — the comparison pair, field order,
   opt-in gating.
