@@ -65,6 +65,11 @@ let rec mapType (checker: Ts.TypeChecker) (t: Ts.Type) : Schema.TypeRef =
         | "void" -> Schema.TypeRef.Named("unit", [])
         | "null" -> Schema.TypeRef.Named("null", [])
         | "undefined" -> Schema.TypeRef.Named("undefined", [])
+        // `any` → Dynamic (item 12). TS exposes no public `type.isAny()`, so classify
+        // by printed form like the other primitives (never raw `TypeFlags`, per the
+        // standing rule). Only `any` is in scope — `unknown` is deliberately NOT
+        // remapped and still flows through the Named fallthrough.
+        | "any" -> Schema.TypeRef.Dynamic
         | _ when t.isUnion () ->
             // Anonymous union → TyOr. null/undefined ride in as their own members
             // (resolved fork: NOT folded to unit). Erased literal members can
@@ -79,7 +84,14 @@ let rec mapType (checker: Ts.TypeChecker) (t: Ts.Type) : Schema.TypeRef =
             match members with
             | [ single ] -> single
             | many -> Schema.TypeRef.Union many
-        | other -> Schema.TypeRef.Named(other, []) // TODO: generics, structurals, intersection
+        | _ when t.isIntersection () ->
+            // Intersection `A & B` (item 15): erase to `obj`, the universal supertype,
+            // for v1. Detected via the runtime `isIntersection` predicate (sibling of
+            // the `isUnion` arm above), never raw `TypeFlags`. Object-intersections
+            // graduate onto item 14's structural content-hash path once it exists — do
+            // not build that mechanism here.
+            Schema.TypeRef.Named("obj", [])
+        | other -> Schema.TypeRef.Named(other, []) // TODO: generics, structurals (intersection handled above)
 
 let private mapParam (checker: Ts.TypeChecker) (p: Ts.Symbol) : Schema.Param =
     // A parameter symbol's declaration is the `ParameterDeclaration` node carrying

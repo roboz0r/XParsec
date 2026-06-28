@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 0,
+  "package": "dynamic",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "identity",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "value",
+              "type": {
+                "k": "dynamic"
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "dynamic"
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Named",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "name",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "interface",
+      "name": "Aged",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "age",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "float",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "interface",
+      "name": "Box",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "payload",
+          "kind": "property",
+          "type": {
+            "k": "dynamic"
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "person",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "obj",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ]
+}
