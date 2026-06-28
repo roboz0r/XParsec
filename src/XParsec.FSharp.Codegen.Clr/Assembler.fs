@@ -34,7 +34,11 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         |> Map.ofList
 
     let provider =
-        ClrProvider(ctx, IntrinsicRepr.merge tast.IntrinsicReprTypes, references, symbols, project.AssemblyName)
+        // Own-unit intrinsics only; every other primitive's repr is read through the
+        // provider (`ClrEnv.TryPrimitiveRepr`), the single source of truth harvested
+        // from the dependency closure's `.fs`. `IntrinsicRepr.defaults` survives only
+        // as that lookup's bootstrap last resort (T8 step 1.2-1.4 retire it).
+        ClrProvider(ctx, tast.IntrinsicReprTypes, references, symbols, project.AssemblyName)
 
     let icodegen = provider :> ICodegenProvider
     let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals

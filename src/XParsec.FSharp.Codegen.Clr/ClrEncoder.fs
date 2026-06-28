@@ -12,7 +12,6 @@ open XParsec.FSharp.Codegen.Common
 /// hosts the blob/signature builders that are pure `encodeType` wrappers.
 type internal ClrEncoder(env: ClrEnv) =
     let ctx = env.Ctx
-    let reprs = env.Reprs
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let userTypes = env.UserTypes
     let userValueTypes = env.UserValueTypes
@@ -34,6 +33,11 @@ type internal ClrEncoder(env: ClrEnv) =
     let eVesperList1 = env.EVesperList1
     let eFSharpList1 = env.EFSharpList1
     let eFSharpFunc2 = env.EFSharpFunc2
+
+    /// Single-sourced primitive repr (own intrinsics → provider-harvested `.fs` →
+    /// bootstrap), as an active pattern over an `FTConst` name. See
+    /// `ClrEnv.TryPrimitiveRepr`.
+    let (|PrimitiveRepr|_|) (name: string) = env.TryPrimitiveRepr name
 
     // `ValueTuple`n` handle bundles, cached by element-type list. Unlike `ctx.TypeRef`
     // (which dedups its rows), `ctx.TypeSpec` / `ctx.MemberRef` add a fresh metadata
@@ -119,11 +123,9 @@ type internal ClrEncoder(env: ClrEnv) =
         // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
         // yet, so it falls through to
         // the catch-all "cannot encode" error — the green suite proves none reaches here.
-        | FTConst(name, args) when args.IsEmpty && reprs.ContainsKey name ->
+        | FTConst((name & PrimitiveRepr repr), args) when args.IsEmpty ->
             // Key the IL type off the representation string the name maps to (`"int"` →
             // `"System.Int32"` → `i4`), not the Vesper name.
-            let repr = reprs.[name]
-
             if IntrinsicRepr.tryEncodeValueType te repr then
                 ()
             elif repr = "System.Decimal" then

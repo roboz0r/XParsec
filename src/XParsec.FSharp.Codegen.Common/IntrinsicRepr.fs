@@ -2,13 +2,15 @@ namespace XParsec.FSharp.Codegen.Common
 
 open System.Reflection.Metadata.Ecma335
 
-/// Maps Vesper primitive names to their IL representation strings (`"int"` →
-/// `"System.Int32"`). A file's `(# "..." #)` intrinsics overlay `defaults`, so
-/// retargeting a primitive is a single `.fs` edit.
+/// IL representation strings for Vesper primitives (`"int"` → `"System.Int32"`).
+/// The live source of a primitive's repr is the `(# "..." #)` of its `.fs`, read
+/// through `ClrEnv.TryPrimitiveRepr` (own-unit intrinsics, then the provider's
+/// harvested `.fs`). `defaults` below is a BOOTSTRAP-ONLY last resort that lookup
+/// falls back to — for the provider-less scaffold and the not-yet-fully-wired
+/// Vesper.Core self-build. T8 step 1.2-1.4 retire it; do not add a new consumer.
 module IntrinsicRepr =
 
-    /// `unit` is in `defaults` (not only `prim-types-min.fs`'s own intrinsics) so
-    /// packages that don't redeclare it still resolve it.
+    /// Bootstrap repr map — see the module note. NOT the primary source.
     let defaults: Map<string, string> =
         Map
             [
@@ -30,10 +32,6 @@ module IntrinsicRepr =
                 "string", "System.String"
                 "unit", "System.ValueTuple"
             ]
-
-    /// File entries win over defaults.
-    let merge (fileMap: Map<string, string>) : Map<string, string> =
-        Map.fold (fun acc k v -> Map.add k v acc) defaults fileMap
 
     /// Encode a primitive value type directly onto `te`. Returns `false` for
     /// `System.Decimal` (needs a `TypeRef` the provider holds) and unknown reprs.
