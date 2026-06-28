@@ -77,75 +77,17 @@ module JsNativeSymbols =
                 CapabilityFace = ValueNone
             }
 
-    // --- System.IEquatable<'T> / System.IComparable<'T> -------------------------
-    //
-    // The JS provider is BCL-free, so it carries no `System.IEquatable\`1` /
-    // `System.IComparable\`1`. Without them a user's `interface System.IEquatable<Self>`
-    // on a custom-equality class resolves to an unbound `TyVar`, the
-    // "is not an interface" check (`Unification.fs`) fires, and the Phase-3 custom-eq
-    // gate (`validateCustomEqCompImpls`) then reports FS0378. These interfaces are
-    // ERASED at runtime on JS (the runtime duck-types `.Equals` / `.CompareTo`
-    // presence), so they exist here as PROVIDER METADATA only — no `.mjs` artifact.
-    //
-    // Keyed by the arity-suffixed name `tryResolveExternalTypeKey` probes first for an
-    // arity-1 receiver (`System.IEquatable\`1`); the resolved nominal head's
-    // `qualifiedName` is then EXACTLY `System.IEquatable\`1` (origin namespace `System`
-    // split off, arity suffix retained) — the form the gate matches on.
-
-    let private systemOrigin: SymbolOrigin =
-        {
-            Assembly = Some RuntimeAssembly
-            Namespace = "System"
-            DeclaringType = None
-        }
+    // The capability interfaces (`System.IDisposable` / `IEquatable\`1` / `IComparable\`1`)
+    // are NO LONGER fabricated here — a BCL-spelled impl on JS now resolves through the
+    // source-level compat shim `capabilities-compat.js.fsi`, which abbreviates each BCL
+    // spelling to the canonical BCL-free `Vesper.*`. Only the ITERATION interfaces below
+    // (`IEnumerable\`1` / `IEnumerator\`1`) remain fabricated: `seq<'T>`'s abbreviation
+    // needs a shape to resolve against, and retrofitting `seq` onto the capability
+    // mechanism is out of scope.
 
     let private boolTy: FrozenType = FTConst("bool", EqArray.empty)
-    let private intTy: FrozenType = FTConst("int", EqArray.empty)
     /// The single declaring typar `'T` (axis Declaring, index 0).
     let private selfTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
-
-    /// An erased arity-1 `System` interface (`IEquatable\`1` / `IComparable\`1`) as a
-    /// single-member `ExternalTypeShape.Class`: `<memberName> : 'T -> ret`. The pair
-    /// differ only in `{name, member name, return type}`, so they share this builder.
-    /// Returns the `(qualified-name, shape)` `types`-map entry — the map key is derived
-    /// from the same `key`, so the interface name is written once, not twice.
-    let private mkErasedGenericIface
-        (name: string)
-        (memberName: string)
-        (ret: FrozenType)
-        : string * ExternalTypeShape =
-        let key = SymbolKey.TypeKey(Some RuntimeAssembly, "System", name)
-
-        let mem: ExternalMember =
-            {
-                Name = memberName
-                IsStatic = false
-                IsProperty = false
-                Signature =
-                    {
-                        DeclaringArity = 1
-                        MethodArity = 0
-                        Parameters = selfTypar
-                        Return = ret
-                    }
-                MethodArity = 0
-                Origin = systemOrigin
-                Key = SymbolKey.MemberKey(key, memberName, EqArray.empty, MemberKind.InterfaceMethod key)
-                OptionalDefaults = []
-            }
-
-        SymbolKeyOps.qualifiedName key,
-        ExternalTypeShape.Class
-            {
-                Arity = 1
-                IsInterface = true
-                Members = [| mem |]
-                FrozenInterfaces = [||]
-                FrozenBaseType = ValueNone
-                Flags = ExternalClassFlags.Default
-                Origin = systemOrigin
-                CapabilityFace = ValueNone
-            }
 
     // --- System.Collections.Generic.IEnumerable<'T> / IEnumerator<'T> -----------
     //
@@ -212,7 +154,7 @@ module JsNativeSymbols =
 
     /// Pair an erased class-interface shape with the map key DERIVED from its head
     /// `SymbolKey` (`SymbolKeyOps.qualifiedName`), so the qualified-name string is never
-    /// re-spelled — the same derive-don't-duplicate pattern `mkErasedGenericIface` uses.
+    /// re-spelled.
     let private erasedClassEntry (key: SymbolKey) (shape: ExternalTypeShape) : string * ExternalTypeShape =
         SymbolKeyOps.qualifiedName key, shape
 
@@ -255,36 +197,17 @@ module JsNativeSymbols =
                     (FTClass(ienumeratorKey, EqArray.ofSeq [ selfTypar ]))
             |]
 
-    // `System.IDisposable` — the disposal capability surface, the NON-GENERIC analogue
-    // of the erased interfaces above. A Vesper class implementing `disposable` writes
-    // `interface System.IDisposable with member this.Dispose() = …`; this shape lets the
-    // BCL-free JS provider accept that impl (interface-ness + conformance), and the
-    // codegen routes the matched `Dispose` to a native `[Symbol.dispose]()` method.
-    // `CapabilityIds.Disposable` resolves to `System.IDisposable` off the `disposable`
-    // intrinsic (`capabilities.js.fs`), so the match keys on this exact name.
-    let private idisposableKey: SymbolKey =
-        SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IDisposable")
-
-    /// `System.IDisposable` — the single `Dispose(): unit` member. The non-generic
-    /// (arity 0) sibling of the erased interfaces above, built through the same helpers.
-    let private idisposableShape: ExternalTypeShape =
-        mkErasedClassIface
-            0
-            systemOrigin
-            [| mkIfaceMember systemOrigin 0 idisposableKey "Dispose" false unitTy unitTy |]
-
-    /// The JS-native type table, keyed by the compiled name resolution probes:
-    /// `Error` by bare global name, the generic interfaces by their arity-suffixed
-    /// qualified name.
+    /// The JS-native type table. `Error` is keyed by its bare global name; the
+    /// iteration interfaces by their arity-suffixed qualified name (the form
+    /// `tryResolveExternalTypeKey` probes). The capability interfaces
+    /// (`System.IDisposable` / `IEquatable\`1` / `IComparable\`1`) are deliberately
+    /// ABSENT — they resolve through the `capabilities-compat.js.fsi` source shim.
     let private types: Map<string, ExternalTypeShape> =
         Map
             [
                 "Error", errorShape
-                mkErasedGenericIface "IEquatable`1" "Equals" boolTy
-                mkErasedGenericIface "IComparable`1" "CompareTo" intTy
                 erasedClassEntry ienumerableKey ienumerableShape
                 erasedClassEntry ienumeratorKey ienumeratorShape
-                erasedClassEntry idisposableKey idisposableShape
             ]
 
     /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.

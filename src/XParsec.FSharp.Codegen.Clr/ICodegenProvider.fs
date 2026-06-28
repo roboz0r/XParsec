@@ -52,12 +52,10 @@ type CtorRecipe = { Handle: EntityHandle; ArgCount: int }
 /// `ItemFields`; the type encoder needs only the `TypeSpec` shape, which
 /// `encodeType` builds itself.
 ///
-/// Arity 2–7 is the flat `ValueTuple`n<t0…t_{n-1}>` — `ItemFields` holds all
-/// `Item1…Itemn` and `Rest` is `ValueNone`. Arity ≥ 8 is the standard .NET
-/// nesting: `ValueTuple`8<t0…t6, TRest>` where `TRest` is itself the tuple of
-/// the residual elements, recursively. There `ItemFields` holds only `Item1…
-/// Item7` (the directly-stored slots), `Ctor` takes 8 args (the 7 elements +
-/// the nested `TRest` value), and `Rest` carries the `Rest` field ref plus the
+/// Arity 2–7 is the flat `ValueTuple`n` — `ItemFields` holds all `Item1…Itemn`,
+/// `Rest` is `ValueNone`. Arity ≥ 8 is the standard .NET nesting `ValueTuple`8<t0
+/// …t6, TRest>`: `ItemFields` holds only `Item1…Item7`, `Ctor` takes 8 args (7
+/// elements + the nested `TRest`), and `Rest` carries the `Rest` field plus the
 /// `Nested` handles for chasing element indices ≥ 7.
 type ValueTupleHandles =
     {

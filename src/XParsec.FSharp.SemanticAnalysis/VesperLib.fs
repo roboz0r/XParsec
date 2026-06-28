@@ -1413,18 +1413,14 @@ module VesperLib =
                 let short = shortNameOfTypeName lexed input typeName
                 let isIntrinsic = ctx.IntrinsicBaseReprs.ContainsKey short
 
-                // `canon` is the `.fsi` name itself — the platform-invariant front-end
-                // identity that drives `canonName`. Whether this `extern` is a primitive
-                // at all is decided by the BASE `.fs` `(# … #)` companion
-                // (`IntrinsicBaseReprs`), NOT the per-target repr — so a target that omits
-                // a primitive (`decimal` ships no `.js.fs`) still publishes it as an
-                // `Intrinsic` and keeps its `canon` identity, just with `platform = None`
-                // ("no representation on this target"). The `platform` face itself is the
-                // compiling target's `(# … #)` repr (`IntrinsicReprs`). `arity` rides along
-                // (NOT always 0): the structural constructors are intrinsics too
-                // (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is representable by
-                // construction, so `PlatformTypes` only treats a `platform = None` as fatal
-                // when `arity = 0` — see the shape's docs.
+                // `short` (the `.fsi` name) is the platform-invariant `canon` face;
+                // intrinsic-ness is decided by the BASE `.fs` companion
+                // (`IntrinsicBaseReprs`), so a target that omits a primitive's repr still
+                // publishes it as an `Intrinsic` with `platform = None`. The `platform`
+                // face is the compiling target's `(# … #)` repr (`IntrinsicReprs`).
+                // `arity` rides along (the structural constructors `'T []`/`byref` are
+                // intrinsics of arity ≥ 1); `PlatformTypes` treats `platform = None` as
+                // fatal only when `arity = 0`.
                 let registerIntrinsic () =
                     let platform =
                         match ctx.IntrinsicReprs.TryGetValue short with
@@ -1442,14 +1438,11 @@ module VesperLib =
                         extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
                     elif bodyIsInterface elems then
                         // DUAL-FACED capability interface (`type disposable = extern with
-                        // abstract member …`, whose `.fs` ALSO binds `(# "System.IDisposable" #)`):
-                        // an interface member surface AND a platform face. Register the Class
-                        // (members + interface-ness), then attach the platform face from the
-                        // repr so it reconciles to its BCL spelling exactly as an `Intrinsic`
-                        // does (the reverse-canon builder reads `CapabilityFace`). A target
-                        // whose `.fs` omits the repr (JS, no `.js.fs` entry) finds no platform
-                        // here and leaves `CapabilityFace = ValueNone`, so the canonical
-                        // identity stands and the JS anchor falls to the backend symbol table.
+                        // abstract member …` whose `.fs` ALSO binds `(# "System.IDisposable" #)`):
+                        // register the Class (members + interface-ness), then attach the
+                        // platform face from the repr so it reconciles to its BCL spelling as
+                        // an `Intrinsic` does. A target whose `.fs` omits the repr (JS) leaves
+                        // `CapabilityFace = ValueNone`, so the canonical identity stands.
                         extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
 
                         match ctx.IntrinsicReprs.TryGetValue short with
@@ -1465,10 +1458,17 @@ module VesperLib =
                         | _ -> ()
                     else
                         // A CONCRETE (non-interface) member surface on an intrinsic primitive
-                        // (`type string = extern with member …`, the StringIntrinsics
-                        // migration) is still deferred — the `Intrinsic` shape carries no
-                        // member slots and flipping `string` to a `Class` would lose its
-                        // primitive identity. Fail loud + keep it `Intrinsic`.
+                        // (`type string = extern with member …`) is deferred — the `Intrinsic`
+                        // shape carries no member slots and flipping `string` to a `Class`
+                        // would lose its primitive identity. Fail loud + keep it `Intrinsic`.
+                        //
+                        // DURABLE INVARIANT: the `(# … #)` repr is for structurally inert
+                        // leaves — a name deferring wholesale to a platform TYPE (`int`/`exn`).
+                        // The dual-faced capability INTERFACE arm above is the one admitted
+                        // exception (it still names a real platform type). A concrete member
+                        // surface asks the repr to carry value-bearing structure, which it
+                        // cannot mean — this rejection fences the repr, it is not a missing
+                        // feature to route around.
                         ctx.Diagnostics.Add(
                             file,
                             sprintf

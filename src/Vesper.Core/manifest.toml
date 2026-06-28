@@ -50,6 +50,15 @@ files = [
     "int-comparison.fsi",
 ]
 
+# JS-only EXTRA contract files, APPENDED to `files` for the JS target by
+# `ReferencedProject.resolveExtraFiles` (append, unlike `impl-js`'s REPLACE). The
+# capability compat shim maps the BCL interface spellings to the canonical BCL-free
+# capabilities so ported source resolves on JS. Extracted after `capabilities.fsi` so
+# its RHS (`Vesper.disposable`) is already in the registry.
+files-js = [
+    "capabilities-compat.js.fsi",
+]
+
 # The `.fs` files compiled into Vesper.Core.dll (the package's runtime DLL). These
 # define the extern primitive types bound to `(# "..." #)` intrinsics (`Fun`, `unit`,
 # `int`, array, …) and the captured-mutable `Ref` cell — the actual emitted members.

@@ -59,6 +59,11 @@ module ReferencedProject =
             /// inline-splice source; resolved by `resolveInlineBodies`, falling back
             /// to the base `InlineBodies`.
             InlineBodiesOverrides: Map<string, string list>
+            /// Per-target EXTRA contract `.fsi` files APPENDED to `Files` for a target
+            /// (`files-<t>`), keyed by suffix. Unlike `ImplOverrides` (which REPLACE), these
+            /// APPEND after the base contract. Used by the JS capability compat shim
+            /// (`capabilities-compat.js.fsi`). Resolved by `resolveExtraFiles`.
+            FilesOverrides: Map<string, string list>
             /// Per-target runtime *asset* modules: every `runtime-<t>` key (e.g.
             /// `runtime-js`), keyed by the bare suffix `<t>`. Unlike `Impl` /
             /// `InlineBodies` these are NOT `.fsi`/`.fs` sources the front end parses
@@ -123,6 +128,15 @@ module ReferencedProject =
         | Some t -> m.InlineBodiesOverrides |> Map.tryFind t |> Option.defaultValue m.InlineBodies
         | None -> m.InlineBodies
 
+    /// Resolve the per-target EXTRA `.fsi` files appended to `Files` (`files-<t>`).
+    /// APPEND semantics (contrast `resolveImpl`'s REPLACE), so a shim may reference a
+    /// base-declared type — the JS compat abbreviations name `Vesper.disposable` from
+    /// the base `capabilities.fsi`. `None` / no `files-<t>` key appends nothing.
+    let resolveExtraFiles (target: string option) (m: Manifest) : string list =
+        match target with
+        | Some t -> m.FilesOverrides |> Map.tryFind t |> Option.defaultValue []
+        | None -> []
+
     /// Resolve the `runtime-<t>` asset-module file list for a target suffix. Unlike
     /// `resolveImpl` / `resolveInlineBodies` there is NO base list — a runtime asset
     /// (the JS `.mjs`) is inherently target-specific — so an absent key (or `None`)
@@ -178,6 +192,7 @@ module ReferencedProject =
                             // by the *backend* (`resolveImpl`/`resolveInlineBodies`).
                             ImplOverrides = collectOverrides core "impl"
                             InlineBodiesOverrides = collectOverrides core "inline-bodies"
+                            FilesOverrides = collectOverrides core "files"
                             RuntimeOverrides = collectOverrides core "runtime"
                         }
 
@@ -517,7 +532,10 @@ module ReferencedProject =
                         ctx.IntrinsicReprs.[k] <- v
             | Some _ -> ()
 
-            for rel in manifest.Files do
+            // Base contract files, then this target's APPENDED shim files (`files-<t>`),
+            // so a shim's RHS (`Vesper.disposable`) is already in the registry. Base / CLR
+            // appends nothing; harvest (above) is unaffected — a compat `.fsi` has no `.fs`.
+            for rel in manifest.Files @ resolveExtraFiles target manifest do
                 let file: VesperLib.LibFile =
                     {
                         BucketName = manifest.Name

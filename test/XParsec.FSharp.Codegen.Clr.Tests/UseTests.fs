@@ -2,8 +2,12 @@ module XParsec.FSharp.Codegen.Clr.Tests.UseTests
 
 open System
 open Expecto
+open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+
+let private errors (tast: TastFile) =
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
 // B-5 backend tests. `use x = e in body` lowers to `let x = e in try body
 // finally if x <> null then x.Dispose()`: the IL-IR exception region (H5) wraps
@@ -38,6 +42,37 @@ let useTests =
                         ]
 
                 let _, artifact = compileSource "UseDispose" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "body\ndisposed"
+                    "body runs, then Dispose() in the finally"
+            }
+
+            test "canonical BCL-free `interface disposable` resolves, emits System.IDisposable, and `use` disposes it" {
+                // Platform-independence slice 5: authoring the capability by its canonical
+                // BCL-free name (`interface disposable`, not `interface System.IDisposable`).
+                // Resolves, emits a real `System.IDisposable` interface row (the canon→platform
+                // reconciliation in `ClrEnv.externalClassRef`), and `use` recognises + disposes
+                // it — identical observable behaviour to the BCL-spelled form.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Res() ="
+                            "    interface disposable with"
+                            "        member this.Dispose () = printfn \"disposed\""
+                            "let run () ="
+                            "    use r = Res()"
+                            "    printfn \"body\""
+                            "run ()"
+                        ]
+
+                let tast, artifact = compileSource "UseDisposeCanonical" src
+                Expect.isEmpty (errors tast) "no analysis errors: `use` accepts the canonical disposable"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

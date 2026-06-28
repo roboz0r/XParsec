@@ -61,11 +61,9 @@ module EmitPattern =
         | other -> failwithf "Emit: expected a tuple type, got: %A" other
 
     /// Emit the `ldfld` chain that reads element `index` of a `ValueTuple` value
-    /// already on the stack. For arity ≤ 7 this is a single `Item{i+1}` load; for
-    /// the nested ≥ 8 layout an index ≥ 7 first loads `Rest` (the nested tuple
-    /// value, left on the stack — `ldfld` reads a struct field directly off the
-    /// value) then chases the residual index into it, recursively — index 7 is the
-    /// Rest slot.
+    /// already on the stack. Arity ≤ 7 is a single `Item{i+1}` load; in the nested
+    /// ≥ 8 layout an index ≥ 7 loads `Rest` then chases the residual index into the
+    /// nested tuple, recursively.
     let rec emitTupleItemLoad (b: IlBuilder) (refs: ValueTupleHandles) (index: int) : unit =
         match refs.Rest with
         | ValueSome rest when index >= 7 ->

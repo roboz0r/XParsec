@@ -224,21 +224,31 @@ module RuntimeNames =
             cns = ns && SymbolKeyOps.bareName cn = SymbolKeyOps.bareName n
         | _ -> false
 
-    /// One resolved capability identity: just the canonical `SymbolKey`. Identity is
-    /// the key, and the single recognition semantics is asm-blind structural match
-    /// (`sameTypeAsmBlind`) — `Matches` for a consumer holding a `SymbolKey`,
-    /// `MatchesName` for one holding a compiled qualified interface-name string (it
-    /// mints the key and delegates). The former second stored projection
-    /// (`QualifiedName`) and its exact-string `MatchesName` are gone: a name-keyed
-    /// consumer is now an adapter over the one `Key`, so the two faces can never drift.
+    /// One resolved capability identity, recognised by asm-blind structural match
+    /// (`sameTypeAsmBlind`), against EITHER of up to two faces so both spellings an
+    /// interface impl can take dispatch:
+    ///   * `Key` — the PLATFORM / BCL face (`System.IDisposable`): what a metadata or
+    ///     BCL-spelled impl freezes to.
+    ///   * `CanonKey` — the BCL-FREE canonical face (`Vesper.disposable`): what a
+    ///     canonically-authored `interface disposable` freezes to.
+    /// `CanonKey` is `ValueNone` for a single-faced anchor — `seq`/enumerable, and every
+    /// capability on JS, where `Key` IS the canonical face and a BCL-spelled impl is
+    /// folded to it by the `capabilities-compat.js.fsi` shim before it freezes.
     type CapabilityIdentity =
         {
             Key: SymbolKey
+            CanonKey: SymbolKey voption
         }
 
-        /// Asm-blind key match (same namespace + bare name) — the `SymbolKey`-keyed
-        /// consumers.
-        member this.Matches(k: SymbolKey) : bool = sameTypeAsmBlind this.Key k
+        /// Asm-blind key match (same namespace + bare name) against EITHER face — the
+        /// `SymbolKey`-keyed consumers.
+        member this.Matches(k: SymbolKey) : bool =
+            sameTypeAsmBlind this.Key k
+            || (
+                match this.CanonKey with
+                | ValueSome ck -> sameTypeAsmBlind ck k
+                | ValueNone -> false
+            )
 
         /// Match a compiled qualified interface-name string (arity-suffixed, e.g.
         /// `System.Collections.Generic.IEnumerable\`1`) by minting its key and
@@ -253,6 +263,12 @@ module RuntimeNames =
     /// the FS0378 custom-eq/comp conformance check. Each is a `voption`: a provider
     /// that does not name a capability resolves it to `ValueNone` (resolve-on-use,
     /// §5.4) — never a hardcoded BCL fallback, so the passes carry zero CLR identities.
+    ///
+    /// The capability set is **closed by construction** — a FIXED RECORD, not an open
+    /// registry. Adding one is a deliberate edit (a field here, a `resolveCapabilities`
+    /// line, the recognizer(s), and on JS a `EmitJsTypes` protocol row), never
+    /// data-driven extension: a capability is a language-semantics judgment, so it
+    /// belongs in the type system, not a config table.
     type CapabilityIds =
         {
             Enumerable: CapabilityIdentity voption

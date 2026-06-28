@@ -66,6 +66,36 @@ let useTests =
                     Expect.equal out "body\ndisposed" "body runs, then [Symbol.dispose]() in the finally"
             }
 
+            test "canonical BCL-free `interface disposable` emits [Symbol.dispose] and `use` disposes it under Node" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Res() ="
+                            "    interface disposable with"
+                            "        member this.Dispose () = printfn \"disposed\""
+                            "let run () ="
+                            "    use r = Res()"
+                            "    printfn \"body\""
+                            "run ()"
+                        ]
+
+                let js = emitJs src
+
+                Expect.stringContains
+                    js
+                    "[Symbol.dispose]() {"
+                    "canonical disposable emits a native [Symbol.dispose] method"
+
+                Expect.stringContains js "r[Symbol.dispose]()" "use disposes via Symbol.dispose"
+
+                match runJs "js-use-dispose-canonical" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "body\ndisposed" "canonical interface disposable runs under Node"
+            }
+
             test "`use _ = e` disposes the binder even though the body can't name it" {
                 // A wildcard `use` binder (`use _ = …`, the RAII-guard form): the value is
                 // still parked in a fresh `_use<tok>` local and disposed in the finally, but

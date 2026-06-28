@@ -324,17 +324,14 @@ type ExternalClassFlags =
         }
 
 /// The two faces of a **dual-faced capability interface** — a `Class` that, like
-/// `ExternalTypeShape.Intrinsic`, reconciles to a per-target platform type while
-/// ALSO publishing a member surface (so a Vesper type can author `interface
-/// disposable` BCL-free, yet a metadata type implementing `System.IDisposable`
-/// still matches). `Canon` is the platform-invariant `.fsi` short name
-/// (`"disposable"`); `Platform` is the per-target repr the `.fs` `(# … #)`
-/// companion binds (`"System.IDisposable"` on CLR). The reverse-canon builder
-/// emits `{ Platform -> Canon }` (`TyparCapture.fs`) exactly as it does for an
-/// `Intrinsic`, so `disposable` reconciles by the same `exn === System.Exception`
-/// path; `resolveCapabilities` / codegen read the `Platform` face. Carried only on
-/// a target whose `.fs` binds the repr (CLR); `ValueNone` on JS, where the
-/// capability's anchor is the backend symbol table, not a platform type.
+/// `ExternalTypeShape.Intrinsic`, reconciles to a platform type while ALSO
+/// publishing a member surface (so a Vesper type can author `interface disposable`
+/// BCL-free, yet a metadata type implementing `System.IDisposable` still matches).
+/// `Canon` is the `.fsi` short name (`"disposable"`); `Platform` is the `.fs`
+/// `(# … #)` repr (`"System.IDisposable"`). The reverse-canon builder emits
+/// `{ Platform -> Canon }` just as for an `Intrinsic`, so it reconciles by the same
+/// `exn === System.Exception` path. Carried only on a target whose `.fs` binds the
+/// repr (CLR); `ValueNone` on JS, where the anchor is the backend symbol table.
 type CapabilityPlatformFace = { Canon: string; Platform: string }
 
 /// The shape of an external class or interface. Lifted out of `ExternalTypeShape.Class`
@@ -510,6 +507,15 @@ type InlineBody =
         ParamAttrs: ParamAttrs[]
     }
 
+/// A mechanical metadata / contract ORACLE: members, interfaces, type shapes,
+/// intrinsic reprs. By design it carries **no capability predicates** — no
+/// `IsDisposable` / `IsEquatable` here, and there must never be. "Is this type
+/// disposable?" is a language-semantics judgment the passes derive from the raw
+/// facts (`FrozenInterfaces`, `Members`) against the resolved `CapabilityIds`;
+/// folding the verdict in would smuggle a language decision into the metadata layer.
+/// The provider's *data* may grow; its *interface* stays a dumb oracle — the absence
+/// of those members IS the constraint, do not add them.
+///
 /// **Thread-safety:** `TryLookup` and `TryLookupType` must be safe to call
 /// concurrently from multiple threads. Implementations that cache lazily must
 /// guard their internal mutation. Per-file pipelines run independent
@@ -705,33 +711,43 @@ module ExternalSymbols =
     /// surfaces a resolve-on-use diagnostic or treats it as a non-match.
     ///
     /// Two resolution shapes:
-    ///   * `disposable`/`equatable`/`comparable` are dedicated `extern` anchors
-    ///     (`capabilities.fsi`) whose per-target `.fs` repr makes the provider surface
-    ///     an `Intrinsic` carrying the interface fqn as its `platform` face — the same
-    ///     per-target reconciliation `exn === System.Exception` rides. The fqn already
-    ///     carries the metadata backtick-arity suffix, so the key is minted with arity 0
-    ///     (`qualifiedTypeKeyOf None fqn 0`): `bareName` strips the suffix for the
-    ///     asm-blind `CapabilityIdentity.Matches` recognition (the name-keyed
-    ///     consumers re-mint the same key from their interface-name string).
-    ///   * Enumerable has no dedicated anchor — iteration already has the language type
-    ///     `seq<'T>` (`Vesper.Core/capabilities.fsi`, in the `Vesper.Collections`
-    ///     namespace, an abbreviation for `IEnumerable<'T>`), so its identity is read off
-    ///     that abbreviation's resolved head (an `FTClass` carrying the `IEnumerable`1`
-    ///     key) rather than a redundant intrinsic. `seq` lives in `Vesper.Core` (not
-    ///     `Vesper.List`) precisely so this resolution isn't circular when building
-    ///     `Vesper.List` itself; since `Vesper.Core` is effectively always referenced it
-    ///     resolves whenever the contract is in scope. Still only a fallback — `for-in`
+    ///   * `disposable`/`equatable`/`comparable` are dedicated anchors
+    ///     (`capabilities.fsi`) — see `resolveAnchor` for the dual/single-faced cases.
+    ///     The key is minted with arity 0 because the fqn already carries the metadata
+    ///     backtick-arity suffix, which `bareName` strips for asm-blind recognition.
+    ///   * Enumerable has no dedicated anchor — iteration already has `seq<'T>` (an
+    ///     abbreviation for `IEnumerable<'T>`), so its identity is read off that
+    ///     abbreviation's resolved head. `seq` lives in `Vesper.Core` (not `Vesper.List`)
+    ///     so this isn't circular when building `Vesper.List`. Only a fallback — `for-in`
     ///     resolution is structural-primary, so a `ValueNone` here is harmless (§5.1).
     let resolveCapabilities (provider: IExternalSymbolProvider) : RuntimeNames.CapabilityIds =
         let ofKey (key: SymbolKey) : RuntimeNames.CapabilityIdentity =
             {
                 RuntimeNames.CapabilityIdentity.Key = key
+                RuntimeNames.CapabilityIdentity.CanonKey = ValueNone
             }
 
-        let resolveIntrinsic (lookup: string) : RuntimeNames.CapabilityIdentity voption =
+        // Mint a capability's identity from its anchor. A dual-faced `Class` carries the
+        // PLATFORM face (`System.IDisposable`) as `Key` — what a metadata or BCL-spelled
+        // impl freezes to — and the canonical face as `CanonKey` — what `interface
+        // disposable` freezes to; both spellings then dispatch. The single-faced `Class`
+        // case (JS, no `(# … #)` repr) has only the canonical key: there is no BCL
+        // spelling to reconcile, and a BCL-spelled impl is folded to the canonical `Class`
+        // up front by the `capabilities-compat.js.fsi` shim. The `Intrinsic` arm covers
+        // any build whose anchor is still a bare `extern`.
+        let resolveAnchor (lookup: string) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic(platform = Some fqn)) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
+            | ValueSome(ExternalTypeShape.Class { CapabilityFace = ValueSome face }) ->
+                ValueSome
+                    {
+                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None face.Platform 0
+                        RuntimeNames.CapabilityIdentity.CanonKey =
+                            ValueSome(SymbolKeyOps.qualifiedTypeKeyOf None lookup 0)
+                    }
+            | ValueSome(ExternalTypeShape.Class { CapabilityFace = ValueNone }) ->
+                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None lookup 0))
             | _ -> ValueNone
 
         // Read the abbreviation's resolved nominal head key (`seq<'T>` → the
@@ -744,9 +760,9 @@ module ExternalSymbols =
 
         {
             Enumerable = resolveAbbrevHead "Vesper.Collections.seq`1"
-            Disposable = resolveIntrinsic "Vesper.disposable"
-            Equatable = resolveIntrinsic "Vesper.equatable`1"
-            Comparable = resolveIntrinsic "Vesper.comparable`1"
+            Disposable = resolveAnchor "Vesper.disposable"
+            Equatable = resolveAnchor "Vesper.equatable`1"
+            Comparable = resolveAnchor "Vesper.comparable`1"
         }
 
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →

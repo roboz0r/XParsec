@@ -1293,15 +1293,15 @@ let tests =
             }
 
             test "extern-with-abstract-member extracts as an interface Class carrying its member surface" {
-                // Capability slice 1 (platform-independence §4): the BCL-free neutral
-                // surface `type disposable = extern with abstract member Dispose : unit ->
-                // unit` extracts to a `Class{IsInterface=true}` carrying `Dispose`, when NO
-                // `(# … #)` repr is present (isIntrinsic=false → the `not isIntrinsic` bodied
-                // arm at VesperLib.fs:1417 runs `extractBodiedClassLike`). The member-surface
-                // half of a BCL-free capability is therefore free; the remaining slice-1 work
-                // is the per-target IDENTITY (which a `.fs` abbreviation does NOT supply —
-                // the `.fs` is harvested only for `(# … #)`, and extractSymbols runs only on
-                // the `.fsi`; see §4.5 Premise 1).
+                // The BCL-free neutral capability surface `type disposable = extern with
+                // abstract member Dispose : unit -> unit` extracts to a
+                // `Class{IsInterface=true}` carrying `Dispose`, when NO `(# … #)` repr is
+                // present (isIntrinsic=false → the `not isIntrinsic` bodied arm in
+                // `VesperLib.extractTypeSig` runs `extractBodiedClassLike`). The member-surface
+                // half of a BCL-free capability is therefore free; the per-target IDENTITY is
+                // supplied separately (a `.fs` `(# … #)` repr → `CapabilityFace` on CLR, the
+                // `capabilities-compat.js.fsi` shim on JS — NOT a plain `.fs` abbreviation,
+                // which is harvested only for `(# … #)` while extraction runs only on `.fsi`).
                 let input =
                     "namespace Vesper\n\ntype disposable = extern with\n    abstract member Dispose : unit -> unit\n"
 
@@ -1358,18 +1358,20 @@ let tests =
                 | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
             }
 
-            test "dual-faced capability interface: extern-with-abstract-member + (# … #) repr → Class carrying platform face + reverse-canon" {
-                // Slice 1 (platform-independence §4.6). A capability anchor whose `.fsi`
-                // declares an interface member surface AND whose `.fs` binds a platform
-                // type (`type disposable = (# "System.IDisposable" #)`) must extract to ONE
-                // dual-faced shape: a `Class{IsInterface=true}` with the member surface PLUS
-                // a `CapabilityFace` carrying `(canon, platform)`, so it reconciles to its
-                // BCL spelling by the same path `exn === System.Exception` rides — the
-                // reverse-canon folds `System.IDisposable -> disposable`. (Synthetic: the
-                // `(# … #)` repr is seeded directly into the harvest dicts, mirroring the
-                // CLR build where the base `.fs` repr seeds both `IntrinsicBaseReprs` — the
-                // primitive marker that makes `isIntrinsic` true — and `IntrinsicReprs`, the
-                // platform face. The real `capabilities.fsi` flip is slice 2.)
+            test
+                "dual-faced capability interface: extern-with-abstract-member + (# … #) repr → Class carrying platform face + reverse-canon" {
+                // A capability anchor whose `.fsi` declares an interface member surface AND
+                // whose `.fs` binds a platform type (`type disposable = (# "System.IDisposable"
+                // #)`) must extract to ONE dual-faced shape: a `Class{IsInterface=true}` with
+                // the member surface PLUS a `CapabilityFace` carrying `(canon, platform)`, so
+                // it reconciles to its BCL spelling by the same path `exn === System.Exception`
+                // rides — the reverse-canon folds `System.IDisposable -> disposable`. This is
+                // the CLR build's shape; on JS the `.fs` omits the repr, so `CapabilityFace` is
+                // `ValueNone` and the canonical identity stands (see the compat-shim path).
+                // (Synthetic: the `(# … #)` repr is seeded directly into the harvest dicts,
+                // mirroring the CLR build where the base `.fs` repr seeds both
+                // `IntrinsicBaseReprs` — the primitive marker that makes `isIntrinsic` true —
+                // and `IntrinsicReprs`, the platform face.)
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
@@ -1414,7 +1416,8 @@ let tests =
 
                     match found with
                     | ValueSome k -> k
-                    | ValueNone -> failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                    | ValueNone ->
+                        failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.Class shape ->
@@ -1438,6 +1441,69 @@ let tests =
                 match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
                 | Some canon -> Expect.equal canon "disposable" "reverse-canon folds System.IDisposable -> disposable"
                 | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
+            }
+
+            test "CONCRETE member surface on an intrinsic primitive is rejected (the inert-leaf guardrail fires)" {
+                // DURABLE INVARIANT (VesperLib.extractTypeSig): the `(# … #)` type-repr is for
+                // structurally INERT leaves; the dual-faced capability INTERFACE arm is the one
+                // admitted exception. A CONCRETE (non-interface) member surface over an intrinsic
+                // repr asks the repr to carry value-bearing structure it cannot mean, and MUST be
+                // rejected with a diagnostic + the shape kept `Intrinsic` (never silently flipped
+                // to a `Class`). This test pins that the guardrail FIRES — guarding against a
+                // future change that routes a concrete member surface through the interface arm.
+                let ctx = VesperLib.ExtractCtx.empty ()
+                // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
+                ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
+                ctx.IntrinsicReprs.["widget"] <- "System.Widget"
+
+                // A CONCRETE instance member (`member M`), NOT `abstract member` → bodyIsInterface
+                // is false, so the concrete-member guardrail arm runs.
+                let input =
+                    "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n"
+
+                let lexed =
+                    match Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ast =
+                    let reader = Reader.ofLexed lexed input Set.empty
+
+                    match FSharpAst.parseSignature reader with
+                    | Result.Error e -> failtestf "parse failed: %A" e
+                    | Result.Ok ast -> ast
+
+                let parsed: VesperLibManifest.ParsedFile =
+                    {
+                        File =
+                            {
+                                BucketName = "Vesper"
+                                Relative = "prim-types-widget.fsi"
+                                Absolute = "prim-types-widget.fsi"
+                            }
+                        Input = input
+                        Lexed = lexed
+                        Ast = ast
+                    }
+
+                VesperLib.extractSymbols ctx parsed
+
+                // The guardrail fired: a diagnostic naming the concrete-member rejection.
+                let fired =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun (_, msg) -> msg.Contains "concrete member surface on an intrinsic primitive")
+
+                Expect.isTrue fired "the concrete-member-on-intrinsic guardrail must emit a diagnostic"
+
+                // …and the shape stayed `Intrinsic` (its primitive identity was NOT lost to a Class).
+                let key = ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget")
+
+                match key with
+                | Some k ->
+                    match ctx.TypeShapes.[k] with
+                    | ExternalTypeShape.Intrinsic _ -> ()
+                    | other -> failtestf "rejected concrete-member intrinsic must stay `Intrinsic`; got %A" other
+                | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
             test "`when 'T : equality` captured + applied to fresh TyVar" {

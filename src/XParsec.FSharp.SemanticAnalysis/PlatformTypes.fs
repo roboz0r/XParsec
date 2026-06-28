@@ -37,6 +37,11 @@ module PlatformTypes =
     /// over the provider's stable `AmbientOpenPrefixes` (`ExternalSymbols.tryRuntimeType`)
     /// — NOT the per-element mutable `OpenScope`, which is meaningless in this
     /// end-of-pipeline whole-file pass.
+    ///
+    /// A capability interface (`disposable` …) is a `Class`, not an `Intrinsic`, so it is
+    /// never matched here even when its `CapabilityFace` is `ValueNone` (JS): an interface
+    /// has no value representation, so "no platform repr" is correct, not a gap. Keep this
+    /// match `Intrinsic`-only — do NOT broaden it to flag interface `Class`es.
     let private isUnrepresentable (ctx: PassContext) (name: string) : bool =
         match ExternalSymbols.tryRuntimeType ctx.Provider name with
         | ValueSome(ExternalTypeShape.Intrinsic(arity = 0; platform = None)) -> true

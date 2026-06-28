@@ -133,7 +133,27 @@ module EmitJsTypes =
             Members: (string * Frozen.TTypeMember) list
         }
 
-    /// Registry-symbol keys for the eq/comp/hash JS capability protocols (plan §14.5).
+    // The JS capability protocol table — the ONE place the `caps.* → JS anchor` mapping is
+    // enumerated. The CLR/JS asymmetry made concrete: a CLR anchor is a TYPE
+    // (`System.IDisposable`) so it stays in source; a JS anchor is a SYMBOL
+    // (`Symbol.dispose`, a dispatch key) so it lives here, in the backend. Dispatch is
+    // keyed on the resolved `caps.*` identity (`partitionClassMembers`/`capMatches`).
+    //
+    //   capability | JS anchor                       | kind            | emission
+    //   -----------|---------------------------------|-----------------|---------------------------
+    //   iteration  | Symbol.iterator                 | native          | *[…]() GENERATOR (adapter)
+    //   disposal   | Symbol.dispose                  | native          | [...]() plain method
+    //   equality   | Symbol.for("vesper.equality")   | Vesper registry | [...]() plain method
+    //   comparison | Symbol.for("vesper.comparison") | Vesper registry | [...]() plain method
+    //   hashing    | Symbol.for("vesper.hash")       | Vesper registry | [...]() plain method
+    //
+    // Iteration is the only generator (the MoveNext/Current → next/{value,done} adapter);
+    // the rest are plain methods under a computed key — native well-known (`EmitJs`
+    // `symbolDispose`/`nativeSymbol`) vs registry (`registrySymbol`, from the keys below).
+    // The two shapes route by a direct `if/elif` — the bucket IS the table. `hashing` is
+    // the `override GetHashCode`, routed separately in `partitionClassMembers`.
+
+    /// Registry-symbol keys for the eq/comp/hash JS capability protocols.
     /// These three protocols have no native JS dispatch, so they ride a process-wide
     /// `Symbol.for("vesper.X")` the Vesper runtimes look up — collision-proof against a
     /// foreign object's same-named string method.
@@ -190,8 +210,8 @@ module EmitJsTypes =
         // Interface impls claim their name slot first. The capability interfaces are the
         // exceptions: an enumerable (`seq<'T>`) impl drives a native `[Symbol.iterator]`
         // generator, and an equatable (`IEquatable<Self>`) / comparable (`IComparable<Self>`)
-        // impl drives a registry-symbol `[Symbol.for("vesper.X")]` method (plan §14.5) —
-        // neither claims a string name slot.
+        // impl drives a registry-symbol `[Symbol.for("vesper.X")]` method (see the
+        // capability protocol table above) — neither claims a string name slot.
         for (iface, ifaceMembers) in interfaces do
             let isEnumerable = capMatches caps.Enumerable iface
             let isEquatable = capMatches caps.Equatable iface

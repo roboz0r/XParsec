@@ -20,27 +20,34 @@ namespace Vesper
 // even while building `List`. `seq` keeps its `Vesper.Collections` namespace, so the
 // resolver lookup and every bare `seq<'T>` reference are unchanged.
 //
-// No `extern with` member surface yet — CLR identity resolution needs only the
-// `Intrinsic` platform face (members come from metadata); the member surface is
-// JS-only work, deferred with the Intrinsic-carrying-members migration.
+// Each capability carries an `extern with abstract member …` surface: a BCL-free
+// interface a Vesper type can implement directly (`interface disposable with …`). The
+// per-target `.fs` companion ALSO binds each to its platform identity via `(# … #)`,
+// so the provider surfaces ONE dual-faced shape (the member surface PLUS a
+// `CapabilityFace` reconciling to the BCL spelling on CLR, as `exn === System.Exception`
+// does). The canonical name stays primary in the frozen TAST; the platform face drives
+// reconciliation + emission only.
 
 /// <summary>The disposal capability — anchors `use` (and `for … in` finally). On
 /// the CLI it is <see cref="T:System.IDisposable"/>.</summary>
 ///
 /// <category>Language Capabilities</category>
-type disposable = extern
+type disposable = extern with
+    abstract member Dispose: unit -> unit
 
 /// <summary>The equality capability — anchors `[<CustomEquality>]` conformance.
 /// On the CLI it is <see cref="T:System.IEquatable`1"/>.</summary>
 ///
 /// <category>Language Capabilities</category>
-type equatable<'T> = extern
+type equatable<'T> = extern with
+    abstract member Equals: 'T -> bool
 
 /// <summary>The comparison capability — anchors `[<CustomComparison>]`
 /// conformance. On the CLI it is <see cref="T:System.IComparable`1"/>.</summary>
 ///
 /// <category>Language Capabilities</category>
-type comparable<'T> = extern
+type comparable<'T> = extern with
+    abstract member CompareTo: 'T -> int
 
 namespace Vesper.Collections
 

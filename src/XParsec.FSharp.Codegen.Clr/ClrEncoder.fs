@@ -253,32 +253,30 @@ type internal ClrEncoder(env: ClrEnv) =
             // `!(d + i)` (a static-fn closure has `d = 0`, so `!i`).
             | ValueSome d -> te.GenericTypeParameter(d + i)
             | ValueNone -> te.GenericMethodTypeParameter i
-        // A tuple value is the arity-N member of the `System.ValueTuple` struct
-        // family: `ValueTuple`n<t0…t_{n-1}>`, a
-        // `VALUETYPE` generic instantiation (the `true` flag mirrors the user-struct
-        // arm). This is the single source of truth for "the .NET type of a tuple" —
-        // construction and destructuring read the same handles via
-        // `ValueTupleRefs`. The nullary `unit` case never reaches here: it encodes
-        // off its `prim-types-min` repr binding (`System.ValueTuple`) in the
-        // intrinsic arm above, so this fires only for arity ≥ 2. Arity ≥ 8 packs
-        // slots 0–6 then nests the residual tail as `ValueTuple`8`'s 8th argument
-        // (`TRest`), recursively — the standard .NET tuple scheme, index 7 is Rest.
+        // A tuple is the arity-N member of the `System.ValueTuple` struct family,
+        // a `VALUETYPE` generic instantiation (the `true` flag). `unit` never
+        // reaches here (it encodes off its intrinsic repr above). Arity ≤ 7 is the
+        // flat `ValueTuple`n`; arity ≥ 8 packs slots 0–6 then nests the residual
+        // tail in `ValueTuple`8`'s 8th arg (`TRest`) — the standard .NET scheme,
+        // index 7 is Rest. Recurse by offset into `items` to stay allocation-free.
         | FTTuple items ->
-            let rec encodeTuple (out: SignatureTypeEncoder) (elems: FrozenType[]) =
-                if elems.Length <= 7 then
-                    let g = out.GenericInstantiation(env.EValueTupleN elems.Length, elems.Length, true)
+            let rec encodeFrom (out: SignatureTypeEncoder) (start: int) =
+                let remaining = items.Length - start
 
-                    for t in elems do
-                        encodeType (g.AddArgument()) t
+                if remaining <= 7 then
+                    let g = out.GenericInstantiation(env.EValueTupleN remaining, remaining, true)
+
+                    for i in start .. items.Length - 1 do
+                        encodeType (g.AddArgument()) items.[i]
                 else
                     let g = out.GenericInstantiation(env.EValueTupleN 8, 8, true)
 
-                    for i in 0..6 do
-                        encodeType (g.AddArgument()) elems.[i]
+                    for i in start .. start + 6 do
+                        encodeType (g.AddArgument()) items.[i]
 
-                    encodeTuple (g.AddArgument()) elems.[7..]
+                    encodeFrom (g.AddArgument()) (start + 7)
 
-            encodeTuple te (items.AsSpan().ToArray())
+            encodeFrom te 0
         // A by-ref (`T&`) is legal only in parameter / return / local position,
         // where its `ELEMENT_TYPE_BYREF` prefix is emitted at the encoder seam
         // (`mintMemberRef`'s return encoder, the local-sig encoder). Reaching the

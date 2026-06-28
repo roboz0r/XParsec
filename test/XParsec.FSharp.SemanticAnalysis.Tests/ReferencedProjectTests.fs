@@ -69,6 +69,15 @@ let private builtProvider =
          | Result.Error e -> failwithf "buildProvider failed: %s" e
          | Result.Ok(provider, diags) -> provider, diags)
 
+/// The same `Vesper.Core` contract built for the JS target — no `.js.fs` capability
+/// reprs, plus the `files-js` compat shim (`capabilities-compat.js.fsi`) appended. The
+/// fixture for the single-faced-capability + BCL-compat-shim assertions.
+let private builtProviderJs =
+    lazy
+        (match ReferencedProject.buildProviderWith (Some "js") (fun _ -> ValueNone) [] vesperCoreManifest with
+         | Result.Error e -> failwithf "buildProviderWith (Some js) failed: %s" e
+         | Result.Ok(provider, diags) -> provider, diags)
+
 [<Tests>]
 let tests =
     testList
@@ -113,36 +122,88 @@ let tests =
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
-            test "the language-capability anchors resolve as Intrinsic shapes carrying their CLR repr" {
-                // commit 3b: `capabilities.fsi` declares `disposable`/`equatable`/
-                // `comparable` as bare `extern`, paired with their `capabilities.fs`
-                // `(# "<BCL interface>" #)` reprs. Each surfaces as an `Intrinsic`:
-                // `canon` is the `.fsi` short name, `platform` is the CLR interface
-                // name. The generic ones (`equatable`/`comparable`) carry the metadata
-                // backtick-arity suffix in BOTH the lookup name (`Vesper.equatable`1`,
-                // arity-suffixed compiled name) and the `platform` repr
-                // (``System.IEquatable`1``) — exactly the string the resolver matches
-                // against `instantiateInterfaces` for `disposable === System.IDisposable`
-                // reconciliation. The reverse-canon entry (`platform -> canon`) feeds
-                // `Engine.canonName`. (Iteration has no anchor here — it rides the
-                // existing `seq` abbreviation; see `ExternalSymbols.resolveCapabilities`.)
+            test "the language-capability anchors resolve as dual-faced interface Classes carrying their CLR repr" {
+                // On a CLR-target build `capabilities.fsi` declares
+                // `disposable`/`equatable`/`comparable` as `extern with abstract member …`,
+                // paired with their `capabilities.fs` `(# "<BCL interface>" #)` reprs. Each
+                // surfaces as ONE dual-faced shape: a `Class{IsInterface=true}` with the
+                // member surface PLUS a `CapabilityFace { Canon; Platform }` — `Canon` is the
+                // `.fsi` short name, `Platform` is the CLR interface name. The generic ones
+                // (`equatable`/`comparable`) carry the metadata backtick-arity suffix in BOTH
+                // the lookup name (`Vesper.equatable`1`) and the `Platform` repr
+                // (``System.IEquatable`1``) — exactly the string a metadata interface name
+                // reconciles against for `disposable === System.IDisposable`. The reverse-canon
+                // entry (`platform -> canon`) feeds `Engine.canonName`, the same path `exn`
+                // rides. (Iteration has no anchor here — it rides the existing `seq`
+                // abbreviation; see `ExternalSymbols.resolveCapabilities`.)
                 let provider, _ = builtProvider.Value
 
-                let expectIntrinsic (lookup: string) (canonExpected: string) (platformExpected: string) =
+                let expectCapability (lookup: string) (canonExpected: string) (platformExpected: string) =
                     match provider.TryLookupType lookup with
-                    | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
-                        Expect.equal canon canonExpected (sprintf "%s canon is its `.fsi` short name" lookup)
-                        Expect.equal platform platformExpected (sprintf "%s platform is its `.fs` CLR repr" lookup)
+                    | ValueSome(ExternalTypeShape.Class shape) ->
+                        Expect.isTrue shape.IsInterface (sprintf "%s is an interface Class" lookup)
+
+                        match shape.CapabilityFace with
+                        | ValueSome face ->
+                            Expect.equal face.Canon canonExpected (sprintf "%s canon is its `.fsi` short name" lookup)
+
+                            Expect.equal
+                                face.Platform
+                                platformExpected
+                                (sprintf "%s platform is its `.fs` CLR repr" lookup)
+                        | ValueNone -> failtestf "%s must carry a CapabilityFace" lookup
 
                         Expect.equal
                             (Map.tryFind platformExpected provider.IntrinsicReverseCanon)
                             (Some canonExpected)
                             (sprintf "reverse-canon maps %s -> %s" platformExpected canonExpected)
-                    | other -> failtestf "expected %s as an Intrinsic shape, got %A" lookup other
+                    | other -> failtestf "expected %s as a dual-faced Class shape, got %A" lookup other
 
-                expectIntrinsic "Vesper.disposable" "disposable" "System.IDisposable"
-                expectIntrinsic "Vesper.equatable`1" "equatable" "System.IEquatable`1"
-                expectIntrinsic "Vesper.comparable`1" "comparable" "System.IComparable`1"
+                expectCapability "Vesper.disposable" "disposable" "System.IDisposable"
+                expectCapability "Vesper.equatable`1" "equatable" "System.IEquatable`1"
+                expectCapability "Vesper.comparable`1" "comparable" "System.IComparable`1"
+            }
+
+            test "JS build: capabilities are single-faced canonical; BCL spellings resolve through the compat shim" {
+                // The JS-target build omits the `.js.fs` capability reprs and appends the
+                // `capabilities-compat.js.fsi` shim (manifest `files-js`). So each capability
+                // surfaces SINGLE-faced — the canonical `Vesper.disposable` interface `Class`
+                // with `CapabilityFace = ValueNone` (no BCL type to reconcile to) — and the BCL
+                // spelling resolves through the shim as an ABBREVIATION to that canonical, NOT a
+                // fabricated `Class`. This is the JS half of the CLR/JS asymmetry: the contract
+                // names no BCL type; the BCL spelling is quarantined to the optional shim.
+                let provider, _ = builtProviderJs.Value
+
+                let expectSingleFaced (lookup: string) =
+                    match provider.TryLookupType lookup with
+                    | ValueSome(ExternalTypeShape.Class shape) ->
+                        Expect.isTrue shape.IsInterface (sprintf "%s is an interface Class" lookup)
+
+                        Expect.equal
+                            shape.CapabilityFace
+                            ValueNone
+                            (sprintf "%s is canonical-only on JS (no platform face)" lookup)
+                    | other -> failtestf "expected %s as a single-faced Class on JS, got %A" lookup other
+
+                expectSingleFaced "Vesper.disposable"
+                expectSingleFaced "Vesper.equatable`1"
+                expectSingleFaced "Vesper.comparable`1"
+
+                // The BCL spelling resolves through the compat shim — an Abbrev whose head is
+                // the canonical capability — so `interface System.IDisposable` records the
+                // canonical interface key on JS (the same key `caps.Disposable` resolves to).
+                let expectShimAbbrev (bcl: string) (canonQualified: string) =
+                    match provider.TryLookupType bcl with
+                    | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) ->
+                        Expect.equal
+                            (SymbolKeyOps.qualifiedName key)
+                            canonQualified
+                            (sprintf "%s shim-abbreviates to the canonical %s" bcl canonQualified)
+                    | other -> failtestf "expected %s as a compat-shim Abbrev to %s, got %A" bcl canonQualified other
+
+                expectShimAbbrev "System.IDisposable" "Vesper.disposable"
+                expectShimAbbrev "System.IEquatable`1" "Vesper.equatable`1"
+                expectShimAbbrev "System.IComparable`1" "Vesper.comparable`1"
             }
 
             test "Fun resolves (qualified) as a Class shape with a non-empty Origin" {

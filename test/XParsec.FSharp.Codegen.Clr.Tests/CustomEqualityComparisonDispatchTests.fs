@@ -49,6 +49,43 @@ let tests =
     testList
         "Phase 5 custom dispatch (CLR backend)"
         [
+            test "canonical BCL-free `interface equatable<Self>` dispatches via the real System.IEquatable<Self>" {
+                // Platform-independence slice 5: generic capability authored canonically
+                // (`interface equatable<Tagged>`, not `System.IEquatable<Tagged>`). The
+                // generic interface head reconciles canon→platform the same way (the encoder's
+                // `TypeSpecOf` resolves its head through `ClrEnv.externalClassRef`), so `=`
+                // dispatches to the user member via the real `System.IEquatable<Tagged>`.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<CustomEquality; NoComparison>]"
+                            "type Tagged(id: int, payload: int) ="
+                            "    member _.Id = id"
+                            "    member _.Payload = payload"
+                            "    override this.Equals(o: obj) = false"
+                            "    override this.GetHashCode() = id"
+                            "    interface equatable<Tagged> with"
+                            "        member this.Equals(other: Tagged) = (id = other.Id)"
+                            "let a = Tagged(1, 10)"
+                            "let b = Tagged(1, 20)"
+                            "let c = Tagged(2, 10)"
+                            "printfn \"%b\" (a = b)"
+                            "printfn \"%b\" (a = c)"
+                            "printfn \"%b\" (a = a)"
+                        ]
+
+                let tast, artifact = compileSource "CustomEqDispatchCanonical" src
+                Expect.isEmpty (errors tast) "no analysis errors: [<CustomEquality>] accepts the canonical equatable"
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "true\nfalse\ntrue"
+                    "`=` dispatches to equatable<Tagged>.Equals via the real System.IEquatable<Tagged>"
+            }
+
             test "[<CustomEquality>] class: `=` invokes the user's IEquatable<Self>.Equals (NOT structural / reference)" {
                 // `Tagged` carries two fields. The custom `Equals` compares ONLY
                 // `id`, ignoring `payload`. Two instances `Tagged(1, 10)` and

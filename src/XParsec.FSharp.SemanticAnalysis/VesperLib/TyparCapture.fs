@@ -370,16 +370,11 @@ module VesperLibTyparCapture =
             // so a metadata-surfaced BCL/native runtime name (`System.Exception`)
             // reconciles back to the front-end identity (`exn`) in `canonName`. Built
             // from the published `Intrinsic` shapes — the same source the forward
-            // `canon` axis reads — so the two can never drift. The two faces always
-            // differ for a real binding (`exn`/`System.Exception`); the guard skips a
+            // `canon` axis reads — so the two can never drift. The guard skips a
             // degenerate `canon = platform` entry (a primitive with no `.fs` repr).
-            //
-            // A **dual-faced capability interface** (`disposable`) carries the same two
-            // faces on a `Class` (its `CapabilityFace`) so it reconciles to its BCL
-            // spelling (`System.IDisposable -> disposable`) by this identical path — the
-            // `Class` ALSO publishes a member surface, but the reconciliation is the
-            // exn mechanism, unchanged. On JS the face is `ValueNone` (no platform type;
-            // the anchor is the backend symbol table), so no entry is emitted.
+            // A dual-faced capability interface (`disposable`) carries the same two faces
+            // on its `Class.CapabilityFace`, so it reconciles by the identical path; on JS
+            // the face is `ValueNone`, so no entry is emitted.
             let intrinsicReverse =
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
