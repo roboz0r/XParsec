@@ -97,15 +97,22 @@ module internal AssemblerScaffold =
 
     /// Shared assembly scaffolding for a hand-written `Main` body: module +
     /// assembly rows, a `Main` whose body comes from `build`, the `<Module>`
-    /// pseudo-type, and the holder class. The hand-written body forms no
-    /// function value / list literal / external member access, so `Vesper.Fun`
-    /// / `Vesper.List` are never needed and the symbol provider is the null one.
-    let assembleWith (project: ProjectInfo) (build: MetadataContext -> ClrProvider -> (Il -> unit)) : ClrArtifact =
+    /// pseudo-type, and the holder class. The hand-written body forms no function
+    /// value / list literal / external member access (so `Vesper.Fun` / `Vesper.List`
+    /// are never needed and `references` is empty), but it DOES name primitives —
+    /// whose reprs are read from `symbols` (the single source: the real Vesper.Core
+    /// provider the caller supplies), not a codegen-local table. Own-unit intrinsics
+    /// are empty: a hand-written body declares no `(# … #)` types of its own.
+    let assembleWith
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (build: MetadataContext -> ClrProvider -> (Il -> unit))
+        : ClrArtifact =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
         let provider =
-            ClrProvider(ctx, IntrinsicRepr.defaults, Map.empty, ExternalSymbols.nullProvider, project.AssemblyName)
+            ClrProvider(ctx, Map.empty, Map.empty, symbols, project.AssemblyName)
 
         let icodegen = provider :> ICodegenProvider
 

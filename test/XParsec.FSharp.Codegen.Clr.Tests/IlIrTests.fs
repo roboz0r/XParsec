@@ -6,10 +6,18 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Parser
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 let private dummyTok: SyntaxToken =
     SyntaxToken.virtualToken (XParsec.FSharp.Lexer.PositionedToken.Create(XParsec.FSharp.Lexer.Token.EOF, 0))
+
+/// The real Vesper.Core front-end provider, so these hand-written-IL fixtures read
+/// primitive reprs from the single source (Core's harvested `.fs`) like every other
+/// build, rather than a codegen-local table. `buildContract` caches, so this is built
+/// once across the suite.
+let private coreProvider: Lazy<IExternalSymbolProvider> =
+    lazy SymbolProviders.buildContract [ vesperCoreManifest ]
 
 // The reified IL-buffer's own unit suite (XParsec.FSharp.Codegen.Clr.IlIr). The two
 // demonstrators below stand in for the two real producers — `buildExpr` for the
@@ -102,7 +110,7 @@ let tests =
 
     let runBody (name: string) (body: ILBody) : int =
         let bytes =
-            Codegen.assembleMainEmit (ProjectInfo.defaults name) (IlIr.lower body)
+            Codegen.assembleMainEmit coreProvider.Value (ProjectInfo.defaults name) (IlIr.lower body)
             |> Codegen.toBytes
 
         let code, _ = runEntryPoint bytes
@@ -327,7 +335,7 @@ let tests =
                     IlIr.lower b.Body il
 
                 let bytes =
-                    Codegen.assembleMainEmitWithProvider (ProjectInfo.defaults "IrTryCatch") buildBody
+                    Codegen.assembleMainEmitWithProvider coreProvider.Value (ProjectInfo.defaults "IrTryCatch") buildBody
                     |> Codegen.toBytes
 
                 let code, _ = runEntryPoint bytes

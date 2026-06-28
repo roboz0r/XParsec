@@ -82,14 +82,22 @@ module Codegen =
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies, independent of any
     /// TAST.
-    let assembleMainEmit (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
-        AssemblerScaffold.assembleWith project (fun _ _ -> build)
+    let assembleMainEmit
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (build: Il -> unit)
+        : ClrArtifact =
+        AssemblerScaffold.assembleWith symbols project (fun _ _ -> build)
 
     /// Provider-aware variant: the build callback sees the wired
     /// `ICodegenProvider` so the test seam can reference BCL primitives without
     /// setting up a TAST.
-    let assembleMainEmitWithProvider (project: ProjectInfo) (build: ICodegenProvider -> Il -> unit) : ClrArtifact =
-        AssemblerScaffold.assembleWith project (fun _ provider il -> build (provider :> ICodegenProvider) il)
+    let assembleMainEmitWithProvider
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (build: ICodegenProvider -> Il -> unit)
+        : ClrArtifact =
+        AssemblerScaffold.assembleWith symbols project (fun _ provider il -> build (provider :> ICodegenProvider) il)
 
     /// The serialised PE bytes.
     let toBytes (artifact: ClrArtifact) : byte[] = Materialise.toBytes artifact
