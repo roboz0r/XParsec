@@ -1187,5 +1187,13 @@ deferred. Also `List`'s `.fsi` `interface IEnumerable` is **vestigial today**:
     leaves the abbreviation unexpanded (`Cons` field freezes to `FTConst("list")`, codegen
     encode failure).
 
-5. **Records (follow-up).** Thread `ext` into `tryRecordType` + `registerRecordMembers`; reuse
-   everything; the record's single `JsStatement.Class` needs no new emission shape.
+5. **Records — DONE (`6c3b472b`).** A record implements an interface front-to-back on both
+   targets (`(r :> IRank).Rank()` dispatches at runtime, CLR + JS). ~90% reuse of the union
+   machinery; records just needed the member-registration plumbing added (`registerRecordMembers`/
+   `fillRecordMembers`/`walkRecordBodies`, `tryRecordType` takes `ext`). Plus a general JS
+   call-site fix (`WalkCtx.LocalInterfaces`: `(x :> ILocal).M()` → `receiver.M(args)`). TAST
+   `Record(fields, members, interfaces)`. Gates: Clr 1057, Js 172, SemA 633, Vesper.Tests 49.
+
+**§14.6 COMPLETE — the capability-interface mechanism is real for both unions and records on
+both targets.** (`records-architecture.md` has stale spots re: record members/interfaces — a
+durable-doc follow-up, not blocking.)
