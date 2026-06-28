@@ -300,6 +300,21 @@ module EmitJs =
 
             climb 0 ty
 
+    /// `true` when `declKey` names a SYNTHETIC erased grouping type (Tier 2 item 9b):
+    /// the TS provider groups a module's overloaded free functions as static members of
+    /// one F#-visible type purely so the front end can resolve the overload set. The
+    /// type does not exist at runtime — a call to one of its members must ERASE to the
+    /// bare module export (`Util.format(x)` → `format(x)`), never the mangled
+    /// `Util_format` an ordinary external static member would import. `false` for every
+    /// real (metadata/contract) class, so the normal static-member path is untouched.
+    let private isErasedGroupingType (ctx: WalkCtx) (declKey: SymbolKey) : bool =
+        match ctx.Provider with
+        | ValueNone -> false
+        | ValueSome provider ->
+            match ExternalSymbols.tryLookupType provider declKey with
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.Erased
+            | _ -> false
+
     // The Fable-style FLAT module-function helpers — flat-call collapse, the curried
     // adapter, external-`ValRepr` resolution — live in `JsFlatFns`, decoupled from this
     // walker via a `build` callback (mirroring the CLR `EmitCall.flattenGroupPushes`
@@ -572,17 +587,47 @@ module EmitJs =
         // receiver-first; instance method arguments arrive through the enclosing `App`.
         | TExprG.ExternalMember(receiver, key, memberName, isProperty, _, _) ->
             let declKey = Members.declKey key
-            let isStatic = (receiver = ValueNone)
 
-            let exportName =
-                Members.mangledName (SymbolKeyOps.simpleName declKey) isStatic isProperty memberName
+            if isErasedGroupingType ctx declKey then
+                // ERASE (Tier 2 item 9b): the declaring type is a synthetic grouping of
+                // overloaded free functions with no runtime existence. Resolve the callee
+                // the FREE-FUNCTION way — `addRef` of the BARE member name (the real
+                // module export) from the type's home module — so `Util.format(x)` emits
+                // `import { format … }` + `format(x)`, NOT the mangled `Util_format` an
+                // ordinary external static member would import (no such export exists).
+                // A grouping type holds only STATIC members, so a receiver is an invariant break.
+                match receiver with
+                | ValueSome _ ->
+                    failwithf
+                        "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
+                        memberName
+                | ValueNone ->
+                    // The free-function `External` path carries a `ValueKey(Some home, ns, name)`;
+                    // mirror it from the grouping type's key so `addRef` imports the same bare
+                    // export (`name`) from the same home module the bare free function would.
+                    let valueKey =
+                        match declKey with
+                        | SymbolKey.TypeKey(home, ns, _) -> SymbolKey.ValueKey(home, ns, memberName)
+                        | _ ->
+                            failwithf
+                                "EmitJs (Step 9b): erased grouping member '%s' has a non-type declaring key %A"
+                                memberName
+                                declKey
 
-            let asm = Members.assemblyOf ctx declKey (sprintf "external member '%s'" memberName)
-            let local = JsImports.addMemberRef ctx.Imports asm exportName
+                    JsExpr.Identifier(JsImports.addRef ctx.Imports memberName (ValueSome valueKey), loc)
+            else
 
-            match receiver with
-            | ValueSome r -> JsExpr.Call(JsExpr.Identifier(local, ValueNone), [ buildExpr ctx r ], loc)
-            | ValueNone -> JsExpr.Identifier(local, loc)
+                let isStatic = (receiver = ValueNone)
+
+                let exportName =
+                    Members.mangledName (SymbolKeyOps.simpleName declKey) isStatic isProperty memberName
+
+                let asm = Members.assemblyOf ctx declKey (sprintf "external member '%s'" memberName)
+                let local = JsImports.addMemberRef ctx.Imports asm exportName
+
+                match receiver with
+                | ValueSome r -> JsExpr.Call(JsExpr.Identifier(local, ValueNone), [ buildExpr ctx r ], loc)
+                | ValueNone -> JsExpr.Identifier(local, loc)
 
         // `match scrut with …` → an IIFE binding the scrutinee once, then testing each
         // arm in order and `return`ing the first whose pattern (+ guard) matches; an

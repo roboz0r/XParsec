@@ -33,6 +33,7 @@
     <Compile Include="PrintfHoleFormTests.fs" />
     <Compile Include="PrintfPhase3Tests.fs" />
     <Compile Include="PrintfPhase4Tests.fs" />
+    <Compile Include="FreeFnOverloadTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
@@ -44,6 +45,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Js\XParsec.FSharp.Codegen.Js.fsproj" />
+    <!-- The free-fn-overload erase test (Tier 2 item 9b) builds a synthetic provider
+         from an in-memory TS manifest via `Vesper.Ts.Manifest.Codec`/`Schema`. -->
+    <ProjectReference Include="..\..\src\Vesper.Ts.Manifest.Schema\Vesper.Ts.Manifest.Schema.fsproj" />
     <!-- The F1 inline-body tests resolve through the shared, target-generic
          `Codegen.Common.SymbolProviders.contractInlineBodiesFor`, which selects
          `ops-platform.js.fs` via `ReferencedProject.resolveInlineBodies (Some Target.Js)`.
