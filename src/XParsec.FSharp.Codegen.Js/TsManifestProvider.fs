@@ -44,7 +44,16 @@ module TsManifestProvider =
         match t with
         | Schema.TypeRef.Named(name, []) -> TyConst(name, EqArray.empty)
         | Schema.TypeRef.Named(name, args) -> TyConst(name, EqArray.ofSeq (List.map toSem args))
-        | Schema.TypeRef.Typar _ -> TyUnknown "?ts-typar" // MVP free fns are monomorphic
+        // Declaring-axis typar (item 11), parallel to `toFrozen`'s `FTTypar(Declaring,i)`.
+        // The producer now emits typar references for generic free functions
+        // (`identity<T>`), whose own type params occupy the single `Typar` index space.
+        // NOTE: `toFunctionSymbol` wraps this via `ExternalSymbols.mono`, whose
+        // `Instantiate` returns the SAME `SemType` each lookup — so a generic free
+        // function is realised with FROZEN `TyTypar` markers, not freshened per call
+        // site. Faithful as a representation but NOT yet polymorphically instantiable;
+        // true generalisation wants a `poly`/`polyWith` builder that freshens the typars
+        // (a front-end decision flagged to the orchestrator, not taken here).
+        | Schema.TypeRef.Typar i -> TyTypar(TyparAxis.Declaring, i)
         | Schema.TypeRef.Fun(args, ret) -> List.foldBack (fun a acc -> TyFun(toSem a, acc)) args (toSem ret)
         | Schema.TypeRef.Tuple items -> TyTuple(EqArray.ofSeq (List.map toSem items))
         | Schema.TypeRef.Union members -> SemType.MkUnion(List.map toSem members)
@@ -332,13 +341,14 @@ module TsManifestProvider =
         match ex with
         | Schema.Export.Interface(name, tp, members, heritage) -> build name tp members heritage true
         | Schema.Export.Class(name, tp, members, heritage, _import) -> build name tp members heritage false
-        | Schema.Export.TypeAlias(name, _tp, target) ->
+        | Schema.Export.TypeAlias(name, tp, target) ->
             // `type X = …` maps onto the seam's transparent abbreviation shape: a use
             // site of `name` expands to the target's `FrozenType` (via
             // `FrozenTypeBridge.instantiateDeclaring`), so alias-to-union / -primitive /
-            // -structural all resolve through the same `toFrozen` the members use.
-            // `arity = 0`: generics are Tier 3 (the producer emits `typeParams = 0`).
-            Some(qualify nsPath name, ExternalTypeShape.Abbrev(0, toFrozen target))
+            // -structural all resolve through the same `toFrozen` the members use. `tp`
+            // is the alias's declaring-axis arity (item 11): a generic alias `Pair<A,B>`
+            // expands `FTTypar(Declaring,0/1)` against the two use-site args.
+            Some(qualify nsPath name, ExternalTypeShape.Abbrev(tp, toFrozen target))
         | Schema.Export.Enum(name, _members) ->
             // The seam has no enum-member representation: `ExternalTypeShape`'s doc names
             // an enum as exactly the `Opaque` (body-less) residue, so register the NAME

@@ -31,69 +31,192 @@ let private declOf (s: Ts.Symbol) : Ts.Node =
         | Some ds when ds.Count > 0 -> unbox ds.[0]
         | _ -> failwithf "symbol '%s' has no declaration" (s.getName ())
 
-// ─── ts.Type → Schema.TypeRef (MVP: printed primitive names) ───────────────
+// ─── declaring-axis typar environment + generic-instantiation detection ─────
+//
+// A reference to a type parameter (`T` in `interface Box<T> { value: T }`) must
+// map to `Schema.TypeRef.Typar index` — its position in the ENCLOSING declaration's
+// (class / interface / alias / free-function signature) type-parameter list. `mapType`
+// is otherwise stateless, so we thread a typar ENVIRONMENT: the ordered list of the
+// in-scope type parameters' SYMBOLS. A typar is resolved by SYMBOL identity (reference
+// equality), NOT by name — a method-axis `<U>` that shadows a declaring `<T>` must not
+// alias to it. Symbols (unlike the `Type` objects, which can be re-synthesised per
+// resolution entry point) are interned once per declaration and stable across the
+// declared type, a body reference, and a signature, so they are the robust key.
 
-let rec mapType (checker: Ts.TypeChecker) (t: Ts.Type) : Schema.TypeRef =
+[<Emit("$0 === $1")>]
+let inline private jsRefEq (a: obj) (b: obj) : bool = jsNative
+
+// A `TypeReference` (`ObjectFlags.Reference`) — the runtime shape of an instantiated
+// generic (`Array<string>`, `Box<number>`) — is the only `Type` carrying a `target`
+// back-pointer to its generic definition. The binding exposes no runtime
+// `isTypeReference()` predicate (unlike `isUnion`/`isArrayType`), so detect it
+// structurally by the PRESENCE of `target`, read dynamically — avoiding a raw
+// `ObjectFlags`/`TypeFlags` numeric test (the standing producer rule that the
+// vendored flag values can drift from the installed TypeScript's).
+[<Emit("$0.target !== undefined && $0.target !== null")>]
+let inline private hasTargetRef (t: Ts.Type) : bool = jsNative
+
+let private typarSymbols (tps: Ts.Type seq) : Ts.Symbol list =
+    tps
+    |> Seq.map (fun tp ->
+        match tp.getSymbol () with
+        | Some s -> s
+        | None -> failwith "type parameter has no symbol"
+    )
+    |> List.ofSeq
+
+/// Declaring-axis typar symbols of a class/interface DECLARED type (an
+/// `InterfaceType` at runtime, whose `typeParameters` carry them in declaration order).
+let private declaredTypars (declared: Ts.Type) : Ts.Symbol list =
+    match (unbox<Ts.InterfaceType> declared).typeParameters with
+    | Some tps -> typarSymbols (tps |> Seq.map unbox)
+    | None -> []
+
+/// Declaring-axis typar symbols read off a DECLARATION node's effective
+/// type-parameter list — used for `type` aliases, whose declared target type is not
+/// an `InterfaceType` and so exposes no `typeParameters`. The effective declarations
+/// are in source order, fixing the same index space the references resolve against.
+let private declTyparsOf (checker: Ts.TypeChecker) (decl: Ts.Node) : Ts.Symbol list =
+    ts.getEffectiveTypeParameterDeclarations (unbox decl)
+    |> Seq.map (fun tpd -> checker.getTypeAtLocation (unbox tpd))
+    |> typarSymbols
+
+/// The OWN type parameters of a call signature (the method/function axis) — the env
+/// a FREE FUNCTION's own typars resolve against. A free function has no declaring
+/// type, so its own params occupy the single `Typar` index space unambiguously (the
+/// declaring-vs-method ambiguity only bites a generic method on a generic TYPE).
+let private sigTypars (sg: Ts.Signature) : Ts.Symbol list =
+    match sg.getTypeParameters () with
+    | Some tps -> typarSymbols (tps |> Seq.map unbox)
+    | None -> []
+
+let private lookupTypar (env: Ts.Symbol list) (t: Ts.Type) : int option =
+    match t.getSymbol () with
+    | Some s -> env |> List.tryFindIndex (fun e -> jsRefEq e s)
+    | None -> None
+
+/// A generic instantiation (`Array<string>`, `Box<number>`) as its target name +
+/// raw type arguments, or `None` for a non-reference type. The target's symbol names
+/// the generic definition (`Array`, `Box`); `getTypeArguments` yields the substituted
+/// arguments (for `string[]` the element type), which the caller recurses `mapType`
+/// over — so the manifest carries `Named(name, [args])`, not the printed-form blob.
+let private asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (string * Ts.Type list) option =
+    if hasTargetRef t then
+        let tr = unbox<Ts.TypeReference> t
+
+        match (unbox<Ts.Type> tr.target).getSymbol () with
+        | Some sym -> Some(sym.getName (), checker.getTypeArguments tr |> List.ofSeq)
+        | None -> None
+    else
+        None
+
+/// A printed form is a BARE NOMINAL name — a (possibly dotted) identifier — when it
+/// is safe to keep as `Named(printed, [])` in the `mapType` fallthrough: a non-generic
+/// class/interface/alias/enum reference, plus the deliberately un-remapped `unknown`.
+/// Anything richer (a `{x:number}` STRUCTURAL object — item 14, DEFERRED; a function
+/// type; a residual generic blob) is NOT nominal and the fallthrough throws on it
+/// rather than degrading to a printed blob — the cross-cutting forcing function.
+let private looksNominal (printed: string) : bool =
+    printed.Length > 0
+    && (System.Char.IsLetter printed.[0] || printed.[0] = '_' || printed.[0] = '$')
+    && printed
+       |> Seq.forall (fun c -> System.Char.IsLetterOrDigit c || c = '_' || c = '$' || c = '.')
+
+// ─── ts.Type → Schema.TypeRef ──────────────────────────────────────────────
+
+let rec mapType (checker: Ts.TypeChecker) (env: Ts.Symbol list) (t: Ts.Type) : Schema.TypeRef =
     let printed = checker.typeToString t
 
-    // Literal types erase to their base, kept in ONE place (the future hook for
-    // nominal string-enum lowering, currently deferred) rather than split between
-    // a predicate prologue and the named-type match below. Erasure runs before the
-    // union recursion so `"GET" | "POST"` collapses to `string`, not a union of
-    // singletons. NB: prefer the runtime predicates / `typeToString`, never raw
-    // `TypeFlags` numerics — the vendored binding's flag values can drift from the
-    // installed TypeScript's. String/number literals MUST be caught here: their
-    // printed form is the literal text (`"GET"`, `42`), unmatchable below. Boolean
-    // literals have no predicate in the binding, but print as `true`/`false`.
-    let literalBase =
-        if t.isStringLiteral () then
-            Some(Schema.TypeRef.Named("string", []))
-        elif t.isNumberLiteral () then
-            Some(Schema.TypeRef.Named("float", []))
-        elif printed = "true" || printed = "false" then
-            Some(Schema.TypeRef.Named("bool", []))
-        else
-            None
+    // A type-parameter REFERENCE (item 11) resolves to its declaring-axis index in
+    // `env`. Checked BEFORE the printed-name match: a typar prints as its bare name
+    // (`T`), which would otherwise be mistaken for a nominal type. A typar NOT in
+    // `env` is a METHOD-axis typar (a generic member's own `<U>`) — the schema's
+    // single-axis `Typar` cannot distinguish it from the declaring axis without a
+    // contract bump, so THROW rather than silently mis-map it to the declaring axis.
+    if t.isTypeParameter () then
+        match lookupTypar env t with
+        | Some i -> Schema.TypeRef.Typar i
+        | None ->
+            failwithf
+                "mapType: type parameter '%s' is method-axis (a generic member's own type parameter) and not in the declaring-axis env; faithfully representing a method-axis typar REFERENCE needs a second axis tag on Schema.TypeRef.Typar (a deliberate contract bump) — see ts-extraction-plan item 11"
+                printed
+    else
 
-    match literalBase with
-    | Some baseTy -> baseTy
-    | None ->
-        match printed with
-        | "string" -> Schema.TypeRef.Named("string", [])
-        | "number" -> Schema.TypeRef.Named("float", []) // TS number → Vesper float (policy)
-        | "boolean" -> Schema.TypeRef.Named("bool", [])
-        | "void" -> Schema.TypeRef.Named("unit", [])
-        | "null" -> Schema.TypeRef.Named("null", [])
-        | "undefined" -> Schema.TypeRef.Named("undefined", [])
-        // `any` → Dynamic (item 12). TS exposes no public `type.isAny()`, so classify
-        // by printed form like the other primitives (never raw `TypeFlags`, per the
-        // standing rule). Only `any` is in scope — `unknown` is deliberately NOT
-        // remapped and still flows through the Named fallthrough.
-        | "any" -> Schema.TypeRef.Dynamic
-        | _ when t.isUnion () ->
-            // Anonymous union → TyOr. null/undefined ride in as their own members
-            // (resolved fork: NOT folded to unit). Erased literal members can
-            // collapse to one base (`"GET" | "POST"` → string), so dedup and
-            // unwrap a singleton.
-            let members =
-                (unbox<Ts.UnionType> t).types
-                |> Seq.map (mapType checker)
-                |> List.ofSeq
-                |> List.distinct
+        // Literal types erase to their base, kept in ONE place (the future hook for
+        // nominal string-enum lowering, currently deferred) rather than split between
+        // a predicate prologue and the named-type match below. Erasure runs before the
+        // union recursion so `"GET" | "POST"` collapses to `string`, not a union of
+        // singletons. NB: prefer the runtime predicates / `typeToString`, never raw
+        // `TypeFlags` numerics — the vendored binding's flag values can drift from the
+        // installed TypeScript's. String/number literals MUST be caught here: their
+        // printed form is the literal text (`"GET"`, `42`), unmatchable below. Boolean
+        // literals have no predicate in the binding, but print as `true`/`false`.
+        let literalBase =
+            if t.isStringLiteral () then
+                Some(Schema.TypeRef.Named("string", []))
+            elif t.isNumberLiteral () then
+                Some(Schema.TypeRef.Named("float", []))
+            elif printed = "true" || printed = "false" then
+                Some(Schema.TypeRef.Named("bool", []))
+            else
+                None
 
-            match members with
-            | [ single ] -> single
-            | many -> Schema.TypeRef.Union many
-        | _ when t.isIntersection () ->
-            // Intersection `A & B` (item 15): erase to `obj`, the universal supertype,
-            // for v1. Detected via the runtime `isIntersection` predicate (sibling of
-            // the `isUnion` arm above), never raw `TypeFlags`. Object-intersections
-            // graduate onto item 14's structural content-hash path once it exists — do
-            // not build that mechanism here.
-            Schema.TypeRef.Named("obj", [])
-        | other -> Schema.TypeRef.Named(other, []) // TODO: generics, structurals (intersection handled above)
+        match literalBase with
+        | Some baseTy -> baseTy
+        | None ->
+            match printed with
+            | "string" -> Schema.TypeRef.Named("string", [])
+            | "number" -> Schema.TypeRef.Named("float", []) // TS number → Vesper float (policy)
+            | "boolean" -> Schema.TypeRef.Named("bool", [])
+            | "void" -> Schema.TypeRef.Named("unit", [])
+            | "null" -> Schema.TypeRef.Named("null", [])
+            | "undefined" -> Schema.TypeRef.Named("undefined", [])
+            // `any` → Dynamic (item 12). TS exposes no public `type.isAny()`, so classify
+            // by printed form like the other primitives (never raw `TypeFlags`, per the
+            // standing rule). Only `any` is in scope — `unknown` is deliberately NOT
+            // remapped and still flows through the Named fallthrough.
+            | "any" -> Schema.TypeRef.Dynamic
+            | _ when t.isUnion () ->
+                // Anonymous union → TyOr. null/undefined ride in as their own members
+                // (resolved fork: NOT folded to unit). Erased literal members can
+                // collapse to one base (`"GET" | "POST"` → string), so dedup and
+                // unwrap a singleton.
+                let members =
+                    (unbox<Ts.UnionType> t).types
+                    |> Seq.map (mapType checker env)
+                    |> List.ofSeq
+                    |> List.distinct
 
-let private mapParam (checker: Ts.TypeChecker) (p: Ts.Symbol) : Schema.Param =
+                match members with
+                | [ single ] -> single
+                | many -> Schema.TypeRef.Union many
+            | _ when t.isIntersection () ->
+                // Intersection `A & B` (item 15): erase to `obj`, the universal supertype,
+                // for v1. Detected via the runtime `isIntersection` predicate (sibling of
+                // the `isUnion` arm above), never raw `TypeFlags`. Object-intersections
+                // graduate onto item 14's structural content-hash path once it exists — do
+                // not build that mechanism here.
+                Schema.TypeRef.Named("obj", [])
+            | _ ->
+                // Generic instantiation (`Array<string>`, `Box<number>`): a `TypeReference`
+                // → `Named(target name, mapped args)` (item 11), recursing `mapType` over the
+                // type arguments rather than emitting the printed-form blob (`Named("string[]")`).
+                match asGenericInstantiation checker t with
+                | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType checker env))
+                | None ->
+                    // Tightened fallthrough (cross-cutting producer discipline): now that
+                    // generics are handled, keep only a BARE NOMINAL name as `Named`; THROW on a
+                    // structural/anonymous object type (item 14, DEFERRED — the intended forcing
+                    // function) or any other genuinely-unknown printed form (function types,
+                    // exotic primitives) rather than silently degrading to `Named(printed)`.
+                    if looksNominal printed then
+                        Schema.TypeRef.Named(printed, [])
+                    else
+                        failwithf
+                            "mapType: unhandled type '%s' — structural/anonymous object types are deferred (item 14), and other non-nominal forms (function types, exotic primitives) are not yet mapped; extract a sharper representation before admitting it"
+                            printed
+
+let private mapParam (checker: Ts.TypeChecker) (env: Ts.Symbol list) (p: Ts.Symbol) : Schema.Param =
     // A parameter symbol's declaration is the `ParameterDeclaration` node carrying
     // the syntactic optional/rest markers. Classify by TOKEN PRESENCE on the node
     // (runtime-structural, per the producer discipline), never raw numeric flags:
@@ -104,16 +227,23 @@ let private mapParam (checker: Ts.TypeChecker) (p: Ts.Symbol) : Schema.Param =
 
     {
         Name = p.getName ()
-        Type = mapType checker (checker.getTypeOfSymbolAtLocation (p, decl))
+        Type = mapType checker env (checker.getTypeOfSymbolAtLocation (p, decl))
         Optional = paramDecl.questionToken.IsSome || paramDecl.initializer.IsSome
         Rest = paramDecl.dotDotDotToken.IsSome
     }
 
-let private mapSignature (checker: Ts.TypeChecker) (sg: Ts.Signature) : Schema.Signature =
+/// `env` is the typar scope the parameter / return types resolve against — the
+/// DECLARING type's typars for a member, or the function's OWN typars for a free
+/// function (item 11). `TypeParams` is the signature's own generic-parameter count
+/// (the method axis) regardless of `env`; for a free function it coincides with `env`.
+let private mapSignature (checker: Ts.TypeChecker) (env: Ts.Symbol list) (sg: Ts.Signature) : Schema.Signature =
     {
-        TypeParams = 0 // TODO: sg.getTypeParameters().Count
-        Params = sg.getParameters () |> Seq.map (mapParam checker) |> List.ofSeq
-        Returns = mapType checker (sg.getReturnType ())
+        TypeParams =
+            sg.getTypeParameters ()
+            |> Option.map (fun a -> a.Count)
+            |> Option.defaultValue 0
+        Params = sg.getParameters () |> Seq.map (mapParam checker env) |> List.ofSeq
+        Returns = mapType checker env (sg.getReturnType ())
     }
 
 /// Guard against asymmetric get/set accessors (TS 4.3 `get x(): string` / `set
@@ -128,7 +258,7 @@ let private mapSignature (checker: Ts.TypeChecker) (sg: Ts.Signature) : Schema.S
 /// discipline). The getter's RETURN type and the setter's lone PARAMETER type are
 /// each resolved through `getSignatureFromDeclaration` and compared at the mapped
 /// `TypeRef` level so the comparison sees what the manifest would actually carry.
-let private checkAccessorSymmetry (checker: Ts.TypeChecker) (prop: Ts.Symbol) : unit =
+let private checkAccessorSymmetry (checker: Ts.TypeChecker) (env: Ts.Symbol list) (prop: Ts.Symbol) : unit =
     let flags = prop.getFlags ()
 
     if
@@ -147,7 +277,7 @@ let private checkAccessorSymmetry (checker: Ts.TypeChecker) (prop: Ts.Symbol) : 
         | Some g, Some s ->
             let getReturn =
                 match checker.getSignatureFromDeclaration (unbox g) with
-                | Some sg -> mapType checker (sg.getReturnType ())
+                | Some sg -> mapType checker env (sg.getReturnType ())
                 | None -> failwithf "accessor '%s' getter has no resolvable signature" (prop.getName ())
 
             let setParam =
@@ -161,7 +291,7 @@ let private checkAccessorSymmetry (checker: Ts.TypeChecker) (prop: Ts.Symbol) : 
                             (prop.getName ())
                             ps.Count
 
-                    mapType checker (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
+                    mapType checker env (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
                 | None -> failwithf "accessor '%s' setter has no resolvable signature" (prop.getName ())
 
             if getReturn <> setParam then
@@ -181,8 +311,19 @@ let private checkAccessorSymmetry (checker: Ts.TypeChecker) (prop: Ts.Symbol) : 
 /// the resolved property type (not a call signature), so it falls through to the
 /// `Property` branch alongside data properties — exactly the interim mapping (both
 /// lower to `x.foo` on JS). The only extra work is the asymmetric-type guard.
-let private mapMember (checker: Ts.TypeChecker) (isStatic: bool) (prop: Ts.Symbol) : Schema.Member =
-    checkAccessorSymmetry checker prop
+///
+/// `env` is the declaring type's typar scope (item 11): a member typed `T` resolves
+/// to its declaring-axis `Typar` index. The member's OWN method-axis typars are
+/// deliberately NOT added — a generic member (`map<U>(…)`) referencing its own `U`
+/// throws in `mapType` (method-axis references need a schema-axis contract bump),
+/// while the additive method `TypeParams` COUNT is still emitted per signature.
+let private mapMember
+    (checker: Ts.TypeChecker)
+    (env: Ts.Symbol list)
+    (isStatic: bool)
+    (prop: Ts.Symbol)
+    : Schema.Member =
+    checkAccessorSymmetry checker env prop
 
     let t = checker.getTypeOfSymbolAtLocation (prop, declOf prop)
     let callSigs = t.getCallSignatures ()
@@ -195,7 +336,7 @@ let private mapMember (checker: Ts.TypeChecker) (isStatic: bool) (prop: Ts.Symbo
             Name = prop.getName ()
             Kind = Schema.MemberKind.Method
             Type = None
-            Signatures = callSigs |> Seq.map (mapSignature checker) |> List.ofSeq
+            Signatures = callSigs |> Seq.map (mapSignature checker env) |> List.ofSeq
             Static = isStatic
             Optional = false
         }
@@ -203,7 +344,7 @@ let private mapMember (checker: Ts.TypeChecker) (isStatic: bool) (prop: Ts.Symbo
         {
             Name = prop.getName ()
             Kind = Schema.MemberKind.Property
-            Type = Some(mapType checker t)
+            Type = Some(mapType checker env t)
             Signatures = []
             Static = isStatic
             Optional = false
@@ -215,7 +356,19 @@ let private mapMember (checker: Ts.TypeChecker) (isStatic: bool) (prop: Ts.Symbo
 /// member into N `ExternalMember.ctor`s (one per signature, each keyed by its argSig),
 /// so the wire form stays a single `Member` and the seam convention lives consumer-side.
 /// `Static = false`: a constructor is an instance-producing member, per the seam.
-let private ctorMemberOf (checker: Ts.TypeChecker) (ctorSigs: ResizeArray<Ts.Signature>) : Schema.Member option =
+///
+/// A construct signature's RETURN type references the declaring typars (`new
+/// Container<T>()` → `Container<T>`), resolved against `env` (declaring axis) → `Typar
+/// i`. TS models a generic class's construct signatures as generic OVER the class
+/// typars, so `getTypeParameters()` reports them — but per the seam a constructor
+/// carries NO method-axis typars (the class typars are the DECLARING axis, already
+/// counted in the type's `typeParams`). So force each ctor signature's `TypeParams`
+/// to 0, matching the seam's "MethodArity = 0 for every constructor" convention.
+let private ctorMemberOf
+    (checker: Ts.TypeChecker)
+    (env: Ts.Symbol list)
+    (ctorSigs: ResizeArray<Ts.Signature>)
+    : Schema.Member option =
     if ctorSigs.Count = 0 then
         None
     else
@@ -224,7 +377,14 @@ let private ctorMemberOf (checker: Ts.TypeChecker) (ctorSigs: ResizeArray<Ts.Sig
                 Name = ".ctor"
                 Kind = Schema.MemberKind.Method
                 Type = None
-                Signatures = ctorSigs |> Seq.map (mapSignature checker) |> List.ofSeq
+                Signatures =
+                    ctorSigs
+                    |> Seq.map (fun sg ->
+                        { mapSignature checker env sg with
+                            TypeParams = 0
+                        }
+                    )
+                    |> List.ofSeq
                 Static = false
                 Optional = false
             }
@@ -255,9 +415,9 @@ let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.Impor
 /// Each base maps through the existing `mapType` (its printed nominal name → `Named`).
 /// The declared type of a class/interface symbol IS an `InterfaceType` at runtime; the
 /// `unbox` is a Fable no-op cast satisfying the binding's parameter type.
-let private extendsBases (checker: Ts.TypeChecker) (declared: Ts.Type) : Schema.TypeRef list =
+let private extendsBases (checker: Ts.TypeChecker) (env: Ts.Symbol list) (declared: Ts.Type) : Schema.TypeRef list =
     checker.getBaseTypes (unbox<Ts.InterfaceType> declared)
-    |> Seq.map (fun bt -> mapType checker (unbox<Ts.Type> bt))
+    |> Seq.map (fun bt -> mapType checker env (unbox<Ts.Type> bt))
     |> List.ofSeq
 
 /// A class's `implements` interfaces — the half `getBaseTypes` omits (see `extendsBases`).
@@ -269,7 +429,11 @@ let private extendsBases (checker: Ts.TypeChecker) (declared: Ts.Type) : Schema.
 /// because a type-only interface has no value meaning at that expression position — the
 /// symbol's declared type carries the nominal identity `mapType` needs. Throw on an
 /// unresolvable entry rather than silently dropping a declared interface.
-let private classImplements (checker: Ts.TypeChecker) (resolved: Ts.Symbol) : Schema.TypeRef list =
+let private classImplements
+    (checker: Ts.TypeChecker)
+    (env: Ts.Symbol list)
+    (resolved: Ts.Symbol)
+    : Schema.TypeRef list =
     match resolved.declarations with
     | None -> []
     | Some ds ->
@@ -289,7 +453,7 @@ let private classImplements (checker: Ts.TypeChecker) (resolved: Ts.Symbol) : Sc
                             else
                                 s
 
-                        mapType checker (checker.getDeclaredTypeOfSymbol target)
+                        mapType checker env (checker.getDeclaredTypeOfSymbol target)
                     | None -> failwithf "class implements clause entry has no resolvable interface symbol"
                 )
             | None -> Seq.empty
@@ -333,21 +497,24 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
     if hasFlag flags Ts.SymbolFlags.Interface then
         let declared = checker.getDeclaredTypeOfSymbol resolved
+        // Declaring-axis typar scope (item 11): a member typed `T` resolves to its
+        // index here; `typeParams` is this list's length (was hardcoded 0).
+        let env = declaredTypars declared
 
         let members =
             checker.getPropertiesOfType declared
-            |> Seq.map (mapMember checker false)
+            |> Seq.map (mapMember checker env false)
             |> List.ofSeq
 
         // An interface can carry a `new(): T` construct signature (the
         // constructor-interface idiom, `interface FooCtor { new(): Foo }`); it lands
         // on the DECLARED type itself. Append it as a `.ctor` member like a class.
         let ctorMember =
-            ctorMemberOf checker (declared.getConstructSignatures ()) |> Option.toList
+            ctorMemberOf checker env (declared.getConstructSignatures ()) |> Option.toList
 
         // Heritage (item 16): an interface's heritage is its `extends` interfaces only
         // (an interface cannot have a base class), so `getBaseTypes` alone is faithful.
-        Some(Schema.Export.Interface(name, 0, members @ ctorMember, extendsBases checker declared))
+        Some(Schema.Export.Interface(name, List.length env, members @ ctorMember, extendsBases checker env declared))
     elif hasFlag flags Ts.SymbolFlags.Class then
         // Two distinct walks keep the static/instance split honest (item 3): the
         // DECLARED type yields the instance members; the symbol's TYPE-AT-LOCATION is
@@ -358,33 +525,44 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         // the resolved `name`/`import` computed above.
         let instanceTy = checker.getDeclaredTypeOfSymbol resolved
         let staticTy = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
+        // Declaring-axis typar scope (item 11): the class's own type parameters, read
+        // off the instance (declared) type. Statics cannot reference them in TS, so the
+        // env is inert there; passing it uniformly is harmless and keeps one path.
+        let env = declaredTypars instanceTy
 
         let instanceMembers =
             checker.getPropertiesOfType instanceTy
-            |> Seq.map (mapMember checker false)
+            |> Seq.map (mapMember checker env false)
             |> List.ofSeq
 
         let staticMembers =
             staticTy.getProperties ()
             |> Seq.filter (fun p -> p.getName () <> "prototype")
-            |> Seq.map (mapMember checker true)
+            |> Seq.map (mapMember checker env true)
             |> List.ofSeq
 
         let ctorMember =
-            ctorMemberOf checker (staticTy.getConstructSignatures ()) |> Option.toList
+            ctorMemberOf checker env (staticTy.getConstructSignatures ()) |> Option.toList
 
         // Heritage (item 16): a class's `extends` base CLASS comes from `getBaseTypes`
         // on the instance type, its `implements` interfaces from the heritage clauses
         // (`getBaseTypes` omits them). Emitted as ONE flat list (extends first); the
         // provider disambiguates base-class vs interface by name-resolving each entry
         // against the manifest's type table (the schema carries no base/interface bit).
-        let heritage = extendsBases checker instanceTy @ classImplements checker resolved
+        let heritage =
+            extendsBases checker env instanceTy @ classImplements checker env resolved
 
-        Some(Schema.Export.Class(name, 0, instanceMembers @ staticMembers @ ctorMember, heritage, import))
+        Some(Schema.Export.Class(name, List.length env, instanceMembers @ staticMembers @ ctorMember, heritage, import))
     elif hasFlag flags Ts.SymbolFlags.Function then
         let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
-        let sigs = t.getCallSignatures () |> Seq.map (mapSignature checker) |> List.ofSeq
+        // A free function's OWN type parameters (item 11): each call signature is mapped
+        // against its own typars (no declaring type, so the single `Typar` index space is
+        // unambiguous). `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
+        let sigs =
+            t.getCallSignatures ()
+            |> Seq.map (fun sg -> mapSignature checker (sigTypars sg) sg)
+            |> List.ofSeq
 
         Some(Schema.Export.Function(name, sigs, import))
     elif hasFlag flags Ts.SymbolFlags.Variable then
@@ -399,7 +577,7 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
         let isConst = int (ts.getCombinedNodeFlags decl) &&& int Ts.NodeFlags.Const <> 0
 
-        Some(Schema.Export.Variable(name, mapType checker varTy, isConst, import))
+        Some(Schema.Export.Variable(name, mapType checker [] varTy, isConst, import))
     elif hasFlag flags Ts.SymbolFlags.Enum then
         // `enum` AND `const enum` (`SymbolFlags.Enum` ORs `RegularEnum | ConstEnum`).
         // Read members straight off the `EnumDeclaration.members` node list — NOT
@@ -434,10 +612,14 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
     elif hasFlag flags Ts.SymbolFlags.TypeAlias then
         // `type X = …`. Emit the RESOLVED target: `getDeclaredTypeOfSymbol` on a type
         // alias yields the aliased type, so alias-to-union / -primitive / -structural all
-        // flow through the same `mapType` the members use. `typeParams = 0`: generics are
-        // Tier 3 (the authorial `aliasSymbol`/`aliasTypeArguments` capture lands there).
+        // flow through the same `mapType` the members use. Declaring-axis typars (item 11):
+        // an alias's target is not an `InterfaceType`, so read the typar scope off the
+        // declaration's effective type-parameter list; `Pair<A,B> = A | B` → `typeParams =
+        // 2`, target `Union [Typar 0; Typar 1]`. The authorial `aliasTypeArguments` capture
+        // (authored vs resolved form) is still deferred.
         let target = checker.getDeclaredTypeOfSymbol resolved
-        Some(Schema.Export.TypeAlias(name, 0, mapType checker target))
+        let env = declTyparsOf checker (declOf resolved)
+        Some(Schema.Export.TypeAlias(name, List.length env, mapType checker env target))
     elif hasFlag flags Ts.SymbolFlags.Module then
         // `namespace NS { … }` / `module NS { … }` (item 17). `SymbolFlags.Module`
         // is the named constant ORing `ValueModule | NamespaceModule` — the SAME

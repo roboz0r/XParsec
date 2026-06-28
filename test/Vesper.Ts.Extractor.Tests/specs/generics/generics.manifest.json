@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 0,
+  "package": "generics",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "identity",
+      "signatures": [
+        {
+          "typeParams": 1,
+          "params": [
+            {
+              "name": "x",
+              "type": {
+                "k": "typar",
+                "i": 0
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "typar",
+            "i": 0
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Box",
+      "typeParams": 1,
+      "members": [
+        {
+          "name": "value",
+          "kind": "property",
+          "type": {
+            "k": "typar",
+            "i": 0
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "get",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "typar",
+                "i": 0
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "class",
+      "name": "Container",
+      "typeParams": 1,
+      "members": [
+        {
+          "name": "items",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "Array",
+            "args": [
+              {
+                "k": "typar",
+                "i": 0
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "add",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [
+                {
+                  "name": "item",
+                  "type": {
+                    "k": "typar",
+                    "i": 0
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": ".ctor",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "Container",
+                "args": [
+                  {
+                    "k": "typar",
+                    "i": 0
+                  }
+                ]
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": [],
+      "import": "named"
+    },
+    {
+      "export": "typeAlias",
+      "name": "Pair",
+      "typeParams": 2,
+      "target": {
+        "k": "union",
+        "members": [
+          {
+            "k": "typar",
+            "i": 0
+          },
+          {
+            "k": "typar",
+            "i": 1
+          }
+        ]
+      }
+    },
+    {
+      "export": "interface",
+      "name": "Registry",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "box",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "Box",
+            "args": [
+              {
+                "k": "named",
+                "name": "float",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ]
+}

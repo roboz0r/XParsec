@@ -24,8 +24,14 @@
               "name": "parts",
               "type": {
                 "k": "named",
-                "name": "string[]",
-                "args": []
+                "name": "Array",
+                "args": [
+                  {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  }
+                ]
               },
               "optional": false,
               "rest": true
@@ -87,8 +93,14 @@
                   "name": "args",
                   "type": {
                     "k": "named",
-                    "name": "string[]",
-                    "args": []
+                    "name": "Array",
+                    "args": [
+                      {
+                        "k": "named",
+                        "name": "string",
+                        "args": []
+                      }
+                    ]
                   },
                   "optional": false,
                   "rest": true

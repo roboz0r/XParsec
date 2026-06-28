@@ -124,10 +124,19 @@ let testProviderResolves (path: string) =
                         $"overloaded function '{name}' members must have distinct keys"
                 else
                     Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
-            | Schema.Export.Interface(name, _, members, heritage)
-            | Schema.Export.Class(name, _, members, heritage, _) ->
+            | Schema.Export.Interface(name, typeParams, members, heritage)
+            | Schema.Export.Class(name, typeParams, members, heritage, _) ->
                 let name = q name
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
+
+                // Generics (Tier 3 item 11): the declaring-axis arity round-trips — a
+                // generic `Box<T>`/`Container<T>` resolves to an `ExternalTypeShape.Class`
+                // whose `Arity` equals the emitted `typeParams`. Trivially 0 for the
+                // (many) non-generic fixtures; exercises the count on `generics`.
+                match prov.TryLookupType name with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    Expect.equal shape.Arity typeParams $"type '{name}' arity must equal its typeParams"
+                | _ -> ()
 
                 // Heritage (Tier 4 item 16): every heritage entry must land in EXACTLY one
                 // provider slot — `FrozenInterfaces` (extended/implemented interfaces) or the
@@ -164,8 +173,15 @@ let testProviderResolves (path: string) =
                             $"overloaded member '{name}.{m.Name}' members must have distinct keys"
             | Schema.Export.Variable(name, _, _, _) ->
                 Expect.isTrue (prov.TryLookup(q name)).IsSome $"variable '{q name}' should resolve"
-            | Schema.Export.TypeAlias(name, _, _) ->
+            | Schema.Export.TypeAlias(name, typeParams, _) ->
                 Expect.isTrue (prov.TryLookupType(q name)).IsSome $"type alias '{q name}' should resolve"
+
+                // A generic alias (`Pair<A,B>`) resolves to an `Abbrev` whose arity equals
+                // its `typeParams` (item 11 — was hardcoded 0 before generics landed).
+                match prov.TryLookupType(q name) with
+                | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
+                    Expect.equal arity typeParams $"type alias '{q name}' arity must equal its typeParams"
+                | _ -> ()
             | Schema.Export.Enum(name, _) ->
                 // The enum NAME resolves (an `Opaque` shape); its MEMBERS are stubbed on
                 // the provider, so only the type-name resolution is asserted.
