@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 0,
+  "package": "enums",
+  "version": null,
+  "exports": [
+    {
+      "export": "enum",
+      "name": "Direction",
+      "members": [
+        {
+          "name": "Up",
+          "value": "1"
+        },
+        {
+          "name": "Down",
+          "value": "2"
+        },
+        {
+          "name": "Left",
+          "value": "3"
+        },
+        {
+          "name": "Right",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "export": "enum",
+      "name": "HttpMethod",
+      "members": [
+        {
+          "name": "Get",
+          "value": "GET"
+        },
+        {
+          "name": "Post",
+          "value": "POST"
+        }
+      ]
+    }
+  ]
+}

@@ -221,6 +221,21 @@ module TsManifestProvider =
         match ex with
         | Schema.Export.Interface(name, tp, members, _heritage) -> build name tp members true
         | Schema.Export.Class(name, tp, members, _heritage, _import) -> build name tp members false
+        | Schema.Export.TypeAlias(name, _tp, target) ->
+            // `type X = …` maps onto the seam's transparent abbreviation shape: a use
+            // site of `name` expands to the target's `FrozenType` (via
+            // `FrozenTypeBridge.instantiateDeclaring`), so alias-to-union / -primitive /
+            // -structural all resolve through the same `toFrozen` the members use.
+            // `arity = 0`: generics are Tier 3 (the producer emits `typeParams = 0`).
+            Some(name, ExternalTypeShape.Abbrev(0, toFrozen target))
+        | Schema.Export.Enum(name, _members) ->
+            // The seam has no enum-member representation: `ExternalTypeShape`'s doc names
+            // an enum as exactly the `Opaque` (body-less) residue, so register the NAME
+            // (keeping `TryLookupType` total) but leave the members unmodelled. Mapping
+            // the members onto the seam needs a settled front-end decision (constant
+            // fields vs a union of literal types) that isn't made yet.
+            // TODO: model enum members once the front end commits to a representation.
+            Some(name, ExternalTypeShape.Opaque 0)
         | _ -> None
 
     let private toFunctionSymbol (ex: Schema.Export) : (string * ExternalSymbol) option =
@@ -237,6 +252,16 @@ module TsManifestProvider =
             Some(name, ExternalSymbols.mono name semTy)
         | _ -> None
 
+    /// A `Variable` export → a singleton VALUE symbol, resolved by name via
+    /// `TryLookup` exactly like a free function but carrying the variable's type
+    /// directly (a VALUE, not an arrow). `isConst` carries no front-end distinction
+    /// at this seam (JS lowering reads the imported binding by name regardless of
+    /// mutability), so it is not consumed here.
+    let private toValueSymbol (ex: Schema.Export) : (string * ExternalSymbol) option =
+        match ex with
+        | Schema.Export.Variable(name, ty, _isConst, _import) -> Some(name, ExternalSymbols.mono name (toSem ty))
+        | _ -> None
+
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
         let pkg = man.Package
@@ -244,7 +269,12 @@ module TsManifestProvider =
         // later tier supplies nested namespace paths here instead of `pkg` directly.
         let moduleSpec = pkg
         let types = man.Exports |> List.choose (toTypeShape moduleSpec) |> Map.ofList
-        let funcs = man.Exports |> List.choose toFunctionSymbol |> Map.ofList
+        // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
+        // so they share the one value map (a variable is a value, not an arrow).
+        let funcs =
+            (man.Exports |> List.choose toFunctionSymbol)
+            @ (man.Exports |> List.choose toValueSymbol)
+            |> Map.ofList
 
         let membersOf (typeName: string) (memberName: string) : ExternalMember[] =
             match Map.tryFind typeName types with

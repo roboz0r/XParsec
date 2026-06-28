@@ -247,8 +247,59 @@ let private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export
         let sigs = t.getCallSignatures () |> Seq.map (mapSignature checker) |> List.ofSeq
 
         Some(Schema.Export.Function(name, sigs, import))
+    elif hasFlag flags Ts.SymbolFlags.Variable then
+        // `export const`/`let`/`var` and ambient `declare const` — a singleton VALUE
+        // (not an arrow). Its type rides `getTypeOfSymbolAtLocation`. Const-ness comes
+        // from the binding's COMBINED node flags: the `const`/`let` keyword lives on the
+        // enclosing `VariableDeclarationList`, not the `VariableDeclaration`, so
+        // `getCombinedNodeFlags` walks up to surface it. Per the producer discipline we
+        // classify via the `NodeFlags.Const` CONSTANT, never a raw numeric literal.
+        let decl = declOf resolved
+        let varTy = checker.getTypeOfSymbolAtLocation (resolved, decl)
+
+        let isConst = int (ts.getCombinedNodeFlags decl) &&& int Ts.NodeFlags.Const <> 0
+
+        Some(Schema.Export.Variable(name, mapType checker varTy, isConst, import))
+    elif hasFlag flags Ts.SymbolFlags.Enum then
+        // `enum` AND `const enum` (`SymbolFlags.Enum` ORs `RegularEnum | ConstEnum`).
+        // Read members straight off the `EnumDeclaration.members` node list — NOT
+        // `getPropertiesOfType` on the declared type, which returns the underlying
+        // `number`/`string` PROTOTYPE members (an enum's apparent type is its primitive
+        // base), not the authored cases. Each member's value comes from
+        // `checker.getConstantValue` on the member node: a STRING member yields
+        // `U2.Case1 s` (kept verbatim), a NUMERIC member `U2.Case2 n` (stringified — the
+        // schema stores `string option`); a computed member with no constant value
+        // yields `None`. The member's name rides its declaration symbol.
+        let enumDecl = unbox<Ts.EnumDeclaration> (declOf resolved)
+
+        let members =
+            enumDecl.members
+            |> Seq.map (fun em ->
+                let memberName =
+                    match checker.getSymbolAtLocation (unbox em.name) with
+                    | Some s -> s.getName ()
+                    | None -> failwithf "enum '%s' has a member with no resolvable name symbol" name
+
+                let value =
+                    match checker.getConstantValue (unbox em) with
+                    | Some(U2.Case1 s) -> Some s
+                    | Some(U2.Case2 n) -> Some(string n)
+                    | None -> None
+
+                memberName, value
+            )
+            |> List.ofSeq
+
+        Some(Schema.Export.Enum(name, members))
+    elif hasFlag flags Ts.SymbolFlags.TypeAlias then
+        // `type X = …`. Emit the RESOLVED target: `getDeclaredTypeOfSymbol` on a type
+        // alias yields the aliased type, so alias-to-union / -primitive / -structural all
+        // flow through the same `mapType` the members use. `typeParams = 0`: generics are
+        // Tier 3 (the authorial `aliasSymbol`/`aliasTypeArguments` capture lands there).
+        let target = checker.getDeclaredTypeOfSymbol resolved
+        Some(Schema.Export.TypeAlias(name, 0, mapType checker target))
     else
-        None // TODO: TypeAlias / Enum / Variable / Namespace (each stamps `import`)
+        None // TODO: Namespace (stamps `import`)
 
 // ─── drive + emit ──────────────────────────────────────────────────────────
 

@@ -77,6 +77,14 @@ let testProviderResolves (path: string) =
                         (prov.TryLookupMembers(name, m.Name)).Length
                         0
                         $"member '{name}.{m.Name}' should resolve"
+            | Schema.Export.Variable(name, _, _, _) ->
+                Expect.isTrue (prov.TryLookup name).IsSome $"variable '{name}' should resolve"
+            | Schema.Export.TypeAlias(name, _, _) ->
+                Expect.isTrue (prov.TryLookupType name).IsSome $"type alias '{name}' should resolve"
+            | Schema.Export.Enum(name, _) ->
+                // The enum NAME resolves (an `Opaque` shape); its MEMBERS are stubbed on
+                // the provider, so only the type-name resolution is asserted.
+                Expect.isTrue (prov.TryLookupType name).IsSome $"enum '{name}' should resolve"
             | _ -> ()
 
 /// `.d.ts` and `.manifest.json` must come in pairs (a fixture with one but not the

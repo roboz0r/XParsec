@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 0,
+  "package": "typealiases",
+  "version": null,
+  "exports": [
+    {
+      "export": "typeAlias",
+      "name": "Id",
+      "typeParams": 0,
+      "target": {
+        "k": "named",
+        "name": "string",
+        "args": []
+      }
+    },
+    {
+      "export": "typeAlias",
+      "name": "Numeric",
+      "typeParams": 0,
+      "target": {
+        "k": "union",
+        "members": [
+          {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          {
+            "k": "named",
+            "name": "float",
+            "args": []
+          }
+        ]
+      }
+    }
+  ]
+}

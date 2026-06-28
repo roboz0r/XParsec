@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 0,
+  "package": "variables",
+  "version": null,
+  "exports": [
+    {
+      "export": "variable",
+      "name": "apiVersion",
+      "type": {
+        "k": "named",
+        "name": "string",
+        "args": []
+      },
+      "const": true,
+      "import": "named"
+    },
+    {
+      "export": "variable",
+      "name": "requestCount",
+      "type": {
+        "k": "named",
+        "name": "float",
+        "args": []
+      },
+      "const": false,
+      "import": "named"
+    }
+  ]
+}
