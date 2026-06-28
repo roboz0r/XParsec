@@ -24,6 +24,14 @@ type private ResultBuilder() =
     member inline _.Bind(r: Result<'a, string>, f: 'a -> Result<'b, string>) = Result.bind f r
     member inline _.Return(x: 'a) : Result<'a, string> = Ok x
     member inline _.ReturnFrom(r: Result<'a, string>) = r
+    member inline _.Zero() : Result<unit, string> = Ok()
+    member inline _.Delay(f: unit -> Result<'a, string>) = f
+    member inline _.Run(f: unit -> Result<'a, string>) = f ()
+
+    member inline _.Combine(r: Result<unit, string>, f: unit -> Result<'a, string>) =
+        match r with
+        | Ok() -> f ()
+        | Error e -> Error e
 
 let private result = ResultBuilder()
 
@@ -439,6 +447,13 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
     result {
         let! m = asObject j
         let! ver = readField "schemaVersion" asInt m
+
+        // Only v0 exists. A different version means the wire format has evolved —
+        // throw loudly so versioning/back-compat gets designed deliberately rather
+        // than decoded against a grammar it may not match.
+        if ver <> SchemaVersion then
+            failwithf "unsupported manifest schemaVersion %d (this build only understands v%d)" ver SchemaVersion
+
         let! pkg = readField "package" asString m
         let! version = optField "version" asString m
         let! exports = listField "exports" decodeExport m

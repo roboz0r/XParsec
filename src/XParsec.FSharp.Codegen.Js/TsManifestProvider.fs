@@ -33,6 +33,12 @@ module TsManifestProvider =
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 
     // ─── TypeRef → SemType (free-function Instantiate result) ──────────────
+    // TODO: `toSem` and `toFrozen` are deliberately parallel recursions over the
+    // SAME `TypeRef` grammar, differing only in target constructor per arm
+    // (FrozenType templates for members, SemType for free-fn symbols — see the
+    // two external-symbol APIs). KEEP THEM IN SYNC: a new `TypeRef` case must be
+    // handled in both. If a third arm ever needs to genuinely diverge, that is
+    // the signal the FrozenType/SemType split is leaking and wants a shared map.
 
     let rec private toSem (t: Schema.TypeRef) : SemType =
         match t with
@@ -54,17 +60,15 @@ module TsManifestProvider =
         | [ p ] -> toFrozen p.Type
         | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen p.Type)))
 
-    let private firstSignature (sigs: Schema.Signature list) : Schema.Signature =
-        // MVP collapses overloads to the first; full overload sets ride
-        // TryLookupMembers once the extractor emits them all.
+    let private singleSignature (name: string) (sigs: Schema.Signature list) : Schema.Signature =
+        // Prototype: handle the one-signature case only. Throw (rather than
+        // silently picking the first / synthesizing a default) so an overload set
+        // surfaces a stack trace pointing at exactly what to implement — full
+        // overload sets will ride TryLookupMembers once the extractor emits them.
         match sigs with
-        | s :: _ -> s
-        | [] ->
-            {
-                TypeParams = 0
-                Params = []
-                Returns = Schema.TypeRef.Named("unit", [])
-            }
+        | [ s ] -> s
+        | [] -> failwithf "symbol '%s' has no call signature" name
+        | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
     let private toExternalMember
         (declKey: SymbolKey)
@@ -97,7 +101,7 @@ module TsManifestProvider =
                 OptionalDefaults = []
             }
         | Schema.MemberKind.Method ->
-            let sg = firstSignature mem.Signatures
+            let sg = singleSignature mem.Name mem.Signatures
 
             let kind =
                 if isInterface && not mem.Static then
@@ -161,7 +165,7 @@ module TsManifestProvider =
     let private toFunctionSymbol (ex: Schema.Export) : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Function(name, signatures, _import) ->
-            let sg = firstSignature signatures
+            let sg = singleSignature name signatures
 
             let paramTypes =
                 match sg.Params with
