@@ -289,6 +289,19 @@ module internal UnificationInferGeneralize =
                     if tryDefault tv then
                         changed <- true
 
+    /// The element type of the bare list-literal registered against union-find `root`
+    /// in `ctx.ListLiterals` (`ValueNone` if none). The shared "look up a registered
+    /// literal by its root" primitive behind both `prepareListLiterals` and the for-in
+    /// `pinListLiteralToVesper` — the differing flip *policy* stays at each call site.
+    let tryListLiteralElem (ctx: PassContext) (root: TypeVar) : SemType voption =
+        let mutable result = ValueNone
+
+        for (lv, elem) in ctx.ListLiterals do
+            if result.IsNone && System.Object.ReferenceEquals(UnionFind.find lv, root) then
+                result <- ValueSome elem
+
+        result
+
     /// Settle the flexible list-literal containers reachable from a binding's
     /// type *before* it generalises, so the bare container `TypeVar` is never
     /// quantified as `∀L. L`:
@@ -302,15 +315,6 @@ module internal UnificationInferGeneralize =
         if ctx.ListLiterals.Count = 0 then
             ()
         else
-            let flexElem (root: TypeVar) : SemType voption =
-                let mutable result = ValueNone
-
-                for (lv, elem) in ctx.ListLiterals do
-                    if result.IsNone && System.Object.ReferenceEquals(UnionFind.find lv, root) then
-                        result <- ValueSome elem
-
-                result
-
             let seen = HashSet<TypeVar>(HashIdentity.Reference)
 
             let rec walk (t: SemType) =
@@ -322,7 +326,7 @@ module internal UnificationInferGeneralize =
                         match root.Link with
                         | ValueSome target -> walk target
                         | ValueNone ->
-                            match flexElem root with
+                            match tryListLiteralElem ctx root with
                             | ValueSome elemTy when root.Level > outerLevel ->
                                 match zonk elemTy with
                                 | TyVar _ ->

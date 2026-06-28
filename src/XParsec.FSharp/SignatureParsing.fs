@@ -263,6 +263,10 @@ module TypeExtensionElementsSignature =
             return TypeExtensionElementsSignature.TypeExtensionElementsSignature(withTok, elems, endTok)
         }
 
+    /// The optional trailing `with …` augmentation (explicit `parse` or light-syntax
+    /// `parseLight`) shared by the extern / record / union signature surfaces.
+    let parseOpt = opt (choiceL [ parse; parseLight ] "Type Extension")
+
 // TypeSignature: top-level dispatch mirroring TypeDefn.parseBody minus class
 // preamble / primary constructor / measure-retry. The leading `type` (or `and`)
 // keyword is consumed in `parse` / `parseAndContinuation`; `parseBody` runs after.
@@ -382,15 +386,7 @@ module TypeSignature =
                     // the opt-in gate lives at the extractor, not the parser.
                     let! ext = pExtern
 
-                    let! members =
-                        opt (
-                            choiceL
-                                [
-                                    TypeExtensionElementsSignature.parse
-                                    TypeExtensionElementsSignature.parseLight
-                                ]
-                                "Type Extension"
-                        )
+                    let! members = TypeExtensionElementsSignature.parseOpt
 
                     return TypeSignature.Extern(typeName, equals, ext, members)
 
@@ -408,15 +404,7 @@ module TypeSignature =
                     let! fields = many1 pRecordField
                     let! rBrace = pRBrace
 
-                    let! ext =
-                        opt (
-                            choiceL
-                                [
-                                    TypeExtensionElementsSignature.parse
-                                    TypeExtensionElementsSignature.parseLight
-                                ]
-                                "Type Extension"
-                        )
+                    let! ext = TypeExtensionElementsSignature.parseOpt
 
                     return TypeSignature.Record(typeName, equals, lBrace, fields, rBrace, ext)
 
@@ -430,17 +418,7 @@ module TypeSignature =
                                 }
                                 parser {
                                     let! cases, _bars = UnionTypeCases.parse
-
-                                    let! ext =
-                                        opt (
-                                            choiceL
-                                                [
-                                                    TypeExtensionElementsSignature.parse
-                                                    TypeExtensionElementsSignature.parseLight
-                                                ]
-                                                "Type Extension"
-                                        )
-
+                                    let! ext = TypeExtensionElementsSignature.parseOpt
                                     return TypeSignature.Union(typeName, equals, cases, ext)
                                 }
                             ]
@@ -461,16 +439,7 @@ module TypeSignature =
                                         ->
                                         return! fail errSingleNullaryUnionCaseIsAbbrev
                                     | _ ->
-                                        let! ext =
-                                            opt (
-                                                choiceL
-                                                    [
-                                                        TypeExtensionElementsSignature.parse
-                                                        TypeExtensionElementsSignature.parseLight
-                                                    ]
-                                                    "Type Extension"
-                                            )
-
+                                        let! ext = TypeExtensionElementsSignature.parseOpt
                                         return TypeSignature.Union(typeName, equals, cases, ext)
                                 }
                                 (Type.parse |>> fun t -> TypeSignature.Abbrev(typeName, equals, t))

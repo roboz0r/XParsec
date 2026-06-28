@@ -566,8 +566,8 @@ module UnificationEngine =
         : struct (string * EqArray<SemType>) list =
         let simple = SymbolKeyOps.shortName name
 
-        // A class *or* a union may declare `interface … with` impls; the subtype
-        // walk treats both kinds' interface lists identically.
+        // A class, union, *or* record may declare `interface … with` impls; the subtype
+        // walk treats every kind's interface list identically.
         match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
         | ValueSome info ->
             [

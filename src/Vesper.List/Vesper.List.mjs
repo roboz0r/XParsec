@@ -5,46 +5,38 @@ export class ListEnumerator {
     this.started = started;
   }
   MoveNext() {
-    const _s3681 = this;
-    return (_s3681.started ? ((_m3980) => {
-      if ((_m3980.tag === 0)) {
-        return false;
+    const _s3655 = this;
+    return ((_s3655.started ? ((_m4213) => {
+      if ((_m4213.tag === 0)) {
+        return undefined;
       }
-      if ((_m3980.tag === 1)) {
-        const t = _m3980.Tail;
-        return ((_s3681.cursor = t), ((_m4122) => {
-          if ((_m4122.tag === 0)) {
-            return false;
-          }
-          if ((_m4122.tag === 1)) {
-            return true;
-          }
-          throw new Error("The match cases were incomplete");
-        })(_s3681.cursor));
+      if ((_m4213.tag === 1)) {
+        const t = _m4213.Tail;
+        return (_s3655.cursor = t);
       }
       throw new Error("The match cases were incomplete");
-    })(_s3681.cursor) : ((_s3681.started = true), ((_m4293) => {
-      if ((_m4293.tag === 0)) {
+    })(_s3655.cursor) : (_s3655.started = true)), ((_m4381) => {
+      if ((_m4381.tag === 0)) {
         return false;
       }
-      if ((_m4293.tag === 1)) {
+      if ((_m4381.tag === 1)) {
         return true;
       }
       throw new Error("The match cases were incomplete");
-    })(_s3681.cursor)));
+    })(_s3655.cursor));
   }
   Current() {
-    const _s3681 = this;
-    return ((_m4432) => {
-      if ((_m4432.tag === 0)) {
+    const _s3655 = this;
+    return ((_m4512) => {
+      if ((_m4512.tag === 0)) {
         return ((() => { throw new Error(("The input list was empty.")); })());
       }
-      if ((_m4432.tag === 1)) {
-        const h = _m4432.Head;
+      if ((_m4512.tag === 1)) {
+        const h = _m4512.Head;
         return h;
       }
       throw new Error("The match cases were incomplete");
-    })(_s3681.cursor);
+    })(_s3655.cursor);
   }
 }
 export class List {
@@ -77,96 +69,96 @@ export class List_Cons extends List {
     this.Tail = Tail;
   }
 }
-export const fold = (folder, state, list) => ((_m4766) => {
-  if ((_m4766.tag === 0)) {
+export const fold = (folder, state, list) => ((_m5052) => {
+  if ((_m5052.tag === 0)) {
     return state;
   }
-  if ((_m4766.tag === 1)) {
-    const h = _m4766.Head;
-    const t = _m4766.Tail;
+  if ((_m5052.tag === 1)) {
+    const h = _m5052.Head;
+    const t = _m5052.Tail;
     return fold(folder, folder(state)(h), t);
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const isEmpty = (list) => ((_m4910) => {
-  if ((_m4910.tag === 0)) {
+export const isEmpty = (list) => ((_m5196) => {
+  if ((_m5196.tag === 0)) {
     return true;
   }
-  if ((_m4910.tag === 1)) {
+  if ((_m5196.tag === 1)) {
     return false;
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const length = (list) => ((_m5030) => {
-  if ((_m5030.tag === 0)) {
+export const length = (list) => ((_m5316) => {
+  if ((_m5316.tag === 0)) {
     return 0;
   }
-  if ((_m5030.tag === 1)) {
-    const t = _m5030.Tail;
+  if ((_m5316.tag === 1)) {
+    const t = _m5316.Tail;
     return ((_s2) => (((1) + (_s2)) | 0))(length(t));
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const head = (list) => ((_m5147) => {
-  if ((_m5147.tag === 0)) {
+export const head = (list) => ((_m5433) => {
+  if ((_m5433.tag === 0)) {
     return ((() => { throw new Error(("The input list was empty.")); })());
   }
-  if ((_m5147.tag === 1)) {
-    const h = _m5147.Head;
+  if ((_m5433.tag === 1)) {
+    const h = _m5433.Head;
     return h;
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const tail = (list) => ((_m5293) => {
-  if ((_m5293.tag === 0)) {
+export const tail = (list) => ((_m5579) => {
+  if ((_m5579.tag === 0)) {
     return ((() => { throw new Error(("The input list was empty.")); })());
   }
-  if ((_m5293.tag === 1)) {
-    const t = _m5293.Tail;
+  if ((_m5579.tag === 1)) {
+    const t = _m5579.Tail;
     return t;
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const map = (mapping, list) => ((_m5462) => {
-  if ((_m5462.tag === 0)) {
+export const map = (mapping, list) => ((_m5748) => {
+  if ((_m5748.tag === 0)) {
     return new List_Empty();
   }
-  if ((_m5462.tag === 1)) {
-    const h = _m5462.Head;
-    const t = _m5462.Tail;
+  if ((_m5748.tag === 1)) {
+    const h = _m5748.Head;
+    const t = _m5748.Tail;
     return new List_Cons(mapping(h), map(mapping, t));
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const filter = (predicate, list) => ((_m5629) => {
-  if ((_m5629.tag === 0)) {
+export const filter = (predicate, list) => ((_m5915) => {
+  if ((_m5915.tag === 0)) {
     return new List_Empty();
   }
-  if ((_m5629.tag === 1)) {
-    const h = _m5629.Head;
-    const t = _m5629.Tail;
+  if ((_m5915.tag === 1)) {
+    const h = _m5915.Head;
+    const t = _m5915.Tail;
     return (predicate(h) ? new List_Cons(h, filter(predicate, t)) : filter(predicate, t));
   }
   throw new Error("The match cases were incomplete");
 })(list);
-export const append = (list1, list2) => ((_m5891) => {
-  if ((_m5891.tag === 0)) {
+export const append = (list1, list2) => ((_m6177) => {
+  if ((_m6177.tag === 0)) {
     return list2;
   }
-  if ((_m5891.tag === 1)) {
-    const h = _m5891.Head;
-    const t = _m5891.Tail;
+  if ((_m6177.tag === 1)) {
+    const h = _m6177.Head;
+    const t = _m6177.Tail;
     return new List_Cons(h, append(t, list2));
   }
   throw new Error("The match cases were incomplete");
 })(list1);
-export const rev = (list) => ((_m6028) => {
-  if ((_m6028.tag === 0)) {
+export const rev = (list) => ((_m6314) => {
+  if ((_m6314.tag === 0)) {
     return new List_Empty();
   }
-  if ((_m6028.tag === 1)) {
-    const h = _m6028.Head;
-    const t = _m6028.Tail;
+  if ((_m6314.tag === 1)) {
+    const h = _m6314.Head;
+    const t = _m6314.Tail;
     return append(rev(t), new List_Cons(h, new List_Empty()));
   }
   throw new Error("The match cases were incomplete");

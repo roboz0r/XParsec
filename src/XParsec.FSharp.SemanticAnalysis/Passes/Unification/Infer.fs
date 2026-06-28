@@ -128,12 +128,26 @@ module UnificationInfer =
     /// target-neutrally (each backend lowers it to its own slot: the CLR
     /// `IDisposable::Dispose`, the JS `Symbol.dispose`).
     and private tryExternalDispose (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SymbolKey voption =
-        let viaInterface =
-            match ctx.CapabilityIds.Disposable, ctx.Provider.TryLookupType name with
-            | ValueSome disp, ValueSome(ExternalTypeShape.Class shape) when
+        // The directly-implemented interface set an external nominal carries today: a
+        // class's `FrozenInterfaces` or a union's `interface <ty>` impls (the union
+        // analogue, the cons-list's `interface seq<'T>` channel). Scanned kind-agnostically
+        // so a BCL/contract union that is `IDisposable`-via-interface disposes through the
+        // slot, exactly as `InferControlFlow.tryForInEnumerator` admits Class+Union for
+        // iteration. (An external RECORD carries no interfaces — `DeferredBody.Record`
+        // captures no `interface` CSTs — so a disposable external record resolves only via
+        // its own `Dispose` below; that boundary moves the day records gain a contract
+        // interface channel.)
+        let externalInterfaces () : (string * SemType[])[] =
+            match ctx.Provider.TryLookupType name with
+            | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
-                |> Array.exists (fun (n, _) -> disp.MatchesName n)
-                ->
+            | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
+                ExternalSymbols.instantiateInterfacesOf ifaces (args.AsSpan().ToArray())
+            | _ -> [||]
+
+        let viaInterface =
+            match ctx.CapabilityIds.Disposable with
+            | ValueSome disp when externalInterfaces () |> Array.exists (fun (n, _) -> disp.MatchesName n) ->
                 ValueSome(SymbolKey.MemberKey(disp.Key, "Dispose", EqArray.empty, MemberKind.Method))
             | _ -> ValueNone
 
@@ -150,18 +164,20 @@ module UnificationInfer =
     /// disposable capability interface — its `InterfaceImpls` carry a resolved interface
     /// whose head key matches `caps.Disposable`. Mirrors
     /// `InferControlFlow.probeLocalEnumerator`'s for-in finally probe.
-    and private localImplementsDisposable (ctx: PassContext) (host: IInterfaceImplHost) (args: EqArray<SemType>) : bool =
-        match ctx.CapabilityIds.Disposable with
-        | ValueSome disp ->
-            host.InterfaceImpls
-            |> Array.exists (fun impl ->
-                match impl.Resolved with
-                | ValueSome resolved ->
-                    match zonk (instantiateMember (host.TypeParams, args) resolved) with
-                    | TyClass(ifaceKey, _) -> disp.MatchesKey ifaceKey
-                    | _ -> false
-                | ValueNone -> false)
-        | ValueNone -> false
+    and private localImplementsDisposable
+        (ctx: PassContext)
+        (host: IInterfaceImplHost)
+        (args: EqArray<SemType>)
+        : bool =
+        host.InterfaceImpls
+        |> Array.exists (fun impl ->
+            match impl.Resolved with
+            | ValueSome resolved ->
+                match zonk (instantiateMember (host.TypeParams, args) resolved) with
+                | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
+                | _ -> false
+            | ValueNone -> false
+        )
 
     /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to
     /// `IDisposable`, so a duck-typed pattern `Dispose()` is disposed by calling its
@@ -217,25 +233,27 @@ module UnificationInfer =
                     | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
                     | ValueNone -> notDisposable simple
 
+            // Any nominal binder (class / union / record) resolves the same way: a
+            // project-local host qualifies via its interface impls (or the ref-struct
+            // carve-out), otherwise it must be an external `disposable` — else it's a
+            // `use`-over-non-disposable error. `tryExternalDispose` scans whichever
+            // interface set the external shape carries (class or union); an external
+            // record carries none, so it resolves only via an own-`Dispose` there. This
+            // routes all three kinds rather than silently accepting an unknown head.
             match resolveStep binderTy with
-            | TyClass(clsKey, args) ->
-                let simple = SymbolKeyOps.simpleName clsKey
-
-                match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
-                | ValueSome host -> resolveLocal host clsKey simple args
-                | ValueNone ->
-                    let qual = SymbolKeyOps.qualifiedName clsKey
-
-                    match tryExternalDispose ctx qual args with
-                    | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
-                    | ValueNone -> notDisposable qual
+            | TyClass(headKey, args)
             | TyUnion(headKey, args)
             | TyRecord(headKey, args) ->
                 let simple = SymbolKeyOps.simpleName headKey
 
                 match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
                 | ValueSome host -> resolveLocal host headKey simple args
-                | ValueNone -> ()
+                | ValueNone ->
+                    let qual = SymbolKeyOps.qualifiedName headKey
+
+                    match tryExternalDispose ctx qual args with
+                    | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
+                    | ValueNone -> notDisposable qual
             | _ -> ()
         | _ -> ()
 

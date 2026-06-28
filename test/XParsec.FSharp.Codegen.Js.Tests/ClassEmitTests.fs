@@ -96,6 +96,7 @@ let tests =
                     src
                     "[Symbol.for(\"vesper.equality\")](other)"
                     "typed IEquatable.Equals attaches as the registry-symbol method"
+
                 Expect.isFalse (src.Contains "Equals(other)") "the named `Equals(` method form is gone (re-keyed)"
                 // The `override GetHashCode` attaches as `[Symbol.for("vesper.hash")]()` so
                 // `hashOf` can find it via the registry symbol.
@@ -237,10 +238,15 @@ let tests =
                     )
 
                 Expect.stringContains src "class R {" "the record emits as a JS class"
-                Expect.stringContains src "Rank()" "the IRank.Rank impl attaches as an instance method on the record class"
+
+                Expect.stringContains
+                    src
+                    "Rank()"
+                    "the IRank.Rank impl attaches as an instance method on the record class"
             }
 
-            test "a record implementing a local interface dispatches `Rank()` through the attached method on JS (prints 7)" {
+            test
+                "a record implementing a local interface dispatches `Rank()` through the attached method on JS (prints 7)" {
                 match
                     runJs
                         "record-localiface"

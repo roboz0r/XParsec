@@ -754,7 +754,8 @@ let unionInterfaceImplTests =
                     let (ifaceTy, members) = ifaces.[0]
 
                     match ifaceTy with
-                    | TyClass(name, _) -> Expect.stringContains name "IDescribe" "the impl heads the IDescribe interface"
+                    | TyClass(name, _) ->
+                        Expect.stringContains name "IDescribe" "the impl heads the IDescribe interface"
                     | other -> failtestf "interface head is not a TyClass: %A" other
 
                     Expect.equal members.Length 1 "the Describe member body is carried with the impl"
@@ -790,7 +791,10 @@ let unionInterfaceImplTests =
                 let tast = analyse src
 
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-                Expect.isEmpty errors (sprintf "no front-end errors — `this`/payload resolve in the impl body (%A)" errors)
+
+                Expect.isEmpty
+                    errors
+                    (sprintf "no front-end errors — `this`/payload resolve in the impl body (%A)" errors)
 
                 // And the impl still freezes onto the union (the body typed cleanly).
                 let carried =
@@ -846,12 +850,17 @@ let recordInterfaceImplTests =
                     tast.Decls
                     |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Type { Name = "R"; Kind = TTypeKind.Record _ } -> true
+                        | TDecl.Type {
+                                         Name = "R"
+                                         Kind = TTypeKind.Record _
+                                     } -> true
                         | _ -> false
                     )
                     |> ValueOption.bind (fun d ->
                         match d with
-                        | TDecl.Type { Kind = TTypeKind.Record(_, _, ifaces) } -> ValueSome ifaces
+                        | TDecl.Type {
+                                         Kind = TTypeKind.Record(_, _, ifaces)
+                                     } -> ValueSome ifaces
                         | _ -> ValueNone
                     )
 

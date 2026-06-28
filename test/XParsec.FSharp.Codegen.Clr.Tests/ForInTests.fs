@@ -462,8 +462,7 @@ let forInTests =
             // interface — a runtime fault). `runsPackages` builds Vesper.List through our
             // own backend and runs the driver in `packageAlc`.
             test "a BARE cons-list `for x in [1;2;3]` iterates the real Vesper.List on CLR (runtime)" {
-                let src =
-                    String.concat "\n" [ "for x in [1; 2; 3] do"; "    printfn \"%d\" x" ]
+                let src = String.concat "\n" [ "for x in [1; 2; 3] do"; "    printfn \"%d\" x" ]
 
                 runsPackages [] "1\n2\n3" src
             }

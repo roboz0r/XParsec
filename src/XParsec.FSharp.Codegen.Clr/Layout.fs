@@ -380,6 +380,20 @@ module internal Layout =
                 else instanceMethodAttrs
         }
 
+    /// A nominal type's own augmentation members followed by its user `interface …
+    /// with` impl members, as `MethodKey.Member` rows. Indexing follows the shared
+    /// `NominalMembers.indexed` contract (own at `[0..n)`, impl at `[n..)`) that
+    /// `NominalEmit` binds bodies against. Impl members are forced to `ifaceEqualsAttrs`
+    /// (virtual/new-slot/final) so the runtime binds each to its `InterfaceImpl` row.
+    /// Shared by the union, record, and class arms.
+    let private ownAndIfaceMemberRows
+        (key: SymbolKey)
+        (members: Frozen.TTypeMember list)
+        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        : MethodRow list =
+        NominalMembers.indexed members interfaces
+        |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
+
     /// The equality triple's rows, in `NominalEmit` emission order.
     let private equalityRows (td: Frozen.TTypeDecl) : MethodRow list =
         match td.EqualitySupport with
@@ -678,19 +692,7 @@ module internal Layout =
                                         Attrs = staticFactoryAttrs
                                     }
 
-                            let ownCount = List.length ud.Members
-                            yield! ud.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
-
-                            // User `interface … with` impl members trail the union's own
-                            // members (same indexing `NominalEmit`'s `ifaceMembers` uses),
-                            // each forced to the `ifaceEqualsAttrs` virtual/new-slot/final
-                            // shape so the runtime binds it to the `InterfaceImpl` row.
-                            yield!
-                                [
-                                    for (_, ms) in ud.Interfaces do
-                                        yield! ms
-                                ]
-                                |> List.mapi (fun i m -> memberRow td.Key (ownCount + i) true m)
+                            yield! ownAndIfaceMemberRows td.Key ud.Members ud.Interfaces
 
                             yield! equalityRows td
                             yield! comparisonRows td
@@ -726,21 +728,7 @@ module internal Layout =
                                     Attrs = ctorAttrs
                                 }
 
-                            let ownCount = List.length rd.Members
-                            yield! rd.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
-
-                            // User `interface … with` impl members trail the record's own
-                            // members (same indexing `NominalEmit`'s `ifaceMembers` uses),
-                            // each forced to the interface virtual/new-slot/final shape so
-                            // the runtime binds it to the `InterfaceImpl` row. Must stay
-                            // *before* the eq/comp/format rows so the structural-eq indices
-                            // do not shift.
-                            yield!
-                                [
-                                    for (_, ms) in rd.Interfaces do
-                                        yield! ms
-                                ]
-                                |> List.mapi (fun i m -> memberRow td.Key (ownCount + i) true m)
+                            yield! ownAndIfaceMemberRows td.Key rd.Members rd.Interfaces
 
                             yield! equalityRows td
                             yield! comparisonRows td
@@ -833,15 +821,7 @@ module internal Layout =
                                     }
                                 )
 
-                            let ownCount = List.length cd.Members
-                            yield! cd.Members |> List.mapi (fun i m -> memberRow td.Key i false m)
-
-                            yield!
-                                [
-                                    for (_, ms) in cd.Interfaces do
-                                        yield! ms
-                                ]
-                                |> List.mapi (fun i m -> memberRow td.Key (ownCount + i) true m)
+                            yield! ownAndIfaceMemberRows td.Key cd.Members cd.Interfaces
                         ]
 
                     nominalSlot

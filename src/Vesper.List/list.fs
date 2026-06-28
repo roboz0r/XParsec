@@ -145,5 +145,6 @@ module List =
 
     // `toSeq` upcasts the list directly — the cons-list IS a `seq<'T>` now that
     // `List<'T>` implements `IEnumerable<'T>` (the `ListSeq` wrapper is retired).
-    // `ofSeq` stays contract-only (`for x in IEnumerable`).
+    // `ofSeq` stays forward-declared in the `.fsi` only (a consumer name-resolves it)
+    // until its `'T`-consing loop is encodable — see the `.fsi` for the full rationale.
     let toSeq (list: 'T list) : IEnumerable<'T> = (list :> IEnumerable<'T>)

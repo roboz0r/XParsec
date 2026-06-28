@@ -50,8 +50,6 @@ type List<'T> =
         member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> =
             (new ListEnumerator<'T>(this) :> System.Collections.Generic.IEnumerator<'T>)
 
-and 'T list = List<'T>
-
 // JS-target cons enumerator: a `val mutable` cursor walked by `MoveNext`/`Current`
 // (the duck-typed protocol the `*[Symbol.iterator]()` generator adapter drives).
 // `started` makes the first `MoveNext` "start" the walk (cursor stays at the head);
@@ -65,25 +63,28 @@ and ListEnumerator<'T> =
 
     interface System.Collections.Generic.IEnumerator<'T> with
         member this.MoveNext() : bool =
+            // Advance the cursor (the first call only "starts" it, leaving the head),
+            // then report non-empty ONCE — the started/first-call branches differ only
+            // in how they move the cursor, not in the post-move emptiness test.
             if this.started then
                 match this.cursor with
-                | [] -> false
-                | _ :: t ->
-                    this.cursor <- t
-                    match this.cursor with
-                    | [] -> false
-                    | _ :: _ -> true
+                | [] -> ()
+                | _ :: t -> this.cursor <- t
             else
                 this.started <- true
 
-                match this.cursor with
-                | [] -> false
-                | _ :: _ -> true
+            match this.cursor with
+            | [] -> false
+            | _ :: _ -> true
 
         member this.Current : 'T =
             match this.cursor with
             | [] -> failwith "The input list was empty."
             | h :: _ -> h
+
+// The `'T list` abbreviation stays LAST in the rec group (mirroring `list.fs` and the
+// original declaration order); `ListEnumerator` sits between `List` and the abbreviation.
+and 'T list = List<'T>
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

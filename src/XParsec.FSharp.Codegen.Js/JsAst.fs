@@ -144,18 +144,23 @@ and [<RequireQualifiedAccess>] JsStatement =
 /// the receiver to JS `this`, so the runtime can dispatch on method presence
 /// (`a.Equals(b)`, `a.CompareTo(b)`, `x.GetHashCode()`).
 ///
-/// `Computed` carries a capability protocol member's symbol-KEY EXPRESSION when the
-/// method is keyed by a JS symbol rather than a plain name — `ValueSome e` prints the
-/// header as `[<e>](params)` (`e` is `Symbol.iterator`, a member access, or
-/// `Symbol.for("vesper.equality")`, a call). `Name` then carries only a descriptive
-/// label (ignored by the printer). `Generator` prefixes the header with `*`
-/// (`*[Symbol.iterator]()`) so the body may `yield` — the iteration adapter's form.
+/// A class method's name slot. `Named n` prints a plain identifier header
+/// (`Equals(params)`); `Computed e` prints a computed-key header `[<e>](params)`
+/// where `e` is the symbol-KEY EXPRESSION (`Symbol.iterator`, a member access, or
+/// `Symbol.for("vesper.equality")`, a call). The two are mutually exclusive, so a
+/// computed method can't also carry a never-printed descriptive name.
+and JsMethodKey =
+    | Named of string
+    | Computed of JsExpr
+
+/// One instance method of an emitted class / union base class. `Generator` prefixes
+/// the header with `*` (`*[Symbol.iterator]()`) so the body may `yield` — the
+/// iteration adapter's form.
 and JsClassMethod =
     {
-        Name: string
+        Key: JsMethodKey
         Params: string list
         Body: JsStatement list
-        Computed: JsExpr voption
         Generator: bool
     }
 

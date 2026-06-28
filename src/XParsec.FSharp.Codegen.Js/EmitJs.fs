@@ -6,6 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 open JsEmitHelpers
+open EmitJsTypes
 
 /// The `TAST → JsAst` walker. Every un-handled node is an explicit `failwithf`,
 /// so an unsupported arm fails loudly rather than dropping silently.
@@ -66,22 +67,6 @@ module EmitJs =
     /// (no source text supplied); `ValueSome` carries the line index.
     type Resolver = LineIndex voption
 
-    /// A record type's JS shape: the emitted class `Name` and its `Fields` in
-    /// *declaration* order — `RecordCons`/`RecordClone` reorder source args to match.
-    type JsRecordInfo = { Name: string; Fields: string list }
-
-    /// A union type's JS shape: the emitted base-class `Name` and its cases keyed by
-    /// F# case name. `UnionCons` and union patterns look up subclass + field order here.
-    type JsUnionInfo =
-        {
-            Name: string
-            Cases: System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>
-            /// `ValueSome asm` for an external union: its case classes live in `asm`'s
-            /// runtime module, so a `UnionCons` site imports them rather than relying on
-            /// a local class. `ValueNone` for a union declared in this file.
-            Home: string voption
-        }
-
     /// The walker's ambient context.
     type WalkCtx =
         {
@@ -114,12 +99,17 @@ module EmitJs =
             /// populates it from the lowered decls.
             CompiledFns: System.Collections.Generic.Dictionary<NodeKey, CompiledFns.CompiledFn>
             /// Keys of the file's locally-declared interfaces (`TTypeKindG.Interface`).
-            /// A `MethodCall` whose member's declaring type is in this set is a call
-            /// through a local interface slot (`(r :> IRank).Rank()`): the impl is an
-            /// ATTACHED method on the receiver's class (the plain-attached partition
-            /// path), so the call lowers to `receiver.<member>(args)` rather than the
-            /// free receiver-first `<Type>__<member>` form. Empty until `buildProgram`
-            /// populates it from `tast.Decls`.
+            /// A `PropertyGet`/`MethodCall` whose member's declaring type is in this set
+            /// dispatches through a LOCAL interface slot (`(r :> IRank).Rank`): the impl is
+            /// an ATTACHED method on the receiver's class, so the access lowers to
+            /// `receiver.<member>(args)` rather than the free receiver-first
+            /// `<Type>__<member>` form. This is NOT derivable from the node's `CallVia`:
+            /// the front end stamps `CallVia.Interface` only for the generic-typar rung-3
+            /// case (`'T :> IFace`, `mkInterfaceMethodCall`); an interface-typed receiver
+            /// (`(r :> IRank).M()`) is an ordinary `CallVia.Self` whose interface-ness
+            /// lives only in the member's declaring key. CLR needs no such table (native
+            /// interface dispatch handles both); JS, lacking it, recovers the fact here.
+            /// Empty until `buildProgram` populates it from `tast.Decls`.
             LocalInterfaces: System.Collections.Generic.HashSet<SymbolKey>
         }
 
@@ -146,50 +136,6 @@ module EmitJs =
         | _ -> failwithf "EmitJs: %s on record with no emitted type (key %A)" what key
 
     // ---- Unions --------------------------------------------------------------
-
-    /// A union case's declaration-order field names: named fields verbatim; a lone
-    /// positional becomes `Item`; multiple positionals become `Item1`/`Item2`/….
-    let private synthFieldNames (fieldNames: string voption list) : string list =
-        match fieldNames with
-        | [ ValueSome n ] -> [ n ]
-        | [ ValueNone ] -> [ "Item" ]
-        | many ->
-            many
-            |> List.mapi (fun i nm ->
-                match nm with
-                | ValueSome n -> n
-                | ValueNone -> "Item" + string (i + 1)
-            )
-
-    /// Build a `JsUnionInfo` for `baseName` with `(caseName, fieldNames)` in declaration
-    /// order: tag = declaration index, subclass = `<baseName>_<case>`.
-    let private buildUnionInfo
-        (home: string voption)
-        (baseName: string)
-        (cases: (string * string voption list) list)
-        : JsUnionInfo * JsUnionCaseDecl list =
-        let caseDecls =
-            cases
-            |> List.mapi (fun tag (caseName, fieldNames) ->
-                {
-                    CaseName = caseName
-                    ClassName = baseName + "_" + caseName
-                    Tag = tag
-                    Fields = synthFieldNames fieldNames
-                }
-            )
-
-        let table = System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>()
-
-        for c in caseDecls do
-            table.[c.CaseName] <- c
-
-        {
-            Name = baseName
-            Cases = table
-            Home = home
-        },
-        caseDecls
 
     /// Resolve an external union to a `JsUnionInfo` via the provider, caching in
     /// `ExternalUnions`. The case classes are NOT re-emitted locally — they are
@@ -362,12 +308,20 @@ module EmitJs =
 
     // ---- The walker ----------------------------------------------------------
 
-    /// `Symbol.dispose` — a member access on the global `Symbol` (a NATIVE well-known
-    /// symbol), EXACTLY like `Symbol.iterator`, NOT a `Symbol.for("…")` registry call.
-    /// Shared by the disposable-impl method KEY (`emitDisposeMethod`) and `use`'s
-    /// disposal call site (`disposeStmts`) so both name the identical slot.
-    let private symbolDispose: JsExpr =
-        JsExpr.Member(JsExpr.Identifier("Symbol", ValueNone), JsExpr.Identifier("dispose", ValueNone), false, ValueNone)
+    /// A NATIVE well-known symbol — a member access on the global `Symbol`
+    /// (`Symbol.dispose`, `Symbol.iterator`). Distinct from a `Symbol.for("…")` registry
+    /// call (`registrySymbol`).
+    let private nativeSymbol (name: string) : JsExpr =
+        JsExpr.Member(JsExpr.Identifier("Symbol", ValueNone), JsExpr.Identifier(name, ValueNone), false, ValueNone)
+
+    /// A process-wide REGISTRY symbol — `Symbol.for("<key>")`, resolving to the same
+    /// symbol in every module with no import wiring (the eq/comp/hash dispatch slots).
+    let private registrySymbol (key: string) : JsExpr =
+        JsExpr.Call(nativeSymbol "for", [ JsExpr.Literal(JsLiteral.String key, ValueNone) ], ValueNone)
+
+    /// `Symbol.dispose` — shared by the disposable-impl method KEY (`emitDisposeMethod`)
+    /// and `use`'s disposal call site (`disposeStmts`) so both name the identical slot.
+    let private symbolDispose: JsExpr = nativeSymbol "dispose"
 
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
         let loc = locOf ctx (TastWalk.exprTok e)
@@ -586,27 +540,29 @@ module EmitJs =
                         "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
                         className
 
-        // Member calls on a local record/union: each member is a free receiver-first function.
+        // A member access through a LOCAL interface slot (`(r :> IRank).Rank`): the impl
+        // is an ATTACHED method on the receiver's class (the plain-attached partition), so
+        // dispatch as a flat member access `receiver.<member>(args)` — the free-function
+        // `<Type>__<member>` form names no emitted function for an interface member. The
+        // member's declaring type being a local interface is the signal (not the node's
+        // `CallVia` — see `WalkCtx.LocalInterfaces`). An interface-impl PROPERTY emits as a
+        // zero-arg attached method, so its read is the same member access called with no
+        // args.
+        | TExprG.PropertyGet(receiver, key, _, _, _) when ctx.LocalInterfaces.Contains(Members.declKey key) ->
+            JsExpr.Call(attachedAccess ctx loc receiver key, [], loc)
+
+        | TExprG.MethodCall(receiver, key, _, args, _, _) when ctx.LocalInterfaces.Contains(Members.declKey key) ->
+            JsExpr.Call(attachedAccess ctx loc receiver key, [ for a in args -> buildExpr ctx a ], loc)
+
+        // Member access on a local record/union: each member is a free receiver-first function.
         | TExprG.PropertyGet(receiver, key, _, _, _) ->
             JsExpr.Call(Members.localFn ctx key false true ValueNone, [ buildExpr ctx receiver ], loc)
 
         | TExprG.MethodCall(receiver, key, _, args, _, _) ->
-            // A call through a LOCAL interface slot (`(r :> IRank).Rank()`): the impl
-            // is an attached method on the receiver's class (plain-attached partition),
-            // so dispatch as a flat member call `receiver.<member>(args)` — the
-            // free-function `<Type>__<member>` form names no emitted function (an
-            // interface emits nothing).
-            if ctx.LocalInterfaces.Contains(Members.declKey key) then
-                JsExpr.Call(
-                    JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(SymbolKeyOps.simpleName key, ValueNone), false, loc),
-                    [ for a in args -> buildExpr ctx a ],
-                    loc
-                )
-            else
-                let withRecv =
-                    JsExpr.Call(Members.localFn ctx key false false ValueNone, [ buildExpr ctx receiver ], loc)
+            let withRecv =
+                JsExpr.Call(Members.localFn ctx key false false ValueNone, [ buildExpr ctx receiver ], loc)
 
-                applyArgs ctx withRecv args
+            applyArgs ctx withRecv args
 
         | TExprG.StaticPropertyGet(key, _, _) -> Members.localFn ctx key true true loc
 
@@ -676,7 +632,7 @@ module EmitJs =
             let name = useBinderName ctx binding
 
             let tryFinally =
-                JsStatement.TryFinally([ JsStatement.Return(buildExpr ctx body) ], disposeStmts ctx binding dispose name)
+                JsStatement.TryFinally([ JsStatement.Return(buildExpr ctx body) ], disposeStmts ctx dispose name)
 
             let block = [ JsStatement.Const(name, buildExpr ctx value); tryFinally ]
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block block, loc), [], loc)
@@ -1259,62 +1215,59 @@ module EmitJs =
 
         topLevelBinding ctx name init
 
-    /// Emit an interface-impl / `Object`-override member as an ATTACHED instance
-    /// method `Name(params) { … }` on the emitted class, with the receiver bound to
-    /// JS `this` (not a curried param). The runtimes dispatch by method presence —
-    /// `Vesper.Core.eq` calls `a.Equals(b)`, `Vesper.Comparison.cmp` calls
-    /// `a.CompareTo(b)`, `Vesper.Core.hashOf` calls `x.GetHashCode()` — so a
-    /// custom-equality / custom-comparison class's slot IS its `IEquatable`/
-    /// `IComparable`/`override GetHashCode` impl. The receiver's source-name binder
-    /// (`m.ThisKey`) is re-bound to `this` via a leading `const`, leaving the body's
-    /// `TExpr.Var(thisKey)` references intact.
-    and emitAttachedMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
-        let paramNames = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+    /// Re-bind a member's receiver source-name binder (`m.ThisKey`) to JS `this` via a
+    /// leading `const`, leaving the body's `TExpr.Var(thisKey)` references intact. Empty
+    /// when the binder already resolves to `this` (avoids a no-op `const this = this;`)
+    /// or the member is static.
+    and thisBinding (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsStatement list =
+        match m.ThisKey with
+        | ValueSome k ->
+            let recvName = identName ctx.Source k
 
-        let recvBinding =
-            match m.ThisKey with
-            | ValueSome k ->
-                let recvName = identName ctx.Source k
-                // Avoid a no-op `const this = this;` if the binder already resolves to `this`.
-                if recvName = "this" then
-                    []
-                else
-                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
-            | ValueNone -> []
+            if recvName = "this" then
+                []
+            else
+                [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+        | ValueNone -> []
 
-        let body = recvBinding @ [ JsStatement.Return(buildExpr ctx m.Body) ]
-
+    /// Emit a plain (non-generator) ATTACHED instance method: receiver bound to JS
+    /// `this` (not a curried param), the member's params curried-free, body returned.
+    /// The runtimes dispatch by method presence — `Vesper.Core.eq` calls `a.Equals(b)`,
+    /// `Vesper.Comparison.cmp` calls `a.CompareTo(b)`, `Vesper.Core.hashOf` calls
+    /// `x.GetHashCode()`, `use` calls `obj[Symbol.dispose]()` — so a capability impl's
+    /// slot IS its member body; only the `key` (a plain `Named`, a `Symbol.dispose`
+    /// member-access, or a `Symbol.for("vesper.X")` registry call) tells them apart.
+    and emitPlainMethod (ctx: WalkCtx) (key: JsMethodKey) (m: Frozen.TTypeMember) : JsClassMethod =
         {
-            Name = m.Name
-            Params = paramNames
-            Body = body
-            Computed = ValueNone
+            Key = key
+            Params = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+            Body = thisBinding ctx m @ [ JsStatement.Return(buildExpr ctx m.Body) ]
             Generator = false
         }
+
+    /// An interface-impl / `Object`-override member (`Equals`/`CompareTo`/`GetHashCode`
+    /// or a user interface method) as a name-keyed attached method.
+    and emitAttachedMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
+        emitPlainMethod ctx (JsMethodKey.Named m.Name) m
+
+    /// `receiver.<member>` for a call dispatched through a local interface slot — the
+    /// member resolves to the attached method `partitionClassMembers` emitted on the
+    /// receiver's class. Shared by the `PropertyGet`/`MethodCall` `CallVia.Interface` arms.
+    and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: Frozen.TExpr) (key: SymbolKey) : JsExpr =
+        JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(SymbolKeyOps.simpleName key, ValueNone), false, loc)
 
     /// Emit an enumerable-capability `GetEnumerator` impl as a native
     /// `*[Symbol.iterator]()` GENERATOR — the JS realisation of "implement `seq<'T>`
     /// ⇒ emit the target iteration protocol". The generator binds the enumerator the
-    /// impl returns (`const e = <GetEnumerator body>`, with `this` re-bound exactly as
-    /// `emitAttachedMethod`), then drives the F# enumerator protocol
-    /// (`MoveNext(): bool` + `Current`) into JS's: `while (e.MoveNext()) yield e.Current()`.
-    /// `yield` makes the protocol adaptation free — it auto-produces the
-    /// `{ value, done }` iterator results, so no object literal is built. The enumerator
-    /// is itself an `IEnumerator<'T>` implementer, so its `MoveNext`/`Current` are
-    /// ATTACHED JS methods (`e.MoveNext()` / `e.Current()`), dispatched directly on the
-    /// runtime object — not the free receiver-first form a regular member call lowers to.
+    /// impl returns (`const e = <GetEnumerator body>`, with `this` re-bound via
+    /// `thisBinding`), then drives the F# enumerator protocol (`MoveNext(): bool` +
+    /// `Current`) into JS's: `while (e.MoveNext()) yield e.Current()`. `yield` makes the
+    /// protocol adaptation free — it auto-produces the `{ value, done }` iterator
+    /// results, so no object literal is built. The enumerator is itself an
+    /// `IEnumerator<'T>` implementer, so its `MoveNext`/`Current` are ATTACHED JS methods
+    /// (`e.MoveNext()` / `e.Current()`), dispatched directly on the runtime object — not
+    /// the free receiver-first form a regular member call lowers to.
     and emitIteratorMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
-        let recvBinding =
-            match m.ThisKey with
-            | ValueSome k ->
-                let recvName = identName ctx.Source k
-
-                if recvName = "this" then
-                    []
-                else
-                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
-            | ValueNone -> []
-
         // A fresh enumerator binder, keyed on the body token so it can't shadow a
         // source binder the `GetEnumerator` body itself introduces.
         let eName = "_e" + string (TastWalk.exprTok m.Body).StartIndex
@@ -1327,105 +1280,38 @@ module EmitJs =
             JsExpr.Call(JsExpr.Member(eIdent, JsExpr.Identifier(name, ValueNone), false, ValueNone), [], ValueNone)
 
         let body =
-            recvBinding
+            thisBinding ctx m
             @ [
                 JsStatement.Const(eName, buildExpr ctx m.Body)
                 JsStatement.While(attachedCall "MoveNext", [ JsStatement.Yield(attachedCall "Current") ])
             ]
 
-        // `Symbol.iterator` — a member access (a native well-known symbol), distinct
-        // from a registry `Symbol.for("…")` call (the eq/comp/hash sub-slice, deferred).
-        let symbolIterator =
-            JsExpr.Member(
-                JsExpr.Identifier("Symbol", ValueNone),
-                JsExpr.Identifier("iterator", ValueNone),
-                false,
-                ValueNone
-            )
-
         {
-            Name = "[Symbol.iterator]"
+            // `Symbol.iterator` — a native well-known symbol, distinct from a registry
+            // `Symbol.for("…")` call (the eq/comp/hash sub-slice).
+            Key = JsMethodKey.Computed(nativeSymbol "iterator")
             Params = []
             Body = body
-            Computed = ValueSome symbolIterator
             Generator = true
         }
 
     /// Emit a disposable-capability `Dispose` impl as a NATIVE well-known
     /// `[Symbol.dispose]()` method — the JS analogue of the CLR `IDisposable::Dispose`
-    /// slot, driven by `use`'s `obj[Symbol.dispose]()` lowering. Cloned from
-    /// `emitIteratorMethod` but with NO generator / while / yield (disposal is a plain
-    /// side-effecting call): the body is just the impl's `Dispose` body, receiver
-    /// re-bound to `this`. The KEY is the `Symbol.dispose` member-access node (a native
-    /// well-known symbol), NOT a `Symbol.for("…")` registry call.
+    /// slot, driven by `use`'s `obj[Symbol.dispose]()` lowering. A plain
+    /// (non-generator) method keyed by the `Symbol.dispose` member-access node, NOT a
+    /// `Symbol.for("…")` registry call.
     and emitDisposeMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
-        let recvBinding =
-            match m.ThisKey with
-            | ValueSome k ->
-                let recvName = identName ctx.Source k
-
-                if recvName = "this" then
-                    []
-                else
-                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
-            | ValueNone -> []
-
-        let body = recvBinding @ [ JsStatement.Return(buildExpr ctx m.Body) ]
-
-        {
-            Name = "[Symbol.dispose]"
-            Params = []
-            Body = body
-            Computed = ValueSome symbolDispose
-            Generator = false
-        }
+        emitPlainMethod ctx (JsMethodKey.Computed symbolDispose) m
 
     /// Emit an eq/comp/hash capability impl as a COMPUTED-KEY method
     /// `[Symbol.for("vesper.X")](params) { … }` — the registry-symbol dispatch slot the
     /// `Vesper.Core` / `Vesper.Comparison` runtimes look for (`a[Symbol.for("vesper.equality")](b)`,
     /// `a[Symbol.for("vesper.comparison")](b)`, `x[Symbol.for("vesper.hash")]()`). A registry
     /// symbol is present ONLY on a type that opted into the protocol, so it can't collide with a
-    /// foreign object carrying an unrelated `.Equals`/`.CompareTo`/`.GetHashCode`. Body emission is
-    /// exactly `emitAttachedMethod` (receiver re-bound to `this`); only the KEY differs — a
-    /// `Symbol.for("…")` CALL expression, distinct from the iterator's `Symbol.iterator`
-    /// member-access. `registryName` is the registry key (`vesper.equality` etc.).
+    /// foreign object carrying an unrelated `.Equals`/`.CompareTo`/`.GetHashCode`. `registryName`
+    /// is the registry key (`vesper.equality` etc.).
     and emitProtocolMethod (ctx: WalkCtx) (registryName: string) (m: Frozen.TTypeMember) : JsClassMethod =
-        let paramNames = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
-
-        let recvBinding =
-            match m.ThisKey with
-            | ValueSome k ->
-                let recvName = identName ctx.Source k
-
-                if recvName = "this" then
-                    []
-                else
-                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
-            | ValueNone -> []
-
-        let body = recvBinding @ [ JsStatement.Return(buildExpr ctx m.Body) ]
-
-        // `Symbol.for("vesper.X")` — a CALL on the `Symbol.for` member, resolving to the same
-        // process-wide registry symbol in every module with no import wiring.
-        let symbolForKey =
-            JsExpr.Call(
-                JsExpr.Member(
-                    JsExpr.Identifier("Symbol", ValueNone),
-                    JsExpr.Identifier("for", ValueNone),
-                    false,
-                    ValueNone
-                ),
-                [ JsExpr.Literal(JsLiteral.String registryName, ValueNone) ],
-                ValueNone
-            )
-
-        {
-            Name = "[Symbol.for(\"" + registryName + "\")]"
-            Params = paramNames
-            Body = body
-            Computed = ValueSome symbolForKey
-            Generator = false
-        }
+        emitPlainMethod ctx (JsMethodKey.Computed(registrySymbol registryName)) m
 
     /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
     /// value routes through `emitFunction` carrying its binder key, so a
@@ -1507,7 +1393,7 @@ module EmitJs =
 
             [
                 JsStatement.Const(name, buildExpr ctx value)
-                JsStatement.TryFinally(buildStatements ctx body, disposeStmts ctx binding dispose name)
+                JsStatement.TryFinally(buildStatements ctx body, disposeStmts ctx dispose name)
             ]
         | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
@@ -1522,8 +1408,7 @@ module EmitJs =
         | TPatG.Wildcard(_, tok) -> prefix + string tok.StartIndex
         | other -> failwithf "EmitJs: unsupported single binder pattern %A" other
 
-    and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string =
-        patBinderName ctx "_use" binding
+    and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string = patBinderName ctx "_use" binding
 
     /// The `finally` body that disposes a `use` binder: a null-guarded disposal call.
     /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`
@@ -1533,14 +1418,11 @@ module EmitJs =
     /// `Symbol.dispose` member-access node the disposable impl emits its method under
     /// (`emitDisposeMethod`). The `ValueSome key` path (the ref-struct carve-out / an
     /// external own-`Dispose`) keeps calling the keyed member's free receiver-first fn.
-    and private disposeStmts
-        (ctx: WalkCtx)
-        (_binding: Frozen.TPat)
-        (dispose: SymbolKey voption)
-        (name: string)
-        : JsStatement list =
+    and private disposeStmts (ctx: WalkCtx) (dispose: SymbolKey voption) (name: string) : JsStatement list =
         let binder = JsExpr.Identifier(name, ValueNone)
-        let guard = JsExpr.Binary("!=", binder, JsExpr.Identifier("null", ValueNone), ValueNone)
+
+        let guard =
+            JsExpr.Binary("!=", binder, JsExpr.Identifier("null", ValueNone), ValueNone)
 
         let disposeCall =
             match dispose with
@@ -1558,323 +1440,18 @@ module EmitJs =
     /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.
     let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
 
-    /// Collect the file's nominal `type` decls (in source order) into the emission list,
-    /// the two lookup tables, and the member list. Read off the un-lowered decls —
-    /// `TastLower.lower` drops `type` decls.
-    /// One locally-emitted class awaiting body emission: its name + ctor `fields`
-    /// and the interface-impl / override members to ATTACH (bodies built later with
-    /// the full `WalkCtx`, since `collectTypes` runs before the ctx exists).
-    type private PendingClass =
-        {
-            Name: string
-            Fields: string list
-            Attached: Frozen.TTypeMember list
-            /// The `GetEnumerator` impl(s) of an implemented enumerable capability
-            /// interface (`seq<'T>` / `IEnumerable<'T>`), routed away from the plain
-            /// attached path to a `[Symbol.iterator]` generator (`emitIteratorMethod`).
-            Iterators: Frozen.TTypeMember list
-            /// The eq/comp/hash capability impls, each paired with its registry-symbol
-            /// key (`vesper.equality` / `vesper.comparison` / `vesper.hash`), routed to a
-            /// computed-key `[Symbol.for("vesper.X")]` method (`emitProtocolMethod`).
-            Protocols: (string * Frozen.TTypeMember) list
-            /// The disposable-capability `Dispose` impl(s), routed to a native
-            /// `[Symbol.dispose]()` method (`emitDisposeMethod`) that `use` calls.
-            Disposers: Frozen.TTypeMember list
-        }
-
-    /// One locally-emitted union whose interface impls became BASE-class methods
-    /// (`[Symbol.iterator]` / eq-comp-hash protocols). Like `PendingClass`, the method
-    /// bodies are built later in `buildProgram` once the full `WalkCtx` exists; an
-    /// interface-free union needs none of this and is emitted directly in `collectTypes`.
-    type private PendingUnion =
-        {
-            Name: string
-            Brand: string
-            Cases: JsUnionCaseDecl list
-            Attached: Frozen.TTypeMember list
-            Iterators: Frozen.TTypeMember list
-            Protocols: (string * Frozen.TTypeMember) list
-            Disposers: Frozen.TTypeMember list
-        }
-
-    /// The split of a class's members across the JS emission forms.
-    type private PartitionedMembers =
-        {
-            /// Instance methods bound to `this` (runtime dispatch slots).
-            Attached: Frozen.TTypeMember list
-            /// Free receiver-first functions (tree-shakeable; call sites lower to these).
-            Free: Frozen.TTypeMember list
-            /// Enumerable-capability `GetEnumerator` impls → `[Symbol.iterator]` generators.
-            Iterators: Frozen.TTypeMember list
-            /// Eq/comp/hash capability impls, paired with their registry-symbol key →
-            /// `[Symbol.for("vesper.X")]` computed-key methods.
-            Protocols: (string * Frozen.TTypeMember) list
-            /// Disposable-capability `Dispose` impls → native `[Symbol.dispose]()` methods.
-            Disposers: Frozen.TTypeMember list
-        }
-
-    /// Registry-symbol keys for the eq/comp/hash JS capability protocols (plan §14.5).
-    /// These three protocols have no native JS dispatch, so they ride a process-wide
-    /// `Symbol.for("vesper.X")` the Vesper runtimes look up — collision-proof against a
-    /// foreign object's same-named string method.
-    let [<Literal>] private equalityRegistryKey = "vesper.equality"
-    let [<Literal>] private comparisonRegistryKey = "vesper.comparison"
-    let [<Literal>] private hashRegistryKey = "vesper.hash"
-
-    /// The head nominal key of a frozen interface type (`FTClass(key, _)`).
-    let private ifaceHeadKey (ty: FrozenType) : SymbolKey voption =
-        match ty with
-        | FTClass(key, _) -> ValueSome key
-        | _ -> ValueNone
-
-    /// The non-generic `System.Collections.IEnumerable` — implemented alongside the
-    /// generic `IEnumerable<'T>` on a real BCL collection, but carries no JS protocol
-    /// (the native iterator is driven by the generic `[Symbol.iterator]`), so its
-    /// `GetEnumerator` impl is dropped rather than emitted as a dead attached method.
-    let [<Literal>] private nonGenericEnumerableName = "System.Collections.IEnumerable"
-
-    /// Partition a class's `Members` into the ATTACHED instance methods (runtime
-    /// dispatch slots, bound to `this`), the FREE receiver-first functions
-    /// (tree-shakeable; call sites already lower to these), and the enumerable
-    /// `GetEnumerator` ITERATOR impls (routed to `[Symbol.iterator]`). Interface-impl
-    /// members claim their name slot first — except an enumerable-capability interface
-    /// (matched against `caps.Enumerable`), whose members go to `Iterators`, and the
-    /// non-generic `IEnumerable`, dropped. The redundant `obj`-typed `Object.Equals`
-    /// override is always dropped (the typed `IEquatable<Self>.Equals` impl holds the
-    /// `.Equals` slot); every other override (`GetHashCode`, `ToString`) attaches. A
-    /// member that ends up with NO emission slot — a non-`Equals` member whose name is
-    /// already claimed by an interface impl — fails loudly rather than silently vanishing.
-    let private partitionClassMembers
-        (caps: RuntimeNames.CapabilityIds)
-        (typeName: string)
-        (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>)
-        (members: EqArray<Frozen.TTypeMember>)
-        : PartitionedMembers =
-        let attached = ResizeArray<Frozen.TTypeMember>()
-        let iterators = ResizeArray<Frozen.TTypeMember>()
-        let protocols = ResizeArray<string * Frozen.TTypeMember>()
-        let disposers = ResizeArray<Frozen.TTypeMember>()
-        let claimed = System.Collections.Generic.HashSet<string>()
-
-        let capMatches (cap: RuntimeNames.CapabilityIdentity voption) (iface: FrozenType) =
-            match ifaceHeadKey iface with
-            | ValueSome key -> cap |> ValueOption.exists (fun c -> c.MatchesKey key)
-            | ValueNone -> false
-
-        // Interface impls claim their name slot first. The capability interfaces are the
-        // exceptions: an enumerable (`seq<'T>`) impl drives a native `[Symbol.iterator]`
-        // generator, and an equatable (`IEquatable<Self>`) / comparable (`IComparable<Self>`)
-        // impl drives a registry-symbol `[Symbol.for("vesper.X")]` method (plan §14.5) —
-        // neither claims a string name slot.
-        for (iface, ifaceMembers) in interfaces do
-            let isEnumerable = capMatches caps.Enumerable iface
-            let isEquatable = capMatches caps.Equatable iface
-            let isComparable = capMatches caps.Comparable iface
-            let isDisposable = capMatches caps.Disposable iface
-
-            let isNonGenericEnumerable =
-                match ifaceHeadKey iface with
-                | ValueSome key -> SymbolKeyOps.qualifiedName key = nonGenericEnumerableName
-                | ValueNone -> false
-
-            if isEnumerable then
-                for m in ifaceMembers do
-                    iterators.Add m
-            elif isEquatable then
-                for m in ifaceMembers do
-                    protocols.Add(equalityRegistryKey, m)
-            elif isComparable then
-                for m in ifaceMembers do
-                    protocols.Add(comparisonRegistryKey, m)
-            elif isDisposable then
-                // The disposable interface's `Dispose` impl drives a native
-                // `[Symbol.dispose]()` method (the slot `use`'s `obj[Symbol.dispose]()`
-                // lowering calls); it claims no string name slot.
-                for m in ifaceMembers do
-                    disposers.Add m
-            elif isNonGenericEnumerable then
-                ()
-            else
-                for m in ifaceMembers do
-                    if claimed.Add m.Name then
-                        attached.Add m
-
-        let free = ResizeArray<Frozen.TTypeMember>()
-
-        for m in members do
-            if m.IsOverride && m.Name = "Equals" then
-                // `obj`-typed `Object.Equals` override is redundant on JS — the typed
-                // `IEquatable<Self>.Equals` impl holds the equality dispatch slot
-                // (the `[Symbol.for("vesper.equality")]` method).
-                ()
-            elif m.IsOverride && m.Name = "GetHashCode" then
-                // The hashing protocol slot: `hashOf` looks up `x[Symbol.for("vesper.hash")]()`,
-                // so the `override GetHashCode` becomes a registry-symbol method, NOT a named
-                // attached method (every OTHER override — `ToString` etc. — stays string-named).
-                protocols.Add(hashRegistryKey, m)
-            elif m.IsOverride then
-                if claimed.Add m.Name then
-                    attached.Add m
-                else
-                    failwithf
-                        "EmitJs: class '%s' override '%s' clashes with an interface-impl member of the same name (no JS dispatch slot for both)"
-                        typeName
-                        m.Name
-            elif claimed.Contains m.Name then
-                failwithf
-                    "EmitJs: class '%s' member '%s' collides with an interface-impl member of the same name (a regular method cannot share an attached dispatch slot)"
-                    typeName
-                    m.Name
-            else
-                free.Add m
-
-        {
-            Attached = List.ofSeq attached
-            Free = List.ofSeq free
-            Iterators = List.ofSeq iterators
-            Protocols = List.ofSeq protocols
-            Disposers = List.ofSeq disposers
-        }
-
-    let private collectTypes (caps: RuntimeNames.CapabilityIds) (exportTypes: bool) (tast: Frozen.TastFile) =
-        let ordered = ResizeArray<JsStatement>()
-        let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
-        let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
-        let classes = System.Collections.Generic.Dictionary<SymbolKey, string>()
-        let pendingClasses = ResizeArray<PendingClass>()
-        let pendingUnions = ResizeArray<PendingUnion>()
-        let members = ResizeArray<string * Frozen.TTypeMember>()
-
-        let addMembers (typeName: string) (ms: EqArray<Frozen.TTypeMember>) =
-            for m in ms do
-                members.Add(typeName, m)
-
-        for decl in tast.Decls do
-            match decl with
-            | TDeclG.Type td ->
-                match td.Kind with
-                | TTypeKindG.Record(fields, recMembers, recInterfaces) ->
-                    let info =
-                        {
-                            Name = td.Name
-                            Fields = [ for f in fields -> f.Name ]
-                        }
-
-                    records.[td.Key] <- info
-
-                    if recInterfaces.IsEmpty then
-                        // No interface impls → a record is one plain class with no
-                        // methods; emit directly (no ctx needed). Augmentation members
-                        // ride as free receiver-first functions.
-                        ordered.Add(JsStatement.Class(info.Name, info.Fields, [], exportTypes))
-                        addMembers td.Name recMembers
-                    else
-                        // The record carries interface impls. A record is a single JS
-                        // class, so route its interfaces + members through the SAME
-                        // partition the class path uses: enumerable → `[Symbol.iterator]`,
-                        // eq/comp/hash → registry symbols, a local interface → an attached
-                        // method. The method bodies need the full `WalkCtx`, so defer like
-                        // a `PendingClass` (`parts.Free` carries the augmentation members
-                        // that stay free functions).
-                        let parts = partitionClassMembers caps td.Name recInterfaces recMembers
-
-                        pendingClasses.Add
-                            {
-                                Name = info.Name
-                                Fields = info.Fields
-                                Attached = parts.Attached
-                                Iterators = parts.Iterators
-                                Protocols = parts.Protocols
-                                Disposers = parts.Disposers
-                            }
-
-                        for m in parts.Free do
-                            members.Add(td.Name, m)
-                | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
-                    // Local union: `Home = ValueNone` — its case classes are emitted here.
-                    let info, caseDecls =
-                        buildUnionInfo
-                            ValueNone
-                            td.Name
-                            [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
-
-                    unions.[td.Key] <- info
-                    let brand = SymbolKeyOps.qualifiedName td.Key
-
-                    if unionInterfaces.IsEmpty then
-                        // No interface impls → no base methods; emit directly (no ctx
-                        // needed). Brand = qualified type name — a single value across
-                        // modules, so an imported case class and any same-type value
-                        // agree on `$type`.
-                        ordered.Add(JsStatement.Union(td.Name, brand, caseDecls, [], exportTypes))
-                        addMembers td.Name unionMembers
-                    else
-                        // The union carries interface impls. Route them through the SAME
-                        // partition the class path uses: enumerable → `[Symbol.iterator]`,
-                        // eq/comp/hash → registry symbols, others → attached. These attach
-                        // to the BASE class so every case subclass inherits them and
-                        // dispatch lands on a case instance. The augmentation `members`
-                        // split into Free (free receiver-first fns, via `addMembers`) vs
-                        // the rest — but a union's augmentation members are all non-interface
-                        // here, so `parts.Free` carries exactly `unionMembers` (no double
-                        // emission: only `parts.Free` reaches `addMembers`). The base-method
-                        // bodies need the full `WalkCtx`, so defer like a `PendingClass`.
-                        let parts = partitionClassMembers caps td.Name unionInterfaces unionMembers
-
-                        pendingUnions.Add
-                            {
-                                Name = td.Name
-                                Brand = brand
-                                Cases = caseDecls
-                                Attached = parts.Attached
-                                Iterators = parts.Iterators
-                                Protocols = parts.Protocols
-                                Disposers = parts.Disposers
-                            }
-
-                        for m in parts.Free do
-                            members.Add(td.Name, m)
-                | TTypeKindG.Class cls ->
-                    classes.[td.Key] <- td.Name
-
-                    // The class's positional ctor stores each declared field. Use
-                    // `CtorParams` when present (primary-ctor parameters that become
-                    // fields); fall back to `Fields` (the `val`-field form).
-                    let fieldNames =
-                        let ctorFields = [ for f in cls.CtorParams -> f.Name ]
-
-                        if List.isEmpty ctorFields then
-                            [ for f in cls.Fields -> f.Name ]
-                        else
-                            ctorFields
-
-                    // Split members into attached dispatch slots, free receiver-first
-                    // functions, and enumerable-capability iterator impls (interface-impl
-                    // / override / capability policy in `partitionClassMembers`).
-                    let parts = partitionClassMembers caps td.Name cls.Interfaces cls.Members
-
-                    pendingClasses.Add
-                        {
-                            Name = td.Name
-                            Fields = fieldNames
-                            Attached = parts.Attached
-                            Iterators = parts.Iterators
-                            Protocols = parts.Protocols
-                            Disposers = parts.Disposers
-                        }
-
-                    for m in parts.Free do
-                        members.Add(td.Name, m)
-                | _ -> ()
-            | _ -> ()
-
-        List.ofSeq ordered,
-        records,
-        unions,
-        classes,
-        List.ofSeq pendingClasses,
-        List.ofSeq pendingUnions,
-        List.ofSeq members
+    /// Emit every class-method form of a partitioned member set, in the one place the
+    /// partition→emitter mapping lives: attached dispatch slots, `[Symbol.iterator]`
+    /// generators, `[Symbol.for("vesper.X")]` protocol methods, and the
+    /// `[Symbol.dispose]()` method. (`Free` members are emitted elsewhere as free
+    /// functions.) Shared by the pending-class and pending-union emission.
+    let private emitCapabilityMethods (ctx: WalkCtx) (p: PartitionedMembers) : JsClassMethod list =
+        [
+            for m in p.Attached -> emitAttachedMethod ctx m
+            for m in p.Iterators -> emitIteratorMethod ctx m
+            for (sym, m) in p.Protocols -> emitProtocolMethod ctx sym m
+            for m in p.Disposers -> emitDisposeMethod ctx m
+        ]
 
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
@@ -1886,16 +1463,9 @@ module EmitJs =
         let caps =
             match ctx0.Provider with
             | ValueSome provider -> ExternalSymbols.resolveCapabilities provider
-            | ValueNone ->
-                {
-                    RuntimeNames.CapabilityIds.Enumerable = ValueNone
-                    RuntimeNames.CapabilityIds.Disposable = ValueNone
-                    RuntimeNames.CapabilityIds.Equatable = ValueNone
-                    RuntimeNames.CapabilityIds.Comparable = ValueNone
-                }
+            | ValueNone -> RuntimeNames.CapabilityIds.none
 
-        let recordUnionDecls, recordTable, unionTable, classTable, pendingClasses, pendingUnions, memberDefs =
-            collectTypes caps ctx0.ExportTopLevel tast
+        let collected = collectTypes caps ctx0.ExportTopLevel tast
 
         let lowered = TastLower.lower jsFinishOps tast.Decls
 
@@ -1910,7 +1480,7 @@ module EmitJs =
             compiledFns.[f.Key] <- f
 
         // The file's locally-declared interface keys — drives the attached-method
-        // dispatch of a `(r :> ILocal).M()` call site (see `WalkCtx.LocalInterfaces`).
+        // dispatch of a `(r :> ILocal).M()` / `.Prop` access (see `WalkCtx.LocalInterfaces`).
         let localInterfaces = System.Collections.Generic.HashSet<SymbolKey>()
 
         for decl in tast.Decls do
@@ -1920,9 +1490,9 @@ module EmitJs =
 
         let ctx =
             { ctx0 with
-                Records = recordTable
-                Unions = unionTable
-                Classes = classTable
+                Records = collected.Records
+                Unions = collected.Unions
+                Classes = collected.Classes
                 CompiledFns = compiledFns
                 LocalInterfaces = localInterfaces
             }
@@ -1932,18 +1502,8 @@ module EmitJs =
         // bodies. They join the record/union decls ahead of members and the body.
         let classDecls =
             [
-                for pc in pendingClasses ->
-                    JsStatement.Class(
-                        pc.Name,
-                        pc.Fields,
-                        [
-                            for m in pc.Attached -> emitAttachedMethod ctx m
-                            for m in pc.Iterators -> emitIteratorMethod ctx m
-                            for (sym, m) in pc.Protocols -> emitProtocolMethod ctx sym m
-                            for m in pc.Disposers -> emitDisposeMethod ctx m
-                        ],
-                        ctx.ExportTopLevel
-                    )
+                for pc in collected.PendingClasses ->
+                    JsStatement.Class(pc.Name, pc.Fields, emitCapabilityMethods ctx pc.Members, ctx.ExportTopLevel)
             ]
 
         // Unions whose interface impls became base-class methods are built now too —
@@ -1952,24 +1512,20 @@ module EmitJs =
         // base-first so the case subclasses inherit the protocol members.
         let pendingUnionDecls =
             [
-                for pu in pendingUnions ->
+                for pu in collected.PendingUnions ->
                     JsStatement.Union(
                         pu.Name,
                         pu.Brand,
                         pu.Cases,
-                        [
-                            for m in pu.Attached -> emitAttachedMethod ctx m
-                            for m in pu.Iterators -> emitIteratorMethod ctx m
-                            for (sym, m) in pu.Protocols -> emitProtocolMethod ctx sym m
-                            for m in pu.Disposers -> emitDisposeMethod ctx m
-                        ],
+                        emitCapabilityMethods ctx pu.Members,
                         ctx.ExportTopLevel
                     )
             ]
 
         // Member functions emitted after the class decls (they reference the classes
         // via `new`/match, and `const` arrows are not hoisted) and before the body.
-        let memberDecls = [ for (typeName, m) in memberDefs -> emitMemberFn ctx typeName m ]
+        let memberDecls =
+            [ for (typeName, m) in collected.Members -> emitMemberFn ctx typeName m ]
 
         let body =
             [
@@ -1994,7 +1550,7 @@ module EmitJs =
         {
             Body =
                 JsImports.importStatements ctx.Imports
-                @ recordUnionDecls
+                @ collected.Decls
                 @ classDecls
                 @ pendingUnionDecls
                 @ memberDecls

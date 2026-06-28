@@ -90,10 +90,17 @@ open System.Collections.Generic
         /// <remarks>This is an O(1) operation.</remarks>
         static member Cons: head: 'T * tail: 'T list -> 'T list
 
+        // The enumerable interfaces, advertised because each is either emitted or a
+        // semantic no-op on every target. The generic `IEnumerable<'T>` drives iteration
+        // on both (CLR `list.fs`; JS `list.js.fs`'s `[Symbol.iterator]`). The non-generic
+        // `IEnumerable` is a real impl on CLR and a no-op on JS — the generic iterator
+        // already drives JS iteration, so JS needs no separate emission. Contrast
+        // `IReadOnlyCollection<'T>`/`IReadOnlyList<'T>`: those carry real members
+        // (`Count`/`Item`) that NEITHER target implements and that cannot be no-ops, so
+        // the contract must not advertise them — a consumer resolving `List :>
+        // IReadOnlyList<'T>` would type-check then fail at codegen.
         interface IEnumerable<'T>
         interface IEnumerable
-        interface IReadOnlyCollection<'T>
-        interface IReadOnlyList<'T>
 
     /// <summary>The type of immutable singly-linked lists. </summary>
     ///
@@ -171,7 +178,16 @@ open System.Collections.Generic
         val rev: list: 'T list -> 'T list
 
         /// `ofSeq source` builds a new list from the given enumerable object.
-        /// Depends on `for x in IEnumerable`.
+        ///
+        /// Forward-declared: a consumer (`Vesper.Set`) already name-resolves
+        /// `List.ofSeq`, so the contract must carry it, but NEITHER backend implements it
+        /// yet — building a `'T list` from a `seq<'T>` conses `'T` cells inside the loop,
+        /// which the backend cannot encode (the "cannot encode SemType: TyVar" limit
+        /// `list.fs` documents for typar-capturing closures). Unlike the enumerable
+        /// *interfaces* above — whose coercions fail eagerly at codegen if unimplemented,
+        /// so the contract must not advertise an unemitted one — an unimplemented *value*
+        /// resolves and compiles; only a CALL would fault, and the one consumer's call
+        /// sits behind a separate wall (`Seq.truncate`). The impl lands with the encoding.
         val ofSeq: source: seq<'T> -> 'T list
 
         /// `toSeq list` views the given list as a sequence.

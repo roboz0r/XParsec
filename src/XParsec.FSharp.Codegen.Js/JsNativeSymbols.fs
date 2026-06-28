@@ -106,7 +106,13 @@ module JsNativeSymbols =
     /// An erased arity-1 `System` interface (`IEquatable\`1` / `IComparable\`1`) as a
     /// single-member `ExternalTypeShape.Class`: `<memberName> : 'T -> ret`. The pair
     /// differ only in `{name, member name, return type}`, so they share this builder.
-    let private mkErasedGenericIface (name: string) (memberName: string) (ret: FrozenType) : ExternalTypeShape =
+    /// Returns the `(qualified-name, shape)` `types`-map entry — the map key is derived
+    /// from the same `key`, so the interface name is written once, not twice.
+    let private mkErasedGenericIface
+        (name: string)
+        (memberName: string)
+        (ret: FrozenType)
+        : string * ExternalTypeShape =
         let key = SymbolKey.TypeKey(Some RuntimeAssembly, "System", name)
 
         let mem: ExternalMember =
@@ -127,6 +133,7 @@ module JsNativeSymbols =
                 OptionalDefaults = []
             }
 
+        SymbolKeyOps.qualifiedName key,
         ExternalTypeShape.Class
             {
                 Arity = 1
@@ -172,8 +179,12 @@ module JsNativeSymbols =
     let private ienumerableKey: SymbolKey =
         SymbolKey.TypeKey(Some RuntimeAssembly, collectionsGenericNs, "IEnumerable`1")
 
-    /// An instance interface member of an erased `System.Collections.Generic` interface.
+    /// An instance interface member of an erased interface. `declaringArity` is the
+    /// declaring interface's generic arity (`1` for `IEnumerable<'T>`/`IEnumerator<'T>`,
+    /// `0` for the non-generic `System.IDisposable`).
     let private mkIfaceMember
+        (origin: SymbolOrigin)
+        (declaringArity: int)
         (declKey: SymbolKey)
         (name: string)
         (isProperty: bool)
@@ -186,21 +197,27 @@ module JsNativeSymbols =
             IsProperty = isProperty
             Signature =
                 {
-                    DeclaringArity = 1
+                    DeclaringArity = declaringArity
                     MethodArity = 0
                     Parameters = parameters
                     Return = ret
                 }
             MethodArity = 0
-            Origin = collectionsGenericOrigin
+            Origin = origin
             Key = SymbolKey.MemberKey(declKey, name, EqArray.empty, MemberKind.InterfaceMethod declKey)
             OptionalDefaults = []
         }
 
-    let private mkErasedClassIface (origin: SymbolOrigin) (members: ExternalMember[]) : ExternalTypeShape =
+    /// Pair an erased class-interface shape with the map key DERIVED from its head
+    /// `SymbolKey` (`SymbolKeyOps.qualifiedName`), so the qualified-name string is never
+    /// re-spelled — the same derive-don't-duplicate pattern `mkErasedGenericIface` uses.
+    let private erasedClassEntry (key: SymbolKey) (shape: ExternalTypeShape) : string * ExternalTypeShape =
+        SymbolKeyOps.qualifiedName key, shape
+
+    let private mkErasedClassIface (arity: int) (origin: SymbolOrigin) (members: ExternalMember[]) : ExternalTypeShape =
         ExternalTypeShape.Class
             {
-                Arity = 1
+                Arity = arity
                 IsInterface = true
                 Members = members
                 FrozenInterfaces = [||]
@@ -212,18 +229,22 @@ module JsNativeSymbols =
     /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property.
     let private ienumeratorShape: ExternalTypeShape =
         mkErasedClassIface
+            1
             collectionsGenericOrigin
             [|
-                mkIfaceMember ienumeratorKey "MoveNext" false unitTy boolTy
-                mkIfaceMember ienumeratorKey "Current" true unitTy selfTypar
+                mkIfaceMember collectionsGenericOrigin 1 ienumeratorKey "MoveNext" false unitTy boolTy
+                mkIfaceMember collectionsGenericOrigin 1 ienumeratorKey "Current" true unitTy selfTypar
             |]
 
     /// `IEnumerable<'T>` — `GetEnumerator(): IEnumerator<'T>`.
     let private ienumerableShape: ExternalTypeShape =
         mkErasedClassIface
+            1
             collectionsGenericOrigin
             [|
                 mkIfaceMember
+                    collectionsGenericOrigin
+                    1
                     ienumerableKey
                     "GetEnumerator"
                     false
@@ -241,42 +262,13 @@ module JsNativeSymbols =
     let private idisposableKey: SymbolKey =
         SymbolKey.TypeKey(Some RuntimeAssembly, "System", "IDisposable")
 
-    /// `System.IDisposable` — the single `Dispose(): unit` member.
+    /// `System.IDisposable` — the single `Dispose(): unit` member. The non-generic
+    /// (arity 0) sibling of the erased interfaces above, built through the same helpers.
     let private idisposableShape: ExternalTypeShape =
-        ExternalTypeShape.Class
-            {
-                Arity = 0
-                IsInterface = true
-                Members =
-                    [|
-                        {
-                            Name = "Dispose"
-                            IsStatic = false
-                            IsProperty = false
-                            Signature =
-                                {
-                                    DeclaringArity = 0
-                                    MethodArity = 0
-                                    Parameters = unitTy
-                                    Return = unitTy
-                                }
-                            MethodArity = 0
-                            Origin = systemOrigin
-                            Key =
-                                SymbolKey.MemberKey(
-                                    idisposableKey,
-                                    "Dispose",
-                                    EqArray.empty,
-                                    MemberKind.InterfaceMethod idisposableKey
-                                )
-                            OptionalDefaults = []
-                        }
-                    |]
-                FrozenInterfaces = [||]
-                FrozenBaseType = ValueNone
-                Flags = ExternalClassFlags.Default
-                Origin = systemOrigin
-            }
+        mkErasedClassIface
+            0
+            systemOrigin
+            [| mkIfaceMember systemOrigin 0 idisposableKey "Dispose" false unitTy unitTy |]
 
     /// The JS-native type table, keyed by the compiled name resolution probes:
     /// `Error` by bare global name, the generic interfaces by their arity-suffixed
@@ -285,11 +277,11 @@ module JsNativeSymbols =
         Map
             [
                 "Error", errorShape
-                "System.IEquatable`1", mkErasedGenericIface "IEquatable`1" "Equals" boolTy
-                "System.IComparable`1", mkErasedGenericIface "IComparable`1" "CompareTo" intTy
-                "System.Collections.Generic.IEnumerable`1", ienumerableShape
-                "System.Collections.Generic.IEnumerator`1", ienumeratorShape
-                "System.IDisposable", idisposableShape
+                mkErasedGenericIface "IEquatable`1" "Equals" boolTy
+                mkErasedGenericIface "IComparable`1" "CompareTo" intTy
+                erasedClassEntry ienumerableKey ienumerableShape
+                erasedClassEntry ienumeratorKey ienumeratorShape
+                erasedClassEntry idisposableKey idisposableShape
             ]
 
     /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.

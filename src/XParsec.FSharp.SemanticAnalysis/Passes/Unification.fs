@@ -1014,78 +1014,45 @@ module Unification =
                 | ValueNone -> ()
         | _ -> ()
 
-    let private fillUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
+    /// Type the augmentation-member and `interface … with` impl bodies registered on
+    /// a union or record host. (`fillClassMembers` stays separate: a class
+    /// additionally pins its object-overrides and fills secondary ctors before its
+    /// impls.) `MkSelfType` already yields the exact `TyUnion`/`TyRecord` Self.
+    let private fillHostMembers (ctx: PassContext) (host: IInterfaceImplHost) (elems: TypeDefnElements<SyntaxToken>) =
+        if not (Array.isEmpty host.Members) then
+            fillTypeMembers
+                ctx
+                {
+                    TypeParams = host.TypeParams
+                    Members = host.Members
+                    ThisKey = host.ThisKey
+                    MkSelfType = host.MkSelfType
+                    PrelinkExtras = ignore
+                    Elements = elems
+                    AllowAbstractSig = false
+                    Generalise = true
+                }
+
+        // Type + conformance-check each `interface … with` block's member bodies
+        // (a no-op when the type declares none). Runs after
+        // `resolveInterfaceImplsForElem` stamped every `impl.Resolved`. Outside the
+        // `Members`-non-empty guard so a type with *only* an interface impl (no
+        // augmentation members) still fills.
+        fillInterfaceImpls ctx host
+
+    /// Fill the members of a union or record carrying a `with` augmentation, routing
+    /// either kind through `fillHostMembers` via its `IInterfaceImplHost` surface.
+    let private fillNominalMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                match td with
-                | TypeDefn.Union(
-                    typeName = (TypeName(ident = nameLi) as tn)
-                    extensions = ValueSome(TypeExtensionElements(elements = elems))) when nameLi.Idents.Length = 1 ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-
-                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
-
-                    match TypeRegistry.tryUnion ctx.Types name arity with
-                    | ValueSome info ->
-                        if not (Array.isEmpty info.Members) then
-                            fillTypeMembers
-                                ctx
-                                {
-                                    TypeParams = info.TypeParams
-                                    Members = info.Members
-                                    ThisKey = info.ThisKey
-                                    MkSelfType = fun args -> TyUnion(info.Key, args)
-                                    PrelinkExtras = ignore
-                                    Elements = elems
-                                    AllowAbstractSig = false
-                                    Generalise = true
-                                }
-
-                        // Type + conformance-check each `interface … with` block's
-                        // member bodies (a no-op when the union declares none). Runs
-                        // after `resolveInterfaceImplsForElem` stamped every
-                        // `impl.Resolved`. A union with *only* an interface impl (no
-                        // augmentation members) reaches here too — its impl must still
-                        // fill — so this sits outside the `Members`-non-empty guard.
-                        fillInterfaceImpls ctx (info :> IInterfaceImplHost)
+                // Only a `with` block (`ValueSome elems`) carries augmentation / interface-impl
+                // members; without one there is nothing to fill.
+                match TypeDefnPatterns.tryUnionOrRecordHostDecl td with
+                | ValueSome(struct (nameLi, ValueSome elems)) ->
+                    match TypeRegistry.tryUnionOrRecordHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                    | ValueSome host -> fillHostMembers ctx host elems
                     | ValueNone -> ()
-                | _ -> ()
-        | _ -> ()
-
-    /// Mirror of `fillUnionMembers` for records: type the augmentation-member and
-    /// `interface … with` impl bodies registered on a `RecordTypeInfo`.
-    let private fillRecordMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
-                | TypeDefn.Record(
-                    typeName = TypeName(ident = nameLi)
-                    extensions = ValueSome(TypeExtensionElements(elements = elems))) when nameLi.Idents.Length = 1 ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-
-                    match ctx.Types.Record.TryGetValue name with
-                    | true, info ->
-                        if not (Array.isEmpty info.Members) then
-                            fillTypeMembers
-                                ctx
-                                {
-                                    TypeParams = info.TypeParams
-                                    Members = info.Members
-                                    ThisKey = info.ThisKey
-                                    MkSelfType = fun args -> TyRecord(info.Key, args)
-                                    PrelinkExtras = ignore
-                                    Elements = elems
-                                    AllowAbstractSig = false
-                                    Generalise = true
-                                }
-
-                        // Type + conformance-check each `interface … with` block's
-                        // member bodies (outside the `Members`-non-empty guard so a
-                        // record with *only* an interface impl still fills).
-                        fillInterfaceImpls ctx (info :> IInterfaceImplHost)
-                    | false, _ -> ()
                 | _ -> ()
         | _ -> ()
 
@@ -1129,20 +1096,14 @@ module Unification =
                 | ValueNone ->
                     // A union or record may also declare `interface … with` blocks;
                     // resolve them up front on the same path so a `:>` / coercion site
-                    // sees them.
-                    match td with
-                    | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn)) when nameLi.Idents.Length = 1 ->
-                        let name = ctx.NameOf nameLi.Idents.[0]
-                        let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
-
-                        match TypeRegistry.tryUnion ctx.Types name arity with
-                        | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
+                    // sees them. (Impls ride the `with` block, so a type with none is a
+                    // no-op `resolveInterfaceImpls` — the elems are immaterial here.)
+                    match TypeDefnPatterns.tryUnionOrRecordHostDecl td with
+                    | ValueSome(struct (nameLi, _)) ->
+                        match TypeRegistry.tryUnionOrRecordHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                        | ValueSome host -> resolveInterfaceImpls ctx host
                         | ValueNone -> ()
-                    | TypeDefn.Record(typeName = TypeName(ident = nameLi)) when nameLi.Idents.Length = 1 ->
-                        match ctx.Types.Record.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                        | true, info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
-                        | false, _ -> ()
-                    | _ -> ()
+                    | ValueNone -> ()
         | _ -> ()
 
     let private walkElems (ctx: PassContext) (pairs: (ModuleElem<SyntaxToken> * OpenScope) list) =
@@ -1201,8 +1162,7 @@ module Unification =
         for (m, openScope) in pairs do
             ctx.Resolution.OpenScope <- openScope
             fillClassMembers ctx m
-            fillUnionMembers ctx m
-            fillRecordMembers ctx m
+            fillNominalMembers ctx m
             walkModuleElem ctx m
 
     /// Resolve the bare-program list literals left flexible by `listLiteralTy`,
@@ -1339,40 +1299,52 @@ module Unification =
             | TyUnion(k, _) -> SymbolKeyOps.qualifiedName k = SymbolKeyOps.qualifiedName info.Key
             | _ -> false
 
-        // Does the type implement `ifaceQualified<Self>` among its resolved
-        // interface impls? Best-effort on the arg: a head match with a Self arg
-        // (or a head match with no readable arg) satisfies the requirement.
-        let implementsSelf (info: IInterfaceImplHost) (ifaceQualified: string) : bool =
+        // Does the type implement `cap<Self>` among its resolved interface impls?
+        // Best-effort on the arg: a head match with a Self arg (or a head match with no
+        // readable arg) satisfies the requirement. Head match is the asm-blind
+        // `CapabilityIdentity.Matches` — the same recognition the for-in/use sites use.
+        let implementsSelf (info: IInterfaceImplHost) (cap: RuntimeNames.CapabilityIdentity) : bool =
             info.InterfaceImpls
             |> Array.exists (fun impl ->
                 match impl.Resolved with
                 | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
-                    SymbolKeyOps.qualifiedName ifaceKey = ifaceQualified
-                    && (ifaceArgs.Length = 0 || argIsSelf info ifaceArgs.[0])
+                    cap.Matches ifaceKey && (ifaceArgs.Length = 0 || argIsSelf info ifaceArgs.[0])
                 | _ -> false
             )
 
         // Kind-agnostic per-type body: a `[<CustomEquality>]`/`[<CustomComparison>]`
-        // class *or* union must implement the corresponding capability interface.
+        // class, union *or* record must implement the corresponding capability
+        // interface. The identity is provider-resolved and target-neutral — the
+        // message names the resolved interface (`qualifiedName cap.Key`), not a
+        // hardcoded BCL name, so a JS compilation reports the JS capability, not `System.*`.
         let checkHost (info: IInterfaceImplHost) =
             let nameKey = info.DeclKey
 
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
 
-            if needsEq then
-                match ctx.CapabilityIds.Equatable with
-                | ValueSome eq ->
-                    if not (implementsSelf info eq.QualifiedName) then
-                        addDiag nameKey "FS0378" "A type with [<CustomEquality>] must implement 'System.IEquatable<_>'."
-                // The provider doesn't name `equatable`, yet a `[<CustomEquality>]` type
-                // exercises the conformance check. Don't skip it silently (§5.4) and
-                // don't emit a false FS0378 — report the unresolved capability honestly.
+            // `attr` is the posture attribute (`[<CustomEquality>]`); `capWord` the
+            // language capability name. An unnamed capability (the provider doesn't
+            // name it) is reported honestly rather than skipped (§5.4) or mis-blamed.
+            let requireCapability (cap: RuntimeNames.CapabilityIdentity voption) (attr: string) (capWord: string) =
+                match cap with
+                | ValueSome c when not (implementsSelf info c) ->
+                    addDiag
+                        nameKey
+                        "FS0378"
+                        (sprintf "A type with %s must implement '%s'." attr (SymbolKeyOps.qualifiedName c.Key))
+                | ValueSome _ -> ()
                 | ValueNone ->
                     addDiag
                         nameKey
                         "FS0378"
-                        "A type with [<CustomEquality>] requires the 'equatable' capability, which this compilation's provider does not name."
+                        (sprintf
+                            "A type with %s requires the '%s' capability, which this compilation's provider does not name."
+                            attr
+                            capWord)
+
+            if needsEq then
+                requireCapability ctx.CapabilityIds.Equatable "[<CustomEquality>]" "equatable"
 
             // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
             // (FS0344). Without one the runtimes fall back to a structural hash (JS)
@@ -1385,15 +1357,7 @@ module Unification =
                 addDiag nameKey "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
 
             if needsCmp then
-                (match ctx.CapabilityIds.Comparable with
-                 | ValueSome cmp ->
-                     if not (implementsSelf info cmp.QualifiedName) then
-                         addDiag nameKey "FS0378" "A type with [<CustomComparison>] must implement 'System.IComparable<_>'."
-                 | ValueNone ->
-                     addDiag
-                         nameKey
-                         "FS0378"
-                         "A type with [<CustomComparison>] requires the 'comparable' capability, which this compilation's provider does not name.")
+                requireCapability ctx.CapabilityIds.Comparable "[<CustomComparison>]" "comparable"
 
                 // Coherence: custom comparison demands custom equality.
                 if not needsEq then

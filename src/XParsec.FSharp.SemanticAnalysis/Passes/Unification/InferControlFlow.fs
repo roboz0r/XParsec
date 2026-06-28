@@ -58,14 +58,12 @@ module internal UnificationInferControlFlow =
                 // mints it), so only the bool matters here, not a member key. (For the
                 // future non-`IDisposable` ref-struct pattern-`Dispose()` case, see the
                 // TODO on the local-enumerator branch of `tryLocalDuckTypedEnumerator`.)
+                // Unnamed disposable ⇒ no finally fires (the structural path had its
+                // chance; an unresolvable disposable surfaces downstream honestly) —
+                // `matchesName` folds that `ValueNone` arm in.
                 let disposable =
-                    match ctx.CapabilityIds.Disposable with
-                    | ValueSome disp ->
-                        ExternalSymbols.instantiateInterfaces enumShape enumArgs
-                        |> Array.exists (fun (n, _) -> disp.MatchesName n)
-                    // Unnamed disposable: no finally fires (the structural path had its
-                    // chance; an unresolvable disposable surfaces downstream honestly).
-                    | ValueNone -> false
+                    ExternalSymbols.instantiateInterfaces enumShape enumArgs
+                    |> Array.exists (fun (n, _) -> RuntimeNames.matchesName ctx.CapabilityIds.Disposable n)
 
                 ValueSome
                     {
@@ -77,6 +75,38 @@ module internal UnificationInferControlFlow =
                     }
             | _ -> ValueNone
         | _ -> ValueNone
+
+    /// From a realised interface set (`(compiled-name, type-args)` pairs), pick the
+    /// element type of the enumerable capability (`seq<'T>`/`IEnumerable<'T>`): the
+    /// single type-arg of the first interface whose name matches the enumerable
+    /// capability identity. Shared by the class and union arms of `tryForInEnumerator`.
+    let private pickEnumerableElem (ctx: PassContext) (interfaces: (string * SemType[])[]) : SemType option =
+        interfaces
+        |> Array.tryPick (fun (n, ta) ->
+            if RuntimeNames.matchesName ctx.CapabilityIds.Enumerable n && ta.Length = 1 then
+                Some ta.[0]
+            else
+                None
+        )
+
+    /// Eagerly pin a flexible bare list-literal source to the Vesper cons-list.
+    ///
+    /// A bare `for x in [1;2;3]` leaves its source as a fresh `TypeVar` registered in
+    /// `ctx.ListLiterals` (R3 defers the FSharpList-vs-Vesper choice to
+    /// `resolveListLiterals`). But the for-in needs the source pinned NOW to read its
+    /// enumerable surface, and the only list the compiler emits is the Vesper cons-list
+    /// — which implements `seq<'T>` (§14.6). So flip the literal to
+    /// `TyUnion(vesperListKey, [elem])` here, exactly the flip a `List.fold` consumer
+    /// triggers; the union arm of `tryForInEnumerator` then admits it. (`1 :: 2 :: 3 ::
+    /// []` already types as the Vesper union, so it bypasses this and is admitted
+    /// directly.) A non-literal source is left untouched.
+    let private pinListLiteralToVesper (ctx: PassContext) (key: NodeKey) (srcTy: SemType) : unit =
+        match zonk srcTy with
+        | TyVar tv ->
+            match tryListLiteralElem ctx (UnionFind.find tv) with
+            | ValueSome elemTy -> unify ctx key srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
+            | ValueNone -> ()
+        | _ -> ()
 
     /// The project-local analogue of `probeExternalEnumerator`: probe a *user* class
     /// `E` for the duck-typed `for … in` members — a parameterless `MoveNext(): bool`
@@ -125,10 +155,7 @@ module internal UnificationInferControlFlow =
                         match impl.Resolved with
                         | ValueSome resolved ->
                             match inst resolved with
-                            | TyClass(ifaceKey, _) ->
-                                match ctx.CapabilityIds.Disposable with
-                                | ValueSome disp -> disp.MatchesKey ifaceKey
-                                | ValueNone -> false
+                            | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
                             | _ -> false
                         | ValueNone -> false
                     )
@@ -455,9 +482,7 @@ module internal UnificationInferControlFlow =
                     | ValueSome resolved ->
                         match zonk (instantiateMember (info.TypeParams, args) resolved) with
                         | TyClass(ifaceKey, ifaceArgs) when
-                            (match ctx.CapabilityIds.Enumerable with
-                             | ValueSome en -> en.MatchesKey ifaceKey
-                             | ValueNone -> false)
+                            RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable ifaceKey
                             && ifaceArgs.Length = 1
                             ->
                             Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
@@ -589,12 +614,7 @@ module internal UnificationInferControlFlow =
     /// `ForInEnumerator` codegen reads off the frozen node.
     and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
         match zonk srcTy with
-        | TyClass(nameKey, args) when
-            (match ctx.CapabilityIds.Enumerable with
-             | ValueSome en -> en.MatchesKey nameKey
-             | ValueNone -> false)
-            && args.Length = 1
-            ->
+        | TyClass(nameKey, args) when RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
             match ExternalSymbols.tryLookupType ctx.Provider nameKey with
@@ -611,20 +631,7 @@ module internal UnificationInferControlFlow =
                 match tryDuckTypedEnumerator ctx shape argArr with
                 | ValueSome r -> ValueSome r
                 | ValueNone ->
-                    match
-                        ExternalSymbols.instantiateInterfaces shape argArr
-                        |> Array.tryPick (fun (n, ta) ->
-                            let matchesEnumerable =
-                                match ctx.CapabilityIds.Enumerable with
-                                | ValueSome en -> en.MatchesName n
-                                | ValueNone -> false
-
-                            if matchesEnumerable && ta.Length = 1 then
-                                Some ta.[0]
-                            else
-                                None
-                        )
-                    with
+                    match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfaces shape argArr) with
                     | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone
             // A project-local source is invisible to the external provider; fall
@@ -646,20 +653,7 @@ module internal UnificationInferControlFlow =
             | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _)) ->
                 let argArr = args.AsSpan().ToArray()
 
-                match
-                    ExternalSymbols.instantiateUnionInterfaces interfaces argArr
-                    |> Array.tryPick (fun (n, ta) ->
-                        let matchesEnumerable =
-                            match ctx.CapabilityIds.Enumerable with
-                            | ValueSome en -> en.MatchesName n
-                            | ValueNone -> false
-
-                        if matchesEnumerable && ta.Length = 1 then
-                            Some ta.[0]
-                        else
-                            None
-                    )
-                with
+                match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf interfaces argArr) with
                 | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                 | None -> ValueNone
             | _ -> ValueNone
@@ -683,27 +677,7 @@ module internal UnificationInferControlFlow =
         let srcTy = infer ctx src
         let patTy = inferPat ctx pat
 
-        // A bare list-literal source (`for x in [1;2;3]`) is left flexible by R3
-        // (`listLiteralTy` registers it in `ctx.ListLiterals`, deferring the
-        // FSharpList-vs-Vesper choice to `resolveListLiterals`). The for-in needs the
-        // source pinned NOW to read its enumerable surface, and the only list the
-        // compiler emits is the Vesper cons-list — which implements `seq<'T>` (§14.6).
-        // So pin the literal to `TyUnion(vesperListKey, [elem])` here, exactly the flip
-        // a `List.fold` consumer triggers — and the union arm of `tryForInEnumerator`
-        // then admits it. (`1 :: 2 :: 3 :: []` already types as the Vesper union, so it
-        // bypasses this and is admitted directly.)
-        (match zonk srcTy with
-         | TyVar tv ->
-             let root = UnionFind.find tv
-
-             let litElem =
-                 ctx.ListLiterals
-                 |> Seq.tryPick (fun (lv, elemTy) -> if UnionFind.find lv = root then Some elemTy else None)
-
-             match litElem with
-             | Some elemTy -> unify ctx key srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
-             | None -> ()
-         | _ -> ())
+        pinListLiteralToVesper ctx key srcTy
 
         let isRangeSource =
             match src with

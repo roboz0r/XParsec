@@ -33,12 +33,6 @@ module internal NominalEmit =
         | NominalEmissionInput.Union(_, interfaces) -> interfaces
         | NominalEmissionInput.Record(_, interfaces) -> interfaces
 
-    let private ifaceMembersOf (input: NominalEmissionInput) : Frozen.TTypeMember list =
-        [
-            for (_, ms) in userInterfacesOf input do
-                yield! ms
-        ]
-
     let register
         (asm: Assembler)
         (input: NominalEmissionInput)
@@ -74,7 +68,7 @@ module internal NominalEmit =
         // ever reached through an interface-typed receiver (the external dispatch
         // path), never this table. Own members lead the list and `pickOverload`
         // prefers the first equally-good match, so the own member wins on a tie.
-        (members @ ifaceMembersOf input)
+        (members @ NominalMembers.flattenIfaceMembers (userInterfacesOf input))
         |> List.iteri (fun i (mem: Frozen.TTypeMember) ->
             let em: Emit.EmittedMember =
                 {
@@ -568,15 +562,14 @@ module internal NominalEmit =
         // Interface implementations: each `(ifaceTy, members)` entry's
         // member bodies are already-typed `Frozen.TTypeMember`s, flattened here. They
         // emit as virtual methods (`ifaceEqualsAttrs` — a new slot, `Final` since
-        // classes and unions are both sealed) that the runtime binds to the
+        // classes, unions, and records are all sealed) that the runtime binds to the
         // `InterfaceImpl` row by name + signature. The type's own members lead,
-        // interface-impl members trail — the same indexing the layout's
-        // `MethodKey.Member` rows use. Classes and unions both carry user impls; a
-        // union additionally synthesises eq/comp/format interfaces (below), which use
-        // disjoint `MethodKey`s, so the two never collide on a method row.
+        // interface-impl members trail — the shared `NominalMembers.indexed` contract
+        // the layout's `MethodKey.Member` rows use. Classes, unions, and records all
+        // carry user impls; unions/records additionally synthesise eq/comp/format
+        // interfaces (below), which use disjoint `MethodKey`s, so the two never collide
+        // on a method row.
         let userInterfaces = userInterfacesOf input
-
-        let ifaceMembers = ifaceMembersOf input
 
         // `isIfaceImpl` selects the `void`-return conformance below; the row's
         // attrs were fixed by the layout's enumeration.
@@ -692,10 +685,11 @@ module internal NominalEmit =
                 }
             )
 
-        members |> List.iteri (fun i mem -> prepareMember i false mem)
-
-        ifaceMembers
-        |> List.iteri (fun i mem -> prepareMember (List.length members + i) true mem)
+        // Own members then interface-impl members, indexed by the shared
+        // `NominalMembers.indexed` contract — the same `MethodKey.Member` index space
+        // `Layout` declared the rows under, so bodies bind to the right rows.
+        for (index, isIfaceImpl, mem) in NominalMembers.indexed members userInterfaces do
+            prepareMember index isIfaceImpl mem
 
         // This type as a `FrozenType`, parameterised over its declaring typars.
         // A mono type's `typarMarkers` is empty, so `selfTyMarkers` collapses to

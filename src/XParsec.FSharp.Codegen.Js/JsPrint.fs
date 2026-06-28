@@ -223,9 +223,9 @@ module JsPrint =
         let star = if m.Generator then text "*" else Nil
 
         let key =
-            match m.Computed with
-            | ValueSome keyExpr -> text "[" ++ expr keyExpr ++ text "]"
-            | ValueNone -> text m.Name
+            match m.Key with
+            | JsMethodKey.Computed keyExpr -> text "[" ++ expr keyExpr ++ text "]"
+            | JsMethodKey.Named n -> text n
 
         memberDecl
             (star ++ key ++ text "(" ++ commaList (List.map text m.Params) ++ text ")")
@@ -262,7 +262,12 @@ module JsPrint =
             ++ text "++) "
             ++ block body
         | JsStatement.ForOf(binder, source, body) ->
-            text "for (const " ++ text binder ++ text " of " ++ expr source ++ text ") " ++ block body
+            text "for (const "
+            ++ text binder
+            ++ text " of "
+            ++ expr source
+            ++ text ") "
+            ++ block body
         | JsStatement.Return e -> text "return " ++ expr e ++ text ";"
         | JsStatement.Continue -> text "continue;"
         | JsStatement.Assign(target, value) -> text target ++ text " = " ++ expr value ++ text ";"

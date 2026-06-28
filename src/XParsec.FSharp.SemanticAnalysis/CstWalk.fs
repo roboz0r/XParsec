@@ -156,6 +156,28 @@ module TypeDefnPatterns =
                        | _ -> false
                    )
 
+    /// Project a `TypeDefn.Union` or `TypeDefn.Record` with a single-ident name into
+    /// that name `LongIdent` and the `with`-block extension elements when present (the
+    /// `TypeExtensionElements` channel an `interface … with` / augmentation member rides;
+    /// `ValueNone` when the type carries no `with` block). These are the two nominal kinds
+    /// that — alongside a class, handled through the richer `tryClassLikeDecl` path — host
+    /// `interface … with` impls; three passes (`Unification.fillNominalMembers` /
+    /// `resolveInterfaceImplsForElem`, `NameResolution.walkNominalBodies`) matched this
+    /// exact shape independently, each pairing it with a registry lookup
+    /// (`TypeRegistry.tryUnionOrRecordHost`). `ValueNone` for any other `TypeDefn` shape or
+    /// a multi-ident name.
+    let tryUnionOrRecordHostDecl (td: TypeDefn<'T>) : struct (LongIdent<'T> * TypeDefnElements<'T> voption) voption =
+        let extElems (ext: TypeExtensionElements<'T> voption) =
+            match ext with
+            | ValueSome(TypeExtensionElements(elements = elems)) -> ValueSome elems
+            | ValueNone -> ValueNone
+
+        match td with
+        | TypeDefn.Union(typeName = TypeName(ident = nameLi); extensions = ext)
+        | TypeDefn.Record(typeName = TypeName(ident = nameLi); extensions = ext) when nameLi.Idents.Length = 1 ->
+            ValueSome(struct (nameLi, extElems ext))
+        | _ -> ValueNone
+
     /// Project the `body` field from any object-model `TypeDefn` shape:
     /// `Class | Anon | Struct | Interface`. The four shapes share the same
     /// body type. Returns `ValueNone` for `Record | Union | Abbrev | Enum |

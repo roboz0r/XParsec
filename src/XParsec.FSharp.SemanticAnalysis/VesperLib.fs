@@ -60,6 +60,18 @@ module VesperLib =
         | FTUnion(k, args) -> Some(SymbolKeyOps.qualifiedName k, args.AsSpan().ToArray())
         | _ -> None
 
+    /// Freeze a list of `interface <ty>` impl CSTs into the `(compiled-name, args)`
+    /// pairs `FrozenInterfaces` holds, dropping any that don't freeze to a nominal
+    /// witness. Shared by the union and class finalize arms.
+    let private freezeInterfaces
+        (ctx: ExtractCtx)
+        (dc: DeferredCtx)
+        (ifaces: Type<SyntaxToken> list)
+        : (string * FrozenType[])[] =
+        ifaces
+        |> List.choose (fun t -> nominalInterface (freezeBodyType ctx dc t))
+        |> List.toArray
+
     /// Does a `[<Struct>]`-attributed type declaration carry the attribute? A
     /// `[<Struct>] type X = …` (the ATTRIBUTE form, e.g. the struct-seq types) parses
     /// through the Class/Anon arm rather than `TypeSignature.Struct` (the
@@ -495,16 +507,10 @@ module VesperLib =
                             }
                         )
 
-                    // Freeze the union's `interface <ty>` impls into `(name, args)`
-                    // pairs (the `Class` arm's `FrozenInterfaces` step, mirrored) so
-                    // `tryForInEnumerator` can match a bare cons-list's `interface
-                    // seq<'T>` against the enumerable capability.
-                    let frozenIfaces =
-                        ifaceCsts
-                        |> List.choose (fun t -> nominalInterface (freezeBodyType ctx dc t))
-                        |> List.toArray
-
-                    ExternalTypeShape.Union(arity, cases', frozenIfaces, origin)
+                    // Freeze the union's `interface <ty>` impls so `tryForInEnumerator`
+                    // can match a bare cons-list's `interface seq<'T>` against the
+                    // enumerable capability (the `Class` arm's `FrozenInterfaces` step).
+                    ExternalTypeShape.Union(arity, cases', freezeInterfaces ctx dc ifaceCsts, origin)
                 | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev(dc, rhs)) ->
                     ExternalTypeShape.Abbrev(arity, freezeBodyType ctx dc rhs)
                 // A class's deferred `inherit <type>` base + `interface <type>` impls,
@@ -520,10 +526,7 @@ module VesperLib =
                     ExternalTypeShape.Class
                         { shape with
                             FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
-                            FrozenInterfaces =
-                                ifaces
-                                |> List.choose (fun t -> nominalInterface (freezeBodyType ctx dc t))
-                                |> List.toArray
+                            FrozenInterfaces = freezeInterfaces ctx dc ifaces
                         }
                 | _ -> shape
 
@@ -1429,12 +1432,23 @@ module VesperLib =
                     // intrinsics too (`'T []`/`byref`, arity ≥ 1). A generic intrinsic is
                     // representable by construction, so `PlatformTypes` only treats a
                     // `platform = None` as fatal when `arity = 0` — see the shape's docs.
-                    //
-                    // TODO (DEFERRED — StringIntrinsics migration): a capability surface
-                    // on an INTRINSIC primitive (`type string = extern with member …`)
-                    // is dropped here — the `Intrinsic` shape carries no member/interface
-                    // slots. Handle when that migration lands.
                     if isIntrinsic then
+                        // A capability surface (`with member …/interface …`) on an INTRINSIC
+                        // primitive (`type string = extern with member …`) is not yet
+                        // modelled — the `Intrinsic` shape carries no member/interface slots
+                        // (StringIntrinsics migration). Fail loud and located rather than
+                        // silently dropping the `with` body; the intrinsic shape is still
+                        // registered below so `TryLookupType` stays total.
+                        match members with
+                        | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not (Seq.isEmpty elems) ->
+                            ctx.Diagnostics.Add(
+                                file,
+                                sprintf
+                                    "type %s: a capability surface ('with member'/'interface') on an intrinsic primitive is not yet supported"
+                                    compiled
+                            )
+                        | _ -> ()
+
                         let platform =
                             match ctx.IntrinsicReprs.TryGetValue short with
                             | true, repr -> Some repr

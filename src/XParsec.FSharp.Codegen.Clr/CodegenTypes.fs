@@ -98,6 +98,40 @@ type internal NominalEmissionInput =
         // `EmitConstruct.buildNew` resolves every construction to a secondary.
         hasPrimaryCtor: bool
 
+/// Shared index contract over a nominal type's method members.
+[<RequireQualifiedAccess>]
+module internal NominalMembers =
+
+    /// Flatten a nominal's grouped `interface … with` impls (interface type + its member
+    /// bodies) to the impl-member sequence in declaration order. The SINGLE place the
+    /// load-bearing flatten order lives, so `indexed`, `Layout`, and `NominalEmit` can't
+    /// drift on it (they previously each re-flattened the grouped list independently).
+    let flattenIfaceMembers (interfaces: (FrozenType * Frozen.TTypeMember list) list) : Frozen.TTypeMember list =
+        [
+            for (_, ms) in interfaces do
+                yield! ms
+        ]
+
+    /// The `(index, isIfaceImpl, member)` sequence for a nominal type's method rows:
+    /// its own augmentation members at indices `[0..n)`, then its flattened
+    /// `interface … with` impl members at `[n..)`. The SINGLE definition of the
+    /// own-before-iface `MethodKey.Member` index contract that both `Layout` (row
+    /// declaration) and `NominalEmit` (body emission) consume — so the two files can't
+    /// drift on the arithmetic. Takes the GROUPED interfaces and flattens internally
+    /// (`flattenIfaceMembers`), colocating the flatten order with the index order.
+    /// Eq/comp/format rows use disjoint `MethodKey`s, so they never collide with these
+    /// and their relative order is irrelevant.
+    let indexed
+        (members: Frozen.TTypeMember list)
+        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        : (int * bool * Frozen.TTypeMember) list =
+        [
+            yield! members |> List.mapi (fun i m -> i, false, m)
+
+            let ownCount = List.length members
+            yield! flattenIfaceMembers interfaces |> List.mapi (fun i m -> ownCount + i, true, m)
+        ]
+
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
     {

@@ -100,19 +100,11 @@ module EmitBindings =
             b.Add(ILInstr.Ldloc slot)
             b.Add(ILInstr.Brfalse skipLabel)
 
-            match dispose with
-            | ValueNone ->
-                // Reuse the standard instance-call path for `x.Dispose()`: it resolves
-                // the member handle and emits the `callvirt`. `Dispose` returns unit
-                // (one `Unit` value), popped so the finally handler ends empty-stacked.
-                let disposeKey =
-                    SymbolKey.MemberKey(
-                        fst (nominalShape "use-dispose receiver" varTy),
-                        "Dispose",
-                        EqArray.empty,
-                        MemberKind.Method
-                    )
-
+            // Dispose through a local instance `x.Dispose()`: reuse the standard
+            // instance-call path (`CallVia.Self` `MethodCall`), which resolves the member
+            // handle and emits the `callvirt`. `Dispose` returns unit (one `Unit` value),
+            // popped so the finally handler ends empty-stacked.
+            let emitLocalDispose (disposeKey: SymbolKey) =
                 recur
                     env
                     b
@@ -126,20 +118,37 @@ module EmitBindings =
                     ))
 
                 b.Add ILInstr.Pop
+
+            // True iff the keyed `Dispose`'s declaring type is project-local — an
+            // `ExternalMemberRef` would fault on a local handle (mirrors `EmitMember`'s
+            // `env.Unions`/`env.Classes` locality test).
+            let isLocalDisposeKey (key: SymbolKey) =
+                match key with
+                | SymbolKey.MemberKey(declKey, _, _, _) ->
+                    env.Classes.ContainsKey declKey || env.Unions.ContainsKey declKey
+                | _ -> false
+
+            match dispose with
+            | ValueNone ->
+                emitLocalDispose (
+                    SymbolKey.MemberKey(
+                        fst (nominalShape "use-dispose receiver" varTy),
+                        "Dispose",
+                        EqArray.empty,
+                        MemberKind.Method
+                    )
+                )
+            // The project-local `[<IsByRefLike>]` ref-struct carve-out
+            // (`Infer.tryRefStructOwnDispose`) also arrives as `ValueSome`, but its
+            // declaring type is LOCAL, so it disposes through the same `CallVia.Self` path
+            // as `ValueNone` — `ExternalMemberRef` would fault on a local handle.
+            | ValueSome key when isLocalDisposeKey key -> emitLocalDispose key
             | ValueSome key ->
                 // External (BCL) binder: dispose through the keyed `Dispose` the front
                 // end resolved (the type's own `Dispose`, or `System.IDisposable`'s),
                 // minted as an `ExternalMemberRef` `callvirt`. The external member
                 // carries a real `void` return, so it pushes nothing: a receiver-only
                 // `callvirt`, no `pop`.
-                //
-                // TODO(Track II): `ValueSome` also carries the project-local `[<IsByRefLike>]`
-                // ref-struct carve-out key (`Infer.tryRefStructOwnDispose`), whose declaring
-                // type is LOCAL — `ExternalMemberRef` would fault on it. No test exercises a
-                // project-local ref-struct `use` today (the carve-out is front-end-tested
-                // only), so this is a latent gap, not an observed regression. The fix: branch
-                // on key locality — a local key routes through the `ValueNone` `MethodCall` /
-                // `CallVia.Self` path above. (JS handles the local `ValueSome` key correctly.)
                 let dispHandle =
                     env.Provider.ExternalMemberRef(
                         key,

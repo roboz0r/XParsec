@@ -224,22 +224,28 @@ module RuntimeNames =
             cns = ns && SymbolKeyOps.bareName cn = SymbolKeyOps.bareName n
         | _ -> false
 
-    /// One resolved capability identity: the `SymbolKey` plus its rendered qualified
-    /// name — the two projections the consumer sites split across (some compare a
-    /// `SymbolKey` asm-blind, some compare a rendered interface-name string from
-    /// `ExternalSymbols.instantiateInterfaces`).
+    /// One resolved capability identity: just the canonical `SymbolKey`. Identity is
+    /// the key, and the single recognition semantics is asm-blind structural match
+    /// (`sameTypeAsmBlind`) — `Matches` for a consumer holding a `SymbolKey`,
+    /// `MatchesName` for one holding a compiled qualified interface-name string (it
+    /// mints the key and delegates). The former second stored projection
+    /// (`QualifiedName`) and its exact-string `MatchesName` are gone: a name-keyed
+    /// consumer is now an adapter over the one `Key`, so the two faces can never drift.
     type CapabilityIdentity =
         {
             Key: SymbolKey
-            QualifiedName: string
         }
 
         /// Asm-blind key match (same namespace + bare name) — the `SymbolKey`-keyed
         /// consumers.
-        member this.MatchesKey(k: SymbolKey) : bool = sameTypeAsmBlind this.Key k
+        member this.Matches(k: SymbolKey) : bool = sameTypeAsmBlind this.Key k
 
-        /// Rendered-name match — the string-keyed consumers.
-        member this.MatchesName(s: string) : bool = s = this.QualifiedName
+        /// Match a compiled qualified interface-name string (arity-suffixed, e.g.
+        /// `System.Collections.Generic.IEnumerable\`1`) by minting its key and
+        /// comparing asm-blind. For consumers holding the rendered interface name from
+        /// `ExternalSymbols.instantiateInterfaces` rather than a `SymbolKey`.
+        member this.MatchesName(name: string) : bool =
+            this.Matches(SymbolKeyOps.qualifiedTypeKeyOf None name 0)
 
     /// The four language-capability identities, resolved once per compilation
     /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).
@@ -254,6 +260,28 @@ module RuntimeNames =
             Equatable: CapabilityIdentity voption
             Comparable: CapabilityIdentity voption
         }
+
+        /// The all-unnamed set: a provider-less compilation (`nullProvider`) names no
+        /// capability, so every recognizer falls through to its `ValueNone` arm.
+        static member none =
+            {
+                Enumerable = ValueNone
+                Disposable = ValueNone
+                Equatable = ValueNone
+                Comparable = ValueNone
+            }
+
+    /// True iff `cap` is named and `k` denotes it (asm-blind). Flattens the
+    /// `ValueNone ⇒ no-match` resolve-on-use convention so a recognizer site reads
+    /// `RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey` instead of
+    /// spelling out the `match … ValueSome c -> c.Matches k | ValueNone -> false`.
+    let matchesKey (cap: CapabilityIdentity voption) (k: SymbolKey) : bool =
+        cap |> ValueOption.exists (fun c -> c.Matches k)
+
+    /// `matchesKey` for a consumer holding a compiled qualified interface-name string
+    /// (from `ExternalSymbols.instantiateInterfaces`) rather than a `SymbolKey`.
+    let matchesName (cap: CapabilityIdentity voption) (name: string) : bool =
+        cap |> ValueOption.exists (fun c -> c.MatchesName name)
 
     /// True iff `k` denotes the Vesper cons-list in either of its nominal forms —
     /// the `List` union or its lowercase `list` abbreviation (both in

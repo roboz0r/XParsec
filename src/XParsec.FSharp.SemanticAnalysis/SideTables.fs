@@ -142,6 +142,9 @@ type IInterfaceImplHost =
     abstract member Key: SymbolKey
     abstract member DeclKey: NodeKey
     abstract member TypeParams: EqArray<string * TypeVar>
+    /// Source-text name bound to `this` inside member / impl bodies (`"this"` unless
+    /// an `as`-binder renamed it). Used by NameResolution to seed the body scope.
+    abstract member ThisName: string
     abstract member ThisKey: NodeKey
     abstract member InterfaceImpls: ClassInterfaceImplInfo[]
     abstract member Members: TypeMemberInfo[]
@@ -214,9 +217,9 @@ type RecordTypeInfo
     /// member body in this record. Set during registration when there are members.
     member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
     /// `interface IFace with member …` blocks declared on the record.
-    /// Stamped by `NameResolution.registerRecordMembers`; each impl's interface type
+    /// Stamped by `NameResolution.registerNominalMembers`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
-    /// `fillRecordMembers` (mirroring `UnionTypeInfo.InterfaceImpls`). Empty unless
+    /// `fillHostMembers` (mirroring `UnionTypeInfo.InterfaceImpls`). Empty unless
     /// the record declares an `interface … with` block. `Freeze` projects them onto
     /// `TTypeKind.Record.interfaces`.
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
@@ -225,6 +228,7 @@ type RecordTypeInfo
         member this.Key = this.Key
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
+        member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
         member this.InterfaceImpls = this.InterfaceImpls
         member this.Members = this.Members
@@ -282,9 +286,9 @@ type UnionTypeInfo
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
     /// `interface IFace with member …` blocks declared on the union.
-    /// Stamped by `NameResolution.registerUnionMembers`; each impl's interface type
+    /// Stamped by `NameResolution.registerNominalMembers`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
-    /// `fillUnionMembers` (mirroring `ClassTypeInfo.InterfaceImpls`). Empty unless
+    /// `fillHostMembers` (mirroring `ClassTypeInfo.InterfaceImpls`). Empty unless
     /// the union declares an `interface … with` block. `Freeze` projects them onto
     /// `TTypeKind.Union.interfaces`; codegen emission is deferred.
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
@@ -293,6 +297,7 @@ type UnionTypeInfo
         member this.Key = this.Key
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
+        member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
         member this.InterfaceImpls = this.InterfaceImpls
         member this.Members = this.Members
@@ -538,6 +543,7 @@ type ClassTypeInfo
         member this.Key = this.Key
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
+        member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
         member this.InterfaceImpls = this.InterfaceImpls
         member this.Members = this.Members
@@ -825,11 +831,11 @@ module TypeRegistry =
     /// `tryUnionByKey`. See `tryByTypeKey`.
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
-    /// Resolve a nominal type that may carry `interface … with` impls — a class
-    /// *or* a union — by bare short name, surfaced as the shared
+    /// Resolve a nominal type that may carry `interface … with` impls — a class,
+    /// union, *or* record — by bare short name, surfaced as the shared
     /// `IInterfaceImplHost`. The `subsumes` interface-admission walk uses this so a
-    /// union's declared interfaces participate in subtyping exactly like a class's.
-    /// Classes win a name collision (they always have for the bare-alias reads).
+    /// union's/record's declared interfaces participate in subtyping exactly like a
+    /// class's. Classes win a name collision (they always have for the bare-alias reads).
     let tryInterfaceImplHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
         match types.Class.TryGetValue name with
         | true, info -> ValueSome(info :> IInterfaceImplHost)
@@ -840,6 +846,22 @@ module TypeRegistry =
                 match types.Record.TryGetValue name with
                 | true, info -> ValueSome(info :> IInterfaceImplHost)
                 | false, _ -> ValueNone
+
+    /// Resolve a union or record (NOT a class) by bare short name as the shared
+    /// `IInterfaceImplHost`. The union/record analogue of the class `tryClassLikeDecl`
+    /// path: the three host-body passes route their
+    /// `TypeDefnPatterns.tryUnionOrRecordHostDecl` match through this one lookup, so they
+    /// share the bare-name convention (the same `tryInterfaceImplHost` / `subsumes` use)
+    /// instead of skewing against the arity-key. Classes are excluded — they fill and
+    /// resolve through their own richer path (`fillClassMembers` / `walkClassBodies`), so
+    /// admitting one here would double-fill.
+    let tryUnionOrRecordHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
+        match types.Union.TryGetValue name with
+        | true, info -> ValueSome(info :> IInterfaceImplHost)
+        | false, _ ->
+            match types.Record.TryGetValue name with
+            | true, info -> ValueSome(info :> IInterfaceImplHost)
+            | false, _ -> ValueNone
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info

@@ -84,7 +84,11 @@ let useTests =
 
                 let js = emitJs src
                 Expect.stringContains js "finally " "the wildcard binder still gets a finally"
-                Expect.stringContains js "[Symbol.dispose]()" "the wildcard `_use<tok>` binder is still disposed via Symbol.dispose"
+
+                Expect.stringContains
+                    js
+                    "[Symbol.dispose]()"
+                    "the wildcard `_use<tok>` binder is still disposed via Symbol.dispose"
 
                 match runJs "js-use-wildcard" src with
                 | None -> skiptest "node not found on PATH"

@@ -349,7 +349,37 @@ module NameResolution =
                 | ValueNone -> ()
         | _ -> ()
 
-    let private walkUnionBodies
+    /// Name-resolve a union/record host's augmentation-member and `interface … with`
+    /// impl bodies so `this` (and any `this.Field` access or `match this with | Case
+    /// payload` binders) get a `Binding` entry. Walk when the type has augmentation
+    /// members OR interface impls — a type with ONLY an interface impl still needs its
+    /// impl bodies resolved (mirrors `Unification.fillHostMembers`, which fills the
+    /// impls outside the same `Members`-non-empty guard). Unions/records have no ctor
+    /// params / static lets / secondary ctors / inherit, so those stay empty.
+    let private walkNominalHostBodies
+        (ctx: PassContext)
+        (walker: CstWalk.ExprWalker<Scope list>)
+        (name: string)
+        (host: IInterfaceImplHost)
+        (elems: TypeDefnElements<SyntaxToken>)
+        : unit =
+        if not (Array.isEmpty host.Members && Array.isEmpty host.InterfaceImpls) then
+            walkTypeBodies
+                ctx
+                walker
+                {
+                    ThisName = host.ThisName
+                    ThisKey = host.ThisKey
+                    BaseKey = ValueNone
+                    CtorParams = [||]
+                    StaticLets = [||]
+                    SecondaryCtors = [||]
+                    InheritsExpr = ValueNone
+                    EnclosingModuleMembers = enclosingModuleMembers ctx name
+                    Elements = elems
+                }
+
+    let private walkNominalBodies
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
         (m: ModuleElem<SyntaxToken>)
@@ -357,75 +387,14 @@ module NameResolution =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                match td with
-                | TypeDefn.Union(
-                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
-                    nameLi.Idents.Length = 1
-                    ->
+                // Only a `with` block (`ValueSome elems`) carries augmentation / impl bodies.
+                match TypeDefnPatterns.tryUnionOrRecordHostDecl td with
+                | ValueSome(struct (nameLi, ValueSome elems)) ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match ctx.Types.Union.TryGetValue name with
-                    // Walk the bodies when the union has augmentation members OR
-                    // `interface … with` impls — a union with ONLY an interface impl
-                    // still needs its impl bodies name-resolved so `this` (and any
-                    // `match this with | Case payload` binders) get a `Binding` entry.
-                    // Mirrors `Unification.fillUnionMembers`, which fills the interface
-                    // impls outside the same `Members`-non-empty guard.
-                    | true, info when not (Array.isEmpty info.Members && Array.isEmpty info.InterfaceImpls) ->
-                        walkTypeBodies
-                            ctx
-                            walker
-                            {
-                                ThisName = info.ThisName
-                                ThisKey = info.ThisKey
-                                BaseKey = ValueNone
-                                CtorParams = [||]
-                                StaticLets = [||]
-                                SecondaryCtors = [||]
-                                InheritsExpr = ValueNone
-                                EnclosingModuleMembers = enclosingModuleMembers ctx name
-                                Elements = elems
-                            }
-                    | _ -> ()
-                | _ -> ()
-        | _ -> ()
-
-    /// Mirror of `walkUnionBodies` for records — name-resolve a record's
-    /// augmentation-member and `interface … with` impl bodies so `this` (and any
-    /// `this.Field` access) get a `Binding` entry. Records have no ctor params /
-    /// static lets / secondary ctors / inherit, so those stay empty/`ValueNone`.
-    let private walkRecordBodies
-        (ctx: PassContext)
-        (walker: CstWalk.ExprWalker<Scope list>)
-        (m: ModuleElem<SyntaxToken>)
-        : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
-                | TypeDefn.Record(
-                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
-                    nameLi.Idents.Length = 1
-                    ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-
-                    match ctx.Types.Record.TryGetValue name with
-                    | true, info when not (Array.isEmpty info.Members && Array.isEmpty info.InterfaceImpls) ->
-                        walkTypeBodies
-                            ctx
-                            walker
-                            {
-                                ThisName = info.ThisName
-                                ThisKey = info.ThisKey
-                                BaseKey = ValueNone
-                                CtorParams = [||]
-                                StaticLets = [||]
-                                SecondaryCtors = [||]
-                                InheritsExpr = ValueNone
-                                EnclosingModuleMembers = enclosingModuleMembers ctx name
-                                Elements = elems
-                            }
-                    | _ -> ()
+                    match TypeRegistry.tryUnionOrRecordHost ctx.Types name with
+                    | ValueSome host -> walkNominalHostBodies ctx walker name host elems
+                    | ValueNone -> ()
                 | _ -> ()
         | _ -> ()
 
@@ -489,13 +458,10 @@ module NameResolution =
 
         checkInheritanceCycles ctx
 
-        // Union augmentation members (P3d.3) register after the union itself.
+        // Union/record augmentation members + interface impls register after the type
+        // itself (P3d.3).
         for (m, _, _) in pairs do
-            registerUnionMembers ctx m
-
-        // Record augmentation members + interface impls register after the record itself.
-        for (m, _, _) in pairs do
-            registerRecordMembers ctx m
+            registerNominalMembers ctx m
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
         // walked here with each type's own scope (`this` + ctor params), giving
@@ -508,11 +474,7 @@ module NameResolution =
 
         for (m, openScope, _) in pairs do
             ctx.Resolution.OpenScope <- openScope
-            walkUnionBodies ctx walker m
-
-        for (m, openScope, _) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            walkRecordBodies ctx walker m
+            walkNominalBodies ctx walker m
 
         let mutable scope = [ Map.empty ]
 

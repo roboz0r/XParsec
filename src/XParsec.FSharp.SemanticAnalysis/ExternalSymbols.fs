@@ -689,31 +689,33 @@ module ExternalSymbols =
     ///     an `Intrinsic` carrying the interface fqn as its `platform` face — the same
     ///     per-target reconciliation `exn === System.Exception` rides. The fqn already
     ///     carries the metadata backtick-arity suffix, so the key is minted with arity 0
-    ///     (`qualifiedTypeKeyOf None fqn 0`): `qualifiedName` round-trips to `fqn` (the
-    ///     rendered string the `.MatchesName` consumers compare) and `bareName` strips
-    ///     the suffix for the asm-blind `.MatchesKey` consumers.
+    ///     (`qualifiedTypeKeyOf None fqn 0`): `bareName` strips the suffix for the
+    ///     asm-blind `CapabilityIdentity.Matches` recognition (the name-keyed
+    ///     consumers re-mint the same key from their interface-name string).
     ///   * Enumerable has no dedicated anchor — iteration already has the language type
-    ///     `seq<'T>` (`Vesper.List/list.fsi`, an abbreviation for `IEnumerable<'T>`), so
-    ///     its identity is read off that abbreviation's resolved head (an `FTClass`
-    ///     carrying the `IEnumerable`1` key) rather than a redundant intrinsic. Absent
-    ///     when `Vesper.List` isn't referenced (⇒ `ValueNone`) — harmless, since `for-in`
-    ///     resolution is structural-primary and the identity is only a fallback (§5.1).
+    ///     `seq<'T>` (`Vesper.Core/capabilities.fsi`, in the `Vesper.Collections`
+    ///     namespace, an abbreviation for `IEnumerable<'T>`), so its identity is read off
+    ///     that abbreviation's resolved head (an `FTClass` carrying the `IEnumerable`1`
+    ///     key) rather than a redundant intrinsic. `seq` lives in `Vesper.Core` (not
+    ///     `Vesper.List`) precisely so this resolution isn't circular when building
+    ///     `Vesper.List` itself; since `Vesper.Core` is effectively always referenced it
+    ///     resolves whenever the contract is in scope. Still only a fallback — `for-in`
+    ///     resolution is structural-primary, so a `ValueNone` here is harmless (§5.1).
     let resolveCapabilities (provider: IExternalSymbolProvider) : RuntimeNames.CapabilityIds =
         let ofKey (key: SymbolKey) : RuntimeNames.CapabilityIdentity =
             {
                 RuntimeNames.CapabilityIdentity.Key = key
-                RuntimeNames.CapabilityIdentity.QualifiedName = SymbolKeyOps.qualifiedName key
             }
 
         let resolveIntrinsic (lookup: string) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
-            | ValueSome(ExternalTypeShape.Intrinsic(platform = Some fqn)) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
+            | ValueSome(ExternalTypeShape.Intrinsic(platform = Some fqn)) ->
+                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
             | _ -> ValueNone
 
         // Read the abbreviation's resolved nominal head key (`seq<'T>` → the
         // `IEnumerable`1` `FTClass`). The home assembly on the key is a don't-care —
-        // both consumer projections (`MatchesKey` asm-blind, `MatchesName` qualified)
-        // ignore it.
+        // `CapabilityIdentity.Matches` is asm-blind.
         let resolveAbbrevHead (lookup: string) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) -> ValueSome(ofKey key)
@@ -774,23 +776,21 @@ module ExternalSymbols =
         c.FrozenFieldTypes
         |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs)
 
-    /// Realise a class/interface's directly-implemented interfaces as
-    /// `(compiled-name, type-args)` pairs. The data-form replacement for
-    /// `shape.Interfaces args`.
-    let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : (string * SemType[])[] =
-        shape.FrozenInterfaces
-        |> Array.map (fun (name, fts) -> name, fts |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs))
-
-    /// Realise a *union*'s directly-implemented interfaces (the
-    /// `ExternalTypeShape.Union.interfaces` field) as `(compiled-name, type-args)`
-    /// pairs — the union analogue of `instantiateInterfaces` so `tryForInEnumerator`
-    /// can read a bare cons-list's `interface seq<'T>` declaration.
-    let instantiateUnionInterfaces
+    /// Realise a directly-implemented interface set (`(compiled-name, frozen
+    /// type-args)` pairs, the `FrozenInterfaces` of a class or the
+    /// `ExternalTypeShape.Union.interfaces` of a union) at a use site as
+    /// `(compiled-name, type-args)` pairs.
+    let instantiateInterfacesOf
         (interfaces: (string * FrozenType[])[])
         (declaringArgs: SemType[])
         : (string * SemType[])[] =
         interfaces
         |> Array.map (fun (name, fts) -> name, fts |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs))
+
+    /// Realise a class/interface's directly-implemented interfaces. The data-form
+    /// replacement for `shape.Interfaces args`.
+    let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : (string * SemType[])[] =
+        instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
 
     /// Realise a class's declared base type, if any. The data-form replacement
     /// for `shape.BaseType |> ValueOption.map (fun b -> b args)`.
@@ -939,7 +939,8 @@ module ExternalSymbols =
                     match shape with
                     | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
-                    | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
+                    | ExternalTypeShape.Union(arity, cases, ifaces, _) ->
+                        ExternalTypeShape.Union(arity, cases, ifaces, o)
                     | ExternalTypeShape.Abbrev _
                     | ExternalTypeShape.Intrinsic _
                     | ExternalTypeShape.Opaque _ -> shape

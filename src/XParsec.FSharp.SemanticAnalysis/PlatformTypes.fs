@@ -130,22 +130,17 @@ module PlatformTypes =
             // Class members are intentionally NOT walked: a backend may not emit them
             // yet (the JS back end does not), so flagging a type they reference would
             // be a premature reject — match the set the emitter actually lowers.
+            // Records and unions walk identically: augmentation member bodies, then
+            // interface-impl member bodies. Both kinds' interface impls ARE lowered by
+            // the backends (CLR `InterfaceImpl` rows / JS attached + base-class capability
+            // methods like `[Symbol.iterator]`), so an unrepresentable type in one is a
+            // real reject.
             match td.Kind with
-            | TTypeKindG.Record(_, members, interfaces) ->
-                for m in members do
-                    TastWalk.iterExpr iter m.Body
-                // The backends emit a record's interface-impl members (CLR `InterfaceImpl`
-                // rows / JS attached methods), so their bodies are lowered and an
-                // unrepresentable type in one is a real reject.
-                for (_, ifaceMembers) in interfaces do
-                    for m in ifaceMembers do
-                        TastWalk.iterExpr iter m.Body
+            | TTypeKindG.Record(_, members, interfaces)
             | TTypeKindG.Union(_, members, interfaces) ->
                 for m in members do
                     TastWalk.iterExpr iter m.Body
-                // The JS backend now emits a union's interface-impl members as
-                // base-class capability methods (`[Symbol.iterator]` etc.), so their
-                // bodies are lowered and an unrepresentable type in one is a real reject.
+
                 for (_, ifaceMembers) in interfaces do
                     for m in ifaceMembers do
                         TastWalk.iterExpr iter m.Body

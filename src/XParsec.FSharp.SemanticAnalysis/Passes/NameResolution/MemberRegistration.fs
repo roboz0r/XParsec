@@ -846,11 +846,23 @@ module NameResolutionMemberRegistration =
 
             walk (Set.singleton start.Name) start
 
-    /// Stamp augmentation members onto an already-registered `UnionTypeInfo`
-    ///. Must run after registerUnionTypes; reads the union's
-    /// `extensions.elements`. A v1 union has no primary ctor / `as` alias, so
-    /// `this` is always `"this"`.
-    let registerUnionMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    /// Stamp augmentation members + `interface … with` impls onto an already-registered
+    /// union or record. Must run after the type itself is registered; reads its
+    /// `extensions.elements`. A v1 union/record has no primary ctor / `as` alias, so
+    /// `this` is always `"this"`. The member/impl extraction is kind-agnostic (the same
+    /// collection the class registration uses); only the write-back target type differs,
+    /// so the host interface (read-only) can't carry it — the two arms set their own
+    /// `info`.
+    let registerNominalMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        let extract (declKey: NodeKey) (typeParams: EqArray<string * TypeVar>) elems =
+            let typarNames = [ for (n, _) in typeParams -> n ]
+
+            {|
+                Members = extractMembers ctx declKey typarNames elems
+                InterfaceImpls = extractInterfaceImpls ctx typarNames elems
+                ThisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
+            |}
+
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
@@ -859,41 +871,23 @@ module NameResolutionMemberRegistration =
                     typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
                     nameLi.Idents.Length = 1
                     ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-
-                    match ctx.Types.Union.TryGetValue name with
+                    match ctx.Types.Union.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
                     | true, info ->
-                        let unionTyparNames = [ for (n, _) in info.TypeParams -> n ]
-                        info.Members <- extractMembers ctx info.DeclKey unionTyparNames elems
-                        // `interface IFace with member …` blocks on the union — the
-                        // same kind-agnostic collection the class registration uses.
-                        info.InterfaceImpls <- extractInterfaceImpls ctx unionTyparNames elems
-                        info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
+                        let x = extract info.DeclKey info.TypeParams elems
+                        info.Members <- x.Members
+                        info.InterfaceImpls <- x.InterfaceImpls
+                        info.ThisKey <- x.ThisKey
                     | false, _ -> ()
-                | _ -> ()
-        | _ -> ()
-
-    /// Stamp augmentation members + `interface … with` impls onto an
-    /// already-registered `RecordTypeInfo`. Mirrors `registerUnionMembers`: must
-    /// run after `registerRecordTypes`; reads the record's `extensions.elements`.
-    /// A record has no primary ctor / `as` alias, so `this` is always `"this"`.
-    let registerRecordMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
                 | TypeDefn.Record(
                     typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
                     nameLi.Idents.Length = 1
                     ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-
-                    match ctx.Types.Record.TryGetValue name with
+                    match ctx.Types.Record.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
                     | true, info ->
-                        let recordTyparNames = [ for (n, _) in info.TypeParams -> n ]
-                        info.Members <- extractMembers ctx info.DeclKey recordTyparNames elems
-                        info.InterfaceImpls <- extractInterfaceImpls ctx recordTyparNames elems
-                        info.ThisKey <- NodeKey.ofSynthetic info.DeclKey.Offset NodeKind.SynthThisBinding
+                        let x = extract info.DeclKey info.TypeParams elems
+                        info.Members <- x.Members
+                        info.InterfaceImpls <- x.InterfaceImpls
+                        info.ThisKey <- x.ThisKey
                     | false, _ -> ()
                 | _ -> ()
         | _ -> ()
