@@ -24,8 +24,10 @@ let tests =
                     "Type mismatch", "let x : int = \"hi\"\nprintfn \"%d\" x"
                     // assigning to an immutable record field
                     "Cannot assign to immutable field", "type R = { x: int }\nlet r = { x = 1 }\nr.x <- 2"
-                    // `use` over a type with no Dispose member
-                    "Dispose", "type R() =\n    member this.value = 1\nlet run () =\n    use r = R()\n    ()\nrun ()"
+                    // `use` over a type that doesn't implement `disposable`
+                    // (`System.IDisposable`) — the §3b interface-required flip.
+                    "implement 'disposable'",
+                    "type R() =\n    member this.value = 1\nlet run () =\n    use r = R()\n    ()\nrun ()"
                     // a destructuring `use` — only simple variable patterns are legal
                     // there (the bound value is what gets disposed), so the front end
                     // rejects it rather than letting codegen `failwithf`.

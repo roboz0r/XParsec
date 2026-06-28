@@ -362,6 +362,13 @@ module EmitJs =
 
     // ---- The walker ----------------------------------------------------------
 
+    /// `Symbol.dispose` — a member access on the global `Symbol` (a NATIVE well-known
+    /// symbol), EXACTLY like `Symbol.iterator`, NOT a `Symbol.for("…")` registry call.
+    /// Shared by the disposable-impl method KEY (`emitDisposeMethod`) and `use`'s
+    /// disposal call site (`disposeStmts`) so both name the identical slot.
+    let private symbolDispose: JsExpr =
+        JsExpr.Member(JsExpr.Identifier("Symbol", ValueNone), JsExpr.Identifier("dispose", ValueNone), false, ValueNone)
+
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
         let loc = locOf ctx (TastWalk.exprTok e)
 
@@ -1344,6 +1351,35 @@ module EmitJs =
             Generator = true
         }
 
+    /// Emit a disposable-capability `Dispose` impl as a NATIVE well-known
+    /// `[Symbol.dispose]()` method — the JS analogue of the CLR `IDisposable::Dispose`
+    /// slot, driven by `use`'s `obj[Symbol.dispose]()` lowering. Cloned from
+    /// `emitIteratorMethod` but with NO generator / while / yield (disposal is a plain
+    /// side-effecting call): the body is just the impl's `Dispose` body, receiver
+    /// re-bound to `this`. The KEY is the `Symbol.dispose` member-access node (a native
+    /// well-known symbol), NOT a `Symbol.for("…")` registry call.
+    and emitDisposeMethod (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsClassMethod =
+        let recvBinding =
+            match m.ThisKey with
+            | ValueSome k ->
+                let recvName = identName ctx.Source k
+
+                if recvName = "this" then
+                    []
+                else
+                    [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+            | ValueNone -> []
+
+        let body = recvBinding @ [ JsStatement.Return(buildExpr ctx m.Body) ]
+
+        {
+            Name = "[Symbol.dispose]"
+            Params = []
+            Body = body
+            Computed = ValueSome symbolDispose
+            Generator = false
+        }
+
     /// Emit an eq/comp/hash capability impl as a COMPUTED-KEY method
     /// `[Symbol.for("vesper.X")](params) { … }` — the registry-symbol dispatch slot the
     /// `Vesper.Core` / `Vesper.Comparison` runtimes look for (`a[Symbol.for("vesper.equality")](b)`,
@@ -1489,34 +1525,34 @@ module EmitJs =
     and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string =
         patBinderName ctx "_use" binding
 
-    /// The `finally` body that disposes a `use` binder: a null-guarded `Dispose` call.
+    /// The `finally` body that disposes a `use` binder: a null-guarded disposal call.
     /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`
-    /// (matching the `Null` pattern convention). A project-local member emits as a free
-    /// receiver-first function (not an attached method), so disposal is `<Type>__Dispose(x)`,
-    /// the duck-typed path mangled off the binder's type (no `IDisposable` upcast).
-    /// TODO(platform-independence-plan slice C): honour the external `dispose = ValueSome`
-    /// path through `Symbol.dispose` rather than the keyed member's free fn.
+    /// (matching the `Null` pattern convention). Under the §3b disposal-model flip, a
+    /// project-local `use` binder always implements `disposable` (the front end records
+    /// `ValueNone`), so disposal is the native `binder[Symbol.dispose]()` — the same
+    /// `Symbol.dispose` member-access node the disposable impl emits its method under
+    /// (`emitDisposeMethod`). The `ValueSome key` path (the ref-struct carve-out / an
+    /// external own-`Dispose`) keeps calling the keyed member's free receiver-first fn.
     and private disposeStmts
         (ctx: WalkCtx)
-        (binding: Frozen.TPat)
+        (_binding: Frozen.TPat)
         (dispose: SymbolKey voption)
         (name: string)
         : JsStatement list =
         let binder = JsExpr.Identifier(name, ValueNone)
         let guard = JsExpr.Binary("!=", binder, JsExpr.Identifier("null", ValueNone), ValueNone)
 
-        let disposeFn =
+        let disposeCall =
             match dispose with
-            // External/keyed disposable: the front end resolved a `Dispose` member key;
-            // call that member's free function (the genuine `Symbol.dispose` path is later).
-            | ValueSome key -> Members.localFn ctx key false false ValueNone
-            // Project-local duck-typed disposable: mangle `<Type>__Dispose` from the binder
-            // type's nominal key (its emitted free receiver-first function).
-            | ValueNone ->
-                let tyKey = nominalKey "Use" (TastLower.typeOfPat binding)
-                JsExpr.Identifier(Members.mangledName (Members.typeName ctx tyKey) false false "Dispose", ValueNone)
+            // Ref-struct carve-out / external own-`Dispose`: the front end resolved a
+            // keyed `Dispose` member; call its free receiver-first function.
+            | ValueSome key ->
+                let disposeFn = Members.localFn ctx key false false ValueNone
+                JsExpr.Call(disposeFn, [ binder ], ValueNone)
+            // Implements `disposable`: lower to the native `binder[Symbol.dispose]()`
+            // (a COMPUTED member access on the well-known symbol), with no args.
+            | ValueNone -> JsExpr.Call(JsExpr.Member(binder, symbolDispose, true, ValueNone), [], ValueNone)
 
-        let disposeCall = JsExpr.Call(disposeFn, [ binder ], ValueNone)
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
     /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.
@@ -1541,6 +1577,9 @@ module EmitJs =
             /// key (`vesper.equality` / `vesper.comparison` / `vesper.hash`), routed to a
             /// computed-key `[Symbol.for("vesper.X")]` method (`emitProtocolMethod`).
             Protocols: (string * Frozen.TTypeMember) list
+            /// The disposable-capability `Dispose` impl(s), routed to a native
+            /// `[Symbol.dispose]()` method (`emitDisposeMethod`) that `use` calls.
+            Disposers: Frozen.TTypeMember list
         }
 
     /// One locally-emitted union whose interface impls became BASE-class methods
@@ -1555,6 +1594,7 @@ module EmitJs =
             Attached: Frozen.TTypeMember list
             Iterators: Frozen.TTypeMember list
             Protocols: (string * Frozen.TTypeMember) list
+            Disposers: Frozen.TTypeMember list
         }
 
     /// The split of a class's members across the JS emission forms.
@@ -1569,6 +1609,8 @@ module EmitJs =
             /// Eq/comp/hash capability impls, paired with their registry-symbol key →
             /// `[Symbol.for("vesper.X")]` computed-key methods.
             Protocols: (string * Frozen.TTypeMember) list
+            /// Disposable-capability `Dispose` impls → native `[Symbol.dispose]()` methods.
+            Disposers: Frozen.TTypeMember list
         }
 
     /// Registry-symbol keys for the eq/comp/hash JS capability protocols (plan §14.5).
@@ -1611,6 +1653,7 @@ module EmitJs =
         let attached = ResizeArray<Frozen.TTypeMember>()
         let iterators = ResizeArray<Frozen.TTypeMember>()
         let protocols = ResizeArray<string * Frozen.TTypeMember>()
+        let disposers = ResizeArray<Frozen.TTypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
         let capMatches (cap: RuntimeNames.CapabilityIdentity voption) (iface: FrozenType) =
@@ -1627,6 +1670,7 @@ module EmitJs =
             let isEnumerable = capMatches caps.Enumerable iface
             let isEquatable = capMatches caps.Equatable iface
             let isComparable = capMatches caps.Comparable iface
+            let isDisposable = capMatches caps.Disposable iface
 
             let isNonGenericEnumerable =
                 match ifaceHeadKey iface with
@@ -1642,6 +1686,12 @@ module EmitJs =
             elif isComparable then
                 for m in ifaceMembers do
                     protocols.Add(comparisonRegistryKey, m)
+            elif isDisposable then
+                // The disposable interface's `Dispose` impl drives a native
+                // `[Symbol.dispose]()` method (the slot `use`'s `obj[Symbol.dispose]()`
+                // lowering calls); it claims no string name slot.
+                for m in ifaceMembers do
+                    disposers.Add m
             elif isNonGenericEnumerable then
                 ()
             else
@@ -1683,6 +1733,7 @@ module EmitJs =
             Free = List.ofSeq free
             Iterators = List.ofSeq iterators
             Protocols = List.ofSeq protocols
+            Disposers = List.ofSeq disposers
         }
 
     let private collectTypes (caps: RuntimeNames.CapabilityIds) (exportTypes: bool) (tast: Frozen.TastFile) =
@@ -1734,6 +1785,7 @@ module EmitJs =
                                 Attached = parts.Attached
                                 Iterators = parts.Iterators
                                 Protocols = parts.Protocols
+                                Disposers = parts.Disposers
                             }
 
                         for m in parts.Free do
@@ -1777,6 +1829,7 @@ module EmitJs =
                                 Attached = parts.Attached
                                 Iterators = parts.Iterators
                                 Protocols = parts.Protocols
+                                Disposers = parts.Disposers
                             }
 
                         for m in parts.Free do
@@ -1807,6 +1860,7 @@ module EmitJs =
                             Attached = parts.Attached
                             Iterators = parts.Iterators
                             Protocols = parts.Protocols
+                            Disposers = parts.Disposers
                         }
 
                     for m in parts.Free do
@@ -1886,6 +1940,7 @@ module EmitJs =
                             for m in pc.Attached -> emitAttachedMethod ctx m
                             for m in pc.Iterators -> emitIteratorMethod ctx m
                             for (sym, m) in pc.Protocols -> emitProtocolMethod ctx sym m
+                            for m in pc.Disposers -> emitDisposeMethod ctx m
                         ],
                         ctx.ExportTopLevel
                     )
@@ -1906,6 +1961,7 @@ module EmitJs =
                             for m in pu.Attached -> emitAttachedMethod ctx m
                             for m in pu.Iterators -> emitIteratorMethod ctx m
                             for (sym, m) in pu.Protocols -> emitProtocolMethod ctx sym m
+                            for m in pu.Disposers -> emitDisposeMethod ctx m
                         ],
                         ctx.ExportTopLevel
                     )

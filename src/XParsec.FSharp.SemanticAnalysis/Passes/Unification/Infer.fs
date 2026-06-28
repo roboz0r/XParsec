@@ -114,25 +114,21 @@ module UnificationInfer =
         inferredTy
 
     /// Resolve a keyed `Dispose` for a `use` binder of *external* (BCL) type.
-    /// Prefer the type's *own* declared `Dispose`
-    /// — a duck-typed pattern dispose, including a non-`IDisposable` ref struct —
-    /// then fall back to the disposable-capability interface's `Dispose` when the
-    /// type implements it (the common BCL case: `Dispose` is declared on a base, so
-    /// `TryLookupMember` — `DeclaredOnly` — misses it, but `GetInterfaces` surfaces
-    /// the disposable interface transitively). `ValueNone` ⇒ the type exposes no
-    /// `Dispose`. The fallback key is the §5.0-resolved disposable identity
-    /// (`ctx.CapabilityIds.Disposable`), NOT a hardcoded `System.IDisposable` —
-    /// so this `dispose` key crosses Freeze target-neutrally (each backend lowers
-    /// it to its own slot: the CLR `IDisposable::Dispose`, the JS `Symbol.dispose`).
+    /// The PRIMARY qualifier is the disposable-capability *interface*: scan the type's
+    /// (instantiated) interfaces for `caps.Disposable` and mint the interface's
+    /// `Dispose` member key. This is the real-F# rule (a `use` binder must implement
+    /// `System.IDisposable`) and covers the common BCL case where `Dispose` is declared
+    /// on a base — `MemoryStream` inherits `Stream.Dispose`, so the `DeclaredOnly`
+    /// `TryLookupMember` misses it but `GetInterfaces` surfaces the interface
+    /// transitively. The own-`Dispose` fallback survives only for a *non-`IDisposable`*
+    /// ref struct (it can't be boxed to the interface, so its own pattern `Dispose()` is
+    /// called directly). `ValueNone` ⇒ not disposable. The interface key is the
+    /// §5.0-resolved disposable identity (`ctx.CapabilityIds.Disposable`), NOT a
+    /// hardcoded `System.IDisposable` — so this `dispose` key crosses Freeze
+    /// target-neutrally (each backend lowers it to its own slot: the CLR
+    /// `IDisposable::Dispose`, the JS `Symbol.dispose`).
     and private tryExternalDispose (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SymbolKey voption =
-        match ctx.Provider.TryLookupMember(name, "Dispose") with
-        | ValueSome m when not m.IsStatic && not m.IsProperty -> ValueSome m.Key
-        | _ ->
-            // The interface fallback needs a *named* disposable identity to mint the
-            // `Dispose` member key against; an unnamed disposable (`ValueNone`) means
-            // the type exposes no resolvable own `Dispose` and no capability slot to
-            // fall back to ⇒ not disposable (the downstream use-over-non-disposable
-            // handling fires). Bind it once so the verdict and the minted key agree.
+        let viaInterface =
             match ctx.CapabilityIds.Disposable, ctx.Provider.TryLookupType name with
             | ValueSome disp, ValueSome(ExternalTypeShape.Class shape) when
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
@@ -141,42 +137,105 @@ module UnificationInfer =
                 ValueSome(SymbolKey.MemberKey(disp.Key, "Dispose", EqArray.empty, MemberKind.Method))
             | _ -> ValueNone
 
-    /// Resolve the disposal target for one `use` binding. A *project-local*
-    /// binder keeps the duck-typed direct `Dispose()` call (codegen resolves it via
-    /// the local member table), recorded as nothing so Freeze leaves
-    /// `TExpr.Use.dispose = ValueNone`. An *external* binder's keyed `Dispose` is
-    /// stashed in `UseDispose` for Freeze. A binder with no `Dispose` is a
-    /// `use`-over-non-disposable error (C# parity); an unresolved binder type is
-    /// left alone (pre-existing behaviour).
+        match viaInterface with
+        | ValueSome _ -> viaInterface
+        // Fallback for an external non-`IDisposable` ref struct: its own pattern
+        // `Dispose()`, which can't be reached through a boxed interface slot.
+        | ValueNone ->
+            match ctx.Provider.TryLookupMember(name, "Dispose") with
+            | ValueSome m when not m.IsStatic && not m.IsProperty -> ValueSome m.Key
+            | _ -> ValueNone
+
+    /// True iff a project-local nominal type (class / union / record) implements the
+    /// disposable capability interface — its `InterfaceImpls` carry a resolved interface
+    /// whose head key matches `caps.Disposable`. Mirrors
+    /// `InferControlFlow.probeLocalEnumerator`'s for-in finally probe.
+    and private localImplementsDisposable (ctx: PassContext) (host: IInterfaceImplHost) (args: EqArray<SemType>) : bool =
+        match ctx.CapabilityIds.Disposable with
+        | ValueSome disp ->
+            host.InterfaceImpls
+            |> Array.exists (fun impl ->
+                match impl.Resolved with
+                | ValueSome resolved ->
+                    match zonk (instantiateMember (host.TypeParams, args) resolved) with
+                    | TyClass(ifaceKey, _) -> disp.MatchesKey ifaceKey
+                    | _ -> false
+                | ValueNone -> false)
+        | ValueNone -> false
+
+    /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to
+    /// `IDisposable`, so a duck-typed pattern `Dispose()` is disposed by calling its
+    /// own method directly — recorded as a keyed member call so Freeze stamps
+    /// `dispose = ValueSome own-key` (each backend then calls the binder's own method,
+    /// NOT the capability slot). Returns the own-`Dispose` member key when the class is
+    /// byref-like and exposes such a member; `ValueNone` otherwise.
+    and private tryRefStructOwnDispose (ctx: PassContext) (clsKey: SymbolKey) : SymbolKey voption =
+        match TypeRegistry.tryClassByKey ctx.Types clsKey with
+        | ValueSome info when info.IsByRefLike ->
+            let hasDispose =
+                info.Members
+                |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.Kind = ClassMemberKind.Method)
+
+            if hasDispose then
+                ValueSome(SymbolKey.MemberKey(clsKey, "Dispose", EqArray.empty, MemberKind.Method))
+            else
+                ValueNone
+        | _ -> ValueNone
+
+    /// Resolve the disposal target for one `use` binding. The §3b flip makes disposal
+    /// INTERFACE-REQUIRED (real-F# parity): a *project-local* binder qualifies iff it
+    /// implements the `disposable` capability interface — recorded as nothing so Freeze
+    /// leaves `TExpr.Use.dispose = ValueNone` (each backend lowers to its own slot: the
+    /// CLR `IDisposable::Dispose`, the JS `[Symbol.dispose]`). A `[<IsByRefLike>]` ref
+    /// struct that can't implement the interface but exposes a pattern `Dispose` is the
+    /// carve-out — its own method is recorded keyed (`ValueSome`). An *external* binder's
+    /// keyed `Dispose` (interface, or an own-`Dispose` ref-struct fallback) is stashed in
+    /// `UseDispose` for Freeze. A binder that is none of these is a `use`-over-non-
+    /// disposable error; an unresolved binder type is left alone (pre-existing behaviour).
     and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.headPat with
         | Pat.NamedSimple _ ->
             let patKey = CstKeys.ofPat b.headPat
             let binderTy = zonk (TyVar(tvOf ctx patKey))
 
+            let notDisposable (display: string) =
+                ctx.Error(
+                    patKey,
+                    sprintf
+                        "The type '%s' cannot be used with 'use': a 'use' binding requires its type to implement 'disposable' ('System.IDisposable')"
+                        display
+                )
+
+            // A project-local nominal binder (class / union / record). It qualifies for
+            // `use` iff it implements the `disposable` capability interface; else the
+            // ref-struct carve-out; else an error.
+            let resolveLocal (host: IInterfaceImplHost) (headKey: SymbolKey) (simple: string) (args: EqArray<SemType>) =
+                if localImplementsDisposable ctx host args then
+                    ()
+                else
+                    match tryRefStructOwnDispose ctx headKey with
+                    | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
+                    | ValueNone -> notDisposable simple
+
             match resolveStep binderTy with
             | TyClass(clsKey, args) ->
                 let simple = SymbolKeyOps.simpleName clsKey
 
-                match TypeRegistry.tryClass ctx.Types simple with
-                | ValueSome _ ->
-                    match tryClassChainMember ctx simple args "Dispose" with
-                    | ValueSome _ -> ()
-                    | ValueNone ->
-                        ctx.Error(
-                            patKey,
-                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" simple
-                        )
+                match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
+                | ValueSome host -> resolveLocal host clsKey simple args
                 | ValueNone ->
                     let qual = SymbolKeyOps.qualifiedName clsKey
 
                     match tryExternalDispose ctx qual args with
                     | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
-                    | ValueNone ->
-                        ctx.Error(
-                            patKey,
-                            sprintf "The type '%s' has no 'Dispose' member; it cannot be used with 'use'" qual
-                        )
+                    | ValueNone -> notDisposable qual
+            | TyUnion(headKey, args)
+            | TyRecord(headKey, args) ->
+                let simple = SymbolKeyOps.simpleName headKey
+
+                match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
+                | ValueSome host -> resolveLocal host headKey simple args
+                | ValueNone -> ()
             | _ -> ()
         | _ -> ()
 

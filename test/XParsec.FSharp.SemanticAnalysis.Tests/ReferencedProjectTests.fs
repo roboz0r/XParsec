@@ -227,6 +227,78 @@ let tests =
                 | ValueNone -> failtest "no TypeVar for r"
             }
 
+            // The §3b disposal-model flip: a `use` binder must implement `disposable`
+            // (`System.IDisposable`), matching real F#. Resolved against the real
+            // Vesper.Core contract so `caps.Disposable` is non-null (`Vesper.disposable`
+            // ⇒ `System.IDisposable`). NOTE: this contract-only provider does NOT surface
+            // BCL `System.IDisposable` as an interface (no metadata layer), so the
+            // non-ref-struct interface-accepted direction can't be exercised here — it is
+            // covered by the Codegen.Clr / Codegen.Js `UseTests` (full BCL / JS providers).
+            let analyseErrors (provider: IExternalSymbolProvider) (input: string) =
+                let lexed, file = parseFile input
+                let ctx = PassContext(provider, input, lexed)
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                ctx.Diagnostics
+                |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                |> Seq.map (fun d -> d.Message)
+                |> List.ofSeq
+
+            let analyseDiagnostics (provider: IExternalSymbolProvider) (input: string) =
+                analyseErrors provider input
+                |> List.exists (fun m -> m.Contains "implement 'disposable'")
+
+            test "`use` over a type with a `Dispose` method but no `disposable` impl is rejected (interface-required)" {
+                let provider, _ = builtProvider.Value
+
+                let input =
+                    String.concat
+                        "\n"
+                        [
+                            "type Res() ="
+                            "    member this.Dispose () = ()"
+                            "let run () ="
+                            "    use r = Res()"
+                            "    ()"
+                            "run ()"
+                        ]
+
+                Expect.isTrue
+                    (analyseDiagnostics provider input)
+                    "a duck-typed `Dispose` (no `System.IDisposable`) no longer qualifies for `use`"
+            }
+
+            // The ref-struct carve-out: a `[<IsByRefLike>]` type can't be boxed to
+            // `IDisposable`, so a duck-typed pattern `Dispose()` is accepted (C#8
+            // pattern-`using` parity) and disposed by calling its own method directly.
+            // This path is provider-independent (no capability / BCL interface
+            // resolution), so it is the unit-testable "accepted" direction here; the
+            // non-ref-struct `interface System.IDisposable` accepted path needs a
+            // BCL/JS provider and is covered by the Codegen.Clr / Codegen.Js `UseTests`
+            // (both type-check it AND dispose it at runtime).
+            test "`use` over a `[<IsByRefLike>]` ref struct with a pattern `Dispose` is accepted (carve-out)" {
+                let provider, _ = builtProvider.Value
+
+                let input =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Struct; System.Runtime.CompilerServices.IsByRefLike>]"
+                            "type Res ="
+                            "    member this.Dispose () = ()"
+                            "let run () ="
+                            "    use r = Res()"
+                            "    ()"
+                            "run ()"
+                        ]
+
+                Expect.isFalse
+                    (analyseDiagnostics provider input)
+                    "a ref struct exposing a pattern `Dispose` qualifies for `use` (the carve-out)"
+            }
+
             // `buildClosure` closes a root manifest set over `depends-on` and orders it dependencies-first.
             testList
                 "buildClosure"

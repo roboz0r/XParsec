@@ -132,6 +132,14 @@ module EmitBindings =
                 // minted as an `ExternalMemberRef` `callvirt`. The external member
                 // carries a real `void` return, so it pushes nothing: a receiver-only
                 // `callvirt`, no `pop`.
+                //
+                // TODO(Track II): `ValueSome` also carries the project-local `[<IsByRefLike>]`
+                // ref-struct carve-out key (`Infer.tryRefStructOwnDispose`), whose declaring
+                // type is LOCAL — `ExternalMemberRef` would fault on it. No test exercises a
+                // project-local ref-struct `use` today (the carve-out is front-end-tested
+                // only), so this is a latent gap, not an observed regression. The fix: branch
+                // on key locality — a local key routes through the `ValueNone` `MethodCall` /
+                // `CallVia.Self` path above. (JS handles the local `ValueSome` key correctly.)
                 let dispHandle =
                     env.Provider.ExternalMemberRef(
                         key,

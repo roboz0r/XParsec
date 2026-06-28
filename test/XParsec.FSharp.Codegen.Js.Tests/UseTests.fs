@@ -5,23 +5,25 @@ open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // JS-backend `use` lowering. `use x = e in body` lowers to `const x = e; try { body }
-// finally { if (x != null) x.Dispose(); }` — the JS analogue of the IL exception
-// region the CLR backend emits. A *project-local* binder disposes via a direct
-// `x.Dispose()` (the duck-typed path — no `IDisposable` upcast), so the disposable
-// here is a plain user class with a `Dispose` member that records the call by
-// printing. Asserting on captured stdout proves both that `Dispose` ran and that it
-// ran *after* the body. (The external/keyed `Symbol.dispose` path is a later slice;
-// this arm calls the named `Dispose` member directly.)
+// finally { if (x != null) x[Symbol.dispose](); }` — the JS analogue of the IL exception
+// region the CLR backend emits. Under the §3b disposal-model flip, a `use` binder must
+// implement `disposable` (`System.IDisposable`) — matching real F# — so the disposable
+// here implements the interface. Its `Dispose` emits as a NATIVE `[Symbol.dispose]()`
+// method (the JS analogue of the CLR `IDisposable::Dispose` slot), and `use` disposes
+// through `x[Symbol.dispose]()`, NOT a mangled `<Type>__Dispose` free fn. Asserting on
+// captured stdout proves both that disposal ran and that it ran *after* the body.
 
-// A project-local disposable: a class with a `Dispose` member that prints when run.
-let private disposable = "type Res() =\n    member this.Dispose () = printfn \"disposed\""
+// A project-local disposable: a class implementing `System.IDisposable` whose `Dispose`
+// prints when run.
+let private disposable =
+    "type Res() =\n    interface System.IDisposable with\n        member this.Dispose () = printfn \"disposed\""
 
 [<Tests>]
 let useTests =
     testList
         "Codegen.Js Use"
         [
-            test "`use` lowers to a `try`/`finally` that calls `.Dispose()`" {
+            test "`use` lowers to a `try`/`finally` that calls `[Symbol.dispose]()`" {
                 let src =
                     String.concat
                         "\n"
@@ -36,9 +38,13 @@ let useTests =
                 let js = emitJs src
                 Expect.stringContains js "try " "wraps the body in a try"
                 Expect.stringContains js "finally " "disposes in a finally"
-                // A project-local member is a free receiver-first fn, so disposal is
-                // `Res__Dispose(r)`, not an attached `r.Dispose()`.
-                Expect.stringContains js "Dispose(r)" "calls the binder's mangled Dispose free fn"
+                // The disposable's `Dispose` impl emits as a native `[Symbol.dispose]()`
+                // method on the class.
+                Expect.stringContains js "[Symbol.dispose]() {" "emits the disposer as a native [Symbol.dispose] method"
+                // `use` disposes through `binder[Symbol.dispose]()` — the native well-known
+                // symbol slot — not a mangled `<Type>__Dispose` free fn.
+                Expect.stringContains js "r[Symbol.dispose]()" "disposes via the native Symbol.dispose member call"
+                Expect.isFalse (js.Contains "Res__Dispose") "no mangled <Type>__Dispose free fn is emitted"
             }
 
             test "`use` disposes the binder after the body runs" {
@@ -57,7 +63,7 @@ let useTests =
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "body\ndisposed" "body runs, then Dispose() in the finally"
+                    Expect.equal out "body\ndisposed" "body runs, then [Symbol.dispose]() in the finally"
             }
 
             test "`use _ = e` disposes the binder even though the body can't name it" {
@@ -78,17 +84,17 @@ let useTests =
 
                 let js = emitJs src
                 Expect.stringContains js "finally " "the wildcard binder still gets a finally"
-                Expect.stringContains js "Dispose(_use" "the wildcard `_use<tok>` binder is still disposed"
+                Expect.stringContains js "[Symbol.dispose]()" "the wildcard `_use<tok>` binder is still disposed via Symbol.dispose"
 
                 match runJs "js-use-wildcard" src with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "body\ndisposed" "body runs, then Dispose() — the `_` binder is still disposed"
+                    Expect.equal out "body\ndisposed" "body runs, then disposal — the `_` binder is still disposed"
             }
 
             test "the body's result survives the finally and is the `use` expression's value" {
-                // `compute ()` returns the body value (42); `Dispose` still runs in the
+                // `compute ()` returns the body value (42); disposal still runs in the
                 // finally before the value is returned — disposal prints first, then the
                 // caller prints 42. The IIFE arm `return`s the body value from inside the
                 // `try`, so the parked result survives the `finally`.
@@ -107,6 +113,6 @@ let useTests =
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "disposed\n42" "Dispose() runs in the finally; the body's 42 is the result"
+                    Expect.equal out "disposed\n42" "disposal runs in the finally; the body's 42 is the result"
             }
         ]

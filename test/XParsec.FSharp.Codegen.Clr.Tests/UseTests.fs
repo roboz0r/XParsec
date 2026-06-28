@@ -7,14 +7,16 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // B-5 backend tests. `use x = e in body` lowers to `let x = e in try body
 // finally if x <> null then x.Dispose()`: the IL-IR exception region (H5) wraps
-// the body, and the binder is disposed on every exit. A *project-local* binder
-// disposes via a direct `Dispose()` call (the duck-typed path — no `IDisposable`
-// upcast), so the mock here is a plain user class with a `Dispose` member that
-// records the call by printing. Asserting on captured stdout proves both that
-// `Dispose` ran and that it ran *after* the body. The external (BCL) binder path
-// resolves a keyed `Dispose` (the type's own, or `System.IDisposable`'s when
-// implemented) and codegen disposes it through an `ExternalMemberRef` `callvirt`
-// — the `MemoryStream` test below is the gate.
+// the body, and the binder is disposed on every exit. Under the §3b disposal-model
+// flip, a `use` binder must implement `disposable` (`System.IDisposable`) — matching
+// real F# — so the project-local mock here implements the interface; its `Dispose`
+// records the call by printing. The front end records nothing (`dispose = ValueNone`)
+// and codegen disposes through the binder's nominal `Dispose` slot (which resolves the
+// interface impl method). Asserting on captured stdout proves both that `Dispose` ran
+// and that it ran *after* the body. The external (BCL) binder path resolves a keyed
+// `Dispose` (`System.IDisposable`'s, or an own ref-struct `Dispose`) and codegen
+// disposes it through an `ExternalMemberRef` `callvirt` — the `MemoryStream` test
+// below is the gate.
 
 [<Tests>]
 let useTests =
@@ -27,7 +29,8 @@ let useTests =
                         "\n"
                         [
                             "type Res() ="
-                            "    member this.Dispose () = printfn \"disposed\""
+                            "    interface System.IDisposable with"
+                            "        member this.Dispose () = printfn \"disposed\""
                             "let run () ="
                             "    use r = Res()"
                             "    printfn \"body\""
@@ -57,7 +60,8 @@ let useTests =
                         "\n"
                         [
                             "type Res() ="
-                            "    member this.Dispose () = printfn \"disposed\""
+                            "    interface System.IDisposable with"
+                            "        member this.Dispose () = printfn \"disposed\""
                             "let run () ="
                             "    use _ = Res()"
                             "    printfn \"body\""
@@ -84,7 +88,8 @@ let useTests =
                         "\n"
                         [
                             "type Res() ="
-                            "    member this.Dispose () = printfn \"disposed\""
+                            "    interface System.IDisposable with"
+                            "        member this.Dispose () = printfn \"disposed\""
                             "let compute () ="
                             "    use r = Res()"
                             "    42"
