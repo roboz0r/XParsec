@@ -7,7 +7,7 @@
 > `platform-independence-plan` references in any code comments — once the remaining
 > work below lands.
 
-## STATUS (read this first — current as of 2026-06-27)
+## STATUS (read this first — current as of 2026-06-28)
 
 - **Tier 1 — LANDED.** The six CLR leaks isolated into `RuntimeNames.fs` recognizers (§2).
 - **Tier 2 — LANDED.** `CapabilityIds` provider-resolved; the four CLR-literal capability
@@ -29,19 +29,24 @@
 
 ### REMAINING WORK (a fresh session starts here)
 
-1. **Tier 3 — tuple-arity (§7).** Move `Validation.fs` `MaxTupleArity = 7` (a CLR-ABI limit)
-   into the provider / `PlatformTypes` representability model, gated on the compiling target
-   (CLR = 7, JS = unbounded). Independent of §14; self-contained. **The clearest next task.**
-2. **§5.3b — structural eq/comp reframe (§5.3 option b).** Deferred follow-up to the FS0378
-   custom-eq/comp conformance check; decide alongside the (now-unblocked) JS custom-eq/comp
-   dispatch. Lower priority.
-3. **Deferred reconsiderations (small, after the above):**
-   - `capabilities.js.fs` `disposable` keeps the `System.IDisposable` match-key spelling;
-     making the contract literally read `Symbol.dispose` needs the abstract-`disposable` /
-     `extern with` member-surface route (§12.3). User asked to revisit post-landing (§14.4).
-   - **Latent CLR gap:** a project-local `[<IsByRefLike>]` ref-struct `use` carve-out records
-     a LOCAL dispose key the CLR `ValueSome` `ExternalMemberRef` path would fault on —
-     untriggered; TODO at `EmitBindings.fs` (local-vs-external branch).
+1. **Tier 3 — tuple-arity (§7). — DONE (`d4fb3df0`).** The cap was *removed*, not target-gated:
+   language semantics now allow arbitrarily wide tuples on every target; the CLR-ABI limit became
+   pure backend representation knowledge. The CLR backend packs arity-8+ tuples into nested
+   `System.ValueTuple`8<…,TRest>` recursively (index 7 is Rest, bottoming out in `ValueTuple`1`);
+   `Validation.fs`'s `MaxTupleArity` + `checkTuplePat`/`tupleArityError` scaffolding deleted; JS
+   (tuples are arrays) unchanged. See §7.
+2. **Implementable capability aliases (eq/comp + disposal) — REFINED DESIGN in §15.** Supersedes the
+   old "§5.3b structural reframe" and "make `disposable` read `Symbol.dispose`" deferrals: both
+   collapse into one mechanism — make `disposable`/`equatable`/`comparable` **implementable abstract
+   capabilities** (the user writes `interface disposable` / `interface equatable<Self>`, BCL-free),
+   each carrying a per-target protocol repr (CLR interface / JS symbol) *and* a member surface, with
+   BCL spellings still accepted via per-target compat abbreviations. A genuine multi-slice sprint;
+   §15 is the investigated, decision-grounded design (no implementation yet).
+3. **Notes:**
+   - The old "latent CLR gap" (ref-struct `use` LOCAL dispose key faulting the `ExternalMemberRef`
+     path) is **already closed** — `EmitBindings.fs:122-145` has the `isLocalDisposeKey` branch
+     (`ValueSome key when isLocalDisposeKey key -> emitLocalDispose key`). Likely landed in the
+     `968ebeb0` cleanup.
    - `records-architecture.md` is current; other durable docs may have stale spots.
 
 ---
@@ -419,11 +424,19 @@ type publishes the member/interface surface). They land together.
 `Passes/Validation.fs` `MaxTupleArity = 7` + `checkTuplePat`/`tupleArityError` reject
 8+ tuples as a language error. This is a CLR ABI limit, not a language rule.
 
-Plan: fold it into the `PlatformTypes.fs` representability model — let the **compiling
-target's provider** declare its max tuple arity (CLR = 7, JS = unbounded) and emit the
-diagnostic from there (or from a provider capability flag), gated on target. Until
-then the current message is honest but wrongly rejects valid JS programs. Independent
-of Tier 2; can be done any time.
+**DONE (`d4fb3df0`) — and the inversion was sharper than the original plan.** The plan
+considered target-gating the diagnostic (CLR = 7, JS = unbounded). The landed design
+**removes the cap entirely**: tuple semantics are unbounded on *every* target, and the
+CLR ABI limit becomes pure backend representation knowledge — the CLR emitter packs
+arity-8+ tuples into nested `System.ValueTuple`8<t0…t6, TRest>` recursively (the standard
+.NET scheme, index 7 is the `Rest` slot, bottoming out in a `ValueTuple`1` tail). No
+`PlatformTypes` diagnostic, no provider arity flag, no target gate. Concretely: deleted
+`MaxTupleArity`/`tupleArityError`/`checkTuplePat` from `Validation.fs`; made
+`ValueTupleHandles` carry a `Rest: ValueTupleRest voption` link and taught `encodeType`,
+`ValueTupleRefs`, `buildTuple`, `destructureTuple`/`emitTupleItemLoad` and the call-arg
+flatten to chase `Rest` for indices ≥ 7; JS unchanged (tuples are arrays). Tests cover
+arity 8 and arity 15 (double `TRest` nesting) construct/destructure round-trips on CLR
+plus JS regression.
 
 ---
 
@@ -1250,3 +1263,141 @@ deferred. Also `List`'s `.fsi` `interface IEnumerable` is **vestigial today**:
 **§14.6 COMPLETE — the capability-interface mechanism is real for both unions and records on
 both targets.** (`records-architecture.md` has stale spots re: record members/interfaces — a
 durable-doc follow-up, not blocking.)
+
+---
+
+## 15. Refined design — implementable capability aliases (user-directed 2026-06-28)
+
+**Status: investigated, decision-grounded design. NOT YET IMPLEMENTED.** This section supersedes
+the old REMAINING-WORK deferrals "§5.3b structural eq/comp reframe" and "make `disposable` read
+`Symbol.dispose`." Both collapse into ONE mechanism. Every premise below was verified against the
+code (file:line anchors inline); the two `BLOCKED`/`net-new` findings are called out as such.
+
+### 15.1 Thesis
+
+The four language capabilities (`seq`/iteration, `disposable`, `equatable`, `comparable`) should be
+**implementable abstract capabilities authored in BCL-free Vesper source**: a type writes
+`interface disposable with member this.Dispose() = …` / `interface equatable<Self> with member
+this.Equals(o) = …` — never naming a BCL type. Each capability is **one canonical type** carrying
+TWO faces:
+
+- a **per-target protocol repr** — the *anchor* the backend lowers to, NOT a uniform nominal type:
+  CLR → the BCL interface (`System.IDisposable`); JS → the well-known / registry **symbol**
+  (`Symbol.dispose`, `Symbol.for("vesper.equality")`), a method key, not a type. (Consistent with
+  §14.5: JS capability dispatch is always `obj[<symbol>]()`.)
+- a **member surface** — abstract in the neutral `.fsi`; supplied concretely per target (CLR from
+  BCL metadata; JS via an inline-IL augmentation `member inline this.Dispose() = (# "$0[Symbol.dispose]()" : unit #)`,
+  the existing `(# … #)` expression mechanism, cf. `ops-platform.fs`).
+
+BCL spellings stay **accepted** on both targets (real F# / interop parity): CLR has the real BCL
+type (metadata-resolved, reconciled to the canonical via the reverse-canon); JS gets a **per-target
+compat abbreviation** `namespace System` `type IDisposable = disposable`. Both decisions are the
+user's (2026-06-28): **symmetric — the BCL-free spelling works on BOTH targets**, and **BCL-compat
+is kept**.
+
+### 15.2 The canonical shape (user's sketch, `disposable`; eq/comp generalize)
+
+```fsharp
+// capabilities.fsi  (neutral contract — canonical, BCL-free)
+type disposable = extern with
+    abstract member Dispose : unit -> unit
+
+// capabilities.fs   (CLR repr = the BCL interface anchor; metadata supplies Dispose)
+type disposable = (# "System.IDisposable" #)
+//  Implementers may write `interface disposable` OR `interface System.IDisposable`; the
+//  symbol provider treats them as equivalent (reverse-canon: System.IDisposable → disposable).
+
+// capabilities.js.fs (JS repr = the protocol SYMBOL, not a type; member supplied by inline-IL)
+type disposable = (# "Symbol.dispose" #)
+type disposable with
+    member inline this.Dispose() = (# "$0[\"Symbol.dispose\"]()" this : unit #)
+namespace System
+type IDisposable = disposable   // JS-only compat abbreviation (no real System.* on JS)
+```
+
+`equatable<'T>` / `comparable<'T>` follow identically — `.fsi` `abstract member Equals : 'T -> bool`
+/ `CompareTo : 'T -> int`; CLR repr `System.IEquatable`1` / `System.IComparable`1`; JS repr the
+§14.5 registry symbols `Symbol.for("vesper.equality")` / `"vesper.comparison"`; JS compat
+abbreviations `System.IEquatable<'T> = equatable<'T>` / `System.IComparable<'T> = comparable<'T>`.
+Iteration (`seq`) is the existing precedent (`seq<'T> = IEnumerable<'T>` abbrev, JS → `Symbol.iterator`);
+it can be retrofit to this uniform shape or left as-is.
+
+### 15.3 The crux tension — dual-face — and its resolution
+
+A capability must be **simultaneously** a `Class{IsInterface=true}` with a member surface (so
+`interface disposable` resolves past the interface-ness gate and conforms) AND carry a per-target
+`(# … #)` repr (for reconciliation + backend emission). The extractor makes these **mutually
+exclusive today** — `VesperLib.fs:1435-1460` is `intrinsic XOR bodied-class` and *hard-errors* on a
+capability surface over an intrinsic ("a capability surface … on an intrinsic primitive is not yet
+supported"). **Resolution:** publish BOTH faces from their natural file — the **Class member surface
+from the `.fsi` `extern with`** (via the already-landed `extractBodiedClassLike`, commit 3a) and the
+**repr from the `.fs`/`.js.fs`**. They legitimately come from different files, so the two provider
+faces coexist keyed by the same compiled name; the `if isIntrinsic` arm changes from "fail loud" to
+"ALSO run `extractBodiedClassLike`." **This is the gating first slice — everything else depends on it.**
+
+### 15.4 Premise-by-premise feasibility (verified)
+
+1. **Abbreviation mechanics — CONFIRMED; JS-only delivery BLOCKED.** `.fsi` abbreviations resolve
+   (`VesperLib.fs:1343-1347`, `:905`; `seq` is the live example) and `System` is unfiltered. BUT a
+   *JS-only* abbreviation has no seam: plain abbreviations are NOT harvested from `.js.fs`
+   (`harvestIntrinsicReprsInto`, `VesperLib.fs:1726-1752`, matches only `(# … #)`), and there is NO
+   per-target `.fsi` (`ReferencedProject.fs:179-181`, `:520-530` — only `.fs`/inline/runtime override
+   per target). ⇒ **net-new build machinery**: either extend the `.js.fs` harvest to surface plain
+   abbreviations (+ the inline-augmentation member), or add a `files-js` manifest override for a
+   JS-only contract file.
+2. **Abbrev at interface-head — CONFIRMED, conditional.** `tryResolveExternalType` expands an
+   `Abbrev` before the interface-ness check (`Translate.fs:509-510`; gate at `Unification.fs:843-854`),
+   so `interface System.IDisposable` / `interface disposable` both work — **iff** the RHS resolves to
+   a `Class{IsInterface=true}` (i.e. iff §15.3 lands; an `Intrinsic` RHS expands to `TyConst` and fails
+   "not an interface").
+3. **Retiring `JsNativeSymbols` fabrication — CONFIRMED feasible.** It fabricates synthetic
+   `System.IDisposable` / `IEquatable`1` / `IComparable`1` / `IEnumerable`1` / `IEnumerator`1`
+   (`JsNativeSymbols.fs:262-285`, `mkErasedGenericIface` `:111-146`); consumers are the interface-ness
+   gate, `validateCustomEqCompImpls`, `partitionClassMembers`, and `resolveCapabilities`. Replacing
+   them with source-level compat abbreviations works once the capabilities are real `Class` shapes,
+   AND `resolveCapabilities` (`ExternalSymbols.fs:710-728`) is rewired from `resolveIntrinsic` (reads
+   the `Intrinsic.platform` fqn) to a Class/abbrev-head reader — exactly how `Enumerable` already
+   resolves off the `seq` abbrev. (`Error`/`exn` is unrelated and stays.)
+4. **CLR `interface disposable` emission — BLOCKED, net-new.** `ClrProvider.InterfaceHandleOf`
+   (`ClrProvider.fs:127-140`) mints the `InterfaceImpl` row directly off the resolved interface
+   `SymbolKey` with NO repr indirection — a `Vesper.disposable` key would emit a `TypeRef` to a
+   nonexistent CLR type. Making the canonical alias emit a real `System.IDisposable` row needs a
+   **capability-key → BCL-repr mapping** in that path (resolve `Vesper.disposable`'s
+   `(# "System.IDisposable" #)` repr to the BCL `TypeRef` before emitting the row). This is the
+   genuinely new backend work the symmetric decision requires.
+
+### 15.5 Slicing (each committable, gated). Order is dependency-forced.
+
+1. **Dual-face extractor (§15.3).** `VesperLib.fs:1435-1460`: an `(# … #)`-repr type that also carries
+   an `extern with` body publishes BOTH the `Intrinsic` repr face AND the `Class` member surface.
+   *Gate:* a contract-extraction test — `disposable` resolves to a `Class{IsInterface=true}` with
+   `Dispose` in `Members` AND the reverse-canon still carries `System.IDisposable → disposable`.
+2. **`.fsi` capability member surfaces.** Add `extern with abstract member …` to
+   `disposable`/`equatable`/`comparable` in `capabilities.fsi`. *Gate:* slice-1 test green for all three.
+3. **`resolveCapabilities` rewire (Premise 3).** `caps.{Disposable,Equatable,Comparable}` read off the
+   canonical Class head (mirror `Enumerable`'s `resolveAbbrevHead`). *Gate:* `SemanticAnalysis.Tests` +
+   `ReferencedProjectTests` green; `caps.*` still match user impls.
+4. **CLR capability→repr emission (Premise 4, net-new).** `InterfaceHandleOf` maps a capability key to
+   its BCL-repr `TypeRef`. *Gate:* `Codegen.Clr.Tests` — a class/union/record writing `interface
+   disposable`/`equatable<Self>` emits + dispatches the real BCL interface at runtime.
+5. **JS canonical authoring.** With slices 1–3, `interface disposable`/`equatable<Self>` resolves on
+   JS and routes through `partitionClassMembers` to `[Symbol.dispose]`/`[Symbol.for(...)]` (identity-keyed,
+   unchanged). The JS reprs flip to the protocol symbols; the inline-augmentation members supply the call
+   lowering. *Gate:* `Codegen.Js.Tests` — canonical-spelled disposable/equatable run under Node.
+6. **JS BCL-compat + retire `JsNativeSymbols` fabrication (Premise 1, net-new machinery).** Deliver the
+   JS-only `System.* = capability` compat abbreviations (`.js.fs` harvest extension or `files-js`
+   override) and remove the synthetic shapes. *Gate:* existing JS BCL-spelled fixtures (`ClassEmitTests`)
+   still compile via the abbreviation, with no `JsNativeSymbols` fabrication.
+
+**Dependency edges:** 1→{2,3,4,5,6}; 3→4; {1,2,3}→5; 5→6. Slices 4 and 6 are the net-new pieces; 1 is
+the gate. Equatable/comparable ride the same slices as disposable (no separate sprint).
+
+### 15.6 What this retires / subsumes
+
+- **§5.3b (structural bare-member reframe) is DROPPED** — re-sourcing the eq/comp dispatch slot from a
+  bare member in both backends is unnecessary; making the alias implementable keeps the existing
+  interface-impl dispatch (`EmitJsTypes.partitionClassMembers` is identity-keyed on `caps.*`).
+- The `capabilities.js.fs` "keep `System.IDisposable` byte-spelling as the match key" hack
+  (§14.4 deferred reconsideration) is retired — the JS repr becomes the literal `Symbol.dispose`.
+- The `JsNativeSymbols` synthetic-interface fabrication is retired in favor of source-level compat
+  abbreviations (slice 6).
