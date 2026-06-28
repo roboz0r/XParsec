@@ -104,11 +104,74 @@ let private mapSignature (checker: Ts.TypeChecker) (sg: Ts.Signature) : Schema.S
         Returns = mapType checker (sg.getReturnType ())
     }
 
+/// Guard against asymmetric get/set accessors (TS 4.3 `get x(): string` / `set
+/// x(v: number)`): a pure TS-ism with no analog on either backend (CLR properties
+/// are type-symmetric, JS is untyped), so we `failwith` rather than pay for a
+/// second schema type field speculatively. Only an accessor carrying BOTH a getter
+/// and a setter can diverge — a get-only or set-only accessor is trivially
+/// symmetric. We reach the two halves through the symbol's `declarations` (an
+/// accessor symbol holds both the `GetAccessorDeclaration` and the
+/// `SetAccessorDeclaration`), classified by the runtime `isGetAccessor` /
+/// `isSetAccessor` predicates (never raw `SyntaxKind` numerics, per producer
+/// discipline). The getter's RETURN type and the setter's lone PARAMETER type are
+/// each resolved through `getSignatureFromDeclaration` and compared at the mapped
+/// `TypeRef` level so the comparison sees what the manifest would actually carry.
+let private checkAccessorSymmetry (checker: Ts.TypeChecker) (prop: Ts.Symbol) : unit =
+    let flags = prop.getFlags ()
+
+    if
+        hasFlag flags Ts.SymbolFlags.GetAccessor
+        && hasFlag flags Ts.SymbolFlags.SetAccessor
+    then
+        let decls =
+            match prop.declarations with
+            | Some ds -> List.ofSeq ds
+            | None -> []
+
+        let getter = decls |> List.tryFind (fun d -> ts.isGetAccessor (unbox d))
+        let setter = decls |> List.tryFind (fun d -> ts.isSetAccessor (unbox d))
+
+        match getter, setter with
+        | Some g, Some s ->
+            let getReturn =
+                match checker.getSignatureFromDeclaration (unbox g) with
+                | Some sg -> mapType checker (sg.getReturnType ())
+                | None -> failwithf "accessor '%s' getter has no resolvable signature" (prop.getName ())
+
+            let setParam =
+                match checker.getSignatureFromDeclaration (unbox s) with
+                | Some sg ->
+                    let ps = sg.getParameters ()
+
+                    if ps.Count <> 1 then
+                        failwithf
+                            "accessor '%s' setter must take exactly one parameter (got %d)"
+                            (prop.getName ())
+                            ps.Count
+
+                    mapType checker (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
+                | None -> failwithf "accessor '%s' setter has no resolvable signature" (prop.getName ())
+
+            if getReturn <> setParam then
+                failwithf
+                    "accessor '%s' has asymmetric get/set types (get returns %A, set accepts %A); a TS-only construct with no backend analog — extract a sharper schema before admitting it"
+                    (prop.getName ())
+                    getReturn
+                    setParam
+        | _ -> ()
+
 /// `isStatic` is supplied by the caller, not read off the symbol: instance members
 /// are walked off the class's DECLARED (instance) type and the static side off the
 /// constructor-function type, so the side is known by WHICH walk produced `prop`
 /// rather than re-derived per symbol (item 3 — the flag used to be hardcoded false).
+///
+/// A get/set ACCESSOR (item 10) carries no `Method` flag and its type-at-location is
+/// the resolved property type (not a call signature), so it falls through to the
+/// `Property` branch alongside data properties — exactly the interim mapping (both
+/// lower to `x.foo` on JS). The only extra work is the asymmetric-type guard.
 let private mapMember (checker: Ts.TypeChecker) (isStatic: bool) (prop: Ts.Symbol) : Schema.Member =
+    checkAccessorSymmetry checker prop
+
     let t = checker.getTypeOfSymbolAtLocation (prop, declOf prop)
     let callSigs = t.getCallSignatures ()
 

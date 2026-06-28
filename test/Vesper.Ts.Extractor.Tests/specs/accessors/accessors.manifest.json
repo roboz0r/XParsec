@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 0,
+  "package": "accessors",
+  "version": null,
+  "exports": [
+    {
+      "export": "class",
+      "name": "Widget",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "label",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "bool",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "name",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "size",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "float",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": ".ctor",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "Widget",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": [],
+      "import": "named"
+    }
+  ]
+}
