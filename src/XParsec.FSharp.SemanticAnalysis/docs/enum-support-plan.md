@@ -130,6 +130,18 @@ Sequenced; each is a reviewable increment.
    `IntWidth` for numeric; `string` / `obj` for the others) + the case table, so
    consumers (codegen, pattern match, the provider) read one source of truth.
    Respect the `SemType`→`FrozenType` split (case table is immutable, frozen).
+   **Resolved fork (the type *reference*):** an enum is modeled as a **nominal**
+   `SemType.TyEnum key` / `FrozenType.FTEnum key` arm — an additive DU case
+   carrying just the `SymbolKey` (enums aren't generic, so no args), exactly
+   parallel to `TyUnion`/`FTUnion`. The case table is looked up off the frozen
+   `TDecl` node by key (it already rides the node, like union cases — no new
+   carrier). This keeps `E` a distinct nominal type (NOT structurally `int`), which
+   is what the semantic model and faithful `System.Enum` emission require. The
+   per-variant *representation* (numeric→`System.Enum`, string→struct-wrapper,
+   mixed→`obj`-box, JS→object map) stays a backend decision read off the case
+   table + `TEnumCases.classify` — the front end bakes no repr. (Rejected: erasing
+   a numeric enum's reference to `FTConst "int"`; it makes `E == int` and blocks a
+   genuine `System.Enum`.)
    **This is where width lives** — from the authored literal suffix for `.fs`
    enums, or the default (`I32`) when lifting a width-less TS-manifest numeric enum.
    Enforce the CLR uniform-width invariant here: a numeric enum's cases must all

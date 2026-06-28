@@ -48,6 +48,8 @@ module Validation =
         | TyUnknown _ -> false
         // Post-freeze leaf; this check runs pre-freeze and never sees it.
         | TyTypar _ -> false
+        // A nominal enum holds no free TyVar — a leaf.
+        | TyEnum _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,

@@ -361,6 +361,16 @@ type FrozenType =
     | FTRecord of key: SymbolKey * args: EqArray<FrozenType>
     | FTUnion of key: SymbolKey * args: EqArray<FrozenType>
     | FTClass of key: SymbolKey * args: EqArray<FrozenType>
+    /// A nominal enum reference — the frozen mirror of `SemType.TyEnum`. Enums
+    /// are never generic, so there is deliberately NO `args` field (illegal
+    /// states unrepresentable): an enum is a niladic nominal identified solely by
+    /// its `SymbolKey`. The ordered case→literal table rides the frozen `TDecl`
+    /// node (looked up by `key`, like union cases), not this reference. `E` stays
+    /// a distinct nominal type — NOT structurally its underlying `int` — so a
+    /// faithful `System.Enum` (CLR) / object-map (JS) can be emitted; the
+    /// per-variant repr is a backend decision read off the case table +
+    /// `TEnumCases.classify`, never baked into this identity.
+    | FTEnum of key: SymbolKey
     /// Frozen anonymous (structural) union — mirror of `SemType.TyOr`. Members
     /// are in canonical form (sorted/deduped/flattened by `mkUnion`), so two
     /// `FTOr`s are structurally equal iff their member sequences match. The
@@ -410,6 +420,18 @@ type SemType =
     /// the class registry. Two `TyClass` unify iff their `key`s are equal AND
     /// their args unify pairwise.
     | TyClass of key: SymbolKey * args: EqArray<SemType>
+    /// A nominal enum reference (`type E = | C1 = v1 | …`). Enums are never
+    /// generic, so — unlike `TyUnion` / `TyRecord` / `TyClass` — there is NO
+    /// `args` field (illegal states unrepresentable): an enum is a niladic
+    /// nominal identified solely by its `SymbolKey`. The ordered case→literal
+    /// table is reached off the frozen `TDecl` node by `key` (it already rides
+    /// the node, like union cases — no new carrier). `E` is a DISTINCT nominal
+    /// type, NOT structurally its underlying `int`, which is what a faithful
+    /// `System.Enum` emission and the closed-set semantic model require; the
+    /// per-variant representation (numeric→`System.Enum`, string→struct-wrapper,
+    /// mixed→`obj`-box, JS→object map) stays a backend decision read off the case
+    /// table + `TEnumCases.classify`. Two `TyEnum` unify iff their `key`s match.
+    | TyEnum of key: SymbolKey
     /// An anonymous (structural) union — TypeScript-style `X | Y | null`. Distinct
     /// from the nominal `TyUnion` (a declared `type Foo = A | B`): it has no key,
     /// no nominal identity, and its members are an order-insensitive, deduped,
@@ -476,6 +498,7 @@ type SemType =
             | TyOr _ -> 7
             | TyUnknown _ -> 8
             | TyTypar _ -> 9
+            | TyEnum _ -> 10
 
         let axisTag =
             function
@@ -527,6 +550,7 @@ type SemType =
         | TyClass(k1, a1), TyClass(k2, a2) ->
             let r = compare (nominalKey k1) (nominalKey k2)
             if r <> 0 then r else cmpMany a1 a2
+        | TyEnum k1, TyEnum k2 -> compare (nominalKey k1) (nominalKey k2)
         | TyOr m1, TyOr m2 -> cmpMany m1.Members m2.Members
         | TyUnknown n1, TyUnknown n2 -> compare n1 n2
         | TyTypar(ax1, i1), TyTypar(ax2, i2) ->
@@ -804,6 +828,8 @@ module FrozenTypeBridge =
         | TyRecord(key, args) -> FTRecord(key, EqArray.map toFrozen args)
         | TyUnion(key, args) -> FTUnion(key, EqArray.map toFrozen args)
         | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
+        // Enums are niladic nominals (no args, no typars) — a pure key carry-over.
+        | TyEnum key -> FTEnum key
         | TyOr members -> FTOr(EqArray.map toFrozen members.Members)
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
@@ -827,6 +853,8 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
         | FTClass(key, args) -> TyClass(key, EqArray.map go args)
+        // Enums carry no args/typars — the key passes straight through both ways.
+        | FTEnum key -> TyEnum key
         // Build through `MkUnion`, not a raw `TyOr`: realising members can collapse
         // the set (or it must re-sort), and `MkUnion` is the sole producer.
         | FTOr members -> SemType.MkUnion(seq { for m in members -> go m })
@@ -921,6 +949,8 @@ module FrozenTypeBridge =
         | FTRecord(_, args)
         | FTUnion(_, args)
         | FTClass(_, args) -> maxOf args
+        // A niladic nominal references no declaring typar.
+        | FTEnum _ -> -1
         | FTOr members -> maxOf members
         | FTFun(arg, result) -> max (maxDeclaringIndex arg) (maxDeclaringIndex result)
         | FTTuple items -> maxOf items
@@ -954,6 +984,8 @@ module FrozenTypeBridge =
         | FTOr members -> FTOr(EqArray.map go members)
         | FTTypar(TyparAxis.Declaring, i) when i >= declaringArity -> FTTypar(TyparAxis.Method, i - declaringArity)
         | FTTypar _
+        // A niladic nominal carries no typar axis to reaxis.
+        | FTEnum _
         | FTUnknown _ -> template
 
     /// `true` when the type is fully ground: no open typar on either axis and no
@@ -967,6 +999,8 @@ module FrozenTypeBridge =
         | FTRecord(_, args)
         | FTUnion(_, args)
         | FTClass(_, args) -> args |> EqArray.forall ftIsGround
+        // A niladic nominal is unconditionally ground (no args, no typars).
+        | FTEnum _ -> true
         | FTOr members -> members |> EqArray.forall ftIsGround
         | FTFun(a, b) -> ftIsGround a && ftIsGround b
         | FTTuple items -> items |> EqArray.forall ftIsGround
@@ -993,6 +1027,8 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
         | FTClass(key, args) -> FTClass(key, EqArray.map go args)
+        // A niladic nominal references no declaring typar — pass it through.
+        | FTEnum _ -> template
         | FTOr members -> FTOr(EqArray.map go members)
         | FTTypar(TyparAxis.Declaring, i) ->
             if i < declaringArgs.Length then

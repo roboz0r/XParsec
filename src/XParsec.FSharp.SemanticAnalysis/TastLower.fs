@@ -198,6 +198,7 @@ module TastLower =
                 | FTUnion(_, xs)
                 | FTClass(_, xs)
                 | FTOr xs -> EqArray.iter mention xs
+                | FTEnum _
                 | FTUnknown _
                 | FTTypar(TyparAxis.Declaring, _) -> ()
 

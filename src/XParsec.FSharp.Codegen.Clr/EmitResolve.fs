@@ -109,7 +109,8 @@ module EmitResolve =
         | FTConst(n, _) -> SymbolKeyOps.bareName n
         | FTClass(k, _)
         | FTUnion(k, _)
-        | FTRecord(k, _) -> SymbolKeyOps.qualifiedName k
+        | FTRecord(k, _)
+        | FTEnum k -> SymbolKeyOps.qualifiedName k
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
         | FTOr _ -> "obj"

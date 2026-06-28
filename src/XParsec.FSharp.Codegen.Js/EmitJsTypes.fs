@@ -412,6 +412,12 @@ module EmitJsTypes =
                             Fields = fieldNames
                             Members = parts
                         }
+                // step 6: JS enum emission (the frozen object map `{ C1: v1, … }`)
+                // is a later step; like the CLR `Layout` skeleton, the partition
+                // collects nothing for it here — the enum `TDecl` is dropped until
+                // step 6 wires the object-map emission. (An `Interface` is likewise
+                // handled elsewhere, hence the shared no-op tail.)
+                | TTypeKindG.Enum _ -> ()
                 | _ -> ()
             | _ -> ()
 

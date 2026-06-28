@@ -195,6 +195,9 @@ module Regions =
         // it allocates is unknown — treat as non-allocating, matching the
         // pre-freeze `TyVar` view this pass used to see.
         | TyTypar _ -> false
+        // An enum is a value type (numeric → `System.Enum`; string / mixed →
+        // a `[<Struct>]` wrapper) — it does not heap-allocate.
+        | TyEnum _ -> false
 
     let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
 

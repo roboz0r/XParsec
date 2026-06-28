@@ -59,6 +59,8 @@ module Freeze =
             | TyRecord(k, args) -> FTRecord(k, EqArray.map go args)
             | TyUnion(k, args) -> FTUnion(k, EqArray.map go args)
             | TyClass(k, args) -> FTClass(k, EqArray.map go args)
+            // Enum: a niladic nominal — pure key carry-over (no args to freeze).
+            | TyEnum k -> FTEnum k
             | TyOr members -> FTOr(EqArray.map go members.Members)
             | TyTypar(axis, i) -> FTTypar(axis, i)
             | TyUnknown n -> FTUnknown n

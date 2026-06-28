@@ -82,6 +82,8 @@ module ConformanceTypars =
         | FTUnion(k, args) -> FTUnion(k, EqArray.map normAxis args)
         | FTClass(k, args) -> FTClass(k, EqArray.map normAxis args)
         | FTOr members -> FTOr(EqArray.map normAxis members)
+        // A niladic nominal carries no typar axis to normalize.
+        | FTEnum _
         | FTUnknown _ -> t
 
     /// True iff the `.fsi`-declared and `.fs`-inferred schemes are α-equivalent WITH

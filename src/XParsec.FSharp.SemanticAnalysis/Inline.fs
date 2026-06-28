@@ -65,6 +65,8 @@ module Inline =
         // Through `mkUnion`: substituting a typar member can collapse / reorder the
         // set, so re-canonicalise rather than `EqArray.map` (see `Engine.zonk`).
         | TyOr members -> members.Map(substType subst)
+        // A nominal enum carries no typar to substitute — return self.
+        | TyEnum _ -> t
         | TyUnknown _ -> t
         // TODO(frozen-type): substitute by `(axis,index)` once inline
         // bindings carry `TyTypar`. Passthrough until then.

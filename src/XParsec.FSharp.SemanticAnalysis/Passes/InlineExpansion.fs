@@ -154,6 +154,8 @@ module InlineExpansion =
         | TyOr members -> EqArray.forall isGroundType members.Members
         | TyUnknown _ -> false
         | TyTypar _ -> false
+        // A nominal enum is niladic (no args, no typars) — unconditionally ground.
+        | TyEnum _ -> true
 
     /// Whether a derived inline type argument is concrete enough to splice a saturated
     /// builtin operator. A ground type qualifies; so does a *nominal-headed* type

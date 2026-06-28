@@ -168,6 +168,8 @@ module Elaborate =
             | TyUnknown _ -> t
             // Already-frozen leaf (task #2 will make this remap produce it).
             | TyTypar _ -> t
+            // A nominal enum carries no typar to remap — return self.
+            | TyEnum _ -> t
 
         go (Unification.zonk t)
 
@@ -1246,6 +1248,24 @@ module Elaborate =
                     name
             )
         | _ -> ()
+
+        // CLR uniform-width invariant: a `System.Enum` has exactly one underlying
+        // integral type, so explicitly-suffixed cases of differing width
+        // (`| A = 1uy | B = 2L`) are a hard error. Unsuffixed `Int` cases are
+        // width-flexible (they adopt the single explicit width present) and never
+        // conflict; string / mixed enums carry no integral width. Reported at the
+        // offending case's token, via the same `ctx.Error` channel.
+        match TEnumCases.firstWidthConflict tcases with
+        | ValueSome(tok, w0, w1) ->
+            ctx.Error(
+                NodeKey.ofToken tok NodeKind.DeclType,
+                sprintf
+                    "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
+                    name
+                    w0
+                    w1
+            )
+        | ValueNone -> ()
 
         Some(
             mkTypeDecl

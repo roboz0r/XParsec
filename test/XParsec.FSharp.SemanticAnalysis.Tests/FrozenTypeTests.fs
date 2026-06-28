@@ -22,6 +22,8 @@ let private sampleFrozenTypes: FrozenType list =
     let kRec = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
     let kUnion = SymbolKeyOps.qualifiedTypeKey "Test.Option" 1
     let kClass = SymbolKeyOps.qualifiedTypeKey "Test.Widget" 2
+    // An enum is niladic (arity 0) — a leaf nominal carrying only its key.
+    let kEnum = SymbolKeyOps.qualifiedTypeKey "Test.Colour" 0
 
     // Leaves: every nullary / typar / unknown form.
     let leaves =
@@ -33,6 +35,8 @@ let private sampleFrozenTypes: FrozenType list =
             FTTypar(TyparAxis.Method, 0)
             FTTypar(TyparAxis.Method, 2)
             FTUnknown "Unresolved.Head"
+            // Niladic nominal enum — a key-only leaf, no args.
+            FTEnum kEnum
         ]
 
     // One level of every branching constructor over a couple of leaves, then a
@@ -95,7 +99,7 @@ let tests =
 
             test "every post-freeze SemType case is covered by the sample" {
                 // Guards against the sample silently dropping a constructor: assert
-                // the nine expected case tags all appear among `ofFrozen` images.
+                // the ten expected case tags all appear among `ofFrozen` images.
                 let tag (ty: SemType) =
                     match ty with
                     | TyConst _ -> "TyConst"
@@ -107,6 +111,7 @@ let tests =
                     | TyOr _ -> "TyOr"
                     | TyTypar _ -> "TyTypar"
                     | TyUnknown _ -> "TyUnknown"
+                    | TyEnum _ -> "TyEnum"
                     | TyVar _ -> "TyVar"
 
                 let seen = sampleFrozenTypes |> List.map (ofFrozen >> tag) |> Set.ofList
@@ -122,6 +127,7 @@ let tests =
                         "TyOr"
                         "TyTypar"
                         "TyUnknown"
+                        "TyEnum"
                     ] do
                     Expect.isTrue (Set.contains expected seen) (sprintf "sample covers %s" expected)
             }

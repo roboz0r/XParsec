@@ -51,6 +51,8 @@ module UnificationEngine =
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
+        // A nominal enum has no args/typars to zonk — a leaf, passthrough.
+        | TyEnum _ -> t
 
     /// Decompose a (zonked) tupled-argument type into its element types: a
     /// .NET-style call passes one argument that is a tuple / unit / single
@@ -151,6 +153,8 @@ module UnificationEngine =
         | TyUnknown _ -> false
         // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
         | TyTypar _ -> false
+        // A nominal enum holds no TyVar — never occurs.
+        | TyEnum _ -> false
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -207,6 +211,8 @@ module UnificationEngine =
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
+        // A nominal enum carries no typar to substitute — return self.
+        | TyEnum _ -> t
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
@@ -1297,6 +1303,14 @@ module UnificationEngine =
         // Post-freeze only; never reached during constraint solving. Defer
         // (consistent with TyUnknown) rather than crash.
         | _, TyTypar _ -> Defer
+        // step 3+: a `TyEnum` can't be produced until use-site annotation
+        // (`(x:E)`) / member access (`E.C1`) land, so this is unreachable in
+        // step 2. Its constraint semantics are variant-dependent (Equality
+        // always; Comparison for numeric; Struct for the value-type reprs) —
+        // keyed off the case table — so they land with the use sites that can
+        // produce a `TyEnum`. Defer until then, consistent with the sibling
+        // unreachable `TyUnknown` / `TyTypar` arms.
+        | _, TyEnum _ -> Defer
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)
@@ -1532,6 +1546,8 @@ module UnificationEngine =
             | TyUnknown _ -> ()
             // A post-freeze typar leaf carries no free args.
             | TyTypar _ -> ()
+            // A nominal enum has no free args to carry the constraint to.
+            | TyEnum _ -> ()
 
         walk t
 

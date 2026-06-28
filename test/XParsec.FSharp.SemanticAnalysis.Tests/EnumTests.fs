@@ -22,6 +22,16 @@ let private enumShape (tast: TastFile) : string =
     | EqList [ d ] -> TastShape.prettyDecl d
     | other -> failwithf "expected a single enum TDecl.Type, got %A" other
 
+/// The resolved case table of the single surfaced enum decl.
+let private enumCases (tast: TastFile) =
+    match tast.Decls with
+    | EqList [ TDecl.Type { Kind = TTypeKindG.Enum cases } ] -> cases
+    | other -> failwithf "expected a single enum TDecl.Type, got %A" other
+
+/// The derived underlying primitive type name of the single surfaced enum.
+let private underlying (input: string) : string voption =
+    analyse input |> enumCases |> TEnumCases.underlyingTypeName
+
 let private errors (tast: TastFile) =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
@@ -134,5 +144,50 @@ let tests =
                 let tast = analyse "type Bad3 = | A = -1uy"
 
                 Expect.equal (List.length (errors tast)) 1 "exactly one error for the negative unsigned case"
+            }
+
+            // --- Step 2: underlying-type derivation (where width lives) ----------
+
+            test "underlying type: unsuffixed numeric cases default to int (≡ I32)" {
+                Expect.equal (underlying "type C = | A = 0 | B = 1") (ValueSome "int") "unsuffixed → int"
+            }
+
+            test "underlying type: an explicit byte width names byte" {
+                Expect.equal (underlying "type W = | A = 1uy | B = 2uy") (ValueSome "byte") "byte width"
+            }
+
+            test "underlying type: unsuffixed cases adopt the single explicit width" {
+                // The rule: all explicit widths must agree; unsuffixed `Int` cases
+                // adopt the explicit width if present (here `2L` → int64), else int.
+                Expect.equal (underlying "type E = | A = 0 | B = 2L") (ValueSome "int64") "adopts int64"
+            }
+
+            test "underlying type: a string enum is string" {
+                Expect.equal (underlying "type D = | Up = \"u\" | Down = \"d\"") (ValueSome "string") "string"
+            }
+
+            test "underlying type: a mixed enum boxes to obj" {
+                Expect.equal (underlying "type M = | A = 1 | B = \"x\"") (ValueSome "obj") "mixed → obj"
+            }
+
+            test "uniform-width invariant: differing explicit widths are a hard ERROR" {
+                // `1uy` (byte) and `2L` (int64) are two distinct explicit integral
+                // widths — a CLR enum has a single underlying type, so this is illegal.
+                let tast = analyse "type Bad = | A = 1uy | B = 2L"
+
+                Expect.equal (List.length (errors tast)) 1 "exactly one uniform-width error"
+
+                Expect.stringContains
+                    (List.head (errors tast)).Message
+                    "single underlying type"
+                    "error explains the uniform-width invariant"
+            }
+
+            test "uniform-width invariant: unsuffixed + one explicit width is NOT a conflict" {
+                // Only a mismatch of *explicit* widths fires; an unsuffixed `Int`
+                // adopts the lone explicit width, so this is well-formed.
+                let tast = analyse "type Ok = | A = 0 | B = 2L | C = 3L"
+
+                Expect.isEmpty (errors tast) "no width conflict — unsuffixed adopts int64"
             }
         ]

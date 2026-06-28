@@ -349,7 +349,8 @@ module VesperLib =
                 + ">"
         | FTClass(key, _)
         | FTRecord(key, _)
-        | FTUnion(key, _) -> SymbolKeyOps.qualifiedName key
+        | FTUnion(key, _)
+        | FTEnum key -> SymbolKeyOps.qualifiedName key
         | FTTuple items ->
             "("
             + (items |> EqArray.toList |> List.map argTypeName |> String.concat "*")

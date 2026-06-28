@@ -221,6 +221,8 @@ module EmitClosures =
         | FTOr xs -> xs |> EqArray.forall ftNoUnknown
         | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
         | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
+        // A niladic nominal enum carries no `FTUnknown` — always ground here.
+        | FTEnum _ -> true
 
     /// The source name of a *top-level* (holderless) binding for its Program-holder
     /// field/method. A *leading* standalone `ModuleElem.Let` had its name recorded by
@@ -658,6 +660,7 @@ module EmitClosures =
             // an unresolved nominal head (`FTUnknown`) carries no typars. Neither
             // contributes a method-axis index.
             | FTUnknown _
+            | FTEnum _
             | FTTypar(TyparAxis.Declaring, _) -> ()
 
         for p in fn.Params do
