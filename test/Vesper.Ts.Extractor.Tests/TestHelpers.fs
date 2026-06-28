@@ -73,10 +73,23 @@ let testProviderResolves (path: string) =
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
 
                 for m in members do
-                    Expect.isGreaterThan
-                        (prov.TryLookupMembers(name, m.Name)).Length
-                        0
-                        $"member '{name}.{m.Name}' should resolve"
+                    let resolved = prov.TryLookupMembers(name, m.Name)
+                    Expect.isGreaterThan resolved.Length 0 $"member '{name}.{m.Name}' should resolve"
+
+                    // Overload identity (Tier 2 item 9): a method/.ctor with N call
+                    // signatures must expand into N members, each with its own
+                    // `MemberKey` argSig — so the resolved count matches the signature
+                    // count AND the keys are all distinct (no argSig collision survived).
+                    if m.Signatures.Length > 1 then
+                        Expect.equal
+                            resolved.Length
+                            m.Signatures.Length
+                            $"overloaded member '{name}.{m.Name}' should resolve to one member per signature"
+
+                        Expect.equal
+                            (resolved |> Array.map (fun r -> r.Key) |> Array.distinct |> Array.length)
+                            resolved.Length
+                            $"overloaded member '{name}.{m.Name}' members must have distinct keys"
             | Schema.Export.Variable(name, _, _, _) ->
                 Expect.isTrue (prov.TryLookup name).IsSome $"variable '{name}' should resolve"
             | Schema.Export.TypeAlias(name, _, _) ->
