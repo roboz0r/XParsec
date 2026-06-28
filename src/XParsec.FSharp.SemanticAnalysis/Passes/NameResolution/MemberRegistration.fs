@@ -289,6 +289,11 @@ module NameResolutionMemberRegistration =
                     | _ -> []
 
                 cmi.MethodTypeParams <- mkTypeParams (explicit @ implicit)
+                // The explicit `<'C>` typars are exactly the leading `explicit`
+                // prefix; record the count so `generaliseMemberTypars` can pass
+                // ONLY them as `canonical`'s `declared` (the implicit tail must be
+                // ordered by appearance per the F# rule, not treated as declared).
+                cmi.DeclaredTyparCount <- List.length explicit
             | ValueNone -> ()
 
         let registerAutoProperty id isStatic isOverride =
@@ -309,7 +314,9 @@ module NameResolutionMemberRegistration =
                 // The method's own `<'C, …>` typars get prototype TyVars so
                 // Unification scopes the signature against them and Freeze can
                 // surface them as GenericMethodParameters.
-                cmi.MethodTypeParams <- mkTypeParams (memberTyparNames ctx tds)
+                let explicit = memberTyparNames ctx tds
+                cmi.MethodTypeParams <- mkTypeParams explicit
+                cmi.DeclaredTyparCount <- List.length explicit
             | ValueNone -> ()
 
         for el in elements do

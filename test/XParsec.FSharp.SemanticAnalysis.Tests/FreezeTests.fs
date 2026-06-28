@@ -418,6 +418,84 @@ let interfaceTests =
             }
         ]
 
+// A project-local generic *member* orders its method typars by the F# rule
+// (`GeneralizedTypars.canonical`): explicitly-declared `<'C>` typars first in
+// source order, then ALL other typars (annotation-derived AND body-inferred) by a
+// single first-left-to-right-appearance walk over the final member type. This
+// replaced the old 3-tier `explicit @ annotation @ body` append, which diverged
+// from F# when an annotated param followed an unannotated (body-inferred) one.
+[<Tests>]
+let memberTyparOrderTests =
+    let classMember (input: string) =
+        let tast = analyse input
+        Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+        let typeDecl =
+            tast.Decls
+            |> EqArray.toList
+            |> List.tryPick (
+                function
+                | TDecl.Type t -> Some t
+                | _ -> None
+            )
+            |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
+
+        match typeDecl.Kind with
+        | TTypeKind.Class c -> c.Members.[0]
+        | other -> failwithf "expected TTypeKind.Class, got %A" other
+
+    testList
+        "MemberTyparOrder"
+        [
+            // Annotated-after-unannotated: `x` is body-inferred (no annotation), `y`
+            // is annotated `'a`. The F# rule walks the final member type
+            // `'x -> 'a -> ('x * 'a)`, so `'x` (first appearance) is `Method 0` and
+            // `'a` is `Method 1` — NOT `'a` first (the old append put the annotation
+            // typar ahead of the body-inferred one). The body-inferred typar gets a
+            // synthetic `M0` name; the annotation typar keeps its source name `'a`.
+            test "member orders annotated-after-unannotated by appearance, not annotation-first" {
+                let m = classMember "type C() =\n    member this.M x (y: 'a) = (x, y)"
+
+                // x (body-inferred) appears first ⇒ Method 0; y : 'a ⇒ Method 1.
+                match EqArray.toList m.Params with
+                | [ (_, xTy); (_, yTy) ] ->
+                    Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x (body-inferred) is Method 0"
+                    Expect.equal yTy (TyTypar(TyparAxis.Method, 1)) "y : 'a is Method 1"
+                | other -> failtestf "expected two params, got %A" other
+
+                Expect.equal
+                    m.ReturnTy
+                    (TyTuple(EqArray.ofList [ TyTypar(TyparAxis.Method, 0); TyTypar(TyparAxis.Method, 1) ]))
+                    "returns (x * y) = (Method 0 * Method 1)"
+
+                // Name preservation: the annotation typar keeps `'a`; the body-
+                // inferred one gets the synthetic `M0`.
+                Expect.equal
+                    [ for (n, _) in m.MethodTypeParams -> n ]
+                    [ "M0"; "'a" ]
+                    "names: synthetic body typar, preserved 'a"
+            }
+
+            // Control: an explicit `<'a>` member still orders explicit-first. `'a`
+            // is declared, `y` is body-inferred — so `'a` is `Method 0` (declared)
+            // even though `y` could appear first by some walks; here `x : 'a`
+            // appears first anyway, but the declared rule pins it regardless.
+            test "member with explicit `<'a>` orders the declared typar first" {
+                let m = classMember "type C() =\n    member this.M<'a> (x: 'a) y = (x, y)"
+
+                match EqArray.toList m.Params with
+                | [ (_, xTy); (_, yTy) ] ->
+                    Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x : 'a (declared) is Method 0"
+                    Expect.equal yTy (TyTypar(TyparAxis.Method, 1)) "y (body-inferred) is Method 1"
+                | other -> failtestf "expected two params, got %A" other
+
+                Expect.equal
+                    [ for (n, _) in m.MethodTypeParams -> n ]
+                    [ "'a"; "M0" ]
+                    "names: declared 'a first, synthetic body typar"
+            }
+        ]
+
 // The front-end union *shape* needed to compile `Vesper.Collections.List`
 // verbatim — operator-named cases (`([])` → Empty, `(::)` → Cons) and the
 // explicit-return (GADT-syntax) case forms FSharp.Core's list uses

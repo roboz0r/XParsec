@@ -80,6 +80,14 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
     /// as prototype TyVars keyed by source name. Empty for a non-generic member.
     member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
+    /// How many leading entries of `MethodTypeParams` are the member's
+    /// EXPLICITLY-declared `<'C, …>` typars (source order). The remaining entries
+    /// are annotation-implicit typars appended at registration. Captured here
+    /// because the explicit/implicit split is otherwise unrecoverable post-
+    /// registration, yet the F# ordering rule treats explicitly-declared typars
+    /// (and ONLY those) as "declared-first"; `Unification.generaliseMemberTypars`
+    /// passes exactly this prefix as `GeneralizedTypars.canonical`'s `declared`.
+    member val DeclaredTyparCount: int = 0 with get, set
     /// `true` when the source declares the member with `MemberKeyword.Override`
     /// or `MemberKeyword.Default`. Stamped by the `registerInheritedSlots`
     /// post-pass; consumed by Freeze/Codegen to choose `call` vs `callvirt`.

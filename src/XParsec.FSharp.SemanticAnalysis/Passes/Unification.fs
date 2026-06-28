@@ -263,21 +263,20 @@ module Unification =
             Generalise: bool
         }
 
-    /// Generalise a member's *body-inferred* free typars into its
-    /// `MethodTypeParams`. A method with unannotated params (`member s.Fold f z =
-    /// SetTree.fold (fun x z -> f z x) z s.Tree`) whose body introduces a fresh
-    /// typar (`'State`) that no signature annotation names gets no registered
-    /// method typar for it (`implicitMemberTypars` scans annotations only). If the
-    /// member is never *called* in this assembly — a library API — that typar
-    /// never grounds via a use site and leaks as `?ungrounded-operator` at codegen
-    /// (a member-body closure capturing the `'State`-typed `f` froze with it). F#
-    /// generalises such typars as method generic parameters; mirror that here:
-    /// after the body is inferred, collect the still-free roots in the member's
-    /// signature (`Level > outerLevel && Link.IsNone`, the same gate `generalise`
-    /// uses) that aren't already a registered method typar, and append them.
-    /// `Elaborate`/`Freeze` then surface them as `TyTypar(Method, i)` +
-    /// `GenericParam` rows by their position in `MethodTypeParams`, and a member-
-    /// body closure inherits them as its own method typars.
+    /// Recompute a member's `MethodTypeParams` in the CANONICAL F# order, post-
+    /// inference, via the ONE shared `GeneralizedTypars.canonical`: the member's
+    /// EXPLICITLY-declared `<'C>` typars first (source order), then every remaining
+    /// free root of the member type by first-left-to-right appearance (params L→R,
+    /// then return), excluding the enclosing class typars. This both (a) generalises
+    /// body-inferred free typars an annotation never named (`member s.Fold f z = …`
+    /// introduces a fresh `'State`; without this it leaks as `?ungrounded-operator`
+    /// at codegen for an uncalled library API) AND (b) re-orders annotation-implicit
+    /// typars by appearance — replacing the former 3-tier `explicit @ annotation @
+    /// body` append, which diverged from F# whenever an annotated param followed an
+    /// unannotated (body-inferred) one. Reordering `MethodTypeParams` here is safe
+    /// because member bodies infer by TypeVar *identity*, not array position
+    /// (Step 0); `Elaborate.mkTyparEnv` then reads the canonical position →
+    /// `TyTypar(Method, i)` + `GenericParam` rows.
     /// Methods only — a property can't carry method typars (mirrors registration).
     let private generaliseMemberTypars
         (ctx: PassContext)
@@ -301,45 +300,75 @@ module Unification =
             // (`Holder<'T>(v)` unifies the return through a fresh instantiation), so
             // a stale snapshot would miss it and the `'T` in the member signature
             // would be wrongly generalised into a (dangling) method typar.
-            let accounted = HashSet<TypeVar>(HashIdentity.Reference)
+            let fixedRoots = HashSet<TypeVar>(HashIdentity.Reference)
 
             for (_, ptv) in classTypars do
                 match zonk (TyVar ptv) with
-                | TyVar r -> accounted.Add(UnionFind.find r) |> ignore
+                | TyVar r -> fixedRoots.Add(UnionFind.find r) |> ignore
                 | _ -> ()
 
-            for (_, ptv) in mInfo.MethodTypeParams do
+            // The pre-recompute registration order: the leading `DeclaredTyparCount`
+            // entries are the member's EXPLICITLY-declared `<'C>` typars (source
+            // order); the rest are annotation-implicit typars. Per the F# rule only
+            // the explicit ones are "declared-first"; the annotation-implicit ones
+            // must be ordered by first-appearance in the final type, exactly like
+            // body-inferred ones.
+            let pre = EqArray.toList mInfo.MethodTypeParams
+
+            // `declared` = the explicit `<'C>` typars only, in source order, by their
+            // (zonked) union-find roots. A declared typar inference pinned to a
+            // concrete type is no longer a real method typar — drop it (mirrors the
+            // free-fn `mkMethodQuantEnv` `declaredFree` filter).
+            let declared =
+                pre
+                |> List.truncate mInfo.DeclaredTyparCount
+                |> List.choose (fun (name, ptv) ->
+                    match zonk (TyVar ptv) with
+                    | TyVar r ->
+                        let root = UnionFind.find r
+                        if root.Link.IsNone then Some(name, root) else None
+                    | _ -> None)
+
+            // NAME PRESERVATION: every registered method typar (explicit AND
+            // annotation-implicit) has a real source name (`'a`) that F# keeps in the
+            // emitted GenericParam; only genuinely body-inferred typars get a
+            // synthetic name. Key the known names by root identity so the canonical
+            // ORDER can be re-labelled with real names, synthesising `M%d` only for a
+            // root with no registered name. First registration wins (source order).
+            let knownNames = Dictionary<TypeVar, string>(HashIdentity.Reference)
+
+            for (name, ptv) in pre do
                 match zonk (TyVar ptv) with
-                | TyVar r -> accounted.Add(UnionFind.find r) |> ignore
+                | TyVar r ->
+                    let root = UnionFind.find r
+
+                    if not (knownNames.ContainsKey root) then
+                        knownNames.[root] <- name
                 | _ -> ()
 
-            let extra = ResizeArray<string * TypeVar>()
-            let seen = HashSet<TypeVar>(HashIdentity.Reference)
+            // The ONE ordering implementation: declared-first (source order), then
+            // every remaining free root of the member type by first-left-to-right
+            // appearance, excluding the enclosing class typars (`fixedRoots`). This
+            // replaces the former 3-tier `explicit @ annotation @ body` append, which
+            // diverged from F# whenever an annotated param followed an unannotated one.
+            let gt = GeneralizedTypars.canonical declared fixedRoots (zonk memberTy)
 
-            // A member is typed at the module level (level 0), so its body-inferred
-            // typars live at the *same* level as the class typars — the level gate
-            // `generalise` uses for nested lets can't separate them. Instead exclude
-            // the class typars by identity and generalise every other still-free
-            // root in the member's signature (this *is* generalisation — F# makes
-            // each a method generic parameter). Shares `generalise`'s structural
-            // walk; only the per-root predicate differs (identity-exclusion here vs.
-            // the level gate there).
-            zonk memberTy
-            |> UnificationInferGeneralize.iterTypeVarRoots (fun root ->
-                if root.Link.IsNone && not (accounted.Contains root) && seen.Add root then
-                    // A synthetic metadata typar name; method generic params are
-                    // method-scoped, so this can't collide with the class typars.
-                    extra.Add(sprintf "M%d" extra.Count, root)
-            )
+            // Take the canonical ORDER (roots), but re-label with the preserved
+            // registered names; synthesise `M%d` (method-scoped, can't collide with
+            // class typars) only for genuinely body-inferred roots.
+            let mutable synthCount = 0
 
-            if extra.Count > 0 then
-                mInfo.MethodTypeParams <-
-                    EqArray.ofSeq (
-                        seq {
-                            yield! EqArray.toList mInfo.MethodTypeParams
-                            yield! extra
-                        }
-                    )
+            let final =
+                GeneralizedTypars.toArray gt
+                |> Array.map (fun (_, root) ->
+                    match knownNames.TryGetValue root with
+                    | true, n -> (n, root)
+                    | _ ->
+                        let n = sprintf "M%d" synthCount
+                        synthCount <- synthCount + 1
+                        (n, root))
+
+            mInfo.MethodTypeParams <- EqArray.ofArray final
         | _ -> ()
 
     /// Walk every method / property / auto-property body under a typar
