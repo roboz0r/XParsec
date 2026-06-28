@@ -27,7 +27,7 @@ open System.Linq
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Seq =
 
-    let fold (folder: 'State -> 'T -> 'State) (state: 'State) (source: seq<'T>) : 'State =
+    let fold<'T, 'State> (folder: 'State -> 'T -> 'State) (state: 'State) (source: seq<'T>) : 'State =
         use e = source.GetEnumerator()
         let mutable acc = state
 

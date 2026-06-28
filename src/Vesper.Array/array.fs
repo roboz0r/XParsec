@@ -109,7 +109,7 @@ module Array =
         for i = 0 to array.Length - 1 do
             action i array.[i]
 
-    let fold (folder: 'State -> 'T -> 'State) (state: 'State) (array: 'T[]) : 'State =
+    let fold<'T, 'State> (folder: 'State -> 'T -> 'State) (state: 'State) (array: 'T[]) : 'State =
         let mutable acc = state
 
         for i = 0 to array.Length - 1 do

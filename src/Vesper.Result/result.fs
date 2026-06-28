@@ -53,12 +53,12 @@ module Result =
         | Ok _ -> 1
         | Error _ -> 0
 
-    let fold (folder: 'State -> 'T -> 'State) (state: 'State) (result: Result<'T, 'TError>) : 'State =
+    let fold<'T, 'TError, 'State> (folder: 'State -> 'T -> 'State) (state: 'State) (result: Result<'T, 'TError>) : 'State =
         match result with
         | Ok x -> folder state x
         | Error _ -> state
 
-    let foldBack (folder: 'T -> 'State -> 'State) (result: Result<'T, 'TError>) (state: 'State) : 'State =
+    let foldBack<'T, 'TError, 'State> (folder: 'T -> 'State -> 'State) (result: Result<'T, 'TError>) (state: 'State) : 'State =
         match result with
         | Ok x -> folder x state
         | Error _ -> state

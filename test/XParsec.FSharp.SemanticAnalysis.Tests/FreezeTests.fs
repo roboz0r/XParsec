@@ -380,6 +380,42 @@ let interfaceTests =
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
             }
+
+            // A module free function orders its method typars by the F# rule:
+            // explicitly-declared `<'b,'a>` first IN DECLARATION ORDER, not by
+            // first-appearance. So `'b` is `Method 0` and `'a` is `Method 1` even
+            // though `'a` appears first in the signature (`x: 'a`). The frozen
+            // `declTy` is `'a -> 'b -> ('a * 'b)` =
+            // `!!1 -> !!0 -> (!!1 * !!0)`.
+            test "free function honours declared `<'b,'a>` typar order over appearance" {
+                let tast = analyse "let f<'b,'a> (x: 'a) (y: 'b) = (x, y)"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match declType tast with
+                | TyFun(xTy, TyFun(yTy, TyTuple(EqList [ rx; ry ]))) ->
+                    // x : 'a -> declared second -> Method 1
+                    Expect.equal xTy (TyTypar(TyparAxis.Method, 1)) "x : 'a is Method 1 (declared second)"
+                    // y : 'b -> declared first -> Method 0
+                    Expect.equal yTy (TyTypar(TyparAxis.Method, 0)) "y : 'b is Method 0 (declared first)"
+                    Expect.equal rx (TyTypar(TyparAxis.Method, 1)) "tuple .0 is 'a (Method 1)"
+                    Expect.equal ry (TyTypar(TyparAxis.Method, 0)) "tuple .1 is 'b (Method 0)"
+                | other -> failtestf "expected 'a -> 'b -> ('a * 'b), got %A" other
+            }
+
+            // Control: when declared order matches appearance order, the result is
+            // unchanged — `'a` (declared first, appears first) is `Method 0`.
+            test "free function declared order == appearance order is unchanged" {
+                let tast = analyse "let g<'a,'b> (x: 'a) (y: 'b) = (x, y)"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match declType tast with
+                | TyFun(xTy, TyFun(yTy, _)) ->
+                    Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x : 'a is Method 0"
+                    Expect.equal yTy (TyTypar(TyparAxis.Method, 1)) "y : 'b is Method 1"
+                | other -> failtestf "expected 'a -> 'b -> _, got %A" other
+            }
         ]
 
 // The front-end union *shape* needed to compile `Vesper.Collections.List`

@@ -316,6 +316,32 @@ module UnificationInfer =
 
         seedBindingTypars ctx b
 
+        // Capture the binding's explicit `<'b,'a>` typars in SOURCE order, paired
+        // with the TypeVar `seedBindingTypars` just bound for each, while the
+        // transient `TyparScope` is still live — it is restored per binding (the
+        // `finally` below), so this mapping is unrecoverable by Elaborate, which
+        // needs it to order a free function's method typars declared-first (the F#
+        // rule). Keyed by the binding so a nested/sibling binding cannot collide.
+        match b.typarDefns with
+        | ValueSome(TyparDefns(defns = ds)) ->
+            let declared =
+                [
+                    for TyparDefn(typar = t) in ds do
+                        match t with
+                        | Typar.Named(ident = id)
+                        | Typar.Static(ident = id) ->
+                            let n = ctx.NameOf id
+
+                            match ctx.Resolution.TyparScope.TryGetValue n with
+                            | true, tv -> yield (n, tv)
+                            | _ -> ()
+                        | Typar.Anon _ -> ()
+                ]
+
+            if not (List.isEmpty declared) then
+                ctx.Bindings.DeclaredTypars.Set(CstKeys.ofBinding b, declared)
+        | ValueNone -> ()
+
         match b.typarDefns with
         | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
         | _ -> ()

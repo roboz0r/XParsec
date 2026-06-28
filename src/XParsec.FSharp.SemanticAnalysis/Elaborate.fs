@@ -205,19 +205,45 @@ module Elaborate =
 
     let private mkMethodTyparEnv (typeParams: EqArray<string * TypeVar>) = mkTyparEnv TyparAxis.Method typeParams
 
-    /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)`
-    /// : walk the declared (curried) type collecting
-    /// each genuine free typar root in first-appearance pre-order — params left-to-
-    /// right, then return — and pair it with its method-axis index. Mirrors
-    /// `Inline.quantifiedTypars` / `EmitClosures.staticFnTypars`: a *linked* root
-    /// (pinned to a concrete type, or a measure carrier whose `Link` points at its
-    /// carrier) is followed, not collected, so measures and pinned vars stay out of
-    /// the typar list. The resulting env feeds `remapDeclTypars`, exactly like the
-    /// declaring-typar env in 2A. Caller restricts this to function bindings (a
-    /// non-function value's free var is a value-restriction case, not a method typar).
-    let private mkMethodQuantEnv (declTy: SemType) : (TypeVar * SemType) list =
-        let acc = ResizeArray<TypeVar>()
+    /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in
+    /// CANONICAL order via the one shared `GeneralizedTypars.canonical` — the F#
+    /// rule: explicitly-declared `<'b,'a>` typars first in source order (`declared`,
+    /// threaded from the `TDecl.Let` site), then the remaining inferred roots by
+    /// first-left-to-right appearance (params left-to-right, then return). A *linked*
+    /// root (pinned to a concrete type, or a measure carrier whose `Link` points at
+    /// its carrier) is followed, not collected, so measures and pinned vars stay out
+    /// of the typar list. After the canonical order, the dependent-typar fixpoint
+    /// (constraint-only `Coercion` targets, absent from the type) is preserved and
+    /// appended, mirroring `InferGeneralize.generalise`. The resulting env feeds
+    /// `remapDeclTypars`, exactly like the declaring-typar env in 2A. Caller
+    /// restricts this to function bindings (a non-function value's free var is a
+    /// value-restriction case, not a method typar).
+    let private mkMethodQuantEnv (declared: (string * TypeVar) list) (declTy: SemType) : (TypeVar * SemType) list =
+        // The canonical F# order — declared typars first in source order, then the
+        // remaining free roots by first-left-to-right-appearance — is computed by the
+        // ONE shared `GeneralizedTypars.canonical`. Free functions have no enclosing
+        // class typars, so `fixedRoots` is empty. A declared typar that inference
+        // pinned to a concrete type (its root is `Link`ed) is NOT a real method typar;
+        // drop it so this stays identical to the old appearance-only walk for the
+        // no-typar / pinned-declared cases (only the genuinely-reordered case changes).
+        let declaredFree =
+            declared |> List.filter (fun (_, tv) -> (UnionFind.find tv).Link.IsNone)
 
+        let zonked = Unification.zonk declTy
+
+        let gt =
+            GeneralizedTypars.canonical declaredFree (System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)) zonked
+
+        // The canonical roots, in ABI order, become the seed of the dependent-typar
+        // worklist below.
+        let acc = ResizeArray<TypeVar>(GeneralizedTypars.toArray gt |> Array.map snd)
+        let seen = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
+
+        for r in acc do
+            seen.Add r |> ignore
+
+        // Append the first-appearance roots of a coercion-bound target (the
+        // dependent-typar fixpoint preserved below). Mirrors the old appearance walk.
         let rec go t =
             match t with
             | TyVar tv ->
@@ -226,7 +252,7 @@ module Elaborate =
                 match root.Link with
                 | ValueSome target -> go target
                 | ValueNone ->
-                    if not (acc |> Seq.exists (fun r -> Object.ReferenceEquals(r, root))) then
+                    if seen.Add root then
                         acc.Add root
             | TyConst(_, args)
             | TyTuple args
@@ -243,8 +269,6 @@ module Elaborate =
                 go b
             | TyUnknown _
             | TyTypar _ -> ()
-
-        go declTy
 
         // Dependent typars (mirrors `InferGeneralize.generalise`): a collected typar's
         // `Coercion` bound may name further typars absent from the declared (curried)
@@ -1487,16 +1511,25 @@ module Elaborate =
                     // bindings are exempt — their bodies are expanded + substituted to
                     // concrete types at each call site, never emitted as a generic
                     // method, so `quantEnv` is empty.
+                    // The binding's explicit `<'b,'a>` typars, in source order with
+                    // their inference-seeded roots (recorded by `inferBinding` while
+                    // the transient `TyparScope` was live). `canonical` orders these
+                    // first, the F# rule.
+                    let declaredTypars =
+                        match ctx.Bindings.DeclaredTypars.TryGetValue(CstKeys.ofBinding b) with
+                        | ValueSome ds -> ds
+                        | ValueNone -> []
+
                     let quantEnv =
                         if b.inlineToken.IsSome then
                             []
                         else
                             match Unification.zonk declTy with
-                            | TyFun _ -> mkMethodQuantEnv declTy
+                            | TyFun _ -> mkMethodQuantEnv declaredTypars declTy
                             // A bare free var is value-restricted — never a method typar.
                             | TyVar _
                             | TyTypar _ -> []
-                            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv declTy
+                            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv declaredTypars declTy
                             | _ -> []
 
                     // Record the binding's frozen typar

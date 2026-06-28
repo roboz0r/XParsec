@@ -966,6 +966,14 @@ type PassContextBindings =
         /// lowered to a Program-holder static field. Consulted only by the value
         /// collector, so top-level functions keep their `fn$<off>` holderless path.
         TopLevelNames: Dictionary<NodeKey, string>
+        /// A `let` binding's explicitly-declared `<'b,'a>` typars, in SOURCE order,
+        /// each paired with the `TypeVar` inference seeded for it. Captured by
+        /// `Infer.inferBinding` while the binding's transient `TyparScope` is live
+        /// (it's restored per binding, so it's gone by Elaborate). Keyed by the
+        /// binding's headPat NodeKey. Elaborate's free-function method-typar minter
+        /// reads this to order method typars declared-first (the F# rule); absent
+        /// when the binding declared no typars.
+        DeclaredTypars: SideTable<(string * TypeVar) list>
     }
 
 module PassContextBindings =
@@ -978,6 +986,7 @@ module PassContextBindings =
             Repr = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
             TopLevelNames = Dictionary<_, _>()
+            DeclaredTypars = SideTable<_>()
         }
 
 /// Name-resolution scopes: the `open` / typar / external-access state the passes

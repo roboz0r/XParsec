@@ -351,120 +351,54 @@ module Inline =
             Constraints: FrozenConstraint list
         }
 
-    /// Instantiate `sym` and rewrite its method-owned typars to positional
-    /// `TyTypar(Method, i)`, `i` = first-appearance order over a pre-order
-    /// walk of the curried monotype (a `TyFun` visits its parameter before its
-    /// result, so this is params-left-to-right then return — the order the
-    /// producer's static-method emit assigns its `!!i` slots). Replaces the
-    /// retired codegen `signatureTypars` / `toOpen`. Link-chases through
-    /// `UnionFind.find` + `.Link` exactly as `quantifiedTypars` does (no zonk
-    /// dependency — `UnificationEngine` compiles later); for a fresh, unlinked
-    /// instantiation that is a structural no-op.
+    /// Project a free function's contract `Scheme` onto the method axis: its own
+    /// typars are baked `FTTypar(Declaring, i)`, with `i` the contract's CANONICAL
+    /// order — explicit `<'T>` first in declaration order, then inferred typars by
+    /// first appearance (`VesperLib`'s `registerExplicitTypars` then the finalize
+    /// walk). That is EXACTLY the order the producer's static-method emit assigns
+    /// its `!!i` slots (`Elaborate.mkMethodQuantEnv` ▸ `GeneralizedTypars.canonical`).
+    /// So map each `Declaring i ↦ Method i` POSITIONALLY, preserving that order —
+    /// do NOT re-derive it by first-appearance over the monotype. The old appearance
+    /// walk silently dropped an explicit `<'b,'a>`'s declared order, so a call to
+    /// `Set.fold<'T,'State>` (whose declared order differs from appearance) emitted
+    /// a `MethodSpec` permuted from the callee's emitted `GenericParam` order — a
+    /// `MissingMethodException` at JIT. `MethodArity` is the scheme's own typar
+    /// count. A free function's scheme carries no `Method`-axis typars, but the
+    /// freshener maps that branch identically for totality.
     let openMethodSignature (sym: ExternalSymbol) : OpenMethodSignature =
-        let monoSig = ExternalSymbols.instantiateSymbol sym 0
-        let order = Dictionary<TypeVar, int>(HashIdentity.Reference)
-        // Method typars in first-appearance order — both the `order` index source and
-        // the worklist the dependent-typar pass below grows.
-        let ordered = ResizeArray<TypeVar>()
+        let openSig =
+            FrozenTypeBridge.instantiateWith
+                (fun i -> TyTypar(TyparAxis.Method, i))
+                (fun j -> TyTypar(TyparAxis.Method, j))
+                sym.Scheme
 
-        let rec collect (t: SemType) =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match root.Link with
-                | ValueSome target -> collect target
-                | ValueNone ->
-                    if not (order.ContainsKey root) then
-                        order.[root] <- order.Count
-                        ordered.Add root
-            | TyFun(a, b) ->
-                collect a
-                collect b
-            | TyConst(_, xs)
-            | TyTuple xs
-            | TyRecord(_, xs)
-            | TyUnion(_, xs)
-            | TyClass(_, xs) ->
-                for x in xs do
-                    collect x
-            | TyOr members ->
-                for x in members.Members do
-                    collect x
-            | TyUnknown _
-            | TyTypar _ -> ()
-
-        collect monoSig
-
-        // Dependent (phantom) typars — the CONSUMER-side arity derivation, which MUST
-        // STAY IN LOCKSTEP with the PRODUCER's (`EmitClosures.staticFnTypars`' frozen-
-        // body sweep): the same method, built then consumed across the package boundary,
-        // has to agree on its `MethodSpec` arity or the minted spec's arg count mismatches
-        // the emitted IL. The two derivations read different data at different stages
-        // (this one folds `SemType` `Coercion` bounds at the contract boundary; the
-        // producer sweeps the frozen `TExpr` body), so nothing structural ties them — the
-        // graduation test ("ofArray |> map |> fold against the external Vesper.Seq
-        // package") exercises producer-then-consumer end to end and fails on divergence.
-        //
-        // A collected typar's `Coercion` bound may name typars present in NO parameter/
-        // result (the enumerator `'E` in `'S :> IStructSeq<'T,'E>`): F# generalises these
-        // as genuine method typars AFTER the signature ones, so the producer's emitted IL
-        // carries them as extra `!!i` slots. Fold each collected root's `Coercion` targets
-        // in to a fixpoint (a bound may itself name a typar with its own bound), the
-        // `ResizeArray` growth driving the worklist, so the reconstructed method-typar
-        // ORDER + arity match the producer's. Link-chased through `collect` (no `zonk` —
-        // see the type doc); `mkMethodQuantEnv` uses `Unification.zonk` (compiled later).
-        // NOTE: only DIRECTLY-named target typars are chased per root; a bound naming a
-        // freshly-interned typar's OWN further bounds is not re-followed (none of the
-        // struct-seq signatures need it — `'E :> IStructEnumerator<'T>` reintroduces
-        // only `'T`, already named by `'S`'s bound).
-        let mutable depIdx = 0
-
-        while depIdx < ordered.Count do
-            for c in ordered.[depIdx].Constraints do
-                match c.Kind with
-                | SemanticConstraintKind.Coercion target -> collect target
-                | _ -> ()
-
-            depIdx <- depIdx + 1
-
-        let rec toOpen (t: SemType) : SemType =
-            match t with
-            | TyVar tv ->
-                let root = UnionFind.find tv
-
-                match root.Link with
-                | ValueSome target -> toOpen target
-                | ValueNone ->
-                    match order.TryGetValue root with
-                    | true, i -> TyTypar(TyparAxis.Method, i)
-                    | _ -> TyVar root
-            | TyFun(a, b) -> TyFun(toOpen a, toOpen b)
-            | TyTuple xs -> TyTuple(EqArray.map toOpen xs)
-            | TyConst(n, xs) -> TyConst(n, EqArray.map toOpen xs)
-            | TyRecord(n, xs) -> TyRecord(n, EqArray.map toOpen xs)
-            | TyUnion(n, xs) -> TyUnion(n, EqArray.map toOpen xs)
-            | TyClass(n, xs) -> TyClass(n, EqArray.map toOpen xs)
-            | TyOr members -> members.Map toOpen
-            | (TyUnknown _ | TyTypar _) as other -> other
-
-        // The `Coercion` bounds, frozen over the method-typar axis, in the SAME
-        // `FrozenConstraint` shape `EmitCall`'s project-local solve consumes — so the
-        // external phantom-typar solve is head-agnostic. `typarIndex` is
-        // the CONSTRAINED typar's method index (the `'S` receiver `EmitCall` reads);
-        // `target` (e.g. `IStructSeq<'T,'E>`) carries the phantom typars to recover.
+        // The scheme's `Coercion` bounds, re-expressed over the method-typar axis in the
+        // SAME `FrozenConstraint` shape `EmitCall`'s project-local solve consumes — so the
+        // external phantom-typar solve is head-agnostic. `typarIndex` is the CONSTRAINED
+        // typar's method index (the `'S` receiver `EmitCall` reads); `target` (e.g.
+        // `IStructSeq<'T,'E>`) carries the phantom typars to recover. A phantom (the
+        // enumerator `'E`) is a declaring typar of the scheme that appears only inside a
+        // `Coercion` target, never in a parameter/result — so it carries no `Signature`
+        // position, but IS counted in `TyparArity` (hence `MethodArity`) and gets its
+        // method slot. Mapped POSITIONALLY (`Declaring i ↦ Method i`), matching
+        // `Signature`'s declared-order projection — NOT re-derived by first-appearance.
         let constraints =
             [
-                for root in ordered do
-                    for c in root.Constraints do
-                        match c.Kind with
-                        | SemanticConstraintKind.Coercion target ->
-                            FrozenConstraint.Coercion(order.[root], toFrozen (toOpen target))
-                        | _ -> ()
+                for c in sym.Constraints do
+                    match c with
+                    | ExternalConstraint.Coercion(i, target) ->
+                        let openTarget =
+                            FrozenTypeBridge.instantiateWith
+                                (fun k -> TyTypar(TyparAxis.Method, k))
+                                (fun k -> TyTypar(TyparAxis.Method, k))
+                                target
+
+                        FrozenConstraint.Coercion(i, toFrozen openTarget)
+                    | _ -> ()
             ]
 
         {
-            Signature = toFrozen (toOpen monoSig)
-            MethodArity = order.Count
+            Signature = toFrozen openSig
+            MethodArity = sym.TyparArity
             Constraints = constraints
         }

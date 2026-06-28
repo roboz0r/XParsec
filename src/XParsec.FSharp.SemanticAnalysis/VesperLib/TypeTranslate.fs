@@ -676,23 +676,32 @@ module VesperLibTypeTranslate =
         : Result<FrozenType, string> =
         let (CurriedSig(args, retTy)) = sigCurried
 
-        match translateType ctx lexed input opens typars constraints retTy with
-        | Error e -> Error e
-        | Ok retF ->
-            let mutable err = None
-            let argFs = ResizeArray<FrozenType>(args.Length)
+        // Intern typars ARGS-first (left-to-right) and the RETURN type LAST, so the
+        // collector assigns Declaring indices in the SAME first-left-to-right-
+        // appearance order the producer's `Elaborate.mkMethodQuantEnv` ▸
+        // `GeneralizedTypars.canonical` uses (`TyFun` domain before range). A
+        // free-function's `Scheme` index is then the canonical ABI typar order, which
+        // `Inline.openMethodSignature` maps positionally onto the method axis. The
+        // earlier return-first walk interned a return-only typar (`Set.map`'s `'U` in
+        // `-> Set<'U>`) ahead of an argument typar, permuting the order and breaking
+        // that match. Explicit `<'T>` typars are seeded ahead of this walk regardless.
+        let mutable err = None
+        let argFs = ResizeArray<FrozenType>(args.Length)
 
-            for i in 0 .. args.Length - 1 do
-                if err.IsNone then
-                    let (struct (argsSpec, _)) = args.[i]
+        for i in 0 .. args.Length - 1 do
+            if err.IsNone then
+                let (struct (argsSpec, _)) = args.[i]
 
-                    match translateArgsSpec ctx lexed input opens typars constraints argsSpec with
-                    | Error e -> err <- Some e
-                    | Ok b -> argFs.Add b
+                match translateArgsSpec ctx lexed input opens typars constraints argsSpec with
+                | Error e -> err <- Some e
+                | Ok b -> argFs.Add b
 
-            match err with
-            | Some e -> Error e
-            | None ->
+        match err with
+        | Some e -> Error e
+        | None ->
+            match translateType ctx lexed input opens typars constraints retTy with
+            | Error e -> Error e
+            | Ok retF ->
                 let mutable acc = retF
 
                 for k in argFs.Count - 1 .. -1 .. 0 do
