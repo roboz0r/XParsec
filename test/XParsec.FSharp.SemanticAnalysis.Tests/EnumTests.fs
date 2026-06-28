@@ -35,6 +35,28 @@ let private underlying (input: string) : string voption =
 let private errors (tast: TastFile) =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
+/// The body expression + declared type of the single `let` decl in `tast` (the
+/// enum `TDecl.Type` is skipped). Used by the step-3 member-access tests.
+let private singleLet (tast: TastFile) : TExpr * SemType =
+    match
+        tast.Decls
+        |> EqArray.toList
+        |> List.choose (fun d ->
+            match d with
+            | TDecl.Let(_, v, _, ty) -> Some(v, ty)
+            | _ -> None)
+        |> List.ofSeq
+    with
+    | [ one ] -> one
+    | other -> failwithf "expected exactly one let decl, got %d" (List.length other)
+
+/// The enum's simple name when `t` is a `TyEnum`, else `ValueNone` — proves the
+/// value's static type is the enum nominal (NOT its underlying int/string).
+let private enumTypeName (t: SemType) : string voption =
+    match t with
+    | TyEnum k -> ValueSome(SymbolKeyOps.simpleName k)
+    | _ -> ValueNone
+
 let private warnings (tast: TastFile) =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Warning)
 
@@ -189,5 +211,52 @@ let tests =
                 let tast = analyse "type Ok = | A = 0 | B = 2L | C = 3L"
 
                 Expect.isEmpty (errors tast) "no width conflict — unsuffixed adopts int64"
+            }
+
+            // --- Step 3: member / value access (E.C1) ------------------------
+
+            test "E.C1 infers the enum type and lowers to a static-field access" {
+                // Cases are static members on the enum type (CLR enum field access):
+                // `E.A` resolves to `StaticFieldGet(E, A)` typed `TyEnum E` — the
+                // enum nominal, not the underlying int.
+                let tast = analyse "type E = | A = 0 | B = 1\nlet c = E.A"
+                let body, _ = singleLet tast
+
+                Expect.equal (enumTypeName (TastWalk.exprTy body)) (ValueSome "E") "E.A has static type E (a distinct nominal)"
+
+                Expect.equal (TastShape.prettyExpr body) "E.A" "lowers to a static-field access on the enum type"
+                Expect.isEmpty (errors tast) "no diagnostics for a valid enum-case access"
+            }
+
+            test "(x: E) annotation resolves to the enum nominal and a matching value checks" {
+                // The `: E` annotation must resolve to `TyEnum E` (not opaque), and a
+                // same-enum value unifies against it without error.
+                let tast = analyse "type E = | A = 0 | B = 1\nlet c: E = E.B"
+                let _, ty = singleLet tast
+
+                Expect.equal (enumTypeName ty) (ValueSome "E") "the `: E` annotation resolves to the enum nominal"
+                Expect.isEmpty (errors tast) "a matching enum value checks against the annotation"
+            }
+
+            test "wrong-type assignment (let n: int = E.A) is a type error — E is not its underlying int" {
+                // The enum is a DISTINCT nominal: `TyEnum E` does not unify with
+                // `int`, so this is caught (it is NOT structurally int).
+                let tast = analyse "type E = | A = 0 | B = 1\nlet n: int = E.A"
+
+                Expect.isNonEmpty (errors tast) "an enum value is not assignable to its underlying int"
+
+                Expect.exists
+                    (errors tast)
+                    (fun d -> d.Message.Contains "mismatch")
+                    "reported as a type mismatch, not silently coerced"
+            }
+
+            test "unknown case (E.NotACase) is a resolution error" {
+                let tast = analyse "type E = | A = 0 | B = 1\nlet c = E.NotACase"
+
+                Expect.exists
+                    (errors tast)
+                    (fun d -> d.Message.Contains "has no case")
+                    "an unknown enum case is diagnosed, mirroring the unknown-union-case miss"
             }
         ]

@@ -1024,6 +1024,12 @@ module UnificationEngine =
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        // Two enums unify iff their nominal keys match (enums are niladic — no
+        // args to recurse). A `TyEnum` against any other head (e.g. its underlying
+        // `int`) falls to the catch-all mismatch below: an enum is a DISTINCT
+        // nominal, never structurally its underlying type, so `let n: int = E.C1`
+        // is a genuine type error.
+        | TyEnum k1, TyEnum k2 when k1 = k2 -> ()
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2

@@ -1220,8 +1220,15 @@ module Elaborate =
         (name: string)
         (cases: EnumTypeCases<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
+        // Recover the SAME nominal key `NameResolution.registerEnumTypeDefn` minted
+        // and stamped, so the surfaced decl, the `(x: E)` annotation, and the
+        // `E.C1` access all share one identity. The registry lookup is total in
+        // practice (every enum registers); the direct mint is a defensive fallback
+        // (e.g. a duplicate enum the registrar rejected) using the identical formula.
         let key =
-            LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0
+            match TypeRegistry.tryEnum ctx.Types name with
+            | ValueSome info -> info.Key
+            | ValueNone -> LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0
 
         let tcases =
             EqArray.ofSeq (

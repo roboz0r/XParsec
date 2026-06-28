@@ -364,6 +364,16 @@ module NameResolutionScope =
                                 || (ctx.Types.Union.ContainsKey typeName
                                     && staticIn ctx.Types.Union.[typeName].Members))
 
+                        // `E.C1` — a two-segment enum-case access. The head names a
+                        // project-local enum, so suppress (Unification's `InferIdentExpr`
+                        // enum arm resolves a valid case to `TyEnum` and emits the precise
+                        // "Enum 'E' has no case 'C'" for a bad tail — one diagnostic, not
+                        // a redundant "unresolved qualified name" on top). Mirrors the
+                        // `isQualifiedCtor` / `isQualifiedStatic` suppressions.
+                        let isEnumCase =
+                            li.Idents.Length = 2
+                            && (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).IsSome
+
                         // `Result.Ok` / `Option.Some` — a qualified *external* union case.
                         // The declaring union may be generic (`Result\`2`), but it is
                         // written without type args, so there is no `Expr.TypeApp` to
@@ -397,6 +407,7 @@ module NameResolutionScope =
                         if
                             isQualifiedCtor
                             || isQualifiedStatic
+                            || isEnumCase
                             || isExternalQualifiedCase
                             // A generic external-type receiver written qualified
                             // (`System.Collections.Generic.List<int>.Empty`) was resolved

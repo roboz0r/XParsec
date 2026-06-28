@@ -184,6 +184,18 @@ module internal UnificationTranslate =
                             ctx.Resolution.ResolvedType.Set(NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed, info.Key)
                             TyUnion(info.Key, args)
                         | false, _ ->
+                            match ctx.Types.Enum.TryGetValue name with
+                            // A `(x: E)` annotation referencing a project-local enum.
+                            // An enum is niladic (no type args), so the reference is
+                            // just `TyEnum Key`; stamp the use site like the union arm.
+                            | true, info ->
+                                ctx.Resolution.ResolvedType.Set(
+                                    NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed,
+                                    info.Key
+                                )
+
+                                TyEnum info.Key
+                            | false, _ ->
                             match ctx.Types.Class.TryGetValue name with
                             | true, info ->
                                 let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))

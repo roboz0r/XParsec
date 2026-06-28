@@ -403,6 +403,58 @@ module NameResolutionTypeRegistration =
                 registerUnionTypeDefn ctx declNs td
         | _ -> ()
 
+    /// Register an enum's nominal identity + case-name set so a `(x: E)` annotation
+    /// resolves to `TyEnum Key` (in `translateType`) and a qualified `E.C1` access
+    /// can validate the case name. Enums are non-generic (arity 0) and have no
+    /// member/augmentation side tables — the case→literal *values* are resolved
+    /// later by `Elaborate.tryEnumType` (the only stage with the literal readers in
+    /// compile order) and ride the surfaced `TTypeKind.Enum` node. The minted `Key`
+    /// is stamped at the decl site into `ResolvedType`, mirroring `registerUnionTypeDefn`.
+    let private registerEnumTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
+        match td with
+        | TypeDefn.Enum(typeName = tn; cases = cases) ->
+            let (TypeName(ident = nameLi)) = tn
+
+            if nameLi.Idents.Length <> 1 then
+                ()
+            else
+                let nameTok = nameLi.Idents.[0]
+                let name = ctx.NameOf nameTok
+                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+
+                if
+                    TypeRegistry.containsEnum ctx.Types name
+                    || TypeRegistry.containsUnion ctx.Types name 0
+                    || TypeRegistry.containsRecord ctx.Types name
+                    || TypeRegistry.containsClass ctx.Types name 0
+                    || TypeRegistry.containsAbbrev ctx.Types name
+                then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message = sprintf "Duplicate type definition: %s" name
+                            Code = ""
+                            Severity = Severity.Error
+                        }
+                else
+                    let caseNames = [| for EnumTypeCase(ident = id) in cases -> ctx.NameOf id |]
+                    // Enums are non-generic, so the arity is always 0.
+                    let key = stampLocalTypeKey ctx declKey declNs name 0
+                    let info = EnumTypeInfo(name, caseNames, declKey, key)
+                    TypeRegistry.registerEnum ctx.Types name info
+
+                    // Record the decl-site identity so `Elaborate.tryEnumType`
+                    // recovers the SAME key the annotation path resolves to.
+                    ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+        | _ -> ()
+
+    let registerEnumTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                registerEnumTypeDefn ctx declNs td
+        | _ -> ()
+
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
     /// (`(# "System.Int32" #)` → `"System.Int32"`). Mirrors Freeze.stitchLiteralString.
     let private ilIntrinsicString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =

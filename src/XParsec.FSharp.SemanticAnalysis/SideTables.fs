@@ -333,6 +333,29 @@ type UnionTypeInfo
         member this.ComparisonSupport = this.ComparisonSupport
         member this.MkSelfType args = TyUnion(this.Key, args)
 
+/// An enum type declaration (`type E = | C1 = v1 | …`). Unlike unions/records,
+/// an enum is non-generic and carries no member side tables: it is a closed,
+/// named set of cases. Registration (`NameResolution.registerEnumTypeDefn`) needs
+/// only the **case names** (for the qualified-access membership check `E.C1`) plus
+/// the minted nominal `Key`; the case→literal *values* are resolved later by
+/// `Elaborate.tryEnumType` (which alone has the literal readers in compile order)
+/// and ride the surfaced `TTypeKind.Enum` node, the single source of truth.
+/// `Key` is the arity-0 `TypeKey(asm, declNs, name)` minted by `stampLocalTypeKey`,
+/// so a `(x: E)` annotation resolves to `TyEnum Key` and the surfaced decl carries
+/// the identical key.
+[<Sealed>]
+type EnumTypeInfo(name: string, caseNames: string[], declKey: NodeKey, key: SymbolKey) =
+    member val Name = name
+    /// Case identifiers in declaration order. The `E.C1` qualified-access path
+    /// checks membership here; a name absent from it is a resolution error.
+    member val CaseNames = caseNames
+    member val DeclKey = declKey
+    /// Stable project-local nominal identity — the arity-0 `TypeKey(asm, declNs,
+    /// name)` minted by `stampLocalTypeKey`; matches the surfaced `TDecl.Type.Key`.
+    member val Key: SymbolKey = key
+    /// Is `n` one of this enum's declared cases? Drives the `E.C1` membership check.
+    member this.HasCase(n: string) = Array.contains n caseNames
+
 /// `InProgress` is set while translating the RHS so a re-entry through
 /// `translateType` can detect a cycle and short-circuit. `Filled` is terminal —
 /// once set, neither `Body` nor `Status` mutates again.
@@ -673,6 +696,11 @@ type PassContextTypes =
         /// Member types start as placeholder TyVars and get linked by Unification's
         /// `fillClassMembers` pre-pass.
         Class: Dictionary<string, ClassTypeInfo>
+        /// Project-local enum type declarations, keyed by bare short name (enums
+        /// are non-generic, so no arity overload). Populated by
+        /// `NameResolution.registerEnumTypeDefn`; read by `translateType` (so
+        /// `(x: E)` resolves to `TyEnum Key`) and the `E.C1` qualified-access path.
+        Enum: Dictionary<string, EnumTypeInfo>
         /// Bodies are filled in by Unification's `fillAbbreviationBodies` pre-pass.
         /// Abbreviations expand eagerly at every `translateType` lookup, so
         /// downstream passes see the underlying type as if written longhand.
@@ -738,6 +766,7 @@ module PassContextTypes =
             Record = Dictionary<_, _>()
             Union = Dictionary<_, _>()
             Class = Dictionary<_, _>()
+            Enum = Dictionary<_, _>()
             Abbreviation = Dictionary<_, _>()
             CtorIndex = Dictionary<_, _>()
             FieldIndex = Dictionary<_, _>()
@@ -899,6 +928,27 @@ module TypeRegistry =
             match types.Record.TryGetValue name with
             | true, info -> ValueSome(info :> IInterfaceImplHost)
             | false, _ -> ValueNone
+
+    /// Register an enum under its bare short name (enums are non-generic, so no
+    /// arity overload — mirrors records, not unions).
+    let registerEnum (types: PassContextTypes) (name: string) (info: EnumTypeInfo) : unit =
+        types.Enum.[name] <- info
+
+    /// True iff an enum with this name is registered — the enum half of the
+    /// duplicate-definition test.
+    let containsEnum (types: PassContextTypes) (name: string) : bool = types.Enum.ContainsKey name
+
+    /// Resolve an enum by bare short name; `ValueNone` if none. Used by
+    /// `translateType` (`(x: E)` → `TyEnum`) and the `E.C1` qualified-access path.
+    let tryEnum (types: PassContextTypes) (name: string) : EnumTypeInfo voption =
+        match types.Enum.TryGetValue name with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
+
+    /// Resolve an enum by its project-local `SymbolKey` — the enum analogue of
+    /// `tryRecordByKey` (enums aren't arity-overloaded, so project the simple name).
+    let tryEnumByKey (types: PassContextTypes) (key: SymbolKey) : EnumTypeInfo voption =
+        tryEnum types (SymbolKeyOps.simpleName key)
 
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info

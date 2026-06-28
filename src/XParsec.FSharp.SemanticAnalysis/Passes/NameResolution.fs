@@ -445,6 +445,9 @@ module NameResolution =
             registerUnionTypes ctx declNs m
 
         for (m, _, declNs) in pairs do
+            registerEnumTypes ctx declNs m
+
+        for (m, _, declNs) in pairs do
             registerAbbreviationTypes ctx declNs m
 
         for (m, _, declNs) in pairs do

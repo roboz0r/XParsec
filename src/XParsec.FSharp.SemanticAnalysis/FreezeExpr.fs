@@ -46,6 +46,22 @@ module internal FreezeExpr =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
             TExpr.ExternalMember(ValueNone, info.Key, memberName, info.IsProperty, ty, tok)
+        // `E.C1` — an enum-case access. Enum cases ARE static fields on the enum
+        // type (the "cases as static members" decision, mirroring CLR enum field
+        // access), so this lowers to `StaticFieldGet(enumKey, caseName, …)`. The
+        // case's underlying literal is NOT carried on the node — it lives on the
+        // frozen `TTypeKind.Enum` case table (the single source of truth), which
+        // step 5/6 codegen reads off the decl by `enumKey`. `ty` is the `TyEnum`
+        // Unification assigned (`InferIdentExpr`'s enum arm). Guarded by the head
+        // naming a registered enum, which is exclusive with the local-binding /
+        // class / union heads handled elsewhere.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 2
+            && (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).IsSome
+            ->
+            let info = (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).Value
+            let caseName = ctx.NameOf li.Idents.[1]
+            TExpr.StaticFieldGet(info.Key, caseName, ty, tok)
         // `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
         // fallback is purely defensive for error paths where Unification couldn't
         // pin the receiver.

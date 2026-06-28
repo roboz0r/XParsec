@@ -66,6 +66,21 @@ module internal UnificationInferIdentExpr =
                     ValueSome(substituteWith subst m.Type)
                 | None -> ValueNone
 
+            // An enum-case access `E.C1`: the head names a project-local enum, so
+            // the tail must be one of its cases. The value's static type is the
+            // enum itself (`TyEnum Key`), NOT the underlying int/string — the enum
+            // is a distinct nominal. An unknown case is a resolution error, the
+            // enum analogue of the "Union 'U' has no case 'C'" miss below. Enum
+            // names are a separate registry, so this can't collide with a class /
+            // union of the same name (a duplicate is rejected at registration).
+            match ctx.Types.Enum.TryGetValue headName with
+            | true, einfo ->
+                if einfo.HasCase tailName then
+                    TyEnum einfo.Key
+                else
+                    errorTy ctx key (sprintf "Enum '%s' has no case '%s'" headName tailName)
+            | false, _ ->
+
             // Class static member takes priority over union static member which
             // takes priority over a union ctor — preserves the original cascade
             // order so a static member shadows the not-a-case diagnostic.
