@@ -22,7 +22,8 @@ param(
         "XParsec.MessagePack.Tests",
         "XParsec.Tests",
         "XParsec.Toml.Tests",
-        "Vesper.Tests"
+        "Vesper.Tests",
+        "Vesper.Ts.Extractor.Tests"
     )]
     [string]$TestProject,
 
@@ -34,7 +35,9 @@ param(
         "XParsec.FSharp.Codegen.Clr",
         "XParsec.FSharp.Codegen.Js",
         "XParsec.FSharp.SemanticAnalysis",
-        "XParsec.Json"
+        "XParsec.Json",
+        "Vesper.Ts.Manifest.Schema",
+        "Vesper.Ts.Extractor"
     )]
     [string]$SourceProject,
 
