@@ -1049,10 +1049,26 @@ re-key (`emitProtocolMethod` → `[Symbol.for("vesper.equality"|"vesper.comparis
 the three behavioral Node oracles are the coupling gate (167/0/0). All four capabilities now
 dispatch uniformly via `obj[<symbol>](…)`.
 
-**Next candidates (any order; all gated):** (i) Track II disposal — slice 4 (`disposable`
-`extern with` member surface) + slice 5 (model flip: interface-required + ref-struct
-carve-out) + `[Symbol.dispose]` via the same `emitProtocolMethod`-style mechanism; (ii)
-Track I union lift (bare `List` iterability, no `:> seq` upcast).
+**Track II — disposal — DONE (`8e9d2692` D1 · `bea989f6` D2).** `use` is now
+INTERFACE-REQUIRED (real-F# parity; the prior duck-typing was aspirational) with a
+`[<IsByRefLike>]` ref-struct carve-out. The `extern with` member-surface blocker was
+**sidestepped** — disposal rides the enumerable/`List` pattern (a type implements
+`System.IDisposable` directly, `caps.Disposable` matches it). JS emits a native
+`[Symbol.dispose]()` method (`emitDisposeMethod`, member-access symbol like
+`Symbol.iterator`) and `use` lowers to `obj[Symbol.dispose]()`; CLR keeps
+`IDisposable::Dispose`. Duck-typed `UseTests` fixtures corrected to implement
+`System.IDisposable`. `for…of` auto-disposes on JS, so `for-in` finally is free there.
+- **Deferred reconsideration (user, 2026-06-27):** `capabilities.js.fs` `disposable`
+  keeps the CLR `System.IDisposable` byte-spelling (the match key); making the contract
+  literally read `Symbol.dispose` would mean the type implements an abstract `disposable`
+  capability (the `extern with` member-surface route) — revisit once the rest of the plan
+  has landed.
+- **Known latent gap:** a project-local ref-struct carve-out records a LOCAL dispose key,
+  which the CLR `ValueSome` `ExternalMemberRef` path would fault on (untriggered; TODO at
+  `EmitBindings.fs`). Fix = a local-vs-external branch.
+
+**Next candidate:** Tier 3 — tuple arity (§7), the original deferred platform-independence
+item (independent of §14).
 
 ### 14.5 Uniform symbol-keyed capability dispatch on JS (decided 2026-06-27)
 
