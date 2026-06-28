@@ -81,6 +81,7 @@ let private emitWithUtil (input: string) : string =
             Imports = JsImports.create runtime
             ExportTopLevel = false
             CompiledFns = System.Collections.Generic.Dictionary()
+            LocalInterfaces = System.Collections.Generic.HashSet()
         }
 
     (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source

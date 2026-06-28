@@ -307,6 +307,8 @@ module TsManifestProvider =
                         FrozenBaseType = frozenBaseType
                         Flags = ExternalClassFlags.Default
                         Origin = origin
+                        // JS is single-faced — no BCL platform spelling to reconcile.
+                        CapabilityFace = ValueNone
                     }
             )
 
@@ -486,6 +488,8 @@ module TsManifestProvider =
                                 Erased = true
                             }
                         Origin = origin
+                        // JS is single-faced — no BCL platform spelling to reconcile.
+                        CapabilityFace = ValueNone
                     }
             )
 

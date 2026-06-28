@@ -62,8 +62,7 @@ type ExternalSymbol =
         /// use-sites don't share variables, and stamping `Constraints` onto them.
         /// A monomorphic symbol (`TyparArity = 0`) realises to a fresh structurally-
         /// identical `SemType` each call. Built by `monoFrozen` / `scheme`. This is
-        /// the contract surface a provider speaks — `SemType` never crosses it
-        /// (see `docs/external-symbol-frozen-scheme-plan.md`).
+        /// the contract surface a provider speaks — `SemType` never crosses it.
         Scheme: FrozenType
         /// Count of the `Scheme`'s own typars (the single axis a value/free-fn has);
         /// `0` for a monomorphic symbol.
