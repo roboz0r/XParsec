@@ -61,10 +61,11 @@ module TsManifestProvider =
         | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen p.Type)))
 
     let private singleSignature (name: string) (sigs: Schema.Signature list) : Schema.Signature =
-        // Prototype: handle the one-signature case only. Throw (rather than
-        // silently picking the first / synthesizing a default) so an overload set
-        // surfaces a stack trace pointing at exactly what to implement — full
-        // overload sets will ride TryLookupMembers once the extractor emits them.
+        // The bare free-function path is single-signature ONLY: `providerOfManifest`
+        // routes overloaded (N>1) free functions into a synthetic per-module grouping
+        // type (Tier 2 item 9b) before this is reached, so the N>1 arm is now a
+        // defensive guard (it should be unreachable from `funcs`). Throwing — rather
+        // than silently picking the first — keeps that invariant load-bearing.
         match sigs with
         | [ s ] -> s
         | [] -> failwithf "symbol '%s' has no call signature" name
@@ -265,6 +266,33 @@ module TsManifestProvider =
     let private qualify (nsPath: string) (name: string) : string =
         if nsPath = "" then name else nsPath + "." + name
 
+    /// The deterministic SIMPLE name of the synthetic grouping type that holds a
+    /// module's overloaded free functions as static members (Tier 2 item 9b). F# has
+    /// no free-function overloading, so a TS `export function format(x:string);
+    /// export function format(x:number);` cannot ride the name-keyed `funcs` map; the
+    /// overloads are grouped as static members of ONE synthetic type and the call
+    /// (`Util.format(x)`) erases at JS emit to the bare export (`format(x)`).
+    ///
+    /// Rule (stable for the golden): take the LAST '/'-segment of the module
+    /// specifier — handling scoped/pathed specs like `@scope/util` → `util` — and
+    /// upper-case its first character (`util` → `Util`). Derives from the MODULE
+    /// specifier, never a user identifier, so the only way it can collide with a real
+    /// exported type is a same-module type whose name equals the capitalised module
+    /// segment; the caller guards that collision by throwing (it would otherwise
+    /// silently shadow a real type) rather than mangling the name (which would diverge
+    /// from the Phase-2 erase contract that keys off the bare member name, not the
+    /// grouping-type name).
+    let private syntheticTypeName (moduleSpec: string) : string =
+        let lastSeg =
+            match moduleSpec.Split('/') |> Array.filter (fun s -> s <> "") |> Array.tryLast with
+            | Some s -> s
+            | None -> moduleSpec
+
+        if lastSeg = "" then
+            lastSeg
+        else
+            string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
+
     let private toTypeShape
         (kindOf: string -> bool option)
         (moduleSpec: string)
@@ -392,15 +420,111 @@ module TsManifestProvider =
 
         let kindOf (name: string) : bool option = Map.tryFind name typeKinds
 
-        let types =
+        // Partition free functions by call-signature count (Tier 2 item 9b). A
+        // single-signature function stays a BARE free function (the name-keyed `funcs`
+        // map / `TryLookup`). An OVERLOADED one (N>1 signatures) cannot ride the
+        // name-keyed map — F# has no free-function overloading, so the last would win —
+        // so it is grouped into a synthetic per-module static-method type instead.
+        let overloadedFns =
+            flatExports
+            |> List.choose (fun (nsPath, ex) ->
+                match ex with
+                | Schema.Export.Function(name, sigs, import) when List.length sigs > 1 ->
+                    Some(nsPath, name, sigs, import)
+                | _ -> None
+            )
+
+        let regularTypes =
             flatExports
             |> List.choose (fun (nsPath, ex) -> toTypeShape kindOf moduleSpec nsPath ex)
-            |> Map.ofList
+
+        // Synthesize one erased grouping type per (nsPath) GROUP of overloaded free
+        // functions: its static members are the overloads, expanded with `expandMethod`
+        // (reusing 9a) so each carries its own argSig `MemberKey`, and the member name
+        // stays the REAL export name so the Phase-2 erase lowers `Util.format` to the
+        // bare `format`. Grouped by namespace path so namespaced overloads land in a
+        // sibling synthetic type under their qualified name.
+        let syntheticTypes =
+            overloadedFns
+            |> List.groupBy (fun (nsPath, _, _, _) -> nsPath)
+            |> List.map (fun (nsPath, fns) ->
+                // v1 gate (named-imports only): the erase path reuses the existing
+                // named-import `addRef` lowering; Default/Namespace/CommonJS import forms
+                // have no JS AST yet. Throw loudly on a non-Named overloaded free function
+                // so the deferred import-form work is gated to exactly that fixture.
+                for (_, name, _, import) in fns do
+                    match import with
+                    | Schema.ImportShape.Named -> ()
+                    | other ->
+                        failwithf
+                            "overloaded free function '%s' uses import shape %A; only Named imports are supported for the synthetic free-function-overload grouping type (Tier 2 item 9b v1)"
+                            name
+                            other
+
+                let simpleName = syntheticTypeName moduleSpec
+                let qn = qualify nsPath simpleName
+                let declKey = SymbolKey.TypeKey(Some moduleSpec, nsPath, simpleName)
+                let origin = originFor moduleSpec nsPath
+
+                let members =
+                    fns
+                    |> List.collect (fun (_, name, sigs, _) ->
+                        // Reuse the member-overload expansion (9a): wrap the free function's
+                        // signatures as a synthetic STATIC method named after the real export.
+                        let mem: Schema.Member =
+                            {
+                                Name = name
+                                Kind = Schema.MemberKind.Method
+                                Type = None
+                                Signatures = sigs
+                                Static = true
+                                Optional = false
+                            }
+
+                        expandMethod declKey origin 0 MemberKind.Method mem
+                    )
+                    |> List.toArray
+
+                qn,
+                ExternalTypeShape.Class
+                    {
+                        Arity = 0
+                        IsInterface = false
+                        Members = members
+                        FrozenInterfaces = [||]
+                        FrozenBaseType = ValueNone
+                        Flags =
+                            { ExternalClassFlags.Default with
+                                Erased = true
+                            }
+                        Origin = origin
+                    }
+            )
+
+        // Guard the synthetic name against a real exported type of the same qualified
+        // name (structurally possible only when a same-module type matches the
+        // capitalised module segment): silently shadowing it would corrupt resolution.
+        let regularTypeNames = regularTypes |> List.map fst |> Set.ofList
+
+        for (qn, _) in syntheticTypes do
+            if Set.contains qn regularTypeNames then
+                failwithf
+                    "synthetic free-function-overload grouping type '%s' collides with a real exported type of the same name; rename the module or the type"
+                    qn
+
+        let types = (regularTypes @ syntheticTypes) |> Map.ofList
 
         // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
         // so they share the one value map (a variable is a value, not an arrow).
+        // OVERLOADED functions are excluded here — they resolve through their synthetic
+        // type's static members (`TryLookupMembers`), not by bare name.
         let funcs =
-            (flatExports |> List.choose (fun (nsPath, ex) -> toFunctionSymbol nsPath ex))
+            (flatExports
+             |> List.choose (fun (nsPath, ex) ->
+                 match ex with
+                 | Schema.Export.Function(_, sigs, _) when List.length sigs > 1 -> None
+                 | _ -> toFunctionSymbol nsPath ex
+             ))
             @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol nsPath ex))
             |> Map.ofList
 

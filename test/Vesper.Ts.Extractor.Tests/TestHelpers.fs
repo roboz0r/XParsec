@@ -57,6 +57,21 @@ let testManifestCanonical (path: string) =
         | Ok man2 -> Expect.equal man2 man "Manifest does not round-trip through the codec"
         | Error e -> failtestf "canonical form failed to re-parse: %s" e
 
+/// Mirror of `TsManifestProvider.syntheticTypeName` (it is `private`): the SIMPLE
+/// name of the synthetic per-module grouping type that holds a module's overloaded
+/// free functions (Tier 2 item 9b). Kept in lock-step with the provider rule —
+/// last '/'-segment of the module specifier, first char upper-cased.
+let private syntheticTypeName (moduleSpec: string) : string =
+    let lastSeg =
+        match moduleSpec.Split('/') |> Array.filter (fun s -> s <> "") |> Array.tryLast with
+        | Some s -> s
+        | None -> moduleSpec
+
+    if lastSeg = "" then
+        lastSeg
+    else
+        string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
+
 /// Loader invariant: every `Function` export resolves via `TryLookup`; every
 /// `Interface`/`Class` via `TryLookupType`, and each member via `TryLookupMembers`.
 let testProviderResolves (path: string) =
@@ -75,8 +90,40 @@ let testProviderResolves (path: string) =
             let q name = qualify prefix name
 
             match ex with
-            | Schema.Export.Function(name, _, _) ->
-                Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
+            | Schema.Export.Function(name, signatures, _) ->
+                if signatures.Length > 1 then
+                    // Tier 2 item 9b: an OVERLOADED free function is no longer a bare
+                    // function — it is grouped as static members of the synthetic
+                    // per-module type, so it must NOT resolve via `TryLookup`, while the
+                    // synthetic type resolves via `TryLookupType` and its overloads via
+                    // `TryLookupMembers` (one member per signature, distinct keys).
+                    Expect.isTrue
+                        (prov.TryLookup(q name)).IsNone
+                        $"overloaded function '{q name}' should NOT resolve as a bare free function"
+
+                    let synthName = q (syntheticTypeName man.Package)
+
+                    Expect.isTrue
+                        (prov.TryLookupType synthName).IsSome
+                        $"synthetic grouping type '{synthName}' should resolve"
+
+                    let overloads = prov.TryLookupMembers(synthName, name)
+
+                    Expect.equal
+                        overloads.Length
+                        signatures.Length
+                        $"overloaded function '{name}' should resolve to one static member per signature"
+
+                    Expect.isTrue
+                        (overloads |> Array.forall (fun m -> m.IsStatic))
+                        $"overloaded function '{name}' members must be static"
+
+                    Expect.equal
+                        (overloads |> Array.map (fun r -> r.Key) |> Array.distinct |> Array.length)
+                        overloads.Length
+                        $"overloaded function '{name}' members must have distinct keys"
+                else
+                    Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
             | Schema.Export.Interface(name, _, members, heritage)
             | Schema.Export.Class(name, _, members, heritage, _) ->
                 let name = q name

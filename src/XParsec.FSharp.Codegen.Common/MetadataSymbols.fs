@@ -470,6 +470,9 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
             IsAbstract = t.IsAbstract
             AllowNullLiteral = hasAllowNullLiteral t
             IsValueType = t.IsValueType
+            // A real .NET type is never the synthetic free-function-overload grouping
+            // type the TS provider mints; only that provider sets `Erased`.
+            Erased = false
         }
 
     let computeType (name: string) : ExternalTypeShape voption =

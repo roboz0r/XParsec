@@ -311,6 +311,17 @@ type ExternalClassFlags =
         /// first consumer. Contract-layer providers
         /// leave it `false` (a `.fsi` doesn't yet publish struct-ness).
         IsValueType: bool
+        /// `true` for a SYNTHETIC grouping type that does not exist at runtime — its
+        /// static members are bare module-level exports collected under one F#-visible
+        /// type purely so the front end can resolve them (F# has no free-function
+        /// overloading; the TS provider groups overloaded free functions of a module as
+        /// static members of a synthetic type named after the module). A call to such a
+        /// member (`Util.format(x)`) must ERASE at JS emit to the bare export
+        /// (`format(x)`) — the real export name is the bare member name, NOT a mangled
+        /// `Type_member`. SET by the TS-manifest provider (Tier 2 item 9b Phase 1);
+        /// CONSUMED by the JS emit erase branch (Phase 2). Always `false` for real
+        /// (metadata/contract) classes.
+        Erased: bool
     }
 
     /// The conservative default the contract layer stamps when a `.fsi` only
@@ -321,6 +332,7 @@ type ExternalClassFlags =
             IsAbstract = false
             AllowNullLiteral = false
             IsValueType = false
+            Erased = false
         }
 
 /// The two faces of a **dual-faced capability interface** — a `Class` that, like
