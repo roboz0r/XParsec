@@ -20,6 +20,32 @@ open Vesper.Ts.Manifest
 [<Import("writeFileSync", "node:fs")>]
 let private writeFileSync (path: string) (contents: string) : unit = jsNative
 
+// Filesystem + path bindings for the package path (item 18): the synthetic entry
+// file is written/removed on disk, and the package version is read off the nearest
+// `package.json` when the module resolver does not supply a `packageId` (the local /
+// relative case). Imported from node's builtins, mirroring `writeFileSync` above.
+[<Import("existsSync", "node:fs")>]
+let private existsSync (path: string) : bool = jsNative
+
+[<Import("readFileSync", "node:fs")>]
+let private readFileSyncUtf8 (path: string) (encoding: string) : string = jsNative
+
+[<Import("unlinkSync", "node:fs")>]
+let private unlinkSync (path: string) : unit = jsNative
+
+[<Import("join", "node:path")>]
+let private pathJoin (a: string) (b: string) : string = jsNative
+
+[<Import("dirname", "node:path")>]
+let private pathDirname (p: string) : string = jsNative
+
+/// Read a `package.json`'s `version` field, defensively: the value is only a usable
+/// stamp when it is genuinely a string (a malformed manifest can carry any JSON),
+/// so classify by runtime `typeof` (the producer rule — never trust the shape) and
+/// surface `undefined` → `None` for anything else.
+[<Emit("(typeof $0.version === 'string') ? $0.version : undefined")>]
+let private jsonVersionField (parsed: obj) : string option = jsNative
+
 let inline private hasFlag (flags: Ts.SymbolFlags) (test: Ts.SymbolFlags) = int flags &&& int test <> 0
 
 /// A node to anchor `getTypeOfSymbolAtLocation` at — the symbol's declaration.
@@ -649,46 +675,164 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
 // ─── drive + emit ──────────────────────────────────────────────────────────
 
-let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest =
-    let options =
-        jsOptions<Ts.CompilerOptions> (fun o ->
-            o.strict <- Some true // strictNullChecks on: keep `T | null` from collapsing to `T`
-            o.skipLibCheck <- Some true
-            o.noEmit <- Some true
-        )
+/// Walk a MODULE symbol's exports into the manifest's `Export` list. Shared by the
+/// single-file path (`extractFile`) and the package-entry path (`extractPackage`):
+/// both resolve a module symbol — one for a local `.d.ts`, one for the package entry
+/// the synthetic-entry program pulled in — and from there the export surface is the
+/// same. `getExportsOfModule` deliberately omits the `export =` entry (a CommonJS
+/// `export = X` is not a named member of the module — `tryGetMemberInModuleExports`
+/// filters it out too), so read it straight from the symbol's export table under its
+/// reserved internal name and prepend it. The entry is an alias; `mapExport` follows it.
+let private extractModuleExports (checker: Ts.TypeChecker) (moduleSym: Ts.Symbol) : Schema.Export list =
+    let exportSyms =
+        let named = checker.getExportsOfModule moduleSym |> List.ofSeq
+        let exportEqKey: Ts.__String = U2.Case2 Ts.InternalSymbolName.ExportEquals
 
+        match moduleSym.exports with
+        | Some tbl when tbl.has exportEqKey -> tbl.get exportEqKey :: named
+        | _ -> named
+
+    exportSyms |> List.choose (mapExport checker)
+
+let private moduleSymbolOf (checker: Ts.TypeChecker) (sf: Ts.SourceFile) (label: string) : Ts.Symbol =
+    match checker.getSymbolAtLocation (unbox sf) with
+    | None -> failwithf "'%s' is not a module (no exports found)" label
+    | Some moduleSym -> moduleSym
+
+// Compiler options shared by both paths. `strict` keeps `T | null` from collapsing
+// to `T` (strictNullChecks); `skipLibCheck`/`noEmit` keep the run lib-agnostic and
+// side-effect-free. The package path additionally needs module resolution wired (it
+// resolves a bare specifier through node's algorithm), but adding those options to
+// the single-file program would not change its exports — so for safety the
+// single-file builder is left byte-for-byte as before and the package builder layers
+// the resolution options on top.
+let private baseOptions () : Ts.CompilerOptions =
+    jsOptions<Ts.CompilerOptions> (fun o ->
+        o.strict <- Some true
+        o.skipLibCheck <- Some true
+        o.noEmit <- Some true
+    )
+
+let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest =
+    let options = baseOptions ()
     let program = ts.createProgram (ResizeArray [ dtsPath ], options)
     let checker = program.getTypeChecker ()
 
     match program.getSourceFile dtsPath with
     | None -> failwithf "could not load source file '%s'" dtsPath
     | Some sf ->
-        match checker.getSymbolAtLocation (unbox sf) with
-        | None -> failwithf "'%s' is not a module (no exports found)" dtsPath
-        | Some moduleSym ->
-            // `getExportsOfModule` deliberately omits the `export =` entry (a
-            // CommonJS `export = X` is not a named member of the module — and
-            // `tryGetMemberInModuleExports` filters it out too), so read it straight
-            // from the symbol's export table under its reserved internal name and
-            // prepend it. The entry is an alias; `mapExport` follows it through.
-            let exportSyms =
-                let named = checker.getExportsOfModule moduleSym |> List.ofSeq
-                let exportEqKey: Ts.__String = U2.Case2 Ts.InternalSymbolName.ExportEquals
+        let moduleSym = moduleSymbolOf checker sf dtsPath
 
-                match moduleSym.exports with
-                | Some tbl when tbl.has exportEqKey -> tbl.get exportEqKey :: named
-                | _ -> named
+        {
+            SchemaVersion = Schema.SchemaVersion
+            Package = packageName
+            // A single local `.d.ts` carries no package version (no resolving
+            // `package.json`), so the stamp stays `null` — preserved exactly.
+            Version = None
+            Exports = extractModuleExports checker moduleSym
+        }
 
-            let exports = exportSyms |> List.choose (mapExport checker)
+/// The package version stamp (item 18). Preference order:
+///   1. the resolver's `packageId.version` — populated when the entry was resolved
+///      out of `node_modules` (an installed `@types/*` package);
+///   2. the nearest `package.json`'s `version` walking up from the resolved entry —
+///      the local / relative case the resolver leaves `packageId`-less.
+/// Returns `None` only when neither yields a string (the stamp is genuinely absent).
+let private packageVersionOf (resolvedModule: Ts.ResolvedModuleFull) (resolvedFileName: string) : string option =
+    let fromPackageId =
+        match resolvedModule.packageId with
+        | Some pid when not (System.String.IsNullOrEmpty pid.version) -> Some pid.version
+        | _ -> None
+
+    match fromPackageId with
+    | Some _ -> fromPackageId
+    | None ->
+        // Walk up from the entry file's directory to the filesystem root, taking the
+        // FIRST `package.json` found — the package's own manifest sits closest, so it
+        // wins over any ancestor (a monorepo root, the repo itself).
+        let rec walk (dir: string) : string option =
+            let pj = pathJoin dir "package.json"
+
+            if existsSync pj then
+                jsonVersionField (JS.JSON.parse (readFileSyncUtf8 pj "utf8"))
+            else
+                let parent = pathDirname dir
+
+                if parent = dir then None else walk parent
+
+        walk (pathDirname resolvedFileName)
+
+/// Pull a package's full `.d.ts` module-graph closure via the synthetic-entry-file
+/// approach (item 18). A throwaway entry module that `export *`-s the requested
+/// `specifier` is written into `resolveFromDir` (so BOTH relative specifiers and
+/// `node_modules` resolution anchor there); `ts.createProgram` over it pulls the entry
+/// plus everything it re-exports/imports across files. We then resolve the specifier to
+/// the package ENTRY source file and walk ITS exports (following its cross-file
+/// re-exports) — not the synthetic entry's — and stamp the package version.
+let extractPackage (specifier: string) (resolveFromDir: string) (packageName: string) : Schema.PackageManifest =
+    let options = baseOptions ()
+    // Module resolution must be wired for the bare/relative specifier to resolve and
+    // for the closure to be pulled. Node10 is the classic node algorithm (honours a
+    // package's `types`/`typings` and `index.d.ts`); ESNext module keeps `export *`
+    // an ES re-export. Set via the typed enum constants, never raw numerics.
+    options.moduleResolution <- Some Ts.ModuleResolutionKind.Node10
+    options.``module`` <- Some Ts.ModuleKind.ESNext
+
+    let host = ts.createCompilerHost options
+    // The synthetic entry lives in `resolveFromDir` under a reserved name; a `.ts`
+    // (not `.d.ts`) so its `export *` is an ordinary module re-export. Removed in the
+    // `finally` so a fixture directory is never left polluted, even on a throw.
+    let entryPath = pathJoin resolveFromDir "__vesper_synthetic_entry__.ts"
+    writeFileSync entryPath (sprintf "export * from \"%s\";\n" specifier)
+
+    try
+        let program = ts.createProgram (ResizeArray [ entryPath ], options, host)
+        let checker = program.getTypeChecker ()
+
+        // Resolve the specifier to the package's entry `.d.ts` (+ version) through the
+        // SAME host/options the program used, so the resolved path matches a program
+        // source file. `host` is a `CompilerHost`, a subtype of the `ModuleResolutionHost`
+        // the resolver wants.
+        let resolution = ts.resolveModuleName (specifier, entryPath, options, host)
+
+        match resolution.resolvedModule with
+        | None -> failwithf "could not resolve package '%s' from '%s'" specifier resolveFromDir
+        | Some resolvedModule ->
+            let resolvedFileName = resolvedModule.resolvedFileName
+
+            // The program loaded the closure keyed by TS's normalised file names
+            // (forward slashes). `getSourceFile` keys on the same normalisation, but the
+            // resolver's path can differ by slash direction on Windows — so fall back to
+            // a slash-normalised scan of the program's source files before giving up.
+            let sf =
+                match program.getSourceFile resolvedFileName with
+                | Some sf -> sf
+                | None ->
+                    let norm (p: string) = p.Replace("\\", "/")
+                    let target = norm resolvedFileName
+
+                    match program.getSourceFiles () |> Seq.tryFind (fun f -> norm f.fileName = target) with
+                    | Some sf -> sf
+                    | None -> failwithf "resolved entry '%s' is not in the program" resolvedFileName
+
+            let moduleSym = moduleSymbolOf checker sf resolvedFileName
 
             {
                 SchemaVersion = Schema.SchemaVersion
                 Package = packageName
-                Version = None
-                Exports = exports
+                Version = packageVersionOf resolvedModule resolvedFileName
+                Exports = extractModuleExports checker moduleSym
             }
+    finally
+        if existsSync entryPath then
+            unlinkSync entryPath
 
 let run (dtsPath: string) (packageName: string) (outPath: string) : unit =
     let manifest = extractFile dtsPath packageName
+    writeFileSync outPath (Codec.serialize manifest)
+    eprintfn "Wrote %s (%d exports)" outPath manifest.Exports.Length
+
+let runPackage (specifier: string) (resolveFromDir: string) (packageName: string) (outPath: string) : unit =
+    let manifest = extractPackage specifier resolveFromDir packageName
     writeFileSync outPath (Codec.serialize manifest)
     eprintfn "Wrote %s (%d exports)" outPath manifest.Exports.Length

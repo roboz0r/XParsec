@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 0,
+  "package": "multifile",
+  "version": "1.2.3",
+  "exports": [
+    {
+      "export": "function",
+      "name": "totalArea",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "shapes",
+              "type": {
+                "k": "named",
+                "name": "Array",
+                "args": [
+                  {
+                    "k": "named",
+                    "name": "Shape",
+                    "args": []
+                  }
+                ]
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "float",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Drawing",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "name",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "shapes",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "Array",
+            "args": [
+              {
+                "k": "named",
+                "name": "Shape",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "interface",
+      "name": "Shape",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "kind",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "area",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "float",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ]
+}

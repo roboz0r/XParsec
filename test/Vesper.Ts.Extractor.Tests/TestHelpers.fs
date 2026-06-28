@@ -28,6 +28,42 @@ let dtsFiles =
         (Directory.GetFiles(specsDir.Value, "*.d.ts", SearchOption.AllDirectories)
          |> Array.sort)
 
+// ─── package fixtures (item 18: multi-file / package entry) ─────────────────
+//
+// A package fixture is a DIRECTORY (entry `.d.ts` + sibling `.d.ts` modules +
+// `package.json`), not a flat `.d.ts`, so it lives in a SEPARATE `pkgs/` tree.
+// This is deliberate, and it is also how the orphan guard stays correct: that guard
+// (`findOrphans`) pairs a `.d.ts` with a same-base `.manifest.json`, but a package
+// has MANY `.d.ts` and ONE manifest — globbing them under `specs/` would false-flag
+// every sibling. Keeping packages out of the `specs/` globs (above) sidesteps that
+// entirely, so the guard needs no special-casing. (The dir is `pkgs/`, not the
+// natural `packages/`, only because the repo `.gitignore` swallows `**/[Pp]ackages/*`
+// as a NuGet convention — which would otherwise leave the fixture uncommitted.)
+//
+// Convention per package dir `D`: the manifest golden is `D/D.manifest.json`, the
+// entry is resolved as the relative specifier `./D` from the `pkgs/` dir, and the
+// package name is `D`.
+let packagesDir =
+    lazy DirectoryInfo(Path.Combine(__SOURCE_DIRECTORY__, "pkgs")).FullName
+
+let packageDirs =
+    lazy
+        (if Directory.Exists packagesDir.Value then
+             Directory.GetDirectories packagesDir.Value |> Array.sort
+         else
+             [||])
+
+let packageManifestOf (pkgDir: string) =
+    Path.Combine(pkgDir, Path.GetFileName pkgDir + ".manifest.json")
+
+let packageManifestFiles = lazy (packageDirs.Value |> Array.map packageManifestOf)
+
+/// Every committed manifest — single-file specs AND package fixtures — so the
+/// canonical-form and provider-resolution suites cover both (a package manifest is a
+/// `PackageManifest` like any other; the cross-file closure is invisible to them).
+let allManifestFiles =
+    lazy (Array.append manifestFiles.Value packageManifestFiles.Value)
+
 let private updateSnapshots =
     Environment.GetEnvironmentVariable "UPDATE_SNAPSHOTS" |> isNull |> not
 
@@ -290,3 +326,55 @@ let testExtractorMatchesGolden (dtsPath: string) =
                 (normalize actual)
                 (normalize (File.ReadAllText golden))
                 "Extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"
+
+/// Package-entry golden contract (item 18): run the compiled extractor in PACKAGE
+/// mode (`--package <specifier> <resolveFromDir> <packageName> <outPath>`) on a
+/// fixture DIRECTORY and assert its output equals `D/D.manifest.json`. The package is
+/// resolved as the relative specifier `./D` from the `packages/` dir, so the
+/// synthetic-entry + module resolver pull the cross-file `.d.ts` closure. Same
+/// skip/refresh semantics as the single-file path.
+let testExtractorMatchesGoldenPackage (pkgDir: string) =
+    if not (File.Exists extractorJs.Value) then
+        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+
+    let packageName = Path.GetFileName pkgDir
+    let specifier = "./" + packageName
+    let resolveFromDir = packagesDir.Value
+    let golden = packageManifestOf pkgDir
+
+    let outPath = Path.Combine(Path.GetTempPath(), packageName + ".vesper.pkg.out.json")
+
+    let started =
+        try
+            let psi = ProcessStartInfo("node")
+            psi.ArgumentList.Add extractorJs.Value
+            psi.ArgumentList.Add "--package"
+            psi.ArgumentList.Add specifier
+            psi.ArgumentList.Add resolveFromDir
+            psi.ArgumentList.Add packageName
+            psi.ArgumentList.Add outPath
+            psi.RedirectStandardError <- true
+            psi.RedirectStandardOutput <- true
+            psi.UseShellExecute <- false
+            Some(Process.Start psi)
+        with _ ->
+            None // node not on PATH
+
+    match started with
+    | None -> skiptest "node not available; skipping extractor run"
+    | Some p ->
+        let stderr = p.StandardError.ReadToEnd()
+        p.WaitForExit()
+
+        if p.ExitCode <> 0 then
+            failtestf "package extractor failed (exit %d): %s" p.ExitCode stderr
+
+        let actual = File.ReadAllText outPath
+
+        if updateSnapshots then
+            File.WriteAllText(golden, actual.TrimEnd() + "\n")
+        else
+            Expect.equal
+                (normalize actual)
+                (normalize (File.ReadAllText golden))
+                "Package extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"

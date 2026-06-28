@@ -16,7 +16,8 @@ let goldenTests =
             testList
                 "manifest canonical form"
                 [
-                    for path in manifestFiles.Value do
+                    // Single-file specs AND package fixtures: every committed manifest.
+                    for path in allManifestFiles.Value do
                         test $"canonical: {Path.GetFileName path}" { testManifestCanonical path }
                 ]
 
@@ -24,7 +25,7 @@ let goldenTests =
             testList
                 "provider resolution"
                 [
-                    for path in manifestFiles.Value do
+                    for path in allManifestFiles.Value do
                         test $"resolves: {Path.GetFileName path}" { testProviderResolves path }
                 ]
 
@@ -38,5 +39,14 @@ let goldenTests =
                 [
                     for path in dtsFiles.Value do
                         test $"extract: {Path.GetFileName path}" { testExtractorMatchesGolden path }
+                ]
+
+            // Package-entry golden (item 18): run the extractor in package mode over
+            // each `packages/<D>` fixture, pulling its cross-file `.d.ts` closure.
+            testList
+                "package extractor output matches golden"
+                [
+                    for pkgDir in packageDirs.Value do
+                        test $"extract-package: {Path.GetFileName pkgDir}" { testExtractorMatchesGoldenPackage pkgDir }
                 ]
         ]
