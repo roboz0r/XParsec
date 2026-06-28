@@ -103,6 +103,17 @@ let findOrphans () : string list =
 
     Set.union missingManifest missingDts |> Set.toList
 
+/// Orphan guard, tolerant of regeneration: under `UPDATE_SNAPSHOTS` a freshly
+/// added `.d.ts` has no `.manifest.json` yet (the extractor stage writes it), so
+/// skip rather than fail mid-regeneration.
+let testNoOrphans () =
+    if updateSnapshots then
+        skiptest "regenerating snapshots; orphan check skipped"
+
+    match findOrphans () with
+    | [] -> ()
+    | orphans -> failtestf "orphaned spec files:\n%s" (String.concat "\n" orphans)
+
 /// The Fable-compiled extractor entrypoint (built via
 /// `dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist`).
 let extractorJs =

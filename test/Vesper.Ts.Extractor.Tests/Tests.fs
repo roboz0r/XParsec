@@ -28,11 +28,7 @@ let goldenTests =
                         test $"resolves: {Path.GetFileName path}" { testProviderResolves path }
                 ]
 
-            test "no orphaned spec files" {
-                match findOrphans () with
-                | [] -> ()
-                | orphans -> failtestf "orphaned spec files:\n%s" (String.concat "\n" orphans)
-            }
+            test "no orphaned spec files" { testNoOrphans () }
 
             // The real `.d.ts → manifest` golden: run the compiled extractor on
             // each fixture and assert its output equals the sibling `.manifest.json`.

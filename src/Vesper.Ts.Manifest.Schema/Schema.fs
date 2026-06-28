@@ -26,8 +26,8 @@ type TypeRef =
     /// Curried function arrow.
     | Fun of args: TypeRef list * ret: TypeRef
     | Tuple of items: TypeRef list
-    /// Anonymous structural union → `TyOr`. `null`/`undefined` arrive already
-    /// folded to the `unit` member (plan: `T | null | undefined → TyOr [T; unit]`).
+    /// Anonymous structural union → `TyOr`. `null`/`undefined` ride in as their
+    /// own members (NOT folded): `T | null | undefined → TyOr [T; null; undefined]`.
     | Union of members: TypeRef list
     /// `any` → `TyDynamic` (deferred front-end type).
     | Dynamic

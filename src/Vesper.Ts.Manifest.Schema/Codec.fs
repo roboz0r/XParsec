@@ -17,6 +17,16 @@ open Vesper.Ts.Manifest.Schema
 
 let inline private (>>=) (r: Result<'a, string>) (f: 'a -> Result<'b, string>) = Result.bind f r
 
+/// Minimal `result { }` CE over `Result<_, string>` — keeps the decoders flat
+/// (linear `let!`s) instead of nested `>>= fun x ->` ladders, without taking a
+/// dependency on an external Result library. Fable-compiles (just `Result.bind`).
+type private ResultBuilder() =
+    member inline _.Bind(r: Result<'a, string>, f: 'a -> Result<'b, string>) = Result.bind f r
+    member inline _.Return(x: 'a) : Result<'a, string> = Ok x
+    member inline _.ReturnFrom(r: Result<'a, string>) = r
+
+let private result = ResultBuilder()
+
 let private traverse (f: 'a -> Result<'b, string>) (xs: 'a seq) : Result<'b list, string> =
     let acc = System.Collections.Generic.List<'b>()
     let mutable err = None
@@ -76,11 +86,24 @@ let private field (name: string) (m: JsonObject) : Result<JsonValue, string> =
     | Some v -> Ok v
     | None -> Error(sprintf "missing field '%s'" name)
 
-let private optStringField (name: string) (m: JsonObject) : Result<string option, string> =
+/// Read a required field and run a reader/decoder over it.
+let inline private readField (name: string) (reader: JsonValue -> Result<'a, string>) (m: JsonObject) =
+    field name m >>= reader
+
+/// Read a required array field and decode each element.
+let inline private listField (name: string) (decode: JsonValue -> Result<'a, string>) (m: JsonObject) =
+    field name m >>= asArray >>= traverse decode
+
+/// Read an optional field (absent or JSON `null` → `None`).
+let private optField
+    (name: string)
+    (decode: JsonValue -> Result<'a, string>)
+    (m: JsonObject)
+    : Result<'a option, string> =
     match tryField name m with
     | Some JsonValue.Null
     | None -> Ok None
-    | Some v -> asString v >>= (fun s -> Ok(Some s))
+    | Some v -> decode v >>= (fun x -> Ok(Some x))
 
 // ─── JsonValue builders ────────────────────────────────────────────────────
 
@@ -136,53 +159,43 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
             ]
 
 let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
-    asObject j
-    >>= fun m ->
-        field "k" m
-        >>= asString
-        >>= fun k ->
-            match k with
-            | "named" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "args" m
-                    >>= asArray
-                    >>= traverse decodeTypeRef
-                    >>= fun a -> Ok(TypeRef.Named(name, a))
-            | "typar" -> field "i" m >>= asInt >>= (fun i -> Ok(TypeRef.Typar i))
-            | "fun" ->
-                field "args" m
-                >>= asArray
-                >>= traverse decodeTypeRef
-                >>= fun a -> field "ret" m >>= decodeTypeRef >>= (fun r -> Ok(TypeRef.Fun(a, r)))
-            | "tuple" ->
-                field "items" m
-                >>= asArray
-                >>= traverse decodeTypeRef
-                >>= fun a -> Ok(TypeRef.Tuple a)
-            | "union" ->
-                field "members" m
-                >>= asArray
-                >>= traverse decodeTypeRef
-                >>= fun a -> Ok(TypeRef.Union a)
-            | "dynamic" -> Ok TypeRef.Dynamic
-            | "structural" ->
-                field "hash" m
-                >>= asString
-                >>= fun h ->
-                    field "fields" m
-                    >>= asArray
-                    >>= traverse decodeStructField
-                    >>= fun fields -> Ok(TypeRef.Structural(h, fields))
-            | other -> Error(sprintf "unknown TypeRef kind '%s'" other)
+    result {
+        let! m = asObject j
+        let! k = readField "k" asString m
+
+        match k with
+        | "named" ->
+            let! name = readField "name" asString m
+            let! args = listField "args" decodeTypeRef m
+            return TypeRef.Named(name, args)
+        | "typar" ->
+            let! i = readField "i" asInt m
+            return TypeRef.Typar i
+        | "fun" ->
+            let! args = listField "args" decodeTypeRef m
+            let! ret = readField "ret" decodeTypeRef m
+            return TypeRef.Fun(args, ret)
+        | "tuple" ->
+            let! items = listField "items" decodeTypeRef m
+            return TypeRef.Tuple items
+        | "union" ->
+            let! members = listField "members" decodeTypeRef m
+            return TypeRef.Union members
+        | "dynamic" -> return TypeRef.Dynamic
+        | "structural" ->
+            let! h = readField "hash" asString m
+            let! fields = listField "fields" decodeStructField m
+            return TypeRef.Structural(h, fields)
+        | other -> return! Error(sprintf "unknown TypeRef kind '%s'" other)
+    }
 
 and private decodeStructField (j: JsonValue) : Result<string * TypeRef, string> =
-    asObject j
-    >>= fun m ->
-        field "name" m
-        >>= asString
-        >>= fun n -> field "type" m >>= decodeTypeRef >>= (fun t -> Ok(n, t))
+    result {
+        let! m = asObject j
+        let! n = readField "name" asString m
+        let! t = readField "type" decodeTypeRef m
+        return (n, t)
+    }
 
 // ─── leaf enums ────────────────────────────────────────────────────────────
 
@@ -226,27 +239,21 @@ let private encodeParam (p: Param) =
         ]
 
 let private decodeParam j =
-    asObject j
-    >>= fun m ->
-        field "name" m
-        >>= asString
-        >>= fun name ->
-            field "type" m
-            >>= decodeTypeRef
-            >>= fun ty ->
-                field "optional" m
-                >>= asBool
-                >>= fun opt ->
-                    field "rest" m
-                    >>= asBool
-                    >>= fun rest ->
-                        Ok
-                            {
-                                Name = name
-                                Type = ty
-                                Optional = opt
-                                Rest = rest
-                            }
+    result {
+        let! m = asObject j
+        let! name = readField "name" asString m
+        let! ty = readField "type" decodeTypeRef m
+        let! opt = readField "optional" asBool m
+        let! rest = readField "rest" asBool m
+
+        return
+            {
+                Name = name
+                Type = ty
+                Optional = opt
+                Rest = rest
+            }
+    }
 
 let private encodeSignature (s: Signature) =
     jObj
@@ -257,24 +264,19 @@ let private encodeSignature (s: Signature) =
         ]
 
 let private decodeSignature j =
-    asObject j
-    >>= fun m ->
-        field "typeParams" m
-        >>= asInt
-        >>= fun tp ->
-            field "params" m
-            >>= asArray
-            >>= traverse decodeParam
-            >>= fun prms ->
-                field "returns" m
-                >>= decodeTypeRef
-                >>= fun ret ->
-                    Ok
-                        {
-                            TypeParams = tp
-                            Params = prms
-                            Returns = ret
-                        }
+    result {
+        let! m = asObject j
+        let! tp = readField "typeParams" asInt m
+        let! prms = listField "params" decodeParam m
+        let! ret = readField "returns" decodeTypeRef m
+
+        return
+            {
+                TypeParams = tp
+                Params = prms
+                Returns = ret
+            }
+    }
 
 let private encodeMember (mem: Member) =
     jObj
@@ -291,38 +293,25 @@ let private encodeMember (mem: Member) =
         ]
 
 let private decodeMember j =
-    asObject j
-    >>= fun m ->
-        field "name" m
-        >>= asString
-        >>= fun name ->
-            field "kind" m
-            >>= decodeMemberKind
-            >>= fun kind ->
-                field "signatures" m
-                >>= asArray
-                >>= traverse decodeSignature
-                >>= fun signatures ->
-                    field "static" m
-                    >>= asBool
-                    >>= fun isStatic ->
-                        field "optional" m
-                        >>= asBool
-                        >>= fun opt ->
-                            (match tryField "type" m with
-                             | Some JsonValue.Null
-                             | None -> Ok None
-                             | Some t -> decodeTypeRef t >>= (fun x -> Ok(Some x)))
-                            >>= fun ty ->
-                                Ok
-                                    {
-                                        Name = name
-                                        Kind = kind
-                                        Type = ty
-                                        Signatures = signatures
-                                        Static = isStatic
-                                        Optional = opt
-                                    }
+    result {
+        let! m = asObject j
+        let! name = readField "name" asString m
+        let! kind = readField "kind" decodeMemberKind m
+        let! signatures = listField "signatures" decodeSignature m
+        let! isStatic = readField "static" asBool m
+        let! opt = readField "optional" asBool m
+        let! ty = optField "type" decodeTypeRef m
+
+        return
+            {
+                Name = name
+                Kind = kind
+                Type = ty
+                Signatures = signatures
+                Static = isStatic
+                Optional = opt
+            }
+    }
 
 // ─── Export (recursive via Namespace) ──────────────────────────────────────
 
@@ -388,108 +377,52 @@ let rec encodeExport (e: Export) : JsonValue =
             ]
 
 let rec decodeExport (j: JsonValue) : Result<Export, string> =
-    asObject j
-    >>= fun m ->
-        field "export" m
-        >>= asString
-        >>= fun tag ->
-            match tag with
-            | "function" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "signatures" m
-                    >>= asArray
-                    >>= traverse decodeSignature
-                    >>= fun signatures ->
-                        field "import" m
-                        >>= decodeImport
-                        >>= fun import -> Ok(Export.Function(name, signatures, import))
-            | "interface" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "typeParams" m
-                    >>= asInt
-                    >>= fun tp ->
-                        field "members" m
-                        >>= asArray
-                        >>= traverse decodeMember
-                        >>= fun members ->
-                            field "heritage" m
-                            >>= asArray
-                            >>= traverse decodeTypeRef
-                            >>= fun heritage -> Ok(Export.Interface(name, tp, members, heritage))
-            | "class" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "typeParams" m
-                    >>= asInt
-                    >>= fun tp ->
-                        field "members" m
-                        >>= asArray
-                        >>= traverse decodeMember
-                        >>= fun members ->
-                            field "heritage" m
-                            >>= asArray
-                            >>= traverse decodeTypeRef
-                            >>= fun heritage ->
-                                field "import" m
-                                >>= decodeImport
-                                >>= fun import -> Ok(Export.Class(name, tp, members, heritage, import))
-            | "typeAlias" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "typeParams" m
-                    >>= asInt
-                    >>= fun tp ->
-                        field "target" m
-                        >>= decodeTypeRef
-                        >>= fun target -> Ok(Export.TypeAlias(name, tp, target))
-            | "enum" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "members" m
-                    >>= asArray
-                    >>= traverse decodeEnumMember
-                    >>= fun members -> Ok(Export.Enum(name, members))
-            | "variable" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "type" m
-                    >>= decodeTypeRef
-                    >>= fun ty ->
-                        field "const" m
-                        >>= asBool
-                        >>= fun isConst ->
-                            field "import" m
-                            >>= decodeImport
-                            >>= fun import -> Ok(Export.Variable(name, ty, isConst, import))
-            | "namespace" ->
-                field "name" m
-                >>= asString
-                >>= fun name ->
-                    field "exports" m
-                    >>= asArray
-                    >>= traverse decodeExport
-                    >>= fun exports -> Ok(Export.Namespace(name, exports))
-            | other -> Error(sprintf "unknown export '%s'" other)
+    result {
+        let! m = asObject j
+        let! tag = readField "export" asString m
+        let! name = readField "name" asString m
+
+        match tag with
+        | "function" ->
+            let! signatures = listField "signatures" decodeSignature m
+            let! import = readField "import" decodeImport m
+            return Export.Function(name, signatures, import)
+        | "interface" ->
+            let! tp = readField "typeParams" asInt m
+            let! members = listField "members" decodeMember m
+            let! heritage = listField "heritage" decodeTypeRef m
+            return Export.Interface(name, tp, members, heritage)
+        | "class" ->
+            let! tp = readField "typeParams" asInt m
+            let! members = listField "members" decodeMember m
+            let! heritage = listField "heritage" decodeTypeRef m
+            let! import = readField "import" decodeImport m
+            return Export.Class(name, tp, members, heritage, import)
+        | "typeAlias" ->
+            let! tp = readField "typeParams" asInt m
+            let! target = readField "target" decodeTypeRef m
+            return Export.TypeAlias(name, tp, target)
+        | "enum" ->
+            let! members = listField "members" decodeEnumMember m
+            return Export.Enum(name, members)
+        | "variable" ->
+            let! ty = readField "type" decodeTypeRef m
+            let! isConst = readField "const" asBool m
+            let! import = readField "import" decodeImport m
+            return Export.Variable(name, ty, isConst, import)
+        | "namespace" ->
+            let! exports = listField "exports" decodeExport m
+            return Export.Namespace(name, exports)
+        | other -> return! Error(sprintf "unknown export '%s'" other)
+    }
 
 and private decodeEnumMember (j: JsonValue) : Result<string * string option, string> =
-    asObject j
-    >>= fun m ->
-        field "name" m
-        >>= asString
-        >>= fun n ->
-            (match tryField "value" m with
-             | Some JsonValue.Null
-             | None -> Ok None
-             | Some v -> asString v >>= (fun s -> Ok(Some s)))
-            >>= fun v -> Ok(n, v)
+    result {
+        let! m = asObject j
+        let! n = readField "name" asString m
+        let! v = optField "value" asString m
+        return (n, v)
+    }
 
 // ─── Manifest + text entrypoints ───────────────────────────────────────────
 
@@ -503,27 +436,21 @@ let encodeManifest (man: PackageManifest) : JsonValue =
         ]
 
 let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
-    asObject j
-    >>= fun m ->
-        field "schemaVersion" m
-        >>= asInt
-        >>= fun ver ->
-            field "package" m
-            >>= asString
-            >>= fun pkg ->
-                optStringField "version" m
-                >>= fun version ->
-                    field "exports" m
-                    >>= asArray
-                    >>= traverse decodeExport
-                    >>= fun exports ->
-                        Ok
-                            {
-                                SchemaVersion = ver
-                                Package = pkg
-                                Version = version
-                                Exports = exports
-                            }
+    result {
+        let! m = asObject j
+        let! ver = readField "schemaVersion" asInt m
+        let! pkg = readField "package" asString m
+        let! version = optField "version" asString m
+        let! exports = listField "exports" decodeExport m
+
+        return
+            {
+                SchemaVersion = ver
+                Package = pkg
+                Version = version
+                Exports = exports
+            }
+    }
 
 let private parseJson (json: string) : Result<JsonValue, string> =
     let reader = Reader.ofString json ()

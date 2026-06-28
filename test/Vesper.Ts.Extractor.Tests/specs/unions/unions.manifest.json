@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 0,
+  "package": "unions",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "pick",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "value",
+              "type": {
+                "k": "union",
+                "members": [
+                  {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  },
+                  {
+                    "k": "named",
+                    "name": "float",
+                    "args": []
+                  }
+                ]
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "undefined",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Config",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "id",
+          "kind": "property",
+          "type": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "float",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "nickname",
+          "kind": "property",
+          "type": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "null",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "middleName",
+          "kind": "property",
+          "type": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "undefined",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "note",
+          "kind": "property",
+          "type": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "undefined",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "null",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ]
+}
