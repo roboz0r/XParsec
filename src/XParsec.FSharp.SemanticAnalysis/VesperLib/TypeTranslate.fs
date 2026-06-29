@@ -442,6 +442,12 @@ module VesperLibTypeTranslate =
             FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
             FTRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Enum(_, origin)) ->
+            // The enum nominal — no args (enums are never generic). The `.fsi`
+            // contract extractor never produces an `Enum` shape (it is a TS-manifest
+            // arm), so this is unreached today, but the mirror keeps the match total
+            // and faithful should a contract enum ever flow through here.
+            FTEnum(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled 0)
         | ValueSome(ExternalTypeShape.Abbrev(_, frozen)) ->
             // Expand the abbreviation by substituting `args` for its declaring
             // placeholders. A still-`deferredTemplate` abbrev (one not yet

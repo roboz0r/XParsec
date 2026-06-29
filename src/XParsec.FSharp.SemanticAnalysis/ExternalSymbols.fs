@@ -148,6 +148,31 @@ type ExternalCaseShape =
             FrozenFieldTypes = fieldNames |> Array.map (fun _ -> deferredTemplate)
         }
 
+/// The compile-time value of an `ExternalEnumCaseShape`, mirroring the manifest
+/// wire `EnumValue` (`Vesper.Ts.Manifest.Schema`): a TS numeric member is an
+/// `int64` (the integer subset the extractor admits), a string member its text.
+/// The numeric *width* is deliberately ABSENT — a TS import has no width notion;
+/// the underlying integral type is the `FrozenType`-layer default (`I32`), a
+/// policy decision at the seam, not data read off the wire (see the enum-support
+/// plan). The numeric / string / mixed VARIANT likewise falls out of a case
+/// table's values (the same "classify, don't bake" rule as the authored
+/// `TEnumCases.classify`); it is never stored.
+[<RequireQualifiedAccess>]
+type ExternalEnumCaseValue =
+    | IntVal of int64
+    | StringVal of string
+
+/// Per-case shape inside an `ExternalTypeShape.Enum`: the case identifier (the
+/// `C1` of `E.C1`) plus its resolved compile-time value. The enum analogue of
+/// `ExternalCaseShape`, but an enum case carries a single scalar literal rather
+/// than a field list — an enum is a closed set of named constant singletons, not
+/// a payload-bearing union. Case order matches the manifest / TS source.
+type ExternalEnumCaseShape =
+    {
+        Name: string
+        Value: ExternalEnumCaseValue
+    }
+
 /// Result of a reverse union-case lookup (`IExternalSymbolProvider.TryLookupUnionCase`):
 /// the declaring union's identity plus the matched case shape. A record rather
 /// than a wide tuple so the union's `Origin` can ride alongside the name/arity
@@ -431,6 +456,22 @@ type ExternalTypeShape =
     /// `ExternalClassShape.FrozenInterfaces`. It lets `tryForInEnumerator` admit a
     /// bare cons-list whose `.fsi` union declares `interface seq<'T>`.
     | Union of arity: int * cases: ExternalCaseShape[] * interfaces: (string * FrozenType[])[] * origin: SymbolOrigin
+    /// A TS-manifest (or otherwise external) enum: a closed, nominal set of named
+    /// constant cases. Case order matches source. Enums are NEVER generic, so —
+    /// unlike `Union` / `Record` — there is no `arity` field (mirroring `TyEnum` /
+    /// `FTEnum`, which carry only a `SymbolKey`, no args). `cases` is the ordered
+    /// name→value table; the numeric / string / mixed variant is DERIVED from the
+    /// values (the authored `TEnumCases.classify` rule), never baked, and a mixed
+    /// import lands gracefully (no throw) — JS's untyped object map is uniform
+    /// across the three. `origin` is filled by the layer that knows where the type
+    /// lives (the TS-manifest provider stamps the module specifier), and is read to
+    /// mint the enum's `SymbolKey` so a use site resolves to `TyEnum` / `FTEnum` and
+    /// JS IMPORTS the enum object (`import { E }`) at each `E.Ci` site rather than
+    /// re-emitting its frozen object map. This is the referenceable body the
+    /// extractor previously dropped behind `Opaque` — closing the enum stub. The
+    /// per-variant CLR repr (`System.Enum` / `[<Struct>]` wrapper) is JS-orthogonal:
+    /// external (TS-sourced) enums are a JS-target feature and never reach CLR codegen.
+    | Enum of cases: ExternalEnumCaseShape[] * origin: SymbolOrigin
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
     /// `ValueNone` today). The members / interfaces / base-type / flags ride
     /// inside `ExternalClassShape`, lifted out of the DU header so interface
@@ -1108,6 +1149,7 @@ module ExternalSymbols =
                     | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
                     | ExternalTypeShape.Union(arity, cases, ifaces, _) ->
                         ExternalTypeShape.Union(arity, cases, ifaces, o)
+                    | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
                     | ExternalTypeShape.Abbrev _
                     | ExternalTypeShape.Intrinsic _
                     | ExternalTypeShape.Opaque _ -> shape

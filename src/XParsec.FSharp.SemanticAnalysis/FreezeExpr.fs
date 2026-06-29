@@ -62,6 +62,15 @@ module internal FreezeExpr =
             let info = (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).Value
             let caseName = ctx.NameOf li.Idents.[1]
             TExpr.StaticFieldGet(info.Key, caseName, ty, tok)
+        // `E.C1` where `E` is an EXTERNAL (TS-manifest) enum: Unification typed the
+        // node `TyEnum key` off the provider's `ExternalTypeShape.Enum` (the external
+        // analogue of the local-enum arm above, which — running first — has already
+        // claimed any project-local head). The key rides `ty`; reuse the SAME
+        // `StaticFieldGet` carrier so JS lowers it through `enumCaseAccess` (which
+        // imports the enum object for an external key) and CLR stays unreachable for
+        // TS-sourced enums.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 && (enumKeyOfTy ty).IsSome ->
+            TExpr.StaticFieldGet((enumKeyOfTy ty).Value, ctx.NameOf li.Idents.[1], ty, tok)
         // `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
         // fallback is purely defensive for error paths where Unification couldn't
         // pin the receiver.

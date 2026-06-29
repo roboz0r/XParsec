@@ -128,6 +128,25 @@ module internal UnificationInferPat =
             // operator's compiled name (`op_Equality`), surfaced by Freeze.
             TyVar(tvOf ctx key)
         | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length = 2
+            && (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).IsSome
+            ->
+            // `| E.C1` external enum-case pattern (a TS-manifest enum). Types as the
+            // enum nominal `TyEnum key` — the external mirror of the project-local
+            // enum arm below; the key matches the `E.C1` expression access and an
+            // `(x: E)` annotation, so the scrutinee unifies. Nullary, but any
+            // (ill-formed) sub-patterns are still walked so their binders register.
+            let enumKey =
+                (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).Value
+
+            for sub in args do
+                inferPat ctx sub |> ignore
+
+            let ty = TyEnum enumKey
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome ty
+            ty
+        | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length = 2 && ctx.Types.Enum.ContainsKey(ctx.NameOf li.Idents.[0])
             ->
             // `| E.C1` — an enum-case constant pattern: the head names a

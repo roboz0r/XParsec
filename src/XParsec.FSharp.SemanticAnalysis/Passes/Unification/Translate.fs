@@ -474,6 +474,7 @@ module internal UnificationTranslate =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Intrinsic _ -> 0
+            | ExternalTypeShape.Enum _ -> 0 // enums are never generic
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a)
@@ -494,6 +495,14 @@ module internal UnificationTranslate =
                             Some(TyRecord(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
                         | ExternalTypeShape.Union(origin = origin) ->
                             Some(TyUnion(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
+                        // An external enum type annotation `(x: E)` → the nominal
+                        // `TyEnum key` (no args — enums are never generic), keyed off
+                        // the same `externalTypeKey origin key 0` an `E.Ci` use site
+                        // mints, so the annotation and the case access unify. The
+                        // enum is a DISTINCT nominal (NOT its underlying int/string),
+                        // exactly like the authored `TyEnum`.
+                        | ExternalTypeShape.Enum(origin = origin) ->
+                            Some(TyEnum(SymbolKeyOps.externalTypeKey origin key 0))
                         // A referenced intrinsic (`exn = (# "System.Exception" #)`):
                         // NON-transparent, resolves to the nominal `TyConst <short>` —
                         // the *unqualified* name, identical to the local arm

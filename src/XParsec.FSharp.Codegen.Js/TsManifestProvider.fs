@@ -323,14 +323,38 @@ module TsManifestProvider =
             // is the alias's declaring-axis arity (item 11): a generic alias `Pair<A,B>`
             // expands `FTTypar(Declaring,0/1)` against the two use-site args.
             Some(qualify nsPath name, ExternalTypeShape.Abbrev(tp, toFrozen target))
-        | Schema.Export.Enum(name, _members) ->
-            // The seam has no enum-member representation: `ExternalTypeShape`'s doc names
-            // an enum as exactly the `Opaque` (body-less) residue, so register the NAME
-            // (keeping `TryLookupType` total) but leave the members unmodelled. Mapping
-            // the members onto the seam needs a settled front-end decision (constant
-            // fields vs a union of literal types) that isn't made yet.
-            // TODO: model enum members once the front end commits to a representation.
-            Some(qualify nsPath name, ExternalTypeShape.Opaque 0)
+        | Schema.Export.Enum(name, members) ->
+            // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
+            // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
+            // identity) and JS imports the object map for. The wire `EnumValue`
+            // (numeric / string) carries straight onto `ExternalEnumCaseValue`; the
+            // numeric / string / mixed variant falls out of the values, never baked.
+            // A `None` (computed / non-constant) member is DROPPED — it has no value
+            // to reference by, so it is unrepresentable as a case; dropping mirrors the
+            // authored JS emission, which omits an unresolved case from the object map.
+            let origin = originFor moduleSpec nsPath
+
+            let cases =
+                members
+                |> List.choose (fun (caseName, v) ->
+                    match v with
+                    | Some(Schema.EnumValue.IntVal n) ->
+                        Some
+                            {
+                                Name = caseName
+                                Value = ExternalEnumCaseValue.IntVal n
+                            }
+                    | Some(Schema.EnumValue.StringVal s) ->
+                        Some
+                            {
+                                Name = caseName
+                                Value = ExternalEnumCaseValue.StringVal s
+                            }
+                    | None -> None
+                )
+                |> List.toArray
+
+            Some(qualify nsPath name, ExternalTypeShape.Enum(cases, origin))
         | _ -> None
 
     let private toFunctionSymbol (nsPath: string) (ex: Schema.Export) : (string * ExternalSymbol) option =

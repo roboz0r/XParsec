@@ -20,6 +20,17 @@ module internal FreezeResolve =
         | ValueSome tv -> Unification.zonk (TyVar tv)
         | ValueNone -> TyVar(TypeVar())
 
+    /// The enum `SymbolKey` a node's type carries, if it is an enum. Both the
+    /// project-local and the external (TS-manifest) `E.C1` arms type their node
+    /// `TyEnum key`, so this is the single signal the expression / pattern freeze
+    /// arms read to reuse the same `StaticFieldGet` / `TPat.EnumCase` carrier — the
+    /// key is the enum's identity whether the cases are emitted locally (object map)
+    /// or imported from a TS module.
+    let enumKeyOfTy (ty: SemType) : SymbolKey voption =
+        match Unification.zonk ty with
+        | TyEnum key -> ValueSome key
+        | _ -> ValueNone
+
     /// Class-name reference only when there's no local `Binding` entry — i.e. it
     /// really is a class name, not a shadowing local. An explicit type application
     /// (`Set<'T>(args)`) wraps the name in `Expr.TypeApp`; peel it so the

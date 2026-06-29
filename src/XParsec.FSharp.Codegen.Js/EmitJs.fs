@@ -350,7 +350,22 @@ module EmitJs =
     let private enumCaseAccess (ctx: WalkCtx) (enumKey: SymbolKey) (caseName: string) (loc: JsLoc voption) : JsExpr =
         match ctx.Enums.TryGetValue enumKey with
         | true, name -> JsExpr.Member(JsExpr.Identifier(name, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
-        | _ -> failwithf "EmitJs: enum case '%s' on a type with no emitted enum object (key %A)" caseName enumKey
+        | _ ->
+            // An EXTERNAL (TS-manifest) enum: its object map is NOT emitted locally —
+            // it lives in the home module the TS extractor produced. Import the enum
+            // object (`import { E } from './<asm>.mjs'`) and read the case (`E.Ci`),
+            // mirroring the external-union case-class import (`addTypeRef`). The
+            // `import { E } + E.Ci` shape is exactly what `tsc` emits for the enum, so
+            // no object map is re-emitted. The key's home assembly selects the module.
+            match enumKey with
+            | SymbolKey.TypeKey(Some asm, _, _) ->
+                let local = JsImports.addTypeRef ctx.Imports asm (SymbolKeyOps.simpleName enumKey)
+                JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
+            | _ ->
+                failwithf
+                    "EmitJs: enum case '%s' on a type with no emitted enum object and no home assembly (key %A)"
+                    caseName
+                    enumKey
 
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
         let loc = locOf ctx (TastWalk.exprTok e)

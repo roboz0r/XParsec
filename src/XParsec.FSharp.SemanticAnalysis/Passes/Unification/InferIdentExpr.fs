@@ -51,6 +51,19 @@ module internal UnificationInferIdentExpr =
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx key li
+        // An EXTERNAL enum-case access `E.C1` — the head names a TS-manifest
+        // (provider) enum, not a project-local one (which the next arm's
+        // `ctx.Types.Enum` lookup handles). Types as the nominal `TyEnum key`, the
+        // external analogue of the local-enum arm below; the key is shared with an
+        // `(x: E)` annotation (`Translate.tryResolveExternalType`), so the two unify.
+        // Guarded ahead of the general two-segment cascade so an external enum head
+        // never falls through to the class/union static path.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length = 2
+            && not (ctx.Bindings.Binding.ContainsKey key)
+            && (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).IsSome
+            ->
+            TyEnum (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).Value
         // Two-segment qualified reference whose head is *not* a local binding:
         // `Math.Pi` / `Lst.Empty` / `Result2.Ok`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when

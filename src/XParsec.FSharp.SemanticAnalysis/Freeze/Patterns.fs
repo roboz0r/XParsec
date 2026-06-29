@@ -147,6 +147,13 @@ module internal FreezePatterns =
             let info = (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).Value
             let caseName = ctx.NameOf li.Idents.[1]
             TPat.EnumCase(info.Key, caseName, ty, tok)
+        // `| E.C1` where `E` is an EXTERNAL (TS-manifest) enum: Unification typed the
+        // pattern `TyEnum key` (the external mirror of the local-enum arm above, which
+        // — running first — claimed any project-local head). The key rides `ty`; reuse
+        // the same `TPat.EnumCase` carrier so codegen lowers it through the shared
+        // enum-case slot (JS imports the enum object for an external key).
+        | Pat.Named(longIdent = li) when li.Idents.Length = 2 && (enumKeyOfTy ty).IsSome ->
+            TPat.EnumCase((enumKeyOfTy ty).Value, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]

@@ -43,6 +43,7 @@ module NameResolutionScope =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Intrinsic _ -> 0
+            | ExternalTypeShape.Enum _ -> 0 // enums are never generic
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a)
@@ -55,7 +56,8 @@ module NameResolutionScope =
             match shape with
             | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKey info.Origin compiled arity
             | ExternalTypeShape.Record(origin = o)
-            | ExternalTypeShape.Union(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
+            | ExternalTypeShape.Union(origin = o)
+            | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
