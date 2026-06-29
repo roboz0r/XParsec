@@ -199,17 +199,11 @@ module BitwiseOperators =
         /// 
         val inline (~~~): value: ^T -> ^T when ^T: (static member (~~~): ^T -> ^T) and default ^T: int
 
-// Non-inline runtime entries for the JS backend (imported from `Vesper.Core.mjs`).
-// The `=` / `<>` / `hash` base arms delegate here for aggregate operands; primitive
-// arms stay inline. The CLR target uses `EqualityComparer` bodies and never references these.
-[<AutoOpen>]
-module StructuralRuntime =
-
-        /// Structural equality of two values (JS runtime entry for aggregate operands).
-        val structuralEquals: x: 'T -> y: 'T -> bool when 'T: equality
-
-        /// Structural hash of a value (JS runtime entry for aggregate operands).
-        val structuralHash: obj: 'T -> int when 'T: equality
+// The JS-only structural runtime entries (`structuralEquals` / `structuralHash`) that
+// once sat here moved to `ops-platform-runtime.js.fsi` (manifest `files-js`): they have
+// no CLR `.fs` body (CLR's `=` / `<>` / `hash` use `EqualityComparer` inline and never
+// reference them), so a CLR-visible `val` was an over-declaration. The JS `=` / `<>` /
+// `hash` base arms still delegate to them, resolved from that JS-only contract.
 
 [<AutoOpen>]
 module EqualityOperators =

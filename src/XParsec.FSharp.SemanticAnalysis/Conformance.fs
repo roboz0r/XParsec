@@ -34,9 +34,16 @@ module Conformance =
         /// the impl's `(# class "repr" #)`); distinct from the opaque `Extern` so the
         /// two species do not cross-pair.
         | ExternClass
-        /// Any other signature type (abbrev, union, record, interface, …). The
-        /// label names the shape for diagnostics only; v1 does not deep-compare
-        /// members.
+        /// `type X = Y` — a transparent type ABBREVIATION. F# resolves it transitively
+        /// to its (implemented or external) target, so it requires NO `.fs` companion of
+        /// its own — a sig-only abbreviation (`ref = Ref<'T>`, `ResizeArray = List<'T>`,
+        /// `seq = …`) is conformant, not a `MissingInImpl`. Kept distinct from `Other` so
+        /// the presence check exempts it by construction (matching F#'s transparent-alias
+        /// resolution), rather than the test pinning it as "expected drift".
+        | Abbrev
+        /// Any other signature type (union, record, interface, …) — a CONCRETE type that
+        /// does require an implementation. The label names the shape for diagnostics
+        /// only; v1 does not deep-compare members.
         | Other of label: string
 
     /// A type declaration as seen in the `.fs` implementation.
@@ -74,12 +81,16 @@ module Conformance =
 
     [<RequireQualifiedAccess>]
     type ConformanceError =
-        /// Declared in the signature (`.fsi`) but not defined in the
-        /// implementation (`.fs`).
+        /// A CONCRETE type (union/record/class/…) is declared in the signature (`.fsi`)
+        /// but not defined in the implementation (`.fs`) — the FS0240 analogue. A
+        /// transparent `Abbrev` (`type X = Y`) is exempt: F# resolves it to its target,
+        /// so a sig-only abbreviation needs no companion.
+        //
+        // NOTE: there is deliberately NO "impl type absent from the sig" error. F# hides
+        // an implementation type that the signature omits (a HiddenTycon — a private impl
+        // detail like Set's AVL-tree nodes), so it is not drift. An impl `(# … #)` repr
+        // with no `extern` IS reported, as `IntrinsicWithoutExtern`.
         | MissingInImpl of name: string
-        /// Defined in the implementation (`.fs`) but not declared in the
-        /// signature (`.fsi`).
-        | MissingInSig of name: string
         /// `extern` in the signature but the implementation provides no `(# … #)`
         /// intrinsic representation (a capability promised with nothing behind it).
         | ExternWithoutIntrinsic of name: string
@@ -90,14 +101,21 @@ module Conformance =
         /// heritable external base (`extern class` / `(# class … #)`) and the other an
         /// opaque value repr (`extern` / `(# … #)`).
         | HeritabilityMismatch of name: string
+        /// A module-level `val` is declared in the signature (`.fsi`) but no
+        /// corresponding `let` is defined in the implementation (`.fs`) — the
+        /// value-granularity FS0240 analogue (F#'s "RequiredButNotSpecified"). The
+        /// converse (a `let` with no `val`) is NOT reported: F# silently allows an
+        /// implementation value absent from the signature (a HiddenVal), so a private
+        /// helper `let` is not drift. (T8 Step 4.1; the signature/typar-ORDER half is the
+        /// SEMANTIC `ConformanceTypars` kernel — Step 4.2 — which runs over the frozen
+        /// TAST, not the raw CST this presence check sees.)
+        | ValueMissingInImpl of name: string
 
     /// Human-readable rendering of a conformance error.
     let describe (e: ConformanceError) : string =
         match e with
         | ConformanceError.MissingInImpl n ->
             sprintf "type '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
-        | ConformanceError.MissingInSig n ->
-            sprintf "type '%s' is defined in the implementation (.fs) but not declared in the signature (.fsi)" n
         | ConformanceError.ExternWithoutIntrinsic n ->
             sprintf
                 "type '%s' is declared 'extern' in the signature (.fsi) but the implementation (.fs) provides no intrinsic representation"
@@ -110,6 +128,8 @@ module Conformance =
             sprintf
                 "type '%s' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
                 n
+        | ConformanceError.ValueMissingInImpl n ->
+            sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
 
     let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
         match tok.Index with
@@ -164,7 +184,7 @@ module Conformance =
         match ts with
         | TypeSignature.Extern(kindTag = ValueSome _) -> SigShape.ExternClass
         | TypeSignature.Extern _ -> SigShape.Extern
-        | TypeSignature.Abbrev _ -> SigShape.Other "abbrev"
+        | TypeSignature.Abbrev _ -> SigShape.Abbrev
         | TypeSignature.Record _ -> SigShape.Other "record"
         | TypeSignature.Union _ -> SigShape.Other "union"
         | TypeSignature.Anon _ -> SigShape.Other "object-model"
@@ -306,7 +326,13 @@ module Conformance =
         for d in sigDecls do
             if seenSig.Add d.Name then
                 match implMap.TryGetValue d.Name with
-                | false, _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
+                // ABSENT impl: a transparent abbreviation resolves to its target and needs
+                // no `.fs` companion (F#'s alias resolution); any other (concrete) sig type
+                // requires one (the FS0240 analogue).
+                | false, _ ->
+                    match d.Shape with
+                    | SigShape.Abbrev -> ()
+                    | _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
                 | true, iShape ->
                     match d.Shape, iShape with
                     | SigShape.Extern, ImplShape.Intrinsic _
@@ -317,21 +343,161 @@ module Conformance =
                         errors.Add(ConformanceError.HeritabilityMismatch d.Name)
                     | (SigShape.Extern | SigShape.ExternClass), ImplShape.Other _ ->
                         errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
-                    | SigShape.Other _, (ImplShape.Intrinsic _ | ImplShape.IntrinsicClass _) ->
+                    // An abbreviation OR a plain `Other` sig paired with an impl intrinsic is
+                    // a repr the contract should have declared `extern` — the sig understates
+                    // it (`type foo = int` / a union, but the impl is `(# … #)`).
+                    | (SigShape.Other _ | SigShape.Abbrev), (ImplShape.Intrinsic _ | ImplShape.IntrinsicClass _) ->
                         errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
-                    | SigShape.Other _, ImplShape.Other _ -> ()
+                    | (SigShape.Other _ | SigShape.Abbrev), ImplShape.Other _ -> ()
 
         let seenImpl = HashSet<string>()
 
+        // Impl types absent from the signature: a plain type is a HiddenTycon (F# hides
+        // it — a private impl detail, NOT drift), so it is not reported. But an impl
+        // `(# … #)` intrinsic with no `extern` in the sig is a primitive repr the contract
+        // never declares — that IS reported, as `IntrinsicWithoutExtern`.
         for d in implDecls do
             if seenImpl.Add d.Name then
                 if not (sigMap.ContainsKey d.Name) then
-                    errors.Add(ConformanceError.MissingInSig d.Name)
+                    match d.Shape with
+                    | ImplShape.Intrinsic _
+                    | ImplShape.IntrinsicClass _ -> errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
+                    | ImplShape.Other _ -> ()
+
+        List.ofSeq errors
+
+    // ---- Value-binding presence (T8 Step 4.1) ------------------------------------
+    //
+    // The kernel now also extracts MODULE-LEVEL `val` (signature) / `let` (impl)
+    // bindings — flattened across nested modules by `CstWalk` — and checks that every
+    // `.fsi` `val` has a matching `.fs` `let`. This is PRESENCE only: it does NOT
+    // compare the signatures or typar order (the "α-equivalence + typar count" half,
+    // Step 4.2). That half cannot run faithfully on the raw CST — `.fsi`/`.fs` differ
+    // legally (`'a list` vs `List<'a>`, `seq<'a>` vs `IEnumerable<'a>`), so a syntactic
+    // comparison flags false drift; it runs in the semantic, abbreviation-resolved
+    // `FrozenType` layer instead — the `ConformanceTypars` kernel (Step 4.2, DONE),
+    // which compares an extracted `.fsi` scheme against the frozen `.fs` binding.
+    //
+    // TYPE MEMBERS (members inside a `type`, e.g. `formatter`'s `AppendFormatted`
+    // overloads) are NOT extracted here — those are T8 Step 6 (generic members,
+    // cross-package). Only `ModuleElem.FunctionOrValue` lets / `ModuleSignatureElement.Val`
+    // sigs participate.
+
+    /// One module-level value binding extracted from a `.fsi` or `.fs` file.
+    [<Struct; NoEquality; NoComparison>]
+    type ValDecl = { Name: string; NameKey: NodeKey }
+
+    /// The RAW source spelling of an `IdentOrOp` binding head (operator token text,
+    /// not the `op_*` compiled name) — enough for cross-side PRESENCE matching, since
+    /// the `.fsi` `val` and `.fs` `let` spell the same operator identically.
+    /// `ValueNone` for active-pattern heads (compiled names are non-trivial; skipped).
+    let private identOrOpRaw (lexed: Lexed) (input: string) (io: IdentOrOp<SyntaxToken>) : string voption =
+        match io with
+        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
+        | IdentOrOp.ParenOp(_, OpName.SymbolicOp op, _) -> ValueSome(nameOfTok lexed input op)
+        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome ".."
+        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome ".. .."
+        | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "[]"
+        | IdentOrOp.StarOp _ -> ValueSome "*"
+        | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) -> ValueNone
+
+    /// The bound name of a `let` binding head pattern (the `.fs` side). Mirrors
+    /// `MemberRegistration.memberNameOf`'s walk: a plain name (`Pat.NamedSimple`), an
+    /// operator/active-pattern head (`Pat.Op` — NOT `Pat.OpNamed`, which is an
+    /// *argument* application pattern), unwrapping `Pat.EnclosedBlock`/`Pat.Typed`.
+    /// `identOrOpRaw` keys operators identically to the `.fsi` `val` side.
+    let rec private patHeadName (lexed: Lexed) (input: string) (p: Pat<SyntaxToken>) : (string * SyntaxToken) voption =
+        match p with
+        | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed input ident, ident)
+        | Pat.Named(longIdent = li) when li.Idents.Length > 0 ->
+            let t = li.Idents.[li.Idents.Length - 1]
+            ValueSome(nameOfTok lexed input t, t)
+        | Pat.Op io ->
+            match identOrOpRaw lexed input io with
+            | ValueSome n -> ValueSome(n, identOrOpHeadTok io)
+            | ValueNone -> ValueNone
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Typed(pat = inner) -> patHeadName lexed input inner
+        | _ -> ValueNone
+
+    /// A representative token for an `IdentOrOp` head, for `NodeKey` attachment.
+    and private identOrOpHeadTok (io: IdentOrOp<SyntaxToken>) : SyntaxToken =
+        match io with
+        | IdentOrOp.Ident tok -> tok
+        | IdentOrOp.ParenOp(lParen = lp) -> lp
+        | IdentOrOp.StarOp(lParen = lp) -> lp
+
+    /// Summarise a parsed signature (`.fsi`) as its module-level `val` bindings (incl.
+    /// `[<Literal>]` vals), in source order, flattened across nested modules.
+    let summariseSigVals (lexed: Lexed) (input: string) (file: SignatureFile<SyntaxToken>) : ValDecl list =
+        let acc = ResizeArray<ValDecl>()
+
+        let addName (name: string) (keyTok: SyntaxToken) =
+            if name <> "" then
+                acc.Add
+                    {
+                        Name = name
+                        NameKey = NodeKey.ofToken keyTok NodeKind.DeclLetBinding
+                    }
+
+        for e in CstWalk.sigFileElems file do
+            match e with
+            | ModuleSignatureElement.Val(ValSig(ident = io)) ->
+                match identOrOpRaw lexed input io with
+                | ValueSome n -> addName n (identOrOpHeadTok io)
+                | ValueNone -> ()
+            | ModuleSignatureElement.ValLiteral(binding = b) ->
+                match patHeadName lexed input b.headPat with
+                | ValueSome(n, t) -> addName n t
+                | ValueNone -> ()
+            | _ -> ()
+
+        List.ofSeq acc
+
+    /// Summarise a parsed implementation (`.fs`) as its module-level `let` bindings,
+    /// in source order, flattened across nested modules.
+    let summariseImplVals (lexed: Lexed) (input: string) (file: ImplementationFile<SyntaxToken>) : ValDecl list =
+        let acc = ResizeArray<ValDecl>()
+
+        for e in CstWalk.implFileElems file do
+            match e with
+            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) ->
+                for b in bs do
+                    match patHeadName lexed input b.headPat with
+                    | ValueSome(n, t) when n <> "" ->
+                        acc.Add
+                            {
+                                Name = n
+                                NameKey = NodeKey.ofToken t NodeKind.DeclLetBinding
+                            }
+                    | _ -> ()
+            | _ -> ()
+
+        List.ofSeq acc
+
+    /// Check that every `.fsi` `val` has a matching `.fs` `let` (by name). The reverse
+    /// (impl `let` with no sig `val`) is intentionally NOT reported — F# silently
+    /// allows it as a HiddenVal, so a private helper is not drift. Errors are returned
+    /// in signature source order (a duplicate name is diagnosed once).
+    let checkValuePresence (sigVals: ValDecl list) (implVals: ValDecl list) : ConformanceError list =
+        let implNames = HashSet<string>()
+
+        for v in implVals do
+            implNames.Add v.Name |> ignore
+
+        let errors = ResizeArray<ConformanceError>()
+        let seen = HashSet<string>()
+
+        for v in sigVals do
+            if seen.Add v.Name then
+                if not (implNames.Contains v.Name) then
+                    errors.Add(ConformanceError.ValueMissingInImpl v.Name)
 
         List.ofSeq errors
 
     /// Convenience over `summariseSig` + `summariseImpl` + `check` for a parsed
-    /// `.fsi` / `.fs` pair (each with its own `Lexed` + source text).
+    /// `.fsi` / `.fs` pair (each with its own `Lexed` + source text). Includes the
+    /// value-presence check (Step 4.1): type findings first, then value findings.
     let checkPair
         (sigLexed: Lexed)
         (sigInput: string)
@@ -340,4 +506,12 @@ module Conformance =
         (implInput: string)
         (implFile: ImplementationFile<SyntaxToken>)
         : ConformanceError list =
-        check (summariseSig sigLexed sigInput sigFile) (summariseImpl implLexed implInput implFile)
+        let typeErrors =
+            check (summariseSig sigLexed sigInput sigFile) (summariseImpl implLexed implInput implFile)
+
+        let valueErrors =
+            checkValuePresence
+                (summariseSigVals sigLexed sigInput sigFile)
+                (summariseImplVals implLexed implInput implFile)
+
+        typeErrors @ valueErrors

@@ -35,6 +35,14 @@ files = [
     "comparison.fsi",
 ]
 
+# JS-only contract files, APPENDED to `files` for the JS target. `structuralCompare` is
+# a JS runtime entry (the `< > <= >=` aggregate bases delegate to it for non-primitive
+# operands, body in `Vesper.Comparison.mjs`); it has no CLR `.fs` body, so it is NOT in
+# the CLR contract.
+files-js = [
+    "comparison-runtime.js.fsi",
+]
+
 # No `impl`: the four ordering operators are signature-only (`let inline` over
 # static-optimized inline IL, spliced at each use site), so the package emits no
 # runtime DLL — `comparison.fs` is purely an inline-body source.

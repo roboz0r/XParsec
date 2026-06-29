@@ -57,6 +57,11 @@ files = [
 # its RHS (`Vesper.disposable`) is already in the registry.
 files-js = [
     "capabilities-compat.js.fsi",
+    # JS-only equality runtime entries (`structuralEquals`/`structuralHash`). Not in the
+    # CLR contract — they have no CLR `.fs` body (CLR `=`/`<>`/`hash` use `EqualityComparer`
+    # inline); the JS `=`/`<>`/`hash` aggregate arms delegate to them, bodies in
+    # `Vesper.Core.mjs`. Appended after `capabilities-compat` (no dependency on it).
+    "ops-platform-runtime.js.fsi",
 ]
 
 # Every `.fs` in the package is listed here (one source of truth, no orphaned

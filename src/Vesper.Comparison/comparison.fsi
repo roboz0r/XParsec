@@ -13,20 +13,11 @@ namespace Vesper
 // default-contract-closure wiring — not in this pass, which is scoped to the
 // Vesper.Core equality slice.
 
-// The non-inline structural-comparison runtime entry the JS aggregate bases call for a
-// non-primitive operand — the ordering analogue of Vesper.Core's
-// `StructuralRuntime.structuralEquals`. JS-body-only (`Vesper.Comparison.mjs`); the CLR
-// target uses its own `Comparer<^T>.Default` base (comparison.fs) and never references
-// this — a `val` whose body is supplied per-target, the established Vesper.Core pattern.
-[<AutoOpen>]
-module ComparisonRuntime =
-
-    /// Structural three-way comparison of two values — the runtime entry the JS
-    /// `< > <= >=` aggregate bases call for a non-primitive operand. Returns a sign
-    /// (-1 / 0 / 1) the bases test against 0. JS body: `Vesper.Comparison.mjs`'s curried
-    /// `structuralCompare` (a shape-keyed walk; consistent with Vesper.Core's
-    /// `structuralEquals` by construction, so equal values compare 0).
-    val structuralCompare: x: 'T -> y: 'T -> int when 'T: comparison
+// The JS-only structural-comparison runtime entry (`structuralCompare`) that once sat
+// here moved to `comparison-runtime.js.fsi` (manifest `files-js`): it has no CLR `.fs`
+// body (CLR `< > <= >=` use `Comparer<^T>.Default` inline and never reference it), so a
+// CLR-visible `val` was an over-declaration. The JS `< > <= >=` base arms still delegate
+// to it, resolved from that JS-only contract.
 
 [<AutoOpen>]
 module ComparisonOperators =

@@ -1,9 +1,13 @@
 # T8 — `.fsi`/`.fs` faithfulness: a paired-implementation subsystem
 
-Status: PLANNED, not started. This supersedes the earlier "design only" note that
-split out of `typar-ordering-unification-plan.md` when T1–T7 landed (commit
-`8efadbf1`). It now carries a concrete audit + sequencing. EPHEMERAL like all
-`docs/*-plan.md` — delete once T8 lands.
+Status (2026-06-29): IN PROGRESS. Steps 1 (except the 1.5c "per-compilation leaf paths"
+sub-step, still PARTIAL — orthogonal to 4.2), 2, 2(a), 3, 4.1 (+ the 4.1b accuracy
+refinement), and **4.2** are DONE — see the per-step DONE/PARTIAL markers in
+**Sequencing**, the authoritative tracker. **The next unstarted work is Step 5** (flip
+`MissingInImpl` to a hard error); Step 6 (generic members) follows.
+This supersedes the earlier "design only" note that split out of
+`typar-ordering-unification-plan.md` when T1–T7 landed (commit `8efadbf1`). EPHEMERAL
+like all `docs/*-plan.md` — delete once T8 lands.
 
 Prerequisite context: T1–T7 unified generic method/value typar ORDERING on the F#
 rule through the single `GeneralizedTypars.canonical` (`GeneralizedTypars.fs`) —
@@ -89,22 +93,23 @@ collapses F#'s separate *check* and *publish* steps.
 
 ## Build on the existing kernel
 
-`Conformance.fs` (`XParsec.FSharp.SemanticAnalysis/Conformance.fs`) already pairs a
-`.fsi`/`.fs`, summarises declared types, and emits the right error family —
-`MissingInImpl` (the FS0240 analogue), `MissingInSig`, `ExternWithoutIntrinsic`,
-`IntrinsicWithoutExtern`. Three gaps are exactly T8's payload:
+`Conformance.fs` (`XParsec.FSharp.SemanticAnalysis/Conformance.fs`) pairs a `.fsi`/`.fs`,
+summarises declared types + module-level values, and emits the error family
+`MissingInImpl` (the FS0240 analogue), `ExternWithoutIntrinsic`, `IntrinsicWithoutExtern`,
+`HeritabilityMismatch`, `ValueMissingInImpl`. (The old `MissingInSig` was DELETED in 4.1b:
+an impl type absent from the sig is a HiddenTycon, F#-legal, not drift.) Three gaps were
+T8's payload — ALL now closed:
 
-1. **Test-only, not a pass.** Invoked solely from `ConformanceTests.fs`, which
-   hard-codes the pair list AND pins "known drift" rows as *expected* — drift is
-   currently locked in as a golden, not rejected.
-2. **Types only, no values.** v1 "does not deep-compare member signatures"; it
-   never looks at `let`/`val` bindings, so it cannot check typar order at all.
-3. **No manifest-driven pairing.** Pairs are a literal list, not derived from the
-   manifest.
+1. ~~Test-only, not a pass.~~ CLOSED (Step 3): `ConformancePass.fs` derives pairs from the
+   manifest; no hard-coded pair list, no pinned "known drift" golden (`acceptedFindings`
+   emptied in 4.1b — real drift fixed at source, not accepted).
+2. ~~Types only, no values.~~ CLOSED (Step 4.1: presence; Step 4.2: typar order via the
+   semantic `ConformanceTypars` kernel). Type MEMBERS still open — Step 6.
+3. ~~No manifest-driven pairing.~~ CLOSED (Step 3).
 
-T8 = promote `Conformance.check` to a manifest-driven pipeline pass, extend it from
-type-presence to value bindings + the faithful two-step, and flip `MissingInImpl`
-from pinned-golden to hard error.
+T8 = promote `Conformance.check` to a manifest-driven pass (DONE), extend it from
+type-presence to value bindings (presence DONE; typar-order = 4.2) + the faithful
+two-step, and flip `MissingInImpl` from a finding to a hard error (Step 5).
 
 ## Name resolution (pairing rules)
 
@@ -172,7 +177,7 @@ explicit target boundary, do not error on it.
 | `Vesper.Printf/structural-printer.fs` (no `.fsi`!) | port exists, never got a contract | **write `structural-printer.fsi`** (ref: `StructuralFormat.cs`; surface = `RuntimeFormatState : IFormatSink`, `StructuralPrinter.Print`) |
 | `Vesper.Printf/printf-format.fsi` (`PrintfFormat`) | NOT dead — cold path instantiates it as **FSharp.Core**'s `PrintfFormat\`4` (`ClrRecipes.fs:170-177`, `ClrEnv.fs:126`) | **self-host `.fs` + retarget cold-path recipe** off FSharp.Core onto the Vesper type. Sequenced dependency on `vesper-printf-plan` cold path; tracked exemption until done. |
 | `Vesper.Printf/printf.fsi` (printf/printfn/sprintf) | front-end intrinsic, lowered inline to `Formatter`/`Format` (like operators) | formal exemption |
-| `Vesper.Printf/formatter.fsi` ↔ `formatter.fs` | paired, but member-level NEVER verified (Conformance is types-only) | first real client of value-level conformance |
+| `Vesper.Printf/formatter.fsi` ↔ `formatter.fs` | paired; module-level value presence now checked (4.1), but its MEMBERS (overloaded `AppendFormatted`, ctors) are still unverified | first real client of MEMBER-level conformance = Step 6 |
 | `Vesper.Exceptions/exceptions.fsi` | impl-free on CLR (BCL-resolved); JS repr via `prim-types-exn` | **per-target** exemption |
 | `Vesper.Core/capabilities-compat.js.fsi` | pure type abbreviations | formal exemption |
 
@@ -539,12 +544,133 @@ handling is ever unified here.
          `(# class "System.Attribute" #)`); `compiler-attributes.fs` added to Vesper.Core
          `impl`. All suites green (Clr 1066, SA 652, JS 175, goldens 1422, Vesper 49).
        This completes Step 2(a) and unblocks the `compiler-attributes` row of Step 2.
-3. **Promote `Conformance.fs` to a manifest-driven pass.** Drive pairing from the
-   manifest (stem + module-decl guard, per-target impl set). Replace
-   `ConformanceTests`' pinned-drift rows with fixes or the exemption list.
-4. **Extend conformance to value bindings + the faithful two-step.** α-equivalence
-   + count check, then publish the `.fsi` typar order onto the impl. This is the
-   original T8 typar-order payload.
+3. **Promote `Conformance.fs` to a manifest-driven pass.** DONE. New
+   `ConformancePass.fs` (after `ReferencedProject.fs`, so it sees the manifest +
+   parser the pure `Conformance.fs` kernel is compiled before): `checkManifest target
+   manifestPath` derives the `.fsi`↔`.fs` pairs from a package `manifest.toml` —
+   stem rule (`foo.fsi` ↔ `foo.<t>.fs` override else `foo.fs`), impl candidate set =
+   `resolveImpl T ∪ resolveInlineBodies T`, and the F#-faithful module-decl guard
+   (paired files must agree on their leading `module`/`namespace` — the
+   `QualifiedNameOfFile` basis; see "How F# actually does it"). Returns a
+   `PackageOutcome` of `Paired`/`SigOnly` per contract + `ImplOnly` (compiled `.fs`
+   with no contract). `ConformanceTests` now DISCOVERS the `Vesper.*` packages from
+   the tree and drives one `checkManifest None` per package. The hardcoded
+   `conformingPairs`/`knownDriftPairs`/`implFreeExemptions` file lists are deleted;
+   manifest-driving immediately widened coverage to the previously-omitted
+   `capabilities`/`structural-format`/`ops-*`/`struct-seq` files. (The `acceptedFindings`
+   multiset that initially classified the surfaced drift was later EMPTIED — see the
+   accuracy refinement under Step 4 — once the check was made F#-accurate and the real
+   discrepancies fixed at source.) `SigOnly` == the recorded impl-free exemptions, and
+   zero module-guard/`ImplOnly` violations. All suites green.
+4. **Extend conformance to value bindings + the faithful two-step.** Split into
+   two sub-steps once the surface was mapped — the α-equivalence/typar-order half
+   provably needs a layer the CST does not have:
+   4.1. **Value-binding PRESENCE** — DONE. The kernel (`Conformance.fs`) now also
+      extracts MODULE-LEVEL `val` (`ModuleSignatureElement.Val`/`ValLiteral`) and `let`
+      (`ModuleElem.FunctionOrValue`) bindings — flattened across nested modules by
+      `CstWalk`, operator heads keyed off `Pat.Op`/`IdentOrOp` raw spelling — and
+      `checkValuePresence` reports `ValueMissingInImpl` for every `.fsi` `val` with no
+      `.fs` `let`. The converse (impl `let`, no sig `val`) is NOT reported: F# silently
+      allows it (a HiddenVal), confirmed by the FCS scout (`accValRemap`), so a private
+      helper is not drift — the value-level mirror of the type-level asymmetry. `checkPair`
+      + `ConformancePass` fold value findings in after the type findings. TYPE MEMBERS
+      (e.g. `formatter`'s overloaded `AppendFormatted`) are NOT extracted here — those are
+      Step 6.
+
+   4.1b. **Accuracy refinement — make the check F#-faithful, fix the real drift at
+      source (NOT an acceptance list).** The first cut pinned the surfaced findings in an
+      `acceptedFindings` golden; that baked acceptance of things that were either F#-legal
+      (so the check was wrong to flag them) or genuine source drift (so they should be
+      fixed, not accepted). Resolved both:
+      - **Kernel made accurate (false positives removed by construction).** A sig type
+        ABBREVIATION (`type X = Y`, new `SigShape.Abbrev`) resolves transitively and needs
+        no `.fs` companion → no `MissingInImpl` for `ref`/`seq`/`ResizeArray`. An impl type
+        absent from the sig is a HiddenTycon (F# hides it) → the `MissingInSig` error was
+        DELETED outright; an impl `(# … #)` intrinsic with no `extern` still reports
+        `IntrinsicWithoutExtern`. This dissolved all eight type "drift" rows
+        (`SetTree`/`Doc`/`ListEnumerator`/… + the abbreviations) without any acceptance.
+      - **Four real `val`-without-`let` discrepancies fixed at source.**
+        `structuralEquals`/`structuralHash` (Vesper.Core) + `structuralCompare`
+        (Vesper.Comparison) were JS-only runtime entries wrongly declared in the *shared*
+        CLR-visible contract (CLR never references them — grep-verified); moved to JS-only
+        `ops-platform-runtime.js.fsi` / `comparison-runtime.js.fsi` in each manifest's
+        `files-js`, so the CLR contract no longer over-declares them and the JS front end
+        still resolves them. `List.ofSeq` was a real forward-declaration consumed by
+        `set.fs`; IMPLEMENTED in `list.fs` (`for x in source` consing + `rev` — the
+        `for .. in` form so each backend lowers the enumeration its own way, closure-free
+        accumulator), retiring the "neither backend implements it" gap.
+      Result: `acceptedFindings` is now EMPTY — every package conforms with zero findings,
+      and the suite carries no pinned drift. Goldens regenerated; CLR (1066) / JS (175) /
+      SA (645) / Vesper (49) green.
+   4.2. **Typar count + α-equivalence + ORDER** — DONE. New `ConformanceTypars.fs`
+      (`XParsec.FSharp.SemanticAnalysis`, after `ConformancePass.fs` — it needs only
+      `FrozenType` / `ExternalSymbol` / `Frozen.TastFile`, NOT `Pipeline`, so the caller runs
+      the front end and hands it the frozen tree). The kernel is `schemesAgree (declared:
+      FrozenType) (inferred: FrozenType) = normAxis declared = normAxis inferred`: a
+      structural `FrozenType` equality after `normAxis` collapses the two sides' single typar
+      axis onto `Method` (a free value/function has exactly ONE typar axis — the `.fsi`'s
+      `FTTypar(Declaring, i)` and the `.fs` module binding's `FTTypar(Method, i)` denote it).
+      Because `FTTypar` is positional, this IS α-equivalence-WITH-ORDER: it fails exactly when
+      the two sides number their typars differently. `checkFile provider tast` walks the
+      frozen `TDecl.Let`s, skips inline (dropped by `Freeze` anyway) and monomorphic / unpublished
+      bindings, resolves each by `Holder.Name` (the source-alias the contract publishes
+      alongside the compiled name) via `provider.TryLookup`, and yields a `TyparMismatch` per
+      generic binding whose inferred `ty` disagrees with the declared `Scheme`.
+
+      WHY this works (the two orders line up by construction): the `.fsi` side is quantified by
+      `VesperLib.translateCurriedSig` (args-first appearance) into `ExternalSymbol.Scheme`; the
+      `.fs` side by `GeneralizedTypars.canonical` (declared-first, then appearance) into the
+      frozen `TDecl.Let.ty` — `Elaborate.freezeTypars` applies the per-binding `quantEnv` so the
+      module-let's `ty` carries `FTTypar(Method, i)` in canonical order. The one drift species
+      this catches is a `.fs` that declares `<'b,'a>` against a `.fsi` whose appearance order is
+      `'a,'b` (see `FreezeTests`' "free function honours declared `<'b,'a>` typar order over
+      appearance").
+
+      Tests: `SemanticAnalysis.Tests/ConformanceTests.fs` "TyparConformance" (5) — the kernel
+      axis-normalization, the canonical `<'b,'a>`-reorder mismatch over the REAL frozen pipeline
+      (stub contract provider pinning the declared order), the conforming control, and the
+      unpublished-binding skip. `Codegen.Clr.Tests/ConformanceTyparsTests.fs` (1) — drives
+      `checkFile` against a contract provider EXTRACTED from a real `.fsi`
+      (`ClrSymbolProviders.buildContract [vesperCoreManifest; vesperListManifest]`) and asserts
+      `list.fs`'s generic module functions (`fold`/`map`/`append`/…) conform, proving the
+      extracted-vs-inferred typar orders agree end-to-end (incl. nominal-key alignment across
+      the two extraction paths). SA 650 / new Clr row green.
+
+      Scoping decisions retained from the design (still load-bearing):
+      - **EXCLUDES SRTP / inline operators** — for a STRUCTURAL reason, not because their
+        `.fsi`/`.fs` typars differ today. An inline body is expanded + SRTP-solved at each
+        call site and NEVER emitted as a fixed-arity generic method, so it has no
+        emitted/extracted typar order for the contract's order to drive; the signature is the
+        sole ABI surface. `checkFile` matches non-inline `Let`s only (and `Freeze` drops inline
+        templates), so they never reach it — and would be exempt even if the body matched the
+        contract exactly. (CORRECTION to the earlier draft, which called this an "intentional
+        divergence": `ops-platform.fs` implements `(+)` as the homogeneous `^T -> ^T -> ^T`
+        while the contract — and real FSharp.Core's body, `prim-types.fs`
+        `let inline (+) (x:^T) (y:^U) : ^V` — is the general `^T1 -> ^T2 -> ^T3`. That
+        one-typar body is a known SIMPLIFICATION, not the intended end state; it is orthogonal
+        to 4.2.)
+
+        **SCOPE BOUNDARY (decided): the one-typar body is a LONG-LIVED exclusion, NOT a T8
+        blocker.** Reconciling the inline-operator body with its three-typar contract is OUT of
+        T8 scope, for a structural reason: the SRTP form `^T1 -> ^T2 -> ^T3 when (^T1 or ^T2):…`
+        has no CLR representation, so a NON-inlined (eta / `reduce (+)`) use is served in
+        FSharp.Core by the `AdditionDynamic`/`CheckedAdditionDynamic` runtime helper
+        (`prim-types.fs:4595`, the body's first line) — machinery Vesper has not ported. The
+        homogeneous `^T -> ^T -> ^T` body is the form that IS emittable as a real generic method
+        (dispatched to the operand type's own `op_Addition`), which is what Step 5's `BuiltinOps`
+        retirement needs. Full parity therefore depends on porting the dynamic-operator runtime —
+        owned by the arithmetic / per-target inline-IL stack (see
+        `project_inline_il_target_specific`), not this `.fsi`/`.fs` faithfulness seam. T8 closes
+        without it: G1 (presence — a paired `.fs` exists) holds and G2 (emitted-method typar
+        order) does not apply to inline bodies. "T8 done" does NOT assert operator FSharp.Core
+        parity.
+      - **Type MEMBERS deferred to Step 6** — `checkFile` reads only module-level
+        `TDecl.Let`s, not `TTypeMemberG.MethodTypeParams`. Cross-package member extraction is
+        Step 6's `MethodArity = 0` work.
+      - **Blocked surface unchanged:** packages whose `.fs` does not yet compile through the
+        pipeline (`set.fs`) are not driven; 4.2's tests cover `list.fs`, which compiles
+        end-to-end. (A whole-tree sweep driving `checkFile` over every package's frozen `.fs`
+        + extracted `.fsi` is a natural follow-on once those compile.)
 5. **Flip `MissingInImpl` to a hard error**; retire `BuiltinOps` (Species 2) and
    the FSharp.Core `PrintfFormat` substitution (Species 4) where a `.fs` now covers
    them.
@@ -589,16 +715,18 @@ the stack. But the two are kin (both are "the real provider should be the source
 - T4's correct-by-construction carrier removed the `.fs`-internal divergence; T8 is
   purely the `.fsi`↔`.fs` seam.
 
-## Tests to add
+## Tests to add (by step)
 
-- A package whose `.fsi` declares `<'b,'a>` for a binding the `.fs` infers `'a,'b`
-  → emitted/extracted order follows the `.fsi`; a downstream consumer's MethodSpec
-  lines up.
-- `formatter.fsi` ↔ `formatter.fs` member-level conformance (first value-level
-  client) goes green.
-- A `.fsi` binding with no `.fs` (a deliberately deleted impl) → hard FS0240-style
+- **[4.2 — DONE]** A `.fs` that declares `<'b,'a>` for a binding whose `.fsi` appearance
+  order is `'a,'b` → `ConformanceTypars.checkFile` reports a `TyparMismatch`; the conforming
+  control (no explicit `<…>`) reports none. Plus the real-package end-to-end check
+  (`list.fs` vs extracted `list.fsi`). (`ConformanceTests.fs` "TyparConformance" +
+  `Codegen.Clr.Tests/ConformanceTyparsTests.fs`.)
+- **[6]** Round-trip: `.fsi` extract → downstream consume → call, asserting
+  GenericParam order == MethodSpec order for a declared-≠-appearance binding.
+- **[6]** `formatter.fsi` ↔ `formatter.fs` MEMBER-level conformance (overloaded
+  `AppendFormatted`, ctors) goes green.
+- **[5]** A `.fsi` binding with no `.fs` (a deliberately deleted impl) → hard FS0240-style
   error, NOT a pinned golden.
-- Per-target: `exceptions.fsi` conforms (impl-free) on CLR and via `prim-types-exn`
-  on JS.
-- Round-trip: `.fsi` extract → downstream consume → call, asserting GenericParam
-  order == MethodSpec order for a declared-≠-appearance binding.
+- **[DONE, 4.1/3]** Per-target: `exceptions.fsi` conforms (impl-free) on CLR (recorded in
+  the `implFreeExemptions` set) and via `prim-types-exn` on JS.

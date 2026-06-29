@@ -145,6 +145,18 @@ module List =
 
     // `toSeq` upcasts the list directly — the cons-list IS a `seq<'T>` now that
     // `List<'T>` implements `IEnumerable<'T>` (the `ListSeq` wrapper is retired).
-    // `ofSeq` stays forward-declared in the `.fsi` only (a consumer name-resolves it)
-    // until its `'T`-consing loop is encodable — see the `.fsi` for the full rationale.
     let toSeq (list: 'T list) : IEnumerable<'T> = (list :> IEnumerable<'T>)
+
+    // `ofSeq` iterates the source with `for x in source`, consing each element to the
+    // front and reversing at the end. The `for .. in` form (not a manual
+    // `GetEnumerator`/`MoveNext` walk) lets each backend lower the enumeration its own
+    // way, so it ports cleanly to JS; the `while`/mutable accumulator keeps the
+    // `'T`-consing loop closure-free, sidestepping the generic-closure codegen that kept
+    // this forward-declared. `Set.ofSeq`/`set.fs` name-resolve it.
+    let ofSeq (source: seq<'T>) : 'T list =
+        let mutable acc = []
+
+        for x in source do
+            acc <- x :: acc
+
+        rev acc

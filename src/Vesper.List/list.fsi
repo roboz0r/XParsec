@@ -178,16 +178,6 @@ open System.Collections.Generic
         val rev: list: 'T list -> 'T list
 
         /// `ofSeq source` builds a new list from the given enumerable object.
-        ///
-        /// Forward-declared: a consumer (`Vesper.Set`) already name-resolves
-        /// `List.ofSeq`, so the contract must carry it, but NEITHER backend implements it
-        /// yet — building a `'T list` from a `seq<'T>` conses `'T` cells inside the loop,
-        /// which the backend cannot encode (the "cannot encode SemType: TyVar" limit
-        /// `list.fs` documents for typar-capturing closures). Unlike the enumerable
-        /// *interfaces* above — whose coercions fail eagerly at codegen if unimplemented,
-        /// so the contract must not advertise an unemitted one — an unimplemented *value*
-        /// resolves and compiles; only a CALL would fault, and the one consumer's call
-        /// sits behind a separate wall (`Seq.truncate`). The impl lands with the encoding.
         val ofSeq: source: seq<'T> -> 'T list
 
         /// `toSeq list` views the given list as a sequence.

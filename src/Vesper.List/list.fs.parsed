@@ -1033,41 +1033,92 @@ namespace                                'namespace'       KWNamespace         t
                                          ']'               KWRBracket          tok=1286  pos=4864
                                          ')'               KWRParen            tok=1287  pos=4865
       FunctionOrValue:
-        let                              'let'             KWLet               tok=1303  pos=5212
-          Pat.NamedSimple                'toSeq'           Identifier          tok=1305  pos=5216
+        let                              'let'             KWLet               tok=1297  pos=5036
+          Pat.NamedSimple                'toSeq'           Identifier          tok=1299  pos=5040
           Pats:
-            ParenBlock                   '('               KWLParen            tok=1307  pos=5222
+            ParenBlock                   '('               KWLParen            tok=1301  pos=5046
               Pat.Typed:
-                Pat.NamedSimple          'list'            Identifier          tok=1308  pos=5223
-                Colon                    ':'               OpColon             tok=1309  pos=5227
+                Pat.NamedSimple          'list'            Identifier          tok=1302  pos=5047
+                Colon                    ':'               OpColon             tok=1303  pos=5051
                 SuffixedType:
                   VarType:
                     Typar.Named:
-                                         ''T'              TypeParameter       tok=1311  pos=5229
-                  Ident                  'list'            Identifier          tok=1313  pos=5232
-                                         ')'               KWRParen            tok=1314  pos=5236
-          ReturnColon                    ':'               OpColon             tok=1316  pos=5238
+                                         ''T'              TypeParameter       tok=1305  pos=5053
+                  Ident                  'list'            Identifier          tok=1307  pos=5056
+                                         ')'               KWRParen            tok=1308  pos=5060
+          ReturnColon                    ':'               OpColon             tok=1310  pos=5062
           GenericType:
-            Ident                        'IEnumerabl...'   Identifier          tok=1318  pos=5240
-            <                            '<'               op_LessThan         tok=1319  pos=5251
+            Ident                        'IEnumerabl...'   Identifier          tok=1312  pos=5064
+            <                            '<'               op_LessThan         tok=1313  pos=5075
             TypeArg.Type:
               VarType:
                 Typar.Named:
-                                         ''T'              TypeParameter       tok=1320  pos=5252
-            >                            '>'               op_GreaterThan      tok=1321  pos=5254
-          =                              '='               OpEquality          tok=1323  pos=5256
-            ParenBlock                   '('               KWLParen            tok=1325  pos=5258
+                                         ''T'              TypeParameter       tok=1314  pos=5076
+            >                            '>'               op_GreaterThan      tok=1315  pos=5078
+          =                              '='               OpEquality          tok=1317  pos=5080
+            ParenBlock                   '('               KWLParen            tok=1319  pos=5082
               StaticUpcast:
                 Expr:
-                  Ident                  'list'            Identifier          tok=1326  pos=5259
-                :>                       ':>'              OpUpcast            tok=1328  pos=5264
+                  Ident                  'list'            Identifier          tok=1320  pos=5083
+                :>                       ':>'              OpUpcast            tok=1322  pos=5088
                 GenericType:
-                  Ident                  'IEnumerabl...'   Identifier          tok=1330  pos=5267
-                  <                      '<'               op_LessThan         tok=1331  pos=5278
+                  Ident                  'IEnumerabl...'   Identifier          tok=1324  pos=5091
+                  <                      '<'               op_LessThan         tok=1325  pos=5102
                   TypeArg.Type:
                     VarType:
                       Typar.Named:
-                                         ''T'              TypeParameter       tok=1332  pos=5279
-                  >                      '>'               op_GreaterThan      tok=1333  pos=5281
-                                         ')'               KWRParen            tok=1334  pos=5282
-    end                                  <virt>            KWEnd               tok=virt  pos=5284
+                                         ''T'              TypeParameter       tok=1326  pos=5103
+                  >                      '>'               op_GreaterThan      tok=1327  pos=5105
+                                         ')'               KWRParen            tok=1328  pos=5106
+      FunctionOrValue:
+        let                              'let'             KWLet               tok=1350  pos=5601
+          Pat.NamedSimple                'ofSeq'           Identifier          tok=1352  pos=5605
+          Pats:
+            ParenBlock                   '('               KWLParen            tok=1354  pos=5611
+              Pat.Typed:
+                Pat.NamedSimple          'source'          Identifier          tok=1355  pos=5612
+                Colon                    ':'               OpColon             tok=1356  pos=5618
+                GenericType:
+                  Ident                  'seq'             Identifier          tok=1358  pos=5620
+                  <                      '<'               op_LessThan         tok=1359  pos=5623
+                  TypeArg.Type:
+                    VarType:
+                      Typar.Named:
+                                         ''T'              TypeParameter       tok=1360  pos=5624
+                  >                      '>'               op_GreaterThan      tok=1361  pos=5626
+                                         ')'               KWRParen            tok=1362  pos=5627
+          ReturnColon                    ':'               OpColon             tok=1364  pos=5629
+          SuffixedType:
+            VarType:
+              Typar.Named:
+                                         ''T'              TypeParameter       tok=1366  pos=5631
+            Ident                        'list'            Identifier          tok=1368  pos=5634
+          =                              '='               OpEquality          tok=1370  pos=5639
+            Let                          'let'             KWLet               tok=1373  pos=5649
+              mutable                    'mutable'         KWMutable           tok=1375  pos=5653
+              Pat.NamedSimple            'acc'             Identifier          tok=1377  pos=5661
+              =                          '='               OpEquality          tok=1379  pos=5665
+                List                     '['               KWLBracket          tok=1381  pos=5667
+                                         ']'               KWRBracket          tok=1382  pos=5668
+            in                           <virt>            KWIn                tok=virt  pos=5679
+            Body:
+              Sequential:
+                ForIn                    'for'             KWFor               tok=1386  pos=5679
+                Pat:
+                  Pat.NamedSimple        'x'               Identifier          tok=1388  pos=5683
+                InToken                  'in'              KWIn                tok=1390  pos=5685
+                Ident                    'source'          Identifier          tok=1392  pos=5688
+                DoToken                  'do'              KWDo                tok=1394  pos=5695
+                Body:
+                  Assignment             '<-'              OpArrowLeft         tok=1399  pos=5714
+                    Ident                'acc'             Identifier          tok=1397  pos=5710
+                    InfixApp             '::'              KWColonColon        tok=1403  pos=5719
+                      Ident              'x'               Identifier          tok=1401  pos=5717
+                      Ident              'acc'             Identifier          tok=1405  pos=5722
+                DoneToken                <virt>            KWDone              tok=virt  pos=5735
+                App:
+                  Func:
+                    Ident                'rev'             Identifier          tok=1409  pos=5735
+                  Args:
+                    Ident                'acc'             Identifier          tok=1411  pos=5739
+    end                                  <virt>            KWEnd               tok=virt  pos=5743

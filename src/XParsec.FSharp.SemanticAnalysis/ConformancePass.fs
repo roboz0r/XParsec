@@ -167,6 +167,20 @@ module ConformancePass =
                                 Conformance.summariseImpl implParsed.Lexed implParsed.Input f
                             | _ -> []
 
+                        // Value-binding presence (Step 4.1): the `.fsi` `val`s and the
+                        // `.fs` `let`s, each empty for the wrong file kind.
+                        let sigVals =
+                            match sigParsed.Ast with
+                            | FSharpAst.SignatureFile sf ->
+                                Conformance.summariseSigVals sigParsed.Lexed sigParsed.Input sf
+                            | _ -> []
+
+                        let implVals =
+                            match implParsed.Ast with
+                            | FSharpAst.ImplementationFile f ->
+                                Conformance.summariseImplVals implParsed.Lexed implParsed.Input f
+                            | _ -> []
+
                         let sigPath = leadingDeclPath sigParsed.Lexed sigParsed.Input sigParsed.Ast
                         let implPath = leadingDeclPath implParsed.Lexed implParsed.Input implParsed.Ast
 
@@ -185,7 +199,10 @@ module ConformancePass =
                                 SigFile = fsiRel
                                 ImplFile = implRel
                                 ModuleMismatch = mismatch
-                                Errors = Conformance.check sigDecls implDecls
+                                // Type-presence/extern findings first, then value-presence.
+                                Errors =
+                                    Conformance.check sigDecls implDecls
+                                    @ Conformance.checkValuePresence sigVals implVals
                             }
                     | Error e, _
                     | _, Error e ->

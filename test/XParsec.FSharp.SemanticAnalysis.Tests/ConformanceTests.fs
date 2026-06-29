@@ -131,22 +131,53 @@ let tests =
                     "sig is opaque, impl is a heritable external base"
             }
 
-            test "type declared in .fsi but absent from .fs → MissingInImpl" {
+            test "concrete type declared in .fsi but absent from .fs → MissingInImpl" {
+                // `bar` is a CONCRETE type (a union) — it requires an implementation, so its
+                // absence is real drift. (A transparent abbreviation would be exempt; see the
+                // dedicated abbreviation test below.)
                 let errors =
                     conform
-                        "namespace V\n\ntype foo = extern\n\ntype bar = int"
+                        "namespace V\n\ntype foo = extern\n\ntype bar = | BarCase"
                         "namespace V\n\ntype foo = (# \"System.Int32\" #)"
 
                 Expect.equal errors [ Conformance.ConformanceError.MissingInImpl "bar" ] "bar missing in impl"
             }
 
-            test "type defined in .fs but absent from .fsi → MissingInSig" {
+            test "plain type defined in .fs but absent from .fsi → no error (HiddenTycon)" {
+                // F# hides an impl type the signature omits (a private impl detail like
+                // Set's AVL-tree nodes); it is not drift, so the check stays silent.
                 let errors =
                     conform
                         "namespace V\n\ntype foo = extern"
                         "namespace V\n\ntype foo = (# \"System.Int32\" #)\n\ntype baz = int"
 
-                Expect.equal errors [ Conformance.ConformanceError.MissingInSig "baz" ] "baz missing in sig"
+                Expect.isEmpty errors "a plain impl-only type is a HiddenTycon, not drift"
+            }
+
+            test "intrinsic defined in .fs but absent from .fsi → IntrinsicWithoutExtern" {
+                // An impl `(# … #)` repr with no `extern` IS reported — a primitive repr
+                // the contract never declares (distinct from a plain HiddenTycon).
+                let errors =
+                    conform
+                        "namespace V\n\ntype foo = extern"
+                        "namespace V\n\ntype foo = (# \"System.Int32\" #)\n\ntype baz = (# \"System.Int64\" #)"
+
+                Expect.equal
+                    errors
+                    [ Conformance.ConformanceError.IntrinsicWithoutExtern "baz" ]
+                    "an impl-only intrinsic with no extern"
+            }
+
+            test "sig-only abbreviation needs no impl companion → no error" {
+                // `type myalias = int` in the .fsi resolves transitively to `int`; F# needs
+                // no `.fs` companion for a transparent abbreviation (the `ref`/`ResizeArray`/
+                // `seq` pattern), so the check does not flag it MissingInImpl.
+                let errors =
+                    conform
+                        "namespace V\n\ntype foo = extern\n\ntype myalias = int"
+                        "namespace V\n\ntype foo = (# \"System.Int32\" #)"
+
+                Expect.isEmpty errors "a sig-only abbreviation is conformant"
             }
 
             test "a matching extern↔intrinsic + shared abbrev conform with no errors" {
@@ -167,11 +198,60 @@ let tests =
                 Expect.equal
                     errors
                     [
+                        // a: extern in sig, plain `int` impl → repr promised, none given.
                         Conformance.ConformanceError.ExternWithoutIntrinsic "a"
+                        // b: extern in sig, no impl at all.
                         Conformance.ConformanceError.MissingInImpl "b"
-                        Conformance.ConformanceError.MissingInSig "c"
+                        // c: impl intrinsic with no extern in sig.
+                        Conformance.ConformanceError.IntrinsicWithoutExtern "c"
                     ]
                     "all three drifts, sig-order then impl-only"
+            }
+
+            // ---- Value-binding presence (Step 4.1) ----
+
+            test "val in .fsi with no let in .fs → ValueMissingInImpl" {
+                let errors =
+                    conform "namespace V\n\nval foo: int -> int" "namespace V\n\nlet bar (x: int) = x"
+
+                Expect.equal
+                    errors
+                    [ Conformance.ConformanceError.ValueMissingInImpl "foo" ]
+                    "a val with no matching let"
+            }
+
+            test "let in .fs with no val in .fsi → no error (HiddenVal)" {
+                // F# silently allows an implementation value absent from the signature,
+                // so a private helper is not drift — the converse is NOT reported.
+                let errors =
+                    conform
+                        "namespace V\n\nval foo: int -> int"
+                        "namespace V\n\nlet foo (x: int) = x\n\nlet helper (y: int) = y"
+
+                Expect.isEmpty errors "an extra impl let is a HiddenVal, not drift"
+            }
+
+            test "matching val/let (incl operator) conform with no value errors" {
+                let errors =
+                    conform
+                        "namespace V\n\nval foo: int -> int\n\nval inline (+++): int -> int -> int"
+                        "namespace V\n\nlet foo (x: int) = x\n\nlet inline (+++) (a: int) (b: int) = a"
+
+                Expect.isEmpty errors "a val paired with its let — plain and operator — conforms"
+            }
+
+            test "module-nested val with no let → ValueMissingInImpl (flattened)" {
+                // `CstWalk` flattens nested modules, so a `val` inside `module M` pairs
+                // with a `let` inside `module M` on the impl side.
+                let errors =
+                    conform
+                        "namespace V\n\nmodule M =\n\n    val gone: int -> int"
+                        "namespace V\n\nmodule M =\n\n    let other (x: int) = x"
+
+                Expect.equal
+                    errors
+                    [ Conformance.ConformanceError.ValueMissingInImpl "gone" ]
+                    "a nested-module val with no matching let"
             }
         ]
 
@@ -213,57 +293,15 @@ let private packageManifests: (string * string) list =
     |> Array.sortBy fst
     |> List.ofArray
 
-/// Conformance findings each package is EXPECTED to emit — abbreviation aliases and
-/// private implementation types, not sig/impl mistakes. Keyed by package dir name;
-/// each entry is `(sigFile, error)`. A package with no entry must emit none.
-/// Compared as a sorted multiset, so file/source order is irrelevant.
+/// Conformance findings each package is EXPECTED to emit. The check is now accurate
+/// BY CONSTRUCTION — a transparent abbreviation (`type X = Y`) needs no companion, an
+/// impl-only type is a HiddenTycon (F# hides it, not drift), and value presence
+/// matches F#'s FS0240 — so the false positives that used to be pinned here are gone.
+/// Any finding the pass still produces is therefore a REAL `.fsi`/`.fs` discrepancy to
+/// be FIXED AT THE SOURCE, never accepted here. The map is empty: every package
+/// conforms (its drift fixed at the source).
 let private acceptedFindings: Map<string, (string * Conformance.ConformanceError) list> =
-    Map.ofList
-        [
-            // `ref` is a signature-only lowercase abbreviation alias for `Ref<'T>`
-            // (core-types.fsi, "Same backing record as Ref<'T>"); the impl defines only
-            // the `Ref<'T>` record it aliases, so the alias has no companion type.
-            // `seq` is the enumerable-capability abbreviation (`capabilities.fsi`, moved
-            // there to break the enumerable-capability resolution circularity) — likewise
-            // a sig-only abbreviation aliasing the capability interface, no companion type.
-            "Vesper.Core",
-            [
-                "core-types.fsi", Conformance.ConformanceError.MissingInImpl "ref"
-                "capabilities.fsi", Conformance.ConformanceError.MissingInImpl "seq"
-            ]
-
-            // `ResizeArray<'T>` is an abbreviation of the BCL `List<'T>` (list.fsi); it
-            // aliases the runtime BCL type directly, so there is no companion type in
-            // `list.fs` (which defines only the cons-list `List<'T>`). `ListEnumerator`
-            // is the private `[<Struct>]` cursor `List<'T>`'s `IEnumerable<'T>` impl
-            // walks — deliberately not in the public `list.fsi` contract.
-            "Vesper.List",
-            [
-                "list.fsi", Conformance.ConformanceError.MissingInImpl "ResizeArray"
-                "list.fsi", Conformance.ConformanceError.MissingInSig "ListEnumerator"
-            ]
-
-            // `SetTree` / `SetTreeNode` / `SetIterator` are the private AVL-tree impl
-            // types in `set.fs`, deliberately not surfaced in the public `set.fsi`
-            // contract (which exposes only `Set<'T>` and the `Set` module).
-            "Vesper.Set",
-            [
-                "set.fsi", Conformance.ConformanceError.MissingInSig "SetTree"
-                "set.fsi", Conformance.ConformanceError.MissingInSig "SetTreeNode"
-                "set.fsi", Conformance.ConformanceError.MissingInSig "SetIterator"
-            ]
-
-            // `Doc` / `FrameKind` / `Frame` are the private layout internals of the
-            // `%A` engine (the Wadler document tree + frame stack). The
-            // `structural-printer.fsi` contract deliberately encapsulates them,
-            // publishing only `RuntimeFormatState : IFormatSink` + `StructuralPrinter.Print`.
-            "Vesper.Printf",
-            [
-                "structural-printer.fsi", Conformance.ConformanceError.MissingInSig "Doc"
-                "structural-printer.fsi", Conformance.ConformanceError.MissingInSig "FrameKind"
-                "structural-printer.fsi", Conformance.ConformanceError.MissingInSig "Frame"
-            ]
-        ]
+    Map.empty
 
 /// Legitimately impl-free (`SigOnly`) contract `.fsi` files on the CLR target: a
 /// signature the manifest pairs with no `.fs`, for a recorded reason. The explicit,
@@ -337,4 +375,110 @@ let packageConformanceTests =
 
                     Expect.isEmpty outcome.ImplOnly (sprintf "%s: every compiled .fs has a .fsi contract" package)
                 }
+        ]
+
+// ---- Semantic typar-order conformance (T8 Step 4.2) -------------------
+//
+// `ConformanceTypars.checkFile` is the SEMANTIC half: it compares a `.fs`-inferred
+// generic module binding's frozen scheme (typars `FTTypar(Method, i)`, in
+// `GeneralizedTypars.canonical` order) against the `.fsi`-declared scheme an
+// `IExternalSymbolProvider` publishes (typars `FTTypar(Declaring, i)`, in
+// `translateCurriedSig` appearance order). Because `FTTypar` is positional, a
+// structural `FrozenType` equality after axis normalization IS α-equivalence-WITH-
+// ORDER: it fails exactly when the two sides number their typars differently.
+//
+// The contract side is a stub provider so the test pins the exact declared order
+// without a manifest round-trip; the impl side runs the REAL frozen pipeline
+// (`Pipeline.analyseForSelfHost`), so the inferred order is genuinely inference's, not
+// a hand-built `FrozenType`. The canonical case is the plan's `<'b,'a>`-reorder: a
+// `.fs` that declares its typars in a different order than the `.fsi`'s appearance
+// order is the one species of drift this catches (see `FreezeTests`' "free function
+// honours declared `<'b,'a>` typar order over appearance").
+
+/// A contract provider that publishes exactly `entries` (name → declared scheme) and
+/// nothing else — the `.fsi` side of one `checkFile` run.
+let private contractProvider (entries: (string * ExternalSymbol) list) : IExternalSymbolProvider =
+    let m = Map.ofList entries
+
+    { new IExternalSymbolProvider with
+        member _.TryLookup name =
+            match Map.tryFind name m with
+            | Some s -> ValueSome s
+            | None -> ValueNone
+
+        member _.TryLookupType _ = ValueNone
+        member _.TryLookupMember(_, _) = ValueNone
+        member _.TryLookupMembers(_, _) = [||]
+        member _.TryLookupUnionCase _ = ValueNone
+        member _.AmbientOpenPrefixes = []
+        member _.TryLookupInlineBody _ = ValueNone
+        member _.TryLookupInlineBodyByName _ = ValueNone
+        member _.IntrinsicReverseCanon = Map.empty
+        member _.IntrinsicForwardRepr = Map.empty
+    }
+
+/// Run the `.fs` through the real frozen self-host pipeline (so a generic binding's
+/// typar order is inference's own), under the value-only `MockBuiltins` provider.
+let private frozenOf (src: string) : Frozen.TastFile =
+    let lexed, file = parseFile src
+    Pipeline.analyseForSelfHost "M" MockBuiltins.provider src lexed file
+
+/// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
+let private fScheme: FrozenType =
+    FTFun(FTTypar(TyparAxis.Declaring, 0), FTFun(FTTypar(TyparAxis.Declaring, 1), FTTypar(TyparAxis.Declaring, 1)))
+
+[<Tests>]
+let typarConformanceTests =
+    testList
+        "TyparConformance"
+        [
+            // ---- Kernel: axis-normalized structural equality ----
+
+            test "schemesAgree: same order across Declaring/Method axes → agree" {
+                let declared =
+                    FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 1))
+
+                let inferred = FTFun(FTTypar(TyparAxis.Method, 0), FTTypar(TyparAxis.Method, 1))
+                Expect.isTrue (ConformanceTypars.schemesAgree declared inferred) "axis differs, order agrees"
+            }
+
+            test "schemesAgree: swapped typar order → disagree" {
+                let declared =
+                    FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 1))
+
+                let inferred = FTFun(FTTypar(TyparAxis.Method, 1), FTTypar(TyparAxis.Method, 0))
+                Expect.isFalse (ConformanceTypars.schemesAgree declared inferred) "reversed order disagrees"
+            }
+
+            // ---- Driver over the real frozen pipeline ----
+
+            test "declared `<'b,'a>` reorder vs `.fsi` appearance order → TyparMismatch" {
+                // `.fs` declares `<'b,'a>`, so `'b` = Method 0, `'a` = Method 1 ⇒ the
+                // inferred scheme is `'a -> 'b -> 'b` = `M1 -> M0 -> M0`, the REVERSE
+                // positional skeleton of the `.fsi`'s `'a -> 'b -> 'b` = `D0 -> D1 -> D1`.
+                let contract = contractProvider [ "f", ExternalSymbols.scheme "f" fScheme 2 [] ]
+                let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let mismatches = ConformanceTypars.checkFile contract tast
+                Expect.equal (List.length mismatches) 1 "one typar-order mismatch"
+                Expect.equal mismatches.Head.Name "f" "the mismatch names f"
+            }
+
+            test "appearance-order impl conforms to `.fsi` appearance order → no mismatch" {
+                // No explicit `<…>`: the canonical order IS appearance order, matching the
+                // `.fsi`. The very same binding+contract that fails above now conforms.
+                let contract = contractProvider [ "f", ExternalSymbols.scheme "f" fScheme 2 [] ]
+                let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                Expect.isEmpty (ConformanceTypars.checkFile contract tast) "appearance-order impl conforms"
+            }
+
+            test "a binding the contract does not publish is skipped (presence is Step 4.1)" {
+                // An empty contract: a private/unpublished binding has no declared scheme to
+                // compare — typar-order is not the presence check's job.
+                let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
+                Expect.isEmpty (ConformanceTypars.checkFile (contractProvider []) tast) "unpublished binding skipped"
+            }
         ]
