@@ -590,6 +590,29 @@ let tests =
                 | false, _ -> failtest "class type D not registered"
             }
 
+            test "heritable extern class (# class repr #) registers without diagnostic" {
+                // The `class`-tagged intrinsic is admitted as a heritable external base
+                // (recorded in `HeritableExternBases`), not rejected.
+                let ctx = analyse "type Attribute = (# class \"System.Attribute\" #)"
+
+                Expect.equal ctx.Diagnostics.Count 0 "no diagnostic for a class-tagged intrinsic"
+                Expect.isTrue (ctx.Types.HeritableExternBases.Contains "Attribute") "recorded as a heritable base"
+            }
+
+            test "heritable extern interface (# interface repr #) is rejected (not yet supported)" {
+                // `interface`-tagged intrinsics parse (the AST carries the species) but
+                // have no emit path: rejected at registration rather than mis-emitted as
+                // a class base, and NOT recorded as a heritable base.
+                let ctx = analyse "type IFoo = (# interface \"System.IFoo\" #)"
+
+                let rejected =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "interface" && d.Message.Contains "not yet supported")
+
+                Expect.isTrue rejected "extern interface base rejected"
+                Expect.isFalse (ctx.Types.HeritableExternBases.Contains "IFoo") "not recorded as a heritable base"
+            }
+
             test "cyclic inheritance diagnoses" {
                 let ctx = analyse "type A() =\n    inherit B()\ntype B() =\n    inherit A()"
 

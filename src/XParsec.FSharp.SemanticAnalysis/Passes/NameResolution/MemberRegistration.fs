@@ -773,6 +773,32 @@ module NameResolutionMemberRegistration =
 
                 match ctx.Types.Class.TryGetValue name with
                 | true, info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
+                | false, _ when ctx.Types.HeritableExternBases.Contains name ->
+                    // A heritable external base (`inherit Attribute`, where `Attribute`
+                    // is `(# class "System.Attribute" #)`): resolve to the EXTERNAL type
+                    // its repr names, so the base freezes to an `FTClass` the codegen
+                    // `ExternalClass` encoder maps to a `TypeRef` (`extends` + base-ctor),
+                    // rather than the opaque value-repr `TyConst`.
+                    match ctx.Types.IntrinsicReprTypes.TryGetValue name with
+                    | true, repr ->
+                        match tryResolveExternalTypeKey ctx repr targs.Length with
+                        | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
+                        | ValueNone ->
+                            diagnose
+                                diagKey
+                                (sprintf
+                                    "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
+                                    name
+                                    repr)
+
+                            ValueNone
+                    // Compiler invariant: `TypeRegistration.registerAbbreviationDefn`
+                    // only ever adds to `HeritableExternBases` in the same step it writes
+                    // the repr to `IntrinsicReprTypes`. A name in the former without an
+                    // entry in the latter is a bug in this pass, not a user error — fail
+                    // loudly rather than silently degrade to a confusing "unknown type".
+                    | false, _ ->
+                        failwithf "Internal error: heritable external base '%s' has no recorded intrinsic repr" name
                 | false, _ ->
                     if
                         ctx.Types.Record.ContainsKey name

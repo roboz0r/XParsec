@@ -401,6 +401,19 @@ type ICodegenProvider =
     /// type references.
     abstract EncodeLocalSignature: locals: FrozenType list -> StandaloneSignatureHandle
 
+    /// `MemberRef` for the parameterless `.ctor()` of a HERITABLE external base
+    /// class (`type X = (# class "System.Attribute" #)`, resolved to its external
+    /// `TyClass`) — the chain target a derived class's primary `.ctor` calls instead
+    /// of `System.Object::.ctor`. Minted directly off the external `TypeRef` (a
+    /// `protected` base ctor need not be in the member harvest). `ValueNone` ⇒ `key`
+    /// did not resolve to an external class.
+    abstract ExternalParameterlessBaseCtor: key: SymbolKey -> EntityHandle voption
+
+    /// The raw external `TypeRef` for `key` (a heritable external base class), the
+    /// token a derived type's `extends` (base-type) column names. `ValueNone` ⇒ `key`
+    /// did not resolve to an external class.
+    abstract ExternalClassTypeRef: key: SymbolKey -> EntityHandle voption
+
     abstract ObjectType: EntityHandle
 
     /// A `TypeDefOrRefOrSpec` token for an arbitrary `FrozenType`, for the operand

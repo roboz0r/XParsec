@@ -25,6 +25,25 @@ module internal NominalEmit =
     let private typarMarkersOf (td: Frozen.TTypeDecl) : FrozenType list =
         [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
+    /// The resolved `inherit` parent of a nominal class, classified ONCE so the
+    /// `extends` column and the primary-ctor chain target both read off a single
+    /// decision instead of each re-destructuring `baseType`.
+    type private BaseShape =
+        /// No `inherit` clause (a plain class chains to `Object`; a struct extends
+        /// `System.ValueType` — handled at the `extends` site, not here).
+        | NoBase
+        /// A non-generic HERITABLE external base (`inherit Attribute`, where
+        /// `Attribute = (# class "System.Attribute" #)`): `extends` its raw external
+        /// `TypeRef`; the primary ctor chains to its parameterless `.ctor()`. `key`
+        /// mints that base ctor; `tref` is the resolved `extends` token.
+        | ExternalBase of key: SymbolKey * tref: EntityHandle
+        /// A non-generic project-local base: `extends` its `TypeDefinition` token.
+        | LocalMono of key: SymbolKey
+        /// A generic parent (`Box<int>`) — or any non-`FTClass` base type:
+        /// `extends` a `GENERICINST` `TypeSpec`, encoded with this class's typars
+        /// ambient so an open parent arg resolves to `!i`.
+        | Generic of ft: FrozenType
+
     /// The user `interface … with` impls (interface type + member bodies) a
     /// nominal carries. Classes, unions, and records all carry them.
     let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * Frozen.TTypeMember list) list =
@@ -357,26 +376,34 @@ module internal NominalEmit =
                                      _interfaces,
                                      isStruct,
                                      hasPrimaryCtor) ->
-            // Resolve the parent handle for the IL `TypeDefinition.BaseType`
-            // A non-generic parent (`Shape`) is the parent's
-            // `TypeDefinition` token directly — the base-type column rejects a
-            // `TypeSpec` that merely wraps a plain class. An instantiated generic
-            // parent (`Box<int>` / `SetTree\`1<!0>`) needs a `GENERICINST`
-            // `TypeSpec`, encoded with this class's typars ambient so an open
-            // parent arg resolves to `!i`. Parent-less ⇒ `Object` (the default).
-            match baseType with
-            | ValueSome(FTClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
-                baseTypeHandle <- provider.UserTypeHandle baseKey
-            | ValueSome bt ->
-                // A generic parent's open args ride `FTTypar(Declaring, i)` nodes
-                // (Freeze remaps `info.BaseType`), encoded `!i` directly — no window.
-                baseTypeHandle <- icodegen.TypeToken bt
-            | ValueNone ->
-                // A `[<Struct>]` value type extends `System.ValueType`; a plain
-                // parent-less class keeps the `Object` default. v1 structs never
-                // carry an `inherit`, so this is the only struct base path.
+            // Classify the `inherit` parent once. A non-generic external base
+            // (`inherit Attribute`) resolves to its raw external `TypeRef`; a
+            // non-generic project-local base to its `TypeDefinition` token. External
+            // detection keys off `ExternalClassTypeRef` returning a token — a
+            // project-local key is never in the provider's external table.
+            let baseShape =
+                match baseType with
+                | ValueNone -> BaseShape.NoBase
+                | ValueSome(FTClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
+                    match icodegen.ExternalClassTypeRef baseKey with
+                    | ValueSome tref -> BaseShape.ExternalBase(baseKey, tref)
+                    | ValueNone -> BaseShape.LocalMono baseKey
+                | ValueSome bt -> BaseShape.Generic bt
+
+            // The IL `TypeDefinition.BaseType` (`extends`) column. A non-generic
+            // parent is its token directly — the column rejects a `TypeSpec` that
+            // merely wraps a plain class. A generic parent (`Box<int>` /
+            // `SetTree\`1<!0>`) needs a `GENERICINST` `TypeSpec`. Parent-less ⇒
+            // `Object` (the default already in `baseTypeHandle`), except a struct,
+            // which extends `System.ValueType`. v1 structs never carry an `inherit`,
+            // so the struct base is only reachable through `NoBase`.
+            match baseShape with
+            | BaseShape.NoBase ->
                 if isStruct then
                     baseTypeHandle <- provider.ValueTypeBase
+            | BaseShape.ExternalBase(_, tref) -> baseTypeHandle <- tref
+            | BaseShape.LocalMono baseKey -> baseTypeHandle <- provider.UserTypeHandle baseKey
+            | BaseShape.Generic bt -> baseTypeHandle <- icodegen.TypeToken bt
 
             // The val-field *reference* form (no primary ctor) emits no primary
             // `.ctor` — its secondaries are the only ctors (matches `Layout`'s
@@ -412,19 +439,34 @@ module internal NominalEmit =
                             (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
                 ]
 
-            // The primary `.ctor` body. Without an `inherit` clause it chains to
-            // `Object` (the record/closure recipe). With an `inherit` clause it
-            // chains to the parent's `.ctor` with the `inherit Base(args)` args
-            // before the field stores; the parent's primary `.ctor` is its `Def`
-            // token (mono parent) or a `MemberRef` on the parent's `TypeSpec`
-            // (generic parent). v1 inherits only from a project-local class —
-            // every class is already in the registry (Bind pre-fills it).
+            // The primary `.ctor` body, one arm per base species:
+            //  * `ExternalBase` (`inherit Attribute`, `Attribute = (# class … #)`): the
+            //    base is external, not in the project-local `classes` registry. Chain to
+            //    its parameterless `.ctor()` (minted directly off the external `TypeRef`)
+            //    instead of `System.Object::.ctor`. v1 supports only a parameterless
+            //    external base (attribute bases take no ctor args), so any
+            //    `inherit Base(args)` here ignores the args.
+            //  * `inherit Base(args)` on a project-local base (`baseCtorCall`): chain to
+            //    the parent's `.ctor` with the `inherit` args before the field stores —
+            //    its `Def` token (mono parent) or a `MemberRef` on the parent's
+            //    `TypeSpec` (generic parent). Bind pre-fills every local class.
+            //  * struct: store params and return — value types don't chain a base ctor.
+            //  * otherwise: chain to `System.Object::.ctor` (the record/closure recipe).
             let ctorBody =
-                match baseCtorCall with
-                | ValueSome bcc ->
+                match baseShape, baseCtorCall with
+                | BaseShape.ExternalBase(baseKey, _), _ ->
+                    match icodegen.ExternalParameterlessBaseCtor baseKey with
+                    | ValueSome extCtor -> Emit.buildClassBaseCtor emitCtx extCtor [] [] ctorFieldRefs
+                    | ValueNone ->
+                        failwithf
+                            "Emit: class '%s' inherits external base %A but its parameterless '.ctor()' could not be minted"
+                            td.Name
+                            baseKey
+                | _, ValueSome bcc ->
                     let baseKey, baseArgs =
-                        match baseType with
-                        | ValueSome(FTClass(n, xs)) -> n, EqArray.toList xs
+                        match baseShape with
+                        | BaseShape.LocalMono k -> k, []
+                        | BaseShape.Generic(FTClass(n, xs)) -> n, EqArray.toList xs
                         | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
                     let baseCtorHandle =
@@ -448,11 +490,8 @@ module internal NominalEmit =
                         (EqArray.toList bcc.Args)
                         (EqArray.toList bcc.CtorParams)
                         ctorFieldRefs
-                | ValueNone when isStruct ->
-                    // A value-type ctor stores its params and returns — no
-                    // `System.ValueType::.ctor` chain (value types don't chain).
-                    Emit.buildStructCtor ctorFieldRefs
-                | ValueNone -> Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
+                | _, ValueNone when isStruct -> Emit.buildStructCtor ctorFieldRefs
+                | _, ValueNone -> Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
 
             if emitPrimaryCtor then
                 let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)

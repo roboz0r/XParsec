@@ -78,6 +78,7 @@ impl = [
     "prim-types-nativeint.fs",
     "prim-types-nd-array.fs",
     "prim-types-attr.fs",
+    "compiler-attributes.fs",
     "core-types.fs",
     "capabilities.fs",
     "structural-format.fs",

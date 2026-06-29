@@ -8,4 +8,4 @@ namespace Vesper
 ///
 /// <category>Basic Types</category>
 [<AbstractClass>]
-type Attribute = extern
+type Attribute = extern class

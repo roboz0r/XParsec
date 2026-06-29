@@ -529,6 +529,32 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
                 ValueSome(handle, substitutedTy)
 
+    /// Mint the `MemberRef` for the parameterless `.ctor()` of a HERITABLE external
+    /// base class (`type X = (# class "System.Attribute" #)`), the chain target a
+    /// derived class's primary `.ctor` calls. Minted DIRECTLY off the external
+    /// `TypeRef` rather than via `externalCtor`'s member harvest: a base ctor is often
+    /// `protected` (`System.Attribute::.ctor()`) and may not be surfaced, yet `call`ing
+    /// it from a subclass ctor is legal. `ValueNone` ⇒ the key isn't an external class.
+    let externalParameterlessBaseCtor (key: SymbolKey) : EntityHandle voption =
+        match externalClassRef key with
+        | ValueNone -> ValueNone
+        | ValueSome tref ->
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+            ValueSome(toEntity (ctx.MemberRef(tref, ".ctor", s)))
+
+    member _.ExternalParameterlessBaseCtor(key) = externalParameterlessBaseCtor key
+
+    /// The raw external `TypeRef` for `key` (an external class), the token a derived
+    /// type's `extends` (base-type) column names. A raw `TypeRef` — not a
+    /// `TypeSpec`-wrapped one (`TypeToken`) — because the Extends column wants the
+    /// bare ref for a non-generic external base. `ValueNone` ⇒ not an external class.
+    member _.ExternalClassTypeRef(key) = externalClassRef key
+
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
         externalMemberRef key isProperty isStatic memberTy
 

@@ -455,8 +455,33 @@ module NameResolutionTypeRegistration =
                         }
                 else
                     match rhs with
-                    | Type.ILIntrinsic(instrParts = parts) ->
+                    | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
                         ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+
+                        match tag with
+                        // Untagged `(# "…" #)` — an opaque value repr, never a base.
+                        | ValueNone -> ()
+                        // A `class`-tagged intrinsic (`(# class "…" #)`) is a HERITABLE
+                        // external reference base, not an opaque value repr: record the
+                        // name so `resolveInheritParent` admits it as a parent.
+                        | ValueSome(ExternKind.Class _) -> ctx.Types.HeritableExternBases.Add name |> ignore
+                        // `(# interface "…" #)` parses (the AST carries the species for a
+                        // future `extends`-less InterfaceImpl path) but has no emit path
+                        // yet: an interface goes in `implements`, not the `extends` column,
+                        // and has no base `.ctor` to chain to. Reject it here rather than
+                        // let it fall through and mis-emit as a class base. Not added to
+                        // `HeritableExternBases`, so it can never reach codegen's base path.
+                        | ValueSome(ExternKind.Interface _) ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = declKey
+                                    Message =
+                                        sprintf
+                                            "Heritable external interface base ('(# interface \"…\" #)') is not yet supported (type '%s'); only '(# class \"…\" #)' may be inherited"
+                                            name
+                                    Code = ""
+                                    Severity = Severity.Error
+                                }
                     | _ ->
                         let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
                         let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length

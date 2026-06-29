@@ -102,6 +102,35 @@ let tests =
                     "intrinsic without extern"
             }
 
+            test "extern class ↔ (# class repr #) conforms (heritable external base)" {
+                let errors =
+                    conform
+                        "namespace V\n\ntype Attribute = extern class"
+                        "namespace V\n\ntype Attribute = (# class \"System.Attribute\" #)"
+
+                Expect.isEmpty errors "a heritable extern class paired with its tagged intrinsic conforms"
+            }
+
+            test "extern class with an untagged (# repr #) impl → HeritabilityMismatch" {
+                let errors =
+                    conform "namespace V\n\ntype foo = extern class" "namespace V\n\ntype foo = (# \"System.Foo\" #)"
+
+                Expect.equal
+                    errors
+                    [ Conformance.ConformanceError.HeritabilityMismatch "foo" ]
+                    "sig is heritable, impl is an opaque value repr"
+            }
+
+            test "bare extern with a (# class repr #) impl → HeritabilityMismatch" {
+                let errors =
+                    conform "namespace V\n\ntype foo = extern" "namespace V\n\ntype foo = (# class \"System.Foo\" #)"
+
+                Expect.equal
+                    errors
+                    [ Conformance.ConformanceError.HeritabilityMismatch "foo" ]
+                    "sig is opaque, impl is a heritable external base"
+            }
+
             test "type declared in .fsi but absent from .fs → MissingInImpl" {
                 let errors =
                     conform
@@ -159,6 +188,13 @@ let tests =
 // *expected* divergence with the exact `ConformanceError`s pinned (`Expect.equal`,
 // not skipped), so the divergence is locked in rather than silently tolerated and
 // goes red the moment the contract or impl shape changes.
+//
+// Signature-only `.fsi` files with NO `.fs` impl at all are NOT omitted silently:
+// the legitimate impl-free contracts are catalogued in `implFreeExemptions` below
+// (front-end-intrinsic / per-target / FSharp.Core-interop / type-abbreviation),
+// each tested to actually lack a companion `.fs` so the list cannot rot. The
+// operator `.fsi` (`ops-std.fsi`, `int-comparison.fsi`) declare no `type`s, so they
+// are trivially-conforming (empty type sets) and need no row.
 
 /// Conform one `.fsi`/`.fs` pair from a package directory.
 let private conformPair (package: string) (sigName: string) (implName: string) =
@@ -182,6 +218,10 @@ let private conformingPairs: (string * (string * string) list) list =
             "prim-types-nativeint.fsi", "prim-types-nativeint.fs"
             "prim-types-nd-array.fsi", "prim-types-nd-array.fs"
             "prim-types-attr.fsi", "prim-types-attr.fs"
+            // The compiler-recognised equality/comparison attributes now have a
+            // paired impl (`compiler-attributes.fs`: sealed classes inheriting
+            // `Attribute`), so this is a real conformance row, no longer omitted.
+            "compiler-attributes.fsi", "compiler-attributes.fs"
             "ops-platform.fsi", "ops-platform.fs"
         ]
         "Vesper.Option", [ "option.fsi", "option.fs" ]
@@ -242,6 +282,55 @@ let private knownDriftPairs: (string * string * string * string * Conformance.Co
             Conformance.ConformanceError.MissingInSig "SetTreeNode"
             Conformance.ConformanceError.MissingInSig "SetIterator"
         ]
+
+        // `Doc` / `FrameKind` / `Frame` are the private layout internals of the
+        // `%A` engine (the Wadler document tree + frame stack). The new
+        // `structural-printer.fsi` contract deliberately encapsulates them, publishing
+        // only the cross-package surface (`RuntimeFormatState : IFormatSink` +
+        // `StructuralPrinter.Print`) — the same private-impl-type drift as Set's tree.
+        "Vesper.Printf",
+        "structural-printer.fsi",
+        "structural-printer.fs",
+        "Doc/FrameKind/Frame are private %A layout internals",
+        [
+            Conformance.ConformanceError.MissingInSig "Doc"
+            Conformance.ConformanceError.MissingInSig "FrameKind"
+            Conformance.ConformanceError.MissingInSig "Frame"
+        ]
+    ]
+
+/// Legitimately impl-free contract `.fsi` files: a signature with NO `.fs`
+/// implementation anywhere, for a recorded reason. This is the explicit, tested
+/// successor to silently omitting them — Step 5 of the T8 plan flips
+/// `MissingInImpl` to a hard error, and these are the rows that must NOT trip it.
+/// Each entry is `(package, sigName, category, why)`; the test asserts the `.fsi`
+/// exists and the same-stem `.fs` does NOT, so adding an impl forces a move to
+/// `conformingPairs` (the list cannot silently rot).
+let private implFreeExemptions: (string * string * string * string) list =
+    [
+        // Front-end intrinsic: printf/printfn/sprintf are lowered inline to
+        // `Formatter`/`Format` on the happy path (like the operators), so there is
+        // no `.fs` body to emit.
+        "Vesper.Printf", "printf.fsi", "front-end-intrinsic", "printf family lowered inline to Formatter/Format"
+
+        // FSharp.Core-interop: the cold path instantiates `PrintfFormat` as
+        // FSharp.Core's `PrintfFormat`4` (ClrRecipes); self-hosting it + retargeting
+        // the recipe is a sequenced dependency on the vesper-printf cold path.
+        "Vesper.Printf",
+        "printf-format.fsi",
+        "fsharp-core-interop",
+        "PrintfFormat cold path still FSharp.Core; retarget pending"
+
+        // Per-target: impl-free on CLR (the exception mechanism is BCL-resolved);
+        // the JS representation comes via `prim-types-exn`, not a base `.fs`.
+        "Vesper.Exceptions", "exceptions.fsi", "per-target", "BCL-resolved on CLR; JS repr via prim-types-exn"
+
+        // Pure type abbreviations: the JS-only capability-compat shim maps BCL
+        // interface spellings onto the canonical capabilities — abbrevs, no bodies.
+        "Vesper.Core",
+        "capabilities-compat.js.fsi",
+        "type-abbreviation",
+        "JS capability spelling shim; abbreviations only"
     ]
 
 [<Tests>]
@@ -268,6 +357,31 @@ let packageConformanceTests =
                             "%s/%s known drift against %s should be exactly the pinned set"
                             package
                             sigName
+                            implName)
+                }
+        ]
+
+[<Tests>]
+let implFreeExemptionTests =
+    testList
+        "ImplFreeExemptions"
+        [
+            for package, sigName, category, why in implFreeExemptions do
+                test $"{package}: {sigName} is impl-free ({category}: {why})" {
+                    let sigPath = vesperPath package sigName
+                    // Companion impl by the stem rule: foo.fsi ↔ foo.fs.
+                    let implName = sigName.Substring(0, sigName.Length - 4) + ".fs"
+                    let implPath = vesperPath package implName
+
+                    Expect.isTrue (File.Exists sigPath) (sprintf "%s/%s should exist" package sigName)
+
+                    Expect.isFalse
+                        (File.Exists implPath)
+                        (sprintf
+                            "%s/%s is catalogued impl-free (%s) but a companion %s now exists — move it to conformingPairs"
+                            package
+                            sigName
+                            category
                             implName)
                 }
         ]

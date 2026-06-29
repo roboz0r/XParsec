@@ -10,3 +10,4 @@ namespace       'namespace'       KWNamespace         tok=   0  pos=   0
       TypeName  'Attribute'       Identifier          tok=  24  pos= 435
       =         '='               OpEquality          tok=  26  pos= 445
       extern    'extern'          KWExtern            tok=  28  pos= 447
+      class     'class'           KWClass             tok=  30  pos= 454

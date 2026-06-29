@@ -22,8 +22,11 @@ depends-on = ["Vesper.Core", "Vesper.List"]
 
 # .fsi files in compile order. printf-format (PrintfFormat type) before printf
 # (its signatures reference PrintfFormat); formatter is independent.
+# structural-printer (the `%A` engine contract) before formatter, mirroring `impl`:
+# `Formatter.AppendStructured` calls `StructuralPrinter.Print`.
 files = [
     "printf-format.fsi",
+    "structural-printer.fsi",
     "formatter.fsi",
     "printf.fsi",
 ]

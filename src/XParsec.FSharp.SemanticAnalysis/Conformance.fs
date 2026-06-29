@@ -30,6 +30,10 @@ module Conformance =
     type SigShape =
         /// `type X = extern` — a target capability with no Vesper representation.
         | Extern
+        /// `type X = extern class` — a HERITABLE external reference base (paired with
+        /// the impl's `(# class "repr" #)`); distinct from the opaque `Extern` so the
+        /// two species do not cross-pair.
+        | ExternClass
         /// Any other signature type (abbrev, union, record, interface, …). The
         /// label names the shape for diagnostics only; v1 does not deep-compare
         /// members.
@@ -40,6 +44,9 @@ module Conformance =
     type ImplShape =
         /// `type X = (# "repr" #)` — the intrinsic representation of a primitive.
         | Intrinsic of repr: string
+        /// `type X = (# class "repr" #)` — a HERITABLE external reference base (paired
+        /// with the sig's `extern class`); distinct from the opaque `Intrinsic`.
+        | IntrinsicClass of repr: string
         /// Any other implementation type (abbrev, union, record, …).
         | Other of label: string
 
@@ -79,6 +86,10 @@ module Conformance =
         /// `(# … #)` intrinsic in the implementation but the signature does not
         /// declare it `extern` (a representation with no declared capability).
         | IntrinsicWithoutExtern of name: string
+        /// The heritability tag disagrees across the pair: one side marks the type a
+        /// heritable external base (`extern class` / `(# class … #)`) and the other an
+        /// opaque value repr (`extern` / `(# … #)`).
+        | HeritabilityMismatch of name: string
 
     /// Human-readable rendering of a conformance error.
     let describe (e: ConformanceError) : string =
@@ -94,6 +105,10 @@ module Conformance =
         | ConformanceError.IntrinsicWithoutExtern n ->
             sprintf
                 "type '%s' has an intrinsic representation in the implementation (.fs) but is not declared 'extern' in the signature (.fsi)"
+                n
+        | ConformanceError.HeritabilityMismatch n ->
+            sprintf
+                "type '%s' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
                 n
 
     let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
@@ -147,6 +162,7 @@ module Conformance =
 
     let private sigShape (ts: TypeSignature<SyntaxToken>) : SigShape =
         match ts with
+        | TypeSignature.Extern(kindTag = ValueSome _) -> SigShape.ExternClass
         | TypeSignature.Extern _ -> SigShape.Extern
         | TypeSignature.Abbrev _ -> SigShape.Other "abbrev"
         | TypeSignature.Record _ -> SigShape.Other "record"
@@ -182,6 +198,8 @@ module Conformance =
         // The intrinsic-impl rule: an abbrev whose RHS is `(# … #)` is a
         // primitive *binding*, not a transparent alias (see
         // NameResolution.registerAbbreviationDefn).
+        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(kindTag = ValueSome _; instrParts = parts)) ->
+            ImplShape.IntrinsicClass(ilReprString lexed input parts)
         | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) ->
             ImplShape.Intrinsic(ilReprString lexed input parts)
         | TypeDefn.Abbrev _ -> ImplShape.Other "abbrev"
@@ -291,9 +309,15 @@ module Conformance =
                 | false, _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
                 | true, iShape ->
                     match d.Shape, iShape with
-                    | SigShape.Extern, ImplShape.Intrinsic _ -> ()
-                    | SigShape.Extern, ImplShape.Other _ -> errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
-                    | SigShape.Other _, ImplShape.Intrinsic _ ->
+                    | SigShape.Extern, ImplShape.Intrinsic _
+                    | SigShape.ExternClass, ImplShape.IntrinsicClass _ -> ()
+                    // extern-family ↔ intrinsic-family, but the heritability tag differs.
+                    | SigShape.Extern, ImplShape.IntrinsicClass _
+                    | SigShape.ExternClass, ImplShape.Intrinsic _ ->
+                        errors.Add(ConformanceError.HeritabilityMismatch d.Name)
+                    | (SigShape.Extern | SigShape.ExternClass), ImplShape.Other _ ->
+                        errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
+                    | SigShape.Other _, (ImplShape.Intrinsic _ | ImplShape.IntrinsicClass _) ->
                         errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
                     | SigShape.Other _, ImplShape.Other _ -> ()
 

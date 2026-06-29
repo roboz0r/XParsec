@@ -274,8 +274,13 @@ type ClrProvider
 
     member _.StructuralFormatSignature() : BlobBuilder = recipes.StructuralFormatSignature()
 
+    member _.ExternalParameterlessBaseCtor(key: SymbolKey) : EntityHandle voption =
+        ext.ExternalParameterlessBaseCtor(key)
+
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
+        member _.ExternalParameterlessBaseCtor(key) = ext.ExternalParameterlessBaseCtor(key)
+        member _.ExternalClassTypeRef(key) = ext.ExternalClassTypeRef(key)
         member _.TypeToken(ty) = recipes.TypeToken(ty)
         member _.ValueTupleRefs(elemTys) = enc.ValueTupleRefs elemTys
         member _.IsExternalValueType(key) = env.ExternalIsValueType key

@@ -694,6 +694,14 @@ type PassContextTypes =
         /// represents* the type, not an alias to expand. Input to the
         /// `encodeType` rekey.
         IntrinsicReprTypes: Dictionary<string, string>
+        /// Names of intrinsic-repr types declared as HERITABLE external reference
+        /// bases (`type Attribute = (# class "System.Attribute" #)`), the `class`/
+        /// `interface`-tagged subset of `IntrinsicReprTypes`. A name here may appear as
+        /// an `inherit` parent: `resolveInheritParent` resolves it to the EXTERNAL type
+        /// its repr names (`System.Attribute`), so codegen emits `extends` + a base-ctor
+        /// call instead of treating it as an opaque (sealed, unencodable-as-base) value
+        /// repr. The repr string itself stays in `IntrinsicReprTypes`.
+        HeritableExternBases: HashSet<string>
         /// Bookkeeping for the bare-name alias `Union` keeps for arity-overloaded
         /// unions (`Choice\`2`…`Choice\`7`). `Union` is keyed by `TypeRegistry.keyFor`
         /// (bare name for a non-generic union, ``name`N`` for arity N>0); a *single*
@@ -735,6 +743,7 @@ module PassContextTypes =
             FieldIndex = Dictionary<_, _>()
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
+            HeritableExternBases = HashSet<_>()
             UnionBareArity = Dictionary<_, _>()
             ClassBareArity = Dictionary<_, _>()
             SymbolKeyOrigins = Dictionary<_, _>()

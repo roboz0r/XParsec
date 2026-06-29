@@ -168,7 +168,7 @@ explicit target boundary, do not error on it.
 
 | `.fsi` | Verdict | Action |
 |---|---|---|
-| `Vesper.Core/compiler-attributes.fsi` | needs a `.fs` (attribute classes) | **write `compiler-attributes.fs`** |
+| `Vesper.Core/compiler-attributes.fsi` | needs a `.fs` (attribute classes inheriting `Attribute`) | **DONE** — `compiler-attributes.fs` written + in Vesper.Core `impl`; unblocked by the `extern class` heritable-base construct (Step 2(a) below). The 8 attribute classes emit, inherit `System.Attribute`, and construct (verified at runtime). |
 | `Vesper.Printf/structural-printer.fs` (no `.fsi`!) | port exists, never got a contract | **write `structural-printer.fsi`** (ref: `StructuralFormat.cs`; surface = `RuntimeFormatState : IFormatSink`, `StructuralPrinter.Print`) |
 | `Vesper.Printf/printf-format.fsi` (`PrintfFormat`) | NOT dead — cold path instantiates it as **FSharp.Core**'s `PrintfFormat\`4` (`ClrRecipes.fs:170-177`, `ClrEnv.fs:126`) | **self-host `.fs` + retarget cold-path recipe** off FSharp.Core onto the Vesper type. Sequenced dependency on `vesper-printf-plan` cold path; tracked exemption until done. |
 | `Vesper.Printf/printf.fsi` (printf/printfn/sprintf) | front-end intrinsic, lowered inline to `Formatter`/`Format` (like operators) | formal exemption |
@@ -338,6 +338,82 @@ Blast radius: ~60 `buildContract*` call sites, almost all in tests (Clr.Tests +
 8 in Js.Tests — the JS tests' use of the BCL-defaulted `buildContract` is itself
 suspect and resolved as part of this). No production CLR driver calls these yet.
 
+## Step 2(a) — heritable external base classes: the `extern class` construct
+
+Writing `compiler-attributes.fs` surfaced a language gap: there is no way to say "this
+external type is a heritable reference base," only "this external type is an opaque
+value repr." Both spellings collapse to the same channel today —
+
+| | `.fsi` contract | `.fs` impl | front-end registry |
+|---|---|---|---|
+| `int` (opaque value) | `type int = extern` | `type int = (# "System.Int32" #)` | `IntrinsicReprTypes` |
+| `Attribute` (heritable base) | `[<AbstractClass>] type Attribute = extern` | `type Attribute = (# "System.Attribute" #)` | `IntrinsicReprTypes` |
+
+`registerAbbreviationDefn` (`TypeRegistration.fs:458`) shoves ANY `(# … #)` RHS into
+`IntrinsicReprTypes` as an opaque name→repr string. That table is correct for `int`
+and wrong for `Attribute`: it feeds (1) the encoder (`tryEncodeValueType`: repr →
+`ELEMENT_TYPE_I4`) — `Attribute` is never an encodable scalar — and (2) the
+`resolveInheritParent` rejection ("Cannot inherit from type 'Attribute' — only classes
+are inheritable", `MemberRegistration.fs:783`), because an `IntrinsicReprTypes` entry
+is by construction not a class. There is no prior CODEGEN precedent for extending a BCL
+base through Vesper's own backend: the only `inherit exn` carrier (`exceptions.fsi`) is
+impl-free (BCL-resolved, never compiled); JS handles `exn`→`Error` by repr harvest, not
+by emitting an `extends`.
+
+**Premise (agreed): two species of external type, marked at the declaration site.**
+1. **Opaque value repr** — `int/bool/float/string`: encodable IL element type, sealed,
+   never a base. Keeps `(# "…" #)`.
+2. **Heritable reference base** — `Attribute` (and conceptually `obj`/`exn`): a TypeRef
+   you may `inherit`, emitted with `extends` + a base-ctor call; never an encodable value.
+
+**Construct (agreed): each side marks heritability in its OWN native syntax**, so that
+either file is unambiguous read in isolation (no reliance on an attribute or on the
+paired file). The `.fsi` already says `extern`; the `.fs` already says `(# … #)` — extend
+each with a `class`/`interface` kind tag. `(# … #)` WITHOUT the tag stays exclusively the
+opaque-value-repr form.
+
+```
+// contract .fsi  — capability, no repr (harvested from impl)
+type Attribute = extern class
+
+// impl .fs       — heritable external class bound to its BCL TypeRef
+type Attribute = (# class "System.Attribute" #)
+```
+
+The `class` keyword is unambiguous in both positions: after `extern` no verbose `… end`
+body follows (the parser commits on `extern class`), and inside `(# … #)` the hash-paren
+delimiters bound it (it cannot be read as a verbose class body). Generalizes to
+`extern interface` / `(# interface "…" #)`.
+
+**Implementation surface:**
+- **Parser/AST.** Sig side: extend `TypeSignature.Extern` (`Signatures.fs:113`) with an
+  optional `class`/`interface` kind token after `externToken`. Impl side: extend
+  `Type.ILIntrinsic` (`Expr.fs:87`) with an optional leading `class`/`interface` kind
+  token before the repr string (`TypeParsing.fs:419-425`). Plus `AstTraversal` + golden
+  snapshots. The tagged `(# class "…" #)` is a heritable external class; the untagged
+  `(# "…" #)` is unchanged (opaque value repr).
+- **Front-end registration.** New `ExternalClassTypes` table (name → repr / qualified
+  BCL TypeRef). `registerAbbreviationDefn` (`TypeRegistration.fs:458`) routes a TAGGED
+  `Type.ILIntrinsic` here instead of `IntrinsicReprTypes`; `translateType` resolves the
+  name to an external-class `SemType` (not a `TyConst` opaque). Provider extraction
+  surfaces the `extern class` sig as a class shape so downstream `inherit` resolves.
+- **`resolveInheritParent`** (`MemberRegistration.fs:728`): accept an `ExternalClassTypes`
+  name, returning the external-class base `SemType` (+ its base-ctor for the synthesized
+  primary ctor).
+- **Codegen.** Mint a TypeRef from the repr (`icodegen.TypeToken`, the path
+  `NominalEmit.fs:373` already takes for non-local bases), set `BaseType = extends`, and
+  emit the base-ctor `call instance void System.Attribute::.ctor()`. This is the first
+  emitted `extends`-BCL; verify the protected-ctor call resolves.
+- **Conformance.** New pairing rule `extern class` (sig) ↔ `(# class "repr" #)` (impl),
+  alongside the existing `extern` ↔ `(# … #)`. `Conformance.SigShape`/`ImplShape` grow a
+  heritable-class arm so the two species don't cross-pair.
+
+**Payoff.** `compiler-attributes.fs` migrates its eight bases to `(# class
+"System.Attribute" #)` (and the `.fsi` to `extern class`), joins Vesper.Core `impl`, and
+the single-source invariant holds. The construct also unblocks any future Vesper-compiled
+type that must extend a BCL base, and gives `exn`/`obj` a principled spelling if their
+handling is ever unified here.
+
 ## Sequencing
 
 1. **De-drift Species 1 — single-source primitive reprs** (design above). Internal
@@ -413,9 +489,56 @@ suspect and resolved as part of this). No production CLR driver calls these yet.
          |> .IntrinsicReverseCanon`). All suites green (CLR 1064, JS 177, SA 643, Vesper 49).
    Keep `tryEncodeValueType` (IL knowledge) + add the "every scalar repr is
    encodable" conformance assertion (TODO).
-2. **Fill Species 4 pairs.** Write `compiler-attributes.fs` and
-   `structural-printer.fsi`. Record the per-target / front-end-intrinsic /
-   FSharp.Core-interop exemptions as an explicit, tested list (not silent).
+2. **Fill Species 4 pairs.**
+   - DONE. `structural-printer.fsi` written + wired into `Vesper.Printf/manifest.toml`
+     `files`; encapsulates the layout internals, publishes `StructuralPrinter.Print` +
+     `RuntimeFormatState : IFormatSink`. `ConformanceTests` gains the green pair-adjacent
+     `knownDriftPairs` row (`Doc`/`FrameKind`/`Frame` private). Contract extraction
+     verified (134 `PrintfHappyPath` green).
+   - DONE. Exemptions recorded as the tested `implFreeExemptions` list in
+     `ConformanceTests` (front-end-intrinsic `printf.fsi`, FSharp.Core-interop
+     `printf-format.fsi`, per-target `exceptions.fsi`, type-abbreviation
+     `capabilities-compat.js.fsi`) — each test-asserted to lack a companion `.fs`, so
+     adding an impl forces promotion to `conformingPairs`. Replaces the silent omission.
+   - DONE. `compiler-attributes.fs` written; its source-level conformance pair is green
+     (added to `conformingPairs`).
+   - BLOCKED → Step 2(a). `compiler-attributes.fs` cannot join Vesper.Core `impl` (the
+     DLL compile) until the `extern class` heritable-base construct lands — inheriting the
+     intrinsic-repr `Attribute` base is rejected today. Reverted from `impl` to keep the
+     tree green.
+   2a. **Implement `extern class` / `(# class "repr" #)`** (design: "Step 2(a)" above).
+       - DONE. Parser/AST: `Type.ILIntrinsic` (`Expr.fs`) + `TypeSignature.Extern`
+         (`Signatures.fs`) gained an optional `kindTag: 'T voption`; parsed in
+         `TypeParsing.fs` (`opt (class|interface)` inside `(# … #)`) and
+         `SignatureParsing.fs` (`opt class` after `extern` — `interface` deferred there,
+         it collides with an `interface …` capability member; the impl-side `(# … #)`
+         has no clash so it takes both). `AstTraversal` walks the tag. Golden inputs
+         `370_extern_class_intrinsic.fs` + `sig_17_extern_class.fsi` added; snapshots
+         regenerated; whole solution + FSharp.Tests green (tag present iff tagged).
+       - DONE (front-end). `TypeRegistration.registerAbbreviationDefn` routes a TAGGED
+         `Type.ILIntrinsic` into the new `HeritableExternBases` set (`SideTables.fs`)
+         alongside the repr in `IntrinsicReprTypes`. `resolveInheritParent`
+         (`MemberRegistration.fs`) admits a `HeritableExternBases` name and returns the
+         base as `TyClass(extKey, [])` where `extKey` is resolved FROM THE REPR via
+         `NameResolutionScope.tryResolveExternalTypeKey` (now exposed) — an `FTClass`
+         keyed to the external `System.Attribute`, which the codegen `ExternalClass`
+         encoder path resolves.
+       - DONE (codegen). The `extends` column: an external non-generic base resolves to
+         its raw external `TypeRef` (new `ICodegenProvider.ExternalClassTypeRef`) instead
+         of `provider.UserTypeHandle` (`NominalEmit.fs`). The base-CTOR chain: a new
+         `ICodegenProvider.ExternalParameterlessBaseCtor` mints a `MemberRef` to
+         `System.Attribute::.ctor()` DIRECTLY off the external `TypeRef` (the `protected`
+         base ctor isn't in the member harvest; `call`ing it from a subclass ctor is
+         legal); `NominalEmit` intercepts an external base before the local-`classes`
+         path and chains to it. Verified by a `PackageBuild` runtime assertion:
+         `Vesper.StructuralEqualityAttribute.BaseType = typeof<System.Attribute>` and
+         `Activator.CreateInstance` succeeds (base-ctor IL runs).
+       - DONE. Conformance grew `SigShape.ExternClass` / `ImplShape.IntrinsicClass` +
+         `HeritabilityMismatch`; pairs `extern class` ↔ `(# class "repr" #)` and flags a
+         tag mismatch (tests added). `prim-types-attr` migrated (`extern class` /
+         `(# class "System.Attribute" #)`); `compiler-attributes.fs` added to Vesper.Core
+         `impl`. All suites green (Clr 1066, SA 652, JS 175, goldens 1422, Vesper 49).
+       This completes Step 2(a) and unblocks the `compiler-attributes` row of Step 2.
 3. **Promote `Conformance.fs` to a manifest-driven pass.** Drive pairing from the
    manifest (stem + module-decl guard, per-target impl set). Replace
    `ConformanceTests`' pinned-drift rows with fixes or the exemption list.

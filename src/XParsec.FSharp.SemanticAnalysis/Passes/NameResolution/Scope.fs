@@ -32,7 +32,7 @@ module NameResolutionScope =
     /// the matched shape's origin + compiled name. This replaces the former bounded
     /// `[1;2;3;4]` arity scan: the arity is now exact because the TypeApp visit
     /// resolves receiver+arity together.
-    let private tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : SymbolKey voption =
+    let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : SymbolKey voption =
         let keysFor (n: string) =
             if arity = 0 then
                 [ n ]

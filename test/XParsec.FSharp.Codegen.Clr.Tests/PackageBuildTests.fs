@@ -30,6 +30,18 @@ let tests =
                 Expect.isNotNull (asm.GetType "Vesper.Fun2`3") "the DLL contains Vesper.Fun2`3"
                 Expect.isNotNull (asm.GetType "Vesper.Curried`3") "the DLL contains Vesper.Curried`3"
                 Expect.isNotNull (asm.GetType "Vesper.Flattened`3") "the DLL contains Vesper.Flattened`3"
+
+                // The compiler-recognised attribute classes (compiler-attributes.fs)
+                // inherit the heritable external base `Attribute = (# class
+                // "System.Attribute" #)`. This exercises the `extends`-to-BCL column +
+                // the synthesised primary `.ctor` chaining to `System.Attribute::.ctor()`:
+                // a malformed base-ctor call faults at construction, not load.
+                let attrTy = asm.GetType "Vesper.StructuralEqualityAttribute"
+                Expect.isNotNull attrTy "the DLL contains Vesper.StructuralEqualityAttribute"
+                Expect.equal attrTy.BaseType typeof<System.Attribute> "the attribute inherits System.Attribute"
+
+                let instance = System.Activator.CreateInstance attrTy
+                Expect.isTrue (instance :? System.Attribute) "an instance is a System.Attribute (base ctor ran)"
             }
 
             // Vesper.List depends on Vesper.Core: the harness builds + loads Core
