@@ -7,9 +7,33 @@ open XParsec.FSharp.SemanticAnalysis
 /// Builds the symbol-resolution provider stack.
 module SymbolProviders =
 
-    /// Layer-2 tail: host BCL reflection. Non-CLR backends inject their own tail via
+    /// Layer-2 tail FACTORY: given the harvested `{ platform-repr → canon }` reverse
+    /// map (folded from the layer-1 providers' `IntrinsicReverseCanon`), produce the
+    /// metadata leaf. A factory rather than a fixed list so the leaf can be seeded with
+    /// the reverse map — it canonicalizes a BCL `System.Int32` to the Vesper `int`
+    /// through it (`MetadataSymbols.tryBuildType`), driven by the dynamically-analysed
+    /// `type int = (# "System.Int32" #)` relationship rather than a static table.
+    /// Non-CLR backends inject their own (reverse-independent) factory via
     /// `buildContractWithMetadata`.
-    let private bclMetaTail: IExternalSymbolProvider list = [ MetadataSymbols.provider ]
+    type MetaTailFactory = Map<string, string> -> IExternalSymbolProvider list
+
+    /// Fold a provider list's `{ platform → canon }` reverse maps; later wins (matches
+    /// `ExternalSymbols.composite`'s fold).
+    let private foldReverseCanon (providers: IExternalSymbolProvider list) : Map<string, string> =
+        (Map.empty, providers)
+        ||> List.fold (fun acc p -> (acc, p.IntrinsicReverseCanon) ||> Map.fold (fun m k v -> Map.add k v m))
+
+    /// BCL reflection over the host runtime. The empty-reverse case (extraction-time
+    /// `depComposite`, which never canonicalizes primitives) reuses the shared singleton;
+    /// only the seeded final-composite leaf is freshly built.
+    let private bclMetaTail: MetaTailFactory =
+        fun reverseCanon ->
+            if reverseCanon.IsEmpty then
+                [ MetadataSymbols.provider ]
+            else
+                [
+                    MetadataSymbols.createWith reverseCanon (MetadataSymbols.runtimeAssemblyPaths ())
+                ]
 
     /// Dependency-ordered manifests and each package's transitive `depends-on` closure.
     /// A cycle or missing dependency is a hard error.
@@ -22,7 +46,7 @@ module SymbolProviders =
     /// Each package is built with access to its declared `depends-on` closure + BCL
     /// metadata, so cross-package nominal heads kind at bake time.
     let private composeProviders
-        (metaTail: IExternalSymbolProvider list)
+        (metaTail: MetaTailFactory)
         (target: string option)
         (orderedManifestPaths: string list)
         (transitiveDeps: string -> string list)
@@ -46,8 +70,13 @@ module SymbolProviders =
                     | _ -> None
                 )
 
+            // The per-package extraction leaf is the SAME injected `metaTail` factory as
+            // the final composite — Common never names a concrete provider. Seeded with
+            // the reverse map of the deps built so far (extraction does not canonicalize
+            // primitives, so this is the cheap empty-reverse case in practice). (Before,
+            // this hardcoded the BCL leaf even on a JS build.)
             let depComposite =
-                ExternalSymbols.composite (depProviders @ [ MetadataSymbols.provider ])
+                ExternalSymbols.composite (depProviders @ metaTail (foldReverseCanon depProviders))
 
             let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
@@ -65,7 +94,10 @@ module SymbolProviders =
                 byPath.[key] <- provider
             | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
 
-        ExternalSymbols.composite (List.ofSeq built @ metaTail)
+        // The final composite's leaf IS seeded with the full harvested reverse map, so a
+        // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
+        let builtList = List.ofSeq built
+        ExternalSymbols.composite (builtList @ metaTail (foldReverseCanon builtList))
 
     let build (manifestPaths: string list) : IExternalSymbolProvider =
         let ordered, transitiveDeps = orderedManifestsWithDeps manifestPaths
@@ -223,7 +255,7 @@ module SymbolProviders =
     /// The raw `Map` is exposed via `contractInlineBodies` for tests.
     let private buildContractCached
         (cacheTag: string)
-        (metaTail: IExternalSymbolProvider list)
+        (metaTail: MetaTailFactory)
         (target: string option)
         (manifestPaths: string list)
         : IExternalSymbolProvider * Map<string, InlineBody> =
@@ -265,14 +297,16 @@ module SymbolProviders =
         buildContractCached "bcl" bclMetaTail target manifestPaths |> fst
 
     /// `buildContractFor` with a backend-injected layer-2 `metaTail`. `cacheTag`
-    /// prevents the backend's entry from aliasing the `"bcl"` entry.
+    /// prevents the backend's entry from aliasing the `"bcl"` entry. The injected tail
+    /// is reverse-map-independent (a non-CLR backend supplies its own leaf), so it is
+    /// wrapped as a constant factory.
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)
         (target: string option)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
-        buildContractCached cacheTag metaTail target manifestPaths |> fst
+        buildContractCached cacheTag (fun _ -> metaTail) target manifestPaths |> fst
 
     /// Raw cross-package inline bodies by source name — introspection seam for tests.
     /// Production code uses the provider's inline-body channel.

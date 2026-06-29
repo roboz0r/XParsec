@@ -139,7 +139,7 @@ hard-coded codegen map).** Primitive reprs flow through THREE channels:
    — the CODEGEN ASSEMBLER's primitive table: `Assembler.fs:37`
    (`merge tast.IntrinsicReprTypes` = defaults overlaid by the unit's own
    intrinsics), `AssemblerScaffold.fs:108` (fixture, no `.fs`),
-   `MetadataSymbols.fs:21` (`reprToName` BCL→Vesper reverse), and the parallel
+   `MetadataSymbols.fs:20` (`reprToName` BCL→Vesper reverse), and the parallel
    `tryEncodeValueType` match (`ClrEncoder.fs:127`).
 
 The drift: the front-end (1+2) reads reprs from the `.fs`; the codegen assembler
@@ -252,22 +252,81 @@ Target architecture (single source of truth = the harvested `.fs`):
   scalar repr is encodable, so a new primitive in a `.fs` cannot silently fail at the
   encoder.
 
-Reverse direction (`MetadataSymbols.reprToName`, BCL→canon): there are TWO
-reconciliation paths today, covering different seams — `reprToName` runs at the LEAF,
-eagerly (`tryBuildType:74` turns a BCL `System.Int32` member type into `FTConst "int"`
-at template-build time; `MetadataSymbols.IntrinsicReverseCanon = Map.empty`), while
-`IntrinsicReverseCanon` runs at UNIFICATION, lazily (`Engine.fs:445`, proven for
-`System.Exception → exn` off `inherit` chains; complete map folded at the composite
-`ExternalSymbols.fs:1010-1012` / unit `SideTables.fs:1273-1280`). Cleanest end-state:
-collapse onto the single `IntrinsicReverseCanon` mechanism — the leaf stops
-canonicalizing (emits `FTClass(platform-key)`), unification canonicalizes it exactly
-as it already does for `exn`; delete `reprToName`. CAVEATS (why this is sequenced
-last): it shifts BCL-primitive canonicalization from eager-at-leaf to
-lazy-at-unification (every primitive in every member sig now relies on the
-reconciliation firing — CONFIRM the `Translate.fs` external-member realization path
-routes through reverse-canon, today only proven for nominal heads), and it couples
-BCL-primitive canonicalization to Vesper.Core's harvest being present (reverse map
-empty without it).
+Reverse direction (`MetadataSymbols.reprToName`, BCL→canon): `reprToName` runs at the
+LEAF, eagerly — `tryBuildType:74` turns a BCL `System.Int32` member type into
+`FTConst "int"` at template-build time, so a Vesper `int` argument can be passed to a
+BCL member. This is the .NET symbol provider mapping an IL-declared method onto Vesper
+types so semantic analysis knows how/if to call it; it is NOT a codegen concern.
+
+REJECTED end-state (the earlier draft): "leaf stops canonicalizing, unification
+canonicalizes `int ≡ System.Int32` as it does for `exn`." `int` must NOT unify with
+`System.Int32`. The unify route keys reconciliation on the platform repr, which is
+many-to-one per target — on JS both `int` and `float` are `number`. (The `exn`
+precedent is safe only because `System.Exception ↔ exn` happens to be 1:1.) Primitive
+identity stays nominal and target-invariant; the platform repr is a per-target
+*attribute* the side tables already carry (forward `IntrinsicForwardRepr`, reverse
+`IntrinsicReverseCanon`), not a basis for type identity.
+
+The many-to-one reverse case (AGREED 2026-06-28): when a platform repr maps to several
+canons (`number → {int, float}`), the reverse lookup yields the UNION
+`TyOr(["int"; "float"])` (`FTOr` at the frozen layer), not an arbitrary single winner —
+the incoming value is "one of these primitives", narrowed by context. The CLR metadata
+leaf is 1:1 (`System.Int32 → int`), so today's reverse map is `Map<string, string>`;
+the type widens to a union value (`Map<string, FrozenType>` / a canon-set → `FTOr`) when
+the JS-native / TS providers actually populate a reverse map (both `Map.empty` now). The
+1:1 CLR mechanism below does not foreclose it.
+
+AGREED end-state — the leaf keeps canonicalizing, but driven by the *dynamically
+harvested* relationship instead of the static `reprToName`/`defaults` table, AND the
+.NET provider is restructured (see "Step 1.5 (revised)" below):
+
+- `System.Int32 → int` is the reverse face of `type int = (# "System.Int32" #)`,
+  already harvested into `IntrinsicReverseCanon` (`TyparCapture.fs:378`) when that
+  declaration is analysed — the same side table `canonName` uses for `exn`. The leaf's
+  canonicalization is seeded from that harvested `{ platform → canon }` map (folded
+  from the layer-1 providers' `IntrinsicReverseCanon`), not the `defaults`-derived
+  `reprToName`. Delete `reprToName` + `IntrinsicRepr.defaults`.
+- CAVEAT (chicken-and-egg): Vesper.Core's OWN extraction runs before its `int↔System.
+  Int32` relationship is harvested, so its leaf sees an empty reverse map. Fine iff
+  Vesper.Core's `.fsi` member signatures never name a BCL primitive by its `System.*`
+  name (they use `int`/`string`; the `(# … #)` RHS is handled by
+  `registerAbbreviationDefn`, not member-sig canonicalization). CONFIRM before landing.
+
+## Step 1.5 (revised) — per-compilation .NET symbol provider in Codegen.Clr
+
+The reverse-canon plumbing forced a deeper, correct restructuring of the BCL provider
+(agreed 2026-06-28). The .NET metadata provider is .NET-specific and per-compilation;
+nothing in this is target-generic.
+
+Target architecture:
+
+- **`MetadataSymbols` moves `Codegen.Common` → `Codegen.Clr`.** A `System.Reflection`-
+  backed provider is .NET-specific; JS / future targets have no reason to want it.
+  SemanticAnalysis never names it (it consumes `IExternalSymbolProvider` abstractly),
+  so the front end is unaffected.
+- **No singleton in production.** `MetadataSymbols.provider` today is
+  `create (runtimeAssemblyPaths ())` — a process-wide leaf over the *compiler host's*
+  TPA. Replace with `MetadataSymbols.create dllPaths`, constructed per-compilation from
+  the **compiler context** — the reference-assembly list a real .NET compilation gets
+  from MSBuild (today: `ProjectInfo.References`, `Codegen.Clr/ProjectInfo.fs`), NOT the
+  host runtime. The host-TPA singleton survives ONLY as a convenience in
+  `Codegen.Clr.Tests` (`MetadataSymbols.provider` for `MetadataSymbolsTests`).
+- **`SymbolProviders` (Common) becomes leaf-agnostic.** Drop `bclMetaTail` and the
+  hardcoded `MetadataSymbols.provider` at the per-package `depComposite`
+  (`SymbolProviders.fs:50`) — `composeProviders` already takes a `metaTail` for the
+  final composite; thread that SAME tail into the depComposite so Common never names a
+  concrete leaf. (Aside: today the depComposite is BCL even on a JS build — a latent
+  inconsistency this fixes.) The BCL-defaulting conveniences (`build`/`buildContract`/
+  `buildContractFor`/`contractInlineBodies*`) move to a CLR-side module that injects the
+  per-compilation metadata tail; `buildContractWithMetadata` (the injection seam) stays
+  in Common. The JS backend already injects its own tail and is unaffected.
+- **Reverse map seeding.** `composeProviders` folds the layer-1 providers'
+  `IntrinsicReverseCanon` into a `{ platform → canon }` map and seeds the per-build
+  metadata leaf with it; `tryBuildType` canonicalizes through that map. No static table.
+
+Blast radius: ~60 `buildContract*` call sites, almost all in tests (Clr.Tests +
+8 in Js.Tests — the JS tests' use of the BCL-defaulted `buildContract` is itself
+suspect and resolved as part of this). No production CLR driver calls these yet.
 
 ## Sequencing
 
@@ -301,11 +360,37 @@ empty without it).
       References…") was migrated to `buildContract defaultManifests` (a down-payment on
       the MockBuiltins side goal — it had no channel-1 and relied on the bootstrap for
       `int`). `IntrinsicRepr.defaults` now has ONE consumer left: `reprToName` (1.5).
-   5. Reverse-canon unification (deletes `defaults` outright), gated on tests: delete
-      `MetadataSymbols.reprToName`, route BCL types through `IntrinsicReverseCanon`
-      at the unification seam — AFTER confirming `Translate.fs` realization covers it.
+   5. Per-compilation .NET provider + dynamic reverse map (deletes `defaults` +
+      `reprToName` outright). The full restructuring is "Step 1.5 (revised)" above;
+      sub-steps, low-risk first:
+      a. DONE. `composeProviders` is leaf-agnostic: `metaTail` is now a
+         `MetaTailFactory` (`Map<platform,canon> -> provider list`), threaded into BOTH
+         the per-package `depComposite` and the final composite. The hardcoded
+         `MetadataSymbols.provider` at `:50` is gone.
+      b. TODO (the physical move). Move `MetadataSymbols.fs` `Codegen.Common` →
+         `Codegen.Clr`; move the BCL-defaulting `buildContract*` conveniences to a
+         CLR-side module; relocate the host-TPA `provider` singleton to
+         `Codegen.Clr.Tests`. Update call sites (~60, mostly tests). Resolve the
+         Js.Tests `buildContract` uses.
+      c. PARTIAL. The leaf is now SEEDED with the harvested `{ platform → canon }` map
+         (folded from layer-1 `IntrinsicReverseCanon` in `composeProviders`) and
+         `tryBuildType` canonicalizes through it — but only SEALED BCL types
+         (`t.IsSealed` guard): scalar primitives + `string` canonicalize; the unsealed
+         subtype ROOTS (`System.Object → obj`, `System.Exception → exn`) and capability
+         interfaces keep their BCL nominal form and reconcile at the unification bridge
+         (`Engine.canonName`) as before — eager leaf-canon of those breaks ctor/`new`/
+         subtype resolution (8 InferResolution + base-type tests). Still TODO: build the
+         leaf from the compiler context (`ProjectInfo.References`) instead of the host
+         runtime TPA (currently `MetadataSymbols.runtimeAssemblyPaths ()`).
+      d. DONE. `reprToName` + `IntrinsicRepr.defaults` deleted. `IntrinsicRepr` now holds
+         only `tryEncodeValueType` (SRM IL knowledge). A contract built without
+         Vesper.Core (`build []`) no longer canonicalizes BCL primitives (the
+         relationship lives in Core's `prim-types`); two `ExternalMemberTests` that used
+         `build []` now pass `[ vesperCoreManifest ]`. `MetadataSymbolsTests` seeds its
+         leaf from the real harvested map (`buildContract [vesperCoreManifest]
+         |> .IntrinsicReverseCanon`). All suites green (CLR 1064, JS 177, SA 643, Vesper 49).
    Keep `tryEncodeValueType` (IL knowledge) + add the "every scalar repr is
-   encodable" conformance assertion.
+   encodable" conformance assertion (TODO).
 2. **Fill Species 4 pairs.** Write `compiler-attributes.fs` and
    `structural-printer.fsi`. Record the per-target / front-end-intrinsic /
    FSharp.Core-interop exemptions as an explicit, tested list (not silent).
@@ -319,7 +404,7 @@ empty without it).
    the FSharp.Core `PrintfFormat` substitution (Species 4) where a `.fs` now covers
    them.
 6. **Extend to generic MEMBERS** once published cross-package (drop the
-   `VesperLib.fs` `MethodArity = 0` hard-code, `VesperLib.fs:1105`).
+   `VesperLib.fs` `MethodArity = 0` hard-codes, `VesperLib.fs:535` and `:1105`).
 
 ## Side goal — remove `MockBuiltins`
 

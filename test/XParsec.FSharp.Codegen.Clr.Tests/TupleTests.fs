@@ -14,11 +14,14 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// A fresh provider over an empty metadata context — enough to mint TypeRef /
-/// TypeSpec / MemberRef handles without emitting a full assembly. `defaults`
-/// carries the `int`/`string`/… → IL-repr map the element encoding needs;
-/// `nullProvider` because no external-symbol resolution is exercised here.
+/// TypeSpec / MemberRef handles without emitting a full assembly. The own-unit
+/// intrinsic forward map carries the `int`/`string` → IL-repr the element encoding
+/// needs (the two primitives these tests exercise); `nullProvider` because no
+/// external-symbol resolution is involved.
+let private ownIntrinsics = Map [ "int", "System.Int32"; "string", "System.String" ]
+
 let private provider () =
-    ClrProvider(MetadataContext(), IntrinsicRepr.defaults, Map.empty, ExternalSymbols.nullProvider, "TupleTest")
+    ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbols.nullProvider, "TupleTest")
 
 let private ftConst (name: string) = FTConst(name, EqArray.empty)
 

@@ -111,8 +111,7 @@ module internal AssemblerScaffold =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
-        let provider =
-            ClrProvider(ctx, Map.empty, Map.empty, symbols, project.AssemblyName)
+        let provider = ClrProvider(ctx, Map.empty, Map.empty, symbols, project.AssemblyName)
 
         let icodegen = provider :> ICodegenProvider
 

@@ -335,7 +335,10 @@ let tests =
                     IlIr.lower b.Body il
 
                 let bytes =
-                    Codegen.assembleMainEmitWithProvider coreProvider.Value (ProjectInfo.defaults "IrTryCatch") buildBody
+                    Codegen.assembleMainEmitWithProvider
+                        coreProvider.Value
+                        (ProjectInfo.defaults "IrTryCatch")
+                        buildBody
                     |> Codegen.toBytes
 
                 let code, _ = runEntryPoint bytes

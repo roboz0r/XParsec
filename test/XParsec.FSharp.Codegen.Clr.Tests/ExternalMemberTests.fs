@@ -30,7 +30,9 @@ let tests =
         "ExternalMember"
         [
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
-                let provider = SymbolProviders.build []
+                // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
+                // metadata leaf canonicalizes `GetHashCode`'s `System.Int32` return through.
+                let provider = SymbolProviders.build [ vesperCoreManifest ]
 
                 let tast =
                     analyseWith
@@ -126,7 +128,9 @@ let tests =
             // form — short-name resolution flows through `OpenScope.tryQualify` in
             // both NameResolution and Unification.
             test "short name under `open` type-checks + freezes carrying its key" {
-                let provider = SymbolProviders.build []
+                // Vesper.Core supplies the primitive relationship the metadata leaf
+                // canonicalizes `GetHashCode`'s `System.Int32` return through.
+                let provider = SymbolProviders.build [ vesperCoreManifest ]
 
                 let tast =
                     analyseWith

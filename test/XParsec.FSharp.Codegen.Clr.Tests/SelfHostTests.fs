@@ -536,8 +536,7 @@ let tests =
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`
                 // registration (asm-discrimination).
-                let tast =
-                    Pipeline.analyseFor project.AssemblyName provider src lexed file
+                let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
 
                 let artifact = Codegen.compile provider project tast
 

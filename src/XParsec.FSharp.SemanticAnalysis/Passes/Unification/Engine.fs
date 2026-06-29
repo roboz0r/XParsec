@@ -974,7 +974,7 @@ module UnificationEngine =
     let absorbsAsObj (expected: SemType) : bool = isObjType (resolveStep expected)
 
     /// Bridge an external signature's `System.Object` (minted by the provider as
-    /// `TyClass("System.Object", [])`, since it isn't in `IntrinsicRepr.defaults`)
+    /// `TyClass("System.Object", [])`, since `obj` is not a harvested primitive repr)
     /// to the user-facing `TyConst "obj"` that `translateType` produces — without
     /// this an external method's `obj` parameter (`IEqualityComparer.Equals(obj,
     /// obj)`) fails to unify with an `obj`-typed argument. Shared by the deferred

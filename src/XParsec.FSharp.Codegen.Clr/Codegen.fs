@@ -82,11 +82,7 @@ module Codegen =
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies, independent of any
     /// TAST.
-    let assembleMainEmit
-        (symbols: IExternalSymbolProvider)
-        (project: ProjectInfo)
-        (build: Il -> unit)
-        : ClrArtifact =
+    let assembleMainEmit (symbols: IExternalSymbolProvider) (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         AssemblerScaffold.assembleWith symbols project (fun _ _ -> build)
 
     /// Provider-aware variant: the build callback sees the wired
