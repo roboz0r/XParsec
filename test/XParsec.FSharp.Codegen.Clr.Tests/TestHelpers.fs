@@ -263,6 +263,22 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      | Result.Ok m -> m
                      | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
 
+                 // T8 Step 5: `.fsi`↔`.fs` conformance is a HARD gate on the build. A
+                 // contract binding with no implementation (and not declared `sig-only`
+                 // in the manifest) is an FS0240-style error — no codegen substitution
+                 // may stand in for a missing `.fs`.
+                 match ConformancePass.checkManifest None manifestPath with
+                 | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
+                 | Result.Ok outcome ->
+                     match ConformancePass.enforce outcome with
+                     | [] -> ()
+                     | ds ->
+                         failwithf
+                             "buildPackage %s: %d conformance error(s):\n%s"
+                             pkg
+                             (List.length ds)
+                             (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
+
                  // Force each dependency's build first (recursively, shared cache):
                  // this loads + registers it in `packageAlc`, so the current package
                  // resolves against it at load time. Collect each dep's on-disk DLL

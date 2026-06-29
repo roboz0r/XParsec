@@ -73,6 +73,18 @@ module ReferencedProject =
             /// base `runtime` key (a runtime asset is inherently target-specific), so
             /// an absent key yields nothing (`resolveRuntime`).
             RuntimeOverrides: Map<string, string list>
+            /// Contract `.fsi` files that are DELIBERATELY impl-free on the base
+            /// (CLR) target (`[core] sig-only`) — a front-end intrinsic lowered
+            /// inline (`printf.fsi`), an FSharp.Core-interop type whose self-host is
+            /// sequenced later (`printf-format.fsi`), or a per-target/BCL-resolved
+            /// contract (`exceptions.fsi`). The conformance pass treats a `SigOnly`
+            /// `.fsi` listed here as an accepted exemption; one NOT listed is the
+            /// FS0240 analogue — a hard error (T8 Step 5). Per-target overrides
+            /// (`sig-only-<t>`) REPLACE the base, like `impl`.
+            SigOnly: string list
+            /// Per-target `sig-only` overrides, keyed by suffix; resolved by
+            /// `resolveSigOnly`, falling back to the base `SigOnly`.
+            SigOnlyOverrides: Map<string, string list>
         }
 
     let private asString (v: TomlValue) : string option =
@@ -146,6 +158,15 @@ module ReferencedProject =
         | Some t -> m.RuntimeOverrides |> Map.tryFind t |> Option.defaultValue []
         | None -> []
 
+    /// Resolve the `sig-only` impl-free exemption `.fsi` list for a target suffix;
+    /// mirror of `resolveImpl` (REPLACE). The conformance pass (`ConformancePass.enforce`)
+    /// reads this to distinguish a legitimately impl-free contract from a missing
+    /// implementation (the FS0240 hard error).
+    let resolveSigOnly (target: string option) (m: Manifest) : string list =
+        match target with
+        | Some t -> m.SigOnlyOverrides |> Map.tryFind t |> Option.defaultValue m.SigOnly
+        | None -> m.SigOnly
+
     /// Parse a package `manifest.toml` document. `dirName` is the manifest's
     /// directory name, used as the assembly name when `[core]` carries no `name`.
     let parseManifest (dirName: string) (doc: TomlDocument) : Result<Manifest, string> =
@@ -194,6 +215,8 @@ module ReferencedProject =
                             InlineBodiesOverrides = collectOverrides core "inline-bodies"
                             FilesOverrides = collectOverrides core "files"
                             RuntimeOverrides = collectOverrides core "runtime"
+                            SigOnly = findStringList core "sig-only" |> Option.defaultValue []
+                            SigOnlyOverrides = collectOverrides core "sig-only"
                         }
 
     /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).

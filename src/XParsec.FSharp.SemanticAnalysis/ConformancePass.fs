@@ -72,6 +72,11 @@ module ConformancePass =
             /// `.fs` files in the impl set whose stem has no `.fsi` contract — a
             /// body with no published surface (rare; usually empty).
             ImplOnly: string list
+            /// The `.fsi` files the manifest declares DELIBERATELY impl-free for this
+            /// target (`[core] sig-only`). `enforce` treats a `SigOnly` contract in
+            /// this set as an accepted exemption; one outside it is the FS0240 hard
+            /// error (T8 Step 5).
+            SigOnlyExemptions: Set<string>
         }
 
     let private identText (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
@@ -241,38 +246,104 @@ module ConformancePass =
                         Package = m.Name
                         Pairs = pairs
                         ImplOnly = implOnly
+                        SigOnlyExemptions = ReferencedProject.resolveSigOnly target m |> Set.ofList
                     }
 
-    /// Flatten a package outcome's kernel conformance errors, tagged with the `.fsi`
-    /// they came from — the convenient shape for a test/diagnostic that asserts the
-    /// only findings are the accepted ones.
-    let pairErrors (outcome: PackageOutcome) : (string * Conformance.ConformanceError) list =
+    // ---- Enforcement: conformance findings become hard errors (T8 Step 5) -------
+    //
+    // The pass used to be diagnostic-only: a test compared `pairErrors` against an
+    // `acceptedFindings` golden. `enforce` flips that — every discrepancy is now a
+    // hard `Severity.Error` diagnostic (F#'s FS0240 family), so a package build that
+    // runs it FAILS rather than silently shipping a degraded DLL with a codegen
+    // substitution standing in for a missing `.fs`. The exemption list is no longer
+    // a test-side constant: it is the manifest's `[core] sig-only`, so a `.fsi` whose
+    // `.fs` was deleted (and which is not declared impl-free) is an FS0240 hard error
+    // by construction.
+
+    /// `V240` — the FS0240 family: a sig binding with no impl (`MissingInImpl` /
+    /// `ValueMissingInImpl`), an extern/intrinsic drift, or an un-exempted `SigOnly`
+    /// contract. `V241` — a leading-module/namespace pairing disagreement. `V242` — a
+    /// compiled `.fs` with no `.fsi` contract. `V243` — a stale/unknown `sig-only`
+    /// exemption (declared impl-free but a companion `.fs` exists, or the named `.fsi`
+    /// is not a contract at all).
+    ///
+    /// Empty = the package conforms; a non-empty result must fail the build.
+    // `Diagnostic` is qualified throughout: `open XParsec.FSharp.Parser` brings the
+    // PARSER's `Diagnostic` (Token/DiagnosticCode/DiagnosticSeverity) into scope, which
+    // shadows the SemanticAnalysis one this pass emits.
+    let enforce (outcome: PackageOutcome) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
+        let err (code: string) (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
+            {
+                Key = NodeKey(0UL)
+                Code = code
+                Message = sprintf "%s: %s" outcome.Package message
+                Severity = Severity.Error
+            }
+
+        // The contract `.fsi` files actually present, split by pairing verdict — the
+        // basis for catching a `sig-only` exemption that names a non-contract or a
+        // file that in fact has a companion `.fs`.
+        let pairedSigs =
+            set
+                [
+                    for p in outcome.Pairs do
+                        match p with
+                        | PairOutcome.Paired r -> yield r.SigFile
+                        | PairOutcome.SigOnly _ -> ()
+                ]
+
+        let sigOnlySigs =
+            set
+                [
+                    for p in outcome.Pairs do
+                        match p with
+                        | PairOutcome.SigOnly s -> yield s
+                        | PairOutcome.Paired _ -> ()
+                ]
+
         [
             for p in outcome.Pairs do
                 match p with
                 | PairOutcome.Paired r ->
                     for e in r.Errors do
-                        yield r.SigFile, e
-                | PairOutcome.SigOnly _ -> ()
-        ]
+                        yield err "V240" (sprintf "%s: %s" r.SigFile (Conformance.describe e))
 
-    /// The impl-free (`SigOnly`) `.fsi` files of a package outcome.
-    let sigOnlyFiles (outcome: PackageOutcome) : string list =
-        [
-            for p in outcome.Pairs do
-                match p with
-                | PairOutcome.SigOnly s -> yield s
-                | PairOutcome.Paired _ -> ()
-        ]
-
-    /// The module-decl guard violations of a package outcome.
-    let moduleMismatches (outcome: PackageOutcome) : (string * ModuleDeclMismatch) list =
-        [
-            for p in outcome.Pairs do
-                match p with
-                | PairOutcome.Paired r ->
                     match r.ModuleMismatch with
-                    | Some mm -> yield r.SigFile, mm
+                    | Some mm ->
+                        yield
+                            err
+                                "V241"
+                                (sprintf
+                                    "%s ↔ %s: the paired files' leading module/namespace declarations disagree ('%s' vs '%s')"
+                                    r.SigFile
+                                    r.ImplFile
+                                    mm.SigDecl
+                                    mm.ImplDecl)
                     | None -> ()
-                | PairOutcome.SigOnly _ -> ()
+                | PairOutcome.SigOnly s ->
+                    if not (outcome.SigOnlyExemptions.Contains s) then
+                        yield
+                            err
+                                "V240"
+                                (sprintf
+                                    "the signature file '%s' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                                    s)
+
+            for f in outcome.ImplOnly do
+                yield err "V242" (sprintf "the implementation file '%s' has no '.fsi' contract" f)
+
+            // A declared exemption is stale if its `.fsi` actually pairs with a `.fs`,
+            // and unknown if it names no contract in the package at all — both keep the
+            // single exemption source honest.
+            for ex in outcome.SigOnlyExemptions do
+                if pairedSigs.Contains ex then
+                    yield
+                        err
+                            "V243"
+                            (sprintf
+                                "'%s' is declared `sig-only` but a companion implementation exists — remove the stale exemption"
+                                ex)
+                elif not (sigOnlySigs.Contains ex) then
+                    yield
+                        err "V243" (sprintf "`sig-only` names '%s', which is not a contract `.fsi` in this package" ex)
         ]

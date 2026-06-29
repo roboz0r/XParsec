@@ -42,6 +42,20 @@ impl = [
     "formatter.fs",
 ]
 
+# Contracts that are DELIBERATELY impl-free on the CLR target — the conformance
+# pass (T8 Step 5) accepts these and turns any OTHER `.fsi`-without-`.fs` into an
+# FS0240 hard error.
+#   - printf/printfn/sprintf are front-end intrinsics, lowered inline to
+#     `Formatter`/`Format` on the happy path (like the operators), so there is no
+#     `.fs` body.
+#   - `PrintfFormat` is still instantiated via FSharp.Core's `PrintfFormat`4` on the
+#     cold path; self-hosting it + retargeting the recipe is a sequenced dependency
+#     on the vesper-printf cold path.
+sig-only = [
+    "printf.fsi",
+    "printf-format.fsi",
+]
+
 # JS-target inline-body source: none. The printf family is front-end special-cased on
 # JS (lowered to `Format` nodes, not inline-spliced), and `formatter.fs` pulls in
 # `System.Span`/`ArrayPool` — unresolvable under a BCL-free JS provider.

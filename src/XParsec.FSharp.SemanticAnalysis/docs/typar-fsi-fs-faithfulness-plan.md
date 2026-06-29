@@ -2,9 +2,11 @@
 
 Status (2026-06-29): IN PROGRESS. Steps 1 (except the 1.5c "per-compilation leaf paths"
 sub-step, still PARTIAL — orthogonal to 4.2), 2, 2(a), 3, 4.1 (+ the 4.1b accuracy
-refinement), and **4.2** are DONE — see the per-step DONE/PARTIAL markers in
-**Sequencing**, the authoritative tracker. **The next unstarted work is Step 5** (flip
-`MissingInImpl` to a hard error); Step 6 (generic members) follows.
+refinement), **4.2**, and **the Step 5 hard-error flip** are DONE — see the per-step
+DONE/PARTIAL markers in **Sequencing**, the authoritative tracker. **The next unstarted
+work is Step 6** (generic members). Step 5's two RETIREMENT clauses (`BuiltinOps`,
+FSharp.Core `PrintfFormat`) remain deferred on their stated upstream dependencies (the
+dynamic-operator runtime; the vesper-printf cold path) — see Step 5 in Sequencing.
 This supersedes the earlier "design only" note that split out of
 `typar-ordering-unification-plan.md` when T1–T7 landed (commit `8efadbf1`). EPHEMERAL
 like all `docs/*-plan.md` — delete once T8 lands.
@@ -671,9 +673,37 @@ handling is ever unified here.
         pipeline (`set.fs`) are not driven; 4.2's tests cover `list.fs`, which compiles
         end-to-end. (A whole-tree sweep driving `checkFile` over every package's frozen `.fs`
         + extracted `.fsi` is a natural follow-on once those compile.)
-5. **Flip `MissingInImpl` to a hard error**; retire `BuiltinOps` (Species 2) and
-   the FSharp.Core `PrintfFormat` substitution (Species 4) where a `.fs` now covers
-   them.
+5. **Flip `MissingInImpl` to a hard error** — DONE for the hard-error flip; the two
+   retirements are DEFERRED on their upstream dependencies.
+   - DONE (the flip). New `ConformancePass.enforce : PackageOutcome -> Diagnostic list`
+     promotes EVERY conformance discrepancy to a hard `Severity.Error` diagnostic — the
+     FS0240 family (`MissingInImpl` / `ValueMissingInImpl`, code `V240`), extern/intrinsic
+     drift, and an un-exempted impl-free `SigOnly` `.fsi` (`V240`); plus a module-decl
+     mismatch (`V241`), a contract-less `.fs` (`V242`), and a stale/unknown `sig-only`
+     exemption (`V243`). The exemption list moved OUT of the test into the manifest: a new
+     `[core] sig-only` key (`ReferencedProject.SigOnly` + `resolveSigOnly`, REPLACE-style
+     per-target overrides), populated for `Vesper.Printf` (`printf.fsi` / `printf-format.fsi`)
+     and `Vesper.Exceptions` (`exceptions.fsi`). So a `.fsi` whose `.fs` was deleted — and
+     which is not declared `sig-only` — is an FS0240 hard error BY CONSTRUCTION, not a pinned
+     golden. The pass is wired as a HARD GATE into the package-build harness
+     (`Codegen.Clr.Tests/TestHelpers.buildPackage`): a non-conforming package fails its build
+     rather than emitting a degraded DLL with a codegen substitution standing in for a missing
+     `.fs`. The old diagnostic-only projections (`pairErrors`/`sigOnlyFiles`/`moduleMismatches`)
+     + the test-side `acceptedFindings`/`implFreeExemptions` maps are deleted; the
+     `PackageConformance` test now asserts `enforce = []` per package, and a new
+     `ConformanceEnforcement` testList pins the promotion (deleted-impl `SigOnly` → `V240`,
+     `MissingInImpl` → `V240`, exempt control, stale-exemption → `V243`). All suites green
+     (SA 653/+1 skip, Clr 1067, Js 175, Vesper 49).
+   - DEFERRED. Retire `BuiltinOps` (Species 2): blocked on the homogeneous `^T->^T->^T`
+     inline-operator body, whose non-inlined (eta) form needs the ported dynamic-operator
+     runtime — OUT of T8 scope per the 4.2 SCOPE BOUNDARY (owned by the per-target inline-IL
+     stack, `project_inline_il_target_specific`). The enforcement above does NOT regress on it:
+     `BuiltinOps` is a codegen EMISSION fallback, not a `.fsi`-substitute-for-missing-`.fs`,
+     so it is not a `SigOnly`/`MissingInImpl` finding.
+   - DEFERRED. Retire the FSharp.Core `PrintfFormat` substitution (Species 4): sequenced on
+     the vesper-printf cold-path self-host; until then `printf-format.fsi` is a declared
+     `sig-only` exemption (above), so it is enforced as a KNOWN impl-free contract, not a
+     silent gap.
 6. **Extend to generic MEMBERS** once published cross-package (drop the
    `VesperLib.fs` `MethodArity = 0` hard-codes, `VesperLib.fs:535` and `:1105`).
 
@@ -743,7 +773,10 @@ the source").
   GenericParam order == MethodSpec order for a declared-≠-appearance binding.
 - **[6]** `formatter.fsi` ↔ `formatter.fs` MEMBER-level conformance (overloaded
   `AppendFormatted`, ctors) goes green.
-- **[5]** A `.fsi` binding with no `.fs` (a deliberately deleted impl) → hard FS0240-style
-  error, NOT a pinned golden.
-- **[DONE, 4.1/3]** Per-target: `exceptions.fsi` conforms (impl-free) on CLR (recorded in
-  the `implFreeExemptions` set) and via `prim-types-exn` on JS.
+- **[5 — DONE]** A `.fsi` binding with no `.fs` (a deliberately deleted impl) → hard
+  FS0240-style error (`V240`), NOT a pinned golden. (`ConformanceTests.fs`
+  "ConformanceEnforcement": un-exempted `SigOnly` → `V240`; `MissingInImpl` → `V240`;
+  exempt + stale-exemption controls.)
+- **[DONE, 4.1/3/5]** Per-target: `exceptions.fsi` conforms (impl-free) on CLR (now
+  declared `[core] sig-only` in `Vesper.Exceptions/manifest.toml`, enforced by
+  `ConformancePass.enforce`) and via `prim-types-exn` on JS.

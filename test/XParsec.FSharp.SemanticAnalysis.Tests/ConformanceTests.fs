@@ -264,17 +264,15 @@ let tests =
 // dropped from a curated list. The packages themselves are discovered from the
 // source tree for the same reason.
 //
-// Each package asserts THREE things against a small declared expectation:
-//   1. The kernel conformance errors equal `acceptedFindings` for that package —
-//      the abbreviation aliases (sig-only `MissingInImpl`) and private impl types
-//      (`MissingInSig`) that are deliberate, not sig/impl mistakes. Anything else
-//      goes red. (Step 5 flips an *un*-accepted `MissingInImpl` to a hard FS0240.)
-//   2. The impl-free (`SigOnly`) `.fsi` contracts equal `implFreeExemptions` — the
-//      legitimate signatures with no `.fs` on the CLR target (front-end-intrinsic /
-//      per-target / FSharp.Core-interop). An impl appearing in the manifest moves a
-//      `.fsi` out of `SigOnly`, forcing it out of this set.
-//   3. No module-decl-guard violations and no contract-less `.fs` (`ImplOnly`) — a
-//      mismatch here means the stem rule paired two unrelated files, always a bug.
+// Each package is driven through `ConformancePass.enforce` (T8 Step 5), which
+// promotes every discrepancy to a hard `Severity.Error` diagnostic — the FS0240
+// family for a contract binding with no implementation (`MissingInImpl` /
+// `ValueMissingInImpl`), extern/intrinsic drift, an un-exempted impl-free `SigOnly`
+// `.fsi`, a leading-module-decl mismatch, or a contract-less `.fs`. The exemption
+// list is no longer a test-side constant: it is the manifest's `[core] sig-only`
+// (front-end-intrinsic `printf.fsi`, FSharp.Core-interop `printf-format.fsi`,
+// per-target `exceptions.fsi`), so a `.fsi` whose `.fs` was deleted — and which is
+// not declared impl-free — is a hard error by construction, NOT a pinned golden.
 //
 // The conformance check is codegen-independent (CST-level, not rung-gated), so it
 // runs on all the Vesper.* packages — Set included — and is the cheapest way to
@@ -293,40 +291,6 @@ let private packageManifests: (string * string) list =
     |> Array.sortBy fst
     |> List.ofArray
 
-/// Conformance findings each package is EXPECTED to emit. The check is now accurate
-/// BY CONSTRUCTION — a transparent abbreviation (`type X = Y`) needs no companion, an
-/// impl-only type is a HiddenTycon (F# hides it, not drift), and value presence
-/// matches F#'s FS0240 — so the false positives that used to be pinned here are gone.
-/// Any finding the pass still produces is therefore a REAL `.fsi`/`.fs` discrepancy to
-/// be FIXED AT THE SOURCE, never accepted here. The map is empty: every package
-/// conforms (its drift fixed at the source).
-let private acceptedFindings: Map<string, (string * Conformance.ConformanceError) list> =
-    Map.empty
-
-/// Legitimately impl-free (`SigOnly`) contract `.fsi` files on the CLR target: a
-/// signature the manifest pairs with no `.fs`, for a recorded reason. The explicit,
-/// tested successor to silently omitting them — Step 5 flips an un-listed `SigOnly`
-/// to a hard FS0240-style error. Keyed by package dir name → set of `.fsi` files.
-let private implFreeExemptions: Map<string, Set<string>> =
-    Map.ofList
-        [
-            "Vesper.Printf",
-            Set.ofList
-                [
-                    // printf/printfn/sprintf are lowered inline to `Formatter`/`Format`
-                    // on the happy path (like the operators), so there is no `.fs` body.
-                    "printf.fsi"
-                    // `PrintfFormat` cold path still instantiates FSharp.Core's
-                    // `PrintfFormat`4`; self-hosting it + retargeting the recipe is a
-                    // sequenced dependency on the vesper-printf cold path.
-                    "printf-format.fsi"
-                ]
-
-            // Impl-free on CLR (the exception mechanism is BCL-resolved); the JS
-            // representation comes via `prim-types-exn`, not a base `.fs`.
-            "Vesper.Exceptions", Set.ofList [ "exceptions.fsi" ]
-        ]
-
 /// Run the manifest-driven pass for a package, failing the test on a manifest /
 /// parse error (the pass returns `Error`).
 let private outcomeFor (manifestPath: string) : ConformancePass.PackageOutcome =
@@ -342,39 +306,100 @@ let packageConformanceTests =
         "PackageConformance"
         [
             for package, manifestPath in packageManifests do
-                test $"{package}: manifest-driven conformance" {
+                test $"{package}: manifest-driven conformance is enforced (no hard errors)" {
                     let outcome = outcomeFor manifestPath
 
-                    // 1. Kernel findings equal the accepted multiset (sorted: order-free).
-                    let actual = ConformancePass.pairErrors outcome |> List.sort
+                    // `enforce` subsumes every drift species — the FS0240 family
+                    // (`MissingInImpl`/`ValueMissingInImpl`), extern/intrinsic drift, an
+                    // un-exempted impl-free `SigOnly` (`sig-only` is now the manifest's,
+                    // not a test constant), a module-decl mismatch, and a contract-less
+                    // `.fs`. Every package must produce zero hard errors.
+                    let errors = ConformancePass.enforce outcome
 
-                    let expected =
-                        acceptedFindings |> Map.tryFind package |> Option.defaultValue [] |> List.sort
-
-                    Expect.equal
-                        actual
-                        expected
-                        (sprintf "%s: conformance findings should be exactly the accepted set" package)
-
-                    // 2. Impl-free `.fsi` equal the recorded exemptions for this package.
-                    let actualSigOnly = ConformancePass.sigOnlyFiles outcome |> Set.ofList
-
-                    let expectedSigOnly =
-                        implFreeExemptions |> Map.tryFind package |> Option.defaultValue Set.empty
-
-                    Expect.equal
-                        actualSigOnly
-                        expectedSigOnly
-                        (sprintf "%s: impl-free .fsi should be exactly the recorded exemptions" package)
-
-                    // 3. The stem rule must never pair unrelated files, and every
-                    //    compiled `.fs` must have a contract.
                     Expect.isEmpty
-                        (ConformancePass.moduleMismatches outcome)
-                        (sprintf "%s: no module-decl-guard violations" package)
-
-                    Expect.isEmpty outcome.ImplOnly (sprintf "%s: every compiled .fs has a .fsi contract" package)
+                        errors
+                        (sprintf
+                            "%s: conformance must produce no hard errors; got:\n%s"
+                            package
+                            (errors |> List.map (fun d -> d.Message) |> String.concat "\n"))
                 }
+        ]
+
+// ---- Step 5: conformance findings are HARD errors --------------------
+//
+// `enforce` is the flip from "a finding a test inspects" to "an FS0240-style hard
+// error that fails the build". These pin the promotion directly on a synthetic
+// `PackageOutcome` (no manifest round-trip): a `.fsi` with no `.fs` and no `sig-only`
+// exemption, a kernel `MissingInImpl`, and the conforming/exempt controls.
+
+let private mkOutcome
+    (pairs: ConformancePass.PairOutcome list)
+    (sigOnly: Set<string>)
+    : ConformancePass.PackageOutcome =
+    {
+        Package = "Test"
+        Pairs = pairs
+        ImplOnly = []
+        SigOnlyExemptions = sigOnly
+    }
+
+[<Tests>]
+let enforcementTests =
+    testList
+        "ConformanceEnforcement"
+        [
+            test "an un-exempted SigOnly .fsi (a deleted impl) → hard FS0240-style error" {
+                let outcome =
+                    mkOutcome [ ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi" ] Set.empty
+
+                let errors = ConformancePass.enforce outcome
+
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.equal errors.Head.Severity Severity.Error "error severity"
+                Expect.equal errors.Head.Code "V240" "the FS0240 family"
+                Expect.stringContains errors.Head.Message "deleted-impl.fsi" "names the orphaned .fsi"
+            }
+
+            test "a SigOnly .fsi declared `sig-only` in the manifest → no error (exempt)" {
+                let outcome =
+                    mkOutcome [ ConformancePass.PairOutcome.SigOnly "printf.fsi" ] (Set.ofList [ "printf.fsi" ])
+
+                Expect.isEmpty (ConformancePass.enforce outcome) "a recorded impl-free exemption conforms"
+            }
+
+            test "a MissingInImpl kernel finding on a paired contract → hard FS0240-style error" {
+                let paired =
+                    ConformancePass.PairOutcome.Paired
+                        {
+                            SigFile = "x.fsi"
+                            ImplFile = "x.fs"
+                            ModuleMismatch = None
+                            Errors = [ Conformance.ConformanceError.MissingInImpl "bar" ]
+                        }
+
+                let errors = ConformancePass.enforce (mkOutcome [ paired ] Set.empty)
+
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.equal errors.Head.Severity Severity.Error "error severity"
+                Expect.stringContains errors.Head.Message "bar" "names the missing type"
+            }
+
+            test "a stale `sig-only` exemption (companion .fs exists) → V243 hygiene error" {
+                let paired =
+                    ConformancePass.PairOutcome.Paired
+                        {
+                            SigFile = "paired.fsi"
+                            ImplFile = "paired.fs"
+                            ModuleMismatch = None
+                            Errors = []
+                        }
+
+                let errors =
+                    ConformancePass.enforce (mkOutcome [ paired ] (Set.ofList [ "paired.fsi" ]))
+
+                Expect.equal (List.length errors) 1 "one hygiene error"
+                Expect.equal errors.Head.Code "V243" "stale exemption"
+            }
         ]
 
 // ---- Semantic typar-order conformance (T8 Step 4.2) -------------------
