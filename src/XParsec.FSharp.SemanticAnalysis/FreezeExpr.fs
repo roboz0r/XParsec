@@ -51,7 +51,7 @@ module internal FreezeExpr =
         // access), so this lowers to `StaticFieldGet(enumKey, caseName, …)`. The
         // case's underlying literal is NOT carried on the node — it lives on the
         // frozen `TTypeKind.Enum` case table (the single source of truth), which
-        // step 5/6 codegen reads off the decl by `enumKey`. `ty` is the `TyEnum`
+        // codegen reads off the decl by `enumKey`. `ty` is the `TyEnum`
         // Unification assigned (`InferIdentExpr`'s enum arm). Guarded by the head
         // naming a registered enum, which is exclusive with the local-binding /
         // class / union heads handled elsewhere.

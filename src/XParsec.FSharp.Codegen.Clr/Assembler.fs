@@ -183,7 +183,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, 0, [])
         )
 
-    // A numeric enum (step 5a) registers its layout-derived `TypeDefinition` handle
+    // A numeric enum registers its layout-derived `TypeDefinition` handle
     // so its own `static literal` case fields — typed as the enum itself (`FTEnum`) —
     // resolve through `userTypes` while the field table is encoded below, and so a use
     // site (a `(x: E)` annotation, an `E.A` access) encodes the enum reference. It is
@@ -197,7 +197,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             provider.RegisterUserValueType td.Key
         )
 
-    // A string/mixed enum (step 5b) registers identically: its `[<Struct>]` wrapper
+    // A string/mixed enum registers identically: its `[<Struct>]` wrapper
     // is a project-local value type, so its own per-case `static initonly` fields
     // (typed `FTEnum`) and the wrapper's `.ctor`/field signatures resolve through
     // `userTypes` during the field/method passes, and a use site encodes
@@ -401,7 +401,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Repr = Emit.EmittedEnumRepr.NumericEnum caseValues
                 }
 
-    // String/mixed enums (step 5b): the per-case `static initonly` field handles
+    // String/mixed enums: the per-case `static initonly` field handles
     // (read off the completed field pass) drive `E.A` `ldsfld`, and the case
     // literals + backing field handle drive the `| E.A` pattern's field equality.
     do
@@ -517,7 +517,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         ||| TypeAttributes.AutoLayout
         ||| TypeAttributes.AnsiClass
 
-    // A string/mixed enum's `[<Struct>]` wrapper (step 5b): a sealed value type
+    // A string/mixed enum's `[<Struct>]` wrapper: a sealed value type
     // (sequential layout, `System.ValueType` base) with NO `BeforeFieldInit` — its
     // `.cctor` materialises the case singletons and must run before the first case
     // `ldsfld` (precise-init semantics, like a holder owning module values).
@@ -1143,7 +1143,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 let isByRefLike = valueKind = ClassValueKind.RefStruct
                 addNominalRow slot (classAttrsOf isSealed isValueType) isByRefLike
 
-            // A numeric enum (step 5a): base = `System.Enum`, no interfaces, no
+            // A numeric enum: base = `System.Enum`, no interfaces, no
             // methods. It needs no `TypeRowExtras` (no synthesised eq/comp/format
             // interfaces — `System.Enum` supplies them), so it is written directly
             // rather than through `addNominalRow`.
@@ -1160,7 +1160,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
                 verifyTypeHandle slot typeHandle
 
-            // A string/mixed enum (step 5b): a `[<Struct>]` value type over
+            // A string/mixed enum: a `[<Struct>]` value type over
             // `System.ValueType` with a `.ctor` + `.cctor`. Routed through
             // `addNominalRow` (it carries `TypeRowExtras` — the `ValueType` base set
             // in `PrepareStructEnums`); never byref-like.

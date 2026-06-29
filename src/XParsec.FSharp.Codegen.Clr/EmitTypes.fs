@@ -215,12 +215,12 @@ module EmitTypes =
     /// How an emitted enum's cases are loaded / compared — the two reprs share the
     /// `EmittedEnum` registry but diverge in code generation.
     type EmittedEnumRepr =
-        /// A numeric enum (step 5a): a `System.Enum` subclass. A case's `static
+        /// A numeric enum: a `System.Enum` subclass. A case's `static
         /// literal` field is metadata-only (`ldsfld` on a `literal` throws
         /// `MissingFieldException`), so code pushes the case's underlying integer
         /// constant directly — both `E.A` and `| E.A` load `CaseValues.[case]`.
         | NumericEnum of CaseValues: Dictionary<string, TConstValue>
-        /// A string / mixed enum (step 5b): a `[<Struct>]` wrapper. Each case is a
+        /// A string / mixed enum: a `[<Struct>]` wrapper. Each case is a
         /// `public static initonly` field of the enum type, `.cctor`-initialised; an
         /// `E.A` use site `ldsfld`s `CaseFields.[case]`. `IsMixed` selects the field
         /// type (`obj` vs `string`); `BackingField` is the wrapper's single instance

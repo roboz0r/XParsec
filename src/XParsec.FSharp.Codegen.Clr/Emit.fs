@@ -403,7 +403,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a string/mixed enum's `.cctor` (step 5b): for each case, push its
+    /// Build a string/mixed enum's `.cctor`: for each case, push its
     /// literal (already lowered to the `pushLit` instruction prefix — `ldstr` for a
     /// string, `ldc;box` for a mixed int), `newobj` the wrapper's single-arg `.ctor`,
     /// and `stsfld` the constructed singleton into the case's `static initonly`

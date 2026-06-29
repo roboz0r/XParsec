@@ -113,7 +113,7 @@ module JsEmitHelpers =
         | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
         | TConstValue.Decimal _ -> failwithf "EmitJs: decimal literals are not supported"
 
-    /// A resolved enum-case literal → its JS object-map value literal (step 6: the
+    /// A resolved enum-case literal → its JS object-map value literal (the
     /// frozen object map `{ C1: v1, … }`). A string case is the string verbatim; an
     /// integral case reuses the canonical `constExpr` int formatting (number / bigint
     /// for `int64`) — the single source of truth — so the enum map can't drift from

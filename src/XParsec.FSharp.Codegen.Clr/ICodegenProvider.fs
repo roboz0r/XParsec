@@ -369,13 +369,13 @@ type ICodegenProvider =
     /// `hash x` use-site's BCL body (no IL opcode hashes, so it rides the comparer,
     /// the same `EqualityComparer<T>` family the DU triple hashes fields through).
     /// On the interface because the expression walker emits the `hash` call (and the
-    /// string/mixed enum `| E.A` pattern emits the field-equality `Equals`, step 5b);
+    /// string/mixed enum `| E.A` pattern emits the field-equality `Equals`);
     /// `Add` stays on the concrete provider, reached only from Codegen.
     abstract EqualityComparerDefault: elem: FrozenType -> EntityHandle
     abstract EqualityComparerGetHashCode: elem: FrozenType -> EntityHandle
     /// `EqualityComparer<'T>.Default.Equals(!0, !0)` — the boxing-free typed field
     /// compare the structural-equality triple uses, and the string/mixed enum
-    /// pattern's per-case field equality (step 5b).
+    /// pattern's per-case field equality.
     abstract EqualityComparerEquals: elem: FrozenType -> EntityHandle
 
     /// Mint a `MemberRef` for a `TExpr.ExternalMember` from its interned

@@ -1309,13 +1309,14 @@ module UnificationEngine =
         // Post-freeze only; never reached during constraint solving. Defer
         // (consistent with TyUnknown) rather than crash.
         | _, TyTypar _ -> Defer
-        // step 3+: a `TyEnum` can't be produced until use-site annotation
-        // (`(x:E)`) / member access (`E.C1`) land, so this is unreachable in
-        // step 2. Its constraint semantics are variant-dependent (Equality
-        // always; Comparison for numeric; Struct for the value-type reprs) —
-        // keyed off the case table — so they land with the use sites that can
-        // produce a `TyEnum`. Defer until then, consistent with the sibling
-        // unreachable `TyUnknown` / `TyTypar` arms.
+        // A `TyEnum` can now appear here — use-site annotations (`(x: E)`) and
+        // member access (`E.C1`) produce one. v1 deliberately gives enums no
+        // bespoke constraint verdict: equality on an enum is structural /
+        // universal (so a `when 'T : equality` instantiation needs nothing
+        // proved), and comparison / `<` on enums is out of v1 scope. With no
+        // enum-specific verdict this arm falls through to `Defer` — the safe
+        // default shared with the sibling `TyUnknown` / `TyTypar` arms (never
+        // a false `Violated`).
         | _, TyEnum _ -> Defer
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to

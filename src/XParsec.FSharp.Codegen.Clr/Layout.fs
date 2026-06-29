@@ -110,10 +110,10 @@ type internal TypeSlotKind =
     /// `IsByRefLikeAttribute` custom attribute).
     | Class of isSealed: bool * valueKind: ClassValueKind
     | Closure
-    /// A numeric enum (step 5a): a sealed `System.Enum` subclass — no methods, a
+    /// A numeric enum: a sealed `System.Enum` subclass — no methods, a
     /// special-name `value__` instance field, and one `static literal` field per case.
     | Enum
-    /// A string / mixed enum (step 5b): a sealed `[<Struct>]` value type over a
+    /// A string / mixed enum: a sealed `[<Struct>]` value type over a
     /// single field (`string`, or `obj` when `isMixed`), with a `.ctor` setting it,
     /// per-case `static initonly` fields, and a `.cctor` constructing them. `isMixed`
     /// is carried only for documentation symmetry with the writer; the base is
@@ -351,9 +351,9 @@ module internal Layout =
                             Members = EqArray.toList members
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
-                // NUMERIC enum emission (step 5a): a real `System.Enum` subclass.
+                // NUMERIC enum emission: a real `System.Enum` subclass.
                 // Only all-integer enums are partitioned here — string/mixed enums
-                // (step 5b) and all-illegal enums are dropped (their use sites fail
+                // and all-illegal enums are dropped (their use sites fail
                 // loudly in `ClrEncoder`). The resolved case literals + the derived
                 // underlying width are read once here off the single source of truth
                 // (`TEnumCases`), so the emitter never re-derives them.
@@ -379,7 +379,7 @@ module internal Layout =
                                 Underlying = underlying
                                 Cases = numericCases
                             }
-                    // STRING / MIXED enum emission (step 5b): a `[<Struct>]` wrapper.
+                    // STRING / MIXED enum emission: a `[<Struct>]` wrapper.
                     // The resolved case literals (string text, or the int/string of a
                     // mixed case) are read once here off `c.Value`; `IsMixed` drives
                     // the `obj`-vs-`string` field + boxed construction in the emitter.
@@ -904,7 +904,7 @@ module internal Layout =
                     methodRows
             ]
 
-        // Per numeric enum (step 5a): the special-name `value__` instance field
+        // Per numeric enum: the special-name `value__` instance field
         // (the underlying integral storage the CLR reads for `Enum.GetUnderlyingType`)
         // then one `public static literal` field per case (its constant integer is
         // attached as a `Constant` row in the writer's field pass). No methods —
@@ -946,7 +946,7 @@ module internal Layout =
                     nominalSlot TypeSlotKind.Enum td (List.length fields) 0, fields
             ]
 
-        // Per string/mixed enum (step 5b): a `[<Struct>]` wrapper. One instance
+        // Per string/mixed enum: a `[<Struct>]` wrapper. One instance
         // backing field (`string`, or `obj` when mixed) holding the case value, then
         // one `public static initonly` field per case (the constructed singleton, set
         // in the `.cctor`). Two methods: the `.ctor(field)` that stores the backing

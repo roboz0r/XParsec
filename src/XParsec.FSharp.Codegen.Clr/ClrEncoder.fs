@@ -290,18 +290,18 @@ type internal ClrEncoder(env: ClrEnv) =
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
                 t
         // A project-local enum emitted into *this* assembly. It is always a value
-        // type — a NUMERIC enum (step 5a) is a `System.Enum` subclass; a STRING/MIXED
-        // enum (step 5b) is a `[<Struct>]` wrapper over `System.ValueType`. Either
+        // type — a NUMERIC enum is a `System.Enum` subclass; a STRING/MIXED
+        // enum is a `[<Struct>]` wrapper over `System.ValueType`. Either
         // encodes `ELEMENT_TYPE_VALUETYPE` off its emitted `TypeDefinition` handle —
         // the same shape as a project-local `[<Struct>]` class, minus generic args
         // (enums are never generic). All three variants register into `userTypes`
         // (`Layout` partitions numeric → `Enums`, string/mixed → `StructEnums`); an
-        // external enum (step 7) is absent and falls to the loud arm below.
+        // external enum is absent and falls to the loud arm below.
         | FTEnum key when SymbolKeyOps.keyAsm key = envAsm && userTypes.ContainsKey key ->
             te.Type(userTypes.[key], true)
         | FTEnum _ ->
             failwithf
-                "ClrProvider: cannot encode enum type reference %A — project-local enums only (steps 5a/5b); external enums are step 7"
+                "ClrProvider: cannot encode enum type reference %A — project-local enums only; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"
                 t
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.

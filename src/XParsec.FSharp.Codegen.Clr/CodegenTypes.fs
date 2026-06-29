@@ -50,9 +50,9 @@ type internal ClassDecl =
         HasPrimaryCtor: bool
     }
 
-/// A partitioned NUMERIC enum declaration (step 5a). Only all-integer enums land
+/// A partitioned NUMERIC enum declaration. Only all-integer enums land
 /// here — `partitionTypeDecls` classifies via `TEnumCases.classify` and drops
-/// string/mixed enums (step 5b) and any all-illegal enum. `Underlying` is the
+/// string/mixed enums and any all-illegal enum. `Underlying` is the
 /// derived integral primitive NAME (`int`/`byte`/`uint32`/`int64`,
 /// `TEnumCases.underlyingTypeName`) the `value__` field is typed by; `Cases` is the
 /// resolved `(caseName, underlying-int literal)` table in declaration order (only
@@ -65,7 +65,7 @@ type internal EnumDecl =
         Cases: (string * TConstValue) list
     }
 
-/// A partitioned STRING or MIXED enum declaration (step 5b). Emitted as a
+/// A partitioned STRING or MIXED enum declaration. Emitted as a
 /// `[<Struct>]` value type wrapping a single field — `string` for a pure-string
 /// enum, `obj` (boxed int / string per case) for a mixed one — with one
 /// `public static initonly` field of the enum type per case, `.cctor`-initialised
