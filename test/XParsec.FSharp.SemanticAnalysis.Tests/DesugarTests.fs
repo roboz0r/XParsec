@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(MockBuiltins.provider, input, lexed)
+    let ctx = PassContext(realProvider.Value, input, lexed)
     Desugar.run ctx file
     ctx
 

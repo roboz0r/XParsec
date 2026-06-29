@@ -61,10 +61,6 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
             lexed, ImplementationFile.AnonymousModule elems
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
-let analyse (input: string) : TastFile =
-    let lexed, file = parseFile input
-    Pipeline.analyseSem MockBuiltins.provider input lexed file
-
 /// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
 /// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable
 /// rather than the OS temp dir.
@@ -133,10 +129,15 @@ let vesperCoreDll: Lazy<string> =
 
          let lexed, file = parseFile src
 
-         let tast =
-             Pipeline.analyseFor project.AssemblyName MockBuiltins.provider src lexed file
+         // Vesper.Core *defines* its own primitives + operators, so it compiles
+         // against the empty contract stack (just the BCL metadata leaf for the
+         // `(# "System.Int32" #)` reprs) — the same provider `buildPackage
+         // "Vesper.Core"` uses (Core has no `depends-on`).
+         let provider = ClrSymbolProviders.buildContract []
 
-         let artifact = Codegen.compile MockBuiltins.provider project tast
+         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+
+         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
@@ -169,7 +170,7 @@ let vesperListDll: Lazy<string> =
          // stack is unaffected by the `Nil`/`Cons` → `Empty`/`Cons` rename. It uses
          // `failwith` (a real inline operator in `Vesper.Core/ops-platform.fs`, not
          // a name-suffix probe), so the build must run through the Vesper.Core
-         // contract — `MockBuiltins` alone leaves the call head un-inlined.
+         // contract for the call head to inline.
          // Self-manifest (`Vesper.List`'s own) is excluded; the package is
          // *defining* its types here.
          let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
@@ -190,13 +191,13 @@ let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
 
 /// `src/Vesper.Printf/manifest.toml` — the printf family (`printf`/`printfn`/
 /// `sprintf`) as its own `[<AutoOpen>] module Printf` contract, so a `printfn`
-/// call resolves from source rather than the `MockBuiltins` `printfOps` crutch.
+/// call resolves from the real contract source.
 let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
-/// The default contract stack the demoted compile path resolves through
-/// `MockBuiltins` stays the lowest-priority backstop inside `ClrSymbolProviders.build`
-/// for anything the contract does not yet own (operators still *emit* via
-/// `Emit.BuiltinOps` regardless — emission is resolution-source-agnostic).
+/// The default contract stack the compile path resolves through. Everything a
+/// bare program needs now comes from real `Vesper.*` `.fsi` contracts (operators
+/// still *emit* via `Emit.BuiltinOps` regardless — emission is
+/// resolution-source-agnostic).
 ///
 /// Vesper.Core (primitives + arithmetic/equality operators + `hash` + `failwith`),
 /// Vesper.List (`List.fold` over the cons-list), Vesper.Comparison (the ordering
@@ -208,6 +209,13 @@ let defaultManifests: string list =
         vesperComparisonManifest
         vesperPrintfManifest
     ]
+
+/// Front-end a program to a (SemType) `TastFile` through the default contract
+/// stack. The generic front-end-only helper — was the value-only `MockBuiltins`
+/// fixture; now the real `Vesper.*` contracts (a superset).
+let analyse (input: string) : TastFile =
+    let lexed, file = parseFile input
+    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultManifests) input lexed file
 
 /// The load context the package-build harness (`buildPackage`) loads its own DLLs
 /// into. Its `Load` override resolves sibling `Vesper.*` packages it has built from
@@ -391,8 +399,8 @@ let withCore (project: ProjectInfo) : ProjectInfo =
 /// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
 /// `ops-platform.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (via the
 /// provider's `IInlineBodyProvider` channel) rather than served by a
-/// codegen stopgap. `[]` manifests ⇒ `composite [MetadataSymbols; MockBuiltins]`
-/// (the pre-demotion wiring), for callers that must stay off the contract.
+/// codegen stopgap. `[]` manifests ⇒ the BCL metadata leaf alone, for callers
+/// that must stay off the Vesper contracts.
 let private compileContract
     (manifestPaths: string list)
     (project: ProjectInfo)
@@ -406,11 +414,10 @@ let private compileContract
     let artifact = Codegen.compile provider (withCore project) (Freeze.run tast)
     tast, artifact
 
-/// The default compile path — now resolved through the contract stack
-/// (`defaultManifests`) with `MockBuiltins` only as the backstop. This is the
-/// contract-as-provider demotion: the same source
-/// types the same way, but `int`/`hash`/the operators now resolve from the
-/// `Vesper.Core` `.fsi` contract rather than the hand-curated mock.
+/// The default compile path — resolved through the contract stack
+/// (`defaultManifests`). This is the contract-as-provider demotion: `int`/`hash`/
+/// the operators resolve from the `Vesper.Core` `.fsi` contract (no hand-curated
+/// mock).
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 

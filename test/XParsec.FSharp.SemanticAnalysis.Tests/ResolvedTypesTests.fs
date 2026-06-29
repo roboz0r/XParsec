@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem MockBuiltins.provider input lexed file
+    Pipeline.analyseSem realProvider.Value input lexed file
 
 let private hasResolvedTypesDiag (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "ResolvedTypes")
@@ -58,7 +58,7 @@ let tests =
                 let lexed, file = parseFile "let x = 1"
 
                 let ctx, _ =
-                    Pipeline.analyseSemWithContext MockBuiltins.provider "let x = 1" lexed file
+                    Pipeline.analyseSemWithContext realProvider.Value "let x = 1" lexed file
 
                 let freeTv = TypeVar()
                 let freeTy = TyVar freeTv
@@ -105,7 +105,7 @@ let tests =
                 let lexed, file = parseFile "let id = fun x -> x"
 
                 let ctx, tast =
-                    Pipeline.analyseSemWithContext MockBuiltins.provider "let id = fun x -> x" lexed file
+                    Pipeline.analyseSemWithContext realProvider.Value "let id = fun x -> x" lexed file
 
                 let idKey =
                     match tast.Decls with

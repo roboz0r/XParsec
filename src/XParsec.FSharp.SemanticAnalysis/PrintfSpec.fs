@@ -240,32 +240,3 @@ module PrintfSpec =
                 List.foldBack (fun a r -> TyFun(a, r)) (fam.LeadingArgTypes @ [ fmt ]) printer
 
             ValueSome(fnTy, fmt, printer)
-
-    /// The entry point's *generic* signature `leading… -> PrintfFormat<'T,…>
-    /// -> 'T`. Used by the test `MockBuiltins` so the non-literal fallback
-    /// (and plain name resolution) sees a coherent type.
-    let genericSignature (fresh: unit -> SemType) (fam: Family) : SemType =
-        let printer = fresh ()
-        let fmt = formatType printer fam
-        List.foldBack (fun a r -> TyFun(a, r)) (fam.LeadingArgTypes @ [ fmt ]) printer
-
-    /// The `FrozenType` SCHEME form of `genericSignature`: the same shape as a
-    /// one-typar template (`printer` = `FTTypar(Declaring,0)`, the concrete
-    /// `State`/`Residue`/`Result`/leading parts frozen). The data form an
-    /// `ExternalSymbols.scheme` symbol carries, so a printf entry point instantiates
-    /// freshly per use site like any other polymorphic symbol — replacing the
-    /// `genericSignature (fun () -> freshAt level)` closure the test mocks built.
-    /// Distinct from `genericSignature` (the live-call SemType form `appliedTypeOf`
-    /// still needs at a literal call site); the two are NOT redundant.
-    let genericSignatureFrozen (fam: Family) : FrozenType =
-        let freeze = FrozenTypeBridge.toFrozen
-        let printer = FTTypar(TyparAxis.Declaring, 0)
-
-        let fmt =
-            FTClass(
-                RuntimeNames.printfFormatKey,
-                EqArray.ofList [ printer; freeze fam.State; freeze fam.Residue; freeze fam.Result ]
-            )
-
-        let parts = (fam.LeadingArgTypes |> List.map freeze) @ [ fmt ]
-        List.foldBack (fun a r -> FTFun(a, r)) parts printer

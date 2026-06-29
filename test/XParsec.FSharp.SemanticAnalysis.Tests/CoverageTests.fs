@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem MockBuiltins.provider input lexed file
+    Pipeline.analyseSem realProvider.Value input lexed file
 
 let private declType (tast: TastFile) : SemType =
     // A surfaced `TDecl.Type` (rung 2: unions) is ignored here — these tests
@@ -909,7 +909,7 @@ let tests =
                                     ExternalSymbols.monoFrozen name (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
                                 )
                             else
-                                MockBuiltins.provider.TryLookup name
+                                realProvider.Value.TryLookup name
 
                         member _.TryLookupType _ = ValueNone
                         member _.TryLookupMember(_, _) = ValueNone

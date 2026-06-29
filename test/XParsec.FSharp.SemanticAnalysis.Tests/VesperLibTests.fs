@@ -1079,15 +1079,13 @@ let tests =
                     | _ -> failtestf "IsSome should contain at least one TyVar"
             }
 
-            test "qualified-name lookup goes through the lib first, MockBuiltins second" {
-                // Fixture: chain `buildProvider <libRoot>` ahead of
-                // `MockBuiltins.provider` and confirm both surfaces still
-                // answer for their respective name spaces.
+            test "qualified-name lookup resolves through the lib provider" {
+                // The lib provider answers qualified names directly and surfaces its
+                // auto-open prefixes; unknown names miss.
                 let libProvider, _ = builtProvider.Value
-                let chained = ExternalSymbols.composite [ libProvider; MockBuiltins.provider ]
 
                 // Lib-sourced symbol: only `buildProvider` knows about it.
-                match chained.TryLookup "Microsoft.FSharp.Core.OptionModule.Map" with
+                match libProvider.TryLookup "Microsoft.FSharp.Core.OptionModule.Map" with
                 | ValueNone -> failtest "OptionModule.Map should be answered by the lib provider"
                 | ValueSome _ -> ()
 
@@ -1112,10 +1110,10 @@ let tests =
                      |> List.contains "Microsoft.FSharp.Core.Operators")
                     "lib surfaces the Operators auto-open prefix"
 
-                // Unknown name: both providers miss.
-                match chained.TryLookup "nope.no.such.symbol" with
+                // Unknown name: the provider misses.
+                match libProvider.TryLookup "nope.no.such.symbol" with
                 | ValueNone -> ()
-                | ValueSome _ -> failtest "missing names should not resolve through the chain"
+                | ValueSome _ -> failtest "missing names should not resolve"
             }
 
             test "option<'T> abbreviation resolves through TryLookupType" {
@@ -1604,32 +1602,6 @@ let tests =
                 match provider.TryLookupType "NoSuch.Type.Name" with
                 | ValueNone -> ()
                 | ValueSome _ -> failtest "unknown type should not be answered"
-            }
-
-            test "end-to-end: `let x = 1 + 2` types as int with chained provider" {
-                // The smallest plausible closing fixture: lex + parse
-                // a user program, run the full pipeline against the chained
-                // provider, and assert `x : int`. Operator resolution flows
-                // through `MockBuiltins` (still authoritative for ops in v1);
-                // the test exists to prove the chain doesn't break that path.
-                let libProvider, _ = builtProvider.Value
-                let chained = ExternalSymbols.composite [ libProvider; MockBuiltins.provider ]
-
-                let input = "let x = 1 + 2"
-                let lexed, file = parseFile input
-                let ctx = PassContext(chained, input, lexed)
-                Desugar.run ctx file
-                NameResolution.run ctx file
-                Unification.run ctx file
-
-                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
-
-                match ctx.Bindings.TypeVar.TryGetValue patKey with
-                | ValueSome tv ->
-                    match Unification.zonk (TyVar tv) with
-                    | TyConst("int", _) -> ()
-                    | other -> failtestf "Expected int, got %A" other
-                | ValueNone -> failtest "no TypeVar for x"
             }
 
             test "`let x = 1 + 2` types as int through lib-only provider" {

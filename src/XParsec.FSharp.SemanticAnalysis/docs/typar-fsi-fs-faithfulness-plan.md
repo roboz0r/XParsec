@@ -677,35 +677,52 @@ handling is ever unified here.
 6. **Extend to generic MEMBERS** once published cross-package (drop the
    `VesperLib.fs` `MethodArity = 0` hard-codes, `VesperLib.fs:535` and `:1105`).
 
-## Side goal — remove `MockBuiltins`
+## Side goal — remove `MockBuiltins` — DONE
 
-`MockBuiltins` (`test/XParsec.FSharp.SemanticAnalysis.Tests/MockBuiltins.fs`, ~138
-lines) is an early bootstrap hack: a VALUE-symbol-only fixture (monomorphic ops
-`(+): int→int→int`, pipe/compose, `List.fold`, printf, `failwith`, `hash`) that
-deliberately diverges from the real SRTP contract and provides ZERO type shapes
-(`TryLookupType _ = ValueNone`). Its header already says callers needing real
-behaviour should wire `ReferencedProject`/`VesperLib` providers instead; see the
-`feedback_mockbuiltins_is_a_trap` / `project_contract_demotion` memories. The real
-contract infra (`SymbolProviders.buildContract` over the actual manifests) is a
-superset and is what the codegen path already treats as primary (MockBuiltins is the
-"lowest-priority backstop"). Removing it entirely is worthwhile and overlaps T8 step
-1.4/1.5 (it's why primitive reprs don't flow through the provider in MockBuiltins
-builds), but it is its OWN effort (~27 files), staged:
+`MockBuiltins` was an early bootstrap hack: a VALUE-symbol-only fixture (monomorphic
+ops `(+): int→int→int`, pipe/compose, `List.fold`, printf, `failwith`, `hash`) that
+deliberately diverged from the real SRTP contract and provided ZERO type shapes
+(`TryLookupType _ = ValueNone`). It is now DELETED; every test resolves through real
+`Vesper.*` contracts. See the `feedback_mockbuiltins_is_a_trap` /
+`project_contract_demotion` memories. The staged removal that landed:
 
-- **Group A — codegen tests** (`Codegen.Clr.Tests`/`Codegen.Js.Tests`, mostly via
-  `TestHelpers`): already nearly migrated; swap the few `MockBuiltins.provider`
-  uses (`analyse`, the package `*Dll` fixtures) for `buildContract`. Low risk —
-  these compile real Vesper source and the real provider is a superset.
-- **Group B — SA front-end tests** (the bulk: `UnificationTests`, `FreezeTests`,
-  `NameResolutionTests`, …): the riskier half — migrating to the real SRTP contract
-  may shift some inferred types (the monomorphic-op divergence) and need test
-  updates. Do after Group A.
-- Then delete `MockBuiltins.fs` and its `.fsproj` includes.
+- **Group A — codegen tests** (`Codegen.Clr.Tests`/`Codegen.Js.Tests`): DONE. Clr
+  `TestHelpers.analyse` → `ClrSymbolProviders.buildContract defaultManifests`;
+  `vesperCoreDll` fixture → `buildContract []` (Core's own self-compile provider, the
+  same `buildPackage "Vesper.Core"` uses); Js `TestHelpers.frozenOf` → the real
+  JS-native `jsProvider`. Both projects' `MockBuiltins.fs` `Link` includes dropped.
+  Two `analyse`-shape assertions (`BindingTests`/`FunctionTests`) updated: the real
+  `(+)` inline-expands to `ILIntrinsic "add"` where the value-only mock left an
+  `External op_Addition` call head — the incidental arithmetic shape relaxed, each
+  test's actual anchor (NodeKey linkage / pre-freeze beta-reduction) kept.
+- **Group B — SA front-end tests** (the bulk): DONE. A shared `TestHelpers.realProvider`
+  builds the default `Vesper.*` stack (Core/List/Comparison/Printf) IN-ASSEMBLY via
+  `ReferencedProject.buildProviderWith` in dependency order — each package extracted
+  with the already-built providers' type shapes as its `ambientShapes` (the
+  hand-rolled analogue of codegen's `SymbolProviders.composeProviders` dep wiring,
+  since `Codegen.Common`/`MetadataSymbols` are off the SA-test reference graph). Every
+  `MockBuiltins.provider` site repointed at `realProvider.Value`. Two transitional
+  VesperLib chaining tests (which existed to prove the lib-ahead-of-MockBuiltins chain)
+  were folded into their lib-only twins.
+  - **Provider choice (load-bearing):** Vesper.Core, NOT the FSharp.Core port
+    `XParsec.FSharp.Lib`. The port canonicalises `int`→`int32` and resolves `string`
+    to an unfreezable external template, diverging from the front-end's `BuiltinTypes`
+    (`int`/`string`) — using it broke ~93 SA tests; the `Vesper.*` contracts (whose
+    primitives ARE `int`/`string`) dropped that to 0.
+  - **One production change** (`Passes/NameResolution/Scope.fs`): the printf family is
+    a front-end intrinsic (typed by `InferApp`/`PrintfSpec`, not a provider symbol), so
+    a `PrintfSpec.tryFamily` name no longer raises "Unresolved identifier" even when the
+    contract doesn't declare it. The mock fabricated every family (incl. the writer
+    `fprintf`/`fprintfn`, which the real `Vesper.Printf` contract omits); this makes the
+    front end natively own the family instead of leaning on a provider crutch. Dead
+    `PrintfSpec.genericSignature`/`genericSignatureFrozen` (mock-only consumers) deleted.
+- `MockBuiltins.fs` + all three `.fsproj` includes deleted. Suites green: SA 649/+1
+  skip, Clr 1067, Js 175, Vesper 49.
 
-Note: removing the `defaults` bootstrap (1.5) does NOT strictly require finishing
-MockBuiltins removal — once the provider exposes forward reprs, even a
-MockBuiltins-backstopped build resolves primitives through the real Core provider in
-the stack. But the two are kin (both are "the real provider should be the source").
+Note: removing the `defaults` bootstrap (1.5) did NOT require this — once the provider
+exposes forward reprs, even a MockBuiltins-backstopped build resolved primitives
+through the real Core provider — but the two are kin (both are "the real provider is
+the source").
 
 ## Why exposure was low while deferred
 

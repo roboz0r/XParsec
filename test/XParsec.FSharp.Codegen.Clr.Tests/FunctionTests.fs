@@ -67,9 +67,11 @@ let tests =
                     // is retained verbatim, but the use site `succ 41` is now
                     // expanded *pre-freeze* by `InlineExpansion` — the call beta-
                     // reduces to a `Let` binding the argument 41 over `succ`'s
-                    // `x + 1` body (the `op_Addition` head left for codegen's
-                    // `BuiltinOps`). (Previously this stayed an `App(Var, 41)` call
-                    // head for codegen to expand.)
+                    // `x + 1` body. (Previously this stayed an `App(Var, 41)` call
+                    // head for codegen to expand.) The `x + 1` body itself then
+                    // inline-expands (real `Vesper.Core` `(+)` → `ILIntrinsic "add"`),
+                    // so it is matched as `_`; the anchor here is the pre-freeze
+                    // beta-reduction of `succ 41` to a `Let` binding 41.
                     let tast = analyse "let inline succ x = x + 1\nprintfn \"%d\" (succ 41)"
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -81,17 +83,8 @@ let tests =
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
-                                           TExpr.Let(TPat.NamedSimple _,
-                                                     TExpr.Const(TConstValue.Int 41, _, _),
-                                                     TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
-                                                                         TExpr.Var _,
-                                                                         _,
-                                                                         _),
-                                                               TExpr.Const(TConstValue.Int 1, _, _),
-                                                               _,
-                                                               _),
-                                                     _,
-                                                     _)) ] -> ()
+                                           TExpr.Let(TPat.NamedSimple _, TExpr.Const(TConstValue.Int 41, _, _), _, _, _)) ] ->
+                            ()
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected inline TAST: %A" other
                 }

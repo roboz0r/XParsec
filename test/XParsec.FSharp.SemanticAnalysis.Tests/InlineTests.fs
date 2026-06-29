@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem MockBuiltins.provider input lexed file
+    Pipeline.analyseSem realProvider.Value input lexed file
 
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input

@@ -44,23 +44,19 @@ let tests =
                     let tast = analyse "let x = 1 + 2\nprintfn \"%d\" x"
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
+                    // The bound value (`1 + 2`) is incidental here — under the real
+                    // `Vesper.Core` contract `(+)` inline-expands to an `ILIntrinsic
+                    // "add"` over two synth lets, so it is matched as `_`; the
+                    // arithmetic lowering is covered elsewhere. This test's anchor is
+                    // the Format hole's `Var` resolving to the let-bound NodeKey.
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _, _),
-                                         TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
-                                                             TExpr.Const(TConstValue.Int 1, _, _),
-                                                             _,
-                                                             _),
-                                                   TExpr.Const(TConstValue.Int 2, _, _),
-                                                   _,
-                                                   _),
-                                         false,
-                                         _)
+                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _, _), _, false, _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _, _)) ] ->
                             Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"
                             Expect.equal hole.Ty (TyConst("int", EqArray.empty)) "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
-                    | other -> failtestf "unexpected let-decl TAST: %A" other
+                    | _ -> failtestf "unexpected let-decl TAST: %A" (EqArray.toList tast.Decls)
                 }
         ]

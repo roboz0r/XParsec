@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem MockBuiltins.provider input lexed file
+    Pipeline.analyseSem realProvider.Value input lexed file
 
 /// Type of the last `let` declaration's binding.
 let private lastDeclType (tast: TastFile) : SemType =

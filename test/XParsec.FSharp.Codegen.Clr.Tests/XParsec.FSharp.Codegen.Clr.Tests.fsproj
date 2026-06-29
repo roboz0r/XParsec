@@ -12,7 +12,6 @@
     <None Include="StructuralFormatBaseline.fs" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\XParsec.FSharp.SemanticAnalysis.Tests\MockBuiltins.fs" Link="MockBuiltins.fs" />
     <Compile Include="TestHelpers.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="FSharpCoreDepsTests.fs" />

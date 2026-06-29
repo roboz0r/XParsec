@@ -15,8 +15,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
-/// Analyse a source string through the layered provider (`composite [ metadata ;
-/// MockBuiltins ]`), returning the frozen `TastFile`.
+/// Analyse a source string through the given provider, returning the
+/// (SemType) `TastFile`.
 let private analyseWith (provider: IExternalSymbolProvider) (input: string) : TastFile =
     let lexed, file = parseFile input
     Pipeline.analyseSem provider input lexed file
@@ -216,8 +216,8 @@ let tests =
             // `EqualityComparer`1<int>` `TypeSpec`, no per-member hand-coding. An
             // emitted call runs: `Int32.GetHashCode` is the identity, so
             // `EqualityComparer<int>.Default.GetHashCode 5 = 5`. (`compileSource`'s
-            // provider is `composite [ metadata ; MockBuiltins ]`, so the member
-            // access resolves to the keyed node.
+            // provider is the contract stack over the BCL metadata leaf, so the
+            // member access resolves to the keyed node.
             test "an emitted call to a metadata-resolved member runs (EqualityComparer<int>.Default.GetHashCode 5 = 5)" {
                 let src =
                     "printfn \"%d\" (System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5)"

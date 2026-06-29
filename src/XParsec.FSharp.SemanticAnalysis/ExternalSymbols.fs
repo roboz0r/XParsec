@@ -577,7 +577,7 @@ type IExternalSymbolProvider =
     /// Dotted prefixes in
     /// priority order (earliest wins on a collision), e.g.
     /// `["Vesper.ArithmeticOperators"; "Vesper"]`. Providers with no implicit
-    /// prelude (`MockBuiltins`, inline test fakes) return `[]`. Required (was the
+    /// prelude (inline test fakes) return `[]`. Required (was the
     /// optional `IAmbientOpenScope` cast); folded in alongside the intrinsic
     /// surface, which rides `TryLookupType` via `ExternalTypeShape.Intrinsic`.
     abstract AmbientOpenPrefixes: string list
@@ -1177,7 +1177,7 @@ module ExternalSymbols =
     /// prefixes, concatenated in source priority order (so a higher-priority
     /// provider's auto-opens shadow a lower one's on a name collision, same
     /// first-hit-wins ordering as lookups). Providers without an implicit
-    /// prelude (`MockBuiltins`, inline test fakes) return `[]` and contribute
+    /// prelude (inline test fakes) return `[]` and contribute
     /// nothing.
     let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
         [

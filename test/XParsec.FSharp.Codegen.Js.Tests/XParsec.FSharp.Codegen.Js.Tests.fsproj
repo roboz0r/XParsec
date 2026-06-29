@@ -7,9 +7,6 @@
     <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The hand-curated symbol provider; printf is special-cased in the front
-         end, so `MockBuiltins.provider` alone resolves `printfn "hi"`. -->
-    <Compile Include="..\XParsec.FSharp.SemanticAnalysis.Tests\MockBuiltins.fs" Link="MockBuiltins.fs" />
     <Compile Include="TestHelpers.fs" />
     <Compile Include="PrintfEmissionTests.fs" />
     <Compile Include="SourceMapTests.fs" />

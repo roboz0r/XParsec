@@ -25,23 +25,6 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
             lexed, ImplementationFile.AnonymousModule elems
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
-/// Front-end a program to a `Frozen.TastFile`. Fails on any error diagnostic.
-let frozenOf (input: string) : Frozen.TastFile =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSem MockBuiltins.provider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    Freeze.run tast
-
-/// Compile `input` to JS source text (in-memory).
-let emit (input: string) : string =
-    Codegen.compile (JsProjectInfo.defaults "Test") (frozenOf input)
-    |> Codegen.toSource
-
 /// `src/<pkg>/manifest.toml`.
 let srcManifest (pkg: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
@@ -102,6 +85,25 @@ let jsManifests: string list =
 /// The JS-target provider (BCL-free; resolves exceptions through Vesper.Exceptions).
 let jsProvider: Lazy<IExternalSymbolProvider> =
     lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) jsManifests
+
+/// Front-end a program to a `Frozen.TastFile`. Fails on any error diagnostic.
+/// Resolves through the real JS-native contract stack (`jsProvider`) — the
+/// superset that replaced the value-only `MockBuiltins` fixture.
+let frozenOf (input: string) : Frozen.TastFile =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyseSem jsProvider.Value input lexed file
+
+    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    if not (List.isEmpty errors) then
+        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
+
+    Freeze.run tast
+
+/// Compile `input` to JS source text (in-memory).
+let emit (input: string) : string =
+    Codegen.compile (JsProjectInfo.defaults "Test") (frozenOf input)
+    |> Codegen.toSource
 
 /// Front-end a program through the JS-target provider. Fails on any error diagnostic.
 let frozenOfJs (input: string) : Frozen.TastFile =

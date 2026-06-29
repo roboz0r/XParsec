@@ -10,9 +10,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // C-Eq1 backend slice 2: a monomorphic user DU
 // gets real `Equals(object)` / `GetHashCode()` overrides walking each case's
 // fields by the §3.2 rule (`EqualityComparer<F>.Default` / `System.HashCode`).
-// Generation is independent of a `=` *use site* (which can't type a DU operand
-// until `MockBuiltins` is demoted), so these reflect the emitted members and
-// invoke them directly — `(Circle 3).Equals(Circle 3)` etc.
+// Generation is independent of a `=` *use site*, so these reflect the emitted
+// members and invoke them directly — `(Circle 3).Equals(Circle 3)` etc.
 
 [<Tests>]
 let tests =

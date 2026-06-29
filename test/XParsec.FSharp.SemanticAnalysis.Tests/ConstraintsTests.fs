@@ -7,14 +7,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyseNR (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(MockBuiltins.provider, input, lexed)
+    let ctx = PassContext(realProvider.Value, input, lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     ctx
 
 let private analyseUnif (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(MockBuiltins.provider, input, lexed)
+    let ctx = PassContext(realProvider.Value, input, lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
@@ -22,7 +22,7 @@ let private analyseUnif (input: string) =
 
 let private analyseFull (input: string) =
     let lexed, file = parseFile input
-    let ctx, _ = Pipeline.analyseSemWithContext MockBuiltins.provider input lexed file
+    let ctx, _ = Pipeline.analyseSemWithContext realProvider.Value input lexed file
     ctx
 
 let private hasMessage (ctx: PassContext) (fragment: string) =

@@ -1,9 +1,57 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
+open System.IO
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+
+/// `src/<pkg>/manifest.toml`, relative to this test file.
+let srcManifest (pkg: string) : string =
+    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
+
+/// The real default contract stack that replaced the value-only `MockBuiltins`
+/// fixture across the SA front-end tests: real SRTP operators (`(+) : ^T -> ^T ->
+/// ^T`), the ordering operators, `hash`/`failwith`, the cons-list, the printf
+/// family, and the primitive reprs canonicalised to `int` / `string` (matching
+/// `BuiltinTypes`) — resolved the way the production front end resolves them, not
+/// a hand-curated monomorphic stand-in.
+///
+/// These are the `Vesper.*` self-host packages (NOT the FSharp.Core port
+/// `XParsec.FSharp.Lib`): their primitive canonicalisation agrees with the
+/// front-end's `BuiltinTypes`, whereas the FSharp.Core port canonicalises
+/// `int`→`int32` and leaves `string` an unfreezable template. Built in dependency
+/// order, each package extracted with the already-built providers' type shapes as
+/// its `ambientShapes` (the in-assembly analogue of the codegen
+/// `SymbolProviders.composeProviders` dependency wiring), so a dependent's members
+/// freeze against real dependency types rather than opaque templates. Forced
+/// lazily so a run that never analyses pays nothing.
+let realProvider: Lazy<IExternalSymbolProvider> =
+    lazy
+        // Dependency order: Core (no deps), List (Core), Comparison (Core),
+        // Printf (Core + List).
+        let packages =
+            [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
+
+        let built = System.Collections.Generic.List<IExternalSymbolProvider>()
+
+        for pkg in packages do
+            // Type shapes harvested so far feed this package's extraction so a
+            // member referencing a dependency type resolves to the real shape.
+            let ambientShapes (name: string) : ExternalTypeShape voption =
+                let mutable result = ValueNone
+
+                for p in built do
+                    if result.IsNone then
+                        result <- p.TryLookupType name
+
+                result
+
+            match ReferencedProject.buildProviderWith None ambientShapes [ "Vesper" ] (srcManifest pkg) with
+            | Result.Error e -> failwithf "TestHelpers.realProvider: %s: %s" pkg e
+            | Result.Ok(provider, _) -> built.Add provider
+
+        ExternalSymbols.composite (List.ofSeq built)
 
 // The nominal `SemType` cases now carry a
 // `SymbolKey`, but tests construct and assert them by *string* name. These shadow

@@ -418,10 +418,12 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
     }
 
 /// Run the `.fs` through the real frozen self-host pipeline (so a generic binding's
-/// typar order is inference's own), under the value-only `MockBuiltins` provider.
+/// typar order is inference's own). The snippets reference no external symbols, so
+/// the provider only matters for its absence of interference — the real contract
+/// resolves them identically.
 let private frozenOf (src: string) : Frozen.TastFile =
     let lexed, file = parseFile src
-    Pipeline.analyseForSelfHost "M" MockBuiltins.provider src lexed file
+    Pipeline.analyseForSelfHost "M" realProvider.Value src lexed file
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType =

@@ -150,6 +150,12 @@ module NameResolutionScope =
                     // `[<RequireQualifiedAccess>]` — F# rejects the short `Red` form
                     // for an RQA `Color`.
                     || resolvesAsBareExternalCase ctx name
+                    // The printf family (`printf`/`printfn`/`sprintf`/`eprintf`/
+                    // `fprintf`/…) is a front-end intrinsic: `InferApp` types it via
+                    // `PrintfSpec`, not a provider symbol. So a family member resolves
+                    // even when the contract doesn't declare it (the writer families
+                    // are not in the `Vesper.Printf` contract); don't flag it unbound.
+                    || (PrintfSpec.tryFamily name |> ValueOption.isSome)
                 then
                     ()
                 else

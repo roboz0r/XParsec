@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(MockBuiltins.provider, input, lexed)
+    let ctx = PassContext(realProvider.Value, input, lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
@@ -90,7 +90,7 @@ let tests =
                         member _.IntrinsicForwardRepr = Map.empty
                     }
 
-                let provider = ExternalSymbols.composite [ brokenProvider; MockBuiltins.provider ]
+                let provider = ExternalSymbols.composite [ brokenProvider; realProvider.Value ]
                 let input = "let y = broken"
                 let lexed, file = parseFile input
                 let ctx = PassContext(provider, input, lexed)
@@ -1178,7 +1178,7 @@ let tests =
             // `SemType → FrozenType` freeze).
             let freezeDecls (input: string) : Frozen.TastFile =
                 let lexed, file = parseFile input
-                Pipeline.analyse MockBuiltins.provider input lexed file
+                Pipeline.analyse realProvider.Value input lexed file
 
             // The frozen type of the (sole) top-level `let f` binding.
             let frozenLetTy (file: Frozen.TastFile) : FrozenType =

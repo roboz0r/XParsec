@@ -7,11 +7,11 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem MockBuiltins.provider input lexed file
+    Pipeline.analyseSem realProvider.Value input lexed file
 
 let private analyseWithCtx (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext MockBuiltins.provider input lexed file
+    Pipeline.analyseSemWithContext realProvider.Value input lexed file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
@@ -116,7 +116,7 @@ let tests =
                             if name = "myId" then
                                 ValueSome myIdSymbol
                             else
-                                MockBuiltins.provider.TryLookup name
+                                realProvider.Value.TryLookup name
 
                         member _.TryLookupType _ = ValueNone
                         member _.TryLookupMember(_, _) = ValueNone
