@@ -329,8 +329,13 @@ module EmitMember =
     let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.StaticFieldGet(declKey, name, _, _) ->
-            let handle = resolveStaticField env declKey name
-            b.Add(ILInstr.Ldsfld handle)
+            // A numeric enum case (`E.A`) pushes its underlying integer constant — the
+            // enum value IS that integer (its `literal` field is metadata-only, so
+            // `ldsfld` would throw `MissingFieldException`). A class `static let`
+            // backing field is a real `ldsfld`.
+            match tryResolveEnumCaseLoad env declKey name with
+            | ValueSome instr -> b.Add instr
+            | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
         | _ -> failwith "EmitMember.buildStaticFieldGet: unreachable"
 
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =

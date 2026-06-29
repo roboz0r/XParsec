@@ -212,6 +212,19 @@ module EmitTypes =
             Interfaces: FrozenType list
         }
 
+    /// A numeric enum emitted into this assembly (step 5a). Enums are monomorphic
+    /// and have no members. A case's `static literal` field is metadata-only (it has
+    /// no runtime storage — `ldsfld` on a `literal` field throws
+    /// `MissingFieldException`), so code does NOT reference it: an enum value *is* its
+    /// underlying integer, exactly as fsc/csc compile `E.A` to a constant load. Both a
+    /// `TExpr.StaticFieldGet` (`E.A`) and an `EnumCase` pattern (`| E.A`) therefore
+    /// push the case's underlying constant directly. `CaseValues` maps the case name →
+    /// its underlying integer literal.
+    type EmittedEnum =
+        {
+            CaseValues: Dictionary<string, TConstValue>
+        }
+
     /// An interface emitted into this assembly. Only its `Members` matter at use
     /// sites: a method call on an interface-typed receiver (or, later, a
     /// `constrained.` call on an interface-constrained typar) resolves the member
@@ -353,6 +366,9 @@ module EmitTypes =
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
             Interfaces: Dictionary<SymbolKey, EmittedInterface>
+            /// Numeric enums emitted into this assembly, by nominal `SymbolKey`. A
+            /// `StaticFieldGet` / `EnumCase` resolves a case's literal field here.
+            Enums: Dictionary<SymbolKey, EmittedEnum>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
             /// Module-level value bindings → their emitted `public static` field
             /// (`ldsfld`). Shared by every body builder so a module value resolves
@@ -394,6 +410,9 @@ module EmitTypes =
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
             Interfaces: Dictionary<SymbolKey, EmittedInterface>
+            /// Numeric enums emitted into this assembly (`EmitContext.Enums`), so a
+            /// `StaticFieldGet` / `EnumCase` in any body resolves a case literal field.
+            Enums: Dictionary<SymbolKey, EmittedEnum>
             StaticMethods: Dictionary<NodeKey, StaticMethodRef>
             /// Module-level values (`let x = e` at module scope), lowered to a
             /// `public static` field on their module holder and resolved here by
@@ -430,6 +449,7 @@ module EmitTypes =
                 Records = ctx.Records
                 Classes = ctx.Classes
                 Interfaces = ctx.Interfaces
+                Enums = ctx.Enums
                 StaticMethods = ctx.StaticMethods
                 ModuleValues = ctx.ModuleValues
             }

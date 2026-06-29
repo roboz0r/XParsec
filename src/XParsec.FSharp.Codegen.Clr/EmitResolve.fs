@@ -382,6 +382,23 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: class '%A' has no emitted static field '%s'" declKey name
         | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%A'" declKey
 
+    /// The IL load of a numeric enum case's underlying integer constant — an enum
+    /// value IS its integer at runtime (the `literal` field is metadata-only), so
+    /// `E.A` and `| E.A` both push this. `ValueNone` when `declKey` is not an emitted
+    /// numeric enum (the caller falls back to `resolveStaticField` for a class
+    /// `static let`).
+    let tryResolveEnumCaseLoad (env: EmitEnv) (declKey: SymbolKey) (name: string) : ILInstr voption =
+        match env.Enums.TryGetValue declKey with
+        | true, e ->
+            match e.CaseValues.TryGetValue name with
+            | true, TConstValue.Int n -> ValueSome(ILInstr.LdcI4 n)
+            | true, TConstValue.Byte b -> ValueSome(ILInstr.LdcI4(int b))
+            | true, TConstValue.UInt u -> ValueSome(ILInstr.LdcI4(int u))
+            | true, TConstValue.Int64 i -> ValueSome(ILInstr.LdcI8 i)
+            | true, other -> failwithf "Emit: enum '%A' case '%s' carries a non-integral literal %A" declKey name other
+            | false, _ -> failwithf "Emit: enum '%A' has no emitted case '%s'" declKey name
+        | false, _ -> ValueNone
+
     /// Resolve a field by name on a record / class receiver to its emit handle.
     /// A monomorphic type returns the field's `Def` token; a *generic* one
     /// returns a `MemberRef` on the receiver's instantiated `TypeSpec`

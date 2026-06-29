@@ -110,6 +110,9 @@ type internal TypeSlotKind =
     /// `IsByRefLikeAttribute` custom attribute).
     | Class of isSealed: bool * valueKind: ClassValueKind
     | Closure
+    /// A numeric enum (step 5a): a sealed `System.Enum` subclass — no methods, a
+    /// special-name `value__` instance field, and one `static literal` field per case.
+    | Enum
     /// A named module holder; `HasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
     | Holder of hasCctor: bool
@@ -130,6 +133,11 @@ type internal FieldKey =
     | ClassInstanceField of SymbolKey * name: string
     /// A `static let` backing field.
     | ClassStaticField of SymbolKey * name: string
+    /// A numeric enum's special-name `value__` instance field (its underlying
+    /// integral storage).
+    | EnumValueField of SymbolKey
+    /// A numeric enum's `static literal` case field (`E::A`).
+    | EnumCaseField of SymbolKey * case: string
     | ClosureCapture of closure: string * index: int
     /// A non-capturing, monomorphic closure's `static readonly` singleton field —
     /// the one cached instance every construction site `ldsfld`s.
@@ -309,6 +317,7 @@ module internal Layout =
         let unions = ResizeArray()
         let records = ResizeArray()
         let classes = ResizeArray()
+        let enums = ResizeArray()
 
         for d in decls do
             match d with
@@ -331,9 +340,35 @@ module internal Layout =
                             Members = EqArray.toList members
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
-                // CLR enum emission (`System.Enum` / struct-wrapper) is a later
-                // step; the skeleton collects no partition for it.
-                | TTypeKindG.Enum _ -> ()
+                // NUMERIC enum emission (step 5a): a real `System.Enum` subclass.
+                // Only all-integer enums are partitioned here — string/mixed enums
+                // (step 5b) and all-illegal enums are dropped (their use sites fail
+                // loudly in `ClrEncoder`). The resolved case literals + the derived
+                // underlying width are read once here off the single source of truth
+                // (`TEnumCases`), so the emitter never re-derives them.
+                | TTypeKindG.Enum cases ->
+                    match TEnumCases.classify cases with
+                    | ValueSome TEnumVariant.Numeric ->
+                        let underlying =
+                            match TEnumCases.underlyingTypeName cases with
+                            | ValueSome w -> w
+                            | ValueNone -> "int"
+
+                        let numericCases =
+                            [
+                                for c in cases do
+                                    match c.Value with
+                                    | ValueSome(TEnumLiteral.Int v) -> c.Name, v
+                                    | _ -> ()
+                            ]
+
+                        enums.Add
+                            {
+                                Decl = td
+                                Underlying = underlying
+                                Cases = numericCases
+                            }
+                    | _ -> ()
                 | TTypeKindG.Class c ->
                     classes.Add
                         {
@@ -357,6 +392,7 @@ module internal Layout =
             Unions = List.ofSeq unions
             Records = List.ofSeq records
             Classes = List.ofSeq classes
+            Enums = List.ofSeq enums
         }
 
     /// Metadata-layer typar names: the leading F# quote dropped, once, here
@@ -836,6 +872,48 @@ module internal Layout =
                     methodRows
             ]
 
+        // Per numeric enum (step 5a): the special-name `value__` instance field
+        // (the underlying integral storage the CLR reads for `Enum.GetUnderlyingType`)
+        // then one `public static literal` field per case (its constant integer is
+        // attached as a `Constant` row in the writer's field pass). No methods —
+        // equality/hashing/compare all come from the `System.Enum` base.
+        let enumParts =
+            [
+                for ed in partitioned.Enums ->
+                    let td = ed.Decl
+
+                    let fields =
+                        [
+                            yield
+                                {
+                                    Key = FieldKey.EnumValueField td.Key
+                                    Name = "value__"
+                                    Attrs =
+                                        FieldAttributes.Public
+                                        ||| FieldAttributes.SpecialName
+                                        ||| FieldAttributes.RTSpecialName
+                                    Ty = FTConst(ed.Underlying, EqArray.empty)
+                                    ClosureScope = ValueNone
+                                }
+                            for (caseName, _) in ed.Cases ->
+                                {
+                                    Key = FieldKey.EnumCaseField(td.Key, caseName)
+                                    Name = caseName
+                                    // A `public static literal` field typed as the enum
+                                    // itself; `HasDefault` flags its `Constant` row.
+                                    Attrs =
+                                        FieldAttributes.Public
+                                        ||| FieldAttributes.Static
+                                        ||| FieldAttributes.Literal
+                                        ||| FieldAttributes.HasDefault
+                                    Ty = FTEnum td.Key
+                                    ClosureScope = ValueNone
+                                }
+                        ]
+
+                    nominalSlot TypeSlotKind.Enum td (List.length fields) 0, fields
+            ]
+
         // Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise
         // their typar names (`T0`, …) — only the count survives to codegen.
         let closureParts =
@@ -958,6 +1036,8 @@ module internal Layout =
         let unionSlots = List.map slotOf unionParts
         let recordSlots = List.map slotOf recordParts
         let classSlots = List.map slotOf classParts
+        // Enum parts are `(slot, fields)` pairs (no methods), so `fst`/`snd`.
+        let enumSlots = List.map fst enumParts
         let closureSlots = List.map slotOf closureParts
         let holderSlots = List.map fst holderParts
 
@@ -1062,6 +1142,7 @@ module internal Layout =
             @ unionSlots
             @ recordSlots
             @ classSlots
+            @ enumSlots
             @ closureSlots
             @ holderSlots
             @ programSlots
@@ -1085,6 +1166,7 @@ module internal Layout =
                 List.collect fieldsOf unionParts
                 @ List.collect fieldsOf recordParts
                 @ List.collect fieldsOf classParts
+                @ List.collect snd enumParts
                 @ List.collect fieldsOf closureParts
                 @ List.collect snd holderParts
                 @ programFields

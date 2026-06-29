@@ -95,6 +95,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let unionDecls = partitionedDecls.Unions
     let recordDecls = partitionedDecls.Records
     let classDecls = partitionedDecls.Classes
+    let enumDecls = partitionedDecls.Enums
 
     // Register each nominal type's layout-derived `TypeDefinition` handle so a
     // field / factory / local signature can `encodeType` it before the row
@@ -179,6 +180,20 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             // the self-`TypeSpec`) and the member signature are consulted.
             if not td.TypeParams.IsEmpty then
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, 0, [])
+        )
+
+    // A numeric enum (step 5a) registers its layout-derived `TypeDefinition` handle
+    // so its own `static literal` case fields — typed as the enum itself (`FTEnum`) —
+    // resolve through `userTypes` while the field table is encoded below, and so a use
+    // site (a `(x: E)` annotation, an `E.A` access) encodes the enum reference. It is
+    // a value type (its base chain reaches `System.ValueType`), so it also registers
+    // as a user value type → `ELEMENT_TYPE_VALUETYPE` in every signature.
+    do
+        enumDecls
+        |> List.iter (fun ed ->
+            let td = ed.Decl
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserValueType td.Key
         )
 
     // A *generic* closure is a real generic `TypeDefinition` after the nominal
@@ -282,6 +297,26 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     // closure-typar scope, bracketed per slot.
     let fieldDefHandles = Dictionary<FieldKey, FieldDefinitionHandle>()
 
+    // A numeric enum's `static literal` case fields each carry a `Constant` row whose
+    // value is the case's underlying integer (boxed to the authored CLR primitive, so
+    // SRM picks the matching `ConstantTypeCode`). Keyed by `FieldKey` so the field pass
+    // attaches the constant as it writes each literal field (ascending field order,
+    // which the `Constant` table is also sorted by).
+    let enumFieldConstants = Dictionary<FieldKey, obj>()
+
+    do
+        for ed in enumDecls do
+            for (caseName, v) in ed.Cases do
+                let boxed: obj =
+                    match v with
+                    | TConstValue.Int n -> box n
+                    | TConstValue.Byte b -> box b
+                    | TConstValue.UInt u -> box u
+                    | TConstValue.Int64 i -> box i
+                    | other -> failwithf "Emit: numeric enum case '%s' carries a non-integral literal %A" caseName other
+
+                enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <- boxed
+
     do
         for fs in layout.Fields do
             match fs.ClosureScope with
@@ -318,6 +353,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
             fieldDefHandles.Add(fs.Key, h)
 
+            // A numeric enum case field: attach its `Constant` row now, in field
+            // order, so the `Constant.Parent` column is ascending.
+            match enumFieldConstants.TryGetValue fs.Key with
+            | true, boxed -> ctx.AddConstant(toEntity h, boxed) |> ignore
+            | false, _ -> ()
+
         if ctx.FieldRowCount <> layoutHandles.TotalFields then
             failwithf
                 "Layout: field table has %d rows after the field pass, layout owns %d"
@@ -327,6 +368,21 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
     let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
     let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
+
+    // Numeric enums: each case name → its underlying integer literal. A
+    // `StaticFieldGet` / `EnumCase` in any body pushes this constant directly (an enum
+    // value IS its integer; the `literal` field is metadata-only). Enums are
+    // monomorphic + member-less, so no register/prepare pass is needed.
+    let enums = Dictionary<SymbolKey, Emit.EmittedEnum>()
+
+    do
+        for ed in enumDecls do
+            let caseValues = Dictionary<string, TConstValue>()
+
+            for (caseName, v) in ed.Cases do
+                caseValues.[caseName] <- v
+
+            enums.[ed.Decl.Key] <- { CaseValues = caseValues }
     // Filled by `PrepareInterfaces` (shared by reference with `emitCtx`), so a call
     // on an interface-typed receiver resolves its slot through `resolveInstanceMember`.
     let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
@@ -392,6 +448,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             Records = records
             Classes = classes
             Interfaces = interfaces
+            Enums = enums
             StaticMethods = staticMethods
             ModuleValues = moduleValueFields
             MainInitValues = mainInitValues
@@ -412,6 +469,17 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         ||| TypeAttributes.AutoLayout
         ||| TypeAttributes.AnsiClass
         ||| TypeAttributes.BeforeFieldInit
+
+    // A numeric enum's `TypeDefinition`: a sealed `auto ansi` class extending
+    // `System.Enum` (the base supplies value-type-ness + equality/hashing/compare).
+    // No `BeforeFieldInit` — there is no `.cctor` (the case fields are `literal`,
+    // baked into the `Constant` table, not initialised at runtime).
+    let enumAttrs =
+        TypeAttributes.Class
+        ||| TypeAttributes.Public
+        ||| TypeAttributes.Sealed
+        ||| TypeAttributes.AutoLayout
+        ||| TypeAttributes.AnsiClass
 
     // A user class opts in to `Sealed` via `[<Sealed>]`; without it the
     // class is open. Unions / records reuse this with `isSealed = true`.
@@ -944,6 +1012,23 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 let isValueType = valueKind <> ClassValueKind.RefType
                 let isByRefLike = valueKind = ClassValueKind.RefStruct
                 addNominalRow slot (classAttrsOf isSealed isValueType) isByRefLike
+
+            // A numeric enum (step 5a): base = `System.Enum`, no interfaces, no
+            // methods. It needs no `TypeRowExtras` (no synthesised eq/comp/format
+            // interfaces — `System.Enum` supplies them), so it is written directly
+            // rather than through `addNominalRow`.
+            | TypeSlotKind.Enum ->
+                let typeHandle =
+                    ctx.AddClass(
+                        enumAttrs,
+                        slot.Namespace,
+                        slot.MetaName,
+                        provider.EnumBase,
+                        layoutHandles.FirstFieldOf slot.Key,
+                        layoutHandles.FirstMethodOf slot.Key
+                    )
+
+                verifyTypeHandle slot typeHandle
 
             // Each closure derives from `System.Object` and implements its
             // `Vesper.Fun\`2<param, result>` interface. Its `GenericParam` rows

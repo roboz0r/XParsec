@@ -142,12 +142,23 @@ module EmitPattern =
         match pat with
         | TPatG.Wildcard _ -> ()
         | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- scrutSlot
-        | TPatG.EnumCase _ ->
-            // v1 lowers an enum-case pattern to equality on the case's underlying
-            // value (step 5 CLR enum emission); not wired here yet. Driving an enum
-            // pattern through codegen also hits the step-5 `ClrEncoder` `TyEnum`
-            // failwith, so this is unreachable in the current test scope.
-            failwithf "Emit: enum-case patterns are out of scope (step 5): %A" pat
+        | TPatG.EnumCase(enumKey, caseName, _, _) ->
+            // v1 = equality only: load the scrutinee (an enum value) and the case's
+            // underlying integer constant, then `bne.un` to skip the arm on
+            // inequality. The scrutinee is the enum value type, which the verifier
+            // treats as its underlying integer for the compare — so this is
+            // underlying-int equality, exactly the numeric-enum `=` semantics. Binds
+            // nothing (a named case is a singleton). String/mixed enums (step 5b)
+            // never reach here — their decls aren't emitted and their use sites fail
+            // in `ClrEncoder`.
+            let loadCase =
+                match tryResolveEnumCaseLoad env enumKey caseName with
+                | ValueSome instr -> instr
+                | ValueNone -> failwithf "Emit: no emitted numeric enum carrying case '%s' for '%A'" caseName enumKey
+
+            b.Add(ILInstr.Ldloc scrutSlot)
+            b.Add loadCase
+            b.Add(ILInstr.BneUn nextLabel)
         | TPatG.Null _ ->
             // `null` pattern: match only a null scrutinee. A non-null value
             // (`brtrue`) skips the arm; null falls through to the body. Binds

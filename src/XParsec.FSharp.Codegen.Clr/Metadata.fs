@@ -145,6 +145,15 @@ type MetadataContext() =
     member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =
         mb.AddFieldDefinition(attrs, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
 
+    /// A `Constant` row for a `[<Literal>]` static field (an enum case carrying its
+    /// underlying integer). `parent` is the field's `FieldDefinitionHandle`; `value`
+    /// is the boxed underlying primitive (`int`/`byte`/`uint32`/`int64`) whose runtime
+    /// type SRM maps to the `ConstantTypeCode`. SRM sorts the `Constant` table by its
+    /// `Parent` coded index on serialize, so rows may be added in any order — but the
+    /// enum field pass adds them in ascending field order anyway (one per literal field
+    /// as it is written).
+    member _.AddConstant(parent: EntityHandle, value: obj) : ConstantHandle = mb.AddConstant(parent, value)
+
     /// Methods must be added in the order types will claim them.
     member _.AddMethod
         (attrs: MethodAttributes, name: string, signature: BlobBuilder, bodyOffset: int)

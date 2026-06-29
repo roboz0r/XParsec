@@ -39,6 +39,9 @@ type ClrProvider
     /// `System.ValueType` — the IL base type of a `[<Struct>]` value type.
     member _.ValueTypeBase: EntityHandle = env.EValueType.Value
 
+    /// `System.Enum` — the IL base type of a numeric enum's `TypeDefinition`.
+    member _.EnumBase: EntityHandle = env.EEnum.Value
+
     /// `System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor()` — the
     /// `CustomAttribute` constructor stamped on a `[<IsByRefLike>]` value type.
     member _.IsByRefLikeAttrCtor: EntityHandle = env.EIsByRefLikeAttrCtor.Value

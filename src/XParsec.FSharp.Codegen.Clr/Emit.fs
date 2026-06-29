@@ -24,6 +24,7 @@ module Emit =
     type EmittedRecord = EmitTypes.EmittedRecord
     type EmittedClass = EmitTypes.EmittedClass
     type EmittedInterface = EmitTypes.EmittedInterface
+    type EmittedEnum = EmitTypes.EmittedEnum
     type HolderKey = EmitTypes.HolderKey
     type StaticFn = EmitTypes.StaticFn
     type ModuleValue = EmitTypes.ModuleValue

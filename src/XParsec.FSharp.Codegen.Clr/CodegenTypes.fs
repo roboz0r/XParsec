@@ -50,12 +50,28 @@ type internal ClassDecl =
         HasPrimaryCtor: bool
     }
 
+/// A partitioned NUMERIC enum declaration (step 5a). Only all-integer enums land
+/// here — `partitionTypeDecls` classifies via `TEnumCases.classify` and drops
+/// string/mixed enums (step 5b) and any all-illegal enum. `Underlying` is the
+/// derived integral primitive NAME (`int`/`byte`/`uint32`/`int64`,
+/// `TEnumCases.underlyingTypeName`) the `value__` field is typed by; `Cases` is the
+/// resolved `(caseName, underlying-int literal)` table in declaration order (only
+/// cases whose literal resolved — a `ValueNone` errored case is skipped, matching the
+/// emitted literal-field set).
+type internal EnumDecl =
+    {
+        Decl: Frozen.TTypeDecl
+        Underlying: string
+        Cases: (string * TConstValue) list
+    }
+
 type internal PartitionedTypeDecls =
     {
         Interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list
         Unions: UnionDecl list
         Records: RecordDecl list
         Classes: ClassDecl list
+        Enums: EnumDecl list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in

@@ -165,6 +165,11 @@ type internal ClrEnv
     // `System.ValueType` — the IL base type of every `[<Struct>]` value type
     let eValueType = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueType")))
 
+    // `System.Enum` — the IL base type of a numeric enum's `TypeDefinition` (the
+    // CLR reads the base chain to mark the type `IsEnum`, value-type by the further
+    // `System.ValueType` base it itself extends).
+    let eEnum = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Enum")))
+
     // `System.Runtime.CompilerServices.IsByRefLikeAttribute` — stamped on a
     // `[<IsByRefLike>]` value type so the CLR confines it to the stack.
     let eIsByRefLikeAttr =
@@ -537,6 +542,7 @@ type internal ClrEnv
     member _.EListModule = eListModule
     member _.EObject = eObject
     member _.EValueType = eValueType
+    member _.EEnum = eEnum
     member _.EIsByRefLikeAttrCtor = eIsByRefLikeAttrCtor
     member _.ETextWriter = eTextWriter
     member _.EConsole = eConsole

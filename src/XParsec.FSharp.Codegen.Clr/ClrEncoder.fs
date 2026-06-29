@@ -289,13 +289,20 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
                 t
-        // step 5: a nominal enum reference is genuinely unreachable in step 2 — no
-        // use site produces an `FTEnum` until member/value access (step 3) lands, and
-        // the enum `TDecl` is still dropped at `Layout.fs`. The faithful CLR encoding
-        // (a `System.Enum` subclass with the underlying integral type, or the
-        // string/mixed `[<Struct>]` wrapper) is step 5; fail loudly rather than emit a
-        // half-baked encoding.
-        | FTEnum _ -> failwith "enum type reference reaches codegen — implemented in step 5/6"
+        // A NUMERIC enum (step 5a): a genuine `System.Enum` subclass emitted into
+        // *this* assembly. It is a value type (its base chain reaches
+        // `System.ValueType`), so it encodes `ELEMENT_TYPE_VALUETYPE` off its emitted
+        // `TypeDefinition` handle — the same shape as a project-local `[<Struct>]`
+        // class, minus generic args (enums are never generic). Only numeric enum decls
+        // are registered into `userTypes` (`Layout` partitions only those); a
+        // string/mixed enum (5b) or an external enum (step 7) is absent and falls to
+        // the loud arm below.
+        | FTEnum key when SymbolKeyOps.keyAsm key = envAsm && userTypes.ContainsKey key ->
+            te.Type(userTypes.[key], true)
+        | FTEnum _ ->
+            failwithf
+                "ClrProvider: cannot encode enum type reference %A — numeric project-local enums only (step 5a); string/mixed enums are step 5b, external enums step 7"
+                t
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
