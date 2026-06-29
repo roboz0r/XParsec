@@ -382,21 +382,29 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: class '%A' has no emitted static field '%s'" declKey name
         | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%A'" declKey
 
-    /// The IL load of a numeric enum case's underlying integer constant — an enum
-    /// value IS its integer at runtime (the `literal` field is metadata-only), so
-    /// `E.A` and `| E.A` both push this. `ValueNone` when `declKey` is not an emitted
-    /// numeric enum (the caller falls back to `resolveStaticField` for a class
+    /// The IL load of an enum case used as a value (`E.A` / `| E.A`). A *numeric*
+    /// enum value IS its integer at runtime (the `literal` field is metadata-only),
+    /// so this pushes the underlying constant; a *string/mixed* enum case is a real
+    /// `static initonly` field, so this `ldsfld`s it. `ValueNone` when `declKey` is
+    /// not an emitted enum (the caller falls back to `resolveStaticField` for a class
     /// `static let`).
     let tryResolveEnumCaseLoad (env: EmitEnv) (declKey: SymbolKey) (name: string) : ILInstr voption =
         match env.Enums.TryGetValue declKey with
         | true, e ->
-            match e.CaseValues.TryGetValue name with
-            | true, TConstValue.Int n -> ValueSome(ILInstr.LdcI4 n)
-            | true, TConstValue.Byte b -> ValueSome(ILInstr.LdcI4(int b))
-            | true, TConstValue.UInt u -> ValueSome(ILInstr.LdcI4(int u))
-            | true, TConstValue.Int64 i -> ValueSome(ILInstr.LdcI8 i)
-            | true, other -> failwithf "Emit: enum '%A' case '%s' carries a non-integral literal %A" declKey name other
-            | false, _ -> failwithf "Emit: enum '%A' has no emitted case '%s'" declKey name
+            match e.Repr with
+            | EmittedEnumRepr.NumericEnum caseValues ->
+                match caseValues.TryGetValue name with
+                | true, TConstValue.Int n -> ValueSome(ILInstr.LdcI4 n)
+                | true, TConstValue.Byte b -> ValueSome(ILInstr.LdcI4(int b))
+                | true, TConstValue.UInt u -> ValueSome(ILInstr.LdcI4(int u))
+                | true, TConstValue.Int64 i -> ValueSome(ILInstr.LdcI8 i)
+                | true, other ->
+                    failwithf "Emit: enum '%A' case '%s' carries a non-integral literal %A" declKey name other
+                | false, _ -> failwithf "Emit: enum '%A' has no emitted case '%s'" declKey name
+            | EmittedEnumRepr.StructEnum(_, _, caseFields, _) ->
+                match caseFields.TryGetValue name with
+                | true, h -> ValueSome(ILInstr.Ldsfld h)
+                | false, _ -> failwithf "Emit: struct enum '%A' has no emitted case '%s'" declKey name
         | false, _ -> ValueNone
 
     /// Resolve a field by name on a record / class receiver to its emit handle.

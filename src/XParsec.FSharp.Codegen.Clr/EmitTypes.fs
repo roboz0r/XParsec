@@ -212,18 +212,30 @@ module EmitTypes =
             Interfaces: FrozenType list
         }
 
-    /// A numeric enum emitted into this assembly (step 5a). Enums are monomorphic
-    /// and have no members. A case's `static literal` field is metadata-only (it has
-    /// no runtime storage — `ldsfld` on a `literal` field throws
-    /// `MissingFieldException`), so code does NOT reference it: an enum value *is* its
-    /// underlying integer, exactly as fsc/csc compile `E.A` to a constant load. Both a
-    /// `TExpr.StaticFieldGet` (`E.A`) and an `EnumCase` pattern (`| E.A`) therefore
-    /// push the case's underlying constant directly. `CaseValues` maps the case name →
-    /// its underlying integer literal.
-    type EmittedEnum =
-        {
-            CaseValues: Dictionary<string, TConstValue>
-        }
+    /// How an emitted enum's cases are loaded / compared — the two reprs share the
+    /// `EmittedEnum` registry but diverge in code generation.
+    type EmittedEnumRepr =
+        /// A numeric enum (step 5a): a `System.Enum` subclass. A case's `static
+        /// literal` field is metadata-only (`ldsfld` on a `literal` throws
+        /// `MissingFieldException`), so code pushes the case's underlying integer
+        /// constant directly — both `E.A` and `| E.A` load `CaseValues.[case]`.
+        | NumericEnum of CaseValues: Dictionary<string, TConstValue>
+        /// A string / mixed enum (step 5b): a `[<Struct>]` wrapper. Each case is a
+        /// `public static initonly` field of the enum type, `.cctor`-initialised; an
+        /// `E.A` use site `ldsfld`s `CaseFields.[case]`. `IsMixed` selects the field
+        /// type (`obj` vs `string`); `BackingField` is the wrapper's single instance
+        /// field, and `CaseLits` the case → literal table both feeding the
+        /// `| E.A` pattern's field equality (compare the scrutinee's `BackingField`
+        /// against the case literal).
+        | StructEnum of
+            isMixed: bool *
+            backingField: EntityHandle *
+            caseFields: Dictionary<string, EntityHandle> *
+            caseLits: Dictionary<string, TEnumLiteral>
+
+    /// An enum emitted into this assembly. Enums are monomorphic and have no
+    /// members; `Repr` carries the numeric-vs-struct code-generation data.
+    type EmittedEnum = { Repr: EmittedEnumRepr }
 
     /// An interface emitted into this assembly. Only its `Members` matter at use
     /// sites: a method call on an interface-typed receiver (or, later, a

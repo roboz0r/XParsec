@@ -143,22 +143,55 @@ module EmitPattern =
         | TPatG.Wildcard _ -> ()
         | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- scrutSlot
         | TPatG.EnumCase(enumKey, caseName, _, _) ->
-            // v1 = equality only: load the scrutinee (an enum value) and the case's
-            // underlying integer constant, then `bne.un` to skip the arm on
-            // inequality. The scrutinee is the enum value type, which the verifier
-            // treats as its underlying integer for the compare — so this is
-            // underlying-int equality, exactly the numeric-enum `=` semantics. Binds
-            // nothing (a named case is a singleton). String/mixed enums (step 5b)
-            // never reach here — their decls aren't emitted and their use sites fail
-            // in `ClrEncoder`.
-            let loadCase =
-                match tryResolveEnumCaseLoad env enumKey caseName with
-                | ValueSome instr -> instr
-                | ValueNone -> failwithf "Emit: no emitted numeric enum carrying case '%s' for '%A'" caseName enumKey
+            // v1 = equality only; binds nothing (a named case is a singleton). The
+            // comparison depends on the enum's repr:
+            //  * NUMERIC (5a): load the scrutinee (an enum value) and the case's
+            //    underlying integer constant, then `bne.un`. The scrutinee value type
+            //    is treated as its underlying integer for the compare.
+            //  * STRING/MIXED (5b): the wrapper holds a `string` / `obj` field; compare
+            //    the scrutinee's field against the case literal via
+            //    `EqualityComparer<field>.Default.Equals` — the same field-equality
+            //    recipe records use (string equality for `string`, structural object
+            //    equality for the boxed `obj`), NOT a `ceq` (reference) compare.
+            match env.Enums.TryGetValue enumKey with
+            | true,
+              {
+                  Repr = EmittedEnumRepr.StructEnum(isMixed, backingField, _, caseLits)
+              } ->
+                let fieldTy = FTConst((if isMixed then "obj" else "string"), EqArray.empty)
 
-            b.Add(ILInstr.Ldloc scrutSlot)
-            b.Add loadCase
-            b.Add(ILInstr.BneUn nextLabel)
+                let pushLit =
+                    match caseLits.TryGetValue caseName with
+                    | true, TEnumLiteral.String s -> [ ILInstr.Ldstr(env.Ctx.UserString s) ]
+                    | true, TEnumLiteral.Int v ->
+                        let load, ty =
+                            match v with
+                            | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst("int", EqArray.empty)
+                            | TConstValue.Byte by -> ILInstr.LdcI4(int by), FTConst("byte", EqArray.empty)
+                            | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst("uint32", EqArray.empty)
+                            | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst("int64", EqArray.empty)
+                            | other ->
+                                failwithf "Emit: mixed enum case '%s' carries a non-integral literal %A" caseName other
+
+                        [ load; ILInstr.Box(env.Provider.TypeToken ty) ]
+                    | false, _ -> failwithf "Emit: struct enum '%A' has no case literal for '%s'" enumKey caseName
+
+                b.Add(ILInstr.Call(env.Provider.EqualityComparerDefault fieldTy, 0, 1))
+                b.Add(ILInstr.Ldloc scrutSlot)
+                b.Add(ILInstr.Ldfld backingField)
+                pushLit |> List.iter b.Add
+                b.Add(ILInstr.Callvirt(env.Provider.EqualityComparerEquals fieldTy, 3, 1))
+                b.Add(ILInstr.Brfalse nextLabel)
+            | _ ->
+                let loadCase =
+                    match tryResolveEnumCaseLoad env enumKey caseName with
+                    | ValueSome instr -> instr
+                    | ValueNone ->
+                        failwithf "Emit: no emitted numeric enum carrying case '%s' for '%A'" caseName enumKey
+
+                b.Add(ILInstr.Ldloc scrutSlot)
+                b.Add loadCase
+                b.Add(ILInstr.BneUn nextLabel)
         | TPatG.Null _ ->
             // `null` pattern: match only a null scrutinee. A non-null value
             // (`brtrue`) skips the arm; null falls through to the body. Binds

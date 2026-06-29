@@ -113,6 +113,12 @@ type internal TypeSlotKind =
     /// A numeric enum (step 5a): a sealed `System.Enum` subclass — no methods, a
     /// special-name `value__` instance field, and one `static literal` field per case.
     | Enum
+    /// A string / mixed enum (step 5b): a sealed `[<Struct>]` value type over a
+    /// single field (`string`, or `obj` when `isMixed`), with a `.ctor` setting it,
+    /// per-case `static initonly` fields, and a `.cctor` constructing them. `isMixed`
+    /// is carried only for documentation symmetry with the writer; the base is
+    /// always `System.ValueType`.
+    | StructEnum of isMixed: bool
     /// A named module holder; `HasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
     | Holder of hasCctor: bool
@@ -136,8 +142,12 @@ type internal FieldKey =
     /// A numeric enum's special-name `value__` instance field (its underlying
     /// integral storage).
     | EnumValueField of SymbolKey
-    /// A numeric enum's `static literal` case field (`E::A`).
+    /// A numeric enum's `static literal` case field (`E::A`); also a string/mixed
+    /// enum's `public static initonly` case field (`.cctor`-initialised, holding the
+    /// constructed wrapper).
     | EnumCaseField of SymbolKey * case: string
+    /// A string/mixed enum's single instance field (the wrapped `string` / `obj`).
+    | EnumBackingField of SymbolKey
     | ClosureCapture of closure: string * index: int
     /// A non-capturing, monomorphic closure's `static readonly` singleton field —
     /// the one cached instance every construction site `ldsfld`s.
@@ -318,6 +328,7 @@ module internal Layout =
         let records = ResizeArray()
         let classes = ResizeArray()
         let enums = ResizeArray()
+        let structEnums = ResizeArray()
 
         for d in decls do
             match d with
@@ -368,7 +379,27 @@ module internal Layout =
                                 Underlying = underlying
                                 Cases = numericCases
                             }
-                    | _ -> ()
+                    // STRING / MIXED enum emission (step 5b): a `[<Struct>]` wrapper.
+                    // The resolved case literals (string text, or the int/string of a
+                    // mixed case) are read once here off `c.Value`; `IsMixed` drives
+                    // the `obj`-vs-`string` field + boxed construction in the emitter.
+                    // An all-illegal enum (`classify` = `ValueNone`) is still dropped.
+                    | ValueSome(TEnumVariant.String | TEnumVariant.Mixed as variant) ->
+                        let structCases =
+                            [
+                                for c in cases do
+                                    match c.Value with
+                                    | ValueSome lit -> c.Name, lit
+                                    | ValueNone -> ()
+                            ]
+
+                        structEnums.Add
+                            {
+                                Decl = td
+                                IsMixed = (variant = TEnumVariant.Mixed)
+                                Cases = structCases
+                            }
+                    | ValueNone -> ()
                 | TTypeKindG.Class c ->
                     classes.Add
                         {
@@ -393,6 +424,7 @@ module internal Layout =
             Records = List.ofSeq records
             Classes = List.ofSeq classes
             Enums = List.ofSeq enums
+            StructEnums = List.ofSeq structEnums
         }
 
     /// Metadata-layer typar names: the leading F# quote dropped, once, here
@@ -914,6 +946,65 @@ module internal Layout =
                     nominalSlot TypeSlotKind.Enum td (List.length fields) 0, fields
             ]
 
+        // Per string/mixed enum (step 5b): a `[<Struct>]` wrapper. One instance
+        // backing field (`string`, or `obj` when mixed) holding the case value, then
+        // one `public static initonly` field per case (the constructed singleton, set
+        // in the `.cctor`). Two methods: the `.ctor(field)` that stores the backing
+        // field, and the `.cctor` that constructs each case. The fields ride the same
+        // `(slot, fields)` shape as the numeric enum; methods are bound in
+        // `Assembler.PrepareStructEnums`.
+        let structEnumParts =
+            [
+                for sed in partitioned.StructEnums ->
+                    let td = sed.Decl
+                    let fieldTy = FTConst((if sed.IsMixed then "obj" else "string"), EqArray.empty)
+
+                    let fields =
+                        [
+                            yield
+                                {
+                                    Key = FieldKey.EnumBackingField td.Key
+                                    Name = "value"
+                                    // Immutable: written once by the `.ctor` (`stfld`
+                                    // through the `newobj` temp address is legal on an
+                                    // `initonly` instance field from within `.ctor`).
+                                    Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
+                                    Ty = fieldTy
+                                    ClosureScope = ValueNone
+                                }
+                            for (caseName, _) in sed.Cases ->
+                                {
+                                    Key = FieldKey.EnumCaseField(td.Key, caseName)
+                                    Name = caseName
+                                    // `public static initonly E` — the closed set of
+                                    // case singletons, `.cctor`-initialised (a struct
+                                    // field cannot be `literal`; only a primitive can).
+                                    Attrs =
+                                        FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                                    Ty = FTEnum td.Key
+                                    ClosureScope = ValueNone
+                                }
+                        ]
+
+                    let methodRows =
+                        [
+                            {
+                                Key = MethodKey.NominalCtor td.Key
+                                Name = ".ctor"
+                                Attrs = ctorAttrs
+                            }
+                            {
+                                Key = MethodKey.NominalCctor td.Key
+                                Name = ".cctor"
+                                Attrs = cctorAttrs
+                            }
+                        ]
+
+                    nominalSlot (TypeSlotKind.StructEnum sed.IsMixed) td (List.length fields) (List.length methodRows),
+                    fields,
+                    methodRows
+            ]
+
         // Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise
         // their typar names (`T0`, …) — only the count survives to codegen.
         let closureParts =
@@ -1038,6 +1129,8 @@ module internal Layout =
         let classSlots = List.map slotOf classParts
         // Enum parts are `(slot, fields)` pairs (no methods), so `fst`/`snd`.
         let enumSlots = List.map fst enumParts
+        // Struct (string/mixed) enum parts are `(slot, fields, methods)` triples.
+        let structEnumSlots = List.map slotOf structEnumParts
         let closureSlots = List.map slotOf closureParts
         let holderSlots = List.map fst holderParts
 
@@ -1053,6 +1146,10 @@ module internal Layout =
                 yield! unionParts |> List.collect methodsOf
                 yield! recordParts |> List.collect methodsOf
                 yield! classParts |> List.collect methodsOf
+                // String/mixed enums sit between classes and closures in the type
+                // order (after the method-less numeric enums), so their `.ctor` /
+                // `.cctor` rows follow the class rows here to keep prefix sums aligned.
+                yield! structEnumParts |> List.collect methodsOf
                 yield! closureParts |> List.collect methodsOf
 
                 for slot in plan.MethodPlan do
@@ -1143,6 +1240,7 @@ module internal Layout =
             @ recordSlots
             @ classSlots
             @ enumSlots
+            @ structEnumSlots
             @ closureSlots
             @ holderSlots
             @ programSlots
@@ -1167,6 +1265,7 @@ module internal Layout =
                 @ List.collect fieldsOf recordParts
                 @ List.collect fieldsOf classParts
                 @ List.collect snd enumParts
+                @ List.collect fieldsOf structEnumParts
                 @ List.collect fieldsOf closureParts
                 @ List.collect snd holderParts
                 @ programFields

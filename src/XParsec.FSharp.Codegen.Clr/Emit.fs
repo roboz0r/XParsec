@@ -25,6 +25,7 @@ module Emit =
     type EmittedClass = EmitTypes.EmittedClass
     type EmittedInterface = EmitTypes.EmittedInterface
     type EmittedEnum = EmitTypes.EmittedEnum
+    type EmittedEnumRepr = EmitTypes.EmittedEnumRepr
     type HolderKey = EmitTypes.HolderKey
     type StaticFn = EmitTypes.StaticFn
     type ModuleValue = EmitTypes.ModuleValue
@@ -398,6 +399,24 @@ module Emit =
             b.Add(ILInstr.Ldarg(i + 1))
             b.Add(ILInstr.Stfld field)
         )
+
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// Build a string/mixed enum's `.cctor` (step 5b): for each case, push its
+    /// literal (already lowered to the `pushLit` instruction prefix — `ldstr` for a
+    /// string, `ldc;box` for a mixed int), `newobj` the wrapper's single-arg `.ctor`,
+    /// and `stsfld` the constructed singleton into the case's `static initonly`
+    /// field. Runs before the first `ldsfld` of any case field (every `E.A` use
+    /// site), so the closed set is materialised exactly once. `cases` is the
+    /// `(caseField, pushLit)` list in declaration order.
+    let buildStructEnumCctor (ctorHandle: EntityHandle) (cases: (EntityHandle * ILInstr list) list) : ILBody =
+        let b = IlBuilder()
+
+        for (caseField, pushLit) in cases do
+            pushLit |> List.iter b.Add
+            b.Add(ILInstr.Newobj(ctorHandle, 1))
+            b.Add(ILInstr.Stsfld caseField)
 
         b.Add ILInstr.Ret
         b.Body

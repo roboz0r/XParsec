@@ -96,6 +96,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     let recordDecls = partitionedDecls.Records
     let classDecls = partitionedDecls.Classes
     let enumDecls = partitionedDecls.Enums
+    let structEnumDecls = partitionedDecls.StructEnums
 
     // Register each nominal type's layout-derived `TypeDefinition` handle so a
     // field / factory / local signature can `encodeType` it before the row
@@ -192,6 +193,19 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         enumDecls
         |> List.iter (fun ed ->
             let td = ed.Decl
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserValueType td.Key
+        )
+
+    // A string/mixed enum (step 5b) registers identically: its `[<Struct>]` wrapper
+    // is a project-local value type, so its own per-case `static initonly` fields
+    // (typed `FTEnum`) and the wrapper's `.ctor`/field signatures resolve through
+    // `userTypes` during the field/method passes, and a use site encodes
+    // `ELEMENT_TYPE_VALUETYPE`.
+    do
+        structEnumDecls
+        |> List.iter (fun sed ->
+            let td = sed.Decl
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
             provider.RegisterUserValueType td.Key
         )
@@ -382,7 +396,29 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
             for (caseName, v) in ed.Cases do
                 caseValues.[caseName] <- v
 
-            enums.[ed.Decl.Key] <- { CaseValues = caseValues }
+            enums.[ed.Decl.Key] <-
+                {
+                    Repr = Emit.EmittedEnumRepr.NumericEnum caseValues
+                }
+
+    // String/mixed enums (step 5b): the per-case `static initonly` field handles
+    // (read off the completed field pass) drive `E.A` `ldsfld`, and the case
+    // literals + backing field handle drive the `| E.A` pattern's field equality.
+    do
+        for sed in structEnumDecls do
+            let caseFields = Dictionary<string, EntityHandle>()
+            let caseLits = Dictionary<string, TEnumLiteral>()
+
+            for (caseName, lit) in sed.Cases do
+                caseFields.[caseName] <- toEntity fieldDefHandles.[FieldKey.EnumCaseField(sed.Decl.Key, caseName)]
+                caseLits.[caseName] <- lit
+
+            let backingField = toEntity fieldDefHandles.[FieldKey.EnumBackingField sed.Decl.Key]
+
+            enums.[sed.Decl.Key] <-
+                {
+                    Repr = Emit.EmittedEnumRepr.StructEnum(sed.IsMixed, backingField, caseFields, caseLits)
+                }
     // Filled by `PrepareInterfaces` (shared by reference with `emitCtx`), so a call
     // on an interface-typed receiver resolves its slot through `resolveInstanceMember`.
     let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
@@ -481,6 +517,17 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
         ||| TypeAttributes.AutoLayout
         ||| TypeAttributes.AnsiClass
 
+    // A string/mixed enum's `[<Struct>]` wrapper (step 5b): a sealed value type
+    // (sequential layout, `System.ValueType` base) with NO `BeforeFieldInit` — its
+    // `.cctor` materialises the case singletons and must run before the first case
+    // `ldsfld` (precise-init semantics, like a holder owning module values).
+    let structEnumAttrs =
+        TypeAttributes.Class
+        ||| TypeAttributes.Public
+        ||| TypeAttributes.Sealed
+        ||| TypeAttributes.SequentialLayout
+        ||| TypeAttributes.AnsiClass
+
     // A user class opts in to `Sealed` via `[<Sealed>]`; without it the
     // class is open. Unions / records reuse this with `isSealed = true`.
     // A `[<Struct>]` value type is always sealed and uses sequential layout
@@ -536,6 +583,7 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
     member _.UnionDecls = unionDecls
     member _.RecordDecls = recordDecls
     member _.ClassDecls = classDecls
+    member _.StructEnumDecls = structEnumDecls
 
     /// True when *this* compilation defines the `%A` structural-format interfaces
     /// (`Vesper.IStructuralFormattable` / `IFormatSink`) — i.e. it is `Vesper.Core`.
@@ -646,6 +694,88 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Typars = EqArray.toList td.TypeParams
                     Members = memberTable
                 }
+
+    // The instruction prefix that pushes a string/mixed enum case literal as the
+    // wrapper `.ctor`'s single argument: a string case is `ldstr` (a `string` ref —
+    // assignable to either a `string` or an `obj` field, no box); a mixed int case
+    // is `ldc` then `box` to its CLR primitive so the wrapped `obj` carries the
+    // boxed integer (and `EqualityComparer<obj>` matches it structurally at a
+    // `| E.A` pattern). Shared shape with the pattern's literal load (EmitPattern).
+    member _.StructEnumLiteralPush(lit: TEnumLiteral) : ILInstr list =
+        match lit with
+        | TEnumLiteral.String s -> [ ILInstr.Ldstr(ctx.UserString s) ]
+        | TEnumLiteral.Int v ->
+            let load, ty =
+                match v with
+                | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst("int", EqArray.empty)
+                | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst("byte", EqArray.empty)
+                | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst("uint32", EqArray.empty)
+                | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst("int64", EqArray.empty)
+                | other -> failwithf "Emit: mixed enum case carries a non-integral literal %A" other
+
+            [ load; ILInstr.Box(icodegen.TypeToken ty) ]
+
+    /// Prepare each string/mixed enum's `.ctor` (stores the wrapped value) and
+    /// `.cctor` (constructs every case singleton), and record its `System.ValueType`
+    /// base for the `TypeDefinition` row. The per-case field handles + literals were
+    /// captured in the `enums` registry (after the field pass); here they drive the
+    /// `newobj;stsfld` sequence.
+    member this.PrepareStructEnums() =
+        for sed in structEnumDecls do
+            let td = sed.Decl
+            let fieldTy = FTConst((if sed.IsMixed then "obj" else "string"), EqArray.empty)
+
+            // `caseLits` (the registry's case → literal map) feeds the `| E.A`
+            // pattern's field equality, not the `.cctor` — here the literals come
+            // straight off `sed.Cases` in declaration order.
+            let backingField, caseFields =
+                match enums.[td.Key].Repr with
+                | Emit.EmittedEnumRepr.StructEnum(_, bf, cf, _) -> bf, cf
+                | other -> failwithf "Emit: struct enum '%A' has a non-struct repr %A" td.Key other
+
+            // The single-arg value-type `.ctor(value)` storing the backing field.
+            let ctorBody =
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructCtor [ backingField ]))
+
+            this.AddPrepared(
+                MethodKey.NominalCtor td.Key,
+                {
+                    Signature = provider.RecordCtorSignature [ fieldTy ]
+                    BodyOffset = ctorBody
+                    ParamNames = [ "value" ]
+                    MethodTypars = []
+                }
+            )
+
+            // The `.cctor` constructs each case singleton in declaration order.
+            let ctorHandle = toEntity (layoutHandles.MethodDefOf(MethodKey.NominalCtor td.Key))
+
+            let cctorCases =
+                [
+                    for (caseName, lit) in sed.Cases -> caseFields.[caseName], this.StructEnumLiteralPush lit
+                ]
+
+            let cctorBody =
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStructEnumCctor ctorHandle cctorCases))
+
+            this.AddPrepared(
+                MethodKey.NominalCctor td.Key,
+                {
+                    Signature = provider.CctorSignature()
+                    BodyOffset = cctorBody
+                    ParamNames = []
+                    MethodTypars = []
+                }
+            )
+
+            // The wrapper extends `System.ValueType` (value-type-ness); no interfaces.
+            this.AddTypeRowExtras(
+                TypeKey.Nominal td.Key,
+                {
+                    Interfaces = []
+                    BaseType = provider.ValueTypeBase
+                }
+            )
 
     // A *generic* closure enters closure-typar mode around every signature/body
     // build, so the body's `FTTypar(Method, i)` (the enclosing method's typars)
@@ -1029,6 +1159,12 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     )
 
                 verifyTypeHandle slot typeHandle
+
+            // A string/mixed enum (step 5b): a `[<Struct>]` value type over
+            // `System.ValueType` with a `.ctor` + `.cctor`. Routed through
+            // `addNominalRow` (it carries `TypeRowExtras` — the `ValueType` base set
+            // in `PrepareStructEnums`); never byref-like.
+            | TypeSlotKind.StructEnum _ -> addNominalRow slot structEnumAttrs false
 
             // Each closure derives from `System.Object` and implements its
             // `Vesper.Fun\`2<param, result>` interface. Its `GenericParam` rows

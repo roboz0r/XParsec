@@ -65,6 +65,22 @@ type internal EnumDecl =
         Cases: (string * TConstValue) list
     }
 
+/// A partitioned STRING or MIXED enum declaration (step 5b). Emitted as a
+/// `[<Struct>]` value type wrapping a single field — `string` for a pure-string
+/// enum, `obj` (boxed int / string per case) for a mixed one — with one
+/// `public static initonly` field of the enum type per case, `.cctor`-initialised
+/// by constructing the wrapper from the case's literal, and equality on that
+/// field. `IsMixed` selects the `obj` field + boxed-literal construction (vs the
+/// `string` field + `ldstr`). `Cases` is the resolved `(caseName, literal)` table
+/// in declaration order (only cases whose literal resolved — a `ValueNone` errored
+/// case is skipped, matching the emitted case-field set).
+type internal StructEnumDecl =
+    {
+        Decl: Frozen.TTypeDecl
+        IsMixed: bool
+        Cases: (string * TEnumLiteral) list
+    }
+
 type internal PartitionedTypeDecls =
     {
         Interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list
@@ -72,6 +88,7 @@ type internal PartitionedTypeDecls =
         Records: RecordDecl list
         Classes: ClassDecl list
         Enums: EnumDecl list
+        StructEnums: StructEnumDecl list
     }
 
 /// Per-arm payload for `emitNominalType`: the part that differs in

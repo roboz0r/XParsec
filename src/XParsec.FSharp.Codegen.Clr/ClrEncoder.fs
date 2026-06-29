@@ -289,19 +289,19 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
                 t
-        // A NUMERIC enum (step 5a): a genuine `System.Enum` subclass emitted into
-        // *this* assembly. It is a value type (its base chain reaches
-        // `System.ValueType`), so it encodes `ELEMENT_TYPE_VALUETYPE` off its emitted
-        // `TypeDefinition` handle — the same shape as a project-local `[<Struct>]`
-        // class, minus generic args (enums are never generic). Only numeric enum decls
-        // are registered into `userTypes` (`Layout` partitions only those); a
-        // string/mixed enum (5b) or an external enum (step 7) is absent and falls to
-        // the loud arm below.
+        // A project-local enum emitted into *this* assembly. It is always a value
+        // type — a NUMERIC enum (step 5a) is a `System.Enum` subclass; a STRING/MIXED
+        // enum (step 5b) is a `[<Struct>]` wrapper over `System.ValueType`. Either
+        // encodes `ELEMENT_TYPE_VALUETYPE` off its emitted `TypeDefinition` handle —
+        // the same shape as a project-local `[<Struct>]` class, minus generic args
+        // (enums are never generic). All three variants register into `userTypes`
+        // (`Layout` partitions numeric → `Enums`, string/mixed → `StructEnums`); an
+        // external enum (step 7) is absent and falls to the loud arm below.
         | FTEnum key when SymbolKeyOps.keyAsm key = envAsm && userTypes.ContainsKey key ->
             te.Type(userTypes.[key], true)
         | FTEnum _ ->
             failwithf
-                "ClrProvider: cannot encode enum type reference %A — numeric project-local enums only (step 5a); string/mixed enums are step 5b, external enums step 7"
+                "ClrProvider: cannot encode enum type reference %A — project-local enums only (steps 5a/5b); external enums are step 7"
                 t
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.

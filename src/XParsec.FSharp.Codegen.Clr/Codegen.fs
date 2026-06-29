@@ -59,6 +59,7 @@ module Codegen =
         for cd in asm.ClassDecls do
             NominalEmit.prepare asm (classInput cd) cd.Decl cd.Members
 
+        asm.PrepareStructEnums()
         asm.PrepareClosures()
         asm.PrepareStaticMethods()
         asm.PrepareMain()

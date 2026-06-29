@@ -292,6 +292,8 @@ type ClrProvider
 
         member _.EqualityComparerDefault(elem) = recipes.EqualityComparerDefault elem
 
+        member _.EqualityComparerEquals(elem) = recipes.EqualityComparerEquals elem
+
         member _.EqualityComparerGetHashCode(elem) =
             recipes.EqualityComparerGetHashCode elem
 
