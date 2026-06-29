@@ -547,6 +547,7 @@ module TsManifestProvider =
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
+            member _.IntrinsicForwardRepr = Map.empty
         }
 
     /// Parse a manifest JSON file and build its provider.

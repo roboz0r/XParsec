@@ -7,6 +7,7 @@ open System.Runtime.Loader
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The self-hosting bootstrap is FSharp.Core-free. These anchors pin the emission
@@ -526,13 +527,19 @@ let tests =
                 // engine.
                 let src = "printfn \"% A\" 42"
                 let lexed, file = parseFile src
+                // Resolve `int` (Vesper.Core) and `printfn` (Vesper.Printf) from the real
+                // contract stack — the single source — not `MockBuiltins`, which carries no
+                // primitive reprs (the codegen `defaults` bootstrap that used to supply
+                // `int` here is gone in T8 1.5). `% A` still lowers to the FSharp.Core cold
+                // path: that is a `PrintfSpec` decision, independent of the resolution provider.
+                let provider = SymbolProviders.buildContract defaultManifests
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`
                 // registration (asm-discrimination).
                 let tast =
-                    Pipeline.analyseFor project.AssemblyName MockBuiltins.provider src lexed file
+                    Pipeline.analyseFor project.AssemblyName provider src lexed file
 
-                let artifact = Codegen.compile MockBuiltins.provider project tast
+                let artifact = Codegen.compile provider project tast
 
                 Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the % A cold path references FSharp.Core"
 

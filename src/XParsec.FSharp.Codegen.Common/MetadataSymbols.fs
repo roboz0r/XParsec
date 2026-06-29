@@ -654,6 +654,7 @@ type MetadataSymbolProvider(assemblyPaths: string seq) =
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
+        member _.IntrinsicForwardRepr = Map.empty
 
 module MetadataSymbols =
 

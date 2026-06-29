@@ -59,14 +59,27 @@ files-js = [
     "capabilities-compat.js.fsi",
 ]
 
-# The `.fs` files compiled into Vesper.Core.dll (the package's runtime DLL). These
-# define the extern primitive types bound to `(# "..." #)` intrinsics (`Fun`, `unit`,
-# `int`, array, …) and the captured-mutable `Ref` cell — the actual emitted members.
-# (Not every `prim-types-*.fs` is listed: the minimal BCL-only DLL is built from
-# `prim-types-min.fs` + `core-types.fs`, matching the codegen test fixture.)
+# Every `.fs` in the package is listed here (T8 1.3 — one source of truth, no
+# orphaned `.fs`). The intrinsic-only `prim-types-*.fs` / `capabilities.fs` bind
+# `(# "..." #)` reprs and emit NO IL: they register the per-target representation
+# (channel-1 / the provider harvest), not a TypeDef. The actual emitted members are
+# `Fun`/`Fun2` + the primitive array/`unit` (prim-types-min), the captured-mutable
+# `Ref` (core-types), and the `%A` interfaces (structural-format). Order mirrors the
+# `.fsi` `files` order above. The inline-only operator bodies (`ops-*`,
+# `int-comparison`) stay in `inline-bodies`, not here.
 impl = [
     "prim-types-min.fs",
+    "prim-types-int.fs",
+    "prim-types-float.fs",
+    "prim-types-string.fs",
+    "prim-types-object.fs",
+    "prim-types-exn.fs",
+    "prim-types-decimal.fs",
+    "prim-types-nativeint.fs",
+    "prim-types-nd-array.fs",
+    "prim-types-attr.fs",
     "core-types.fs",
+    "capabilities.fs",
     "structural-format.fs",
 ]
 

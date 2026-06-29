@@ -115,19 +115,20 @@ let vesperCoreDll: Lazy<string> =
                  OutputPath = Some corePath
              }
 
-         // Both files declare `namespace Vesper` and contribute disjoint types
-         // (Fun + intrinsics in prim-types-min.fs, Ref in core-types.fs). Joined
-         // with two blank lines so the second `namespace Vesper` starts a fresh
-         // top-level block.
+         // Compile every `impl` file the manifest lists, so the fixture and the
+         // package build share ONE source list (T8 1.3 — no fixture/manifest drift).
+         // The intrinsic-only prim-types files complete channel-1, so primitive reprs
+         // (`string`, …) resolve from Core's own `.fs` rather than the codegen
+         // bootstrap. Each file declares disjoint types under `namespace Vesper`;
+         // joined with blank lines so each `namespace Vesper` starts a fresh block.
+         let implFiles =
+             match ReferencedProject.loadManifest vesperCoreManifest with
+             | Ok m -> ReferencedProject.resolveImpl None m
+             | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
+
          let src =
-             [
-                 IO.File.ReadAllText(vesperCoreSource "prim-types-min.fs")
-                 IO.File.ReadAllText(vesperCoreSource "core-types.fs")
-                 // The `%A` structural-format interfaces (`IFormatSink` /
-                 // `IStructuralFormattable`) — Core-owned so a
-                 // synthesised record/DU `Format` implements a Core type.
-                 IO.File.ReadAllText(vesperCoreSource "structural-format.fs")
-             ]
+             implFiles
+             |> List.map (fun rel -> IO.File.ReadAllText(vesperCoreSource rel))
              |> String.concat "\n\n"
 
          let lexed, file = parseFile src

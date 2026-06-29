@@ -387,6 +387,22 @@ module VesperLibTyparCapture =
                 )
                 |> Map.ofSeq
 
+            // Forward intrinsic axis `{ canon -> platform-repr }` — the mirror of
+            // `intrinsicReverse`, from the SAME published `Intrinsic` shapes so the two
+            // can't drift. Codegen reads it to resolve a primitive canon (`int`) to its
+            // `.fs` repr (`System.Int32`), the single source replacing the hard-coded
+            // `IntrinsicRepr.defaults`. Only `Intrinsic` (scalar/structural primitives)
+            // carry a codegen repr; capability `Class` faces are reconciliation-only
+            // (reverse) and are encoded as classes, so they are NOT included here.
+            let intrinsicForward =
+                ctx.TypeShapes
+                |> Seq.choose (fun kv ->
+                    match kv.Value with
+                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) -> Some(canon, platform)
+                    | _ -> None
+                )
+                |> Map.ofSeq
+
             { new IExternalSymbolProvider with
                 member _.TryLookup(name) =
                     match ctx.Symbols.TryGetValue name with
@@ -436,4 +452,5 @@ module VesperLibTyparCapture =
                 member _.TryLookupInlineBodyByName _ = ValueNone
 
                 member _.IntrinsicReverseCanon = intrinsicReverse
+                member _.IntrinsicForwardRepr = intrinsicForward
             }

@@ -69,6 +69,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
+        member _.IntrinsicForwardRepr = Map.empty
     }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which

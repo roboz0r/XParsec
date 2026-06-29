@@ -237,6 +237,7 @@ module JsNativeSymbols =
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
+            member _.IntrinsicForwardRepr = Map.empty
         }
 
     /// `buildContractWithMetadata` with the JS-native metadata tail instead of BCL

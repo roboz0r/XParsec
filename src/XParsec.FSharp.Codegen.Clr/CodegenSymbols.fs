@@ -42,4 +42,6 @@ module CodegenSymbols =
                                 ValRepr = sym.ValRepr
                                 Constraints = os.Constraints
                             }
+
+            member _.IntrinsicForwardRepr = provider.IntrinsicForwardRepr
         }

@@ -5,7 +5,6 @@ open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
-open XParsec.FSharp.Codegen.Common
 
 /// Per-generic-closure registry entry: the typar *count* inherited from the enclosing static method,
 /// the capture-field types in declaration order, the `Invoke` parameter / result types, and the
@@ -506,20 +505,18 @@ type internal ClrEnv
     member _.References = references
     member _.Symbols: ICodegenSymbols = symbols
 
-    /// Resolve a Vesper primitive name to its IL representation string, single-sourced:
-    /// (1) this unit's OWN intrinsics (`reprs` — the `(# … #)` of the `.fs` being
-    /// compiled), then (2) the provider's harvested `.fs` repr (`Intrinsic.platform`,
-    /// the dependency closure — the single source of truth a consumer build reads).
-    /// (3) `IntrinsicRepr.defaults` is a BOOTSTRAP-ONLY last resort for the
-    /// provider-less scaffold and the not-yet-fully-wired Vesper.Core self-build; T8
-    /// step 1.2-1.4 remove it, after which no hard-coded codegen repr map survives.
+    /// Resolve a Vesper primitive canon name to its IL representation string,
+    /// single-sourced from the `.fs` `(# … #)`: (1) this unit's OWN intrinsics (`reprs`
+    /// — the `.fs` being compiled), then (2) the provider's harvested forward
+    /// `{ canon -> platform }` map (the dependency closure). No hard-coded fallback:
+    /// `IntrinsicRepr.defaults` is gone from this path. The bare canon (`"int"`) is the
+    /// open-resolved identity codegen carries — opens are a name-resolution concern,
+    /// already discharged — so a flat canon→repr lookup is the correct codegen
+    /// mechanism (NOT `TryLookupType`, which is keyed by qualified compiled name).
     member _.TryPrimitiveRepr(name: string) : string option =
         match reprs.TryFind name with
         | Some _ as hit -> hit
-        | None ->
-            match symbols.TryLookupType name with
-            | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform)) -> Some platform
-            | _ -> Map.tryFind name IntrinsicRepr.defaults
+        | None -> Map.tryFind name symbols.IntrinsicForwardRepr
 
     member _.FsCoreRef = fsCoreRef
     member _.CoreRef = coreRef

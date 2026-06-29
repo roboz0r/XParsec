@@ -4,13 +4,14 @@ open System.Reflection.Metadata.Ecma335
 
 /// IL representation strings for Vesper primitives (`"int"` → `"System.Int32"`).
 /// The live source of a primitive's repr is the `(# "..." #)` of its `.fs`, read
-/// through `ClrEnv.TryPrimitiveRepr` (own-unit intrinsics, then the provider's
-/// harvested `.fs`). `defaults` below is a BOOTSTRAP-ONLY last resort that lookup
-/// falls back to — for the provider-less scaffold and the not-yet-fully-wired
-/// Vesper.Core self-build. T8 step 1.2-1.4 retire it; do not add a new consumer.
+/// through `ClrEnv.TryPrimitiveRepr` (own-unit intrinsics → the provider's harvested
+/// forward `{canon → platform}` map). `defaults` is NO LONGER on the codegen path;
+/// its SOLE remaining consumer is `MetadataSymbols.reprToName` (the BCL→canon reverse
+/// map), which T8 step 1.5 retires in favour of `IntrinsicReverseCanon` — at which
+/// point `defaults` is deleted. Do not add a new consumer.
 module IntrinsicRepr =
 
-    /// Bootstrap repr map — see the module note. NOT the primary source.
+    /// Legacy repr map — see the module note. Only `reprToName` reads it now.
     let defaults: Map<string, string> =
         Map
             [

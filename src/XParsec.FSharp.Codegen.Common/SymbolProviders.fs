@@ -216,6 +216,7 @@ module SymbolProviders =
                 | None -> ValueNone
 
             member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+            member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
     /// Build and cache the provider stack + inline bodies for a manifest set.

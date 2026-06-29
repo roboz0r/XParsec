@@ -612,6 +612,17 @@ type IExternalSymbolProvider =
     /// providers carry no intrinsics and return `Map.empty`.
     abstract IntrinsicReverseCanon: Map<string, string>
 
+    /// The FORWARD intrinsic axis `{ canon -> platform-repr }` (the `.fsi` short name
+    /// -> its `.fs` `(# … #)` repr for the compiling target) — the mirror of
+    /// `IntrinsicReverseCanon`. Codegen reads it to resolve a primitive's IL/JS
+    /// representation from the single `.fs` source: a bare canon like `"int"` is the
+    /// open-resolved identity codegen carries (opens are a name-resolution concern,
+    /// already discharged), and `TryLookupType` can't serve it because intrinsics are
+    /// keyed there by qualified compiled name. The intrinsic-carrying providers
+    /// (`ExtractCtx.toProvider`) and their composite build a real map; metadata /
+    /// JS-native / test providers return `Map.empty`.
+    abstract IntrinsicForwardRepr: Map<string, string>
+
 /// The open signature of an external module-level function as the codegen
 /// boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as
@@ -670,6 +681,11 @@ type ICodegenSymbols =
     /// provider never sees — the caller falls back to its hard error). The data-form
     /// replacement for `TryLookup` + `Inline.openMethodSignature` at the codegen boundary.
     abstract TryLookupOpenSignature: name: string -> CodegenOpenSignature voption
+    /// The forward intrinsic axis `{ canon -> platform-repr }` (see
+    /// `IExternalSymbolProvider.IntrinsicForwardRepr`): codegen resolves a primitive
+    /// canon name (`"int"`) to its `.fs`-declared repr (`"System.Int32"`) here, the
+    /// single source replacing the hard-coded `IntrinsicRepr.defaults`.
+    abstract IntrinsicForwardRepr: Map<string, string>
 
 module ExternalSymbols =
 
@@ -985,6 +1001,7 @@ module ExternalSymbols =
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
+            member _.IntrinsicForwardRepr = Map.empty
         }
 
     /// The single provider-shim primitive: first-hit-wins composition over
@@ -1010,6 +1027,12 @@ module ExternalSymbols =
         let reverseCanon =
             (Map.empty, Array.rev sources)
             ||> Array.fold (fun acc s -> (acc, s.IntrinsicReverseCanon) ||> Map.fold (fun m k v -> Map.add k v m))
+
+        // Merge the sources' forward `{ canon -> platform-repr }` maps (mirror of
+        // `reverseCanon`); first-source-wins on a canon collision, same `Array.rev` fold.
+        let forwardRepr =
+            (Map.empty, Array.rev sources)
+            ||> Array.fold (fun acc s -> (acc, s.IntrinsicForwardRepr) ||> Map.fold (fun m k v -> Map.add k v m))
 
         // First-hit-wins fall-through shared by every singular (`voption`) lookup
         // below: scan `sources` in priority order, stop at the first `ValueSome`.
@@ -1130,6 +1153,7 @@ module ExternalSymbols =
                 firstHit (fun s -> s.TryLookupInlineBodyByName name)
 
             member _.IntrinsicReverseCanon = reverseCanon
+            member _.IntrinsicForwardRepr = forwardRepr
         }
 
     /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude
