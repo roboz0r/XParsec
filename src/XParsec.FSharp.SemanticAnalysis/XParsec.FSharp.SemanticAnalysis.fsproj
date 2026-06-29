@@ -30,6 +30,7 @@
     <Compile Include="VesperLib\TypeTranslate.fs" />
     <Compile Include="VesperLib.fs" />
     <Compile Include="ReferencedProject.fs" />
+    <Compile Include="ConformancePass.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="Inline.fs" />
     <Compile Include="Passes\Attributes.fs" />
