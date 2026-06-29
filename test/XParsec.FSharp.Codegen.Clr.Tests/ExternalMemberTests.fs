@@ -32,7 +32,7 @@ let tests =
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
                 // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
                 // metadata leaf canonicalizes `GetHashCode`'s `System.Int32` return through.
-                let provider = SymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let tast =
                     analyseWith
@@ -103,7 +103,7 @@ let tests =
                 // The node's interned key must equal what the provider resolves the
                 // member to directly — Freeze stamps the resolver's verdict, it does
                 // not re-derive a key.
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
 
                 let expected =
                     match provider.TryLookupMember(eqComparer, "GetHashCode") with
@@ -130,7 +130,7 @@ let tests =
             test "short name under `open` type-checks + freezes carrying its key" {
                 // Vesper.Core supplies the primitive relationship the metadata leaf
                 // canonicalizes `GetHashCode`'s `System.Int32` return through.
-                let provider = SymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let tast =
                     analyseWith
@@ -180,7 +180,7 @@ let tests =
             }
 
             test "short-name key equals the fully-qualified form's resolved key" {
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
 
                 let expected =
                     match provider.TryLookupMember(eqComparer, "GetHashCode") with
@@ -242,7 +242,7 @@ let tests =
             // so the annotated type is the same external `TyClass` the receiver carries
             // and the two unify.
             test "a type annotation resolves an external type — short form unifies with the receiver" {
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
 
                 // The annotation `EqualityComparer<int>` must unify with the resolved
                 // `Default` receiver type. Before the fix the single-segment annotation
@@ -258,7 +258,7 @@ let tests =
             }
 
             test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
 
                 // Before the fix a multi-segment annotation fell to a fresh `TyVar`,
                 // which unifies silently with `5 : int` (no error). Now it resolves to
@@ -343,7 +343,7 @@ let tests =
             // `tryExternalStaticLongIdent` recovers the type-prefix / static-member
             // split, types it, and freezes a keyed `TExpr.ExternalMember`.
             test "non-generic external static property resolves + freezes carrying its key" {
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
                 let tast = analyseWith provider "let w = System.Console.Out"
 
                 Expect.isEmpty (errors tast) "System.Console.Out resolves through the metadata provider"
@@ -370,7 +370,7 @@ let tests =
             }
 
             test "the short form under `open` resolves the same non-generic static member" {
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
                 let tast = analyseWith provider "open System\nlet w = Console.Out"
 
                 Expect.isEmpty (errors tast) "Console.Out resolves under `open System`"
@@ -406,7 +406,7 @@ let tests =
             // without a spurious "no accessible member" error — it's valid F#, just
             // unsupported.
             test "a non-member tail on a resolved external type does not error" {
-                let provider = SymbolProviders.build []
+                let provider = ClrSymbolProviders.build []
                 let tast = analyseWith provider "let p = System.Math.PI"
                 Expect.isEmpty (errors tast) "System.Math.PI (a field) falls through silently, no false error"
             }

@@ -134,11 +134,19 @@
           "XParsec": "[1.0.0, )"
         }
       },
-      "xparsec.fsharp.codegen.common": {
+      "xparsec.fsharp.codegen.clr": {
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
           "System.Reflection.MetadataLoadContext": "[8.0.0, )",
+          "XParsec.FSharp.Codegen.Common": "[1.0.0, )",
+          "XParsec.FSharp.SemanticAnalysis": "[1.0.0, )"
+        }
+      },
+      "xparsec.fsharp.codegen.common": {
+        "type": "Project",
+        "dependencies": {
+          "FSharp.Core": "[8.0.300, )",
           "XParsec.FSharp.SemanticAnalysis": "[1.0.0, )"
         }
       },

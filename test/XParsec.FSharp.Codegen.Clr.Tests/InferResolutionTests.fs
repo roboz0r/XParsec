@@ -22,7 +22,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   * external instance-method chains off a freshly-constructed receiver
 
 let private errorsOf (src: string) : Diagnostic list =
-    let provider = SymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
@@ -36,7 +36,7 @@ let private clean (label: string) (src: string) : unit =
 /// a precise grounding (not just "no errors": an over-generalised `int -> 'b ->
 /// int` is error-free yet wrong).
 let private lastLetTy (src: string) : SemType =
-    let provider = SymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
 

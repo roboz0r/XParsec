@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Wiring + contract-as-provider demotion: the `SymbolProviders.build` composite stack is the single declaration
+// Wiring + contract-as-provider demotion: the `ClrSymbolProviders.build` composite stack is the single declaration
 // threaded through both phases. The demotion is now TOTAL — `MockBuiltins` is gone
 // from the stack entirely (no `List.fold` backstop). Operators / `hash` / `failwith`
 // / printf / `List.fold` all resolve from the `Vesper.*` `.fsi` contracts. These
@@ -23,7 +23,7 @@ let tests =
                 // The demoted stack is `composite [ MetadataSymbols ]` — the metadata
                 // layer (P2) resolves no values, and there is no longer any mock
                 // backstop, so an empty manifest set resolves nothing.
-                let empty = SymbolProviders.build []
+                let empty = ClrSymbolProviders.build []
 
                 Expect.isTrue
                     (empty.TryLookup "List.fold" |> ValueOption.isNone)
@@ -39,7 +39,7 @@ let tests =
                 // source-qualified name (`List.fold`, not the compiled
                 // `ListModule.fold`) — the ModuleSuffix source-name alias
                 // (`VesperLib.extractValSig`) the front end probes through the ambient.
-                let contract = SymbolProviders.build [ vesperListManifest; vesperCoreManifest ]
+                let contract = ClrSymbolProviders.build [ vesperListManifest; vesperCoreManifest ]
 
                 match contract.TryLookup "Vesper.Collections.List.fold" with
                 | ValueSome _ -> ()
@@ -47,7 +47,7 @@ let tests =
             }
 
             test "the Vesper.Core manifest layer adds type + operator resolution from the contract" {
-                let provider = SymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 // Layer 1 (manifest) contributes the `int` type. Short-name
                 // resolution moved out of the provider into the ambient open scope

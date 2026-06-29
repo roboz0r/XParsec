@@ -4,6 +4,11 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Layer-2 BCL metadata reader (System.Reflection.MetadataLoadContext) and the
+         CLR-side BCL-defaulting provider conveniences over the target-generic
+         `Codegen.Common.SymbolProviders`. .NET-specific, so they live here, not in Common. -->
+    <Compile Include="MetadataSymbols.fs" />
+    <Compile Include="ClrSymbolProviders.fs" />
     <Compile Include="ProjectInfo.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Cil.fs" />
@@ -47,11 +52,15 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
-    <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr`, `MetadataSymbols`
-         (layer-2 BCL metadata reader), and the target-generic `SymbolProviders`. -->
+    <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr` and the
+         target-generic `SymbolProviders` (the BCL metadata leaf `MetadataSymbols`
+         is .NET-specific and lives here in Codegen.Clr). -->
     <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
+    <!-- Layer 2 of the symbol-resolution stack: read referenced assemblies'
+         metadata reflection-only (MetadataSymbols.fs). -->
+    <PackageReference Include="System.Reflection.MetadataLoadContext" />
   </ItemGroup>
 </Project>

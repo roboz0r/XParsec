@@ -17,7 +17,7 @@ let private dummyTok: SyntaxToken =
 /// build, rather than a codegen-local table. `buildContract` caches, so this is built
 /// once across the suite.
 let private coreProvider: Lazy<IExternalSymbolProvider> =
-    lazy SymbolProviders.buildContract [ vesperCoreManifest ]
+    lazy ClrSymbolProviders.buildContract [ vesperCoreManifest ]
 
 // The reified IL-buffer's own unit suite (XParsec.FSharp.Codegen.Clr.IlIr). The two
 // demonstrators below stand in for the two real producers — `buildExpr` for the

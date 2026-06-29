@@ -628,7 +628,7 @@ let structTests =
                     "namespace Vesper\n\ntype Point =\n    struct\n        val X: int\n        val Y: int\n    end\n"
                 )
 
-                let provider = SymbolProviders.buildContract [ vesperCoreManifest; manifestPath ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest; manifestPath ]
 
                 // Identity function forces `Point` into the emitted signature (return + param).
                 let src =

@@ -508,11 +508,11 @@ type internal ClrEnv
     /// Resolve a Vesper primitive canon name to its IL representation string,
     /// single-sourced from the `.fs` `(# … #)`: (1) this unit's OWN intrinsics (`reprs`
     /// — the `.fs` being compiled), then (2) the provider's harvested forward
-    /// `{ canon -> platform }` map (the dependency closure). No hard-coded fallback:
-    /// `IntrinsicRepr.defaults` is gone from this path. The bare canon (`"int"`) is the
-    /// open-resolved identity codegen carries — opens are a name-resolution concern,
-    /// already discharged — so a flat canon→repr lookup is the correct codegen
-    /// mechanism (NOT `TryLookupType`, which is keyed by qualified compiled name).
+    /// `{ canon -> platform }` map (the dependency closure). No hard-coded fallback.
+    /// The bare canon (`"int"`) is the open-resolved identity codegen carries — opens
+    /// are a name-resolution concern, already discharged — so a flat canon→repr lookup
+    /// is the correct codegen mechanism (NOT `TryLookupType`, which is keyed by
+    /// qualified compiled name).
     member _.TryPrimitiveRepr(name: string) : string option =
         match reprs.TryFind name with
         | Some _ as hit -> hit

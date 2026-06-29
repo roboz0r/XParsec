@@ -34,8 +34,8 @@ type internal ClrEncoder(env: ClrEnv) =
     let eFSharpList1 = env.EFSharpList1
     let eFSharpFunc2 = env.EFSharpFunc2
 
-    /// Single-sourced primitive repr (own intrinsics → provider-harvested `.fs` →
-    /// bootstrap), as an active pattern over an `FTConst` name. See
+    /// Single-sourced primitive repr (own intrinsics → provider-harvested `.fs`, no
+    /// fallback), as an active pattern over an `FTConst` name. See
     /// `ClrEnv.TryPrimitiveRepr`.
     let (|PrimitiveRepr|_|) (name: string) = env.TryPrimitiveRepr name
 

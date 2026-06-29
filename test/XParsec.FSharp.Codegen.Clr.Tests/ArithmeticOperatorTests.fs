@@ -69,7 +69,7 @@ let tests =
 
              // ---- Layer 2/3: milestone + structural anchors (keep) -----------
              test "arithmetic + unary-neg bindings freeze from Vesper.Core and are collected as cross-package inlines" {
-                 let inlines = SymbolProviders.contractInlineBodies defaultManifests
+                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
                  for name in [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
                      Expect.isTrue (Map.containsKey name inlines) (sprintf "%s body sourced from ops-platform.fs" name)

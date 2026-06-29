@@ -113,7 +113,7 @@ let forInTests =
                             "        ()"
                         ]
 
-                let provider = SymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultManifests
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider src lexed file
 
@@ -237,7 +237,7 @@ let forInTests =
                             "        printfn \"%d\" x"
                         ]
 
-                let provider = SymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultManifests
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider src lexed file
 
@@ -481,7 +481,7 @@ let forInTests =
                             "        printfn \"%d\" x"
                         ]
 
-                let provider = SymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultManifests
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider src lexed file
 

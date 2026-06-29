@@ -3,7 +3,13 @@ module XParsec.FSharp.Codegen.Js.Tests.OpsPlatformJsTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+
+// JS-TARGET layer-1 harvest, built through the JS-native contract (`JsNativeSymbols`)
+// — the leaf a real JS build uses, with no dependency on the CLR backend. The
+// CROSS-target contrasts (a JS template absent on CLR; the CLR BCL repr) need the BCL
+// metadata leaf and live in `Codegen.Clr.Tests.OpsPlatformClrTests`.
 
 /// All `ILIntrinsic` opCode (template) strings reachable in an inline body.
 let private ilOpCodes (body: InlineBody) : string list =
@@ -35,26 +41,9 @@ let tests =
     testList
         "OpsPlatformJs"
         [
-            test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
-                let js =
-                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
-
-                let clr = SymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ]
-
-                let jsMul = ilOpCodes js.["op_Multiply"]
-                let clrMul = ilOpCodes clr.["op_Multiply"]
-
-                Expect.contains jsMul "Math.imul($0, $1)" "js `*` int32 clause is the Math.imul template"
-                Expect.contains clrMul "mul" "clr `*` base is the CIL `mul` mnemonic"
-
-                Expect.isFalse
-                    (clrMul |> List.exists (fun s -> s.Contains "Math.imul"))
-                    "the CLR collection of the same manifest does NOT pick up the JS template"
-            }
-
             test "arithmetic operator bodies are collected as cross-package inlines (js target)" {
                 let js =
-                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                    JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
                 for name in
                     [
@@ -70,13 +59,18 @@ let tests =
 
             test "the int32 / int64 / float clauses freeze with their JS templates intact" {
                 let js =
-                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                    JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let add = ilOpCodes js.["op_Addition"]
 
                 Expect.contains add "$0 + $1" "float base template"
                 Expect.contains add "($0 + $1) | 0" "int32 `| 0` truncation clause"
                 Expect.contains add "BigInt.asIntN(64, $0 + $1)" "int64 BigInt-wrap clause"
+
+                // The Math.imul int32 multiply clause is the JS template (contrasted
+                // against the CLR `mul` mnemonic in `OpsPlatformClrTests`).
+                let mul = ilOpCodes js.["op_Multiply"]
+                Expect.contains mul "Math.imul($0, $1)" "js `*` int32 clause is the Math.imul template"
 
                 // Unary negation is a static-opt with base + int + int64 clauses.
                 let neg = ilOpCodes js.["op_UnaryNegation"]
@@ -91,7 +85,7 @@ let tests =
 
             test "equality operators freeze with `===` primitive clauses + structural-call base" {
                 let js =
-                    SymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                    JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
                 // The aggregate base is a CALL to `structuralEquals`, not an IL template;
                 // `ilOpCodes` sees the `===` clauses but no `equals(` opcode.
@@ -114,7 +108,8 @@ let tests =
             test "JS numeric reprs: canon identities stay distinct while both platform-project to `number`" {
                 // `int` and `float` must keep distinct canon faces; a shared repr would conflate %d/%f
                 // and integer division.
-                let js = SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+                let js =
+                    JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let facesOf name =
                     match js.TryLookupType name with
@@ -136,20 +131,10 @@ let tests =
                 Expect.notEqual intCanon intPlat "the two faces genuinely diverge on JS (identity ≠ runtime repr)"
             }
 
-            test "CLR target: canon is the `.fsi` name, platform is the BCL repr" {
-                let clr = SymbolProviders.buildContractFor None [ vesperCoreManifest ]
-
-                match clr.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
-                    Expect.equal canon "int" "int canon on CLR is the `.fsi` name"
-                    Expect.equal platform "System.Int32" "int platform face on CLR is the BCL repr"
-                    Expect.notEqual canon platform "the two faces diverge on CLR too (identity ≠ runtime repr)"
-                | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
-            }
-
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
                 // `number` loses precision past 53 bits, so int64/uint64 must use `bigint`.
-                let js = SymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+                let js =
+                    JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let facesOf name =
                     match js.TryLookupType name with

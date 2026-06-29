@@ -532,7 +532,7 @@ let tests =
                 // primitive reprs (the codegen `defaults` bootstrap that used to supply
                 // `int` here is gone in T8 1.5). `% A` still lowers to the FSharp.Core cold
                 // path: that is a `PrintfSpec` decision, independent of the resolution provider.
-                let provider = SymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultManifests
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`
                 // registration (asm-discrimination).

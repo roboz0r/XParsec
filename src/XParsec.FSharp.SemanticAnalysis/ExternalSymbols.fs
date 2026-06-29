@@ -614,8 +614,9 @@ type IExternalSymbolProvider =
 
     /// The FORWARD intrinsic axis `{ canon -> platform-repr }` (the `.fsi` short name
     /// -> its `.fs` `(# … #)` repr for the compiling target) — the mirror of
-    /// `IntrinsicReverseCanon`. Codegen reads it to resolve a primitive's IL/JS
-    /// representation from the single `.fs` source: a bare canon like `"int"` is the
+    /// `IntrinsicReverseCanon`. The CLR backend reads it to resolve a primitive's IL
+    /// representation from the single `.fs` source (the JS backend resolves reprs by its
+    /// own path and leaves this `Map.empty`): a bare canon like `"int"` is the
     /// open-resolved identity codegen carries (opens are a name-resolution concern,
     /// already discharged), and `TryLookupType` can't serve it because intrinsics are
     /// keyed there by qualified compiled name. The intrinsic-carrying providers
@@ -683,8 +684,8 @@ type ICodegenSymbols =
     abstract TryLookupOpenSignature: name: string -> CodegenOpenSignature voption
     /// The forward intrinsic axis `{ canon -> platform-repr }` (see
     /// `IExternalSymbolProvider.IntrinsicForwardRepr`): codegen resolves a primitive
-    /// canon name (`"int"`) to its `.fs`-declared repr (`"System.Int32"`) here, the
-    /// single source replacing the hard-coded `IntrinsicRepr.defaults`.
+    /// canon name (`"int"`) to its `.fs`-declared repr (`"System.Int32"`) here — the
+    /// single source of a primitive's representation.
     abstract IntrinsicForwardRepr: Map<string, string>
 
 module ExternalSymbols =
@@ -1004,6 +1005,28 @@ module ExternalSymbols =
             member _.IntrinsicForwardRepr = Map.empty
         }
 
+    /// Fold each source's intrinsic `{ k -> v }` map (selected by `project`) into one.
+    /// First-source-wins on a key collision, matching the singular lookups' first-hit
+    /// shadowing order (`Array.rev` so the earliest source's entries are added last).
+    /// The single definition shared by `stack` (both intrinsic axes) and the backend
+    /// leaf-seeding in `Codegen.Common`, so those sites can't drift on precedence.
+    let private mergeIntrinsicMaps
+        (project: IExternalSymbolProvider -> Map<string, string>)
+        (sources: IExternalSymbolProvider seq)
+        : Map<string, string> =
+        let arr = Seq.toArray sources
+
+        (Map.empty, Array.rev arr)
+        ||> Array.fold (fun acc s -> (acc, project s) ||> Map.fold (fun m k v -> Map.add k v m))
+
+    /// Merge sources' reverse `{ platform-repr -> canon }` maps (first-source-wins).
+    let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, string> =
+        mergeIntrinsicMaps (fun s -> s.IntrinsicReverseCanon) sources
+
+    /// Merge sources' forward `{ canon -> platform-repr }` maps (first-source-wins).
+    let mergeForwardRepr (sources: IExternalSymbolProvider seq) : Map<string, string> =
+        mergeIntrinsicMaps (fun s -> s.IntrinsicForwardRepr) sources
+
     /// The single provider-shim primitive: first-hit-wins composition over
     /// `sources`, surfacing `ambient` via `AmbientOpenPrefixes`, optionally
     /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
@@ -1021,18 +1044,12 @@ module ExternalSymbols =
         // traversal, on a provider hit from many parallel PassContexts.
         let sources = List.toArray sources
 
-        // Merge the sources' reverse `{ platform -> canon }` maps (intrinsic-carrying
-        // sources only; the rest contribute the empty map). First-source-wins on a
-        // platform-repr collision, matching the forward lookups' shadowing order.
-        let reverseCanon =
-            (Map.empty, Array.rev sources)
-            ||> Array.fold (fun acc s -> (acc, s.IntrinsicReverseCanon) ||> Map.fold (fun m k v -> Map.add k v m))
-
-        // Merge the sources' forward `{ canon -> platform-repr }` maps (mirror of
-        // `reverseCanon`); first-source-wins on a canon collision, same `Array.rev` fold.
-        let forwardRepr =
-            (Map.empty, Array.rev sources)
-            ||> Array.fold (fun acc s -> (acc, s.IntrinsicForwardRepr) ||> Map.fold (fun m k v -> Map.add k v m))
+        // Merge the sources' reverse `{ platform -> canon }` and forward
+        // `{ canon -> platform-repr }` intrinsic maps (intrinsic-carrying sources only;
+        // the rest contribute the empty map). First-source-wins, matching the singular
+        // lookups' shadowing order.
+        let reverseCanon = mergeReverseCanon sources
+        let forwardRepr = mergeForwardRepr sources
 
         // First-hit-wins fall-through shared by every singular (`voption`) lookup
         // below: scan `sources` in priority order, stop at the first `ValueSome`.

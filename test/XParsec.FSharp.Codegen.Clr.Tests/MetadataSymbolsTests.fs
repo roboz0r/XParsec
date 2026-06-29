@@ -3,14 +3,13 @@ module XParsec.FSharp.Codegen.Clr.Tests.MetadataSymbolsTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
-open XParsec.FSharp.Codegen.Common
 
 // The metadata leaf canonicalizes BCL primitives (`System.Int32 → int`) through the
 // harvested `{ platform → canon }` reverse map — the reverse face of Vesper.Core's
 // `type int = (# "System.Int32" #)`. Seed the test leaf with the REAL harvested map
 // (not a static table) so `String.Length`/`List.get_Item` present `int`, etc.
 let private reverseCanon =
-    (SymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicReverseCanon
+    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicReverseCanon
 
 let private provider =
     MetadataSymbols.createWith reverseCanon (MetadataSymbols.runtimeAssemblyPaths ())

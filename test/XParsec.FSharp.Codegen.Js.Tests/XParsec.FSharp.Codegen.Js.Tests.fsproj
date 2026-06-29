@@ -48,10 +48,10 @@
     <!-- The free-fn-overload erase test (Tier 2 item 9b) builds a synthetic provider
          from an in-memory TS manifest via `Vesper.Ts.Manifest.Codec`/`Schema`. -->
     <ProjectReference Include="..\..\src\Vesper.Ts.Manifest.Schema\Vesper.Ts.Manifest.Schema.fsproj" />
-    <!-- The F1 inline-body tests resolve through the shared, target-generic
-         `Codegen.Common.SymbolProviders.contractInlineBodiesFor`, which selects
-         `ops-platform.js.fs` via `ReferencedProject.resolveInlineBodies (Some Target.Js)`.
-         No dependency on the CLR backend. -->
+    <!-- The OpsPlatformJs tests build the JS-TARGET layer-1 harvest through the
+         JS-native contract (`Codegen.Js.JsNativeSymbols`), so no dependency on the CLR
+         backend is needed. The cross-target / CLR-repr contrasts (which need the BCL
+         metadata leaf) live in `Codegen.Clr.Tests.OpsPlatformClrTests` instead. -->
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
   </ItemGroup>
 </Project>

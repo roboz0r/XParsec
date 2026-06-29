@@ -103,7 +103,7 @@ let private producerDll: Lazy<string> =
                  References = [ vesperCoreDll.Value ]
              }
 
-         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile producerFs
          let tast = Pipeline.analyseFor project.AssemblyName provider producerFs lexed file
 
@@ -124,7 +124,7 @@ let private runConsumer (expected: string list) (src: string) : unit =
     let dll = producerDll.Value
 
     let provider =
-        SymbolProviders.buildContract (defaultManifests @ [ producerManifestPath ])
+        ClrSymbolProviders.buildContract (defaultManifests @ [ producerManifestPath ])
 
     let baseProject = withCore (ProjectInfo.defaults "EscapeConsumer")
 

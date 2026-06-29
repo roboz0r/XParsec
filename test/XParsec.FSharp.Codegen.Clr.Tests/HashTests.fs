@@ -11,7 +11,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // `Emit.isHash` codegen stopgap (milestone M).
 //
 // `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
-// loaded as a cross-package inline body (`SymbolProviders.inlineBodies`) and
+// loaded as a cross-package inline body (`ClrSymbolProviders.inlineBodies`) and
 // spliced at each `hash` use site by the pre-freeze `Passes.InlineExpansion` pass
 // reached through the provider's `IInlineBodyProvider`
 // channel. So `hash 5` freezes to the two `ExternalMember` nodes
@@ -35,8 +35,8 @@ let tests =
                 // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
                 // `'T` pinned to `int`, the `External("hash")` head gone — already in
                 // the frozen `tast.Decls`, before codegen runs.
-                let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
-                let inlines = SymbolProviders.contractInlineBodies [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
+                let inlines = ClrSymbolProviders.contractInlineBodies [ vesperCoreManifest ]
                 Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.fs"
 
                 let lexed, file = parseFile "let v = hash 5"

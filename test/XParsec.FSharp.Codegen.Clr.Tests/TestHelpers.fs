@@ -172,7 +172,7 @@ let vesperListDll: Lazy<string> =
          // contract — `MockBuiltins` alone leaves the call head un-inlined.
          // Self-manifest (`Vesper.List`'s own) is excluded; the package is
          // *defining* its types here.
-         let provider = SymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
          let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
          let artifact = Codegen.compile provider project tast
@@ -194,7 +194,7 @@ let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
 let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
 /// The default contract stack the demoted compile path resolves through
-/// `MockBuiltins` stays the lowest-priority backstop inside `SymbolProviders.build`
+/// `MockBuiltins` stays the lowest-priority backstop inside `ClrSymbolProviders.build`
 /// for anything the contract does not yet own (operators still *emit* via
 /// `Emit.BuiltinOps` regardless — emission is resolution-source-agnostic).
 ///
@@ -266,7 +266,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
                  let depManifests = manifest.DependsOn |> List.map srcManifest
 
-                 let provider = SymbolProviders.buildContract depManifests
+                 let provider = ClrSymbolProviders.buildContract depManifests
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 
@@ -386,7 +386,7 @@ let withCore (project: ProjectInfo) : ProjectInfo =
     }
 
 /// Build the symbol-resolution stack + its cross-package inline bodies once
-/// (cached per manifest set by `SymbolProviders.buildContract`) and run *both*
+/// (cached per manifest set by `ClrSymbolProviders.buildContract`) and run *both*
 /// phases against it: a use-site
 /// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
 /// `ops-platform.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (via the
@@ -398,7 +398,7 @@ let private compileContract
     (project: ProjectInfo)
     (input: string)
     : TastFile * ClrArtifact =
-    let provider = SymbolProviders.buildContract manifestPaths
+    let provider = ClrSymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
     // Callers assert on the returned `SemType` tast, but the real
     // `analyse` output is frozen — return the SemType tree, compile the frozen one.
@@ -423,7 +423,7 @@ let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifac
 /// disagree on the list representation, but a real self-host package resolves both
 /// to the Vesper list consistently.
 let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
-    let provider = SymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultManifests
     let project = ProjectInfo.defaults assemblyName
     let lexed, file = parseFile input
 
@@ -775,7 +775,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let depDlls =
         deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
 
-    let provider = SymbolProviders.buildContract (deps |> List.map srcManifest)
+    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcManifest)
 
     let outDir = tmpDir (sprintf "engine-%s" asmName)
     let outPath = IO.Path.Combine(outDir, asmName + ".dll")
@@ -940,7 +940,8 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let depDlls =
         allPackages |> List.choose (fun p -> ((buildPackage p).Value |> snd).OutputPath)
 
-    let provider = SymbolProviders.buildContract (allPackages |> List.map srcManifest)
+    let provider =
+        ClrSymbolProviders.buildContract (allPackages |> List.map srcManifest)
 
     let n = System.Threading.Interlocked.Increment driverCounter
 
@@ -1025,7 +1026,8 @@ let runsPackagesLines (packages: string list) (expected: string list) (src: stri
 let private analysePackagesErrors (packages: string list) (src: string) : Diagnostic list =
     let allPackages = transitivePackages (defaultPackageNames @ packages)
 
-    let provider = SymbolProviders.buildContract (allPackages |> List.map srcManifest)
+    let provider =
+        ClrSymbolProviders.buildContract (allPackages |> List.map srcManifest)
 
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
@@ -1069,7 +1071,7 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 /// `Pipeline.analyse` collects diagnostics rather than throwing, so both
 /// `failsWith` and `typeChecks` read off the returned `TastFile.Diagnostics`.
 let private analyseErrors (src: string) : Diagnostic list =
-    let provider = SymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)

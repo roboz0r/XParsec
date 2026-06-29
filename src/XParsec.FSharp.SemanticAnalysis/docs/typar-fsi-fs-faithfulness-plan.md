@@ -298,6 +298,16 @@ The reverse-canon plumbing forced a deeper, correct restructuring of the BCL pro
 (agreed 2026-06-28). The .NET metadata provider is .NET-specific and per-compilation;
 nothing in this is target-generic.
 
+STATUS (see sequencing 1.5 for the authoritative per-substep state): the physical move
++ leaf-agnostic Common + reverse-map seeding all LANDED (1.5 a/b/c-partial/d). The one
+piece still open is the last bullet below — **per-compilation leaf paths**: `bclMetaTail`
+still builds the leaf from the compiler host's TPA (`MetadataSymbols.runtimeAssemblyPaths
+()`), not from the compilation's own reference set. It needs (1) a path-taking
+`bclMetaTail`/convenience variant, (2) a way to source the target TFM's reference-pack +
+referenced assemblies (today `ProjectInfo.References` carries only `Vesper.*` + optional
+FSharp.Core, NOT the BCL ref pack), and (3) a real production CLR driver consumer (none
+calls `buildContract` yet). That is a separate design step, not a mechanical follow-on.
+
 Target architecture:
 
 - **`MetadataSymbols` moves `Codegen.Common` → `Codegen.Clr`.** A `System.Reflection`-
@@ -367,11 +377,23 @@ suspect and resolved as part of this). No production CLR driver calls these yet.
          `MetaTailFactory` (`Map<platform,canon> -> provider list`), threaded into BOTH
          the per-package `depComposite` and the final composite. The hardcoded
          `MetadataSymbols.provider` at `:50` is gone.
-      b. TODO (the physical move). Move `MetadataSymbols.fs` `Codegen.Common` →
-         `Codegen.Clr`; move the BCL-defaulting `buildContract*` conveniences to a
-         CLR-side module; relocate the host-TPA `provider` singleton to
-         `Codegen.Clr.Tests`. Update call sites (~60, mostly tests). Resolve the
-         Js.Tests `buildContract` uses.
+      b. DONE (the physical move). `MetadataSymbols.fs` moved `Codegen.Common` →
+         `Codegen.Clr` (namespace + `System.Reflection.MetadataLoadContext` package ref
+         followed it). `Codegen.Common.SymbolProviders` is now leaf-agnostic: it names no
+         concrete leaf, exposing the metaTail-parameterized `buildWith` /
+         `buildContractWith` (+ the existing `buildContractWithMetadata` injection seam).
+         The BCL-defaulting conveniences (`build`/`buildContract`/`buildContractFor`/
+         `contractInlineBodies[For]`) moved to the new CLR-side
+         `Codegen.Clr.ClrSymbolProviders`, which supplies `bclMetaTail`. The host-TPA
+         `MetadataSymbols.provider` singleton is NOT relocated to tests after all — it is
+         load-bearing for `bclMetaTail`'s empty-reverse (extraction-composite)
+         optimization, so it stays as Clr production infra (no test referenced it
+         directly). ~50 CLR-test call sites repointed to `ClrSymbolProviders`. The
+         Js.Tests use was resolved by SPLITTING `OpsPlatformJsTests`: the JS-target
+         assertions stay there, now built through `JsNativeSymbols.jsNativeInlineBodiesFor`
+         / `buildJsNativeContractFor` (JS-native leaf, no CLR-backend dependency); the two
+         cross-target / CLR-repr assertions (which need the BCL leaf) moved to the new
+         `Codegen.Clr.Tests.OpsPlatformClrTests`. Suites green (CLR 1064→1066, JS 177→175).
       c. PARTIAL. The leaf is now SEEDED with the harvested `{ platform → canon }` map
          (folded from layer-1 `IntrinsicReverseCanon` in `composeProviders`) and
          `tryBuildType` canonicalizes through it — but only SEALED BCL types

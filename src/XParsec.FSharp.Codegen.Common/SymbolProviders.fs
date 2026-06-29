@@ -17,24 +17,6 @@ module SymbolProviders =
     /// `buildContractWithMetadata`.
     type MetaTailFactory = Map<string, string> -> IExternalSymbolProvider list
 
-    /// Fold a provider list's `{ platform → canon }` reverse maps; later wins (matches
-    /// `ExternalSymbols.composite`'s fold).
-    let private foldReverseCanon (providers: IExternalSymbolProvider list) : Map<string, string> =
-        (Map.empty, providers)
-        ||> List.fold (fun acc p -> (acc, p.IntrinsicReverseCanon) ||> Map.fold (fun m k v -> Map.add k v m))
-
-    /// BCL reflection over the host runtime. The empty-reverse case (extraction-time
-    /// `depComposite`, which never canonicalizes primitives) reuses the shared singleton;
-    /// only the seeded final-composite leaf is freshly built.
-    let private bclMetaTail: MetaTailFactory =
-        fun reverseCanon ->
-            if reverseCanon.IsEmpty then
-                [ MetadataSymbols.provider ]
-            else
-                [
-                    MetadataSymbols.createWith reverseCanon (MetadataSymbols.runtimeAssemblyPaths ())
-                ]
-
     /// Dependency-ordered manifests and each package's transitive `depends-on` closure.
     /// A cycle or missing dependency is a hard error.
     let private orderedManifestsWithDeps (manifestPaths: string list) : string list * (string -> string list) =
@@ -72,11 +54,12 @@ module SymbolProviders =
 
             // The per-package extraction leaf is the SAME injected `metaTail` factory as
             // the final composite — Common never names a concrete provider. Seeded with
-            // the reverse map of the deps built so far (extraction does not canonicalize
-            // primitives, so this is the cheap empty-reverse case in practice). (Before,
-            // this hardcoded the BCL leaf even on a JS build.)
+            // the reverse map of the deps built so far so a dependency's BCL member sigs
+            // canonicalize during extraction; the CLR factory memoises by reverse-map
+            // content, so the repeated Vesper.Core reverse map costs one leaf, not one
+            // per package. (Before, this hardcoded the BCL leaf even on a JS build.)
             let depComposite =
-                ExternalSymbols.composite (depProviders @ metaTail (foldReverseCanon depProviders))
+                ExternalSymbols.composite (depProviders @ metaTail (ExternalSymbols.mergeReverseCanon depProviders))
 
             let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
@@ -97,11 +80,15 @@ module SymbolProviders =
         // The final composite's leaf IS seeded with the full harvested reverse map, so a
         // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
-        ExternalSymbols.composite (builtList @ metaTail (foldReverseCanon builtList))
+        ExternalSymbols.composite (builtList @ metaTail (ExternalSymbols.mergeReverseCanon builtList))
 
-    let build (manifestPaths: string list) : IExternalSymbolProvider =
+    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf
+    /// FACTORY. Common names no concrete leaf — the CLR backend injects its BCL
+    /// `MetadataSymbols` tail (`ClrSymbolProviders.bclMetaTail`), the JS backend its
+    /// JS-native tail. Uncached.
+    let buildWith (metaTail: MetaTailFactory) (manifestPaths: string list) : IExternalSymbolProvider =
         let ordered, transitiveDeps = orderedManifestsWithDeps manifestPaths
-        composeProviders bclMetaTail None ordered transitiveDeps
+        composeProviders metaTail None ordered transitiveDeps
 
     /// Cross-package `let inline` bodies keyed by source name. Collected once here,
     /// frozen against the same provider stack the consumer uses.
@@ -287,19 +274,22 @@ module SymbolProviders =
             )
             .Value
 
-    /// Provider stack for a manifest set, including cross-package inline bodies.
-    let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
-        buildContractCached "bcl" bclMetaTail None manifestPaths |> fst
+    /// Cached provider stack + raw inline-body map for a manifest set, over a
+    /// caller-supplied layer-2 leaf FACTORY. The seam every backend's convenience
+    /// layer wraps with its concrete leaf (`ClrSymbolProviders` injects BCL metadata,
+    /// the JS backend its JS-native tail). `cacheTag` keeps each backend's collection
+    /// of the same manifest set distinct in `contractCache`.
+    let buildContractWith
+        (cacheTag: string)
+        (metaTail: MetaTailFactory)
+        (target: string option)
+        (manifestPaths: string list)
+        : IExternalSymbolProvider * Map<string, InlineBody> =
+        buildContractCached cacheTag metaTail target manifestPaths
 
-    /// `buildContract` for a specific target (`Some "js"` selects `inline-bodies-js`
-    /// overrides). `None` is identical to `buildContract`.
-    let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
-        buildContractCached "bcl" bclMetaTail target manifestPaths |> fst
-
-    /// `buildContractFor` with a backend-injected layer-2 `metaTail`. `cacheTag`
-    /// prevents the backend's entry from aliasing the `"bcl"` entry. The injected tail
-    /// is reverse-map-independent (a non-CLR backend supplies its own leaf), so it is
-    /// wrapped as a constant factory.
+    /// `buildContractWith` with a backend-injected, reverse-map-independent layer-2
+    /// `metaTail` (a non-CLR backend supplies its own leaf), wrapped as a constant
+    /// factory. `cacheTag` prevents the backend's entry from aliasing another's.
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)
@@ -307,12 +297,3 @@ module SymbolProviders =
         (manifestPaths: string list)
         : IExternalSymbolProvider =
         buildContractCached cacheTag (fun _ -> metaTail) target manifestPaths |> fst
-
-    /// Raw cross-package inline bodies by source name — introspection seam for tests.
-    /// Production code uses the provider's inline-body channel.
-    let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
-        buildContractCached "bcl" bclMetaTail None manifestPaths |> snd
-
-    /// `contractInlineBodies` for a specific target — introspection seam for target tests.
-    let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
-        buildContractCached "bcl" bclMetaTail target manifestPaths |> snd

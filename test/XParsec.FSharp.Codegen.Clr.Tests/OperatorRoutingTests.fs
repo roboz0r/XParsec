@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // The equality family (`=`/`<>`) is sourced from the frozen
 // `Vesper.Core/ops-platform.fs` contract body when compiled through the contract
 // stack: the operator-named binding `let inline (=) …` is collected by
-// `SymbolProviders.inlineBodies` and spliced + static-opt-resolved at each use site
+// `ClrSymbolProviders.inlineBodies` and spliced + static-opt-resolved at each use site
 // by the pre-freeze `Passes.InlineExpansion` pass. The static-opt *base* is
 // `EqualityComparer<^T>.Default.Equals` — a distinct-but-equal aggregate compares
 // structurally, not by reference (see the "DU `=` is structural" test). An unpinned
@@ -139,7 +139,7 @@ let tests =
                 // `ops-platform.fs` freeze and are sourced by the codegen inline-body
                 // loader — so `=`/`<>` emit from the contract `.fs`, not just the
                 // `BuiltinOps` stopgap.
-                let inlines = SymbolProviders.contractInlineBodies defaultManifests
+                let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
                 Expect.isTrue (Map.containsKey "op_Equality" inlines) "op_Equality body sourced from ops-platform.fs"
 

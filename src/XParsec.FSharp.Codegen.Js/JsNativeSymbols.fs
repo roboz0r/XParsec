@@ -240,9 +240,25 @@ module JsNativeSymbols =
             member _.IntrinsicForwardRepr = Map.empty
         }
 
-    /// `buildContractWithMetadata` with the JS-native metadata tail instead of BCL
-    /// reflection, so `Vesper.Exceptions` contract types resolve through `exn`'s
-    /// `(# "Error" #)` repr without a BCL type colliding on the home-assembly invariant.
-    /// `"jsnative"` keeps the contract-cache entry distinct from the `"bcl"` one.
+    /// The JS-native layer-2 leaf factory: the JS-native tail instead of BCL reflection,
+    /// so `Vesper.Exceptions` contract types resolve through `exn`'s `(# "Error" #)` repr
+    /// without a BCL type colliding on the home-assembly invariant. Reverse-map
+    /// independent (the JS leaf canonicalizes nothing). The single seam both conveniences
+    /// below route through, so they share the `"jsnative"` contract-cache entry.
+    let private jsNativeMetaTail: SymbolProviders.MetaTailFactory =
+        fun _ -> [ provider ]
+
+    /// The JS-native contract provider. `"jsnative"` keeps the contract-cache entry
+    /// distinct from the `"bcl"` one.
     let buildJsNativeContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildContractWithMetadata "jsnative" [ provider ] target manifestPaths
+        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
+        |> fst
+
+    /// The raw cross-package inline-body map for the JS-native contract — introspection
+    /// seam for the `OpsPlatformJs` tests (shares the `"jsnative"` cache entry with
+    /// `buildJsNativeContractFor`). The JS-side counterpart of the (CLR-side)
+    /// `ClrSymbolProviders.contractInlineBodiesFor`. JS-target only: the JS-native leaf
+    /// resolves no BCL types, so it cannot build the CLR (`target = None`) collection.
+    let jsNativeInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
+        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
+        |> snd
