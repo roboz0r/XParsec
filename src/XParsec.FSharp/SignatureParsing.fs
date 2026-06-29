@@ -386,9 +386,16 @@ module TypeSignature =
                     // the opt-in gate lives at the extractor, not the parser.
                     let! ext = pExtern
 
+                    // Optional `class` tag: `type Attribute = extern class` marks a
+                    // HERITABLE external reference base (its repr is harvested from the
+                    // paired `.fs`'s `(# class "…" #)`). Only `class` is taken — a bare
+                    // `interface` would be ambiguous with an `interface …` capability
+                    // member below; the impl-side `(# interface "…" #)` has no such clash.
+                    let! kindTag = opt (pClass |>> ExternKind.Class)
+
                     let! members = TypeExtensionElementsSignature.parseOpt
 
-                    return TypeSignature.Extern(typeName, equals, ext, members)
+                    return TypeSignature.Extern(typeName, equals, ext, kindTag, members)
 
                 | _ when isImplicitClassStart next ->
                     // Implicit anonymous body: no explicit class/struct/begin keyword.

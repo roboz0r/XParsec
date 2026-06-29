@@ -30,6 +30,12 @@ let inline visitTokenOpt (visitor: AstVisitor<'T>) (label: string) (token: 'T vo
     | ValueSome t -> visitor.VisitToken label t
     | ValueNone -> ()
 
+let inline visitExternKindOpt (visitor: AstVisitor<'T>) (kind: ExternKind<'T> voption) : unit =
+    match kind with
+    | ValueSome(ExternKind.Class tok) -> visitor.VisitToken "class" tok
+    | ValueSome(ExternKind.Interface tok) -> visitor.VisitToken "interface" tok
+    | ValueNone -> ()
+
 let walkAccess (visitor: AstVisitor<'T>) (access: Access<'T>) : unit =
     match access with
     | Access.Private t
@@ -700,9 +706,10 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
         visitor.VisitToken "|" bar
         walkType visitor right
         visitor.ExitSection "UnionType"
-    | Type.ILIntrinsic(lHashParen, instrKind, instrParts, instrClose, rHashParen) ->
+    | Type.ILIntrinsic(lHashParen, kindTag, instrKind, instrParts, instrClose, rHashParen) ->
         visitor.EnterSection "ILIntrinsic"
         visitor.VisitToken "(#" lHashParen
+        visitExternKindOpt visitor kindTag
         walkStringKindAndParts visitor instrKind instrParts instrClose
         visitor.VisitToken "#)" rHashParen
         visitor.ExitSection "ILIntrinsic"
@@ -2640,11 +2647,12 @@ and walkTypeSignature (visitor: AstVisitor<'T>) (typeSig: TypeSignature<'T>) : u
         visitor.EnterSection "TypeSig.AbstractType"
         walkTypeName visitor typeName
         visitor.ExitSection "TypeSig.AbstractType"
-    | TypeSignature.Extern(typeName, equals, externTok, members) ->
+    | TypeSignature.Extern(typeName, equals, externTok, kindTag, members) ->
         visitor.EnterSection "TypeSig.Extern"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
         visitor.VisitToken "extern" externTok
+        visitExternKindOpt visitor kindTag
 
         match members with
         | ValueSome elems -> walkTypeExtensionElementsSignature visitor elems

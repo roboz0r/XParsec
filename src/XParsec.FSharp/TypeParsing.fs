@@ -416,12 +416,23 @@ module Type =
                 pNull |>> Type.Null
                 // 'a
                 Typar.parse |>> Type.VarType
-                // (# "iltype" #) — IL intrinsic type
+                // (# "iltype" #) — opaque value repr; (# class "iltype" #) — heritable
+                // external reference base (usable as an `inherit` parent). The optional
+                // `class`/`interface` tag is unambiguous: the hash-paren delimiters bound
+                // it, so it can never be read as a verbose `class … end` body.
                 parser {
                     let! l = pLHashParen
+
+                    let! kindTag =
+                        opt (
+                            choiceL
+                                [ pClass |>> ExternKind.Class; pInterface |>> ExternKind.Interface ]
+                                "external class/interface tag"
+                        )
+
                     let! (kind, parts, instrClose) = parsePlainStringLiteral "IL instruction string"
                     let! r = pRHashParen
-                    return Type.ILIntrinsic(l, kind, parts, instrClose, r)
+                    return Type.ILIntrinsic(l, kindTag, kind, parts, instrClose, r)
                 }
                 // {| field: Type; ... |} — Anonymous record type
                 parser {
