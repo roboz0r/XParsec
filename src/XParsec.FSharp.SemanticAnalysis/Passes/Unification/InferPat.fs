@@ -128,6 +128,39 @@ module internal UnificationInferPat =
             // operator's compiled name (`op_Equality`), surfaced by Freeze.
             TyVar(tvOf ctx key)
         | Pat.Named(longIdent = li; argumentPats = args) when
+            li.Idents.Length = 2 && ctx.Types.Enum.ContainsKey(ctx.NameOf li.Idents.[0])
+            ->
+            // `| E.C1` — an enum-case constant pattern: the head names a
+            // project-local enum, so the tail must be one of its cases. The
+            // pattern's type is the enum nominal (`TyEnum Key`), NOT the underlying
+            // int/string — so `inferRules`' `unify` against the scrutinee makes
+            // `match (x: E)` check and `match (n: int) with | E.A` a type error
+            // (the enum is a distinct nominal). An unknown case is a resolution
+            // error, the pattern analogue of `InferIdentExpr`'s enum-expression arm.
+            // Enum names are a separate registry, so this can't collide with the
+            // class / union / ctor pattern heads handled below. Enum-case patterns
+            // are nullary; any (ill-formed) sub-patterns are still walked so their
+            // binders register.
+            let einfo = ctx.Types.Enum.[ctx.NameOf li.Idents.[0]]
+            let caseName = ctx.NameOf li.Idents.[1]
+
+            if not (einfo.HasCase caseName) then
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message = sprintf "Enum '%s' has no case '%s'" einfo.Name caseName
+                        Code = ""
+                        Severity = Severity.Error
+                    }
+
+            for sub in args do
+                inferPat ctx sub |> ignore
+
+            let ty = TyEnum einfo.Key
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome ty
+            ty
+        | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
                 last.Length > 0 && System.Char.IsUpper last.[0])

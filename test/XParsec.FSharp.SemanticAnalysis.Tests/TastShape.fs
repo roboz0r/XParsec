@@ -631,6 +631,11 @@ type private Renderer() =
             push " as "
             this.Pat inner
         | TPat.Null _ -> push "null"
+        | TPat.EnumCase(enumKey, caseName, _, _) ->
+            // Renders identically to the `E.C1` expression form (`StaticFieldGet`).
+            push (SymbolKeyOps.simpleName enumKey)
+            push "."
+            push caseName
 
     member this.Decl(d: TDecl) : unit =
         match d with

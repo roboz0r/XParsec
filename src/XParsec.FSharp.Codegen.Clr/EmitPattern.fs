@@ -142,6 +142,12 @@ module EmitPattern =
         match pat with
         | TPatG.Wildcard _ -> ()
         | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- scrutSlot
+        | TPatG.EnumCase _ ->
+            // v1 lowers an enum-case pattern to equality on the case's underlying
+            // value (step 5 CLR enum emission); not wired here yet. Driving an enum
+            // pattern through codegen also hits the step-5 `ClrEncoder` `TyEnum`
+            // failwith, so this is unreachable in the current test scope.
+            failwithf "Emit: enum-case patterns are out of scope (step 5): %A" pat
         | TPatG.Null _ ->
             // `null` pattern: match only a null scrutinee. A non-null value
             // (`brtrue`) skips the arm; null falls through to the body. Binds

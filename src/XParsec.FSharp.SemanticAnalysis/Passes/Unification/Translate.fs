@@ -196,18 +196,18 @@ module internal UnificationTranslate =
 
                                 TyEnum info.Key
                             | false, _ ->
-                            match ctx.Types.Class.TryGetValue name with
-                            | true, info ->
-                                let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
+                                match ctx.Types.Class.TryGetValue name with
+                                | true, info ->
+                                    let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
 
-                                TyClass(info.Key, args)
-                            | false, _ ->
-                                // Not project-local: probe the external provider
-                                // (a short BCL name under its `open`) before the
-                                // opaque fallback. See `tryResolveExternalType`.
-                                match tryResolveExternalType ctx name EqArray.empty with
-                                | ValueSome ty -> ty
-                                | ValueNone -> TyConst(name, EqArray.empty)
+                                    TyClass(info.Key, args)
+                                | false, _ ->
+                                    // Not project-local: probe the external provider
+                                    // (a short BCL name under its `open`) before the
+                                    // opaque fallback. See `tryResolveExternalType`.
+                                    match tryResolveExternalType ctx name EqArray.empty with
+                                    | ValueSome ty -> ty
+                                    | ValueNone -> TyConst(name, EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or

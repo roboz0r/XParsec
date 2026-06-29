@@ -1100,6 +1100,9 @@ module EmitJs =
 
             conjoin tests, List.concat binds
         | TPatG.TypeTestAs _ -> failwithf "EmitJs: type-test patterns are not supported"
+        // v1 lowers an enum-case pattern to equality on the case's underlying
+        // value (step 6 JS enum emission); not wired here yet.
+        | TPatG.EnumCase _ -> failwithf "EmitJs: enum-case patterns are not supported (step 6)"
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | TPatG.Null _ -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
 

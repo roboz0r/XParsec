@@ -124,7 +124,8 @@ module TastWalk =
         | TPat.Record(ty = ty)
         | TPat.Union(ty = ty)
         | TPat.TypeTestAs(ty = ty)
-        | TPat.Null(ty = ty) -> ty
+        | TPat.Null(ty = ty)
+        | TPat.EnumCase(ty = ty) -> ty
 
     /// Peel a curried `App` chain into its head and the arguments paired with
     /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
@@ -221,6 +222,7 @@ module TastWalk =
             | TPat.Union(c, fields, ty, tok) -> TPat.Union(c, EqArray.map (mapPat m) fields, f ty, tok)
             | TPat.TypeTestAs(testTy, inner, ty, tok) -> TPat.TypeTestAs(f testTy, mapPat m inner, f ty, tok)
             | TPat.Null(ty, tok) -> TPat.Null(f ty, tok)
+            | TPat.EnumCase(k, n, ty, tok) -> TPat.EnumCase(k, n, f ty, tok)
 
     let rec mapExpr (m: Mapper) (e: TExpr) : TExpr =
         match m.OverrideExpr m e with
@@ -369,6 +371,7 @@ module TastWalk =
             | TPat.NamedSimple _
             | TPat.Wildcard _
             | TPat.Null _
+            | TPat.EnumCase _
             | TPat.Const _ -> ()
             | TPat.Tuple(items, _, _) ->
                 for sub in items do

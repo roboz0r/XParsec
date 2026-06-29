@@ -15,6 +15,7 @@ module EmitClosures =
             | TPatG.NamedSimple(k, _, _) -> acc.Add k
             | TPatG.Wildcard _
             | TPatG.Null _
+            | TPatG.EnumCase _
             | TPatG.Const _ -> ()
             | TPatG.Tuple(items, _, _) ->
                 for sub in items do

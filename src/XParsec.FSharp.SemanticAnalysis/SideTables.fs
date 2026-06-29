@@ -931,8 +931,7 @@ module TypeRegistry =
 
     /// Register an enum under its bare short name (enums are non-generic, so no
     /// arity overload — mirrors records, not unions).
-    let registerEnum (types: PassContextTypes) (name: string) (info: EnumTypeInfo) : unit =
-        types.Enum.[name] <- info
+    let registerEnum (types: PassContextTypes) (name: string) (info: EnumTypeInfo) : unit = types.Enum.[name] <- info
 
     /// True iff an enum with this name is registered — the enum half of the
     /// duplicate-definition test.

@@ -89,6 +89,19 @@ type TPatG<'ty, 'tok> =
     /// nothing: codegen lowers it to a `ldloc; brtrue nextLabel` (a non-null
     /// scrutinee skips the arm). `ty` is the scrutinee's (reference) type.
     | Null of ty: 'ty * tok: 'tok
+    /// An enum-case constant pattern `| E.C1`. Like a `Const` pattern it is
+    /// refutable, binds nothing, and (v1) lowers to *equality against the case's
+    /// underlying value* — but it carries the case *identity* (`enumKey` +
+    /// `caseName`), NOT the literal. The underlying literal lives on the frozen
+    /// `TTypeKind.Enum` case table (the single source of truth, looked up by
+    /// `enumKey` + `caseName`), so codegen (steps 5/6) resolves it there — exactly
+    /// the producer/consumer split the `E.C1` *expression* form uses
+    /// (`TExpr.StaticFieldGet`, same `enumKey`/`caseName` carrier). `ty` is the
+    /// enum nominal (`TyEnum enumKey`), unified against the scrutinee so a
+    /// `match (x: E)` checks and a `match (n: int)` is a type error. Closed-enum
+    /// exhaustiveness is a deferred follow-up: a wildcard-less enum match is the
+    /// usual incomplete match (defined-behaviour fallthrough), not an error.
+    | EnumCase of enumKey: SymbolKey * caseName: string * ty: 'ty * tok: 'tok
 
 /// A format hole's classified per-value formatting. A hole no longer stores the `(Kind, .NET-format, alignment)` triple
 /// `PrintfSpec.tryHoleFormat` produced — it carries the *classified*, target-neutral
@@ -974,7 +987,9 @@ module TEnumCases =
 
                 match seen with
                 | ValueNone -> seen <- ValueSome w
-                | ValueSome w0 -> if w0 <> w then result <- ValueSome(c.Tok, w0, w)
+                | ValueSome w0 ->
+                    if w0 <> w then
+                        result <- ValueSome(c.Tok, w0, w)
             | _ -> ()
 
         result

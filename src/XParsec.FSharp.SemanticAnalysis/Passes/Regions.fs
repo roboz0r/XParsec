@@ -276,6 +276,7 @@ module Regions =
         | TPat.NamedSimple(k, _, _) -> [ k ]
         | TPat.Wildcard _
         | TPat.Null _
+        | TPat.EnumCase _
         | TPat.Const _ -> []
         | TPat.Tuple(items, _, _) ->
             [
@@ -662,6 +663,7 @@ module Regions =
         | TPat.TypeTestAs(_, inner, _, _) -> recordBindingRegion s ctx inner r
         | TPat.Wildcard _
         | TPat.Null _
+        | TPat.EnumCase _
         | TPat.Const _ -> ()
 
     /// Distinct lambda regions reachable from `start` via outlives edges (the

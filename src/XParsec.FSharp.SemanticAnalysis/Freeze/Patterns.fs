@@ -133,6 +133,20 @@ module internal FreezePatterns =
                 )
 
             TPat.Record(fields, ty, tok)
+        | Pat.Named(longIdent = li) when
+            li.Idents.Length = 2
+            && (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).IsSome
+            ->
+            // `| E.C1` enum-case pattern → `TPat.EnumCase(enumKey, caseName, …)`,
+            // mirroring the `E.C1` expression lowering (`StaticFieldGet`, same
+            // carrier). v1 = equality only: codegen (step 5/6) resolves the case's
+            // underlying literal off the frozen enum case table by key + name and
+            // compares, exactly like a `Const` pattern — the literal is NOT
+            // duplicated onto the node. Guarded by the head naming a registered
+            // enum, which is exclusive with the union / ctor heads below.
+            let info = (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).Value
+            let caseName = ctx.NameOf li.Idents.[1]
+            TPat.EnumCase(info.Key, caseName, ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
