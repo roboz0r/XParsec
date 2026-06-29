@@ -162,18 +162,7 @@ module EmitPattern =
 
                 let pushLit =
                     match caseLits.TryGetValue caseName with
-                    | true, TEnumLiteral.String s -> [ ILInstr.Ldstr(env.Ctx.UserString s) ]
-                    | true, TEnumLiteral.Int v ->
-                        let load, ty =
-                            match v with
-                            | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst("int", EqArray.empty)
-                            | TConstValue.Byte by -> ILInstr.LdcI4(int by), FTConst("byte", EqArray.empty)
-                            | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst("uint32", EqArray.empty)
-                            | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst("int64", EqArray.empty)
-                            | other ->
-                                failwithf "Emit: mixed enum case '%s' carries a non-integral literal %A" caseName other
-
-                        [ load; ILInstr.Box(env.Provider.TypeToken ty) ]
+                    | true, lit -> enumLiteralPush env.Provider.TypeToken env.Ctx.UserString lit
                     | false, _ -> failwithf "Emit: struct enum '%A' has no case literal for '%s'" enumKey caseName
 
                 b.Add(ILInstr.Call(env.Provider.EqualityComparerDefault fieldTy, 0, 1))

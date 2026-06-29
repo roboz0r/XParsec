@@ -944,11 +944,6 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
-    /// Resolve an enum by its project-local `SymbolKey` — the enum analogue of
-    /// `tryRecordByKey` (enums aren't arity-overloaded, so project the simple name).
-    let tryEnumByKey (types: PassContextTypes) (key: SymbolKey) : EnumTypeInfo voption =
-        tryEnum types (SymbolKeyOps.simpleName key)
-
     let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
         types.Abbreviation.[name] <- info
 

@@ -127,18 +127,12 @@ module internal UnificationInferPat =
             // single name, exactly like a `Pat.NamedSimple`; its name is the
             // operator's compiled name (`op_Equality`), surfaced by Freeze.
             TyVar(tvOf ctx key)
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length = 2
-            && (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).IsSome
-            ->
+        | Pat.Named(longIdent = ExternalEnumCaseLi ctx enumKey; argumentPats = args) ->
             // `| E.C1` external enum-case pattern (a TS-manifest enum). Types as the
             // enum nominal `TyEnum key` — the external mirror of the project-local
             // enum arm below; the key matches the `E.C1` expression access and an
             // `(x: E)` annotation, so the scrutinee unifies. Nullary, but any
             // (ill-formed) sub-patterns are still walked so their binders register.
-            let enumKey =
-                (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).Value
-
             for sub in args do
                 inferPat ctx sub |> ignore
 

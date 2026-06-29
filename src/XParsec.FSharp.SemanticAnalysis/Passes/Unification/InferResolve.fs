@@ -215,6 +215,18 @@ module internal UnificationInferResolve =
             | _ -> ValueNone
         | ValueNone -> ValueNone
 
+    /// `tryExternalEnumCase` as a pattern over the `E.C1` `LongIdent` (shared by the
+    /// `Expr.LongIdentOrOp` and `Pat.Named` enum-case arms): binds the resolved enum
+    /// key once, replacing the guard-then-`.Value` re-lookup (each lookup runs a
+    /// provider type probe + an `open`-scope qualify, so evaluating it twice is real
+    /// work). Two-segment only — single/multi-segment heads can't be enum cases.
+    [<return: Struct>]
+    let (|ExternalEnumCaseLi|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : SymbolKey voption =
+        if li.Idents.Length = 2 then
+            tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])
+        else
+            ValueNone
+
     /// Does `n` resolve — through the active `open`s, at any small arity — to an
     /// external *union* or *record* type? Unlike a class, a union/record exposes
     /// no static fields: the only valid `n.tail` forms are a module function (a

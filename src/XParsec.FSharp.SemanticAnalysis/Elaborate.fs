@@ -1120,12 +1120,16 @@ module Elaborate =
         | Expr.EnclosedBlock(expr = inner) -> resolveEnumCaseValue ctx idTok inner
         | Expr.Const c ->
             // The lexer merges `-<numeric>` into a single negative literal token
-            // (`tryMergeNegativeLiteral`), so a negative integral enum member
-            // (`| A = -1`, common: `None = -1`) arrives here as a negative `Const`,
-            // not a unary-minus `PrefixApp`. A negative *signed* literal projects
-            // cleanly (`Int -1`); a negative *unsigned* literal (`-1uy`/`-1u`) has
-            // no representation — `tryParseConst` reports it as `ValueNone` (total;
-            // it no longer throws), surfaced here as the hard error.
+            // (`tryMergeNegativeLiteral`) ONLY when the `-` follows an opening
+            // bracket/brace/paren or trivia (`allowsNegativeLiteral`). After the `=`
+            // of an enum case a *bare* `| A = -1` is NOT merged — it parses as a
+            // unary-minus `PrefixApp` (the arm below). A negative integral literal
+            // reaches THIS arm via the parenthesised form `| A = (-1)`: the `(`
+            // admits the merge, then the `EnclosedBlock` arm peels it to a negative
+            // `Const`. A negative *signed* literal projects cleanly (`Int -1`); a
+            // negative *unsigned* literal (`(-1uy)`/`(-1u)`) has no representation —
+            // `tryParseConst` reports it as `ValueNone` (total; it no longer throws),
+            // surfaced here as the hard error.
             match FreezeLiterals.tryParseConst ctx c with
             // `Int` doubles as the unsuffixed default; `UInt`/`Int64`/`Byte`
             // preserve the authored integral width for step 2.
@@ -1182,11 +1186,9 @@ module Elaborate =
                 )
 
                 ValueNone
-            // `-"abc"` (negation of a string) or a deeper non-int form: the inner
-            // resolution either succeeded with a non-negatable shape (the residual
-            // `TEnumLiteral.Int` widths are unreachable — the `Expr.Const` arm only
-            // mints Int/UInt/Int64/Byte — but kept for exhaustiveness) or already
-            // reported its own error and yielded `ValueNone`. Either way reject.
+            // `-"abc"` or a deeper non-int form: the inner resolution produced a
+            // non-negatable shape (the `Int _` arm is unreachable — handled above —
+            // but kept for exhaustiveness). Reject.
             | ValueSome(TEnumLiteral.String _)
             | ValueSome(TEnumLiteral.Int _) ->
                 ctx.Error(

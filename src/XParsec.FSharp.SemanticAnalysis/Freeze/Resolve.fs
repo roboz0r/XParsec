@@ -31,6 +31,27 @@ module internal FreezeResolve =
         | TyEnum key -> ValueSome key
         | _ -> ValueNone
 
+    /// The enum key for a two-segment `E.C1` access/pattern, binding it once and
+    /// collapsing the formerly-separate local-registry and type-signal arms into a
+    /// single freeze arm (used by both `FreezeExpr`'s `StaticFieldGet` and
+    /// `FreezePatterns`' `TPat.EnumCase`). `enumKeyOfTy` is the canonical signal —
+    /// Unification types BOTH project-local and external `E.C1` as `TyEnum key`, so
+    /// it alone resolves the valid case; the local registry is consulted only as the
+    /// error-path fallback, where an invalid case (`E.BadCase`, already diagnosed
+    /// upstream) left the node's type un-pinned. This preserves the prior arms'
+    /// behaviour exactly while removing the duplicate arm and the guard re-lookups.
+    [<return: Struct>]
+    let (|EnumCaseAccess|_|) (ctx: PassContext) (ty: SemType) (li: LongIdent<SyntaxToken>) : SymbolKey voption =
+        if li.Idents.Length <> 2 then
+            ValueNone
+        else
+            match enumKeyOfTy ty with
+            | ValueSome key -> ValueSome key
+            | ValueNone ->
+                match TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0]) with
+                | ValueSome info -> ValueSome info.Key
+                | ValueNone -> ValueNone
+
     /// Class-name reference only when there's no local `Binding` entry — i.e. it
     /// really is a class name, not a shadowing local. An explicit type application
     /// (`Set<'T>(args)`) wraps the name in `Expr.TypeApp`; peel it so the

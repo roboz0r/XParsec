@@ -611,7 +611,17 @@ module EmitJs =
         | TExprG.StaticPropertyGet(key, _, _) -> Members.localFn ctx key true true loc
 
         // An enum-case reference `E.Ci` → a property read on the frozen object map.
-        | TExprG.StaticFieldGet(enumKey, caseName, _, _) -> enumCaseAccess ctx enumKey caseName loc
+        // `StaticFieldGet` is the general static-field carrier (a class `static let`
+        // backing-field read also lowers to it), so route to `enumCaseAccess` ONLY
+        // when the node's type is the enum itself (`FTEnum`, stamped by Unification's
+        // enum arm). A non-enum key (a future `static let`) falls through to a loud
+        // failure rather than `enumCaseAccess` fabricating a bogus self-import.
+        | TExprG.StaticFieldGet(enumKey, caseName, FTEnum _, _) -> enumCaseAccess ctx enumKey caseName loc
+        | TExprG.StaticFieldGet(declKey, fieldName, _, _) ->
+            failwithf
+                "EmitJs: static-field read of '%s' on '%A' is not an enum case; class `static let` field reads are not yet supported on the JS target"
+                fieldName
+                declKey
 
         | TExprG.StaticMethodCall(key, args, _, _) -> applyArgs ctx (Members.localFn ctx key true false loc) args
 

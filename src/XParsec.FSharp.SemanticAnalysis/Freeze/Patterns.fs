@@ -133,27 +133,17 @@ module internal FreezePatterns =
                 )
 
             TPat.Record(fields, ty, tok)
-        | Pat.Named(longIdent = li) when
-            li.Idents.Length = 2
-            && (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).IsSome
-            ->
-            // `| E.C1` enum-case pattern → `TPat.EnumCase(enumKey, caseName, …)`,
-            // mirroring the `E.C1` expression lowering (`StaticFieldGet`, same
-            // carrier). v1 = equality only: codegen resolves the case's
-            // underlying literal off the frozen enum case table by key + name and
-            // compares, exactly like a `Const` pattern — the literal is NOT
-            // duplicated onto the node. Guarded by the head naming a registered
-            // enum, which is exclusive with the union / ctor heads below.
-            let info = (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).Value
-            let caseName = ctx.NameOf li.Idents.[1]
-            TPat.EnumCase(info.Key, caseName, ty, tok)
-        // `| E.C1` where `E` is an EXTERNAL (TS-manifest) enum: Unification typed the
-        // pattern `TyEnum key` (the external mirror of the local-enum arm above, which
-        // — running first — claimed any project-local head). The key rides `ty`; reuse
-        // the same `TPat.EnumCase` carrier so codegen lowers it through the shared
-        // enum-case slot (JS imports the enum object for an external key).
-        | Pat.Named(longIdent = li) when li.Idents.Length = 2 && (enumKeyOfTy ty).IsSome ->
-            TPat.EnumCase((enumKeyOfTy ty).Value, ctx.NameOf li.Idents.[1], ty, tok)
+        // `| E.C1` enum-case pattern (project-local OR external TS-manifest enum) →
+        // `TPat.EnumCase(enumKey, caseName, …)`, mirroring the `E.C1` expression
+        // lowering (`StaticFieldGet`, same carrier). v1 = equality only: codegen
+        // resolves the case's underlying literal off the frozen enum case table by
+        // key + name and compares, exactly like a `Const` pattern — the literal is
+        // NOT duplicated onto the node. `EnumCaseAccess` resolves the key from the
+        // pattern's `TyEnum` type (set by Unification for both local and external
+        // heads) or the local enum registry on the error path — exclusive with the
+        // union / ctor heads below.
+        | Pat.Named(longIdent = li & EnumCaseAccess ctx ty enumKey) ->
+            TPat.EnumCase(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]

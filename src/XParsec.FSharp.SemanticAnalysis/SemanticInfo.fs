@@ -361,15 +361,10 @@ type FrozenType =
     | FTRecord of key: SymbolKey * args: EqArray<FrozenType>
     | FTUnion of key: SymbolKey * args: EqArray<FrozenType>
     | FTClass of key: SymbolKey * args: EqArray<FrozenType>
-    /// A nominal enum reference — the frozen mirror of `SemType.TyEnum`. Enums
-    /// are never generic, so there is deliberately NO `args` field (illegal
-    /// states unrepresentable): an enum is a niladic nominal identified solely by
-    /// its `SymbolKey`. The ordered case→literal table rides the frozen `TDecl`
-    /// node (looked up by `key`, like union cases), not this reference. `E` stays
-    /// a distinct nominal type — NOT structurally its underlying `int` — so a
-    /// faithful `System.Enum` (CLR) / object-map (JS) can be emitted; the
-    /// per-variant repr is a backend decision read off the case table +
-    /// `TEnumCases.classify`, never baked into this identity.
+    /// A nominal enum reference — the frozen mirror of `SemType.TyEnum`; see it for
+    /// the full rationale. Niladic (no `args` — enums are never generic), a distinct
+    /// nominal NOT its underlying `int`; the case→literal table rides the frozen
+    /// `TDecl` node by `key`, and the per-variant repr is a backend decision.
     | FTEnum of key: SymbolKey
     /// Frozen anonymous (structural) union — mirror of `SemType.TyOr`. Members
     /// are in canonical form (sorted/deduped/flattened by `mkUnion`), so two

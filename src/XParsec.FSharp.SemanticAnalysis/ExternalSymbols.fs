@@ -457,20 +457,14 @@ type ExternalTypeShape =
     /// bare cons-list whose `.fsi` union declares `interface seq<'T>`.
     | Union of arity: int * cases: ExternalCaseShape[] * interfaces: (string * FrozenType[])[] * origin: SymbolOrigin
     /// A TS-manifest (or otherwise external) enum: a closed, nominal set of named
-    /// constant cases. Case order matches source. Enums are NEVER generic, so —
-    /// unlike `Union` / `Record` — there is no `arity` field (mirroring `TyEnum` /
-    /// `FTEnum`, which carry only a `SymbolKey`, no args). `cases` is the ordered
-    /// name→value table; the numeric / string / mixed variant is DERIVED from the
-    /// values (the authored `TEnumCases.classify` rule), never baked, and a mixed
-    /// import lands gracefully (no throw) — JS's untyped object map is uniform
-    /// across the three. `origin` is filled by the layer that knows where the type
-    /// lives (the TS-manifest provider stamps the module specifier), and is read to
-    /// mint the enum's `SymbolKey` so a use site resolves to `TyEnum` / `FTEnum` and
-    /// JS IMPORTS the enum object (`import { E }`) at each `E.Ci` site rather than
-    /// re-emitting its frozen object map. This is the referenceable body the
-    /// extractor previously dropped behind `Opaque` — closing the enum stub. The
-    /// per-variant CLR repr (`System.Enum` / `[<Struct>]` wrapper) is JS-orthogonal:
-    /// external (TS-sourced) enums are a JS-target feature and never reach CLR codegen.
+    /// constant cases in source order. No `arity` field — enums are never generic
+    /// (mirroring `TyEnum` / `FTEnum`). The numeric / string / mixed variant is
+    /// DERIVED from `cases` (`TEnumCases.classify`), never baked. `origin` (the
+    /// provider stamps the module specifier) mints the enum's `SymbolKey`, so a use
+    /// site resolves to `TyEnum` / `FTEnum` and JS IMPORTS the enum object
+    /// (`import { E }`) at each `E.Ci` rather than re-emitting its object map. This
+    /// is the body the extractor previously dropped behind `Opaque`. External enums
+    /// are a JS-target feature and never reach CLR codegen.
     | Enum of cases: ExternalEnumCaseShape[] * origin: SymbolOrigin
     /// A class or interface (the gap that makes `EqualityComparer<_>` resolve to
     /// `ValueNone` today). The members / interfaces / base-type / flags ride

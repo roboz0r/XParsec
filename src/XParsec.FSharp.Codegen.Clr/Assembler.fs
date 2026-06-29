@@ -183,32 +183,20 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, 0, [])
         )
 
-    // A numeric enum registers its layout-derived `TypeDefinition` handle
-    // so its own `static literal` case fields — typed as the enum itself (`FTEnum`) —
-    // resolve through `userTypes` while the field table is encoded below, and so a use
-    // site (a `(x: E)` annotation, an `E.A` access) encodes the enum reference. It is
-    // a value type (its base chain reaches `System.ValueType`), so it also registers
-    // as a user value type → `ELEMENT_TYPE_VALUETYPE` in every signature.
+    // Every enum — numeric (`System.Enum` subclass) or string/mixed (`[<Struct>]`
+    // wrapper) — registers its layout-derived `TypeDefinition` handle so its own
+    // case fields (typed as the enum itself, `FTEnum`) and any `.ctor`/field
+    // signatures resolve through `userTypes` while the field/method tables are
+    // encoded below, and so a use site (a `(x: E)` annotation, an `E.A` access)
+    // encodes the enum reference. Both reprs are project-local value types (the base
+    // chain reaches `System.ValueType`), so each also registers as a user value type
+    // → `ELEMENT_TYPE_VALUETYPE` in every signature.
     do
-        enumDecls
-        |> List.iter (fun ed ->
-            let td = ed.Decl
+        for td in
+            (enumDecls |> List.map (fun ed -> ed.Decl))
+            @ (structEnumDecls |> List.map (fun sed -> sed.Decl)) do
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
             provider.RegisterUserValueType td.Key
-        )
-
-    // A string/mixed enum registers identically: its `[<Struct>]` wrapper
-    // is a project-local value type, so its own per-case `static initonly` fields
-    // (typed `FTEnum`) and the wrapper's `.ctor`/field signatures resolve through
-    // `userTypes` during the field/method passes, and a use site encodes
-    // `ELEMENT_TYPE_VALUETYPE`.
-    do
-        structEnumDecls
-        |> List.iter (fun sed ->
-            let td = sed.Decl
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
-            provider.RegisterUserValueType td.Key
-        )
 
     // A *generic* closure is a real generic `TypeDefinition` after the nominal
     // types and before the holders; its layout-derived handle lets capture-field
@@ -695,26 +683,6 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
                     Members = memberTable
                 }
 
-    // The instruction prefix that pushes a string/mixed enum case literal as the
-    // wrapper `.ctor`'s single argument: a string case is `ldstr` (a `string` ref —
-    // assignable to either a `string` or an `obj` field, no box); a mixed int case
-    // is `ldc` then `box` to its CLR primitive so the wrapped `obj` carries the
-    // boxed integer (and `EqualityComparer<obj>` matches it structurally at a
-    // `| E.A` pattern). Shared shape with the pattern's literal load (EmitPattern).
-    member _.StructEnumLiteralPush(lit: TEnumLiteral) : ILInstr list =
-        match lit with
-        | TEnumLiteral.String s -> [ ILInstr.Ldstr(ctx.UserString s) ]
-        | TEnumLiteral.Int v ->
-            let load, ty =
-                match v with
-                | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst("int", EqArray.empty)
-                | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst("byte", EqArray.empty)
-                | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst("uint32", EqArray.empty)
-                | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst("int64", EqArray.empty)
-                | other -> failwithf "Emit: mixed enum case carries a non-integral literal %A" other
-
-            [ load; ILInstr.Box(icodegen.TypeToken ty) ]
-
     /// Prepare each string/mixed enum's `.ctor` (stores the wrapped value) and
     /// `.cctor` (constructs every case singleton), and record its `System.ValueType`
     /// base for the `TypeDefinition` row. The per-case field handles + literals were
@@ -752,7 +720,8 @@ type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, 
 
             let cctorCases =
                 [
-                    for (caseName, lit) in sed.Cases -> caseFields.[caseName], this.StructEnumLiteralPush lit
+                    for (caseName, lit) in sed.Cases ->
+                        caseFields.[caseName], EmitResolve.enumLiteralPush icodegen.TypeToken ctx.UserString lit
                 ]
 
             let cctorBody =

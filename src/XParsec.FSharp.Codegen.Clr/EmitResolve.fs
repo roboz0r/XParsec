@@ -382,6 +382,40 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: class '%A' has no emitted static field '%s'" declKey name
         | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%A'" declKey
 
+    /// Within Codegen.Clr, the single source of the integral case load: the `ldc`
+    /// pushing the literal's raw value, paired with the CLR primitive name it boxes
+    /// to. Shared by the numeric case load, the struct-enum literal push, and the
+    /// `| E.A` field compare, so those sites can't drift. The {Int;Byte;UInt;Int64}
+    /// arm set and its name strings deliberately mirror `TEnumCases.integralWidthName`
+    /// (SemanticAnalysis) — the assembly boundary keeps them separate, so a width
+    /// added there must be added here too. The elaborator rejects every non-integral
+    /// underlying upstream, so the residual arm is a "can't happen" invariant.
+    let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
+        match v with
+        | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst("int", EqArray.empty)
+        | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst("byte", EqArray.empty)
+        | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst("uint32", EqArray.empty)
+        | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst("int64", EqArray.empty)
+        | other -> failwithf "Emit: enum case carries a non-integral literal %A" other
+
+    /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single
+    /// argument: a string case is `ldstr` (a `string` ref — assignable to a
+    /// `string` or `obj` field, no box); a mixed int case is its `ldc` then `box`
+    /// to its CLR primitive so the wrapped `obj` carries the boxed integer (and
+    /// `EqualityComparer<obj>` matches it structurally at a `| E.A` pattern).
+    /// Shared by the `.cctor` construction (Assembler) and the field compare
+    /// (EmitPattern), so the two literal lowerings stay identical.
+    let enumLiteralPush
+        (typeToken: FrozenType -> EntityHandle)
+        (internString: string -> UserStringHandle)
+        (lit: TEnumLiteral)
+        : ILInstr list =
+        match lit with
+        | TEnumLiteral.String s -> [ ILInstr.Ldstr(internString s) ]
+        | TEnumLiteral.Int v ->
+            let load, ty = enumIntLoad v
+            [ load; ILInstr.Box(typeToken ty) ]
+
     /// The IL load of an enum case used as a value (`E.A` / `| E.A`). A *numeric*
     /// enum value IS its integer at runtime (the `literal` field is metadata-only),
     /// so this pushes the underlying constant; a *string/mixed* enum case is a real
@@ -394,12 +428,7 @@ module EmitResolve =
             match e.Repr with
             | EmittedEnumRepr.NumericEnum caseValues ->
                 match caseValues.TryGetValue name with
-                | true, TConstValue.Int n -> ValueSome(ILInstr.LdcI4 n)
-                | true, TConstValue.Byte b -> ValueSome(ILInstr.LdcI4(int b))
-                | true, TConstValue.UInt u -> ValueSome(ILInstr.LdcI4(int u))
-                | true, TConstValue.Int64 i -> ValueSome(ILInstr.LdcI8 i)
-                | true, other ->
-                    failwithf "Emit: enum '%A' case '%s' carries a non-integral literal %A" declKey name other
+                | true, v -> ValueSome(fst (enumIntLoad v))
                 | false, _ -> failwithf "Emit: enum '%A' has no emitted case '%s'" declKey name
             | EmittedEnumRepr.StructEnum(_, _, caseFields, _) ->
                 match caseFields.TryGetValue name with

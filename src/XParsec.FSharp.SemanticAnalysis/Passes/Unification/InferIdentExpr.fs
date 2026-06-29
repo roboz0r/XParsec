@@ -58,12 +58,28 @@ module internal UnificationInferIdentExpr =
         // `(x: E)` annotation (`Translate.tryResolveExternalType`), so the two unify.
         // Guarded ahead of the general two-segment cascade so an external enum head
         // never falls through to the class/union static path.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ExternalEnumCaseLi ctx enumKey)) when
+            not (ctx.Bindings.Binding.ContainsKey key)
+            ->
+            TyEnum enumKey
+        // A project-local enum-case access `E.C1`: the head names a project-local
+        // enum (a separate registry, so no class/union collision). Types as the enum
+        // nominal `TyEnum Key`, NOT its underlying int/string; an unknown case is a
+        // resolution error (the enum analogue of "Union 'U' has no case 'C'"). Sibling
+        // of the external-enum arm above and of `InferPat`'s enum-pattern arm, kept
+        // ahead of the general cascade so an enum head never falls into it.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
             && not (ctx.Bindings.Binding.ContainsKey key)
-            && (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).IsSome
+            && ctx.Types.Enum.ContainsKey(ctx.NameOf li.Idents.[0])
             ->
-            TyEnum (tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])).Value
+            let einfo = ctx.Types.Enum.[ctx.NameOf li.Idents.[0]]
+            let caseName = ctx.NameOf li.Idents.[1]
+
+            if einfo.HasCase caseName then
+                TyEnum einfo.Key
+            else
+                errorTy ctx key (sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
         // Two-segment qualified reference whose head is *not* a local binding:
         // `Math.Pi` / `Lst.Empty` / `Result2.Ok`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
@@ -79,48 +95,33 @@ module internal UnificationInferIdentExpr =
                     ValueSome(substituteWith subst m.Type)
                 | None -> ValueNone
 
-            // An enum-case access `E.C1`: the head names a project-local enum, so
-            // the tail must be one of its cases. The value's static type is the
-            // enum itself (`TyEnum Key`), NOT the underlying int/string — the enum
-            // is a distinct nominal. An unknown case is a resolution error, the
-            // enum analogue of the "Union 'U' has no case 'C'" miss below. Enum
-            // names are a separate registry, so this can't collide with a class /
-            // union of the same name (a duplicate is rejected at registration).
-            match ctx.Types.Enum.TryGetValue headName with
-            | true, einfo ->
-                if einfo.HasCase tailName then
-                    TyEnum einfo.Key
-                else
-                    errorTy ctx key (sprintf "Enum '%s' has no case '%s'" headName tailName)
-            | false, _ ->
+            // Class static member takes priority over union static member which
+            // takes priority over a union ctor — preserves the original cascade
+            // order so a static member shadows the not-a-case diagnostic.
+            let classHit =
+                match ctx.Types.Class.TryGetValue headName with
+                | true, info -> tryStaticMember info.TypeParams info.Members
+                | false, _ -> ValueNone
 
-                // Class static member takes priority over union static member which
-                // takes priority over a union ctor — preserves the original cascade
-                // order so a static member shadows the not-a-case diagnostic.
-                let classHit =
-                    match ctx.Types.Class.TryGetValue headName with
-                    | true, info -> tryStaticMember info.TypeParams info.Members
-                    | false, _ -> ValueNone
-
-                match classHit with
-                | ValueSome ty -> ty
-                | ValueNone ->
-                    match ctx.Types.Union.TryGetValue headName with
-                    | true, info ->
-                        match tryStaticMember info.TypeParams info.Members with
-                        | ValueSome ty -> ty
-                        | ValueNone ->
-                            // Qualified ctor reference `Result2.Ok` — via the union
-                            // registry, bypassing the CtorIndex ambiguity check.
-                            match resolveQualifiedCtor ctx headName tailName with
-                            | ValueSome info -> ctorType ctx info
-                            | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
-                    | false, _ ->
-                        // Qualified external union case (`Option.Some`) — the head is
-                        // an external union, not a local one (Gap 2 Layer B).
-                        match tryExternalCtorType ctx (ValueSome headName) tailName with
-                        | ValueSome t -> t
-                        | ValueNone -> inferIdentDefault ctx e key
+            match classHit with
+            | ValueSome ty -> ty
+            | ValueNone ->
+                match ctx.Types.Union.TryGetValue headName with
+                | true, info ->
+                    match tryStaticMember info.TypeParams info.Members with
+                    | ValueSome ty -> ty
+                    | ValueNone ->
+                        // Qualified ctor reference `Result2.Ok` — via the union
+                        // registry, bypassing the CtorIndex ambiguity check.
+                        match resolveQualifiedCtor ctx headName tailName with
+                        | ValueSome info -> ctorType ctx info
+                        | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
+                | false, _ ->
+                    // Qualified external union case (`Option.Some`) — the head is
+                    // an external union, not a local one (Gap 2 Layer B).
+                    match tryExternalCtorType ctx (ValueSome headName) tailName with
+                    | ValueSome t -> t
+                    | ValueNone -> inferIdentDefault ctx e key
         | _ -> inferIdentDefault ctx e key
 
     /// Resolution order: local binding map, then provider, then `Class`-name
