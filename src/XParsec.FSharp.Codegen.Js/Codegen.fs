@@ -110,6 +110,8 @@ module Codegen =
                 Records = System.Collections.Generic.Dictionary()
                 Unions = System.Collections.Generic.Dictionary()
                 Classes = System.Collections.Generic.Dictionary()
+                // Populated by `buildProgram` from `collectTypes`.
+                Enums = System.Collections.Generic.Dictionary()
                 Provider = ValueSome provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
                 Imports = JsImports.create runtimeAssets

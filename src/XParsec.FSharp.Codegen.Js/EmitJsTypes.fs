@@ -128,6 +128,10 @@ module EmitJsTypes =
             Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
             Unions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
             Classes: System.Collections.Generic.Dictionary<SymbolKey, string>
+            /// Locally-emitted enums, keyed by enum-type `SymbolKey` → the emitted JS
+            /// object-map name. A `StaticFieldGet`/`EnumCase` resolves its `E.Ci`
+            /// property access here.
+            Enums: System.Collections.Generic.Dictionary<SymbolKey, string>
             PendingClasses: PendingClass list
             PendingUnions: PendingUnion list
             Members: (string * Frozen.TTypeMember) list
@@ -290,6 +294,7 @@ module EmitJsTypes =
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
         let classes = System.Collections.Generic.Dictionary<SymbolKey, string>()
+        let enums = System.Collections.Generic.Dictionary<SymbolKey, string>()
         let pendingClasses = ResizeArray<PendingClass>()
         let pendingUnions = ResizeArray<PendingUnion>()
         let members = ResizeArray<string * Frozen.TTypeMember>()
@@ -412,12 +417,27 @@ module EmitJsTypes =
                             Fields = fieldNames
                             Members = parts
                         }
-                // step 6: JS enum emission (the frozen object map `{ C1: v1, … }`)
-                // is a later step; like the CLR `Layout` skeleton, the partition
-                // collects nothing for it here — the enum `TDecl` is dropped until
-                // step 6 wires the object-map emission. (An `Interface` is likewise
-                // handled elsewhere, hence the shared no-op tail.)
-                | TTypeKindG.Enum _ -> ()
+                // JS enum repr: a module-scope frozen object map `const E =
+                // Object.freeze({ C1: v1, … })` for ALL three variants (numeric /
+                // string / mixed) — JS is untyped, so the mix is the same object-map
+                // shape, no reverse map (v1 = equality only). Cases stay in declaration
+                // order; an unresolved case (`ValueNone`, a rejected literal already
+                // errored at elaboration) is dropped from the map rather than emitting
+                // a bogus value. The const carries no method bodies, so it is emitted
+                // directly here (like the no-interface record/union path), and the type
+                // key is registered so `StaticFieldGet`/`EnumCase` resolve `E.Ci`.
+                | TTypeKindG.Enum cases ->
+                    enums.[td.Key] <- td.Name
+
+                    let entries =
+                        [
+                            for c in cases do
+                                match c.Value with
+                                | ValueSome lit -> c.Name, JsEmitHelpers.enumLiteral lit
+                                | ValueNone -> ()
+                        ]
+
+                    ordered.Add(JsStatement.Enum(td.Name, entries, exportTypes))
                 | _ -> ()
             | _ -> ()
 
@@ -426,6 +446,7 @@ module EmitJsTypes =
             Records = records
             Unions = unions
             Classes = classes
+            Enums = enums
             PendingClasses = List.ofSeq pendingClasses
             PendingUnions = List.ofSeq pendingUnions
             Members = List.ofSeq members

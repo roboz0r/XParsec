@@ -310,6 +310,19 @@ module JsPrint =
                     [ ctorDecl c.Fields [ text (sprintf "super(%d);" c.Tag) ] c.Fields ]
 
             cat (baseClass :: [ for c in cases -> Line ++ subclass c ])
+        | JsStatement.Enum(name, cases, export) ->
+            // The frozen object map `const Name = Object.freeze({ C1: v1, … });`.
+            // Case names print verbatim as object keys (F# identifiers, the same
+            // verbatim treatment record/union field names get); literal values reuse
+            // the shared `literal` formatter.
+            let entries =
+                [ for (caseName, value) in cases -> text caseName ++ text ": " ++ text (literal value) ]
+
+            (if export then text "export const " else text "const ")
+            ++ text name
+            ++ text " = Object.freeze({ "
+            ++ commaList entries
+            ++ text " });"
 
     // ---- Rendering -----------------------------------------------------------
 

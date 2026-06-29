@@ -113,6 +113,21 @@ module JsEmitHelpers =
         | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
         | TConstValue.Decimal _ -> failwithf "EmitJs: decimal literals are not supported"
 
+    /// A resolved enum-case literal → its JS object-map value literal (step 6: the
+    /// frozen object map `{ C1: v1, … }`). A string case is the string verbatim; an
+    /// integral case reuses the canonical `constExpr` int formatting (number / bigint
+    /// for `int64`) — the single source of truth — so the enum map can't drift from
+    /// scalar-`Const` emission. The integral arm always yields a `Literal`
+    /// (`constExpr` maps every integral `TConstValue` to one), so a non-`Literal`
+    /// here is a producer bug.
+    let enumLiteral (lit: TEnumLiteral) : JsLiteral =
+        match lit with
+        | TEnumLiteral.String s -> JsLiteral.String s
+        | TEnumLiteral.Int v ->
+            match constExpr v ValueNone with
+            | JsExpr.Literal(l, _) -> l
+            | other -> failwithf "EmitJs: enum integral literal did not format as a JS literal: %A" other
+
     // ---- Pure-`let` substitution ---------------------------------------------
 
     /// A value safe to duplicate at use sites: no side effects, no evaluation-order

@@ -125,6 +125,14 @@ and [<RequireQualifiedAccess>] JsStatement =
         cases: JsUnionCaseDecl list *
         baseMethods: JsClassMethod list *
         export: bool
+    /// An enum's emitted JS repr: a module-scope frozen object map
+    /// `[export ]const Name = Object.freeze({ C1: v1, … });`. The step-6 repr for ALL
+    /// three variants (numeric / string / mixed) — JS is untyped, so a number, a
+    /// string, or a mix of them is the same object-map shape; `E.Ci` is a property
+    /// read, and there is NO reverse map (v1 needs equality only). `cases` are in
+    /// declaration order with their already-formatted literal value; `export` is set
+    /// in library mode so a consumer can `import` the enum object.
+    | Enum of name: string * cases: (string * JsLiteral) list * export: bool
     /// A bare lexical block `{ … }` — scopes a match arm's pattern bindings so two
     /// arms binding the same name don't collide as sibling `const`s.
     | Block of body: JsStatement list

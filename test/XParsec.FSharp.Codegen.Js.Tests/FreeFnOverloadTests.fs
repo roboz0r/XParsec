@@ -76,6 +76,7 @@ let private emitWithUtil (input: string) : string =
             Records = System.Collections.Generic.Dictionary()
             Unions = System.Collections.Generic.Dictionary()
             Classes = System.Collections.Generic.Dictionary()
+            Enums = System.Collections.Generic.Dictionary()
             Provider = ValueSome utilProvider
             ExternalUnions = System.Collections.Generic.Dictionary()
             Imports = JsImports.create runtime

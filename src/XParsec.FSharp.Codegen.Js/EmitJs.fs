@@ -79,6 +79,10 @@ module EmitJs =
             /// resolves its constructor name here (external `exn` subtypes go through
             /// `exnReprOf` instead).
             Classes: System.Collections.Generic.Dictionary<SymbolKey, string>
+            /// Locally-emitted enums, keyed by enum-type `SymbolKey` → the emitted JS
+            /// object-map name (`collectTypes`). A `StaticFieldGet` (`E.Ci`) / an
+            /// `EnumCase` pattern (`scrut === E.Ci`) resolves the object name here.
+            Enums: System.Collections.Generic.Dictionary<SymbolKey, string>
             /// External union types (`Option`, `List`) not in the file's `tast.Decls`;
             /// their case shapes are read off the provider on first use and emitted as
             /// nominal JS classes (same base-class + subclass shape a local union gets).
@@ -338,6 +342,16 @@ module EmitJs =
     /// and `use`'s disposal call site (`disposeStmts`) so both name the identical slot.
     let private symbolDispose: JsExpr = nativeSymbol "dispose"
 
+    /// An enum-case reference `E.Ci` → a property read on the frozen object map (the
+    /// step-6 JS enum repr). Shared by the `StaticFieldGet` expression and the
+    /// `EnumCase` pattern's `scrut === E.Ci` test, so both name the identical slot and
+    /// the object map stays the single source of truth (no per-case constant inlined,
+    /// no reverse map). The enum object name is looked up by its type `SymbolKey`.
+    let private enumCaseAccess (ctx: WalkCtx) (enumKey: SymbolKey) (caseName: string) (loc: JsLoc voption) : JsExpr =
+        match ctx.Enums.TryGetValue enumKey with
+        | true, name -> JsExpr.Member(JsExpr.Identifier(name, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
+        | _ -> failwithf "EmitJs: enum case '%s' on a type with no emitted enum object (key %A)" caseName enumKey
+
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
         let loc = locOf ctx (TastWalk.exprTok e)
 
@@ -580,6 +594,9 @@ module EmitJs =
             applyArgs ctx withRecv args
 
         | TExprG.StaticPropertyGet(key, _, _) -> Members.localFn ctx key true true loc
+
+        // An enum-case reference `E.Ci` → a property read on the frozen object map.
+        | TExprG.StaticFieldGet(enumKey, caseName, _, _) -> enumCaseAccess ctx enumKey caseName loc
 
         | TExprG.StaticMethodCall(key, args, _, _) -> applyArgs ctx (Members.localFn ctx key true false loc) args
 
@@ -1100,9 +1117,13 @@ module EmitJs =
 
             conjoin tests, List.concat binds
         | TPatG.TypeTestAs _ -> failwithf "EmitJs: type-test patterns are not supported"
-        // v1 lowers an enum-case pattern to equality on the case's underlying
-        // value (step 6 JS enum emission); not wired here yet.
-        | TPatG.EnumCase _ -> failwithf "EmitJs: enum-case patterns are not supported (step 6)"
+        // v1 lowers an enum-case pattern to equality against the case's frozen
+        // object-map slot (`scrut === E.Ci`). JS `===` is value equality for numbers
+        // and strings, so this is correct for all three variants (v1 = equality only),
+        // and keeping the test against `E.Ci` keeps the object map the single source
+        // of truth (no per-case literal duplicated into the pattern).
+        | TPatG.EnumCase(enumKey, caseName, _, _) ->
+            Some(JsExpr.Binary("===", access, enumCaseAccess ctx enumKey caseName ValueNone, ValueNone)), []
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | TPatG.Null _ -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
 
@@ -1541,6 +1562,7 @@ module EmitJs =
                 Records = collected.Records
                 Unions = collected.Unions
                 Classes = collected.Classes
+                Enums = collected.Enums
                 CompiledFns = compiledFns
                 LocalInterfaces = localInterfaces
             }
