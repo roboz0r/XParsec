@@ -979,6 +979,15 @@ module internal Layout =
                                     // `public static initonly E` — the closed set of
                                     // case singletons, `.cctor`-initialised (a struct
                                     // field cannot be `literal`; only a primitive can).
+                                    // DEFERRED: the design wanted PRIVATE fields exposed
+                                    // via public get-only properties (so construction is
+                                    // not public API — the closed-set guarantee for
+                                    // EXTERNAL consumers). The metadata writer has no
+                                    // Property/MethodSemantics table, and within-assembly
+                                    // access is `ldsfld` of the field directly, so the
+                                    // fields are public for now. Revisit (add property
+                                    // emission + private fields/ctor) if/when an external
+                                    // consumer needs the encapsulated closed set.
                                     Attrs =
                                         FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
                                     Ty = FTEnum td.Key
