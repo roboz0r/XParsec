@@ -15,7 +15,8 @@ let tests =
         [
             // ---- Emitted-source shape -------------------------------------------
             test "a numeric enum emits a frozen object map of number literals" {
-                let src = emitJs "type Color = | Red = 0 | Green = 1 | Blue = 2\nlet c = Color.Green"
+                let src =
+                    emitJs "type Color = | Red = 0 | Green = 1 | Blue = 2\nlet c = Color.Green"
 
                 Expect.stringContains
                     src

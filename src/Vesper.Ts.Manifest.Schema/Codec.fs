@@ -235,6 +235,40 @@ let private decodeImport j =
         | "commonjs" -> Ok ImportShape.CommonJsExport
         | o -> Error(sprintf "unknown import shape '%s'" o)
 
+// ─── EnumValue ─────────────────────────────────────────────────────────────
+
+/// A type-tagged enum member value (or `None` for a computed member). The `kind`
+/// discriminator mirrors the `k`/`export` tag convention so int-vs-string is
+/// recoverable on decode — the whole point of the v1 schema bump.
+let private encodeEnumValue (v: EnumValue option) : JsonValue =
+    match v with
+    | Some(EnumValue.IntVal n) -> jObj [ "kind", jStr "int"; "value", JsonValue.Number(float n) ]
+    | Some(EnumValue.StringVal s) -> jObj [ "kind", jStr "string"; "value", jStr s ]
+    | None -> JsonValue.Null
+
+let private asInt64 =
+    function
+    | JsonValue.Number n -> Ok(int64 n)
+    | other -> Error(sprintf "expected number, got %A" other)
+
+let private decodeEnumValue (j: JsonValue) : Result<EnumValue option, string> =
+    match j with
+    | JsonValue.Null -> Ok None
+    | _ ->
+        result {
+            let! m = asObject j
+            let! kind = readField "kind" asString m
+
+            match kind with
+            | "int" ->
+                let! n = readField "value" asInt64 m
+                return Some(EnumValue.IntVal n)
+            | "string" ->
+                let! s = readField "value" asString m
+                return Some(EnumValue.StringVal s)
+            | other -> return! Error(sprintf "unknown enum value kind '%s'" other)
+        }
+
 // ─── Param / Signature / Member ────────────────────────────────────────────
 
 let private encodeParam (p: Param) =
@@ -365,7 +399,11 @@ let rec encodeExport (e: Export) : JsonValue =
             [
                 "export", jStr "enum"
                 "name", jStr name
-                "members", jArr (members |> List.map (fun (n, v) -> jObj [ "name", jStr n; "value", jStrOpt v ]))
+                "members",
+                jArr (
+                    members
+                    |> List.map (fun (n, v) -> jObj [ "name", jStr n; "value", encodeEnumValue v ])
+                )
             ]
     | Export.Variable(name, ty, isConst, import) ->
         jObj
@@ -424,11 +462,14 @@ let rec decodeExport (j: JsonValue) : Result<Export, string> =
         | other -> return! Error(sprintf "unknown export '%s'" other)
     }
 
-and private decodeEnumMember (j: JsonValue) : Result<string * string option, string> =
+and private decodeEnumMember (j: JsonValue) : Result<string * EnumValue option, string> =
     result {
         let! m = asObject j
         let! n = readField "name" asString m
-        let! v = optField "value" asString m
+        // The `value` field is always present (JSON `null` for a computed member);
+        // `decodeEnumValue` maps that null → `None`, so read it directly rather
+        // than through `optField` (which would double-wrap the option).
+        let! v = readField "value" decodeEnumValue m
         return (n, v)
     }
 

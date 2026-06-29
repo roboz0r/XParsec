@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 0,
+  "schemaVersion": 1,
   "package": "multifile",
   "version": "1.2.3",
   "exports": [

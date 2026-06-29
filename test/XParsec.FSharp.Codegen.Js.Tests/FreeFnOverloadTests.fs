@@ -17,7 +17,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// (`string | float`) — so the provider mints the synthetic erased grouping type `Util`.
 let private utilManifestJson =
     """{
-  "schemaVersion": 0,
+  "schemaVersion": 1,
   "package": "util",
   "version": null,
   "exports": [

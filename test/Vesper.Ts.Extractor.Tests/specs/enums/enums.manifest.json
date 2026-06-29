@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 0,
+  "schemaVersion": 1,
   "package": "enums",
   "version": null,
   "exports": [
@@ -9,19 +9,31 @@
       "members": [
         {
           "name": "Up",
-          "value": "1"
+          "value": {
+            "kind": "int",
+            "value": 1
+          }
         },
         {
           "name": "Down",
-          "value": "2"
+          "value": {
+            "kind": "int",
+            "value": 2
+          }
         },
         {
           "name": "Left",
-          "value": "3"
+          "value": {
+            "kind": "int",
+            "value": 3
+          }
         },
         {
           "name": "Right",
-          "value": "4"
+          "value": {
+            "kind": "int",
+            "value": 4
+          }
         }
       ]
     },
@@ -31,11 +43,17 @@
       "members": [
         {
           "name": "Get",
-          "value": "GET"
+          "value": {
+            "kind": "string",
+            "value": "GET"
+          }
         },
         {
           "name": "Post",
-          "value": "POST"
+          "value": {
+            "kind": "string",
+            "value": "POST"
+          }
         }
       ]
     }

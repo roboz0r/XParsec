@@ -3,7 +3,58 @@ module Vesper.Ts.Extractor.Tests.Tests
 open System.IO
 open Expecto
 
+open Vesper.Ts.Manifest
+
 open Vesper.Ts.Extractor.Tests.TestHelpers
+
+// v1 schema: enum member values are type-tagged (`EnumValue`). The whole point of
+// the bump is that a numeric `A = 42` and a string `A = "42"` no longer collapse
+// to the same `Some "42"` — int vs string must survive encode→decode. A computed
+// member (`None`) must still round-trip too.
+[<Tests>]
+let enumValueCodecTests =
+    testList
+        "Codec enum value tag round-trip"
+        [
+            test "an enum with int, string, and computed members preserves each value's tag" {
+                let man: Schema.PackageManifest =
+                    {
+                        SchemaVersion = Schema.SchemaVersion
+                        Package = "tagcheck"
+                        Version = None
+                        Exports =
+                            [
+                                Schema.Export.Enum(
+                                    "E",
+                                    [
+                                        "Num", Some(Schema.EnumValue.IntVal 42L)
+                                        // Same printed digits as the int case — the discriminator,
+                                        // not the lexeme, is what tells them apart on decode.
+                                        "Str", Some(Schema.EnumValue.StringVal "42")
+                                        "Computed", None
+                                    ]
+                                )
+                            ]
+                    }
+
+                match Codec.deserialize (Codec.serialize man) with
+                | Error e -> failtestf "round-trip failed to decode: %s" e
+                | Ok man2 ->
+                    Expect.equal man2 man "manifest must survive encode→decode unchanged"
+
+                    match man2.Exports with
+                    | [ Schema.Export.Enum(_, members) ] ->
+                        Expect.equal
+                            members
+                            [
+                                "Num", Some(Schema.EnumValue.IntVal 42L)
+                                "Str", Some(Schema.EnumValue.StringVal "42")
+                                "Computed", None
+                            ]
+                            "int (42) and string (\"42\") stay distinct; the computed member stays None"
+                    | other -> failtestf "expected a single Enum export, got %A" other
+            }
+        ]
 
 [<Tests>]
 let goldenTests =

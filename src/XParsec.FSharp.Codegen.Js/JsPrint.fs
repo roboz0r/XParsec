@@ -316,7 +316,9 @@ module JsPrint =
             // verbatim treatment record/union field names get); literal values reuse
             // the shared `literal` formatter.
             let entries =
-                [ for (caseName, value) in cases -> text caseName ++ text ": " ++ text (literal value) ]
+                [
+                    for (caseName, value) in cases -> text caseName ++ text ": " ++ text (literal value)
+                ]
 
             (if export then text "export const " else text "const ")
             ++ text name

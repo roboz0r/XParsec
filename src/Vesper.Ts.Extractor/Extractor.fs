@@ -611,9 +611,10 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         // `number`/`string` PROTOTYPE members (an enum's apparent type is its primitive
         // base), not the authored cases. Each member's value comes from
         // `checker.getConstantValue` on the member node: a STRING member yields
-        // `U2.Case1 s` (kept verbatim), a NUMERIC member `U2.Case2 n` (stringified — the
-        // schema stores `string option`); a computed member with no constant value
-        // yields `None`. The member's name rides its declaration symbol.
+        // `U2.Case1 s` (kept verbatim as `StringVal`), a NUMERIC member `U2.Case2 n`
+        // (a JS float — type-tagged as `IntVal` after the integer-subset check below);
+        // a computed member with no constant value yields `None`. The member's name
+        // rides its declaration symbol.
         let enumDecl = unbox<Ts.EnumDeclaration> (declOf resolved)
 
         let members =
@@ -626,8 +627,16 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
                 let value =
                     match checker.getConstantValue (unbox em) with
-                    | Some(U2.Case1 s) -> Some s
-                    | Some(U2.Case2 n) -> Some(string n)
+                    | Some(U2.Case1 s) -> Some(Schema.EnumValue.StringVal s)
+                    | Some(U2.Case2 n) ->
+                        // Integer-subset discipline: TS technically permits non-integer
+                        // numeric enum members, but the wire only carries `IntVal of
+                        // int64`. Throw loudly rather than widen/round (the producer's
+                        // "throw, don't swallow" rule).
+                        if System.Math.Floor n <> n || System.Double.IsInfinity n then
+                            failwithf "enum '%s' member '%s' has a non-integer numeric value (%g)" name memberName n
+
+                        Some(Schema.EnumValue.IntVal(int64 n))
                     | None -> None
 
                 memberName, value
