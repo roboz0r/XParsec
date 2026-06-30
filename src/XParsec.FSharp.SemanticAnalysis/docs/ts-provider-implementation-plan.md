@@ -75,13 +75,23 @@ A TS `Named("Emitter", …)` from the manifest currently becomes `FTConst → Ty
 R1  external nominal → FTClass ........ front-end: toFrozen emits FTClass for manifest classes/interfaces
 R2  external object-method lowering ... Codegen.Js: external instance members → receiver.member(args)
 R3  real Vesper e2e (R1+R2 → R3) ...... a Vesper program CALLS the external API; rewrite MittE2ETests
-R4  supporting inference/emit gaps .... single-overload method-typar freshening; default-import wiring
-R5  coverage + breadth ................ @types/node diagnostics golden; ambient-global (DOM) entry mode
+R4  ★ mitt FULL-FIDELITY GATE ......... ZERO-degradation extraction + full mitt API driven from Vesper source
+R5  coverage + breadth (GATED on R4) .. @types/node diagnostics golden; ambient-global (DOM) entry mode
 ```
 
 R1 and R2 are independent and can land in either order, but R3 needs both. Start with a
 **non-generic external object** fixture (sidestep wall #3) to land R1+R2+R3 on easy mode,
-THEN return to mitt's generics. Land each green before the next.
+THEN return to mitt's generics.
+
+**R4 is a hard gate: no second JS package until mitt is complete.** mitt is the proving
+ground — it must extract with **zero diagnostics** (every keyof / indexed-access /
+conditional construct faithful, NOT degraded) AND have its full public API exercised by
+tests that compile real Vesper source. R5 (breadth / `@types/node` / DOM) does not begin
+until R4 passes. This reverses, *for mitt*, the earlier "stays degraded by design" deferral
+of keyof/indexed/conditional — that deferral was the v1 expedient; the standing decision now
+is that the foundation must be fully faithful on one real package before accumulating more.
+
+Land each phase green before the next.
 
 ---
 
@@ -176,15 +186,16 @@ Node and observes the handler firing. This replaces the harness-driven scenario;
 calls move INTO the Vesper program.
 
 **Steps.**
-1. With R1+R2 landed for non-generic types, return to mitt's generics (wall #3). Options,
-   cheapest first:
-   - Annotate the emitter at a concrete `Events` instantiation if the front end can ground
-     it from an annotation (`let e : Emitter<...> = mitt ()`), accepting that `keyof`/`Events[Key]`
-     params are degraded `FTUnknown` (permissive — `emit "ping" 7` may type-check loosely).
-   - If the degraded `keyof`/indexed types block a clean program, the minimal faithful path is
-     a non-generic hand-authored emitter-style fixture that still exercises R1+R2 end-to-end,
-     with mitt itself used only for the factory + a best-effort member call — and a clear note
-     on what mitt's generic surface still can't express.
+1. R3 is the FIRST e2e and is allowed to be provisional — its job is to prove the R1+R2
+   consumption machinery end-to-end, NOT to reach mitt fidelity (that is R4's gate). Land it on
+   the easiest path:
+   - Prefer a **non-generic** hand-authored emitter-style fixture (e.g. `Bus { on(name, handler);
+     emit(name, payload) }` with plain types) so R1+R2 are exercised by a Vesper program that
+     genuinely calls instance members, with zero generics in the way.
+   - If you point R3 at mitt directly, you may temporarily annotate the emitter at a concrete
+     `Events` and tolerate that `keyof`/`Events[Key]` are still degraded `FTUnknown` — but this
+     is a STEPPING STONE only. R4 forbids that degradation; do not treat a degraded-mitt R3 as
+     done. Note precisely what mitt's generic surface can't yet express and carry it into R4.
 2. Rewrite `test/XParsec.FSharp.Codegen.Js.Tests/MittE2ETests.fs`: the Vesper `program` string
    contains the `on`/`emit` calls; the JS "harness" shrinks to just `import` + invoking the
    emitted entry + asserting the observed value (or the program prints the sentinel itself).
@@ -200,35 +211,83 @@ from compiled Vesper, not hand-written harness lines).
 
 ---
 
-## R4 — supporting inference / emit gaps (fix as they bite)
+## R4 — ★ mitt full-fidelity gate (REQUIRED before any other package)
 
+**The bar (both halves must hold):**
+1. **Zero-degradation extraction.** mitt's golden `Diagnostics` must be `[]` — every one of
+   the five residual constructs (`keyof Events`, `keyof T`, `T[keyof T]`, `Events[Key]`, and
+   the conditional `undefined extends Events[Key] ? Key : never`) is represented FAITHFULLY,
+   not as a `structural-object-stubbed` degrade. Flip `mittDiagnosticsContract` to assert
+   `man.Diagnostics |> List.isEmpty`.
+2. **Full API driven from Vesper source.** mitt's complete public surface — `mitt()` (factory),
+   `emitter.on`, `emitter.off`, `emitter.emit`, and `emitter.all` — is exercised by tests whose
+   **Vesper program** (not a JS harness) makes the calls, emits via Codegen.Js, and runs against
+   the real vendored `mitt.mjs` under Node with asserted behaviour. Multiple event types
+   (`Events` with ≥2 keys of different payloads) to prove the key/value typing is real.
+
+This GATE is the reason no second JS package starts yet: prove the whole stack
+(extract → manifest → provider → infer → emit → run) is faithful on one real package before
+breadth multiplies the unknowns.
+
+### R4a — faithful keyof / indexed-access / conditional (the hard structural work)
+This is the genuinely-hard TS-type-system modeling the companion design doc deferred. It is
+large — scope it honestly. Each needs a faithful representation across the stack, NOT a stub:
+
+- **`keyof T`** — a type operator over a type parameter (or a concrete type). Add a faithful
+  schema arm (e.g. `TypeRef.KeyOf of TypeRef`) + a `FrozenType`/`SemType` node, and front-end
+  resolution: when the operand is GROUNDED to a concrete record/interface, `keyof` evaluates to
+  the union of its member names (string-literal union); ungrounded, it stays a `keyof` type node
+  the unifier can carry. The extractor must STOP routing it to the structural-stub arm.
+- **`T[K]` indexed-access** — the value type at key `K` of `T`. Faithful schema arm
+  (`TypeRef.IndexedAccess of obj: TypeRef * index: TypeRef`) + node; resolution looks up the
+  member type when `T` is grounded and `K` is a known key (the dependent `Events[Key]` is the
+  stress case — the payload type DEPENDS on the key value, which Vesper's type system cannot do
+  dependently; decide the faithful-but-expressible answer, e.g. resolve to the union of value
+  types, and document the precision limit).
+- **conditional `A extends B ? X : Y`** — faithful schema arm + node; evaluate when both sides
+  are grounded (the no-payload `emit` overload is the stress case). The DEEPEST item — if full
+  conditional evaluation proves out of reach, settle on a faithful representation + a documented,
+  test-pinned evaluation rule for exactly the shapes mitt uses, rather than a silent degrade.
+
+Update the design doc's mapping table + the `Schema.fs` grammar comments as these land. Watch
+the SCC/cycle note (`interface Node { children: Node[] }`) only if a faithful form recurses;
+mitt's residue does not contain a plain anonymous object literal, so structural-record
+content-hashing is NOT required for this gate (it stays in R5).
+
+### R4b — supporting inference / emit gaps (will bite during R4a/R3)
 - **Single-overload method-typar freshening.** An external generic member's method typar
   (`FTTypar(TyparAxis.Method,i)`) is freshened per call ONLY on the multi-candidate
   overload-commit path (`ExternalSymbols.instantiateSignature` via `commitExternalOverload`);
-  the single-candidate `TryLookupMember` field-walk does NOT freshen, leaving the marker
-  unbound (`TyConst int` vs `TyTypar(Method,0)`). mitt's `on`/`emit` are multi-overload so they
-  dodge it, but a single-overload generic member hits it. Fixing = make the single-candidate
-  external path call `instantiateSignature` too. **This is an inference/overload-resolver
-  change** — do it deliberately and separately; touching the unifier as part of provider/codegen
-  work is the exact thing the codegen-owns-assignability guardrail warns against. (See memory
-  `reference_single_overload_method_typar_no_freshen`.)
+  the single-candidate `TryLookupMember` field-walk does NOT, leaving the marker unbound
+  (`TyConst int` vs `TyTypar(Method,0)`). mitt's `on`/`emit` are multi-overload so they dodge
+  it — but exercising the FULL API faithfully may surface a single-overload member; fix by
+  making the single-candidate external path call `instantiateSignature` too. **This is an
+  inference/overload-resolver change** — do it deliberately; touching the unifier as part of
+  provider/codegen work is the exact thing the codegen-owns-assignability guardrail warns
+  against. (Memory `reference_single_overload_method_typar_no_freshen`.)
 - **Default-import production wiring.** `JsImports.createWithDefaults` + `defaultValueKeys` are
-  PROVEN in the test but the production emit pipeline still builds `JsImports` via `create`
-  (empty default set), so a real default-export would emit a (wrong) named import outside the
-  test. Wire whatever assembles `EmitJs.WalkCtx.Imports` in the real compile to seed the default
-  set from the active TS-manifest provider(s).
+  proven in the test but the production emit pipeline still builds `JsImports` via `create`
+  (empty default set). Wire whatever assembles `EmitJs.WalkCtx.Imports` in the real compile to
+  seed the default set from the active TS-manifest provider(s).
 - **Trailing-optional v1 policy.** `toFunctionSymbol` DROPS a trailing optional parameter
-  (`mitt(all?)` → `unit -> Emitter`), so a caller can't supply it. Fine for v1; revisit if a
-  package needs the optional argument (the faithful model is two arities / an overload).
+  (`mitt(all?)` → `unit -> Emitter`). Revisit for mitt's full API if a callable optional matters
+  (the faithful model is two arities / an overload).
+
+**Acceptance (the gate).** mitt golden `Diagnostics = []`; `mittDiagnosticsContract` asserts
+empty. A Vesper-source test calls factory + `on`/`off`/`emit`/`all` over a ≥2-key `Events`,
+emits, and runs against real `mitt.mjs` under Node with asserted results. All suites green.
+Any construct that genuinely cannot be made faithful is escalated (it changes the bar), not
+silently re-degraded.
 
 ---
 
-## R5 — coverage + breadth (after R1–R3)
+## R5 — coverage + breadth (GATED on R4 passing)
 
+Do NOT start until R4's gate holds. Then:
 - Point the resilient extractor at `@types/node` (module-shaped) and commit its diagnostics
   report as a **coverage golden** — ranked by code frequency it is a burndown chart; the top
-  codes are the roadmap (structural-record content-hashing with SCC cycles, keyof/indexed/
-  conditional faithful forms, …).
+  codes are the roadmap (structural-record content-hashing with SCC cycles, and whatever keyof/
+  indexed/conditional shapes beyond mitt's are still unfaithful).
 - The DOM is the eventual destination but needs a second **ambient-global extraction entry
   mode** (`declare global`, no module exports) the module-based `extractPackage` lacks, on top
   of every deferred feature firing at once. Capstone, not an early bite.
