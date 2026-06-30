@@ -6,7 +6,6 @@
   <ItemGroup>
     <Compile Include="Target.fs" />
     <Compile Include="StructuralFormatRecipe.fs" />
-    <Compile Include="IntrinsicRepr.fs" />
     <Compile Include="SymbolProviders.fs" />
     <Compile Include="CompiledFns.fs" />
   </ItemGroup>
