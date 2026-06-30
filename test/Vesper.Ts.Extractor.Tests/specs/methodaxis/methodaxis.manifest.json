@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "package": "methodaxis",
+  "version": null,
+  "exports": [
+    {
+      "export": "interface",
+      "name": "Mapper",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "apply",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "x",
+                  "type": {
+                    "k": "named",
+                    "name": "obj",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "method-axis-typar-erased",
+      "symbol": "U",
+      "span": {
+        "file": "methodaxis.d.ts",
+        "start": 550,
+        "end": 551
+      },
+      "message": "method-axis type parameter 'U' (a generic member's own type parameter) erased to obj; the schema's single-axis Typar cannot represent a method-axis reference"
+    }
+  ]
+}

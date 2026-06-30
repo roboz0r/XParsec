@@ -39,6 +39,12 @@ let private pathJoin (a: string) (b: string) : string = jsNative
 [<Import("dirname", "node:path")>]
 let private pathDirname (p: string) : string = jsNative
 
+[<Import("relative", "node:path")>]
+let private pathRelative (from: string) (to_: string) : string = jsNative
+
+[<Import("basename", "node:path")>]
+let private pathBasename (p: string) : string = jsNative
+
 /// Read a `package.json`'s `version` field, defensively: the value is only a usable
 /// stamp when it is genuinely a string (a malformed manifest can carry any JSON),
 /// so classify by runtime `typeof` (the producer rule — never trust the shape) and
@@ -56,6 +62,73 @@ let private declOf (s: Ts.Symbol) : Ts.Node =
         match s.declarations with
         | Some ds when ds.Count > 0 -> unbox ds.[0]
         | _ -> failwithf "symbol '%s' has no declaration" (s.getName ())
+
+// ─── per-type degradation diagnostics ───────────────────────────────────────
+//
+// A per-TYPE mapping failure (a TS construct with no faithful schema form but that
+// CAN still be named) records a `Warning` and DEGRADES to a representable `TypeRef`,
+// rather than aborting the whole extraction. The accumulator is a plain `ResizeArray`
+// created once per extraction in `extractFile`/`extractPackage` and threaded — like
+// `checker` — through the walk, then drained into the manifest's `Diagnostics`.
+// Single-threaded Node, so a shared mutable buffer is safe. FATAL plumbing failures
+// (not a module, unreadable source, unresolvable specifier) still THROW: a degraded
+// type is meaningful; a half-loaded program is not.
+
+/// A source `Span` anchored on a `ts.Node` — its source-file name + start/end offsets
+/// (the binding returns the offsets as `float`; the wire carries `int`).
+let private spanOfNode (node: Ts.Node) : Schema.Span option =
+    Some
+        {
+            File = (node.getSourceFile ()).fileName
+            Start = int (node.getStart ())
+            End = int (node.getEnd ())
+        }
+
+let private emitWarning
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (code: string)
+    (symbol: string)
+    (span: Schema.Span option)
+    (message: string)
+    : unit =
+    diags.Add
+        {
+            Severity = Schema.Severity.Warning
+            Code = code
+            Symbol = symbol
+            Span = span
+            Message = message
+        }
+
+/// Make the accumulated diagnostics' spans PORTABLE before they land in the manifest.
+/// The manifest is a relocatable per-package cache artifact, so a span's `File` must be
+/// RELATIVE to the extraction base (the `.d.ts`'s directory / the package resolve dir),
+/// normalized to forward slashes — never the producer machine's absolute path (which
+/// would break the cross-machine Node golden-diff). A path that cannot be relativized
+/// (a different Windows drive — node's `relative` then returns an absolute path) falls
+/// back to its basename. Done ONCE here at the drain, so `spanOfNode` stays anchored on
+/// the absolute `fileName` and the portability logic lives in a single place.
+let private relativizeDiagnostics (baseDir: string) (diags: ResizeArray<Schema.Diagnostic>) : Schema.Diagnostic list =
+    let normalize (p: string) = p.Replace("\\", "/")
+
+    let relFile (file: string) =
+        let rel = normalize (pathRelative baseDir file)
+        // An empty/absolute result (different drive) is not portable — use the basename.
+        if rel = "" || rel.Contains ":" || rel.StartsWith "/" then
+            normalize (pathBasename file)
+        else
+            rel
+
+    diags
+    |> Seq.map (fun d ->
+        match d.Span with
+        | Some s ->
+            { d with
+                Span = Some { s with File = relFile s.File }
+            }
+        | None -> d
+    )
+    |> List.ofSeq
 
 // ─── declaring-axis typar environment + generic-instantiation detection ─────
 //
@@ -150,7 +223,12 @@ let private looksNominal (printed: string) : bool =
 
 // ─── ts.Type → Schema.TypeRef ──────────────────────────────────────────────
 
-let rec mapType (checker: Ts.TypeChecker) (env: Ts.Symbol list) (t: Ts.Type) : Schema.TypeRef =
+let rec mapType
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (env: Ts.Symbol list)
+    (t: Ts.Type)
+    : Schema.TypeRef =
     let printed = checker.typeToString t
 
     // A type-parameter REFERENCE (item 11) resolves to its declaring-axis index in
@@ -163,9 +241,27 @@ let rec mapType (checker: Ts.TypeChecker) (env: Ts.Symbol list) (t: Ts.Type) : S
         match lookupTypar env t with
         | Some i -> Schema.TypeRef.Typar i
         | None ->
-            failwithf
-                "mapType: type parameter '%s' is method-axis (a generic member's own type parameter) and not in the declaring-axis env; faithfully representing a method-axis typar REFERENCE needs a second axis tag on Schema.TypeRef.Typar (a deliberate contract bump) — see ts-extraction-plan item 11"
+            // A METHOD-axis typar reference (a generic member's own `<U>`, not in the
+            // declaring-axis env): the schema's single-axis `Typar` cannot carry it
+            // without a contract bump, so DEGRADE the reference to `obj` (the universal
+            // supertype the provider can rehydrate) and record the erasure. The method's
+            // additive `TypeParams` COUNT is still emitted per signature; only the
+            // REFERENCE is erased. Span anchored on the typar's own declaration node.
+            let span =
+                match t.getSymbol () with
+                | Some s -> spanOfNode (declOf s)
+                | None -> None
+
+            emitWarning
+                diags
+                "method-axis-typar-erased"
                 printed
+                span
+                (sprintf
+                    "method-axis type parameter '%s' (a generic member's own type parameter) erased to obj; the schema's single-axis Typar cannot represent a method-axis reference"
+                    printed)
+
+            Schema.TypeRef.Named("obj", [])
     else
 
         // Literal types erase to their base, kept in ONE place (the future hook for
@@ -209,7 +305,7 @@ let rec mapType (checker: Ts.TypeChecker) (env: Ts.Symbol list) (t: Ts.Type) : S
                 // unwrap a singleton.
                 let members =
                     (unbox<Ts.UnionType> t).types
-                    |> Seq.map (mapType checker env)
+                    |> Seq.map (mapType checker diags env)
                     |> List.ofSeq
                     |> List.distinct
 
@@ -228,7 +324,7 @@ let rec mapType (checker: Ts.TypeChecker) (env: Ts.Symbol list) (t: Ts.Type) : S
                 // → `Named(target name, mapped args)` (item 11), recursing `mapType` over the
                 // type arguments rather than emitting the printed-form blob (`Named("string[]")`).
                 match asGenericInstantiation checker t with
-                | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType checker env))
+                | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType checker diags env))
                 | None ->
                     // Tightened fallthrough (cross-cutting producer discipline): now that
                     // generics are handled, keep only a BARE NOMINAL name as `Named`; THROW on a
@@ -238,11 +334,46 @@ let rec mapType (checker: Ts.TypeChecker) (env: Ts.Symbol list) (t: Ts.Type) : S
                     if looksNominal printed then
                         Schema.TypeRef.Named(printed, [])
                     else
-                        failwithf
-                            "mapType: unhandled type '%s' — structural/anonymous object types are deferred (item 14), and other non-nominal forms (function types, exotic primitives) are not yet mapped; extract a sharper representation before admitting it"
-                            printed
+                        // A STRUCTURAL/anonymous object type (`{ x: number }`, item 14,
+                        // DEFERRED) — or any other non-nominal form (function types, exotic
+                        // primitives) that surfaced as such. DEGRADE to the `Structural` stub
+                        // the provider already rehydrates (→ `FTUnknown`): harvest the object's
+                        // own properties as fields (each recursed through `mapType`) and key it
+                        // on the printed form as a stable content hash. The span anchors on the
+                        // type's declaration node when it has a symbol.
+                        let fields =
+                            t.getProperties ()
+                            |> Seq.map (fun p ->
+                                p.getName (),
+                                mapType checker diags env (checker.getTypeOfSymbolAtLocation (p, declOf p))
+                            )
+                            |> List.ofSeq
 
-let private mapParam (checker: Ts.TypeChecker) (env: Ts.Symbol list) (p: Ts.Symbol) : Schema.Param =
+                        let span =
+                            match t.getSymbol () with
+                            | Some s ->
+                                match s.declarations with
+                                | Some ds when ds.Count > 0 -> spanOfNode (unbox ds.[0])
+                                | _ -> None
+                            | None -> None
+
+                        emitWarning
+                            diags
+                            "structural-object-stubbed"
+                            printed
+                            span
+                            (sprintf
+                                "anonymous/structural type '%s' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+                                printed)
+
+                        Schema.TypeRef.Structural(printed, fields)
+
+let private mapParam
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (env: Ts.Symbol list)
+    (p: Ts.Symbol)
+    : Schema.Param =
     // A parameter symbol's declaration is the `ParameterDeclaration` node carrying
     // the syntactic optional/rest markers. Classify by TOKEN PRESENCE on the node
     // (runtime-structural, per the producer discipline), never raw numeric flags:
@@ -253,7 +384,7 @@ let private mapParam (checker: Ts.TypeChecker) (env: Ts.Symbol list) (p: Ts.Symb
 
     {
         Name = p.getName ()
-        Type = mapType checker env (checker.getTypeOfSymbolAtLocation (p, decl))
+        Type = mapType checker diags env (checker.getTypeOfSymbolAtLocation (p, decl))
         Optional = paramDecl.questionToken.IsSome || paramDecl.initializer.IsSome
         Rest = paramDecl.dotDotDotToken.IsSome
     }
@@ -262,14 +393,19 @@ let private mapParam (checker: Ts.TypeChecker) (env: Ts.Symbol list) (p: Ts.Symb
 /// DECLARING type's typars for a member, or the function's OWN typars for a free
 /// function (item 11). `TypeParams` is the signature's own generic-parameter count
 /// (the method axis) regardless of `env`; for a free function it coincides with `env`.
-let private mapSignature (checker: Ts.TypeChecker) (env: Ts.Symbol list) (sg: Ts.Signature) : Schema.Signature =
+let private mapSignature
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (env: Ts.Symbol list)
+    (sg: Ts.Signature)
+    : Schema.Signature =
     {
         TypeParams =
             sg.getTypeParameters ()
             |> Option.map (fun a -> a.Count)
             |> Option.defaultValue 0
-        Params = sg.getParameters () |> Seq.map (mapParam checker env) |> List.ofSeq
-        Returns = mapType checker env (sg.getReturnType ())
+        Params = sg.getParameters () |> Seq.map (mapParam checker diags env) |> List.ofSeq
+        Returns = mapType checker diags env (sg.getReturnType ())
     }
 
 /// Guard against asymmetric get/set accessors (TS 4.3 `get x(): string` / `set
@@ -284,7 +420,12 @@ let private mapSignature (checker: Ts.TypeChecker) (env: Ts.Symbol list) (sg: Ts
 /// discipline). The getter's RETURN type and the setter's lone PARAMETER type are
 /// each resolved through `getSignatureFromDeclaration` and compared at the mapped
 /// `TypeRef` level so the comparison sees what the manifest would actually carry.
-let private checkAccessorSymmetry (checker: Ts.TypeChecker) (env: Ts.Symbol list) (prop: Ts.Symbol) : unit =
+let private checkAccessorSymmetry
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (env: Ts.Symbol list)
+    (prop: Ts.Symbol)
+    : unit =
     let flags = prop.getFlags ()
 
     if
@@ -303,7 +444,7 @@ let private checkAccessorSymmetry (checker: Ts.TypeChecker) (env: Ts.Symbol list
         | Some g, Some s ->
             let getReturn =
                 match checker.getSignatureFromDeclaration (unbox g) with
-                | Some sg -> mapType checker env (sg.getReturnType ())
+                | Some sg -> mapType checker diags env (sg.getReturnType ())
                 | None -> failwithf "accessor '%s' getter has no resolvable signature" (prop.getName ())
 
             let setParam =
@@ -317,15 +458,24 @@ let private checkAccessorSymmetry (checker: Ts.TypeChecker) (env: Ts.Symbol list
                             (prop.getName ())
                             ps.Count
 
-                    mapType checker env (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
+                    mapType checker diags env (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
                 | None -> failwithf "accessor '%s' setter has no resolvable signature" (prop.getName ())
 
             if getReturn <> setParam then
-                failwithf
-                    "accessor '%s' has asymmetric get/set types (get returns %A, set accepts %A); a TS-only construct with no backend analog — extract a sharper schema before admitting it"
+                // Asymmetric get/set types: a TS-only construct with no backend analog.
+                // DEGRADE by NARROWING to the getter's type — the property already lowers
+                // to `getTypeOfSymbolAtLocation` (the getter's return) in `mapMember`, so
+                // recording the warning here is enough; the read side is the one kept.
+                emitWarning
+                    diags
+                    "asymmetric-accessor-narrowed"
                     (prop.getName ())
-                    getReturn
-                    setParam
+                    (spanOfNode (unbox g))
+                    (sprintf
+                        "accessor '%s' has asymmetric get/set types (get returns %A, set accepts %A); narrowed to the getter's type"
+                        (prop.getName ())
+                        getReturn
+                        setParam)
         | _ -> ()
 
 /// `isStatic` is supplied by the caller, not read off the symbol: instance members
@@ -345,11 +495,12 @@ let private checkAccessorSymmetry (checker: Ts.TypeChecker) (env: Ts.Symbol list
 /// while the additive method `TypeParams` COUNT is still emitted per signature.
 let private mapMember
     (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
     (isStatic: bool)
     (prop: Ts.Symbol)
     : Schema.Member =
-    checkAccessorSymmetry checker env prop
+    checkAccessorSymmetry checker diags env prop
 
     let t = checker.getTypeOfSymbolAtLocation (prop, declOf prop)
     let callSigs = t.getCallSignatures ()
@@ -362,7 +513,7 @@ let private mapMember
             Name = prop.getName ()
             Kind = Schema.MemberKind.Method
             Type = None
-            Signatures = callSigs |> Seq.map (mapSignature checker env) |> List.ofSeq
+            Signatures = callSigs |> Seq.map (mapSignature checker diags env) |> List.ofSeq
             Static = isStatic
             Optional = false
         }
@@ -370,7 +521,7 @@ let private mapMember
         {
             Name = prop.getName ()
             Kind = Schema.MemberKind.Property
-            Type = Some(mapType checker env t)
+            Type = Some(mapType checker diags env t)
             Signatures = []
             Static = isStatic
             Optional = false
@@ -392,6 +543,7 @@ let private mapMember
 /// to 0, matching the seam's "MethodArity = 0 for every constructor" convention.
 let private ctorMemberOf
     (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
     (ctorSigs: ResizeArray<Ts.Signature>)
     : Schema.Member option =
@@ -406,7 +558,7 @@ let private ctorMemberOf
                 Signatures =
                     ctorSigs
                     |> Seq.map (fun sg ->
-                        { mapSignature checker env sg with
+                        { mapSignature checker diags env sg with
                             TypeParams = 0
                         }
                     )
@@ -441,9 +593,14 @@ let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.Impor
 /// Each base maps through the existing `mapType` (its printed nominal name → `Named`).
 /// The declared type of a class/interface symbol IS an `InterfaceType` at runtime; the
 /// `unbox` is a Fable no-op cast satisfying the binding's parameter type.
-let private extendsBases (checker: Ts.TypeChecker) (env: Ts.Symbol list) (declared: Ts.Type) : Schema.TypeRef list =
+let private extendsBases
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (env: Ts.Symbol list)
+    (declared: Ts.Type)
+    : Schema.TypeRef list =
     checker.getBaseTypes (unbox<Ts.InterfaceType> declared)
-    |> Seq.map (fun bt -> mapType checker env (unbox<Ts.Type> bt))
+    |> Seq.map (fun bt -> mapType checker diags env (unbox<Ts.Type> bt))
     |> List.ofSeq
 
 /// A class's `implements` interfaces — the half `getBaseTypes` omits (see `extendsBases`).
@@ -457,6 +614,7 @@ let private extendsBases (checker: Ts.TypeChecker) (env: Ts.Symbol list) (declar
 /// unresolvable entry rather than silently dropping a declared interface.
 let private classImplements
     (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
     (resolved: Ts.Symbol)
     : Schema.TypeRef list =
@@ -479,14 +637,18 @@ let private classImplements
                             else
                                 s
 
-                        mapType checker env (checker.getDeclaredTypeOfSymbol target)
+                        mapType checker diags env (checker.getDeclaredTypeOfSymbol target)
                     | None -> failwithf "class implements clause entry has no resolvable interface symbol"
                 )
             | None -> Seq.empty
         )
         |> List.ofSeq
 
-let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Export option =
+let rec private mapExport
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (sym: Ts.Symbol)
+    : Schema.Export option =
     // Follow re-export aliases (`export { x } from …`, `export default <named>`,
     // `export = <named>`) so flags/type/name are read off the REAL underlying
     // symbol, not the alias stub. The export-table entry's escaped name still
@@ -521,6 +683,38 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         else
             raw
 
+    // DECLARATION MERGING (item 17, deferred): a namespace (Module) symbol can ALSO
+    // carry a dominant type/value flag (`class C {}; namespace C {}`). A dominant arm
+    // below wins and the namespace half is DROPPED for v1 — record the drop rather
+    // than silently losing it. A PURE namespace carries ONLY the Module flag and is
+    // faithfully emitted by the Module arm, so it must NOT diagnose. Span anchors on
+    // the dropped `ModuleDeclaration` node when present.
+    if
+        hasFlag flags Ts.SymbolFlags.Module
+        && (hasFlag flags Ts.SymbolFlags.Class
+            || hasFlag flags Ts.SymbolFlags.Interface
+            || hasFlag flags Ts.SymbolFlags.Function
+            || hasFlag flags Ts.SymbolFlags.Enum
+            || hasFlag flags Ts.SymbolFlags.Variable
+            || hasFlag flags Ts.SymbolFlags.TypeAlias)
+    then
+        let nsSpan =
+            match resolved.declarations with
+            | Some ds ->
+                match ds |> Seq.tryFind (fun d -> ts.isModuleDeclaration (unbox d)) with
+                | Some d -> spanOfNode (unbox d)
+                | None -> None
+            | None -> None
+
+        emitWarning
+            diags
+            "merged-namespace-dropped"
+            name
+            nsSpan
+            (sprintf
+                "declaration-merged namespace '%s' dropped; the dominant declaration is kept (the seam does not yet model a type carrying a static namespace)"
+                name)
+
     if hasFlag flags Ts.SymbolFlags.Interface then
         let declared = checker.getDeclaredTypeOfSymbol resolved
         // Declaring-axis typar scope (item 11): a member typed `T` resolves to its
@@ -529,18 +723,26 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
         let members =
             checker.getPropertiesOfType declared
-            |> Seq.map (mapMember checker env false)
+            |> Seq.map (mapMember checker diags env false)
             |> List.ofSeq
 
         // An interface can carry a `new(): T` construct signature (the
         // constructor-interface idiom, `interface FooCtor { new(): Foo }`); it lands
         // on the DECLARED type itself. Append it as a `.ctor` member like a class.
         let ctorMember =
-            ctorMemberOf checker env (declared.getConstructSignatures ()) |> Option.toList
+            ctorMemberOf checker diags env (declared.getConstructSignatures ())
+            |> Option.toList
 
         // Heritage (item 16): an interface's heritage is its `extends` interfaces only
         // (an interface cannot have a base class), so `getBaseTypes` alone is faithful.
-        Some(Schema.Export.Interface(name, List.length env, members @ ctorMember, extendsBases checker env declared))
+        Some(
+            Schema.Export.Interface(
+                name,
+                List.length env,
+                members @ ctorMember,
+                extendsBases checker diags env declared
+            )
+        )
     elif hasFlag flags Ts.SymbolFlags.Class then
         // Two distinct walks keep the static/instance split honest (item 3): the
         // DECLARED type yields the instance members; the symbol's TYPE-AT-LOCATION is
@@ -558,17 +760,18 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
         let instanceMembers =
             checker.getPropertiesOfType instanceTy
-            |> Seq.map (mapMember checker env false)
+            |> Seq.map (mapMember checker diags env false)
             |> List.ofSeq
 
         let staticMembers =
             staticTy.getProperties ()
             |> Seq.filter (fun p -> p.getName () <> "prototype")
-            |> Seq.map (mapMember checker env true)
+            |> Seq.map (mapMember checker diags env true)
             |> List.ofSeq
 
         let ctorMember =
-            ctorMemberOf checker env (staticTy.getConstructSignatures ()) |> Option.toList
+            ctorMemberOf checker diags env (staticTy.getConstructSignatures ())
+            |> Option.toList
 
         // Heritage (item 16): a class's `extends` base CLASS comes from `getBaseTypes`
         // on the instance type, its `implements` interfaces from the heritage clauses
@@ -576,7 +779,8 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         // provider disambiguates base-class vs interface by name-resolving each entry
         // against the manifest's type table (the schema carries no base/interface bit).
         let heritage =
-            extendsBases checker env instanceTy @ classImplements checker env resolved
+            extendsBases checker diags env instanceTy
+            @ classImplements checker diags env resolved
 
         Some(Schema.Export.Class(name, List.length env, instanceMembers @ staticMembers @ ctorMember, heritage, import))
     elif hasFlag flags Ts.SymbolFlags.Function then
@@ -587,7 +791,7 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         // unambiguous). `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
         let sigs =
             t.getCallSignatures ()
-            |> Seq.map (fun sg -> mapSignature checker (sigTypars sg) sg)
+            |> Seq.map (fun sg -> mapSignature checker diags (sigTypars sg) sg)
             |> List.ofSeq
 
         Some(Schema.Export.Function(name, sigs, import))
@@ -603,7 +807,7 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 
         let isConst = int (ts.getCombinedNodeFlags decl) &&& int Ts.NodeFlags.Const <> 0
 
-        Some(Schema.Export.Variable(name, mapType checker [] varTy, isConst, import))
+        Some(Schema.Export.Variable(name, mapType checker diags [] varTy, isConst, import))
     elif hasFlag flags Ts.SymbolFlags.Enum then
         // `enum` AND `const enum` (`SymbolFlags.Enum` ORs `RegularEnum | ConstEnum`).
         // Read members straight off the `EnumDeclaration.members` node list — NOT
@@ -654,7 +858,7 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         // (authored vs resolved form) is still deferred.
         let target = checker.getDeclaredTypeOfSymbol resolved
         let env = declTyparsOf checker (declOf resolved)
-        Some(Schema.Export.TypeAlias(name, List.length env, mapType checker env target))
+        Some(Schema.Export.TypeAlias(name, List.length env, mapType checker diags env target))
     elif hasFlag flags Ts.SymbolFlags.Module then
         // `namespace NS { … }` / `module NS { … }` (item 17). `SymbolFlags.Module`
         // is the named constant ORing `ValueModule | NamespaceModule` — the SAME
@@ -676,7 +880,7 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
         let nested =
             checker.getExportsOfModule resolved
             |> List.ofSeq
-            |> List.choose (mapExport checker)
+            |> List.choose (mapExport checker diags)
 
         Some(Schema.Export.Namespace(name, nested))
     else
@@ -692,7 +896,11 @@ let rec private mapExport (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Schema.Ex
 /// `export = X` is not a named member of the module — `tryGetMemberInModuleExports`
 /// filters it out too), so read it straight from the symbol's export table under its
 /// reserved internal name and prepend it. The entry is an alias; `mapExport` follows it.
-let private extractModuleExports (checker: Ts.TypeChecker) (moduleSym: Ts.Symbol) : Schema.Export list =
+let private extractModuleExports
+    (checker: Ts.TypeChecker)
+    (diags: ResizeArray<Schema.Diagnostic>)
+    (moduleSym: Ts.Symbol)
+    : Schema.Export list =
     let exportSyms =
         let named = checker.getExportsOfModule moduleSym |> List.ofSeq
         let exportEqKey: Ts.__String = U2.Case2 Ts.InternalSymbolName.ExportEquals
@@ -701,7 +909,7 @@ let private extractModuleExports (checker: Ts.TypeChecker) (moduleSym: Ts.Symbol
         | Some tbl when tbl.has exportEqKey -> tbl.get exportEqKey :: named
         | _ -> named
 
-    exportSyms |> List.choose (mapExport checker)
+    exportSyms |> List.choose (mapExport checker diags)
 
 let private moduleSymbolOf (checker: Ts.TypeChecker) (sf: Ts.SourceFile) (label: string) : Ts.Symbol =
     match checker.getSymbolAtLocation (unbox sf) with
@@ -731,6 +939,8 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
     | None -> failwithf "could not load source file '%s'" dtsPath
     | Some sf ->
         let moduleSym = moduleSymbolOf checker sf dtsPath
+        let diags = ResizeArray<Schema.Diagnostic>()
+        let exports = extractModuleExports checker diags moduleSym
 
         {
             SchemaVersion = Schema.SchemaVersion
@@ -738,10 +948,12 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
             // A single local `.d.ts` carries no package version (no resolving
             // `package.json`), so the stamp stays `null` — preserved exactly.
             Version = None
-            Exports = extractModuleExports checker moduleSym
-            // Phase 1: the diagnostics channel exists in the schema; the extractor
-            // does not yet record degradations (it still throws), so this is empty.
-            Diagnostics = []
+            Exports = exports
+            // Per-type degradations recorded during the walk (Phase 2): a faithful
+            // representation was impossible but the type could be named, so it was
+            // degraded + diagnosed rather than aborting the extraction. Spans are
+            // relativized against the `.d.ts`'s directory so the manifest is portable.
+            Diagnostics = relativizeDiagnostics (pathDirname dtsPath) diags
         }
 
 /// The package version stamp (item 18). Preference order:
@@ -828,13 +1040,16 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
                     | None -> failwithf "resolved entry '%s' is not in the program" resolvedFileName
 
             let moduleSym = moduleSymbolOf checker sf resolvedFileName
+            let diags = ResizeArray<Schema.Diagnostic>()
+            let exports = extractModuleExports checker diags moduleSym
 
             {
                 SchemaVersion = Schema.SchemaVersion
                 Package = packageName
                 Version = packageVersionOf resolvedModule resolvedFileName
-                Exports = extractModuleExports checker moduleSym
-                Diagnostics = []
+                Exports = exports
+                // Spans relativized against the package resolve dir for portability.
+                Diagnostics = relativizeDiagnostics resolveFromDir diags
             }
     finally
         if existsSync entryPath then
