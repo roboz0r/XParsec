@@ -284,7 +284,7 @@ module internal UnificationInferRecordAccess =
                         {
                             Key = m.Key
                             IsStatic = false
-                            IsProperty = m.IsProperty
+                            Storage = m.Storage
                             Signature = memberSig
                             OptionalDefaults = m.OptionalDefaults
                         }
@@ -322,7 +322,7 @@ module internal UnificationInferRecordAccess =
                         {
                             Key = m.Key
                             IsStatic = false
-                            IsProperty = m.IsProperty
+                            Storage = m.Storage
                             Signature = memberSig
                             OptionalDefaults = m.OptionalDefaults
                         }
@@ -383,7 +383,7 @@ module internal UnificationInferRecordAccess =
                     {
                         Key = m.Key
                         IsStatic = false
-                        IsProperty = m.IsProperty
+                        Storage = m.Storage
                         Signature = memberSig
                         OptionalDefaults = m.OptionalDefaults
                     }
@@ -493,7 +493,7 @@ module internal UnificationInferRecordAccess =
                     {
                         Key = m.Key
                         IsStatic = false
-                        IsProperty = false
+                        Storage = MemberStorage.Method
                         Signature = memberSig
                         // An indexer's accessor takes no omittable optionals.
                         OptionalDefaults = []

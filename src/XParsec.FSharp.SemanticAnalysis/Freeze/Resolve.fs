@@ -268,7 +268,7 @@ module internal FreezeResolve =
     /// `obj` slots read off its function-type domain at the call site instead.
     let externalHeadDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
         match fnT with
-        | TExpr.ExternalMember(_, _, _, false, _, _) -> externalMethodParamTy ctx fnKey
+        | TExpr.ExternalMember(_, _, _, MemberStorage.Method, _, _) -> externalMethodParamTy ctx fnKey
         | _ -> ValueNone
 
     /// Per-argument parameter SemTypes for a *member* call, flattened to the

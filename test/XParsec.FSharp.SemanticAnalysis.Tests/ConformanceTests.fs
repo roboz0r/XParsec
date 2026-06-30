@@ -556,7 +556,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
     {
         Name = name
         IsStatic = false
-        IsProperty = false
+        Storage = MemberStorage.Method
         Signature =
             {
                 DeclaringArity = 0

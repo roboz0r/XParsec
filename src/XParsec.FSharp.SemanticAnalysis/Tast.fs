@@ -312,15 +312,16 @@ type TExprG<'ty, 'tok> =
     /// codegen (P4) mints the ref off the node's identity instead of re-resolving by
     /// name — the external analogue of `TExpr.Var`'s `BindingSite`. `receiver` is
     /// `ValueNone` for a static member (`EqualityComparer<int>.Default`) and
-    /// `ValueSome` for an instance member (`…Default.GetHashCode`). `isProperty`
-    /// distinguishes a property get from a method value/group. `ty` is the access's
-    /// result type — the property's type, or the method's *curried* function type
-    /// (a `… GetHashCode 5` lands as `App(ExternalMember(…, ty = int -> int), 5)`).
+    /// `ValueSome` for an instance member (`…Default.GetHashCode`). `storage`
+    /// distinguishes a value member (field/property get) from a method value/group —
+    /// and, at CLR emission, a field (`ldfld`) from a property (`call get_X`). `ty` is
+    /// the access's result type — the value member's type, or the method's *curried*
+    /// function type (`… GetHashCode 5` ⇒ `App(ExternalMember(…, ty = int -> int), 5)`).
     | ExternalMember of
         receiver: TExprG<'ty, 'tok> voption *
         key: SymbolKey *
         memberName: string *
-        isProperty: bool *
+        storage: MemberStorage *
         ty: 'ty *
         tok: 'tok
     /// Lowered printf / string-interpolation:

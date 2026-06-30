@@ -112,7 +112,7 @@ let tests =
                 match provider.TryLookupMember(eqComparer, "Default") with
                 | ValueSome m ->
                     Expect.isTrue m.IsStatic "Default is static"
-                    Expect.isTrue m.IsProperty "Default is a property"
+                    Expect.equal m.Storage MemberStorage.Property "Default is a property"
                     Expect.equal m.Origin.DeclaringType (Some eqComparer) "member origin names the declaring type"
 
                     // Instantiated at `'T = int`, the property type is
@@ -135,13 +135,29 @@ let tests =
                 match provider.TryLookupMember(eqComparer, "GetHashCode") with
                 | ValueSome m ->
                     Expect.isFalse m.IsStatic "GetHashCode(T) is an instance method"
-                    Expect.isFalse m.IsProperty "a method, not a property"
+                    Expect.equal m.Storage MemberStorage.Method "a method, not a property"
 
                     // Instantiated at `'T = int`: `int -> int`.
                     match ExternalSymbols.instantiateSignature m [| TyConst("int", EqArray.empty) |] 0 with
                     | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
                     | other -> failtestf "expected int -> int, got %A" other
                 | ValueNone -> failtest "GetHashCode did not resolve"
+            }
+
+            test "String.Empty resolves as a genuine static FIELD (not a property)" {
+                // A real public field — invisible to the property/method walks before the
+                // `GetFields` pass. It must carry `Storage = Field` so emission lowers it to
+                // `ldsfld` (a `call get_Empty` would `MissingMethodException` — String has no
+                // such accessor).
+                match provider.TryLookupMember("System.String", "Empty") with
+                | ValueSome m ->
+                    Expect.equal m.Storage MemberStorage.Field "Empty is a field"
+                    Expect.isTrue m.IsStatic "Empty is static"
+
+                    match ExternalSymbols.instantiateSignature m [||] 0 with
+                    | TyConst("string", _) -> ()
+                    | other -> failtestf "Empty should be typed string, got %A" other
+                | ValueNone -> failtest "String.Empty did not resolve as a field"
             }
 
             test "metadata templates instantiate to the expected use-site types" {

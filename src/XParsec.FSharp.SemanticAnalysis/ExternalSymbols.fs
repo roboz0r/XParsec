@@ -220,9 +220,10 @@ type ExternalUnionCase =
 /// `unit`); `Return` the result. Open typars are baked as `FTTypar(Declaring,i)`
 /// (the declaring type's typars) / `FTTypar(Method,j)` (the method's own) — the
 /// `DeclaringArity` / `MethodArity` counts give each axis's width. For a
-/// property (`ExternalMember.IsProperty`) there are no parameters: `Parameters`
-/// is `unit` and the value type lives in `Return`; consumers gate reconstruction
-/// on `IsProperty` (see `ExternalSymbols.instantiateSignature`). The two-axis
+/// value member (`ExternalMember.IsValueMember` — a field or property) there are no
+/// parameters: `Parameters` is `unit` and the value type lives in `Return`; consumers
+/// gate reconstruction on `IsValueMember` (see `ExternalSymbols.instantiateSignature`).
+/// The two-axis
 /// data form is what unblocks generic external static methods (`truncate`).
 type ExternalSignature =
     {
@@ -257,7 +258,11 @@ type ExternalMember =
     {
         Name: string
         IsStatic: bool
-        IsProperty: bool
+        /// The storage/shape axis: `Field` / `Property` (value members) vs `Method`
+        /// (arrow member). `Field` vs `Property` matters only at CLR emission
+        /// (`ldfld` vs `call get_X`); consumers that only need value-vs-arrow read
+        /// `IsValueMember`. See `MemberStorage`.
+        Storage: MemberStorage
         /// The tupled `(Parameters, Return)` two-axis template, the declaring +
         /// method typars baked as `FTTypar` placeholders.
         /// `ExternalSymbols.instantiateSignature` / `openSignature` realise it.
@@ -293,6 +298,11 @@ type ExternalMember =
         OptionalDefaults: TConstValue list
     }
 
+    /// A value member (field or property) — no parameters, the value in `Return` —
+    /// as opposed to an arrow `Method`. The single predicate the inference/freeze
+    /// consumers gate on; only CLR emission cares about `Field` vs `Property`.
+    member m.IsValueMember = m.Storage.IsValueMember
+
     /// The canonical `.ctor` member shape every layer must agree on: `Name =
     /// ".ctor"`, instance, non-property, `MethodArity = 0`, keyed as a
     /// `MemberKind.Method` over `declKey`. The metadata layer (`MetadataSymbols`),
@@ -311,7 +321,7 @@ type ExternalMember =
         {
             Name = ".ctor"
             IsStatic = false
-            IsProperty = false
+            Storage = MemberStorage.Method
             Signature = signature
             MethodArity = 0
             Origin = origin
@@ -843,7 +853,7 @@ module ExternalSymbols =
         let decl i = declaringArgs.[i]
         let s = m.Signature
 
-        if m.IsProperty then
+        if m.IsValueMember then
             instantiateWith decl methodVar s.Return
         else
             TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
@@ -862,7 +872,7 @@ module ExternalSymbols =
         let methodOpen j = TyTypar(TyparAxis.Method, j)
         let s = m.Signature
 
-        if m.IsProperty then
+        if m.IsValueMember then
             instantiateWith decl methodOpen s.Return
         else
             TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return)

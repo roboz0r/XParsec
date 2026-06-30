@@ -31,6 +31,7 @@
     <Compile Include="PrintfPhase3Tests.fs" />
     <Compile Include="PrintfPhase4Tests.fs" />
     <Compile Include="FreeFnOverloadTests.fs" />
+    <Compile Include="MemberOverloadTests.fs" />
     <Compile Include="TsManifestEnumTests.fs" />
     <Compile Include="EnumTests.fs" />
     <Compile Include="Program.fs" />

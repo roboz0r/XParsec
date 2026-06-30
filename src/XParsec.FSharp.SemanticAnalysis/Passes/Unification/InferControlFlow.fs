@@ -43,11 +43,11 @@ module internal UnificationInferControlFlow =
         : ExternalEnumProbe voption =
         let moveNext =
             enumShape.Members
-            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsProperty)
+            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsValueMember)
 
         let current =
             enumShape.Members
-            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsProperty)
+            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsValueMember)
 
         match moveNext, current with
         | Some mn, Some cur ->
@@ -367,7 +367,7 @@ module internal UnificationInferControlFlow =
         : (SemType * ForInEnumerator) voption =
         match
             shape.Members
-            |> Array.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsProperty)
+            |> Array.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsValueMember)
         with
         | None -> ValueNone
         | Some ge ->

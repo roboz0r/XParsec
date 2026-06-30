@@ -132,7 +132,7 @@ module TsManifestProvider =
             {
                 Name = mem.Name
                 IsStatic = mem.Static
-                IsProperty = false
+                Storage = MemberStorage.Method
                 Signature = signatureOf declArity sg
                 MethodArity = sg.TypeParams
                 Origin = origin
@@ -160,7 +160,7 @@ module TsManifestProvider =
                 {
                     Name = mem.Name
                     IsStatic = mem.Static
-                    IsProperty = true
+                    Storage = MemberStorage.Property
                     Signature =
                         {
                             DeclaringArity = declArity

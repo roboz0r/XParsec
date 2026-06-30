@@ -106,6 +106,27 @@ and [<RequireQualifiedAccess>] MemberKind =
     /// emit the `.override` row.
     | ExplicitInterfaceImpl of iface: SymbolKey
 
+/// How an external member is STORED/accessed — the storage-and-shape axis,
+/// orthogonal to the key-identity `MemberKind` above (which interns vtable slots).
+/// `Field` and `Property` are both *value members* (no parameters, value in the
+/// signature's `Return`); they diverge only at CLR emission — a `Field` reads via a
+/// `FieldRef` + `ldfld`/`ldsfld`, a `Property` via its `get_X` getter `MemberRef` +
+/// `call`. On JS both are a plain value access (a `Field` adds only `readonly`
+/// fidelity, not yet modelled). `Method` is an arrow member (`call`/JS call).
+/// Consumers that only care about value-vs-arrow read `IsValueMember` (here, or the
+/// forwarding `ExternalMember.IsValueMember` / `ResolvedExternalMember.IsValueMember`)
+/// rather than matching this directly.
+[<RequireQualifiedAccess>]
+type MemberStorage =
+    | Field
+    | Property
+    | Method
+
+    /// A value member (`Field`/`Property` — no parameters, value in the signature's
+    /// `Return`) vs an arrow `Method`. The canonical value-vs-arrow predicate; the
+    /// `ExternalMember` / `ResolvedExternalMember` members of the same name forward here.
+    member s.IsValueMember = s <> MemberStorage.Method
+
 /// Revisit if region analysis ever wants union-find (it shouldn't — regions
 /// are inequality, not equality).
 [<Struct>]

@@ -400,6 +400,13 @@ type ICodegenProvider =
     abstract ExternalMemberRefOn:
         key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType -> EntityHandle
 
+    /// Mint a field `MemberRef` for a genuine external public field (`String.Empty`,
+    /// `ValueTuple`2<_,_>.Item1`), read via `ldfld`/`ldsfld` rather than a `get_<name>`
+    /// accessor. `declTy` is the receiver's resolved type for an instance field (it pins
+    /// the declaring instantiation) and `ValueNone` for a static field (whose declaring
+    /// args are recovered from the open field type vs the use-site `memberTy`).
+    abstract ExternalFieldRef: key: SymbolKey * declTy: FrozenType voption * memberTy: FrozenType -> EntityHandle
+
     abstract FormatHandles: unit -> FormatHandles
 
     /// Lives on the provider because encoding a `FrozenType` needs the target's

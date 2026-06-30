@@ -303,6 +303,9 @@ type ClrProvider
         member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
             ext.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy)
 
+        member _.ExternalFieldRef(key, declTy, memberTy) =
+            ext.ExternalFieldRef(key, declTy, memberTy)
+
         member _.FSharpCoreDependencies() = env.FSharpCoreDependencies()
 
         member _.TryEmitCall(compiledName, key, fnTy) =

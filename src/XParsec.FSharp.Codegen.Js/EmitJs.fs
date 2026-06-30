@@ -627,8 +627,12 @@ module EmitJs =
 
         // A member on an external type — imported from its runtime-js module and applied
         // receiver-first; instance method arguments arrive through the enclosing `App`.
-        | TExprG.ExternalMember(receiver, key, memberName, isProperty, _, _) ->
+        | TExprG.ExternalMember(receiver, key, memberName, storage, _, _) ->
             let declKey = Members.declKey key
+            // JS has no field/property distinction at access — both are a value member
+            // (the `get_`-style mangled import); only a `Method` is an arrow. (A `Field`
+            // here would gain only `readonly` fidelity, not yet modelled.)
+            let isProperty = storage.IsValueMember
 
             if isErasedGroupingType ctx declKey then
                 // ERASE (Tier 2 item 9b): the declaring type is a synthetic grouping of

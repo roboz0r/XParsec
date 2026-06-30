@@ -381,7 +381,7 @@ module EmitCall =
 
             foldInvoke recur env b sm.ResultTy rest
 
-        | TExprG.ExternalMember(receiver, key, name, false, memberTy, _) ->
+        | TExprG.ExternalMember(receiver, key, name, MemberStorage.Method, memberTy, _) ->
             // An external instance/static method call: push the receiver (instance
             // only) beneath the arguments, then `call` (static) / `callvirt`
             // (instance) the keyed member ref. A .NET method is tupled

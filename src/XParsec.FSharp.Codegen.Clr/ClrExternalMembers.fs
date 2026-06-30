@@ -19,6 +19,7 @@ open XParsec.FSharp.SemanticAnalysis
 type internal ExternalMemberCacheKey =
     | Ref of key: SymbolKey * isProperty: bool * isStatic: bool * memberTy: FrozenType
     | On of key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType
+    | Field of key: SymbolKey * declTy: FrozenType voption * memberTy: FrozenType
 
 /// The identity bridge: a resolved external symbol's
 /// `Origin`/`SymbolKey` → an `AssemblyRef`/`TypeRef`/`TypeSpec`/`MemberRef`, with no per-member
@@ -286,6 +287,62 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         memberName)
                     methodArgs
 
+            externalMemberCache.[memoKey] <- handle
+            handle
+
+    /// Mint a field `MemberRef` for a genuine external public field (`String.Empty`,
+    /// `ValueTuple`2<_,_>.Item1`) — read via `ldfld`/`ldsfld`, not a `get_X` accessor.
+    /// A field is a value member: its open type template is `Signature.Return`, encoded
+    /// (in `!i` form) as the FIELD-calling-convention signature so it matches the generic
+    /// field definition. The PARENT `TypeSpec`'s instantiation comes from `declTy` when
+    /// the access has a receiver (the receiver's resolved type is authoritative — a
+    /// generic struct's field may mention only some typars, so recovery from the field
+    /// type alone under-determines them), else (a static field) it is recovered by
+    /// matching the open field type against the use-site `memberTy`. No `MethodSpec`.
+    let externalFieldRef (key: SymbolKey) (declTy: FrozenType voption) (memberTy: FrozenType) : EntityHandle =
+        let declKey, fieldName =
+            match key with
+            | SymbolKey.MemberKey(d, m, _, _) -> d, m
+            | other -> failwithf "ClrProvider: ExternalField key is not a MemberKey: %A" other
+
+        let ns, name =
+            match declKey with
+            | SymbolKey.TypeKey(_, ns, name) -> ns, name
+            | other -> failwithf "ClrProvider: ExternalField declaring key is not a TypeKey: %A" other
+
+        let memoKey = ExternalMemberCacheKey.Field(key, declTy, memberTy)
+
+        match externalMemberCache.TryGetValue memoKey with
+        | true, h -> h
+        | _ ->
+            let declFullName = if ns = "" then name else ns + "." + name
+
+            let chosen = lookupChosen declFullName fieldName key
+            let openFieldTy = chosen.Signature.Return
+
+            let parent =
+                match declTy with
+                | ValueSome dt ->
+                    // Instance access: the receiver type pins the declaring instantiation
+                    // (and value-type / nested correctness), like `externalMemberRefOn`.
+                    typeSpecOf dt
+                | ValueNone ->
+                    // Static field: recover the declaring args from the open field type.
+                    let declArity = arityOfMetaName name
+                    let declArgs, _ = recoverOpenTypars declArity 0 openFieldTy memberTy
+
+                    let tref =
+                        match externalClassRef declKey with
+                        | ValueSome t -> t
+                        | ValueNone ->
+                            failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
+
+                    externalTypeSpec declKey tref declArgs
+
+            let s = BlobBuilder()
+            encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
+
+            let handle = toEntity (ctx.MemberRef(parent, fieldName, s))
             externalMemberCache.[memoKey] <- handle
             handle
 
@@ -560,6 +617,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
         externalMemberRefOn key declTy isProperty isStatic memberTy
+
+    member _.ExternalFieldRef(key, declTy, memberTy) = externalFieldRef key declTy memberTy
 
     member _.ExternalRecordCtor(key, args) = externalRecordCtor key args
 

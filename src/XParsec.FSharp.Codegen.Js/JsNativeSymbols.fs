@@ -50,7 +50,7 @@ module JsNativeSymbols =
         {
             Name = "message"
             IsStatic = false
-            IsProperty = true
+            Storage = MemberStorage.Property
             Signature =
                 {
                     DeclaringArity = 0
@@ -138,7 +138,11 @@ module JsNativeSymbols =
         {
             Name = name
             IsStatic = false
-            IsProperty = isProperty
+            Storage =
+                if isProperty then
+                    MemberStorage.Property
+                else
+                    MemberStorage.Method
             Signature =
                 {
                     DeclaringArity = declaringArity

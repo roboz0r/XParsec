@@ -185,7 +185,7 @@ module private MetadataMapping =
 
         acc
 
-    /// Property signature: value type only (no arrow). `IsProperty = true` on the member.
+    /// Property signature: value type only (no arrow). `Storage = Property` on the member.
     let tryPropertySignature (reverseCanon: Map<string, string>) (p: PropertyInfo) : FrozenType option =
         tryBuildType reverseCanon p.PropertyType
 
@@ -331,8 +331,35 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
             DeclaringType = declaring
         }
 
+    /// A genuine public FIELD (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) as an
+    /// `ExternalMember` — a value member the property/method walks never see. Reads via
+    /// `ldfld`/`ldsfld` (not a `get_X` accessor), so `Storage = Field`; its shape is a
+    /// value member (no params, value in `Return`), identical to a property, so it reuses
+    /// `propertySignature` and keys under the `Property` identity (empty `argSig`).
+    /// `IsLiteral` (a `const`, lowers to `ldc` not a field load) and `IsSpecialName` (the
+    /// enum `value__`), plus unmappable field types, drop out as `None`. Shared by the
+    /// eager `enumerateClassMembers` field walk and the lazy `TryLookupMember` fallback.
+    let fieldMemberOf (declKey: SymbolKey) (origin: SymbolOrigin) (arity: int) (f: FieldInfo) : ExternalMember option =
+        if f.IsLiteral || f.IsSpecialName then
+            None
+        else
+            match MetadataMapping.tryBuildType reverseCanon f.FieldType with
+            | Some valueTy ->
+                Some
+                    {
+                        Name = f.Name
+                        IsStatic = f.IsStatic
+                        Storage = MemberStorage.Field
+                        Signature = MetadataMapping.propertySignature arity valueTy
+                        MethodArity = 0
+                        Origin = origin
+                        Key = SymbolKey.MemberKey(declKey, f.Name, EqArray.empty, MemberKind.Property)
+                        OptionalDefaults = []
+                    }
+            | None -> None
+
     /// Public declared members of `t` whose signatures map. Accessors are modelled
-    /// through `IsProperty = true` and filtered from the method walk. Must hold `gate`.
+    /// through `Storage = Property` and filtered from the method walk. Must hold `gate`.
     let enumerateClassMembers (t: Type) : ExternalMember[] =
         let origin = originOf t (Some(MetadataMapping.metadataName t))
         let declKey = MetadataMapping.declTypeKey t
@@ -353,7 +380,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                         {
                             Name = p.Name
                             IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
-                            IsProperty = true
+                            Storage = MemberStorage.Property
                             Signature = MetadataMapping.propertySignature arity valueTy
                             MethodArity = 0
                             Origin = origin
@@ -380,7 +407,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                     {
                         Name = m.Name
                         IsStatic = m.IsStatic
-                        IsProperty = false
+                        Storage = MemberStorage.Method
                         Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
                         MethodArity = methodArity
                         Origin = origin
@@ -409,7 +436,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                     {
                         Name = "get_Item"
                         IsStatic = getter.IsStatic
-                        IsProperty = false
+                        Storage = MemberStorage.Method
                         Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
                         MethodArity = 0
                         Origin = origin
@@ -418,6 +445,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                     }
                 )
             )
+
+        // Genuine public FIELDS (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) —
+        // value members the property/method walks never see (see `fieldMemberOf`).
+        let fields =
+            t.GetFields declaredFlags |> Array.choose (fieldMemberOf declKey origin arity)
 
         // Constructors surface as `".ctor"`. `GetMethods` excludes them, so a
         // separate `GetConstructors` pass is required.
@@ -440,7 +472,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                 )
             )
 
-        Array.concat [| properties; methods; indexers; ctors |]
+        Array.concat [| properties; methods; indexers; fields; ctors |]
 
     /// Interface set as `(compiled-name, type-args)` templates. Unmappable interfaces
     /// are skipped. Must hold `gate`.
@@ -567,31 +599,45 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                                 )
                             )
                         | (null: PropertyInfo) ->
-                            st.GetMethods declaredFlags
-                            |> Array.filter (fun m -> m.Name = memberName)
-                            |> Array.sortByDescending (fun m -> m.GetParameters().Length)
-                            |> Array.choose (fun m ->
-                                MetadataMapping.tryMethodSignature reverseCanon m
-                                |> Option.map (fun (ps, ret) ->
-                                    let argSig =
-                                        m.GetParameters()
-                                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                        |> EqArray.ofArray
+                            let methods =
+                                st.GetMethods declaredFlags
+                                |> Array.filter (fun m -> m.Name = memberName)
+                                |> Array.sortByDescending (fun m -> m.GetParameters().Length)
+                                |> Array.choose (fun m ->
+                                    MetadataMapping.tryMethodSignature reverseCanon m
+                                    |> Option.map (fun (ps, ret) ->
+                                        let argSig =
+                                            m.GetParameters()
+                                            |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                            |> EqArray.ofArray
 
-                                    let methodArity = MetadataMapping.methodArityOf m
+                                        let methodArity = MetadataMapping.methodArityOf m
 
-                                    {
-                                        Name = memberName
-                                        IsStatic = m.IsStatic
-                                        IsProperty = false
-                                        Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
-                                        MethodArity = methodArity
-                                        Origin = origin
-                                        Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
-                                        OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
-                                    }
+                                        {
+                                            Name = memberName
+                                            IsStatic = m.IsStatic
+                                            Storage = MemberStorage.Method
+                                            Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
+                                            MethodArity = methodArity
+                                            Origin = origin
+                                            Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
+                                            OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
+                                        }
+                                    )
                                 )
-                            )
+
+                            if not (Array.isEmpty methods) then
+                                methods
+                            else
+                                // No property and no method by this name — try a genuine
+                                // field (`String.Empty`, `ValueTuple.Item1`), the lazy-path
+                                // analogue of the eager `fields` walk above.
+                                match st.GetField(memberName, declaredFlags) with
+                                | (null: FieldInfo) -> [||]
+                                | f ->
+                                    match fieldMemberOf declKey origin arity f with
+                                    | Some m -> [| m |]
+                                    | None -> [||]
                         | p ->
                             match MetadataMapping.tryPropertySignature reverseCanon p with
                             | Some valueTy ->
@@ -599,7 +645,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                                     {
                                         Name = memberName
                                         IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
-                                        IsProperty = true
+                                        Storage = MemberStorage.Property
                                         Signature = MetadataMapping.propertySignature arity valueTy
                                         MethodArity = 0
                                         Origin = origin

@@ -393,7 +393,27 @@ module EmitMember =
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.ExternalMember(receiver, key, _, true, ty, _) ->
+        | TExprG.ExternalMember(receiver, key, _, MemberStorage.Field, ty, _) ->
+            // A genuine external public field — read via `ldsfld` (static, e.g.
+            // `String.Empty`) or `ldfld` over the pushed receiver (instance, e.g. a
+            // `ValueTuple`'s `Item1`), against a field token (not a `get_X` accessor).
+            match receiver with
+            | ValueNone ->
+                let handle = env.Provider.ExternalFieldRef(key, ValueNone, ty)
+                b.Add(ILInstr.Ldsfld handle)
+            | ValueSome r ->
+                let receiverTy = typeOfExpr r
+                let handle = env.Provider.ExternalFieldRef(key, ValueSome receiverTy, ty)
+
+                // An unboxed value-type receiver is reached by address (as the property
+                // getter arm does); `ldfld` then reads the field off that managed pointer.
+                if isValueType env receiverTy then
+                    loadStructReceiverAddr recur env b r receiverTy
+                else
+                    recur env b r
+
+                b.Add(ILInstr.Ldfld handle)
+        | TExprG.ExternalMember(receiver, key, _, MemberStorage.Property, ty, _) ->
             // A standalone external *property* get: a static one (`call
             // get_<name>()`) or an instance one reached as the receiver of an outer
             // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
@@ -418,7 +438,7 @@ module EmitMember =
                 else
                     recur env b r
                     b.Add(ILInstr.Callvirt(handle, 1, 1))
-        | TExprG.ExternalMember(_, _, _, false, _, _) ->
+        | TExprG.ExternalMember(_, _, _, MemberStorage.Method, _, _) ->
             // An external method used as a first-class value (a method group, not
             // applied) needs closure synthesis — out of scope. Applied methods are
             // handled as an `App` head above.

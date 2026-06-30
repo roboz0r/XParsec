@@ -45,7 +45,7 @@ module internal FreezeExpr =
         // static, so the type-name receiver is dropped.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.IsProperty, ty, tok)
+            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.Storage, ty, tok)
         // `E.C1` — an enum-case access (project-local OR external TS-manifest enum).
         // Enum cases ARE static fields on the enum type (the "cases as static
         // members" decision, mirroring CLR enum field access), so this lowers to
@@ -482,7 +482,7 @@ module internal FreezeExpr =
                 else
                     ValueSome(translateExpr ctx r)
 
-            TExpr.ExternalMember(receiver, info.Key, memberName, info.IsProperty, ty, tok)
+            TExpr.ExternalMember(receiver, info.Key, memberName, info.Storage, ty, tok)
         // `ClassName<'args>.Prop` — local static property read on an explicitly
         // instantiated generic class (e.g. `Set<'T>.Empty`). Same lowering as the
         // folded `ClassName.Member` form; the `<'args>` only pinned the generic
@@ -555,7 +555,7 @@ module internal FreezeExpr =
                             ValueSome(translateExpr ctx r),
                             info.Key,
                             memberName,
-                            false,
+                            MemberStorage.Method,
                             memberFnTy,
                             tok
                         )
@@ -570,7 +570,7 @@ module internal FreezeExpr =
                             ValueSome(translateExpr ctx r),
                             info.Key,
                             memberName,
-                            false,
+                            MemberStorage.Method,
                             memberFnTy,
                             tok
                         )
@@ -936,7 +936,7 @@ module internal FreezeExpr =
             curr <-
                 match lastExternal with
                 | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
-                    TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.IsProperty, stepTy, tok)
+                    TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.Storage, stepTy, tok)
                 | _ ->
                     // The `TyparInterfaceCall` entry is keyed by the chain's first
                     // token, which a method call's receiver *prefix* (`this.Source` of

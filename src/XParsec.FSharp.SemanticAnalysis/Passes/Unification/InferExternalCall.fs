@@ -44,7 +44,7 @@ module internal UnificationInferExternalCall =
             {
                 Key = chosen.Key
                 IsStatic = chosen.IsStatic
-                IsProperty = chosen.IsProperty
+                Storage = chosen.Storage
                 Signature = memberSig
                 OptionalDefaults = chosen.OptionalDefaults
             }
@@ -211,7 +211,7 @@ module internal UnificationInferExternalCall =
             // record when `fn` was inferred (`ResolvedExternalMember.OptionalDefaults`),
             // so there is no provider re-query here.
             match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
-            | ValueSome info when not info.IsProperty && not (List.isEmpty info.OptionalDefaults) ->
+            | ValueSome info when not info.IsValueMember && not (List.isEmpty info.OptionalDefaults) ->
                 match info.Key with
                 | SymbolKey.MemberKey(_, _, argSig, _) ->
                     let optDefaults = info.OptionalDefaults

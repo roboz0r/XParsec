@@ -309,7 +309,7 @@ module internal UnificationInferResolve =
                 {
                     Key = m.Key
                     IsStatic = m.IsStatic
-                    IsProperty = m.IsProperty
+                    Storage = m.Storage
                     Signature = memberSig
                     OptionalDefaults = m.OptionalDefaults
                 }

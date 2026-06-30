@@ -49,7 +49,7 @@ let tests =
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
-                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy, _),
+                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, ghTy, _),
                             TExpr.Const(TConstValue.Int 5, _, _),
                             resultTy,
                             _) ->
@@ -76,7 +76,7 @@ let tests =
                     // The `Default` static property — receiver dropped (ValueNone),
                     // typed EqualityComparer<int>, empty argSig.
                     match inner with
-                    | TExpr.ExternalMember(ValueNone, defKey, "Default", true, defTy, _) ->
+                    | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, defTy, _) ->
                         match Unification.zonk defTy with
                         | TyClass(name, args) when
                             args.Length = 1
@@ -153,7 +153,12 @@ let tests =
                     )
 
                 match value with
-                | ValueSome(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", false, ghTy, _),
+                | ValueSome(TExpr.App(TExpr.ExternalMember(ValueSome inner,
+                                                           ghKey,
+                                                           "GetHashCode",
+                                                           MemberStorage.Method,
+                                                           ghTy,
+                                                           _),
                                       TExpr.Const(TConstValue.Int 5, _, _),
                                       resultTy,
                                       _)) ->
@@ -174,7 +179,7 @@ let tests =
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     match inner with
-                    | TExpr.ExternalMember(ValueNone, _, "Default", true, _, _) -> ()
+                    | TExpr.ExternalMember(ValueNone, _, "Default", MemberStorage.Property, _, _) -> ()
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
                 | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
             }
@@ -354,7 +359,7 @@ let tests =
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
-                | TExpr.ExternalMember(ValueNone, key, "Out", true, ty, _) ->
+                | TExpr.ExternalMember(ValueNone, key, "Out", MemberStorage.Property, ty, _) ->
                     match Unification.zonk ty with
                     | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
@@ -395,7 +400,7 @@ let tests =
                                                                      EqList [],
                                                                      MemberKind.Property),
                                                  "Out",
-                                                 true,
+                                                 MemberStorage.Property,
                                                  _,
                                                  _)) -> ()
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
@@ -424,5 +429,20 @@ let tests =
                 match System.Int32.TryParse n with
                 | true, v -> Expect.isTrue (v > 0) (sprintf "ProcessorCount is a positive int, got %d" v)
                 | false, _ -> failtestf "expected a numeric ProcessorCount, got %A" n
+            }
+
+            // End-to-end: a genuine external static FIELD (`String.Empty`) emits as
+            // `ldsfld` and runs. A regression here would emit `call get_Empty` — which
+            // `MissingMethodException`s at JIT, since `String` has no such accessor — so a
+            // clean run is the proof the field path (not the property path) is taken.
+            test "a genuine external static field (String.Empty) emits and runs" {
+                // Print the field directly (`%s`) to isolate the `ldsfld` — chaining an
+                // intrinsic like `.Length` off it is a separate emission path.
+                let src = "printfn \"[%s]\" System.String.Empty"
+                let _, artifact = compileSource "ExternalStaticField" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "[]" "String.Empty is the empty string"
             }
         ]

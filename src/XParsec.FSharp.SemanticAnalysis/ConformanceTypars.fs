@@ -190,7 +190,7 @@ module ConformanceTypars =
         if isProperty then ret else FTFun(parameters, ret)
 
     let private extractedSigOf (m: ExternalMember) : FrozenType =
-        memberSigOf m.IsProperty m.Signature.Parameters m.Signature.Return
+        memberSigOf m.IsValueMember m.Signature.Parameters m.Signature.Return
 
     /// The generic members of a frozen type declaration's body, paired with their
     /// property-ness. Augmentation members ride `Class`/`Union`/`Record`; an

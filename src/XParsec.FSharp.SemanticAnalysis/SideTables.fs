@@ -617,7 +617,8 @@ type ClassMemberIndexEntry =
 /// member-access node's `NodeKey`; `Freeze` reads it to mint a
 /// `TExpr.ExternalMember` carrying the interned `SymbolKey`. `IsStatic`
 /// distinguishes `Type.Member` from `value.Member` (drives whether Freeze keeps
-/// the receiver), `IsProperty` a property get from a method value.
+/// the receiver), `Storage` a value member (field/property) from a method value
+/// (and, at CLR emission, a `Field` from a `Property`).
 ///
 /// `Signature` is the member's **declared** type in the receiver's instantiation
 /// (`ExternalSymbols.openSignature` / `instantiateSignature`): for a method,
@@ -631,7 +632,7 @@ type ResolvedExternalMember =
     {
         Key: SymbolKey
         IsStatic: bool
-        IsProperty: bool
+        Storage: MemberStorage
         Signature: SemType
         /// The resolved member's trailing optional-parameter defaults, carried
         /// forward verbatim from `ExternalMember.OptionalDefaults` so a later call
@@ -640,6 +641,10 @@ type ResolvedExternalMember =
         /// for a member with no omittable optionals (the common case).
         OptionalDefaults: TConstValue list
     }
+
+    /// A value member (field/property) vs an arrow `Method` — the predicate the
+    /// optional-default gate and Freeze read; mirrors `ExternalMember.IsValueMember`.
+    member m.IsValueMember = m.Storage.IsValueMember
 
 /// A use of an operator as a value (`(+)` in `Seq.fold (+) …`), enqueued by
 /// `Unification.inferIdent` for the post-walk `resolveOperatorValues` drain. The

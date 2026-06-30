@@ -463,7 +463,7 @@ module VesperLib =
                     let m = members.[i]
                     let s = m.Signature
 
-                    match freezeMemberSig ctx m.IsProperty s.DeclaringArity deferred.[i] with
+                    match freezeMemberSig ctx m.IsValueMember s.DeclaringArity deferred.[i] with
                     | ValueSome sign ->
                         // Rebuild the member key's `argSig` from the now-frozen parameters
                         // (extraction stamped it empty — the signature was still deferred).
@@ -473,7 +473,7 @@ module VesperLib =
                         // signature walk), so it is propagated off the frozen signature
                         // here, overwriting the extraction-time `0` placeholder.
                         let m' =
-                            if m.IsProperty then
+                            if m.IsValueMember then
                                 { m with
                                     Signature = sign
                                     MethodArity = sign.MethodArity
@@ -1113,7 +1113,11 @@ module VesperLib =
                                 {
                                     Name = memberName
                                     IsStatic = isStatic
-                                    IsProperty = isProperty
+                                    Storage =
+                                        if isProperty then
+                                            MemberStorage.Property
+                                        else
+                                            MemberStorage.Method
                                     // Deferred: the signature CST is stashed in
                                     // `ctx.DeferredMembers` and frozen by the `toProvider`
                                     // finalize pass once the registry is complete (a sig may

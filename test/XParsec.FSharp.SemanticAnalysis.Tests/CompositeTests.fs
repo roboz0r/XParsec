@@ -37,7 +37,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                     {
                         Name = name
                         IsStatic = true
-                        IsProperty = false
+                        Storage = MemberStorage.Method
                         Signature =
                             {
                                 DeclaringArity = 0

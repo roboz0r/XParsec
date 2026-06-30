@@ -157,7 +157,7 @@ module UnificationInfer =
         // `Dispose()`, which can't be reached through a boxed interface slot.
         | ValueNone ->
             match ctx.Provider.TryLookupMember(name, "Dispose") with
-            | ValueSome m when not m.IsStatic && not m.IsProperty -> ValueSome m.Key
+            | ValueSome m when not m.IsStatic && not m.IsValueMember -> ValueSome m.Key
             | _ -> ValueNone
 
     /// True iff a project-local nominal type (class / union / record) implements the

@@ -116,7 +116,7 @@ let tests =
                     {
                         Name = "genericMethod"
                         IsStatic = true
-                        IsProperty = false
+                        Storage = MemberStorage.Method
                         Signature = signature
                         MethodArity = 2
                         Origin = SymbolOrigin.Empty
@@ -173,7 +173,11 @@ let tests =
                         {
                             Name = name
                             IsStatic = true
-                            IsProperty = isProperty
+                            Storage =
+                                if isProperty then
+                                    MemberStorage.Property
+                                else
+                                    MemberStorage.Method
                             Signature = signature
                             MethodArity = methodArity
                             Origin = SymbolOrigin.Empty

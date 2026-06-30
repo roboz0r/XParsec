@@ -1206,7 +1206,7 @@ module UnificationEngine =
                             {
                                 Key = m.Key
                                 IsStatic = false
-                                IsProperty = m.IsProperty
+                                Storage = m.Storage
                                 Signature = memberSig
                                 OptionalDefaults = m.OptionalDefaults
                             }
