@@ -40,7 +40,8 @@ let private paletteManifestJson =
         { "name": "Down", "value": { "kind": "string", "value": "down" } }
       ]
     }
-  ]
+  ],
+  "diagnostics": []
 }"""
 
 let private paletteManifest: Schema.PackageManifest =

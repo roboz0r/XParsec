@@ -739,6 +739,9 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
             // `package.json`), so the stamp stays `null` — preserved exactly.
             Version = None
             Exports = extractModuleExports checker moduleSym
+            // Phase 1: the diagnostics channel exists in the schema; the extractor
+            // does not yet record degradations (it still throws), so this is empty.
+            Diagnostics = []
         }
 
 /// The package version stamp (item 18). Preference order:
@@ -831,6 +834,7 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
                 Package = packageName
                 Version = packageVersionOf resolvedModule resolvedFileName
                 Exports = extractModuleExports checker moduleSym
+                Diagnostics = []
             }
     finally
         if existsSync entryPath then

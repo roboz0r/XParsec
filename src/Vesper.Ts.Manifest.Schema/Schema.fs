@@ -108,10 +108,40 @@ type Export =
     | Variable of name: string * ty: TypeRef * isConst: bool * import: ImportShape
     | Namespace of name: string * exports: Export list
 
+[<RequireQualifiedAccess>]
+type Severity =
+    | Warning
+    | Error
+
+type Span = { File: string; Start: int; End: int }
+
+/// A degradation the extractor recorded instead of throwing — a structured note
+/// that some TS construct could not be represented faithfully and what was emitted
+/// in its place. `Span` is optional (not every degradation has a source location).
+///
+/// `Code` is drawn from a CLOSED, stable vocabulary — Phase 2 consumers key on
+/// these exact strings, so do NOT mint ad-hoc codes:
+///   - `method-axis-typar-erased`     — a member's own generic type parameters dropped
+///   - `structural-object-stubbed`    — an anonymous structural object replaced by a stub
+///   - `asymmetric-accessor-narrowed` — get/set with differing types narrowed to one
+///   - `merged-namespace-dropped`     — a merged-declaration namespace arm discarded
+///   - `any-dynamic`                  — `any` lowered to the deferred dynamic type
+///   - `intersection-erased`          — a `&`-intersection type erased
+///   - `literal-widened`             — a literal type widened to its base
+type Diagnostic =
+    {
+        Severity: Severity
+        Code: string
+        Symbol: string
+        Span: Span option
+        Message: string
+    }
+
 type PackageManifest =
     {
         SchemaVersion: int
         Package: string
         Version: string option
         Exports: Export list
+        Diagnostics: Diagnostic list
     }

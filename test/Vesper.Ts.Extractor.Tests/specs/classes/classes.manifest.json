@@ -154,5 +154,6 @@
       "heritage": [],
       "import": "named"
     }
-  ]
+  ],
+  "diagnostics": []
 }

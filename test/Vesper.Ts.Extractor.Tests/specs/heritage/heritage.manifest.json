@@ -192,5 +192,6 @@
       ],
       "import": "named"
     }
-  ]
+  ],
+  "diagnostics": []
 }

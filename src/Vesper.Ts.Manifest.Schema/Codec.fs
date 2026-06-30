@@ -269,6 +269,70 @@ let private decodeEnumValue (j: JsonValue) : Result<EnumValue option, string> =
             | other -> return! Error(sprintf "unknown enum value kind '%s'" other)
         }
 
+// ─── Diagnostic ──────────────────────────────────────────────────────────────
+
+let private encodeSeverity =
+    function
+    | Severity.Warning -> jStr "warning"
+    | Severity.Error -> jStr "error"
+
+let private decodeSeverity j =
+    asString j
+    >>= function
+        | "warning" -> Ok Severity.Warning
+        | "error" -> Ok Severity.Error
+        | o -> Error(sprintf "unknown severity '%s'" o)
+
+let private encodeSpan (s: Span) =
+    jObj [ "file", jStr s.File; "start", jInt s.Start; "end", jInt s.End ]
+
+let private decodeSpan j =
+    result {
+        let! m = asObject j
+        let! file = readField "file" asString m
+        let! start = readField "start" asInt m
+        let! end_ = readField "end" asInt m
+
+        return
+            {
+                File = file
+                Start = start
+                End = end_
+            }
+    }
+
+let private encodeDiagnostic (d: Diagnostic) =
+    jObj
+        [
+            "severity", encodeSeverity d.Severity
+            "code", jStr d.Code
+            "symbol", jStr d.Symbol
+            "span",
+            (match d.Span with
+             | Some s -> encodeSpan s
+             | None -> JsonValue.Null)
+            "message", jStr d.Message
+        ]
+
+let private decodeDiagnostic j =
+    result {
+        let! m = asObject j
+        let! severity = readField "severity" decodeSeverity m
+        let! code = readField "code" asString m
+        let! symbol = readField "symbol" asString m
+        let! span = optField "span" decodeSpan m
+        let! message = readField "message" asString m
+
+        return
+            {
+                Severity = severity
+                Code = code
+                Symbol = symbol
+                Span = span
+                Message = message
+            }
+    }
+
 // ─── Param / Signature / Member ────────────────────────────────────────────
 
 let private encodeParam (p: Param) =
@@ -482,6 +546,7 @@ let encodeManifest (man: PackageManifest) : JsonValue =
             "package", jStr man.Package
             "version", jStrOpt man.Version
             "exports", jArr (List.map encodeExport man.Exports)
+            "diagnostics", jArr (List.map encodeDiagnostic man.Diagnostics)
         ]
 
 let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
@@ -499,12 +564,23 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
         let! version = optField "version" asString m
         let! exports = listField "exports" decodeExport m
 
+        // Tolerant on read: an absent `diagnostics` field decodes to `[]`. Required
+        // here would be self-defeating — golden regeneration round-trips through
+        // `deserialize`, so a strict read could never parse a pre-channel manifest to
+        // re-serialize it. A PRESENT field is still validated strictly (each element
+        // must decode), and `encodeManifest` always WRITES the field.
+        let! diagnostics =
+            match tryField "diagnostics" m with
+            | None -> Ok []
+            | Some v -> (asArray v >>= traverse decodeDiagnostic)
+
         return
             {
                 SchemaVersion = ver
                 Package = pkg
                 Version = version
                 Exports = exports
+                Diagnostics = diagnostics
             }
     }
 

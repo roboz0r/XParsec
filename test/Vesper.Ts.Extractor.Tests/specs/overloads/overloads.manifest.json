@@ -176,5 +176,6 @@
       "heritage": [],
       "import": "named"
     }
-  ]
+  ],
+  "diagnostics": []
 }

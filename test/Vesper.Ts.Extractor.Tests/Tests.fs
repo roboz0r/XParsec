@@ -35,6 +35,7 @@ let enumValueCodecTests =
                                     ]
                                 )
                             ]
+                        Diagnostics = []
                     }
 
                 match Codec.deserialize (Codec.serialize man) with
@@ -53,6 +54,38 @@ let enumValueCodecTests =
                             ]
                             "int (42) and string (\"42\") stay distinct; the computed member stays None"
                     | other -> failtestf "expected a single Enum export, got %A" other
+            }
+
+            // Phase 1 diagnostics channel: a manifest carrying a Diagnostic (with a
+            // Span) must survive encode→decode unchanged, including the optional span.
+            test "a diagnostic with a span round-trips through the codec" {
+                let man: Schema.PackageManifest =
+                    {
+                        SchemaVersion = Schema.SchemaVersion
+                        Package = "diagcheck"
+                        Version = None
+                        Exports = []
+                        Diagnostics =
+                            [
+                                {
+                                    Severity = Schema.Severity.Warning
+                                    Code = "any-dynamic"
+                                    Symbol = "Foo.bar"
+                                    Span =
+                                        Some
+                                            {
+                                                File = "foo.d.ts"
+                                                Start = 10
+                                                End = 25
+                                            }
+                                    Message = "`any` lowered to the deferred dynamic type"
+                                }
+                            ]
+                    }
+
+                match Codec.deserialize (Codec.serialize man) with
+                | Error e -> failtestf "round-trip failed to decode: %s" e
+                | Ok man2 -> Expect.equal man2 man "manifest with a diagnostic must survive encode→decode unchanged"
             }
         ]
 
