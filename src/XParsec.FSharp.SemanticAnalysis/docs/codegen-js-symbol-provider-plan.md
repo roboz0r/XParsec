@@ -1,15 +1,18 @@
 # Codegen.Js external symbol provider plan — consuming TS/JS via the TS toolchain
 
-**Status:** plan, not started. **Supersedes**
-[brainstorm-codegen-js-symbol-provider](brainstorm-codegen-js-symbol-provider.md)
-(kept for the original design discussion; this plan is the up-to-date,
-seam-accurate version). This provider resolves TS-sourced types into TAST, but
-nothing it resolves is runnable until the JS backend can emit. It *can* be
-prototyped against the CLR pipeline
-(types resolve fine; they just can't codegen yet), making it a low-risk parallel
-workstream.
+**Status:** MVP + per-feature breadth LANDED; the hard semantic pieces below are
+deferred-by-design (each guarded by a loud `failwith`, never a silent gap). The
+original design brainstorm has been deleted per the ephemeral-doc convention —
+its open forks (erased `U2` DU vs native union, the overload "seam change", the
+five gating decisions) are all resolved here and in code. This provider resolves
+TS-sourced types into TAST and emits on the JS backend.
 
-## The core idea (unchanged from the brainstorm)
+**This doc holds the DECISIONS (the why).** For the runnable step-by-step sequence
+(the how — null/undefined intrinsics → resilient extraction → `mitt` → real-package
+e2e), see the companion
+[`ts-provider-implementation-plan.md`](ts-provider-implementation-plan.md).
+
+## The core idea
 
 Back a future `Codegen.Js`'s `IExternalSymbolProvider` with TypeScript's own type
 machinery instead of hand-writing Fable-style bindings. Feed the TS Compiler API
@@ -38,16 +41,16 @@ touching the F# loader. A working extractor skeleton is sketched in
 [`ts-bridge-extractor.sketch.ts`](ts-bridge-extractor.sketch.ts); its mechanics
 are detailed under *Manifest schema* below.
 
-## What the brainstorm got right and what is now stale
+## Seam grounding (the decisions that are now load-bearing)
 
-The brainstorm's *file:line anchors are out of date*; the current seam:
+The current seam these decisions ride on:
 
 - **The provider interface.** `IExternalSymbolProvider`
   ([`ExternalSymbols.fs:399`](../ExternalSymbols.fs)) — 8 members. Lookups return
   closures (`Instantiate: int -> SemType` minting fresh `TypeVar`s at a given
   let-depth) plus `ExternalConstraint` lists — the data a manifest must rehydrate.
-- **Overloads are already solved.** The brainstorm's gating decision #3
-  ("`TryLookupMember` is singular → seam change") is **obsolete**: the seam
+- **Overloads are already solved.** The early "`TryLookupMember` is singular →
+  seam change" worry is **obsolete**: the seam
   already has `TryLookupMembers : typeName * memberName -> ExternalMember[]`
   ([`MetadataSymbols.fs:480`](../../XParsec.FSharp.Codegen.Clr/MetadataSymbols.fs)),
   returning the full overload set with arg-aware resolution. TS call-signature
@@ -65,7 +68,7 @@ The brainstorm's *file:line anchors are out of date*; the current seam:
   and rehydrates `Instantiate` closures from serialised data. The TS manifest
   loader copies this shape (a different on-disk schema, the same closure
   rehydration).
-- **`TyOr` is now a real plan.** The brainstorm's biggest open fork (erased `U2`
+- **`TyOr` is now a real plan.** The biggest early open fork (erased `U2`
   DU vs native anonymous union) is **decided: native**, scoped in
   the anonymous-union front-end (`TyOr`). `T | null | undefined` and general
   `number | string` map to `TyOr`, not a synthetic `Core.Js` library type (with
@@ -118,8 +121,12 @@ that motivated `TyOr`, and losing the fact that the surface was a JS nullable.
 
 So: `T | null | undefined → TyOr [T; null; undefined]`, including exactly the
 absence members TS wrote (`T | undefined → TyOr [T; undefined]`, etc.). `null` and
-`undefined` are **JS-platform intrinsic types** (canon `"null"`/`"undefined"`, JS
-reprs `"null"`/`"undefined"`), **distinct from `unit`**.
+`undefined` are intrinsic types **distinct from `unit`** — but they sit at
+**different layers** (see the step-0 subsection): `null` is **cross-backend** (it is
+the canonical nullable on *both* targets — JS `null` and the CLR's F# 9 `T | null`
+nullable-reference interop), so it is a *core* intrinsic with a per-target repr;
+`undefined` is **JS-only** (no CLR analog), a JS-platform intrinsic with a value
+literal.
 
 Earlier this folded `undefined ↦ unit` because both emit JS `undefined` — that was
 wrong. A codegen repr coincidence is **not** type identity (the freeze /
@@ -137,9 +144,61 @@ narrowing needs (deferred to that milestone). Collapsing to one `nullish`, or
 promoting to `option`, stays an **opt-in `retype`/backend transform**, never baked
 into the neutral extractor.
 
-**Follow-up:** register `null`/`undefined` as JS intrinsics (`IntrinsicRepr` + the
-JS `prim-types` companion) so they resolve and `validatePlatformTypes`-pass;
-structurally the provider already maps them as `FTConst`/`TyConst` union members.
+### `null` / `undefined` as JS-intrinsic types — DECIDED, step 0 (OUTSTANDING)
+
+This is the next task and almost certainly **gates any real-API target**: every
+non-trivial `.d.ts` is saturated with `T | null | undefined`, so it bites on the
+first nullable member of the first real package (`mitt`, the seed target below).
+
+**The decision** has two halves at two layers, because `null` is cross-backend and
+`undefined` is JS-only:
+
+- **`null` — a *core* (cross-backend) intrinsic type.** `TyOr [T; null]` is the
+  canonical nullable on *both* targets: it is the CLR's F# 9 `T | null`
+  nullable-reference interop (value-level `ldnull`) **and** JS `null`. So `null`
+  registers as ONE intrinsic with a **per-target repr** (`IntrinsicRepr` already
+  carries the per-backend platform repr — the same mechanism the numeric prims use),
+  not as a JS-only entry in the `prim-types` companion. The payoff: the nullable
+  machinery is shared infrastructure — doing it for the TS provider *also* lights up
+  CLR nullable-reference interop, it is not a JS tax. NOTE: `null` already exists as a
+  *value*/keyword, but that does **not** imply the *type* `null` is a registered
+  intrinsic — the type side still needs doing for union membership +
+  `validatePlatformTypes`.
+- **`undefined` — a JS-only intrinsic type AND value, modeled like `unit` but never
+  unified with it.** No CLR analog; it only ever enters from TS sources. It becomes a
+  JS-platform intrinsic type with a single-inhabitant value literal — the *same shape*
+  as `unit`/`()`, but a *distinct type*. "Like `unit`" is about the modeling shape, not
+  identity: `unit` is inhabited (`()` is a real value you compute with); `null` /
+  `undefined` are *absence sentinels*. Unifying `undefined` with `unit` would let
+  `string | undefined` interoperate with `string | unit` and erase the nullability the
+  checker must reason about. *Minor open fork (decide when implementing):* the value
+  literal as a dedicated keyword (like `null`) vs an intrinsic binding. Low stakes.
+
+**Repr coincidence stays in the backend.** `unit` and `undefined` are repr-coincident
+on JS — both emit `undefined` at the value level (the unit→JS-`undefined` ABI). That
+coincidence is exactly what made the earlier `undefined ↦ unit` fold tempting and
+**wrong**: the "both emit `undefined`" knowledge lives in the JS backend repr, the
+type identity stays distinct upstream (the freeze / backend-knowledge separation).
+(`TPatG.Null`'s `== null` conflation is a codegen-level pattern convenience, not the
+type-level model.)
+
+**Verification entry point.** The provider today maps a TS union to `FTOr` with
+`null`/`undefined` as **bare named members that are not registered intrinsics**
+(`TsManifestProvider.fs`, the `TypeRef.Union` arm) — so a `string | null` reaching JS
+emit is a candidate to trip the `validatePlatformTypes` BCL-fallback error. Check
+whether a `unions.d.ts`-derived program survives JS emit *today*; that is the actual
+starting point.
+
+**One CLR caveat, flagged not solved:** `T | null` as `TyOr` is the *reference-type*
+nullable story. CLR *value-type* nullability is `System.Nullable<T>` (`T?`), a
+structurally different repr; TS/JS has no such distinction, so it only bites on the
+CLR side. Don't let `T | null → TyOr` imply it covers CLR value types — that mapping
+is separate and deferred.
+
+Once `null`/`undefined` resolve, nullability needs no further machinery: it is union
+membership on the directional `subsumes` layer where `TyOr` already lives
+(`T <: T|null`, not the reverse), and narrowing (`!= null` / `!== undefined`) is
+union-member removal.
 
 ### intersection `A & B` → erase in v1, flatten later (resolved)
 
@@ -171,15 +230,142 @@ cycle canonicalisation); **equality not subtyping** — a content hash is
 exact-shape, so inflow (Vesper values into TS APIs) must match shape exactly or
 coerce; keep the declared name in a side table for diagnostics.
 
+## Failure contract: resilient extraction with diagnostics (DECIDED)
+
+The extractor behaves like a **compiler front-end**, not an all-or-nothing
+transform: it always emits a **best-effort manifest + a structured diagnostics
+list**, never aborting a whole package because one type didn't map. This is the
+production shape — in the end state, `npm install` drops packages into
+`node_modules`, the Vesper LSP batches an extraction over them, caches the
+manifests, and serves design-time intellisense/type-checking *plus* surfaces the
+extraction diagnostics in the editor. An extractor that threw on the first awkward
+type would make the LSP useless against any real library; a partially-typed
+`querySelector` beats a missing one.
+
+This does **not** retreat from "skip rather than fake" — you still never invent a
+wrong type. It moves the loud failure from a `failwith` (aborts) into a *diagnostic*
+(records + continues), and moves the CI rigor from "extraction throws" to "the
+**diagnostics set drifts**" (a golden fixture asserts its expected diagnostics; a
+clean package asserts *none*).
+
+### Two tiers of failure
+
+- **Fatal — extraction aborts.** I/O and resolution plumbing only: package not
+  found / not a module / no exports (the ambient-global DOM case), source file
+  unreadable, specifier unresolvable (`Extractor.fs` lines ~708/731/808/825). There
+  is nothing to be resilient *about* — the run cannot proceed. These stay throws.
+- **Per-symbol diagnostic — extraction continues.** Every *type-mapping* failure
+  (method-axis typar `:166`, structural object `:241`, asymmetric accessor `:324`,
+  …) converts to a diagnostic attached to the symbol, and the walk proceeds.
+
+### Severity = fidelity, with a low bar to "degrade"
+
+The rule (decided): **if we can name that a type/symbol exists, we degrade it; we
+omit only when it cannot be named at all.**
+
+- **Warning — low-fidelity (the common case).** Extracted but lossy, the type
+  *resolves* (intellisense works) and the checker is *told* precision was lost:
+  `any → TyDynamic`; structural object → content-hash stub (until that machinery
+  lands); intersection → `obj`; literal → base type; and **method-axis typar →
+  erased to `obj` + warning** (rather than the current abort — a degraded generic
+  method is far more useful at design time than an absent one).
+- **Error — unmappable (rare).** Only when the symbol can't even be named → omitted
+  from the manifest + diagnostic. With the "can we name it?" bar this is a small
+  residual.
+
+Crucially the warning must be **load-bearing in the checker**, not cosmetic: a
+low-fidelity type *is* the `TyDynamic`/`FTUnknown` stub that infects inference so
+downstream type-checking doesn't over-promise. The diagnostic is the *report*; the
+dynamic/stub type is the *checker-level consequence* — one mechanism, two ends. This
+is why "degrade to `obj`/dynamic" and "emit a warning" are the same act.
+
+### Shape of a diagnostic
+
+- **Diagnostics live INSIDE the manifest** (decided): a top-level `diagnostics: [ …
+  ]` channel, serialised with the type IR, so the LSP reads them from one cached
+  artifact without re-running Node. (One cache entry, coherent with the manifest it
+  describes.)
+- **Stable codes**, compiler-style (`FS0064`/`TS2304` analog) — e.g.
+  `method-axis-typar-erased`, `structural-object-stubbed`, `intersection-erased`,
+  `any-dynamic`, `literal-widened`. The test oracle asserts on **codes + counts**,
+  not message strings (robust to wording); the LSP groups/filters/suppresses by code.
+- **Spans reuse the AST-backlink** the *Authored form* section already specs (a
+  `{file, span, text}` coordinate, since `ts.Node`s don't serialise). Diagnostic
+  spans *are* that coordinate — one machinery, not two — so the LSP can place a
+  squiggle in the `.d.ts`.
+
+### What this makes the test harness
+
+One resilient extractor, two views over its `(manifest, diagnostics)` output:
+
+- **Golden fixture (`mitt`):** assert manifest matches golden AND diagnostics ==
+  expected (empty for a clean curated package). Any new diagnostic fails the test —
+  either the package wasn't as clean as assumed, or a regression degraded fidelity.
+- **Coverage golden (`@types/node`, DOM):** commit the diagnostics report; ranked by
+  code frequency it is a **burndown chart** — codes vanish as features land, no
+  special extractor mode required.
+
+### Test ownership: three tiers, coupled only through a committed contract
+
+The producer (Extractor tests) and consumer (Codegen.Js tests) **are** coupled — but
+healthily, the way two code projects couple through a `.fsi`: the manifest is the
+published contract. The discipline that keeps it healthy is that the coupling is a
+**committed artifact, never a live extractor run at consume-time**. So three tiers
+with distinct jobs:
+
+| Tier | Owned by | Coupling | Catches |
+|---|---|---|---|
+| Extractor golden (`testExtractorMatchesGolden[Package]`) | producer | — | output stability / canonical form / schema drift |
+| Synthetic consumer (`emitWithCalc` + inline manifest) | consumer | none (hand-written manifest) | provider/emit behaviour in isolation |
+| Real-package e2e (`.fs` → emit → run under Node vs real runtime) | consumer | committed contract | the manifest is *semantically* correct end-to-end |
+
+The tiers are **complementary, and that is why the coupling pays**: the Extractor
+golden only proves the output is *stable* (it memorialises whatever the extractor
+emits — a wrong-but-self-consistent manifest sails through); the real-package e2e is
+the *semantic* oracle the golden cannot be, because a typed Vesper program built from
+the manifest must actually emit JS that **runs against the real vendored runtime** and
+returns the right answer. The consumer validates the producer's contract behaviourally.
+
+Hard rules:
+- **Codegen.Js tests read committed files only** (`.manifest.json` + the vendored
+  runtime `.mjs` + the `.fs` program); they never invoke the Node extractor. No
+  `ProjectReference` from `Codegen.Js.Tests` → `Extractor.Tests` ever appears.
+- **The shared package fixture lives in a NEUTRAL, test-level location** — not inside
+  either test project (today `pkgs/` sits under `Extractor.Tests`, which would force
+  `Codegen.Js.Tests` to reach across with a `../Extractor.Tests/pkgs/` path — a false
+  ownership + fragile path). Hoist to e.g. `test/ts-fixtures/<pkg>/` holding the
+  vendored `.d.ts` + `package.json` + runtime `.mjs` + golden `.manifest.json`; both
+  projects reference it by path. (Avoid a name the repo `.gitignore`
+  `**/[Pp]ackages/*` rule swallows — the reason the current dir is `pkgs/`.) Do this
+  with `mitt` as the first tenant, before the layout calcifies across many packages.
+- **CI must run the Node golden-diff** for the contract to mean anything. A
+  checked-in generated artifact is only as honest as the environment that regenerates
+  it: with Node absent, `testExtractorMatchesGolden` *skips* and a stale manifest can
+  pass the consumer e2e against an outdated contract. The pure-F# canonical
+  round-trip catches *schema-shape* drift without Node, but not *semantic* drift — so
+  the producer side is silently unverified unless CI has Node.
+
+### Note: no schema versioning during prototyping
+
+We are prototyping; all manifests live only in this repo and are regenerated with
+`UPDATE_SNAPSHOTS=1`. So the `diagnostics` channel (and any other manifest change)
+goes in **without** a `SchemaVersion` bump or back-compat shim — just regenerate the
+goldens. Revisit version-stamping only if/when a manifest is ever published outside
+the repo.
+
 ## Manifest schema — a type-description IR
 
 Not `SemType` (closures don't serialise). A small versioned JSON grammar:
 `{typarRef:i}`, `{named:name,args:[…]}`, `{curriedFn:[args],ret}`, `tuple`,
-`dynamic`, `union:[…]`, `structural:{hash,fields}`. The F# loader recursively
+`dynamic`, `union:[…]`, `structural:{hash,fields}`, plus the top-level
+`diagnostics:[…]` channel (see *Failure contract* above). The F# loader recursively
 rehydrates into `SemType[] -> SemType` builders — same shape as
-`ReferencedProject`. Version-stamp it (Node extractor and F# loader drift
-independently). Extraction unit: batch-per-package first (cacheable), lazy-per-
-symbol later (big for `@types/node` / DOM).
+`ReferencedProject`. (No `SchemaVersion` while prototyping — manifests are
+repo-only and regenerated; version-stamp only if one is ever published externally.)
+Extraction unit: batch-per-package first (cacheable, keyed on
+`packageId.version`), lazy-per-symbol later (big for `@types/node` / DOM — and the
+LSP wants it so an `npm install` of a DOM-sized package doesn't pay full extraction
+up front).
 
 Load-context mechanics (from the [`ts-bridge-extractor.sketch.ts`](ts-bridge-extractor.sketch.ts) sketch — the concrete
 "`Assembly.Load`"): build a `ts.Program` over a **synthetic entry file** that
@@ -243,16 +429,33 @@ fall out of the manifest. For `TyOr` members this composes with the all-members-
 
 ## Scope
 
-**MVP / seed milestone:** mirror the CLR "printfn hi" discipline — one vertical
-slice. A single non-generic interface with primitive-typed members + one free
-function, round-tripping `.d.ts` → JSON manifest → F# provider → resolves in a
-Vesper program (resolution verifiable against the CLR pipeline before
-`Codegen.Js` can emit).
+**MVP / seed milestone — LANDED.** Mirrored the CLR "printfn hi" discipline: a
+single vertical slice plus per-feature breadth, all on hand-authored single-feature
+`.d.ts` fixtures (`test/Vesper.Ts.Extractor.Tests/specs/*`).
 
-**Deferred:** `any`/`TyDynamic`; structural content-hash + SCC cycle handling;
-conditional/mapped type evaluation; lazy-per-symbol extraction; literal-type
-precision; the `retype` override file (lands as a composite layer when the first
-lossy mapping bites).
+**First real-package target — `mitt`.** The fixtures are synthetic feature-isolation
+files; nothing has been run against a real npm package. `mitt` (a tiny, stable event
+emitter — one `.d.ts`, real module exports, generics + function-typed members +
+nullable returns) is the seed real-API target: it confirms the
+`node_modules → manifest → provider → JS emit` path survives a real package without
+trying to eat an elephant. Climb from there toward overload/generics stress
+(`date-fns` / `@types/lodash`) and breadth (`@types/node`). The DOM is the eventual
+*destination* (browser is the only place a JS target earns its keep over CLR/native)
+but the *capstone*, not an early bite: it is ambient/global (`declare global`, no
+module exports), so it needs a second **ambient-global extraction entry mode** the
+module-based `extractPackage` lacks, on top of every deferred feature below firing at
+once. Prerequisite for any of these: the `null`/`undefined`-intrinsic step above.
+
+**Deferred — but now *degraded*, not *blocking* (see *Failure contract*).** Each of
+these emits a low-fidelity result + a warning diagnostic rather than aborting:
+`any → TyDynamic`; structural object → content-hash stub (SCC cycle handling still
+deferred for the *faithful* form); conditional/mapped → concrete snapshot;
+literal → base type; method-axis typar → erased to `obj`. Genuinely deferred (no
+degraded form yet): the `retype` override layer (lands as a composite layer when the
+first lossy mapping bites), lazy-per-symbol extraction, and the ambient-global
+(`declare global`) extraction *entry* mode (a fatal "not a module" today; gated on
+the DOM/browser target). Prerequisite for any real-package run: the
+`null`/`undefined`-intrinsic step above.
 
 ## Prior-art reality check
 
