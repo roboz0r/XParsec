@@ -359,29 +359,51 @@ module TsManifestProvider =
             Some(qualify nsPath name, ExternalTypeShape.Enum(cases, origin))
         | _ -> None
 
-    let private toFunctionSymbol (nsPath: string) (ex: Schema.Export) : (string * ExternalSymbol) option =
+    let private toFunctionSymbol
+        (moduleSpec: string)
+        (nsPath: string)
+        (ex: Schema.Export)
+        : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Function(name, signatures, _import) ->
             let sg = singleSignature name signatures
 
+            // A TRAILING optional parameter (`mitt(all?)`) is dropped from the curried
+            // arrow: a zero-arg use site (`mitt()`) applies to `unit`, so a sole trailing
+            // optional collapses the function to `unit -> ret`. (Only trailing optionals
+            // drop — an optional followed by a required one keeps its slot; TS forbids
+            // that ordering anyway.) The runtime default (`n = n || new Map`) supplies the
+            // omitted argument, mirroring how `OptionalDefaults` elides member arguments.
+            let requiredParams =
+                sg.Params |> List.rev |> List.skipWhile (fun p -> p.Optional) |> List.rev
+
             let paramTypes =
-                match sg.Params with
+                match requiredParams with
                 | [] -> [ unitFrozen ]
                 | ps -> ps |> List.map (fun p -> toFrozen p.Type)
 
             let frozenTy =
                 List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen sg.Returns)
             // Registered/keyed under the dotted qualified name (item 17); the symbol's
-            // own `Name` carries it too so lowering emits the qualified binding. (The
-            // value-symbol origin/import threading the top-level path also defers stays
-            // a known v1 simplification — `scheme` stamps `SymbolOrigin.Empty`.)
+            // own `Name` carries it too so lowering emits the qualified binding. The
+            // `Origin`/`Key` are stamped with the MODULE SPECIFIER (the analog of
+            // `toTypeShape`'s `originFor`/`TypeKey`), so `JsImports.addRef` can resolve
+            // the `import … from '<moduleSpec>'` statement — without it the symbol carries
+            // `asm = None` and emit fails on a `ValueKey(None, …)`.
             //
             // A GENERIC free function (`identity<T>`) carries its own typars as
             // `FTTypar(Declaring,i)` (via `toFrozen`); `sg.TypeParams` is their count, so
             // `scheme` freshens them per use site — genuinely polymorphic, not the frozen
             // markers the former `mono` froze in place.
             let qn = qualify nsPath name
-            Some(qn, ExternalSymbols.scheme qn frozenTy sg.TypeParams [])
+
+            let sym =
+                { ExternalSymbols.scheme qn frozenTy sg.TypeParams [] with
+                    Origin = originFor moduleSpec nsPath
+                    Key = SymbolKey.ValueKey(Some moduleSpec, nsPath, name)
+                }
+
+            Some(qn, sym)
         | _ -> None
 
     /// A `Variable` export → a singleton VALUE symbol, resolved by name via
@@ -389,11 +411,24 @@ module TsManifestProvider =
     /// directly (a VALUE, not an arrow). `isConst` carries no front-end distinction
     /// at this seam (JS lowering reads the imported binding by name regardless of
     /// mutability), so it is not consumed here.
-    let private toValueSymbol (nsPath: string) (ex: Schema.Export) : (string * ExternalSymbol) option =
+    let private toValueSymbol
+        (moduleSpec: string)
+        (nsPath: string)
+        (ex: Schema.Export)
+        : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, _import) ->
             let qn = qualify nsPath name
-            Some(qn, ExternalSymbols.monoFrozen qn (toFrozen ty))
+            // Same `Origin`/`Key` module-spec stamp as `toFunctionSymbol`: a value symbol
+            // resolves its `import … from '<moduleSpec>'` through `JsImports.addRef` and so
+            // needs a `ValueKey(Some moduleSpec, …)`, not `monoFrozen`'s `None` origin.
+            let sym =
+                { ExternalSymbols.monoFrozen qn (toFrozen ty) with
+                    Origin = originFor moduleSpec nsPath
+                    Key = SymbolKey.ValueKey(Some moduleSpec, nsPath, name)
+                }
+
+            Some(qn, sym)
         | _ -> None
 
     /// Build a provider from an already-parsed manifest.
@@ -541,9 +576,10 @@ module TsManifestProvider =
              |> List.choose (fun (nsPath, ex) ->
                  match ex with
                  | Schema.Export.Function(_, sigs, _) when List.length sigs > 1 -> None
-                 | _ -> toFunctionSymbol nsPath ex
+                 | _ -> toFunctionSymbol moduleSpec nsPath ex
              ))
-            @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol nsPath ex))
+            @ (flatExports
+               |> List.choose (fun (nsPath, ex) -> toValueSymbol moduleSpec nsPath ex))
             |> Map.ofList
 
         let membersOf (typeName: string) (memberName: string) : ExternalMember[] =
@@ -575,6 +611,35 @@ module TsManifestProvider =
             member _.IntrinsicReverseCanon = Map.empty
             member _.IntrinsicForwardRepr = Map.empty
         }
+
+    /// The `(asm, ns, name)` identity of every top-level/namespaced FUNCTION or VARIABLE
+    /// export whose `ImportShape` is `Default` — the exact `ValueKey` decomposition
+    /// `JsImports.addRef` sees on a use site, so a backend can seed `JsImports` with the
+    /// set that must lower to `import <alias> from '<spec>'` (default) rather than the
+    /// `import { name as … }` (named) form. Import shape cannot ride the `SymbolKey`
+    /// itself (no field, and `SymbolKey` has no `comparison` for a `Set`) nor the node
+    /// (which carries only the key), so this side set is the channel; it is derived from
+    /// the SAME manifest the provider is built from, keyed identically to
+    /// `toFunctionSymbol`/`toValueSymbol` (`ValueKey(Some moduleSpec, nsPath, name)`).
+    let defaultValueKeys (man: Schema.PackageManifest) : Set<string * string * string> =
+        let moduleSpec = man.Package
+
+        let rec flatten (nsPath: string) (exports: Schema.Export list) : (string * Schema.Export) list =
+            exports
+            |> List.collect (fun ex ->
+                match ex with
+                | Schema.Export.Namespace(nsName, nested) -> flatten (qualify nsPath nsName) nested
+                | other -> [ nsPath, other ]
+            )
+
+        flatten "" man.Exports
+        |> List.choose (fun (nsPath, ex) ->
+            match ex with
+            | Schema.Export.Function(name, _, Schema.ImportShape.Default)
+            | Schema.Export.Variable(name, _, _, Schema.ImportShape.Default) -> Some(moduleSpec, nsPath, name)
+            | _ -> None
+        )
+        |> Set.ofList
 
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =

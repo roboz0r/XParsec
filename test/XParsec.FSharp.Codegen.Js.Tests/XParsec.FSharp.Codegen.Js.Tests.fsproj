@@ -36,6 +36,7 @@
     <Compile Include="EnumTests.fs" />
     <Compile Include="NullUndefinedTests.fs" />
     <Compile Include="MethodAxisGenericTests.fs" />
+    <Compile Include="MittE2ETests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

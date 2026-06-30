@@ -83,7 +83,11 @@ and [<RequireQualifiedAccess>] JsStatement =
     | Let of name: string * init: JsExpr
     /// `export const <name> = <init>;` — top-level binding in library compile mode.
     | Export of name: string * init: JsExpr
-    | Import of specifiers: string list * source: string
+    /// `import <default>, { <specifiers> } from "<source>";`. `defaultBinding` is the
+    /// local name a TS DEFAULT export binds to (`None` for a named-only import); each
+    /// `specifiers` entry is a `name as $alias` named binding. At least one of the two
+    /// is non-empty.
+    | Import of defaultBinding: string option * specifiers: string list * source: string
     /// `if (test) { … } else { … }`. An empty alternate prints without the `else`.
     | If of test: JsExpr * consequent: JsStatement list * alternate: JsStatement list
     /// `while (test) { … }` — the self-tail-call trampoline.

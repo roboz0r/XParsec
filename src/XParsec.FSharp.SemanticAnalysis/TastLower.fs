@@ -672,7 +672,7 @@ module TastLower =
         // `fun p0 -> … -> name p0 …`, turning a function name into a closure.
         // `tok` is the source `External` value node's token; every synthesised
         // wrapper (params, applications, lambdas) inherits it.
-        let etaExpand (name: string) (ty: FrozenType) (tok: SyntaxToken) : Frozen.TExpr =
+        let etaExpand (name: string) (key: SymbolKey voption) (ty: FrozenType) (tok: SyntaxToken) : Frozen.TExpr =
             let rec arrows t =
                 match t with
                 | FTFun(a, b) ->
@@ -690,7 +690,12 @@ module TastLower =
                     applyAll (TExprG.App(acc, TExprG.Var(k, pty, tok), resTy, tok)) resTy rest
                 | _ -> failwith "Emit: eta-reification arity mismatch"
 
-            let appBody = applyAll (TExprG.External(name, ValueNone, ty, tok)) ty kts
+            // Preserve the source node's resolved `SymbolKey` on the reified call head:
+            // a bare external-function VALUE (`let f = mitt`) is the one site that reifies
+            // a function name into a closure, and the backend's import/member-ref lowering
+            // keys off this — dropping it (the former `ValueNone`) left the value with no
+            // home origin (`addRef` failed on `ValueKey(None, …)`).
+            let appBody = applyAll (TExprG.External(name, key, ty, tok)) ty kts
 
             kts
             |> List.foldBack (fun (k, pty) (innerBody, innerTy) ->
@@ -714,7 +719,7 @@ module TastLower =
                     | _ -> lowerExpr head
 
                 TastWalk.rebuildApp head' [ for (a, t, tk) in spineArgs -> lowerExpr a, t, tk ]
-            | TExprG.External(name, _, ty, tok) when isFunTy ty -> etaExpand name ty tok
+            | TExprG.External(name, key, ty, tok) when isFunTy ty -> etaExpand name key ty tok
             | _ -> mapChildren lowerExpr e
 
         // Split a folded top-level statement sequence back into standalone decls
