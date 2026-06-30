@@ -60,6 +60,11 @@ module ConformancePass =
         | Paired of PairResult
         /// `.fsi` with NO companion `.fs` in the impl set — impl-free.
         | SigOnly of sigFile: string
+        /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
+        /// conformed. Carried as a per-contract verdict (not an abort of the whole
+        /// package) so one malformed file does not mask drift in the others; `enforce`
+        /// turns it into a hard error.
+        | ParseFailed of sigFile: string * detail: string
 
     /// The conformance outcome for a whole package, derived from its manifest.
     [<NoEquality; NoComparison>]
@@ -122,8 +127,10 @@ module ConformancePass =
             }
 
     /// Conform every `.fsi` in a package manifest against its `.fs` companion for
-    /// `target` (the base/CLR pairing is `None`). Returns `Error` on a manifest or
-    /// parse failure; otherwise the per-contract outcomes.
+    /// `target` (the base/CLR pairing is `None`). Returns `Error` ONLY when the package
+    /// is wholly un-checkable — a malformed/absent manifest. A per-file parse failure is
+    /// collected as a `PairOutcome.ParseFailed` verdict (so one bad file does not mask
+    /// the others' drift); `enforce` promotes it to a hard error alongside the rest.
     let checkManifest (target: string option) (manifestPath: string) : Result<PackageOutcome, string> =
         match ReferencedProject.loadManifest manifestPath with
         | Error e -> Error e
@@ -143,6 +150,17 @@ module ConformancePass =
 
             // `foo.fsi` → its companion `.fs` in the impl set: prefer the per-target
             // `foo.<t>.fs` override, else the base `foo.fs`; `None` = impl-free.
+            // TODO(T8/JS-conformance): the stem surgery here and in `implStem` below is
+            // asymmetric for multi-suffix files. A base `foo.fsi` strips ".fsi" cleanly,
+            // but a `files-js` runtime contract `foo.js.fsi` yields stem `foo.js`, so for
+            // `target = Some "js"` `companionOf` probes the nonsensical `foo.js.js.fs`
+            // and `implStem` strips a trailing `.js` from impls — the two sides will not
+            // agree. Not exercised today (the pass is only invoked with `target = None`),
+            // but when JS conformance lands the `.fsi`↔`.fs` pairing should stop being
+            // inferred from filename string surgery and instead be made explicit in the
+            // manifest (an explicit sig→impl mapping, or a normalised stem the manifest
+            // format records once), so a `.<target>.fsi`/`.<target>.fs` pair is paired by
+            // declaration rather than by guessing suffix boundaries.
             let companionOf (fsiRel: string) : string option =
                 let stem = fsiRel.Substring(0, fsiRel.Length - 4) // strip ".fsi"
 
@@ -152,8 +170,6 @@ module ConformancePass =
                     | None -> [ stem + ".fs" ]
 
                 candidates |> List.tryFind implSet.Contains
-
-            let mutable firstError = None
 
             let outcome (fsiRel: string) : PairOutcome =
                 match companionOf fsiRel with
@@ -210,11 +226,7 @@ module ConformancePass =
                                     @ Conformance.checkValuePresence sigVals implVals
                             }
                     | Error e, _
-                    | _, Error e ->
-                        if firstError.IsNone then
-                            firstError <- Some(sprintf "%s: %s" fsiRel e)
-                        // A placeholder; the whole result is discarded once firstError fires.
-                        PairOutcome.SigOnly fsiRel
+                    | _, Error e -> PairOutcome.ParseFailed(fsiRel, e)
 
             let pairs = sigFiles |> List.map outcome
 
@@ -238,16 +250,17 @@ module ConformancePass =
             let implOnly =
                 implFiles |> List.filter (fun f -> not (fsiStems.Contains(implStem f)))
 
-            match firstError with
-            | Some e -> Error e
-            | None ->
-                Ok
-                    {
-                        Package = m.Name
-                        Pairs = pairs
-                        ImplOnly = implOnly
-                        SigOnlyExemptions = ReferencedProject.resolveSigOnly target m |> Set.ofList
-                    }
+            // A per-file parse failure is a `PairOutcome.ParseFailed` verdict (surfaced
+            // by `enforce`), NOT an `Error`: the pass still reports every other contract's
+            // drift. `Error` is reserved for a failure that makes the whole package
+            // un-checkable — a malformed/absent manifest (handled above).
+            Ok
+                {
+                    Package = m.Name
+                    Pairs = pairs
+                    ImplOnly = implOnly
+                    SigOnlyExemptions = ReferencedProject.resolveSigOnly target m |> Set.ofList
+                }
 
     // ---- Enforcement: conformance findings become hard errors (T8 Step 5) -------
     //
@@ -265,7 +278,9 @@ module ConformancePass =
     /// contract. `V241` — a leading-module/namespace pairing disagreement. `V242` — a
     /// compiled `.fs` with no `.fsi` contract. `V243` — a stale/unknown `sig-only`
     /// exemption (declared impl-free but a companion `.fs` exists, or the named `.fsi`
-    /// is not a contract at all).
+    /// is not a contract at all). `V244` — a contract `.fsi` or its companion `.fs`
+    /// failed to parse, so that pair could not be conformed (the other contracts still
+    /// are).
     ///
     /// Empty = the package conforms; a non-empty result must fail the build.
     // `Diagnostic` is qualified throughout: `open XParsec.FSharp.Parser` brings the
@@ -289,7 +304,8 @@ module ConformancePass =
                     for p in outcome.Pairs do
                         match p with
                         | PairOutcome.Paired r -> yield r.SigFile
-                        | PairOutcome.SigOnly _ -> ()
+                        | PairOutcome.SigOnly _
+                        | PairOutcome.ParseFailed _ -> ()
                 ]
 
         let sigOnlySigs =
@@ -298,7 +314,8 @@ module ConformancePass =
                     for p in outcome.Pairs do
                         match p with
                         | PairOutcome.SigOnly s -> yield s
-                        | PairOutcome.Paired _ -> ()
+                        | PairOutcome.Paired _
+                        | PairOutcome.ParseFailed _ -> ()
                 ]
 
         [
@@ -328,6 +345,11 @@ module ConformancePass =
                                 (sprintf
                                     "the signature file '%s' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                                     s)
+                | PairOutcome.ParseFailed(sigFile, detail) ->
+                    yield
+                        err
+                            "V244"
+                            (sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail)
 
             for f in outcome.ImplOnly do
                 yield err "V242" (sprintf "the implementation file '%s' has no '.fsi' contract" f)

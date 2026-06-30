@@ -593,12 +593,98 @@ module ReferencedProject =
     /// Stand up a referenced project in isolation — no dependency shapes in scope
     /// (`AmbientShapes` defaults to "resolve nothing"). The dependency-free path:
     /// a package with no `depends-on`, and the entry point tests build a single
-    /// package from. Dependency-aware composition uses `buildProviderWith`
-    /// directly (`SymbolProviders.composeProviders`).
+    /// package from. Dependency-aware composition uses `composeOrdered`.
     let buildProvider
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
         buildProviderWith None (fun _ -> ValueNone) [] manifestPath
+
+    /// A layer-2 metadata-tail factory: given the harvested `{ platform-repr →
+    /// canon }` reverse map of the layer-1 providers composed so far, produce the
+    /// trailing leaf providers. `composeOrdered` is leaf-AGNOSTIC — a backend injects
+    /// its BCL `MetadataSymbols` / JS-native tail; an in-assembly caller that needs no
+    /// metadata passes `noMetaTail`.
+    type MetaTailFactory = Map<string, string> -> IExternalSymbolProvider list
+
+    /// The empty layer-2 tail: the layer-1 `.fsi` contracts alone, no metadata leaf.
+    /// For an in-assembly caller (a test fixture front-ending source against the real
+    /// `Vesper.*` contracts) that resolves no BCL/native metadata.
+    let noMetaTail: MetaTailFactory = fun _ -> []
+
+    /// Compose layer-1 providers in dependency (topological) order ahead of the
+    /// `metaTail` leaf. Each package is extracted with read access to its transitive
+    /// `depends-on` closure's shapes (and that closure's ambient open prefixes), so a
+    /// cross-package nominal head kinds at bake time. `orderedManifestPaths` /
+    /// `transitiveDeps` come from `buildClosureWithDeps`.
+    ///
+    /// This is the single dependency-order wiring shared by the codegen
+    /// `SymbolProviders` stack and the in-assembly test fixtures — do not re-implement
+    /// the ambient-shape loop at a call site.
+    let composeOrdered
+        (metaTail: MetaTailFactory)
+        (target: string option)
+        (orderedManifestPaths: string list)
+        (transitiveDeps: string -> string list)
+        : IExternalSymbolProvider =
+        // Final stack, in build (topological) order; `byPath` indexes each built
+        // provider by its normalised manifest path so a package's dependency providers
+        // resolve in O(closure).
+        let built = ResizeArray<IExternalSymbolProvider>()
+
+        let byPath =
+            System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
+
+        for path in orderedManifestPaths do
+            let key = Path.GetFullPath path
+
+            let depProviders =
+                transitiveDeps key
+                |> List.choose (fun dep ->
+                    match byPath.TryGetValue dep with
+                    | true, p -> Some p
+                    | _ -> None
+                )
+
+            // The per-package extraction leaf is the SAME injected `metaTail` factory as
+            // the final composite — this layer never names a concrete provider. Seeded
+            // with the reverse map of the deps built so far so a dependency's BCL member
+            // sigs canonicalize during extraction.
+            let depComposite =
+                ExternalSymbols.composite (depProviders @ metaTail (ExternalSymbols.mergeReverseCanon depProviders))
+
+            let ambientShapes = (fun name -> depComposite.TryLookupType name)
+
+            // The dependency providers' implicit open prefixes (`Vesper` from Core,
+            // where `Fun`/`Fun2`/`Ref` live), so this package's extraction resolves a
+            // dependency's ambiently-available type by bare name — mirroring the consumer
+            // composite's `AmbientOpenPrefixes`. Dedup, dependency order.
+            let depAmbientPrefixes =
+                depProviders |> List.collect (fun p -> p.AmbientOpenPrefixes) |> List.distinct
+
+            match buildProviderWith target ambientShapes depAmbientPrefixes path with
+            | Ok(provider, _) ->
+                built.Add provider
+                byPath.[key] <- provider
+            | Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
+
+        // The final composite's leaf IS seeded with the full harvested reverse map, so a
+        // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
+        let builtList = List.ofSeq built
+        ExternalSymbols.composite (builtList @ metaTail (ExternalSymbols.mergeReverseCanon builtList))
+
+    /// `composeOrdered` over a raw manifest set, ordering it (and computing each
+    /// package's transitive `depends-on` closure) via `buildClosureWithDeps`. A cycle
+    /// or missing dependency is a hard error. Callers that also need the ordered list
+    /// for a second pass (e.g. inline bodies) should call `buildClosureWithDeps` +
+    /// `composeOrdered` directly to avoid ordering twice.
+    let composeContract
+        (metaTail: MetaTailFactory)
+        (target: string option)
+        (manifestPaths: string list)
+        : IExternalSymbolProvider =
+        match buildClosureWithDeps manifestPaths with
+        | Ok(ordered, transitiveDeps) -> composeOrdered metaTail target ordered transitiveDeps
+        | Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
     /// Lazy cache keyed by the (normalised) manifest path so repeated callers
     /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.

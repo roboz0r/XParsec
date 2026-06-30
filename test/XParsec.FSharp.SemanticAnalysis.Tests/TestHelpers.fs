@@ -20,38 +20,20 @@ let srcManifest (pkg: string) : string =
 /// These are the `Vesper.*` self-host packages (NOT the FSharp.Core port
 /// `XParsec.FSharp.Lib`): their primitive canonicalisation agrees with the
 /// front-end's `BuiltinTypes`, whereas the FSharp.Core port canonicalises
-/// `int`→`int32` and leaves `string` an unfreezable template. Built in dependency
-/// order, each package extracted with the already-built providers' type shapes as
-/// its `ambientShapes` (the in-assembly analogue of the codegen
-/// `SymbolProviders.composeProviders` dependency wiring), so a dependent's members
-/// freeze against real dependency types rather than opaque templates. Forced
-/// lazily so a run that never analyses pays nothing.
+/// `int`→`int32` and leaves `string` an unfreezable template.
+///
+/// Composed through `ReferencedProject.composeContract` — the SAME dependency-order
+/// wiring the codegen `SymbolProviders` stack uses — with `noMetaTail` (no BCL/native
+/// leaf; the front end resolves primitives from the `.fsi` reprs alone). The manifest
+/// set is unordered: `composeContract` derives the topological order from each
+/// manifest's `depends-on`, so a dependent's members freeze against real dependency
+/// types rather than opaque templates. Forced lazily so a run that never analyses
+/// pays nothing.
 let realProvider: Lazy<IExternalSymbolProvider> =
     lazy
-        // Dependency order: Core (no deps), List (Core), Comparison (Core),
-        // Printf (Core + List).
-        let packages =
-            [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
-
-        let built = System.Collections.Generic.List<IExternalSymbolProvider>()
-
-        for pkg in packages do
-            // Type shapes harvested so far feed this package's extraction so a
-            // member referencing a dependency type resolves to the real shape.
-            let ambientShapes (name: string) : ExternalTypeShape voption =
-                let mutable result = ValueNone
-
-                for p in built do
-                    if result.IsNone then
-                        result <- p.TryLookupType name
-
-                result
-
-            match ReferencedProject.buildProviderWith None ambientShapes [ "Vesper" ] (srcManifest pkg) with
-            | Result.Error e -> failwithf "TestHelpers.realProvider: %s: %s" pkg e
-            | Result.Ok(provider, _) -> built.Add provider
-
-        ExternalSymbols.composite (List.ofSeq built)
+        [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
+        |> List.map srcManifest
+        |> ReferencedProject.composeContract ReferencedProject.noMetaTail None
 
 // The nominal `SemType` cases now carry a
 // `SymbolKey`, but tests construct and assert them by *string* name. These shadow

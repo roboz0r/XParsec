@@ -14,8 +14,10 @@ module SymbolProviders =
     /// through it (`MetadataSymbols.tryBuildType`), driven by the dynamically-analysed
     /// `type int = (# "System.Int32" #)` relationship rather than a static table.
     /// Non-CLR backends inject their own (reverse-independent) factory via
-    /// `buildContractWithMetadata`.
-    type MetaTailFactory = Map<string, string> -> IExternalSymbolProvider list
+    /// `buildContractWithMetadata`. The dependency-order composition itself lives in
+    /// `ReferencedProject.composeOrdered` (the SA layer), shared with the in-assembly
+    /// test fixtures; this is the same type.
+    type MetaTailFactory = ReferencedProject.MetaTailFactory
 
     /// Dependency-ordered manifests and each package's transitive `depends-on` closure.
     /// A cycle or missing dependency is a hard error.
@@ -24,71 +26,12 @@ module SymbolProviders =
         | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
-    /// Compose layer-1 providers (dependency order) ahead of the layer-2 metadata tail.
-    /// Each package is built with access to its declared `depends-on` closure + BCL
-    /// metadata, so cross-package nominal heads kind at bake time.
-    let private composeProviders
-        (metaTail: MetaTailFactory)
-        (target: string option)
-        (orderedManifestPaths: string list)
-        (transitiveDeps: string -> string list)
-        : IExternalSymbolProvider =
-        // Final stack, in build (topological) order; `byPath` indexes each built
-        // provider by its normalised manifest path so a package's dependency
-        // providers resolve in O(closure).
-        let built = ResizeArray<IExternalSymbolProvider>()
-
-        let byPath =
-            System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
-
-        for path in orderedManifestPaths do
-            let key = Path.GetFullPath path
-
-            let depProviders =
-                transitiveDeps key
-                |> List.choose (fun dep ->
-                    match byPath.TryGetValue dep with
-                    | true, p -> Some p
-                    | _ -> None
-                )
-
-            // The per-package extraction leaf is the SAME injected `metaTail` factory as
-            // the final composite — Common never names a concrete provider. Seeded with
-            // the reverse map of the deps built so far so a dependency's BCL member sigs
-            // canonicalize during extraction; the CLR factory memoises by reverse-map
-            // content, so the repeated Vesper.Core reverse map costs one leaf, not one
-            // per package. (Before, this hardcoded the BCL leaf even on a JS build.)
-            let depComposite =
-                ExternalSymbols.composite (depProviders @ metaTail (ExternalSymbols.mergeReverseCanon depProviders))
-
-            let ambientShapes = (fun name -> depComposite.TryLookupType name)
-
-            // The dependency providers' implicit open prefixes (`Vesper` from Core,
-            // where `Fun`/`Fun2`/`Ref` live), so this package's extraction resolves a
-            // dependency's ambiently-available type by bare name — mirroring the
-            // consumer composite's `AmbientOpenPrefixes`. Dedup, dependency order.
-            let depAmbientPrefixes =
-                depProviders |> List.collect (fun p -> p.AmbientOpenPrefixes) |> List.distinct
-
-            // Qualify `Result.Ok`/`Error`: `open ...SemanticAnalysis` shadows bare cases.
-            match ReferencedProject.buildProviderWith target ambientShapes depAmbientPrefixes path with
-            | Result.Ok(provider, _) ->
-                built.Add provider
-                byPath.[key] <- provider
-            | Result.Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
-
-        // The final composite's leaf IS seeded with the full harvested reverse map, so a
-        // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
-        let builtList = List.ofSeq built
-        ExternalSymbols.composite (builtList @ metaTail (ExternalSymbols.mergeReverseCanon builtList))
-
     /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf
     /// FACTORY. Common names no concrete leaf — the CLR backend injects its BCL
     /// `MetadataSymbols` tail (`ClrSymbolProviders.bclMetaTail`), the JS backend its
     /// JS-native tail. Uncached.
     let buildWith (metaTail: MetaTailFactory) (manifestPaths: string list) : IExternalSymbolProvider =
-        let ordered, transitiveDeps = orderedManifestsWithDeps manifestPaths
-        composeProviders metaTail None ordered transitiveDeps
+        ReferencedProject.composeContract metaTail None manifestPaths
 
     /// Cross-package `let inline` bodies keyed by source name. Collected once here,
     /// frozen against the same provider stack the consumer uses.
@@ -259,7 +202,10 @@ module SymbolProviders =
                 fun _ ->
                     lazy
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
-                         let provider = composeProviders metaTail target ordered transitiveDeps
+
+                         let provider =
+                             ReferencedProject.composeOrdered metaTail target ordered transitiveDeps
+
                          let inlines = inlineBodies target provider ordered
 
                          let byKey =

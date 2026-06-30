@@ -400,6 +400,26 @@ let enforcementTests =
                 Expect.equal (List.length errors) 1 "one hygiene error"
                 Expect.equal errors.Head.Code "V243" "stale exemption"
             }
+
+            test "a parse failure is a per-contract V244 error, not an abort that masks the rest" {
+                // `checkManifest` collects a parse failure as a `ParseFailed` verdict
+                // rather than returning `Error`, so a sibling contract's drift on the
+                // same package is still reported — both errors surface, in order.
+                let outcome =
+                    mkOutcome
+                        [
+                            ConformancePass.PairOutcome.ParseFailed("broken.fsi", "unexpected token")
+                            ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi"
+                        ]
+                        Set.empty
+
+                let errors = ConformancePass.enforce outcome
+
+                Expect.equal (List.length errors) 2 "the parse failure does not mask the orphaned .fsi"
+                Expect.equal errors.Head.Code "V244" "the parse-failure family"
+                Expect.stringContains errors.Head.Message "broken.fsi" "names the unparseable contract"
+                Expect.equal errors.[1].Code "V240" "the sibling drift still surfaces"
+            }
         ]
 
 // ---- Semantic typar-order conformance (T8 Step 4.2) -------------------
