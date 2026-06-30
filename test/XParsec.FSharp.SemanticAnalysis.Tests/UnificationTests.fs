@@ -67,6 +67,41 @@ let tests =
                 Expect.isTrue hasMismatch "Type mismatch diagnostic emitted"
             }
 
+            // `null` / `undefined` are distinct absence sentinels (the members of a
+            // TS-style `T | null` / `T | undefined`), NOT folded onto `unit` — even
+            // though `unit` *also* lowers to JS `undefined` at the VALUE level. The
+            // type identities stay distinct: each resolves to its own opaque
+            // `TyConst`, so neither unifies with `unit`.
+            test "`undefined` and `unit` resolve to distinct types and do not unify" {
+                let ctx = analyse "let f (x: undefined) : unit = x"
+                // `x : undefined`, pat at offset 7.
+                let patKey = NodeKey.ofSource 7 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyConst("undefined", EqArray.empty)) "x : undefined"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "returning an `undefined`-typed value as `unit` must mismatch"
+            }
+
+            test "`null` and `unit` resolve to distinct types and do not unify" {
+                let ctx = analyse "let f (x: unit) : null = x"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "returning a `unit`-typed value as `null` must mismatch"
+            }
+
+            test "`null` and `undefined` are distinct types and do not unify" {
+                let ctx = analyse "let f (x: null) : undefined = x"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "`null` and `undefined` must not unify"
+            }
+
             test "Using a TyUnknown-typed external value emits a use-site diagnostic" {
                 // A contract val whose signature named an out-of-scope type bakes a
                 // `TyUnknown` leaf. Referencing that symbol must fire a diagnostic when

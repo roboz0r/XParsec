@@ -34,6 +34,7 @@
     <Compile Include="MemberOverloadTests.fs" />
     <Compile Include="TsManifestEnumTests.fs" />
     <Compile Include="EnumTests.fs" />
+    <Compile Include="NullUndefinedTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
