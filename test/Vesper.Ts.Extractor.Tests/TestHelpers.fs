@@ -31,20 +31,22 @@ let dtsFiles =
 // ─── package fixtures (item 18: multi-file / package entry) ─────────────────
 //
 // A package fixture is a DIRECTORY (entry `.d.ts` + sibling `.d.ts` modules +
-// `package.json`), not a flat `.d.ts`, so it lives in a SEPARATE `pkgs/` tree.
+// `package.json`), not a flat `.d.ts`, so it lives in a SEPARATE `ts-fixtures/` tree.
 // This is deliberate, and it is also how the orphan guard stays correct: that guard
 // (`findOrphans`) pairs a `.d.ts` with a same-base `.manifest.json`, but a package
 // has MANY `.d.ts` and ONE manifest — globbing them under `specs/` would false-flag
 // every sibling. Keeping packages out of the `specs/` globs (above) sidesteps that
-// entirely, so the guard needs no special-casing. (The dir is `pkgs/`, not the
-// natural `packages/`, only because the repo `.gitignore` swallows `**/[Pp]ackages/*`
-// as a NuGet convention — which would otherwise leave the fixture uncommitted.)
+// entirely, so the guard needs no special-casing. The fixtures live at the NEUTRAL
+// test-level dir `test/ts-fixtures/` (not under either test project) so neither test
+// project reaches into the other's tree. (It is `ts-fixtures/`, not the natural
+// `packages/`, because the repo `.gitignore` swallows `**/[Pp]ackages/*` as a NuGet
+// convention — which would otherwise leave the fixture uncommitted.)
 //
 // Convention per package dir `D`: the manifest golden is `D/D.manifest.json`, the
-// entry is resolved as the relative specifier `./D` from the `pkgs/` dir, and the
-// package name is `D`.
+// entry is resolved as the relative specifier `./D` from the `ts-fixtures/` dir, and
+// the package name is `D`.
 let packagesDir =
-    lazy DirectoryInfo(Path.Combine(__SOURCE_DIRECTORY__, "pkgs")).FullName
+    lazy DirectoryInfo(Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures")).FullName
 
 let packageDirs =
     lazy
@@ -330,7 +332,7 @@ let testExtractorMatchesGolden (dtsPath: string) =
 /// Package-entry golden contract (item 18): run the compiled extractor in PACKAGE
 /// mode (`--package <specifier> <resolveFromDir> <packageName> <outPath>`) on a
 /// fixture DIRECTORY and assert its output equals `D/D.manifest.json`. The package is
-/// resolved as the relative specifier `./D` from the `packages/` dir, so the
+/// resolved as the relative specifier `./D` from the `ts-fixtures/` dir, so the
 /// synthetic-entry + module resolver pull the cross-file `.d.ts` closure. Same
 /// skip/refresh semantics as the single-file path.
 let testExtractorMatchesGoldenPackage (pkgDir: string) =
