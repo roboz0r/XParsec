@@ -49,4 +49,60 @@ let tests =
 
                 Expect.isEmpty mismatches (sprintf "list.fs conforms to list.fsi typar order; got %A" mismatches)
             }
+
+            // T8 Step 6 — generic type MEMBER conformance against a REAL extracted `.fsi`.
+            // `Formatter.AppendFormatted: 'T -> unit` (+ its overloads and
+            // `AppendStructured`) are generic members the `.fsi` extractor now publishes
+            // with a method-owned typar (`MethodArity = 1`, `FTTypar(Method, 0)`), no
+            // longer dropped. This drives BOTH halves: the published contract surface is
+            // present + correctly typed, and `checkMembers` confirms the real
+            // `formatter.fs` member signatures agree with it end-to-end.
+            test "Vesper.Printf: formatter.fs generic members conform to formatter.fsi" {
+                // The whole package is analysed as one concatenated `impl` source (a
+                // single declaration-ordered compile), exactly as `buildPackage` does —
+                // `formatter.fs` calls its sibling `StructuralPrinter` so it can't be
+                // analysed alone. Dependency contract = Core + List (the `depends-on`).
+                let src =
+                    [ "structural-printer.fs"; "formatter.fs" ]
+                    |> List.map (fun f -> File.ReadAllText(vesperPrintfSource f))
+                    |> String.concat "\n\n"
+
+                let analysisProvider =
+                    ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest ]
+
+                let lexed, file = parseFile src
+
+                let tast =
+                    Pipeline.analyseForSelfHost "Vesper.Printf" analysisProvider src lexed file
+
+                let analysisErrors =
+                    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                Expect.isEmpty analysisErrors (sprintf "Vesper.Printf impl analyses cleanly; got %A" analysisErrors)
+
+                // Lookup provider includes the published `formatter.fsi`, so
+                // `Formatter.AppendFormatted` / `AppendStructured` resolve to their
+                // generic declared signatures.
+                let contract =
+                    ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest; vesperPrintfManifest ]
+
+                // The contract surface is published with the method-owned typar.
+                let appendFormatted =
+                    contract.TryLookupMembers("Vesper.Formatter", "AppendFormatted")
+
+                Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
+
+                Expect.isTrue
+                    (appendFormatted |> Array.forall (fun m -> m.MethodArity = 1))
+                    (sprintf
+                        "every AppendFormatted overload carries its own typar (MethodArity = 1); got %A"
+                        (appendFormatted |> Array.map (fun m -> m.MethodArity)))
+
+                // And the real `formatter.fs` members agree with that published surface.
+                let memberMismatches = ConformanceTypars.checkMembers contract tast
+
+                Expect.isEmpty
+                    memberMismatches
+                    (sprintf "formatter.fs members conform to formatter.fsi; got %A" memberMismatches)
+            }
         ]

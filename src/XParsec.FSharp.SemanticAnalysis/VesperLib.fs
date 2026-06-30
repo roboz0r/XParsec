@@ -88,37 +88,35 @@ module VesperLib =
 
     /// Translate a stashed member-signature CST to its two-axis `ExternalSignature`
     /// template, splitting the head `FTFun(params, ret)` (or treating the whole
-    /// result as the value, for a property). `ValueNone` means **drop the member**,
-    /// preserving the extraction-time skip the old closure walk applied: an
-    /// unsupported structural form (`Error`) or a signature that pulls in typars
-    /// beyond the declaring type's own (`maxDeclaringIndex >= declaringArity` — it
-    /// can't be instantiated from the receiver's declaring args alone). A genuinely
-    /// body-less head (`BodylessExternalShape`) is kept but degraded to
-    /// `unit -> FTUnknown`, matching the prior finalize tolerance.
+    /// result as the value, for a property). `ValueNone` means **drop the member**:
+    /// an unsupported structural form (`Error`). A genuinely body-less head
+    /// (`BodylessExternalShape`) is kept but degraded to `unit -> FTUnknown`,
+    /// matching the prior finalize tolerance.
+    ///
+    /// A member typar beyond the declaring type's own (`AppendFormatted: 'T -> unit`
+    /// on the niladic `Formatter`, or an explicit `member Foo<'a>`) is no longer
+    /// dropped: the member's collector interns it at an index `>= declaringArity`, so
+    /// `reaxisMethodTypars` flips it onto the METHOD axis and the returned
+    /// `MethodArity` (`collector.Count - declaringArity`) publishes the member's own
+    /// generic-parameter count — the T8 Step 6 generic-member surface. The count is
+    /// read off the collector AFTER the translate, so an implicit method typar
+    /// interned during the signature walk (no explicit `<'T>`) is included.
     let private freezeMemberSig
         (ctx: ExtractCtx)
         (isProperty: bool)
         (declaringArity: int)
-        (methodArity: int)
         (dm: DeferredMember)
         : ExternalSignature voption =
         let dc = dm.Ctx
 
-        let bodyless =
-            ValueSome
-                {
-                    DeclaringArity = declaringArity
-                    MethodArity = methodArity
-                    Parameters = FTConst("unit", EqArray.empty)
-                    Return = ExternalSymbols.unfreezable
-                }
+        let methodArityNow () =
+            max 0 (dc.Typars.Count - declaringArity)
 
         try
             match translateCurriedSig ctx dc.Lexed dc.Input dc.Opens dc.Typars (ConstraintCollector()) dm.Signature with
-            // A sig naming a typar beyond the type's declaring arity can't be
-            // realised from the receiver's args — drop, as extraction once did.
-            | Ok frozen when FrozenTypeBridge.maxDeclaringIndex frozen >= declaringArity -> ValueNone
             | Ok frozen ->
+                let frozen = FrozenTypeBridge.reaxisMethodTypars declaringArity frozen
+
                 let parameters, ret =
                     if isProperty then
                         FTConst("unit", EqArray.empty), frozen
@@ -132,13 +130,19 @@ module VesperLib =
                 ValueSome
                     {
                         DeclaringArity = declaringArity
-                        MethodArity = methodArity
+                        MethodArity = methodArityNow ()
                         Parameters = parameters
                         Return = ret
                     }
             | Error _ -> ValueNone
         with BodylessExternalShape _ ->
-            bodyless
+            ValueSome
+                {
+                    DeclaringArity = declaringArity
+                    MethodArity = methodArityNow ()
+                    Parameters = FTConst("unit", EqArray.empty)
+                    Return = ExternalSymbols.unfreezable
+                }
 
     /// Resolve a `RawConstraint`'s typar names against the val's typar collector,
     /// dropping entries that reference an undeclared typar. `Trait` entries fold to
@@ -458,15 +462,21 @@ module VesperLib =
                     let m = members.[i]
                     let s = m.Signature
 
-                    match freezeMemberSig ctx m.IsProperty s.DeclaringArity m.MethodArity deferred.[i] with
+                    match freezeMemberSig ctx m.IsProperty s.DeclaringArity deferred.[i] with
                     | ValueSome sign ->
                         // Rebuild the member key's `argSig` from the now-frozen parameters
                         // (extraction stamped it empty — the signature was still deferred).
                         // A property has no parameters, so its key stays empty-`argSig`
-                        // (matching the metadata layer).
+                        // (matching the metadata layer). `MethodArity` is likewise only
+                        // known post-freeze (the member's own typars surface during the
+                        // signature walk), so it is propagated off the frozen signature
+                        // here, overwriting the extraction-time `0` placeholder.
                         let m' =
                             if m.IsProperty then
-                                { m with Signature = sign }
+                                { m with
+                                    Signature = sign
+                                    MethodArity = sign.MethodArity
+                                }
                             else
                                 let key' =
                                     match m.Key with
@@ -474,7 +484,11 @@ module VesperLib =
                                         SymbolKey.MemberKey(decl, name, argSigOfParameters sign.Parameters, kind)
                                     | other -> other
 
-                                { m with Signature = sign; Key = key' }
+                                { m with
+                                    Signature = sign
+                                    Key = key'
+                                    MethodArity = sign.MethodArity
+                                }
 
                         kept.Add m'
                     | ValueNone -> ()
@@ -1009,9 +1023,10 @@ module VesperLib =
     /// (so `'T` substitutes through the enclosing type's args at a use site); the
     /// builder is stashed in `ctx.DeferredMembers` and the finalize pass freezes it
     /// into the member's `ExternalMember.Signature` template the consumer's
-    /// `resolveFieldStep` instantiates. Scope: instance/static `member` property/method sigs
-    /// with no own generic parameters — a member that introduces its own typars, or whose
-    /// signature fails to translate, is skipped (not faked), exactly like the val path.
+    /// `resolveFieldStep` instantiates. Scope: instance/static `member` property/method sigs,
+    /// generic or not — a member's own typars (explicit `<'a>` or an implicit `'T`) are
+    /// published on the method axis (Step 6); a member whose signature fails to translate
+    /// is skipped (not faked), exactly like the val path.
     let private extractTypeMembers
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -1054,32 +1069,36 @@ module VesperLib =
                 match memberSig with
                 | ValueNone -> ()
                 | ValueSome(isStatic, sign) ->
-                    // Only property/method sigs with no own generic parameters
-                    // (`typarDefns = ValueNone`): an own-typar member would need
-                    // fresh args the consumer can't mint from the receiver's arg
-                    // list alone, so it is skipped.
+                    // Property/method sigs, generic or not: a member's OWN typars
+                    // (explicit `<'a>` via `typarDefns`, or an implicit `'T` the
+                    // signature names) are published on the method axis (Step 6) —
+                    // the finalize `reaxisMethodTypars` flips any typar the member
+                    // interns beyond the declaring type's own onto `FTTypar(Method,_)`.
                     let identAndSig =
                         match sign with
-                        | MemberSig.MethodOrPropSig(ident = ioo; typarDefns = ValueNone; sign = csig) ->
-                            ValueSome(ioo, csig, false)
-                        | MemberSig.PropSig(ident = ioo; typarDefns = ValueNone; sign = csig) ->
-                            ValueSome(ioo, csig, true)
-                        | _ -> ValueNone
+                        | MemberSig.MethodOrPropSig(ident = ioo; typarDefns = defns; sign = csig) ->
+                            ValueSome(ioo, defns, csig, false)
+                        | MemberSig.PropSig(ident = ioo; typarDefns = defns; sign = csig) ->
+                            ValueSome(ioo, defns, csig, true)
 
                     match identAndSig with
                     | ValueNone -> ()
-                    | ValueSome(ioo, csig, isPropSig) ->
+                    | ValueSome(ioo, defns, csig, isPropSig) ->
                         match identOrOpName lexed input ioo with
                         | ValueNone -> ()
                         | ValueSome memberName ->
                             // Full-defer: stash the member + its signature CST. The
                             // finalize pass (`freezeMemberSig`) translates the
-                            // signature and DROPS the member if it fails to translate
-                            // or pulls in typars beyond the type's own (it couldn't be
-                            // instantiated from the receiver's args alone). The
-                            // collector is seeded with the type's typars so the
-                            // finalize walk reads the same declaring indices.
+                            // signature and DROPS the member only if it fails to
+                            // translate structurally. The collector is seeded with the
+                            // type's own typars (so the finalize walk reads the same
+                            // declaring indices) and THEN the member's explicit `<'a>`
+                            // typars, so they take method-axis positions (indices
+                            // `>= arity`) in declared order ahead of any implicit
+                            // appearance-order typar — the producer's declared-first
+                            // method-typar order (`GeneralizedTypars.canonical`).
                             let collector = collectorForTypeName lexed input typeName
+                            registerExplicitTypars lexed input collector defns
                             let (CurriedSig(args, _)) = csig
                             let isProperty = isPropSig || args.Length = 0
 
@@ -1100,8 +1119,10 @@ module VesperLib =
                                     // forward-reference a type declared later). `deferred`
                                     // records the arities the finalize pass needs.
                                     Signature = ExternalSignature.deferred (arity, 0)
-                                    // The `.fsi` contract layer doesn't yet publish generic
-                                    // (method-owned-typar) members.
+                                    // Placeholder: the real method-typar count is only
+                                    // known once the signature is walked, so the finalize
+                                    // pass (`freezeMemberSig`) overwrites this off the
+                                    // frozen signature's `MethodArity`.
                                     MethodArity = 0
                                     Origin = SymbolOrigin.Empty
                                     Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)

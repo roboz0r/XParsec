@@ -2,11 +2,12 @@
 
 Status (2026-06-29): IN PROGRESS. Steps 1 (except the 1.5c "per-compilation leaf paths"
 sub-step, still PARTIAL — orthogonal to 4.2), 2, 2(a), 3, 4.1 (+ the 4.1b accuracy
-refinement), **4.2**, and **the Step 5 hard-error flip** are DONE — see the per-step
-DONE/PARTIAL markers in **Sequencing**, the authoritative tracker. **The next unstarted
-work is Step 6** (generic members). Step 5's two RETIREMENT clauses (`BuiltinOps`,
-FSharp.Core `PrintfFormat`) remain deferred on their stated upstream dependencies (the
-dynamic-operator runtime; the vesper-printf cold path) — see Step 5 in Sequencing.
+refinement), **4.2**, **the Step 5 hard-error flip**, and **Step 6** (generic members)
+are DONE — see the per-step DONE/PARTIAL markers in **Sequencing**, the authoritative
+tracker. The remaining open work is the 1.5c "per-compilation leaf paths" sub-step and
+Step 5's two RETIREMENT clauses (`BuiltinOps`, FSharp.Core `PrintfFormat`), all three
+deferred on their stated upstream dependencies (the target reference-set sourcing; the
+dynamic-operator runtime; the vesper-printf cold path) — see Steps 1.5/5 in Sequencing.
 This supersedes the earlier "design only" note that split out of
 `typar-ordering-unification-plan.md` when T1–T7 landed (commit `8efadbf1`). EPHEMERAL
 like all `docs/*-plan.md` — delete once T8 lands.
@@ -106,7 +107,8 @@ T8's payload — ALL now closed:
    manifest; no hard-coded pair list, no pinned "known drift" golden (`acceptedFindings`
    emptied in 4.1b — real drift fixed at source, not accepted).
 2. ~~Types only, no values.~~ CLOSED (Step 4.1: presence; Step 4.2: typar order via the
-   semantic `ConformanceTypars` kernel). Type MEMBERS still open — Step 6.
+   semantic `ConformanceTypars` kernel). Type MEMBERS CLOSED (Step 6:
+   `ConformanceTypars.checkMembers`, over the now-published generic-member surface).
 3. ~~No manifest-driven pairing.~~ CLOSED (Step 3).
 
 T8 = promote `Conformance.check` to a manifest-driven pass (DONE), extend it from
@@ -179,7 +181,7 @@ explicit target boundary, do not error on it.
 | `Vesper.Printf/structural-printer.fs` (no `.fsi`!) | port exists, never got a contract | **write `structural-printer.fsi`** (ref: `StructuralFormat.cs`; surface = `RuntimeFormatState : IFormatSink`, `StructuralPrinter.Print`) |
 | `Vesper.Printf/printf-format.fsi` (`PrintfFormat`) | NOT dead — cold path instantiates it as **FSharp.Core**'s `PrintfFormat\`4` (`ClrRecipes.fs:170-177`, `ClrEnv.fs:126`) | **self-host `.fs` + retarget cold-path recipe** off FSharp.Core onto the Vesper type. Sequenced dependency on `vesper-printf-plan` cold path; tracked exemption until done. |
 | `Vesper.Printf/printf.fsi` (printf/printfn/sprintf) | front-end intrinsic, lowered inline to `Formatter`/`Format` (like operators) | formal exemption |
-| `Vesper.Printf/formatter.fsi` ↔ `formatter.fs` | paired; module-level value presence now checked (4.1), but its MEMBERS (overloaded `AppendFormatted`, ctors) are still unverified | first real client of MEMBER-level conformance = Step 6 |
+| `Vesper.Printf/formatter.fsi` ↔ `formatter.fs` | paired; presence checked (4.1) AND its generic MEMBERS (overloaded `AppendFormatted` / `AppendStructured`) now published + conformance-checked (Step 6) | **DONE** — first real client of MEMBER-level conformance |
 | `Vesper.Exceptions/exceptions.fsi` | impl-free on CLR (BCL-resolved); JS repr via `prim-types-exn` | **per-target** exemption |
 | `Vesper.Core/capabilities-compat.js.fsi` | pure type abbreviations | formal exemption |
 
@@ -666,9 +668,9 @@ handling is ever unified here.
         without it: G1 (presence — a paired `.fs` exists) holds and G2 (emitted-method typar
         order) does not apply to inline bodies. "T8 done" does NOT assert operator FSharp.Core
         parity.
-      - **Type MEMBERS deferred to Step 6** — `checkFile` reads only module-level
-        `TDecl.Let`s, not `TTypeMemberG.MethodTypeParams`. Cross-package member extraction is
-        Step 6's `MethodArity = 0` work.
+      - **Type MEMBERS done in Step 6** — `checkFile` reads only module-level `TDecl.Let`s;
+        the member-level twin `ConformanceTypars.checkMembers` reads
+        `TTypeMemberG.MethodTypeParams` against the now-published generic-member surface.
       - **Blocked surface unchanged:** packages whose `.fs` does not yet compile through the
         pipeline (`set.fs`) are not driven; 4.2's tests cover `list.fs`, which compiles
         end-to-end. (A whole-tree sweep driving `checkFile` over every package's frozen `.fs`
@@ -704,8 +706,54 @@ handling is ever unified here.
      the vesper-printf cold-path self-host; until then `printf-format.fsi` is a declared
      `sig-only` exemption (above), so it is enforced as a KNOWN impl-free contract, not a
      silent gap.
-6. **Extend to generic MEMBERS** once published cross-package (drop the
-   `VesperLib.fs` `MethodArity = 0` hard-codes, `VesperLib.fs:535` and `:1105`).
+6. **Extend to generic MEMBERS** — DONE.
+   - DONE (publishing). `.fsi` extraction now publishes a member's own method typars.
+     `extractTypeMembers` (`VesperLib.fs`) no longer pre-filters `typarDefns = ValueSome`
+     members and seeds the member's explicit `<'a>` typars into the collector AFTER the
+     declaring type's own (`registerExplicitTypars`), so they take method-axis positions
+     (indices `>= arity`) in declared order. `freezeMemberSig` drops the old
+     `maxDeclaringIndex >= declaringArity` skip, runs the new
+     `FrozenTypeBridge.reaxisMethodTypars` (every translated typar at index `>= arity`
+     flips `FTTypar(Declaring,i) → FTTypar(Method, i-arity)` — the single axis-split point,
+     the `.fsi` analogue of `Elaborate.freezeTypars`' `methodEnv`), and computes the real
+     `MethodArity` (`collector.Count - declaringArity`, read AFTER the walk so an implicit
+     `'T` is counted). The finalize loop propagates `sign.MethodArity` onto the
+     `ExternalMember` (overwriting the extraction-time `0` placeholder). Both
+     `MethodArity = 0` hard-codes are gone — `:1105` is now the computed method arity;
+     `:535` (ctors) STAYS `0` (a constructor is never generic, per the F# rule). Codegen,
+     inference, and the metadata layer already consumed `MethodArity > 0`, so no consumer
+     change was needed. The `Vesper.Printf` package build (which now extracts the generic
+     `Formatter.AppendFormatted`/`AppendStructured` members and runs the Step-5 conformance
+     gate) stays green across CLR + JS.
+   - DONE (member conformance). `ConformanceTypars.checkMembers` is the member-level twin
+     of `checkFile`: it walks a frozen `.fs` file's type-decl members, and for each generic
+     member (`GeneralizedTypars.count m.MethodTypeParams > 0`) compares the inferred
+     signature against the `.fsi`-published overload set (`TryLookupMembers`). A member
+     carries TWO typar axes, so the comparison is a DIRECT structural `FrozenType` equality
+     (no `normAxis` collapse — that would conflate a declaring slot with a method slot);
+     both sides already write declaring typars on `FTTypar(Declaring,_)` + method typars on
+     `FTTypar(Method,_)` in canonical order, so `=` is α-equivalence-with-order across both
+     axes. A member with no matching-arity published overload is skipped (presence is 4.1's
+     job). Tests: `Codegen.Clr.Tests/ConformanceTyparsTests.fs` drives the REAL
+     `formatter.fs`/`formatter.fsi` end-to-end (`AppendFormatted` overloads publish with
+     `MethodArity = 1`; `checkMembers` reports none); `SemanticAnalysis.Tests/ConformanceTests.fs`
+     "MemberTyparConformance" pins the kernel over the real frozen pipeline + a stub contract
+     (conforming control, the `<'b,'a>`-reorder mismatch, the unpublished-skip). Suites green
+     (SA 657, Clr 1068, JS 175, Vesper 49).
+   - The "GenericParam order == MethodSpec order" round-trip (Tests-to-add #1) is covered by
+     construction + existing coverage rather than a dedicated IL-introspection test: the
+     consumer reads the SAME published `ExternalSignature` (`FTTypar(Method,i)` in declared
+     order) that the definition's `GenericParam` rows and the call's `MethodSpec`
+     (`recoverOpenTypars`/`mintMemberRef`) both derive from; `checkMembers` verifies the
+     `.fs` definition order conforms to the `.fsi`; and the existing green printf
+     runtime/self-host tests emit + EXECUTE `AppendFormatted<'T>` calls (a wrong MethodSpec
+     order would `InvalidProgram` at run time). `MethodArity > 0` round-trips through
+     extraction in `ExternalSignatureOracleTests`.
+
+   The retained `MethodArity = 0` hard-codes the original step named were `VesperLib.fs:535`
+   (ctors — correctly kept) and `:1105` (members — now computed). The `VesperLib.fs:535`/`:1105`
+   line references predate the Step-6 edits; the live anchors are `ExternalMember.ctor`'s ctor
+   arm and `extractTypeMembers`' member arm.
 
 ## Side goal — remove `MockBuiltins` — DONE
 
@@ -758,7 +806,8 @@ the source").
 
 - The double-implementation + round-trip tests catch realistic drift for module
   FUNCTIONS.
-- Generic *members* aren't published cross-package yet (`MethodArity = 0`).
+- Generic *members* were not published cross-package (`MethodArity = 0`) — CLOSED by
+  Step 6 (`reaxisMethodTypars` + computed `MethodArity`; `checkMembers` conformance).
 - T4's correct-by-construction carrier removed the `.fs`-internal divergence; T8 is
   purely the `.fsi`↔`.fs` seam.
 
@@ -769,10 +818,17 @@ the source").
   control (no explicit `<…>`) reports none. Plus the real-package end-to-end check
   (`list.fs` vs extracted `list.fsi`). (`ConformanceTests.fs` "TyparConformance" +
   `Codegen.Clr.Tests/ConformanceTyparsTests.fs`.)
-- **[6]** Round-trip: `.fsi` extract → downstream consume → call, asserting
-  GenericParam order == MethodSpec order for a declared-≠-appearance binding.
-- **[6]** `formatter.fsi` ↔ `formatter.fs` MEMBER-level conformance (overloaded
-  `AppendFormatted`, ctors) goes green.
+- **[6 — covered by construction]** Round-trip: `.fsi` extract → downstream consume →
+  call, GenericParam order == MethodSpec order for a declared-≠-appearance binding. See
+  the Step 6 note in Sequencing: the consumer, the `GenericParam` rows, and the
+  `MethodSpec` all derive from the one published `ExternalSignature`; `checkMembers`
+  verifies the definition conforms; the green printf runtime tests execute
+  `AppendFormatted<'T>` calls.
+- **[6 — DONE]** `formatter.fsi` ↔ `formatter.fs` MEMBER-level conformance (overloaded
+  generic `AppendFormatted` / `AppendStructured`) goes green —
+  `Codegen.Clr.Tests/ConformanceTyparsTests.fs` "Vesper.Printf: formatter.fs generic
+  members conform to formatter.fsi" + `ConformanceTests.fs` "MemberTyparConformance"
+  (kernel: conforming control / `<'b,'a>`-reorder mismatch / unpublished-skip).
 - **[5 — DONE]** A `.fsi` binding with no `.fs` (a deliberately deleted impl) → hard
   FS0240-style error (`V240`), NOT a pinned golden. (`ConformanceTests.fs`
   "ConformanceEnforcement": un-exempted `SigOnly` → `V240`; `MissingInImpl` → `V240`;

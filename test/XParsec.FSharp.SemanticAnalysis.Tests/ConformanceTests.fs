@@ -529,3 +529,111 @@ let typarConformanceTests =
                 Expect.isEmpty (ConformanceTypars.checkFile (contractProvider []) tast) "unpublished binding skipped"
             }
         ]
+
+// ---- Semantic typar-order conformance for type MEMBERS (T8 Step 6) ----------
+//
+// `ConformanceTypars.checkMembers` is the member-level twin of `checkFile`: a
+// generic `.fs` type member (`member M<'a,'b>(x,y) = …`) is compared against the
+// `.fsi`-published overload set (`TryLookupMembers`). A member carries two typar
+// axes, so the comparison is a DIRECT structural equality of the two frozen member
+// signatures (no axis collapse): both sides write the declaring type's typars on
+// `FTTypar(Declaring,_)` and the method's own on `FTTypar(Method,_)`, each in
+// canonical order, so `=` is α-equivalence-with-order across both axes. A member
+// with no matching-arity published overload is skipped (presence is Step 4.1's job).
+//
+// The real `formatter.fs ↔ formatter.fsi` end-to-end check lives in
+// `Codegen.Clr.Tests/ConformanceTyparsTests.fs` (it needs `ClrSymbolProviders` to
+// EXTRACT the contract); here the contract side is a stub publishing an exact member
+// overload set, so the drift case is pinned without a manifest round-trip.
+
+/// A method-axis typar marker (`FTTypar(Method, i)`).
+let private mAxis (i: int) : FrozenType = FTTypar(TyparAxis.Method, i)
+
+/// A non-property, non-static external member named `name` with `methodArity` own
+/// typars and the given (already method-axised) tupled `parameters` / `ret` — the
+/// `.fsi`-published overload the stub serves.
+let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) (ret: FrozenType) : ExternalMember =
+    {
+        Name = name
+        IsStatic = false
+        IsProperty = false
+        Signature =
+            {
+                DeclaringArity = 0
+                MethodArity = methodArity
+                Parameters = parameters
+                Return = ret
+            }
+        MethodArity = methodArity
+        Origin = SymbolOrigin.Empty
+        Key = SymbolKey.MemberKey(SymbolKeyOps.qualifiedTypeKeyOf None "C" 0, name, EqArray.empty, MemberKind.Method)
+        OptionalDefaults = []
+    }
+
+/// A contract provider publishing exactly `overloads` as the member set of every
+/// type (keyed by member name; the declaring-type name is ignored, so the stub
+/// serves whatever qualified name the `.fs` type resolves under).
+let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
+    { new IExternalSymbolProvider with
+        member _.TryLookup _ = ValueNone
+        member _.TryLookupType _ = ValueNone
+
+        member _.TryLookupMember(_, name) =
+            match overloads |> List.tryFind (fun m -> m.Name = name) with
+            | Some m -> ValueSome m
+            | None -> ValueNone
+
+        member _.TryLookupMembers(_, name) =
+            overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
+
+        member _.TryLookupUnionCase _ = ValueNone
+        member _.AmbientOpenPrefixes = []
+        member _.TryLookupInlineBody _ = ValueNone
+        member _.TryLookupInlineBodyByName _ = ValueNone
+        member _.IntrinsicReverseCanon = Map.empty
+        member _.IntrinsicForwardRepr = Map.empty
+    }
+
+[<Tests>]
+let memberTyparConformanceTests =
+    testList
+        "MemberTyparConformance"
+        [
+            test "generic member conforming to its published overload → no mismatch" {
+                // `member this.M<'a>(x: 'a) = x` — one method typar, signature `'a -> 'a`
+                // (`M0 -> M0`). The published overload says the same, so it conforms.
+                let tast = frozenOf "type C() =\n    member this.M<'a>(x: 'a) = x"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let contract = memberContractProvider [ mkMember "M" 1 (mAxis 0) (mAxis 0) ]
+                Expect.isEmpty (ConformanceTypars.checkMembers contract tast) "identity generic member conforms"
+            }
+
+            test "published `<'b,'a>` reorder vs `.fs` `<'a,'b>` → MemberMismatch" {
+                // `.fs` declares `<'a,'b>`: `x:'a` = Method 0, `y:'b` = Method 1, so the
+                // inferred signature is `(M0 * M1) -> M0`. The published overload is the
+                // REVERSED `<'b,'a>` numbering — `(M1 * M0) -> M1` — the member-level twin
+                // of `checkFile`'s `<'b,'a>` drift, caught by the same positional equality.
+                let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let swapped =
+                    mkMember "M" 2 (FTTuple(EqArray.ofList [ mAxis 1; mAxis 0 ])) (mAxis 1)
+
+                let mismatches =
+                    ConformanceTypars.checkMembers (memberContractProvider [ swapped ]) tast
+
+                Expect.equal (List.length mismatches) 1 "one member typar-order mismatch"
+                Expect.equal mismatches.Head.MemberName "M" "the mismatch names M"
+                Expect.equal mismatches.Head.MethodArity 2 "carries the method arity"
+            }
+
+            test "a member the contract does not publish is skipped (presence is Step 4.1)" {
+                // No published overload of matching arity → no typar-order verdict to make.
+                let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
+
+                Expect.isEmpty
+                    (ConformanceTypars.checkMembers (memberContractProvider []) tast)
+                    "unpublished member skipped"
+            }
+        ]

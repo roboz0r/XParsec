@@ -36,7 +36,18 @@ namespace XParsec.FSharp.SemanticAnalysis
 //  - A MONOMORPHIC binding has no typar order to disagree on, so it is skipped.
 //  - A binding the contract does not publish (a private HiddenVal) is skipped —
 //    PRESENCE is Step 4.1's job, not this pass's.
-//  - Type MEMBERS (overloaded `AppendFormatted`, ctors) are Step 6.
+//
+// Step 6 extends the SAME faithfulness invariant to generic type MEMBERS
+// (`Formatter.AppendFormatted: 'T -> unit`, the overloaded set) via `checkMembers`
+// below — now that `.fsi` extraction publishes a member's own method typars
+// (`reaxisMethodTypars`, `MethodArity > 0`) rather than dropping the member. A
+// member carries TWO typar axes (the declaring type's + its own), so — unlike the
+// single-axis module binding — its check compares the two frozen signatures
+// DIRECTLY (no axis collapse): both sides already write the declaring type's typars
+// on `FTTypar(Declaring,i)` and the method's own on `FTTypar(Method,j)`, each in
+// canonical order, so a structural equality IS α-equivalence-with-order across both
+// axes. Collapsing them (as `normAxis` does for a free value) would conflate a
+// declaring slot with a method slot.
 
 module ConformanceTypars =
 
@@ -135,5 +146,101 @@ module ConformanceTypars =
                                         Inferred = normAxis ty
                                     }
                         | _ -> ()
+                | _ -> ()
+        ]
+
+    /// A generic type MEMBER whose `.fs`-inferred signature disagrees with every
+    /// published `.fsi` overload of matching method arity — a different method-typar
+    /// ORDER or signature SHAPE (one structural inequality; the two axes line up by
+    /// construction). `Published` carries the candidate overloads' signatures for a
+    /// diagnostic that shows what the member could have matched.
+    [<NoEquality; NoComparison>]
+    type MemberMismatch =
+        {
+            /// The declaring type's compiled name (`Vesper.Formatter`).
+            TypeName: string
+            /// The member name (`AppendFormatted`).
+            MemberName: string
+            /// The member's own method-typar count (`> 0` — this pass only checks
+            /// generic members).
+            MethodArity: int
+            /// The `.fs`-inferred member signature (`params → return`, or the bare
+            /// value type for a property).
+            Inferred: FrozenType
+            /// The matching-arity published overloads' signatures.
+            Published: FrozenType list
+        }
+
+    /// The `.NET`-tupled `Parameters` form of a frozen member's parameter binders —
+    /// the `FrozenType` shape `ExternalSignature.Parameters` carries (0 ⇒ `unit`,
+    /// 1 ⇒ itself, N ⇒ a tuple), so the two sides compare directly.
+    let private tupledParams (ps: EqArray<NodeKey * FrozenType>) : FrozenType =
+        match ps.Length with
+        | 0 -> FTConst("unit", EqArray.empty)
+        | 1 -> snd ps.[0]
+        | _ -> FTTuple(EqArray.ofSeq (seq { for kv in ps -> snd kv }))
+
+    /// One member's signature as a single `FrozenType` — `params → return` for a
+    /// method, the bare value type for a property — the shape both the `.fs` member
+    /// (`tupledParams`/`ReturnTy`) and the `.fsi` overload
+    /// (`Signature.Parameters`/`Return`) fold to, so a `=` is the conformance check.
+    let private memberSigOf (isProperty: bool) (parameters: FrozenType) (ret: FrozenType) : FrozenType =
+        if isProperty then ret else FTFun(parameters, ret)
+
+    let private extractedSigOf (m: ExternalMember) : FrozenType =
+        memberSigOf m.IsProperty m.Signature.Parameters m.Signature.Return
+
+    /// The generic members of a frozen type declaration's body, paired with their
+    /// property-ness. Augmentation members ride `Class`/`Union`/`Record`; an
+    /// `Interface`'s abstract methods carry a different (`TAbstractMethodG`) shape and
+    /// are not checked here (no concrete `.fs` impl pairs with them in the same file).
+    let private bodyMembers (kind: Frozen.TTypeKind) : Frozen.TTypeMember list =
+        match kind with
+        | TTypeKindG.Class clazz -> EqArray.toList clazz.Members
+        | TTypeKindG.Union(_, members, _) -> EqArray.toList members
+        | TTypeKindG.Record(_, members, _) -> EqArray.toList members
+        | TTypeKindG.Interface _ -> []
+
+    /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against
+    /// its `.fsi` contract `provider`. For each such member, the published overloads
+    /// of the same name + method arity are the candidate set; conformance holds when
+    /// one of them is structurally equal to the inferred signature (the two-axis
+    /// faithfulness invariant). A member with NO matching-arity published overload is
+    /// skipped — that is member PRESENCE, not this pass's typar-order remit. Returns
+    /// one `MemberMismatch` per generic member whose `.fs` signature matches no
+    /// published overload of its arity, in source-declaration order.
+    let checkMembers (provider: IExternalSymbolProvider) (tast: Frozen.TastFile) : MemberMismatch list =
+        [
+            for decl in tast.Decls do
+                match decl with
+                | Frozen.TDecl.Type td ->
+                    let typeName = SymbolKeyOps.qualifiedName td.Key
+
+                    for m in bodyMembers td.Kind do
+                        let arity = GeneralizedTypars.count m.MethodTypeParams
+
+                        if arity > 0 then
+                            let isProperty = (m.Kind = TMemberKind.Property)
+                            let inferred = memberSigOf isProperty (tupledParams m.Params) m.ReturnTy
+                            let overloads = provider.TryLookupMembers(typeName, m.Name)
+                            // Candidate set: overloads with the SAME method arity. A
+                            // different-arity overload is a different generic member.
+                            let candidates = overloads |> Array.filter (fun em -> em.MethodArity = arity)
+
+                            // Skip when the contract publishes no matching-arity overload
+                            // at all — that is PRESENCE (Step 4.1 / `ConformancePass`),
+                            // not a typar-order disagreement.
+                            if
+                                candidates.Length > 0
+                                && not (candidates |> Array.exists (fun em -> extractedSigOf em = inferred))
+                            then
+                                yield
+                                    {
+                                        TypeName = typeName
+                                        MemberName = m.Name
+                                        MethodArity = arity
+                                        Inferred = inferred
+                                        Published = [ for em in candidates -> extractedSigOf em ]
+                                    }
                 | _ -> ()
         ]

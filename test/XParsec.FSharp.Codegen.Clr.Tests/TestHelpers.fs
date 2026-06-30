@@ -85,6 +85,10 @@ let vesperCoreSource (fileName: string) : string =
 let vesperListSource (fileName: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.List", fileName)
 
+/// `src/Vesper.Printf/<fileName>`, relative to this test file.
+let vesperPrintfSource (fileName: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Printf", fileName)
+
 /// `src/Vesper.Core/manifest.toml` — the Vesper.Core layer-1 referenced-project
 /// manifest. Declared up here (above the
 /// `vesperListDll` fixture, which references it) rather than in the

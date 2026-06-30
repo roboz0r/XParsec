@@ -929,6 +929,33 @@ module FrozenTypeBridge =
             failwithf "FrozenTypeBridge.maxDeclaringIndex: unexpected method typar %d in a type-shape template" j
         | FTUnknown _ -> -1
 
+    /// Split a freshly-translated member signature's single typar axis into the
+    /// declaring + method axes. The contract-extraction translate (`translateType`)
+    /// bakes EVERY typar on the `Declaring` axis — it threads one `TyparCollector`
+    /// with no axis notion. A member's collector is seeded with the declaring type's
+    /// own typars (indices `0 .. declaringArity-1`) before its signature is walked,
+    /// so any typar the member INTRODUCES — explicit `<'a>` or an implicit `'T`
+    /// (`Formatter.AppendFormatted: 'T -> unit`) — lands at index `>= declaringArity`.
+    /// Those are the member's OWN generic parameters: rewrite each to
+    /// `FTTypar(Method, i - declaringArity)`, leaving the genuine declaring typars
+    /// untouched. The `.fsi` analogue of `Elaborate.freezeTypars`' `methodEnv` flip;
+    /// the single point that gives an extracted member its method axis (so codegen
+    /// reads a real `MethodArity` and mints the `MethodSpec`'s generic params).
+    let rec reaxisMethodTypars (declaringArity: int) (template: FrozenType) : FrozenType =
+        let go = reaxisMethodTypars declaringArity
+
+        match template with
+        | FTConst(name, args) -> FTConst(name, EqArray.map go args)
+        | FTFun(arg, result) -> FTFun(go arg, go result)
+        | FTTuple items -> FTTuple(EqArray.map go items)
+        | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
+        | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
+        | FTClass(key, args) -> FTClass(key, EqArray.map go args)
+        | FTOr members -> FTOr(EqArray.map go members)
+        | FTTypar(TyparAxis.Declaring, i) when i >= declaringArity -> FTTypar(TyparAxis.Method, i - declaringArity)
+        | FTTypar _
+        | FTUnknown _ -> template
+
     /// `true` when the type is fully ground: no open typar on either axis and no
     /// `FTUnknown` (a leaked inference metavar the front end never resolved). The
     /// `FrozenType` sibling of `Passes.InlineExpansion`'s `SemType` `isGroundType`.
