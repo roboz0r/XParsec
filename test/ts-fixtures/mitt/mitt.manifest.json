@@ -1,0 +1,497 @@
+{
+  "schemaVersion": 1,
+  "package": "mitt",
+  "version": "3.0.1",
+  "exports": [
+    {
+      "export": "function",
+      "name": "mitt",
+      "signatures": [
+        {
+          "typeParams": 1,
+          "params": [
+            {
+              "name": "all",
+              "type": {
+                "k": "union",
+                "members": [
+                  {
+                    "k": "named",
+                    "name": "undefined",
+                    "args": []
+                  },
+                  {
+                    "k": "named",
+                    "name": "Map",
+                    "args": [
+                      {
+                        "k": "union",
+                        "members": [
+                          {
+                            "k": "named",
+                            "name": "string",
+                            "args": []
+                          },
+                          {
+                            "k": "structural",
+                            "hash": "keyof Events",
+                            "fields": []
+                          }
+                        ]
+                      },
+                      {
+                        "k": "named",
+                        "name": "Array",
+                        "args": [
+                          {
+                            "k": "named",
+                            "name": "__type",
+                            "args": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "optional": true,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "Emitter",
+            "args": [
+              {
+                "k": "typar",
+                "i": 0
+              }
+            ]
+          }
+        }
+      ],
+      "import": "default"
+    },
+    {
+      "export": "typeAlias",
+      "name": "EventType",
+      "typeParams": 0,
+      "target": {
+        "k": "union",
+        "members": [
+          {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          {
+            "k": "named",
+            "name": "symbol",
+            "args": []
+          }
+        ]
+      }
+    },
+    {
+      "export": "typeAlias",
+      "name": "Handler",
+      "typeParams": 1,
+      "target": {
+        "k": "fun",
+        "args": [
+          {
+            "k": "typar",
+            "i": 0
+          }
+        ],
+        "ret": {
+          "k": "named",
+          "name": "unit",
+          "args": []
+        }
+      }
+    },
+    {
+      "export": "typeAlias",
+      "name": "WildcardHandler",
+      "typeParams": 1,
+      "target": {
+        "k": "fun",
+        "args": [
+          {
+            "k": "structural",
+            "hash": "keyof T",
+            "fields": []
+          },
+          {
+            "k": "structural",
+            "hash": "T[keyof T]",
+            "fields": []
+          }
+        ],
+        "ret": {
+          "k": "named",
+          "name": "unit",
+          "args": []
+        }
+      }
+    },
+    {
+      "export": "typeAlias",
+      "name": "EventHandlerList",
+      "typeParams": 1,
+      "target": {
+        "k": "named",
+        "name": "Array",
+        "args": [
+          {
+            "k": "named",
+            "name": "__type",
+            "args": []
+          }
+        ]
+      }
+    },
+    {
+      "export": "typeAlias",
+      "name": "WildCardEventHandlerList",
+      "typeParams": 1,
+      "target": {
+        "k": "named",
+        "name": "Array",
+        "args": [
+          {
+            "k": "named",
+            "name": "__type",
+            "args": []
+          }
+        ]
+      }
+    },
+    {
+      "export": "typeAlias",
+      "name": "EventHandlerMap",
+      "typeParams": 1,
+      "target": {
+        "k": "named",
+        "name": "Map",
+        "args": [
+          {
+            "k": "union",
+            "members": [
+              {
+                "k": "structural",
+                "hash": "keyof Events",
+                "fields": []
+              },
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            ]
+          },
+          {
+            "k": "named",
+            "name": "Array",
+            "args": [
+              {
+                "k": "named",
+                "name": "__type",
+                "args": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "export": "interface",
+      "name": "Emitter",
+      "typeParams": 1,
+      "members": [
+        {
+          "name": "all",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "Map",
+            "args": [
+              {
+                "k": "union",
+                "members": [
+                  {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  },
+                  {
+                    "k": "structural",
+                    "hash": "keyof Events",
+                    "fields": []
+                  }
+                ]
+              },
+              {
+                "k": "named",
+                "name": "Array",
+                "args": [
+                  {
+                    "k": "named",
+                    "name": "__type",
+                    "args": []
+                  }
+                ]
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "on",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "type",
+                  "type": {
+                    "k": "methodTypar",
+                    "i": 0
+                  },
+                  "optional": false,
+                  "rest": false
+                },
+                {
+                  "name": "handler",
+                  "type": {
+                    "k": "named",
+                    "name": "__type",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            },
+            {
+              "typeParams": 0,
+              "params": [
+                {
+                  "name": "type",
+                  "type": {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                },
+                {
+                  "name": "handler",
+                  "type": {
+                    "k": "named",
+                    "name": "__type",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "off",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "type",
+                  "type": {
+                    "k": "methodTypar",
+                    "i": 0
+                  },
+                  "optional": false,
+                  "rest": false
+                },
+                {
+                  "name": "handler",
+                  "type": {
+                    "k": "union",
+                    "members": [
+                      {
+                        "k": "named",
+                        "name": "undefined",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "__type",
+                        "args": []
+                      }
+                    ]
+                  },
+                  "optional": true,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            },
+            {
+              "typeParams": 0,
+              "params": [
+                {
+                  "name": "type",
+                  "type": {
+                    "k": "named",
+                    "name": "string",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                },
+                {
+                  "name": "handler",
+                  "type": {
+                    "k": "named",
+                    "name": "__type",
+                    "args": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "emit",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "type",
+                  "type": {
+                    "k": "methodTypar",
+                    "i": 0
+                  },
+                  "optional": false,
+                  "rest": false
+                },
+                {
+                  "name": "event",
+                  "type": {
+                    "k": "structural",
+                    "hash": "Events[Key]",
+                    "fields": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            },
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "type",
+                  "type": {
+                    "k": "structural",
+                    "hash": "undefined extends Events[Key] ? Key : never",
+                    "fields": []
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "structural-object-stubbed",
+      "symbol": "keyof Events",
+      "span": null,
+      "message": "anonymous/structural type 'keyof Events' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+    },
+    {
+      "severity": "warning",
+      "code": "structural-object-stubbed",
+      "symbol": "keyof T",
+      "span": null,
+      "message": "anonymous/structural type 'keyof T' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+    },
+    {
+      "severity": "warning",
+      "code": "structural-object-stubbed",
+      "symbol": "T[keyof T]",
+      "span": null,
+      "message": "anonymous/structural type 'T[keyof T]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+    },
+    {
+      "severity": "warning",
+      "code": "structural-object-stubbed",
+      "symbol": "Events[Key]",
+      "span": null,
+      "message": "anonymous/structural type 'Events[Key]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+    },
+    {
+      "severity": "warning",
+      "code": "structural-object-stubbed",
+      "symbol": "undefined extends Events[Key] ? Key : never",
+      "span": null,
+      "message": "anonymous/structural type 'undefined extends Events[Key] ? Key : never' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "mitt",
+  "version": "3.0.1",
+  "types": "index.d.ts",
+  "module": "dist/mitt.mjs",
+  "exports": {
+    "types": "./index.d.ts",
+    "import": "./dist/mitt.mjs",
+    "default": "./dist/mitt.mjs"
+  }
+}
