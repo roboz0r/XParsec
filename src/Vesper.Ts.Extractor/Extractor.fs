@@ -119,6 +119,12 @@ let private relativizeDiagnostics (baseDir: string) (diags: ResizeArray<Schema.D
         else
             rel
 
+    // DEDUP (Phase 3.5): the same degraded type referenced from N sites records N
+    // identical diagnostics (a `keyof Events` reached from `all`, the `mitt` param, and
+    // the alias is still ONE genuinely-hard type). Collapse by (Code, Symbol, Span) —
+    // distinct spans stay distinct (a real second occurrence), but the repeat-per-
+    // reference noise folds to one clean warning per construct. Run AFTER relativization
+    // so spans are compared in their portable form.
     diags
     |> Seq.map (fun d ->
         match d.Span with
@@ -129,6 +135,7 @@ let private relativizeDiagnostics (baseDir: string) (diags: ResizeArray<Schema.D
         | None -> d
     )
     |> List.ofSeq
+    |> List.distinctBy (fun d -> d.Code, d.Symbol, d.Span)
 
 // ─── declaring-axis typar environment + generic-instantiation detection ─────
 //
@@ -221,47 +228,65 @@ let private looksNominal (printed: string) : bool =
     && printed
        |> Seq.forall (fun c -> System.Char.IsLetterOrDigit c || c = '_' || c = '$' || c = '.')
 
+/// A PURE function value type — the shape `(args) => ret`: at least one call
+/// signature, NO construct signatures, and NO own data properties. A callable object
+/// that ALSO carries members is not a bare arrow (it stays structural); a constructor
+/// type (`new () => T`) is excluded by the no-construct-signature clause. Lets
+/// `mapType` map a function-typed alias/parameter faithfully to `TypeRef.Fun` instead
+/// of degrading it to a structural stub. The CALLER additionally gates on the printed
+/// form being non-nominal, so a NAMED interface that merely declares a call signature
+/// keeps its nominal identity rather than collapsing to an anonymous arrow.
+let private isFunctionType (t: Ts.Type) : bool =
+    (t.getCallSignatures ()).Count > 0
+    && (t.getConstructSignatures ()).Count = 0
+    && (t.getProperties ()).Count = 0
+
 // ─── ts.Type → Schema.TypeRef ──────────────────────────────────────────────
 
 let rec mapType
     (checker: Ts.TypeChecker)
     (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
+    (methodEnv: Ts.Symbol list)
     (t: Ts.Type)
     : Schema.TypeRef =
     let printed = checker.typeToString t
 
-    // A type-parameter REFERENCE (item 11) resolves to its declaring-axis index in
-    // `env`. Checked BEFORE the printed-name match: a typar prints as its bare name
-    // (`T`), which would otherwise be mistaken for a nominal type. A typar NOT in
-    // `env` is a METHOD-axis typar (a generic member's own `<U>`) — the schema's
-    // single-axis `Typar` cannot distinguish it from the declaring axis without a
-    // contract bump, so THROW rather than silently mis-map it to the declaring axis.
+    // A type-parameter REFERENCE (item 11) resolves against TWO axes, declaring first
+    // (matching F# scoping: a member's `<U>` shadowing a declaring `<T>` is a distinct
+    // typar, but a name in BOTH binds to the declaring slot). Checked BEFORE the
+    // printed-name match: a typar prints as its bare name (`T`), which would otherwise
+    // be mistaken for a nominal type.
+    //   - found in the DECLARING env → `Typar i` (the enclosing type/alias/free-fn axis);
+    //   - else found in the METHOD env → `MethodTypar i` (a generic member's own `<U>`);
+    //   - else genuinely unbound → erase to `obj` + a `method-axis-typar-erased` Warning.
+    // The third case should now be unreachable for an authored member typar (it rides
+    // `methodEnv`); it survives as a defensive degrade for a typar from neither axis.
     if t.isTypeParameter () then
         match lookupTypar env t with
         | Some i -> Schema.TypeRef.Typar i
         | None ->
-            // A METHOD-axis typar reference (a generic member's own `<U>`, not in the
-            // declaring-axis env): the schema's single-axis `Typar` cannot carry it
-            // without a contract bump, so DEGRADE the reference to `obj` (the universal
-            // supertype the provider can rehydrate) and record the erasure. The method's
-            // additive `TypeParams` COUNT is still emitted per signature; only the
-            // REFERENCE is erased. Span anchored on the typar's own declaration node.
-            let span =
-                match t.getSymbol () with
-                | Some s -> spanOfNode (declOf s)
-                | None -> None
+            match lookupTypar methodEnv t with
+            | Some i -> Schema.TypeRef.MethodTypar i
+            | None ->
+                // A typar bound by NEITHER axis: degrade the reference to `obj` (the
+                // universal supertype the provider can rehydrate) and record the erasure.
+                // Span anchored on the typar's own declaration node.
+                let span =
+                    match t.getSymbol () with
+                    | Some s -> spanOfNode (declOf s)
+                    | None -> None
 
-            emitWarning
-                diags
-                "method-axis-typar-erased"
-                printed
-                span
-                (sprintf
-                    "method-axis type parameter '%s' (a generic member's own type parameter) erased to obj; the schema's single-axis Typar cannot represent a method-axis reference"
-                    printed)
+                emitWarning
+                    diags
+                    "method-axis-typar-erased"
+                    printed
+                    span
+                    (sprintf
+                        "type parameter '%s' is bound by neither the declaring nor the method axis; erased to obj"
+                        printed)
 
-            Schema.TypeRef.Named("obj", [])
+                Schema.TypeRef.Named("obj", [])
     else
 
         // Literal types erase to their base, kept in ONE place (the future hook for
@@ -305,7 +330,7 @@ let rec mapType
                 // unwrap a singleton.
                 let members =
                     (unbox<Ts.UnionType> t).types
-                    |> Seq.map (mapType checker diags env)
+                    |> Seq.map (mapType checker diags env methodEnv)
                     |> List.ofSeq
                     |> List.distinct
 
@@ -324,7 +349,25 @@ let rec mapType
                 // → `Named(target name, mapped args)` (item 11), recursing `mapType` over the
                 // type arguments rather than emitting the printed-form blob (`Named("string[]")`).
                 match asGenericInstantiation checker t with
-                | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType checker diags env))
+                | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType checker diags env methodEnv))
+                | None when isFunctionType t && not (looksNominal printed) ->
+                    // A pure FUNCTION type (`(event: T) => void`, `Handler<T>`): exactly one
+                    // call signature, NO construct signatures, and no own data properties.
+                    // Map it FAITHFULLY to `TypeRef.Fun(curried param types, return)` — the
+                    // provider rehydrates `Fun → FTFun` — rather than degrading to a stub.
+                    // Gated by `isFunctionType` so a callable object carrying extra members,
+                    // a constructor type, or a nominal reference does NOT enter here.
+                    let callSig = (t.getCallSignatures ()).[0]
+
+                    let paramTypes =
+                        callSig.getParameters ()
+                        |> Seq.map (fun p ->
+                            mapType checker diags env methodEnv (checker.getTypeOfSymbolAtLocation (p, declOf p))
+                        )
+                        |> List.ofSeq
+
+                    let ret = mapType checker diags env methodEnv (callSig.getReturnType ())
+                    Schema.TypeRef.Fun(paramTypes, ret)
                 | None ->
                     // Tightened fallthrough (cross-cutting producer discipline): now that
                     // generics are handled, keep only a BARE NOMINAL name as `Named`; THROW on a
@@ -334,20 +377,35 @@ let rec mapType
                     if looksNominal printed then
                         Schema.TypeRef.Named(printed, [])
                     else
-                        // A STRUCTURAL/anonymous object type (`{ x: number }`, item 14,
-                        // DEFERRED) — or any other non-nominal form (function types, exotic
-                        // primitives) that surfaced as such. DEGRADE to the `Structural` stub
-                        // the provider already rehydrates (→ `FTUnknown`): harvest the object's
-                        // own properties as fields (each recursed through `mapType`) and key it
-                        // on the printed form as a stable content hash. The span anchors on the
-                        // type's declaration node when it has a symbol.
+                        // A STRUCTURAL/anonymous form (`{ x: number }`, item 14, DEFERRED) — or a
+                        // keyof / indexed-access / conditional type — that surfaced as non-nominal.
+                        // DEGRADE to the `Structural` stub the provider rehydrates (→ `FTUnknown`),
+                        // keyed on the printed form as a stable content hash.
+                        //
+                        // Harvest fields ONLY for a genuine anonymous OBJECT type (`TypeFlags.Object`):
+                        // there, `getProperties` is the type's OWN declared members. For a
+                        // keyof/indexed/conditional type the "properties" are the APPARENT (inherited
+                        // prototype) members of a primitive/union base — harvesting them recurses into
+                        // `string | symbol`'s `toString`/`valueOf`/… and explodes into a noise cascade
+                        // — so emit an EMPTY field set for those. (Flag CONSTANT, not a raw numeric,
+                        // per producer discipline — vendored flag values can drift.)
+                        let isObjectType = int (t.flags) &&& int Ts.TypeFlags.Object <> 0
+
                         let fields =
-                            t.getProperties ()
-                            |> Seq.map (fun p ->
-                                p.getName (),
-                                mapType checker diags env (checker.getTypeOfSymbolAtLocation (p, declOf p))
-                            )
-                            |> List.ofSeq
+                            if isObjectType then
+                                t.getProperties ()
+                                |> Seq.map (fun p ->
+                                    p.getName (),
+                                    mapType
+                                        checker
+                                        diags
+                                        env
+                                        methodEnv
+                                        (checker.getTypeOfSymbolAtLocation (p, declOf p))
+                                )
+                                |> List.ofSeq
+                            else
+                                []
 
                         let span =
                             match t.getSymbol () with
@@ -372,6 +430,7 @@ let private mapParam
     (checker: Ts.TypeChecker)
     (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
+    (methodEnv: Ts.Symbol list)
     (p: Ts.Symbol)
     : Schema.Param =
     // A parameter symbol's declaration is the `ParameterDeclaration` node carrying
@@ -384,19 +443,23 @@ let private mapParam
 
     {
         Name = p.getName ()
-        Type = mapType checker diags env (checker.getTypeOfSymbolAtLocation (p, decl))
+        Type = mapType checker diags env methodEnv (checker.getTypeOfSymbolAtLocation (p, decl))
         Optional = paramDecl.questionToken.IsSome || paramDecl.initializer.IsSome
         Rest = paramDecl.dotDotDotToken.IsSome
     }
 
-/// `env` is the typar scope the parameter / return types resolve against — the
-/// DECLARING type's typars for a member, or the function's OWN typars for a free
-/// function (item 11). `TypeParams` is the signature's own generic-parameter count
-/// (the method axis) regardless of `env`; for a free function it coincides with `env`.
+/// `env` is the DECLARING typar scope (the enclosing type's typars for a member, or
+/// the function's OWN typars for a free function); `methodEnv` is the METHOD-axis
+/// scope — a generic MEMBER's own typars, so a reference to the member's `<U>` maps to
+/// `MethodTypar i` (item 11 / Phase 3.5). For a free function `methodEnv` is empty: its
+/// own typars ride `env` as the single declaring-axis index space, so they stay
+/// `Typar i` and the provider's `scheme` freshens them. `TypeParams` is the signature's
+/// own generic-parameter count (the method axis) regardless of either env.
 let private mapSignature
     (checker: Ts.TypeChecker)
     (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
+    (methodEnv: Ts.Symbol list)
     (sg: Ts.Signature)
     : Schema.Signature =
     {
@@ -404,8 +467,11 @@ let private mapSignature
             sg.getTypeParameters ()
             |> Option.map (fun a -> a.Count)
             |> Option.defaultValue 0
-        Params = sg.getParameters () |> Seq.map (mapParam checker diags env) |> List.ofSeq
-        Returns = mapType checker diags env (sg.getReturnType ())
+        Params =
+            sg.getParameters ()
+            |> Seq.map (mapParam checker diags env methodEnv)
+            |> List.ofSeq
+        Returns = mapType checker diags env methodEnv (sg.getReturnType ())
     }
 
 /// Guard against asymmetric get/set accessors (TS 4.3 `get x(): string` / `set
@@ -444,7 +510,7 @@ let private checkAccessorSymmetry
         | Some g, Some s ->
             let getReturn =
                 match checker.getSignatureFromDeclaration (unbox g) with
-                | Some sg -> mapType checker diags env (sg.getReturnType ())
+                | Some sg -> mapType checker diags env [] (sg.getReturnType ())
                 | None -> failwithf "accessor '%s' getter has no resolvable signature" (prop.getName ())
 
             let setParam =
@@ -458,7 +524,7 @@ let private checkAccessorSymmetry
                             (prop.getName ())
                             ps.Count
 
-                    mapType checker diags env (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
+                    mapType checker diags env [] (checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
                 | None -> failwithf "accessor '%s' setter has no resolvable signature" (prop.getName ())
 
             if getReturn <> setParam then
@@ -489,10 +555,10 @@ let private checkAccessorSymmetry
 /// lower to `x.foo` on JS). The only extra work is the asymmetric-type guard.
 ///
 /// `env` is the declaring type's typar scope (item 11): a member typed `T` resolves
-/// to its declaring-axis `Typar` index. The member's OWN method-axis typars are
-/// deliberately NOT added — a generic member (`map<U>(…)`) referencing its own `U`
-/// throws in `mapType` (method-axis references need a schema-axis contract bump),
-/// while the additive method `TypeParams` COUNT is still emitted per signature.
+/// to its declaring-axis `Typar` index. A generic METHOD's OWN typars (`map<U>(…)`)
+/// are threaded as the SEPARATE method-axis env per signature (`sigTypars sg`), so a
+/// reference to `U` maps to `MethodTypar i` (Phase 3.5) — faithful, no longer erased.
+/// A PROPERTY carries no method typars, so its method env is empty.
 let private mapMember
     (checker: Ts.TypeChecker)
     (diags: ResizeArray<Schema.Diagnostic>)
@@ -513,7 +579,10 @@ let private mapMember
             Name = prop.getName ()
             Kind = Schema.MemberKind.Method
             Type = None
-            Signatures = callSigs |> Seq.map (mapSignature checker diags env) |> List.ofSeq
+            Signatures =
+                callSigs
+                |> Seq.map (fun sg -> mapSignature checker diags env (sigTypars sg) sg)
+                |> List.ofSeq
             Static = isStatic
             Optional = false
         }
@@ -521,7 +590,7 @@ let private mapMember
         {
             Name = prop.getName ()
             Kind = Schema.MemberKind.Property
-            Type = Some(mapType checker diags env t)
+            Type = Some(mapType checker diags env [] t)
             Signatures = []
             Static = isStatic
             Optional = false
@@ -558,7 +627,7 @@ let private ctorMemberOf
                 Signatures =
                     ctorSigs
                     |> Seq.map (fun sg ->
-                        { mapSignature checker diags env sg with
+                        { mapSignature checker diags env [] sg with
                             TypeParams = 0
                         }
                     )
@@ -600,7 +669,7 @@ let private extendsBases
     (declared: Ts.Type)
     : Schema.TypeRef list =
     checker.getBaseTypes (unbox<Ts.InterfaceType> declared)
-    |> Seq.map (fun bt -> mapType checker diags env (unbox<Ts.Type> bt))
+    |> Seq.map (fun bt -> mapType checker diags env [] (unbox<Ts.Type> bt))
     |> List.ofSeq
 
 /// A class's `implements` interfaces — the half `getBaseTypes` omits (see `extendsBases`).
@@ -637,7 +706,7 @@ let private classImplements
                             else
                                 s
 
-                        mapType checker diags env (checker.getDeclaredTypeOfSymbol target)
+                        mapType checker diags env [] (checker.getDeclaredTypeOfSymbol target)
                     | None -> failwithf "class implements clause entry has no resolvable interface symbol"
                 )
             | None -> Seq.empty
@@ -791,7 +860,7 @@ let rec private mapExport
         // unambiguous). `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
         let sigs =
             t.getCallSignatures ()
-            |> Seq.map (fun sg -> mapSignature checker diags (sigTypars sg) sg)
+            |> Seq.map (fun sg -> mapSignature checker diags (sigTypars sg) [] sg)
             |> List.ofSeq
 
         Some(Schema.Export.Function(name, sigs, import))
@@ -807,7 +876,7 @@ let rec private mapExport
 
         let isConst = int (ts.getCombinedNodeFlags decl) &&& int Ts.NodeFlags.Const <> 0
 
-        Some(Schema.Export.Variable(name, mapType checker diags [] varTy, isConst, import))
+        Some(Schema.Export.Variable(name, mapType checker diags [] [] varTy, isConst, import))
     elif hasFlag flags Ts.SymbolFlags.Enum then
         // `enum` AND `const enum` (`SymbolFlags.Enum` ORs `RegularEnum | ConstEnum`).
         // Read members straight off the `EnumDeclaration.members` node list — NOT
@@ -858,7 +927,7 @@ let rec private mapExport
         // (authored vs resolved form) is still deferred.
         let target = checker.getDeclaredTypeOfSymbol resolved
         let env = declTyparsOf checker (declOf resolved)
-        Some(Schema.Export.TypeAlias(name, List.length env, mapType checker diags env target))
+        Some(Schema.Export.TypeAlias(name, List.length env, mapType checker diags env [] target))
     elif hasFlag flags Ts.SymbolFlags.Module then
         // `namespace NS { … }` / `module NS { … }` (item 17). `SymbolFlags.Module`
         // is the named constant ORing `ValueModule | NamespaceModule` — the SAME

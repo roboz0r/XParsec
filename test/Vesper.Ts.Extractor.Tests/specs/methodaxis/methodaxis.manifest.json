@@ -19,9 +19,8 @@
                 {
                   "name": "x",
                   "type": {
-                    "k": "named",
-                    "name": "obj",
-                    "args": []
+                    "k": "methodTypar",
+                    "i": 0
                   },
                   "optional": false,
                   "rest": false
@@ -41,17 +40,5 @@
       "heritage": []
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "method-axis-typar-erased",
-      "symbol": "U",
-      "span": {
-        "file": "methodaxis.d.ts",
-        "start": 550,
-        "end": 551
-      },
-      "message": "method-axis type parameter 'U' (a generic member's own type parameter) erased to obj; the schema's single-axis Typar cannot represent a method-axis reference"
-    }
-  ]
+  "diagnostics": []
 }

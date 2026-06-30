@@ -35,6 +35,7 @@
     <Compile Include="TsManifestEnumTests.fs" />
     <Compile Include="EnumTests.fs" />
     <Compile Include="NullUndefinedTests.fs" />
+    <Compile Include="MethodAxisGenericTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

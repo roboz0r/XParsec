@@ -25,8 +25,14 @@ type TypeRef =
     /// `bool`, `unit`) — never a BCL or JS repr; the provider maps it to the
     /// platform repr.
     | Named of name: string * args: TypeRef list
-    /// Open type parameter, declaring-axis index.
+    /// Open type parameter, declaring-axis index (the enclosing class / interface /
+    /// alias / free-function's own typars).
     | Typar of index: int
+    /// Open type parameter, METHOD-axis index — a generic MEMBER's OWN type parameter
+    /// (`map<U>(x: U)` → `U` is `MethodTypar 0`), distinct from the declaring axis so
+    /// the provider can freshen it per call site (`FTTypar(TyparAxis.Method, i)`). Only
+    /// a member-of-a-type carries this; a free function's own typars ride `Typar`.
+    | MethodTypar of index: int
     /// Curried function arrow.
     | Fun of args: TypeRef list * ret: TypeRef
     | Tuple of items: TypeRef list

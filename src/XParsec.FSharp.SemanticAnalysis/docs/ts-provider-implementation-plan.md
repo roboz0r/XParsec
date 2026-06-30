@@ -41,16 +41,19 @@ never raw `dotnet`. Line numbers above are from this writing — confirm before 
 ## Ordering at a glance
 
 ```
-Phase 0  null/undefined intrinsics ......... gates every real package
-Phase 1  diagnostics channel (schema+codec)  independent of 0
-Phase 2  resilient extractor (1 → 2) ........ failwith → diagnostic + degrade
-Phase 3  neutral fixture location ........... independent; do before mitt
-Phase 4  mitt producer fixture (0,2,3 → 4) .. golden + provider-resolves
-Phase 5  real-package e2e (0,4 → 5) ......... .fs → emit → run vs real runtime
+Phase 0    null/undefined intrinsics ......... DONE (verified; no prod change needed)
+Phase 1    diagnostics channel (schema+codec)  DONE
+Phase 2    resilient extractor (1 → 2) ........ DONE (failwith → diagnostic + degrade)
+Phase 3    neutral fixture location ........... DONE
+Phase 3.5  faithful generics (mitt-driven) .... method-axis typars + fn types + cascade
+Phase 4    mitt producer fixture (3.5 → 4) .... golden pins the honest residue
+Phase 5    real-package e2e (0,4 → 5) ......... .fs → emit → run vs real runtime
 ```
 
-Phases 0/1/3 are independent and can land in any order; 2 needs 1; 4 needs 0+2+3; 5
-needs 4+0. Land each phase green before the next.
+Phases 0–3 are DONE. Phase 3.5 was inserted after mitt's first extraction showed 42
+degrades and the call was made to prioritise faithful generics over shipping them; it
+gates the final mitt golden (Phase 4). 5 needs 4+0. Land each phase green before the
+next.
 
 ---
 
@@ -187,9 +190,72 @@ shows the fixture tracked.
 
 ---
 
+## Phase 3.5 — faithful generics (inserted before mitt adoption)
+
+**Why.** The first real-package extraction (`mitt`, Phase 4) produced **42 degrade
+warnings**, not zero — and the decision was to *prioritise faithful generics first*
+rather than ship the degrades. The 42 break down as: ~10 genuine fidelity gaps and
+~32 a single noise cascade. This phase closes the two tractable fidelity gaps and the
+cascade; the genuinely-hard residue (keyof / indexed-access / conditional types) stays
+degraded by design but produces ONE clean diagnostic each.
+
+**Grounding (verified).** The seam ALREADY models both typar axes end-to-end:
+`TyparAxis = Declaring | Method` (`SemanticInfo.fs:352`), `ExternalSignature.MethodArity`
+exists, `toFrozen` already emits `FTTypar(TyparAxis.Declaring, i)`, and the CLR path
+freshens external `FTTypar(TyparAxis.Method, idx)` per call (`EmitCall.fs:342`,
+`MetadataSymbols.fs`). So method-axis fidelity is a contained CONTRACT BUMP reusing
+proven infrastructure, not new modeling. `toFrozen` already maps `TypeRef.Fun → FTFun`,
+so function-type fidelity is extractor-only.
+
+### Piece A — method-axis typar contract bump (the core)
+Today `Schema.TypeRef.Typar of index:int` is single-axis (declaring only); the extractor
+ERASES a member's own `<U>`/`<Key>` reference to `obj` + a `method-axis-typar-erased`
+warning.
+- **Schema:** add `TypeRef.MethodTypar of index:int` (additive case; `Typar` stays the
+  declaring axis). Keep the grammar Fable-safe.
+- **Codec:** encode `{k:"methodTypar", i}` / decode it.
+- **Extractor:** thread the member's OWN type parameters as a SECOND env alongside the
+  declaring-axis `env`, so a method-axis typar reference resolves to its index in the
+  member's own type-parameter list and emits `MethodTypar idx` instead of erasing.
+  `mapSignature` already reads `sg.getTypeParameters()` for the COUNT — pass that list as
+  the method-typar env into `mapType` for the signature's params/return. (Declaring-axis
+  lookup wins when a name is in both, matching F# scoping.)
+- **Provider `toFrozen`:** `MethodTypar i → FTTypar(TyparAxis.Method, i)`.
+- **`argSigOf`:** `MethodTypar i → "!!" + i` (the documented method-axis convention,
+  distinct from declaring `"!" + i`).
+
+### Piece B — function types → `TypeRef.Fun` (extractor-only)
+`Handler<T> = (event:T)=>void` etc. are stubbed structurally because `mapType` has no
+function-type arm. Add one: a type with call signatures, NO construct signatures, and
+not nominal → `TypeRef.Fun(curried params, ret)` (curry per the existing param
+convention). `toFrozen` already rehydrates `Fun → FTFun`.
+
+### Piece C — structural-degrade cascade cleanup (extractor-only)
+The 32-warning cascade is the structural degrade recursing field-harvest into the
+APPARENT members of `keyof Events` (pulling in `string|symbol`'s prototype methods —
+`()=>string` ×16, etc.), with no dedup. Fix: when degrading a NON-object structural form
+(keyof / indexed-access / conditional), do NOT harvest apparent members; and DEDUP
+diagnostics by (code, symbol, span). Result: each genuinely-hard type yields one clean
+warning.
+
+**Acceptance.** mitt re-extracts to a SMALL handful of honest warnings (only the
+keyof/indexed-access/conditional residue), method-axis members resolve faithfully
+(`Key` is `FTTypar(Method,i)`, not `obj`), `Handler`/`WildcardHandler` resolve as
+function types, and a method-axis `runJs` round-trip (a generic member called at two
+types) emits + runs under Node. All existing specs/goldens stay green; the new
+method-axis spec from Phase 2 flips from "erased" to faithful (its golden updates).
+
+**Stays degraded (out of scope, by design).** keyof / indexed-access (`Events[Key]`) /
+conditional types, and structural-record content-hashing (SCC cycles) — these remain
+"generic form lost" per the design plan, now each a single clean diagnostic.
+
+---
+
 ## Phase 4 — `mitt` producer fixture
 
-**Goal.** A real npm package extracts to a committed golden with **zero diagnostics**.
+**Goal.** A real npm package extracts to a committed golden whose diagnostics are the
+**small honest residue** Phase 3.5 leaves (keyof/indexed-access/conditional only) — NOT
+zero, and NOT the original 42. The golden pins that residue; any drift fails CI.
 
 **Steps.**
 1. **Vendor** into `test/ts-fixtures/mitt/`: mitt's published `index.d.ts`, a minimal

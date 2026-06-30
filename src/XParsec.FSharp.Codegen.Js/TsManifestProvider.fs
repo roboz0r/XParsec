@@ -26,6 +26,7 @@ module TsManifestProvider =
         | Schema.TypeRef.Named(name, []) -> FTConst(name, EqArray.empty)
         | Schema.TypeRef.Named(name, args) -> FTConst(name, EqArray.ofSeq (List.map toFrozen args))
         | Schema.TypeRef.Typar i -> FTTypar(TyparAxis.Declaring, i)
+        | Schema.TypeRef.MethodTypar i -> FTTypar(TyparAxis.Method, i)
         | Schema.TypeRef.Fun(args, ret) -> List.foldBack (fun a acc -> FTFun(toFrozen a, acc)) args (toFrozen ret)
         | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map toFrozen items))
         | Schema.TypeRef.Union members -> FTOr(EqArray.ofSeq (List.map toFrozen members))
@@ -63,6 +64,7 @@ module TsManifestProvider =
         | Schema.TypeRef.Named(name, []) -> name
         | Schema.TypeRef.Named(name, args) -> name + "<" + System.String.Join(",", List.map argSigOf args) + ">"
         | Schema.TypeRef.Typar i -> "!" + string i
+        | Schema.TypeRef.MethodTypar i -> "!!" + string i
         | Schema.TypeRef.Fun(args, ret) -> "(" + System.String.Join(",", List.map argSigOf args) + ")->" + argSigOf ret
         | Schema.TypeRef.Tuple items -> "(" + System.String.Join("*", List.map argSigOf items) + ")"
         | Schema.TypeRef.Union _

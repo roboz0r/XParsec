@@ -144,6 +144,7 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
                 "args", jArr (List.map encodeTypeRef args)
             ]
     | TypeRef.Typar i -> jObj [ "k", jStr "typar"; "i", jInt i ]
+    | TypeRef.MethodTypar i -> jObj [ "k", jStr "methodTypar"; "i", jInt i ]
     | TypeRef.Fun(args, ret) ->
         jObj
             [
@@ -179,6 +180,9 @@ let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
         | "typar" ->
             let! i = readField "i" asInt m
             return TypeRef.Typar i
+        | "methodTypar" ->
+            let! i = readField "i" asInt m
+            return TypeRef.MethodTypar i
         | "fun" ->
             let! args = listField "args" decodeTypeRef m
             let! ret = readField "ret" decodeTypeRef m

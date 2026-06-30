@@ -1,9 +1,10 @@
-// Phase-2 degradation fixture: a METHOD-AXIS generic. A member's OWN generic type
-// parameter (`<U>`) cannot be represented by the schema's single-axis `Typar`, so its
-// REFERENCE is erased to `obj` and a `method-axis-typar-erased` Warning is recorded —
-// the extraction degrades instead of throwing. Exactly ONE reference (the parameter)
-// so the golden carries exactly one diagnostic; the method `TypeParams` COUNT (1) is
-// still emitted, and the degraded member rehydrates through the provider (obj maps).
+// Phase-3.5 method-axis fixture: a member's OWN generic type parameter (`<U>`). The
+// schema's method axis (`MethodTypar`) represents it FAITHFULLY — `x: U` maps to
+// `MethodTypar 0`, the method `TypeParams` COUNT (1) is emitted, and the golden carries
+// ZERO diagnostics (no erasure). The provider rehydrates it as `FTTypar(Method, 0)`,
+// which it freshens per call site. (Before Phase 3.5 the single-axis `Typar` could not
+// carry a method reference, so `U` was erased to `obj` + a `method-axis-typar-erased`
+// Warning; that degrade is gone now that the method axis exists.)
 
 export interface Mapper {
   apply<U>(x: U): void;
