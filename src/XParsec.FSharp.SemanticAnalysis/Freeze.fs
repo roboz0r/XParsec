@@ -61,7 +61,9 @@ module Freeze =
             | TyClass(k, args) -> FTClass(k, EqArray.map go args)
             // Enum: a niladic nominal — pure key carry-over (no args to freeze).
             | TyEnum k -> FTEnum k
-            | TyOr members -> FTOr(EqArray.map go members.Members)
+            // Rebuild through the smart constructor (freezing can collapse members).
+            | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> go m })
+            | TyLiteral v -> FTLiteral v
             | TyTypar(axis, i) -> FTTypar(axis, i)
             | TyUnknown n -> FTUnknown n
             // The un-ground-operator residue (see the doc comment); placeholder name

@@ -128,6 +128,82 @@ module internal UnificationInferApp =
                     | ValueNone -> ()
             | _ -> ()
 
+    /// Render a literal constant for a diagnostic naming the allowed set.
+    let private renderLiteralConst (v: LiteralConst) : string =
+        match v with
+        | LiteralConst.String s -> "\"" + s + "\""
+        | LiteralConst.Int n -> string n
+
+    /// The literal-const values a parameter slot admits BY VALUE, or `ValueNone` when
+    /// the slot is not a literal / pure-literal union (so the caller defers to the
+    /// normal coercion). A bare `TyLiteral` is a singleton; a `TyOr` of ALL literals
+    /// is the full set; a union with any non-literal member is NOT a pure literal slot.
+    let private literalSlotMembers (dom: SemType) : LiteralConst list voption =
+        match resolveStep dom with
+        | TyLiteral v -> ValueSome [ v ]
+        | TyOr ms ->
+            let acc = ResizeArray<LiteralConst>()
+            let mutable allLiterals = true
+
+            for m in ms.Members do
+                match resolveStep m with
+                | TyLiteral v -> acc.Add v
+                | _ -> allLiterals <- false
+
+            if allLiterals && acc.Count > 0 then
+                ValueSome(List.ofSeq acc)
+            else
+                ValueNone
+        | _ -> ValueNone
+
+    /// A syntactic STRING constant argument's value, peeling paren / annotation
+    /// wrappers. Only a PLAIN string literal counts (interpolation is not a constant).
+    /// Int falls under the same seam once literal-int slots are exercised; strings are
+    /// the shape mitt / the acceptance test need, so int is deferred here.
+    let rec private tryConstLiteralArg (ctx: PassContext) (e: Expr<SyntaxToken>) : LiteralConst voption =
+        match e with
+        | Expr.EnclosedBlock(expr = inner)
+        | Expr.TypeAnnotation(expr = inner) -> tryConstLiteralArg ctx inner
+        | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
+            match parts.[0] with
+            | StringPart.Text t -> ValueSome(LiteralConst.String(ctx.NameOf t))
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// DIRECTIONAL constant admission at the external-arg seam (design §"a syntactic
+    /// string/number CONSTANT argument admits by set membership … a plain `string`-typed
+    /// NON-constant expression does NOT admit"). Returns `true` when it HANDLED the
+    /// position — either the constant is in the literal set (admitted; the runtime value
+    /// already IS the literal, so no unify and no wrapper) or it is NOT (a type error
+    /// naming the allowed set). Returns `false` for a non-literal slot OR a non-constant
+    /// argument, so those fall through to the ordinary `unifyArg` (which rejects a plain
+    /// `string` into a literal union via the directional `subsumes` layer — item 3). The
+    /// arg EXPRESSION (not just its `string` type) is what lets the constant be seen —
+    /// the printf-format precedent for call-site constant propagation.
+    let private tryAdmitLiteralConstArg
+        (ctx: PassContext)
+        (key: NodeKey)
+        (argExpr: Expr<SyntaxToken>)
+        (dom: SemType)
+        : bool =
+        match literalSlotMembers dom with
+        | ValueNone -> false
+        | ValueSome members ->
+            match tryConstLiteralArg ctx argExpr with
+            | ValueNone -> false
+            | ValueSome lit ->
+                if List.contains lit members then
+                    true
+                else
+                    let allowed = members |> List.map renderLiteralConst |> String.concat " | "
+
+                    ctx.Error(
+                        key,
+                        sprintf "%s is not one of the allowed literal values: %s" (renderLiteralConst lit) allowed
+                    )
+
+                    true
+
     let rec inferApp
         (infer: Infer)
         (ctx: PassContext)
@@ -152,15 +228,23 @@ module internal UnificationInferApp =
         let inferGenericAppFrom (fnTy: SemType) (argTys: SemType[]) =
             let mutable currTy = fnTy
 
-            for argTy in argTys do
+            for i in 0 .. argTys.Length - 1 do
+                let argTy = argTys.[i]
+
                 match resolveStep currTy with
                 | TyFun(dom, cod) ->
-                    // Allow an implicit class→interface / class→base upcast on the
-                    // argument: a `Comparer<'T>` value flows into an
-                    // `IComparer<'T>` parameter. `unifyArg` accepts a ground subtype
-                    // and otherwise falls back to plain unification (which links vars
-                    // and reports a genuine mismatch).
-                    unifyArg ctx key argTy dom
+                    // A literal / literal-union parameter consults the argument
+                    // EXPRESSION for a syntactic constant (directional admission); when
+                    // it handles the slot, skip `unifyArg` (which would reject the
+                    // `string`-typed constant). Otherwise:
+                    // allow an implicit class→interface / class→base upcast on the
+                    // argument: a `Comparer<'T>` value flows into an `IComparer<'T>`
+                    // parameter. `unifyArg` accepts a ground subtype and otherwise falls
+                    // back to plain unification (which links vars and reports a genuine
+                    // mismatch — including a plain `string` into a literal union).
+                    if not (tryAdmitLiteralConstArg ctx key args.[i] dom) then
+                        unifyArg ctx key argTy dom
+
                     currTy <- cod
                 | _ ->
                     let resultTy = TyVar(freshTyVar ctx)

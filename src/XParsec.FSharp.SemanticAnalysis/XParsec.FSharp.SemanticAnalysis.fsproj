@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="EqArray.fs" />
+    <Compile Include="EqSet.fs" />
     <Compile Include="NodeKey.fs" />
     <Compile Include="CstKeys.fs" />
     <Compile Include="CstWalk.fs" />

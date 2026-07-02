@@ -303,6 +303,11 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: cannot encode enum type reference %A — project-local enums only; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"
                 t
+        // A structural literal ERASES to its base primitive on both backends (the
+        // runtime value already IS the literal) — re-encode as that primitive rather
+        // than hit the catch-all. External-vocabulary only (a TS/JS concern), so a
+        // literal rarely reaches the CLR encoder, but erasing keeps it honest.
+        | FTLiteral v -> encodeType te (FTConst(v.BaseName, EqArray.empty))
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
@@ -390,15 +395,19 @@ type internal ClrEncoder(env: ClrEnv) =
                         go xs.[i] ys.[i]
                 | _ -> ()
             | FTOr xs ->
-                // Members are canonical in both open and instantiated unions, so the
-                // i-th member of one pairs with the i-th of the other.
+                // `EqSet` preserves INSERTION order and instantiation maps members
+                // in order (no re-sort), so the i-th member of the open template still
+                // pairs with the i-th of the instantiated union; a dedup-collapse
+                // changes the length and the guard declines (no recovery, same as a
+                // sorted mismatch used to).
                 match a with
                 | FTOr ys when xs.Length = ys.Length ->
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]
                 | _ -> ()
-            // A niladic nominal carries no open typar to recover — a leaf no-op.
-            | FTEnum _ -> ()
+            // A niladic nominal / a ground literal carries no open typar — a leaf no-op.
+            | FTEnum _
+            | FTLiteral _ -> ()
             | FTUnknown _ -> ()
 
         go openT instT

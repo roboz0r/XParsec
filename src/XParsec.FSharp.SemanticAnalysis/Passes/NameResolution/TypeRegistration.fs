@@ -438,9 +438,32 @@ module NameResolutionTypeRegistration =
                         }
                 else
                     let caseNames = [| for EnumTypeCase(ident = id) in cases -> ctx.NameOf id |]
+
+                    // The case VALUES, but ONLY when EVERY case is a plain string
+                    // literal — the literal-union admission (`subsumes`) runs before
+                    // Elaborate resolves the full case table, so read the simple form
+                    // here. A single non-plain-string case ⇒ `ValueNone` (the
+                    // admission then declines and the enum stays a plain nominal).
+                    let caseStringValues =
+                        let vals =
+                            [|
+                                for EnumTypeCase(constValue = v) in cases do
+                                    match v with
+                                    | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
+                                        match parts.[0] with
+                                        | StringPart.Text t -> yield ctx.NameOf t
+                                        | _ -> ()
+                                    | _ -> ()
+                            |]
+
+                        if vals.Length = cases.Length && cases.Length > 0 then
+                            ValueSome vals
+                        else
+                            ValueNone
+
                     // Enums are non-generic, so the arity is always 0.
                     let key = stampLocalTypeKey ctx declKey declNs name 0
-                    let info = EnumTypeInfo(name, caseNames, declKey, key)
+                    let info = EnumTypeInfo(name, caseNames, caseStringValues, declKey, key)
                     TypeRegistry.registerEnum ctx.Types name info
 
                     // Record the decl-site identity so `Elaborate.tryEnumType`

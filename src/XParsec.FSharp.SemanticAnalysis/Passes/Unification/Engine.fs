@@ -51,8 +51,9 @@ module UnificationEngine =
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
-        // A nominal enum has no args/typars to zonk — a leaf, passthrough.
-        | TyEnum _ -> t
+        // A nominal enum / a structural literal has no args/typars to zonk — a leaf.
+        | TyEnum _
+        | TyLiteral _ -> t
 
     /// Decompose a (zonked) tupled-argument type into its element types: a
     /// .NET-style call passes one argument that is a tuple / unit / single
@@ -149,12 +150,13 @@ module UnificationEngine =
         | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
-        | TyOr members -> EqArray.exists (occursAndAdjust target) members.Members
+        | TyOr members -> EqSet.exists (occursAndAdjust target) members.Members
         | TyUnknown _ -> false
         // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
         | TyTypar _ -> false
-        // A nominal enum holds no TyVar — never occurs.
-        | TyEnum _ -> false
+        // A nominal enum / a structural literal holds no TyVar — never occurs.
+        | TyEnum _
+        | TyLiteral _ -> false
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -211,8 +213,9 @@ module UnificationEngine =
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
-        // A nominal enum carries no typar to substitute — return self.
-        | TyEnum _ -> t
+        // A nominal enum / a structural literal carries no typar to substitute.
+        | TyEnum _
+        | TyLiteral _ -> t
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
@@ -628,6 +631,31 @@ module UnificationEngine =
 
         walk (HashSet<string>()) src
 
+    /// Does the string ENUM `enumKey`'s case-VALUE set sit ⊆ the string-literal
+    /// members of a union? Reads the enum's resolved string case values off
+    /// `EnumTypeInfo.CaseStringValues` (populated at NameResolution — the values are
+    /// available before Elaborate for the simple string-literal case this admission
+    /// needs). Declines (`false`) for a numeric/mixed enum, an unresolved enum, or a
+    /// union with no literal members covering every value — driving the `subsumes`
+    /// arm to fall through to `Unrelated` (the honest rejection for a non-matching
+    /// enum). Non-literal union members are simply ignored (they can't cover a value).
+    let private enumAdmitsIntoLiteralUnion (ctx: PassContext) (enumKey: SymbolKey) (members: EqSet<SemType>) : bool =
+        let litValues = HashSet<string>()
+
+        for m in members do
+            match resolveStep m with
+            | TyLiteral(LiteralConst.String s) -> litValues.Add s |> ignore
+            | _ -> ()
+
+        let enumName = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName enumKey)
+
+        match TypeRegistry.tryEnum ctx.Types enumName with
+        | ValueSome info ->
+            match info.CaseStringValues with
+            | ValueSome vals when vals.Length > 0 -> vals |> Array.forall litValues.Contains
+            | _ -> false
+        | ValueNone -> false
+
     /// Subtyping query distinct from `unify`: does a value of type `src`
     /// coerce to the statically-known type `tgt`? A **pure read** of
     /// `ctx.Types.Class` — never mutates `Link` / `Constraints`, so it's safe
@@ -665,38 +693,52 @@ module UnificationEngine =
                 SubsumeOutcome.Equal
             elif
                 ssm
-                |> EqArray.forall (fun s ->
-                    tsm |> EqArray.exists (fun t -> subsumes ctx s t <> SubsumeOutcome.Unrelated)
-                )
+                |> EqSet.forall (fun s -> tsm |> EqSet.exists (fun t -> subsumes ctx s t <> SubsumeOutcome.Unrelated))
             then
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
+        // A Vesper string ENUM admits into a literal union when its case-VALUE set
+        // ⊆ the union's literal set (design §"a Vesper string ENUM … admits when its
+        // case-VALUE set ⊆ the union"). The nominal companion for code that wants to
+        // name the literal type. ADDITIVE — an enum previously fell to the generic
+        // `src', TyOr ts` arm and was `Unrelated`; this only widens the match, never
+        // narrows non-literal behaviour. Non-string enums / unions with a non-literal
+        // member decline (the guard fails) and fall through to `Unrelated`.
+        | TyEnum ek, TyOr ts when enumAdmitsIntoLiteralUnion ctx ek ts.Members -> SubsumeOutcome.Subtype
         // member → union (`A ≤ A | B`): `Equal` when `src` *is* a member by
         // structural `=`, `Subtype` when it subsumes into some member (e.g. a
-        // subclass of a member). `src` is necessarily non-union here (the
-        // union → union arm above caught that case).
+        // subclass of a member, or a literal widening into a base-primitive member).
+        // `src` is necessarily non-union here (the union → union arm above caught it).
         | src', TyOr ts ->
             let tsm = ts.Members
 
-            if tsm |> EqArray.exists (fun t -> t = src') then
+            if tsm |> EqSet.exists (fun t -> t = src') then
                 SubsumeOutcome.Equal
-            elif tsm |> EqArray.exists (fun t -> subsumes ctx src' t <> SubsumeOutcome.Unrelated) then
+            elif tsm |> EqSet.exists (fun t -> subsumes ctx src' t <> SubsumeOutcome.Unrelated) then
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
         // union → member/other (`A | B ⋠ A`): coerces only when *every* member
         // subsumes the target (target = `obj` or a wider type) — otherwise the
         // consumer must narrow first. `never` (`TyOr []`) subsumes into everything
-        // (`forall` over the empty set).
+        // (`forall` over the empty set). A literal-union widening to its base
+        // primitive (`("a"|"b") ≤ string`) falls out here via the `TyLiteral` arm.
         | TyOr ss, _ ->
             if
                 ss.Members
-                |> EqArray.forall (fun s -> subsumes ctx s tgt <> SubsumeOutcome.Unrelated)
+                |> EqSet.forall (fun s -> subsumes ctx s tgt <> SubsumeOutcome.Unrelated)
             then
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
+        // OUTWARD widening: a structural literal widens to its BASE primitive
+        // (design §"outward, a literal (union) WIDENS to its base primitive"), so
+        // reading a literal-typed value back into Vesper needs nothing new. This is
+        // DIRECTIONAL — the converse (plain `string` into a literal) is NOT admitted
+        // here (a `string` source hits `subsumesNominal` → `Unrelated`); the only
+        // inward path is the syntactic-constant consultation at the external-arg seam.
+        | TyLiteral v, TyConst(n, _) when n = v.BaseName -> SubsumeOutcome.Subtype
         // The arrow↔`Fun` correspondence: a structural arrow
         // `TyFun(a,b)` IS a subtype of the canonical `Vesper.Fun`2<a,b>` interface.
         // This is the ONE place the two layers meet — the unifier keeps seeing
@@ -1034,13 +1076,14 @@ module UnificationEngine =
             unify ctx key a1 a2
             unify ctx key r1 r2
         | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> unifyArgs ctx key xs ys
-        // Anonymous unions unify by *structural equality only* — members are
-        // canonical (sorted/deduped by `mkUnion`), so equal unions have identical
-        // member vectors and unify positionally. Membership/assignability
-        // (`int ≤ int | string`) is NOT handled here: it belongs to the directional
-        // `subsumes` layer, never the symmetric core (the principality rule — this
+        // Anonymous unions unify by *set equality only* — `EqSet` makes
+        // `string | int` and `int | string` the SAME value, so equal unions need no
+        // member work (v1 union members are ground — the principality rule — so there
+        // is nothing to link). Unequal unions fall through to the mismatch arm.
+        // Membership/assignability (`int ≤ int | string`) is NOT handled here: it
+        // belongs to the directional `subsumes` layer, never the symmetric core (this
         // arm never widens `int` into `int | string`).
-        | TyOr m1, TyOr m2 when m1.Members.Length = m2.Members.Length -> unifyArgs ctx key m1.Members m2.Members
+        | TyOr m1, TyOr m2 when m1 = m2 -> ()
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -1318,6 +1361,13 @@ module UnificationEngine =
         // default shared with the sibling `TyUnknown` / `TyTypar` arms (never
         // a false `Violated`).
         | _, TyEnum _ -> Defer
+        // A structural literal erases to its base primitive — delegate the verdict to
+        // it (external-vocabulary only, so this is defensive; Vesper never mints one).
+        | k, TyLiteral v ->
+            match primitiveSupports k v.BaseName with
+            | ValueSome true -> Satisfied
+            | ValueSome false -> Violated
+            | ValueNone -> Defer
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)
@@ -1399,7 +1449,7 @@ module UnificationEngine =
             // — and `false` is the semantically correct answer (an int is not a
             // string). A non-equatable member (e.g. a `TyFun` arm) still fails the
             // reduction.
-            reduceOutcome (checkConstraint ctx c) members.Members
+            reduceOutcome (checkConstraint ctx c) (EqArray.ofList (EqSet.toList members.Members))
         | SemanticConstraintKind.Comparison, TyOr members ->
             // COMPARISON does NOT reduce member-wise, unlike equality above. F#'s
             // generic `compare` on two `obj` of *different* runtime types THROWS
@@ -1553,8 +1603,9 @@ module UnificationEngine =
             | TyUnknown _ -> ()
             // A post-freeze typar leaf carries no free args.
             | TyTypar _ -> ()
-            // A nominal enum has no free args to carry the constraint to.
-            | TyEnum _ -> ()
+            // A nominal enum / a structural literal has no free args to carry to.
+            | TyEnum _
+            | TyLiteral _ -> ()
 
         walk t
 
@@ -1813,6 +1864,25 @@ module UnificationEngine =
     /// principality rule holds: a union enters only by an annotation, and `unify`
     /// never synthesises one.
     let unifyAnnotation (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+        // A literal / pure-literal-union actual — the only actual admitted to the
+        // outward-widening arm below (keeps that arm strictly additive: a non-literal
+        // union still grounds via symmetric `unify`, unchanged).
+        let rec isLiteralBearing t =
+            match resolveStep t with
+            | TyLiteral _ -> true
+            | TyOr ms -> ms.Members |> EqSet.forall isLiteralBearing
+            | _ -> false
+
         match resolveStep expected with
         | TyOr _ when subsumes ctx actual expected <> SubsumeOutcome.Unrelated -> ()
+        // OUTWARD widening: a literal(-union) value read into its base-primitive
+        // annotation (`let s: string = getMode()`) admits directionally (design
+        // §"reading a literal-typed value back into Vesper needs nothing new"). The
+        // guard confines this to literal-bearing actuals — a plain nominal / non-literal
+        // union annotated to a supertype still goes through symmetric `unify`.
+        | _ when
+            isLiteralBearing actual
+            && subsumes ctx actual expected <> SubsumeOutcome.Unrelated
+            ->
+            ()
         | _ -> unify ctx key actual expected

@@ -50,10 +50,15 @@ let private sampleFrozenTypes: FrozenType list =
             FTRecord(kRec, EqArray.singleton (FTTypar(TyparAxis.Declaring, 0)))
             FTUnion(kUnion, EqArray.singleton (FTConst("string", EqArray.empty)))
             FTClass(kClass, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 1) ])
-            // Anonymous (structural) union — members in canonical (sorted) order, as
-            // `mkUnion` will produce. The round-trip is purely structural, so the map
-            // preserves the member vector either way.
-            FTOr(EqArray.ofList [ FTConst("int", EqArray.empty); FTConst("string", EqArray.empty) ])
+            // Anonymous (structural) union — built through the smart constructor
+            // (`EqSet` members, set-semantic identity). The round-trip is purely
+            // structural, so the map preserves the member set either way.
+            FrozenType.MkUnion [ FTConst("int", EqArray.empty); FTConst("string", EqArray.empty) ]
+            // A structural literal type (string + int), external-vocabulary only.
+            FTLiteral(LiteralConst.String "GET")
+            FTLiteral(LiteralConst.Int 42L)
+            // A literal union — the canonical `"ping" | "pong"` shape.
+            FrozenType.MkUnion [ FTLiteral(LiteralConst.String "ping"); FTLiteral(LiteralConst.String "pong") ]
         ]
 
     let branch2 =
@@ -112,6 +117,7 @@ let tests =
                     | TyTypar _ -> "TyTypar"
                     | TyUnknown _ -> "TyUnknown"
                     | TyEnum _ -> "TyEnum"
+                    | TyLiteral _ -> "TyLiteral"
                     | TyVar _ -> "TyVar"
 
                 let seen = sampleFrozenTypes |> List.map (ofFrozen >> tag) |> Set.ofList
@@ -128,6 +134,7 @@ let tests =
                         "TyTypar"
                         "TyUnknown"
                         "TyEnum"
+                        "TyLiteral"
                     ] do
                     Expect.isTrue (Set.contains expected seen) (sprintf "sample covers %s" expected)
             }

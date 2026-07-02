@@ -114,6 +114,8 @@ module EmitResolve =
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
         | FTOr _ -> "obj"
+        // A literal erases to its base primitive — match on that head.
+        | FTLiteral v -> v.BaseName
         | FTTypar _ -> "!typar"
         | FTUnknown n -> n
 

@@ -142,12 +142,13 @@ module internal UnificationInferGeneralize =
         | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyOr members -> EqArray.exists hasPendingDotAccess members.Members
+        | TyOr members -> EqSet.exists hasPendingDotAccess members.Members
         | TyUnknown _ -> false
         // Post-freeze leaf; never seen during generalisation.
         | TyTypar _ -> false
-        // A nominal enum holds no TyVar — no pending dot access.
-        | TyEnum _ -> false
+        // A nominal enum / a structural literal holds no TyVar — no pending dot access.
+        | TyEnum _
+        | TyLiteral _ -> false
 
     /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs
     /// two passes, hence the fixpoint iteration.
@@ -206,8 +207,9 @@ module internal UnificationInferGeneralize =
                         go m
                 | TyUnknown _ -> ()
                 | TyTypar _ -> ()
-                // A nominal enum holds no defaultable TyVar — a leaf.
-                | TyEnum _ -> ()
+                // A nominal enum / a structural literal holds no defaultable TyVar.
+                | TyEnum _
+                | TyLiteral _ -> ()
 
             go t
             acc
@@ -336,8 +338,10 @@ module internal UnificationInferGeneralize =
                         walk x
                 | TyUnknown _ -> ()
                 | TyTypar _ -> ()
-                // A nominal enum holds no list-literal container TyVar — a leaf.
-                | TyEnum _ -> ()
+                // A nominal enum / a structural literal holds no list-literal
+                // container TyVar — a leaf.
+                | TyEnum _
+                | TyLiteral _ -> ()
 
             walk ty
 

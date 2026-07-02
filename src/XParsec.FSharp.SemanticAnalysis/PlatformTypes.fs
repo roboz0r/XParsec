@@ -73,9 +73,11 @@ module PlatformTypes =
             | TyOr members ->
                 for a in members.Members do
                     go a
-            // A nominal enum has no type args and is not an intrinsic name — it
-            // contributes nothing to the unrepresentable set (a leaf).
+            // A nominal enum / a structural literal has no type args and is not an
+            // intrinsic name — it contributes nothing to the unrepresentable set (a
+            // literal erases to its base primitive, which is always representable).
             | TyEnum _
+            | TyLiteral _
             | TyVar _
             | TyTypar _
             | TyUnknown _ -> ()

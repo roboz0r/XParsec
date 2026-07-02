@@ -43,8 +43,10 @@ module SemTypeWalk =
                     walk m
             | TyUnknown _ -> ()
             | TyTypar _ -> ()
-            // A nominal enum has no args and no typars — a leaf, like `TyTypar`.
-            | TyEnum _ -> ()
+            // A nominal enum / a structural literal has no args and no typars — a
+            // leaf, like `TyTypar`.
+            | TyEnum _
+            | TyLiteral _ -> ()
 
         walk t
 

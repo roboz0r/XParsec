@@ -154,6 +154,12 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
             ]
     | TypeRef.Tuple items -> jObj [ "k", jStr "tuple"; "items", jArr (List.map encodeTypeRef items) ]
     | TypeRef.Union members -> jObj [ "k", jStr "union"; "members", jArr (List.map encodeTypeRef members) ]
+    // A literal TYPE carries its constant, tagged int/string exactly like an
+    // `EnumValue` (int-vs-string recoverable on decode). ADDITIVE — no
+    // `SchemaVersion` bump (prototyping policy).
+    | TypeRef.Literal(EnumValue.IntVal n) ->
+        jObj [ "k", jStr "literal"; "kind", jStr "int"; "value", JsonValue.Number(float n) ]
+    | TypeRef.Literal(EnumValue.StringVal s) -> jObj [ "k", jStr "literal"; "kind", jStr "string"; "value", jStr s ]
     | TypeRef.Dynamic -> jObj [ "k", jStr "dynamic" ]
     | TypeRef.Structural(hash, fields) ->
         jObj
@@ -193,6 +199,24 @@ let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
         | "union" ->
             let! members = listField "members" decodeTypeRef m
             return TypeRef.Union members
+        | "literal" ->
+            let! kind = readField "kind" asString m
+
+            match kind with
+            | "int" ->
+                let! v =
+                    readField
+                        "value"
+                        (function
+                        | JsonValue.Number n -> Ok(int64 n)
+                        | other -> Error(sprintf "expected number, got %A" other))
+                        m
+
+                return TypeRef.Literal(EnumValue.IntVal v)
+            | "string" ->
+                let! s = readField "value" asString m
+                return TypeRef.Literal(EnumValue.StringVal s)
+            | other -> return! Error(sprintf "unknown literal kind '%s'" other)
         | "dynamic" -> return TypeRef.Dynamic
         | "structural" ->
             let! h = readField "hash" asString m

@@ -198,6 +198,10 @@ module Regions =
         // An enum is a value type (numeric → `System.Enum`; string / mixed →
         // a `[<Struct>]` wrapper) — it does not heap-allocate.
         | TyEnum _ -> false
+        // A literal erases to its base primitive (`string`/`int`), whose allocation
+        // status is the primitive's — both non-allocating here (interned string /
+        // scalar). It is external-vocabulary only, so this is defensive.
+        | TyLiteral _ -> false
 
     let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
 

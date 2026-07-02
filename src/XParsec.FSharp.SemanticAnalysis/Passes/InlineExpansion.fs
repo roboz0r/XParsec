@@ -151,11 +151,13 @@ module InlineExpansion =
         | TyRecord(_, xs)
         | TyUnion(_, xs)
         | TyClass(_, xs) -> EqArray.forall isGroundType xs
-        | TyOr members -> EqArray.forall isGroundType members.Members
+        | TyOr members -> EqSet.forall isGroundType members.Members
         | TyUnknown _ -> false
         | TyTypar _ -> false
-        // A nominal enum is niladic (no args, no typars) — unconditionally ground.
-        | TyEnum _ -> true
+        // A nominal enum is niladic; a structural literal is a ground constant —
+        // both unconditionally ground.
+        | TyEnum _
+        | TyLiteral _ -> true
 
     /// Whether a derived inline type argument is concrete enough to splice a saturated
     /// builtin operator. A ground type qualifies; so does a *nominal-headed* type

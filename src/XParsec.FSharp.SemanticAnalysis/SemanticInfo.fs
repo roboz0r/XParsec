@@ -353,6 +353,24 @@ type TyparAxis =
     | Declaring
     | Method
 
+/// The constant value a structural LITERAL type carries (`FTLiteral`/`TyLiteral`).
+/// String first (`"GET"`); `Int` falls out for numeric literal unions. No `bool`
+/// (design §"Literal types stay structural … string first; skip bool"). A literal
+/// type is external-vocabulary ONLY — Vesper inference never mints one (the
+/// nominalism invariant), so this is produced solely by instantiating an external
+/// signature. It ERASES to `BaseName` (its base primitive) on both backends.
+[<RequireQualifiedAccess>]
+type LiteralConst =
+    | String of string
+    | Int of int64
+
+    /// The base primitive a literal of this value erases to — a member of the
+    /// canonical FRONT-END type vocabulary (`string` / `int`), NOT a backend repr.
+    member this.BaseName: string =
+        match this with
+        | LiteralConst.String _ -> "string"
+        | LiteralConst.Int _ -> "int"
+
 /// The immutable, *elaborated* type representation — the codomain of `freeze`
 /// and the type the TAST carries into Codegen, distinct from the mutable
 /// inference `SemType`. Its defining property is the **absence of a `TyVar`
@@ -388,11 +406,21 @@ type FrozenType =
     /// `TDecl` node by `key`, and the per-variant repr is a backend decision.
     | FTEnum of key: SymbolKey
     /// Frozen anonymous (structural) union — mirror of `SemType.TyOr`. Members
-    /// are in canonical form (sorted/deduped/flattened by `mkUnion`), so two
-    /// `FTOr`s are structurally equal iff their member sequences match. The
+    /// live in an `EqSet` (insertion-ordered storage so the declared `.d.ts` order
+    /// survives into diagnostics, SET-semantic equality/hash so `A | B ≡ B | A`),
+    /// flattened/deduped/singleton-collapsed by the `MkUnion` smart constructor —
+    /// the ONLY sanctioned producer (every rebuild site routes through it, never a
+    /// raw `EqSet.map`, because instantiation can introduce duplicates). The
     /// backend lowers it to its universal-supertype primitive (`obj`+`isinst` on
     /// the CLR, erased on JS); no nominal identity. `FTOr []` is `never`.
-    | FTOr of members: EqArray<FrozenType>
+    | FTOr of members: EqSet<FrozenType>
+    /// A structural LITERAL type (`"GET"`, `42`) — the frozen mirror of
+    /// `SemType.TyLiteral`. External-vocabulary ONLY (design §"Literal types stay
+    /// structural … the nominalism invariant"): Vesper inference never mints one, it
+    /// arises solely by instantiating an external signature. Ground, no children, no
+    /// typars. Composes with `FTOr` (`FTOr [FTLiteral "ping"; FTLiteral "pong"]`) and
+    /// ERASES to its base primitive on both backends.
+    | FTLiteral of value: LiteralConst
     /// An open type parameter of the enclosing generic definition: `axis`
     /// selects the declaring-type vs method axis; `index` is its position in
     /// that axis's typar list — the order `freeze` quantifies in, which is the
@@ -402,6 +430,32 @@ type FrozenType =
     /// shape. Carried so `freeze` is total; whether it may legitimately reach
     /// the backend is an open question (likely a hard error).
     | FTUnknown of name: string
+
+    /// The smart constructor for a frozen anonymous union — the ONLY sanctioned
+    /// producer of `FTOr`. Owns TS's semantic union rules: flatten nested `FTOr`,
+    /// dedupe (via `EqSet`, keeping first occurrence / declared order), and collapse
+    /// a singleton set to its bare member. The frozen mirror of `SemType.MkUnion`.
+    /// EVERY rebuild site (`toFrozen`, freshen/reaxis walks, `substituteDeclaring`,
+    /// the TS provider's `toFrozen`) MUST route through here — duplicates arise
+    /// POST-construction when a member instantiates to another member's value, so a
+    /// raw `EqSet.map` would leave a stale `FTOr [string; string]`.
+    static member MkUnion(members: FrozenType seq) : FrozenType =
+        let acc = ResizeArray<FrozenType>()
+
+        let rec add (t: FrozenType) =
+            match t with
+            | FTOr ms -> EqSet.iter add ms
+            | _ -> acc.Add t
+
+        for m in members do
+            add m
+
+        let canonical = EqSet.ofSeq acc
+
+        if canonical.Length = 1 then
+            canonical.[0]
+        else
+            FTOr canonical
 
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
 /// union-find graph. Will grow to include generics, units.
@@ -465,6 +519,13 @@ type SemType =
     /// type-enforced: the raw case cannot be built with an arbitrary `EqArray`.
     /// `SemType.MkUnion` (aliased as `mkUnion`) is the sole producer.
     | TyOr of members: UnionMembers
+    /// A structural LITERAL type (`"GET"`, `42`) — see `FrozenType.FTLiteral`.
+    /// External-vocabulary ONLY: Vesper inference NEVER mints one (the nominalism
+    /// invariant — `"ping"` types as `string`, always); it arises solely by
+    /// instantiating an external signature, and matters only DIRECTIONALLY at the
+    /// external-arg seam (the `subsumes` layer). Ground, no children, no typars;
+    /// widens OUTWARD to its base primitive.
+    | TyLiteral of value: LiteralConst
     /// A nominal reference that resolved to no in-scope type shape during extraction.
     /// It never unifies with anything; Unification reports it at the use site and
     /// recovers, so one broken contract head doesn't cascade. Distinct from
@@ -489,95 +550,11 @@ type SemType =
     /// walks read it.
     | TyTypar of axis: TyparAxis * index: int
 
-    /// A total structural order over `SemType`, used **only** to canonicalise
-    /// anonymous-union (`TyOr`) members so `string | int` and `int | string`
-    /// freeze and unify to the same value. Deterministic by structure — nominal
-    /// types ordered by home assembly + qualified name — and pointedly NOT by
-    /// `TyVar` identity: v1 unions are annotation-driven over ground members, so a
-    /// `TyVar` never reaches here; were one to (v2 union inference) it orders equal
-    /// to every other var, keeping the sort total without inventing a
-    /// non-deterministic identity order. Distinctness is the dedup's job
-    /// (structural `=`), not the comparator's, so two members that order equal are
-    /// still both kept. Lives here (not `SemTypeOps`) so `UnionMembers`' sorting
-    /// constructor can reach it; the `SymbolKey` ordering is inlined to stay
-    /// ahead of `SymbolKeyOps`.
-    static member Compare (a: SemType) (b: SemType) : int =
-        let tag t =
-            match t with
-            | TyVar _ -> 0
-            | TyConst _ -> 1
-            | TyFun _ -> 2
-            | TyTuple _ -> 3
-            | TyRecord _ -> 4
-            | TyUnion _ -> 5
-            | TyClass _ -> 6
-            | TyOr _ -> 7
-            | TyUnknown _ -> 8
-            | TyTypar _ -> 9
-            | TyEnum _ -> 10
-
-        let axisTag =
-            function
-            | TyparAxis.Declaring -> 0
-            | TyparAxis.Method -> 1
-
-        let cmpMany (xs: EqArray<SemType>) (ys: EqArray<SemType>) =
-            let mutable r = 0
-            let mutable i = 0
-            let n = min xs.Length ys.Length
-
-            while r = 0 && i < n do
-                r <- SemType.Compare xs.[i] ys.[i]
-                i <- i + 1
-
-            if r <> 0 then r else compare xs.Length ys.Length
-
-        // Self-contained `SymbolKey` ordering — the `SymbolKeyOps.keyAsm` /
-        // `qualifiedName` projections inlined so `Compare` needs nothing compiled
-        // after this type (it runs inside `UnionMembers`' constructor).
-        let keyAsm k =
-            let rec go k =
-                match k with
-                | SymbolKey.TypeKey(asm, _, _)
-                | SymbolKey.ValueKey(asm, _, _) -> asm
-                | SymbolKey.MemberKey(decl, _, _, _) -> go decl
-
-            go k
-
-        let qualifiedName k =
-            match k with
-            | SymbolKey.TypeKey(_, ns, n)
-            | SymbolKey.ValueKey(_, ns, n) -> if ns = "" then n else ns + "." + n
-            | SymbolKey.MemberKey(_, n, _, _) -> n
-
-        let nominalKey k = struct (keyAsm k, qualifiedName k)
-
-        match a, b with
-        | TyVar _, TyVar _ -> 0
-        | TyConst(n1, a1), TyConst(n2, a2) ->
-            let r = compare n1 n2
-            if r <> 0 then r else cmpMany a1 a2
-        | TyFun(a1, r1), TyFun(a2, r2) ->
-            let r = SemType.Compare a1 a2
-            if r <> 0 then r else SemType.Compare r1 r2
-        | TyTuple xs, TyTuple ys -> cmpMany xs ys
-        | TyRecord(k1, a1), TyRecord(k2, a2)
-        | TyUnion(k1, a1), TyUnion(k2, a2)
-        | TyClass(k1, a1), TyClass(k2, a2) ->
-            let r = compare (nominalKey k1) (nominalKey k2)
-            if r <> 0 then r else cmpMany a1 a2
-        | TyEnum k1, TyEnum k2 -> compare (nominalKey k1) (nominalKey k2)
-        | TyOr m1, TyOr m2 -> cmpMany m1.Members m2.Members
-        | TyUnknown n1, TyUnknown n2 -> compare n1 n2
-        | TyTypar(ax1, i1), TyTypar(ax2, i2) ->
-            let r = compare (axisTag ax1) (axisTag ax2)
-            if r <> 0 then r else compare i1 i2
-        // Different cases — order by case tag.
-        | _ -> compare (tag a) (tag b)
-
     /// The smart constructor for anonymous (structural) unions — the ONLY
     /// sanctioned producer of `TyOr` (aliased as `mkUnion` in `SemTypeOps`).
-    /// `UnionMembers.OfSeq` owns flatten / dedup / sort; `MkUnion` adds the
+    /// `UnionMembers.OfSeq` owns flatten / dedup (the `EqSet` set-semantic
+    /// identity, NOT a canonical sort — a total order on `SemType`/`FrozenType`
+    /// does not exist, per the EqSet design decision); `MkUnion` adds the
     /// SemType-level **collapse**: a one-member set is the bare member, never a
     /// degenerate `TyOr`. `MkUnion []` is `TyOr (empty)` = `never` (bottom).
     static member MkUnion(members: SemType seq) : SemType =
@@ -588,45 +565,48 @@ type SemType =
         else
             TyOr canonical
 
-/// The canonical member set of an anonymous union (`SemType.TyOr`): an
-/// order-insensitive, deduped, flattened collection held sorted by
-/// `SemType.Compare`. Private constructor — the only way in is `OfSeq`, so an
-/// un-canonical `UnionMembers` cannot exist; this is what makes the canonical
-/// form a *type-enforced* invariant rather than a `mkUnion`-only convention.
-/// Collapse to a single member lives one level up in `SemType.MkUnion` (a
-/// one-member set is a `SemType`, not a `UnionMembers`).
-and [<Sealed>] UnionMembers private (members: EqArray<SemType>) =
-    /// The canonical (flattened / deduped / sorted) member vector. A genuine
-    /// union has ≥ 2 here; `OfSeq` may yield 0 (never) or 1 (which `MkUnion`
-    /// collapses before it ever becomes a `TyOr`).
-    member _.Members: EqArray<SemType> = members
+/// The member set of an anonymous union (`SemType.TyOr`): an order-insensitive,
+/// deduped, flattened `EqSet` — insertion-ordered storage (declared order
+/// survives into diagnostics) with SET-semantic equality/hash, so `string | int`
+/// and `int | string` are the SAME value WITHOUT a canonical sort (rejected — no
+/// total order on `SemType` exists; see the EqSet design decision). Private
+/// constructor — the only way in is `OfSeq`, so a non-canonical `UnionMembers`
+/// cannot exist; this makes the canonical set form a *type-enforced* invariant
+/// rather than a `mkUnion`-only convention. Collapse to a single member lives one
+/// level up in `SemType.MkUnion` (a one-member set is a `SemType`, not a
+/// `UnionMembers`).
+and [<Sealed>] UnionMembers private (members: EqSet<SemType>) =
+    /// The canonical (flattened / deduped) member set. A genuine union has ≥ 2
+    /// here; `OfSeq` may yield 0 (never) or 1 (which `MkUnion` collapses before it
+    /// ever becomes a `TyOr`).
+    member _.Members: EqSet<SemType> = members
 
-    /// Canonicalise an arbitrary member sequence: splice nested unions, drop
-    /// structural duplicates, sort by `SemType.Compare`. The sole normaliser.
+    /// Canonicalise an arbitrary member sequence: splice nested unions, then drop
+    /// structural duplicates via `EqSet` (insertion order preserved — declared
+    /// order survives). The sole normaliser; NO sort (set-semantic identity).
     static member OfSeq(xs: SemType seq) : UnionMembers =
         let acc = ResizeArray<SemType>()
 
         let rec add (t: SemType) =
             match t with
-            | TyOr ms -> EqArray.iter add ms.Members
-            | _ ->
-                if not (acc.Contains t) then
-                    acc.Add t
+            | TyOr ms -> EqSet.iter add ms.Members
+            | _ -> acc.Add t
 
         for x in xs do
             add x
 
-        acc.Sort(System.Comparison<SemType>(SemType.Compare))
-        UnionMembers(EqArray.ofResizeArray acc)
+        UnionMembers(EqSet.ofSeq acc)
 
     /// Map each member, then re-canonicalise — the single home for the
     /// rebuild-and-recanonicalise pattern. Resolving / substituting / remapping a
-    /// member can collapse the set (`'T | string` with `'T := string` → `string`)
-    /// or reorder it, so the result routes back through `MkUnion` and is a
-    /// `SemType` (a post-map collapse is a bare member, not a `UnionMembers`).
+    /// member can collapse the set (`'T | string` with `'T := string` → `string`),
+    /// so the result routes back through `MkUnion` and is a `SemType` (a post-map
+    /// collapse is a bare member, not a `UnionMembers`).
     member _.Map(f: SemType -> SemType) : SemType =
         SemType.MkUnion(seq { for m in members -> f m })
 
+    // Delegate equality/hash to `EqSet`'s SET-semantic implementation, so
+    // `string | int` and `int | string` are equal and hash identically.
     override _.Equals(other) =
         match other with
         | :? UnionMembers as o -> members = o.Members
@@ -846,7 +826,10 @@ module FrozenTypeBridge =
         | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
         // Enums are niladic nominals (no args, no typars) — a pure key carry-over.
         | TyEnum key -> FTEnum key
-        | TyOr members -> FTOr(EqArray.map toFrozen members.Members)
+        // Rebuild through the smart constructor — freezing members can collapse the
+        // set (two distinct `SemType` members freezing equal), so never a raw map.
+        | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> toFrozen m })
+        | TyLiteral v -> FTLiteral v
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
@@ -872,8 +855,11 @@ module FrozenTypeBridge =
         // Enums carry no args/typars — the key passes straight through both ways.
         | FTEnum key -> TyEnum key
         // Build through `MkUnion`, not a raw `TyOr`: realising members can collapse
-        // the set (or it must re-sort), and `MkUnion` is the sole producer.
+        // the set (a typar member instantiating to another member), and `MkUnion` is
+        // the sole producer.
         | FTOr members -> SemType.MkUnion(seq { for m in members -> go m })
+        // A literal is a ground leaf — no typars to resolve, maps straight across.
+        | FTLiteral v -> TyLiteral v
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTUnknown name -> TyUnknown name
@@ -965,9 +951,10 @@ module FrozenTypeBridge =
         | FTRecord(_, args)
         | FTUnion(_, args)
         | FTClass(_, args) -> maxOf args
-        // A niladic nominal references no declaring typar.
-        | FTEnum _ -> -1
-        | FTOr members -> maxOf members
+        // A niladic nominal references no declaring typar; likewise a ground literal.
+        | FTEnum _
+        | FTLiteral _ -> -1
+        | FTOr members -> members |> EqSet.fold (fun m t -> max m (maxDeclaringIndex t)) -1
         | FTFun(arg, result) -> max (maxDeclaringIndex arg) (maxDeclaringIndex result)
         | FTTuple items -> maxOf items
         | FTTypar(TyparAxis.Declaring, i) -> i
@@ -997,11 +984,14 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
         | FTClass(key, args) -> FTClass(key, EqArray.map go args)
-        | FTOr members -> FTOr(EqArray.map go members)
+        // Route through the smart constructor — reaxis can't collapse members, but
+        // the invariant is that every FTOr rebuild goes through `MkUnion`.
+        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> go m })
         | FTTypar(TyparAxis.Declaring, i) when i >= declaringArity -> FTTypar(TyparAxis.Method, i - declaringArity)
         | FTTypar _
-        // A niladic nominal carries no typar axis to reaxis.
+        // A niladic nominal carries no typar axis to reaxis; a literal is a ground leaf.
         | FTEnum _
+        | FTLiteral _
         | FTUnknown _ -> template
 
     /// `true` when the type is fully ground: no open typar on either axis and no
@@ -1015,9 +1005,11 @@ module FrozenTypeBridge =
         | FTRecord(_, args)
         | FTUnion(_, args)
         | FTClass(_, args) -> args |> EqArray.forall ftIsGround
-        // A niladic nominal is unconditionally ground (no args, no typars).
-        | FTEnum _ -> true
-        | FTOr members -> members |> EqArray.forall ftIsGround
+        // A niladic nominal is unconditionally ground (no args, no typars); a
+        // literal is a ground constant.
+        | FTEnum _
+        | FTLiteral _ -> true
+        | FTOr members -> members |> EqSet.forall ftIsGround
         | FTFun(a, b) -> ftIsGround a && ftIsGround b
         | FTTuple items -> items |> EqArray.forall ftIsGround
 
@@ -1043,9 +1035,11 @@ module FrozenTypeBridge =
         | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
         | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
         | FTClass(key, args) -> FTClass(key, EqArray.map go args)
-        // A niladic nominal references no declaring typar — pass it through.
-        | FTEnum _ -> template
-        | FTOr members -> FTOr(EqArray.map go members)
+        // A niladic nominal references no declaring typar — pass it through; a
+        // literal is a ground leaf.
+        | FTEnum _
+        | FTLiteral _ -> template
+        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> go m })
         | FTTypar(TyparAxis.Declaring, i) ->
             if i < declaringArgs.Length then
                 declaringArgs.[i]

@@ -174,7 +174,7 @@ module internal UnificationInferControlFlow =
         | TyConst(n, args) when args.IsEmpty -> n
         | TyOr inner ->
             inner.Members
-            |> EqArray.toList
+            |> EqSet.toList
             |> List.map describeUnionMember
             |> String.concat " | "
         | other -> sprintf "%A" other
@@ -219,7 +219,7 @@ module internal UnificationInferControlFlow =
                 | Pat.Attributed(pat = p) -> isCatchAll p
                 | _ -> false
 
-            let mutable residual = EqArray.toList members.Members
+            let mutable residual = EqSet.toList members.Members
             let armScruts = ResizeArray(rules.Length)
 
             for r in rules do

@@ -54,7 +54,12 @@ module TsManifestProvider =
         | Schema.TypeRef.Fun(args, ret) ->
             List.foldBack (fun a acc -> FTFun(toFrozen resolveClass a, acc)) args (toFrozen resolveClass ret)
         | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map (toFrozen resolveClass) items))
-        | Schema.TypeRef.Union members -> FTOr(EqArray.ofSeq (List.map (toFrozen resolveClass) members))
+        // Route through the smart constructor — flatten/dedupe/collapse per TS's
+        // semantic union rules (a singleton `("a")` collapses to `FTLiteral "a"`).
+        | Schema.TypeRef.Union members -> FrozenType.MkUnion(List.map (toFrozen resolveClass) members)
+        // A TS literal TYPE → `FTLiteral` (structural, external-vocabulary only).
+        | Schema.TypeRef.Literal(Schema.EnumValue.StringVal s) -> FTLiteral(LiteralConst.String s)
+        | Schema.TypeRef.Literal(Schema.EnumValue.IntVal n) -> FTLiteral(LiteralConst.Int n)
         | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 
@@ -84,6 +89,11 @@ module TsManifestProvider =
     /// collapses to `obj` — the deliberate forcing function: two ctor/method overloads
     /// that collapse to the same argSig throw (see `expandCtor`), pointing at the
     /// fixture whose erased distinction wants a sharper extracted type.
+    let private isLiteralRef (t: Schema.TypeRef) : bool =
+        match t with
+        | Schema.TypeRef.Literal _ -> true
+        | _ -> false
+
     let rec private argSigOf (t: Schema.TypeRef) : string =
         match t with
         | Schema.TypeRef.Named(name, []) -> name
@@ -92,6 +102,19 @@ module TsManifestProvider =
         | Schema.TypeRef.MethodTypar i -> "!!" + string i
         | Schema.TypeRef.Fun(args, ret) -> "(" + System.String.Join(",", List.map argSigOf args) + ")->" + argSigOf ret
         | Schema.TypeRef.Tuple items -> "(" + System.String.Join("*", List.map argSigOf items) + ")"
+        // A literal keeps overload identity SHARP — a quoted-value spelling, NOT a
+        // collapse to `obj` — so two overloads differing only by literal value
+        // (mitt's `on(type: Key)` vs `on(type: '*')`) mint DISTINCT argSigs and the
+        // duplicate-overload guard does not misfire (design §"argSigOf … quoted
+        // value").
+        | Schema.TypeRef.Literal(Schema.EnumValue.StringVal s) -> "\"" + s + "\""
+        | Schema.TypeRef.Literal(Schema.EnumValue.IntVal n) -> string n
+        // A union of LITERALS is rendered sharply (each member) for the same
+        // overload-identity reason; a union with any non-literal member keeps the
+        // `obj` collapse (the existing forcing-function that throws on a genuinely
+        // erased distinction) — this stays additive for non-literal unions.
+        | Schema.TypeRef.Union members when members |> List.forall isLiteralRef ->
+            "(" + System.String.Join("|", List.map argSigOf members) + ")"
         | Schema.TypeRef.Union _
         | Schema.TypeRef.Dynamic
         | Schema.TypeRef.Structural _ -> "obj"

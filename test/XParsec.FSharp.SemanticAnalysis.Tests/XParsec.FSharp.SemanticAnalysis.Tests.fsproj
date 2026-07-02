@@ -17,6 +17,7 @@
     <Compile Include="NameResolutionTests.fs" />
     <Compile Include="UnificationTests.fs" />
     <Compile Include="FreezeTests.fs" />
+    <Compile Include="EqSetTests.fs" />
     <Compile Include="FrozenTypeTests.fs" />
     <Compile Include="MkUnionTests.fs" />
     <Compile Include="ExternalSignatureOracleTests.fs" />

@@ -218,12 +218,13 @@ module EmitClosures =
         | FTConst(_, xs)
         | FTRecord(_, xs)
         | FTUnion(_, xs)
-        | FTClass(_, xs)
-        | FTOr xs -> xs |> EqArray.forall ftNoUnknown
+        | FTClass(_, xs) -> xs |> EqArray.forall ftNoUnknown
+        | FTOr xs -> xs |> EqSet.forall ftNoUnknown
         | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
         | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
-        // A niladic nominal enum carries no `FTUnknown` — always ground here.
-        | FTEnum _ -> true
+        // A niladic nominal enum / a ground literal carries no `FTUnknown`.
+        | FTEnum _
+        | FTLiteral _ -> true
 
     /// The source name of a *top-level* (holderless) binding for its Program-holder
     /// field/method. A *leading* standalone `ModuleElem.Let` had its name recorded by
@@ -653,15 +654,18 @@ module EmitClosures =
             | FTTuple xs
             | FTRecord(_, xs)
             | FTUnion(_, xs)
-            | FTClass(_, xs)
+            | FTClass(_, xs) ->
+                for x in xs do
+                    go x
             | FTOr xs ->
                 for x in xs do
                     go x
             // A `Declaring`-axis typar can't occur in a module-level static fn, and
-            // an unresolved nominal head (`FTUnknown`) carries no typars. Neither
-            // contributes a method-axis index.
+            // an unresolved nominal head (`FTUnknown`) / a ground literal carries no
+            // typars. None contributes a method-axis index.
             | FTUnknown _
             | FTEnum _
+            | FTLiteral _
             | FTTypar(TyparAxis.Declaring, _) -> ()
 
         for p in fn.Params do

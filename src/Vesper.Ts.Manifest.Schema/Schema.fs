@@ -17,6 +17,19 @@ module Vesper.Ts.Manifest.Schema
 [<Literal>]
 let SchemaVersion = 1
 
+/// A type-tagged literal value — the data-level mirror of a string/number literal
+/// constant. Shared by `TypeRef.Literal` (a TS literal TYPE, `"GET"`) and enum
+/// member values (a TS enum member's constant). TS source expresses only `number`
+/// or `string`, so the wire carries exactly those two shapes; no `bool` (design
+/// §"Literal types stay structural"). `None` at an enum use site marks a
+/// computed/unresolvable member.
+[<RequireQualifiedAccess>]
+type EnumValue =
+    /// A TS numeric member/literal, restricted to the integer subset (the extractor
+    /// throws on a non-integer literal rather than widening to a float).
+    | IntVal of int64
+    | StringVal of string
+
 /// A serialisable type reference — the data-level mirror of `FrozenType`.
 [<RequireQualifiedAccess>]
 type TypeRef =
@@ -39,24 +52,15 @@ type TypeRef =
     /// Anonymous structural union → `TyOr`. `null`/`undefined` ride in as their
     /// own members (NOT folded): `T | null | undefined → TyOr [T; null; undefined]`.
     | Union of members: TypeRef list
+    /// A TS string/number literal TYPE (`"GET"`, `42`) → `FTLiteral`. Structural,
+    /// external-vocabulary only; Vesper inference NEVER mints one (design §"Literal
+    /// types stay structural … the nominalism invariant"). A literal composes with
+    /// `Union` — `("ping" | "pong")` is `Union [Literal "ping"; Literal "pong"]`.
+    | Literal of value: EnumValue
     /// `any` → `TyDynamic` (deferred front-end type).
     | Dynamic
     /// Structural object type, content-hashed (deferred milestone).
     | Structural of hash: string * fields: (string * TypeRef) list
-
-/// A type-tagged enum member value — the data-level mirror of what a TS enum
-/// member's constant resolves to. TS source expresses only `number` or `string`
-/// (no `byte`/`int16`/`uint64` distinction), so the wire carries exactly those
-/// two shapes; integral *width* is NOT here — it is assigned later at the
-/// `FrozenType` layer (authored literal suffix, or the `I32` default for a
-/// width-less TS import). `None` at the use site marks a computed/unresolvable
-/// member.
-[<RequireQualifiedAccess>]
-type EnumValue =
-    /// A TS numeric member, restricted to the integer subset (the extractor
-    /// throws on a non-integer literal rather than widening to a float).
-    | IntVal of int64
-    | StringVal of string
 
 [<RequireQualifiedAccess>]
 type MemberKind =

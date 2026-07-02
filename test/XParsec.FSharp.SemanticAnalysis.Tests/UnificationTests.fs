@@ -955,7 +955,7 @@ let tests =
                     Expect.equal ms.Members.Length 2 "two members"
 
                     Expect.contains
-                        (EqArray.toList ms.Members)
+                        (EqSet.toList ms.Members)
                         (TyConst(RuntimeNames.nullTypeName, EqArray.empty))
                         "the reserved `null` literal type is a member"
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other

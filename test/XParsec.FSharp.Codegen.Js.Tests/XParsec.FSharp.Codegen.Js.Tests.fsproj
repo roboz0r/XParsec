@@ -37,6 +37,7 @@
     <Compile Include="NullUndefinedTests.fs" />
     <Compile Include="MethodAxisGenericTests.fs" />
     <Compile Include="ExternalNominalClassTests.fs" />
+    <Compile Include="LiteralUnionTests.fs" />
     <Compile Include="ExternalAttachMembersTests.fs" />
     <Compile Include="BusE2ETests.fs" />
     <Compile Include="MittE2ETests.fs" />

@@ -168,8 +168,9 @@ module Elaborate =
             | TyUnknown _ -> t
             // Already-frozen leaf (task #2 will make this remap produce it).
             | TyTypar _ -> t
-            // A nominal enum carries no typar to remap — return self.
-            | TyEnum _ -> t
+            // A nominal enum / a structural literal carries no typar to remap.
+            | TyEnum _
+            | TyLiteral _ -> t
 
         go (Unification.zonk t)
 

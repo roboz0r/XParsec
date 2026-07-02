@@ -358,8 +358,14 @@ module VesperLib =
         | FTFun(a, b) -> argTypeName a + "->" + argTypeName b
         | FTOr members ->
             "("
-            + (members |> EqArray.toList |> List.map argTypeName |> String.concat "|")
+            + (members |> EqSet.toList |> List.map argTypeName |> String.concat "|")
             + ")"
+        // A literal renders as its QUOTED constant, keeping overload identity sharp:
+        // two overloads differing only by literal value (mitt's `on(type: Key)` vs
+        // `on(type: '*')`) must mint DISTINCT `argSig`s, so this must NOT collapse to
+        // the base primitive (design §"argSigOf … quoted-value spelling").
+        | FTLiteral(LiteralConst.String s) -> "\"" + s + "\""
+        | FTLiteral(LiteralConst.Int n) -> string n
         | FTTypar(axis, i) ->
             (match axis with
              | TyparAxis.Declaring -> "!"

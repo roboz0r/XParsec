@@ -49,8 +49,9 @@ module ResolvedTypes =
             | TyUnknown _ -> ()
             // Post-freeze leaf; this check runs pre-freeze and never sees it.
             | TyTypar _ -> ()
-            // A nominal enum has no free typar — nothing to collect.
-            | TyEnum _ -> ()
+            // A nominal enum / a structural literal has no free typar — leaf.
+            | TyEnum _
+            | TyLiteral _ -> ()
 
         go t
 

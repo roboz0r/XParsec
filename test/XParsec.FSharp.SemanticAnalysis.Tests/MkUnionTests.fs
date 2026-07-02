@@ -4,24 +4,23 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// Stage 2 of the anonymous-union plan: the `mkUnion`
-// smart constructor and the total order it sorts members by. `mkUnion` is the
-// ONLY sanctioned producer of `TyOr`, and the equality layer's `n1 = n2`
-// discipline relies on its canonical form — so `string | int` and `int | string`
-// must build the *same* value. These pin flatten / dedup / collapse / sort /
-// order-insensitivity / idempotence directly on the constructor, with no parser
-// or unifier in the loop.
+// The `mkUnion` smart constructor and the SET-semantic member identity it rests on
+// (`EqSet`, NOT a canonical sort — a total order on `SemType` does not exist). `mkUnion`
+// is the ONLY sanctioned producer of `TyOr`, and the equality layer's `n1 = n2`
+// discipline relies on its canonical set form — so `string | int` and `int | string`
+// are the *same* value. These pin flatten / dedup / collapse / order-insensitivity /
+// idempotence directly on the constructor, with no parser or unifier in the loop.
 
 let private tc (n: string) : SemType = TyConst(n, EqArray.empty)
 let private tInt = tc "int"
 let private tString = tc "string"
 let private tBool = tc "bool"
 
-// A raw, pre-resolution union: `UnionMembers.OfSeq` sorts/dedups but (unlike
+// A raw, pre-resolution union: `UnionMembers.OfSeq` flattens/dedups but (unlike
 // `mkUnion`) does NOT collapse, so a 2-member set holding an unresolved `TyVar`
 // stays a `TyOr` — the only way to hand `zonk` a union to resolve, since `mkUnion`
 // is fed ground members in canonical use. The raw DU ctor is private, so this is
-// the sole construction path; that privacy is the Stage-3a invariant.
+// the sole construction path; that privacy is the type-enforced invariant.
 let private rawOr (xs: SemType list) : SemType = TyOr(UnionMembers.OfSeq xs)
 
 [<Tests>]
@@ -44,7 +43,7 @@ let tests =
                 Expect.equal (mkUnion [ tInt; tString; tInt ]) (mkUnion [ tInt; tString ]) "A | B | A ≡ A | B"
             }
 
-            test "order-insensitive: members sort to a canonical form" {
+            test "order-insensitive: members compare set-equal regardless of order" {
                 Expect.equal (mkUnion [ tString; tInt ]) (mkUnion [ tInt; tString ]) "string | int ≡ int | string"
 
                 Expect.equal
@@ -79,14 +78,15 @@ let tests =
                 | other -> failtestf "expected TyOr, got %A" other
             }
 
-            test "members are stored sorted (the canonical member vector)" {
-                // Two different input orders yield the SAME member vector, in sorted
-                // order — the property freeze/unify identity rests on.
+            test "members compare set-equal across input orders (the canonical set)" {
+                // Two different input orders yield SET-EQUAL member sets (EqSet's
+                // order-insensitive equality) — the property freeze/unify identity rests
+                // on. Storage keeps insertion order, but identity is set-based.
                 let a = mkUnion [ tString; tInt; tBool ]
                 let b = mkUnion [ tBool; tInt; tString ]
 
                 match a, b with
-                | TyOr ma, TyOr mb -> Expect.equal ma.Members mb.Members "identical canonical member vectors"
+                | TyOr ma, TyOr mb -> Expect.equal ma.Members mb.Members "set-equal member sets"
                 | _ -> failtest "both should be unions"
             }
 
@@ -118,7 +118,7 @@ let tests =
             test "UnionMembers.OfSeq normalises regardless of input order" {
                 let a = UnionMembers.OfSeq [ tString; tInt ]
                 let b = UnionMembers.OfSeq [ tInt; tString ]
-                Expect.equal a b "OfSeq sorts to one canonical member set"
+                Expect.equal a b "OfSeq yields one set-equal canonical form regardless of order"
                 Expect.equal a.Members.Length 2 "two distinct members kept"
 
                 Expect.equal

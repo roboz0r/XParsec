@@ -44,12 +44,13 @@ module Validation =
         | TyRecord(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyUnion(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyClass(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
-        | TyOr members -> members.Members |> EqArray.exists (hasFreeTyVar quantified)
+        | TyOr members -> members.Members |> EqSet.exists (hasFreeTyVar quantified)
         | TyUnknown _ -> false
         // Post-freeze leaf; this check runs pre-freeze and never sees it.
         | TyTypar _ -> false
-        // A nominal enum holds no free TyVar — a leaf.
-        | TyEnum _ -> false
+        // A nominal enum / a structural literal holds no free TyVar — a leaf.
+        | TyEnum _
+        | TyLiteral _ -> false
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,

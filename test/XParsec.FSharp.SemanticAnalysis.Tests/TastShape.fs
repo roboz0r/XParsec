@@ -67,6 +67,8 @@ let rec private tyName (t: SemType) : string =
     | TyClass(n, _)
     | TyEnum n -> SymbolKeyOps.simpleName n
     | TyOr members -> [ for m in members.Members -> tyName m ] |> String.concat " | "
+    | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
+    | TyLiteral(LiteralConst.Int n) -> string n
     | TyUnknown n -> "?" + n
     | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
     | TyTypar(TyparAxis.Method, i) -> "!!" + string i
@@ -659,6 +661,8 @@ type private Renderer() =
                 | TyClass(n, _)
                 | TyEnum n -> SymbolKeyOps.simpleName n
                 | TyOr members -> [ for m in members.Members -> tyStr m ] |> String.concat " | "
+                | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
+                | TyLiteral(LiteralConst.Int n) -> string n
                 | TyUnknown n -> "?" + n
                 | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
                 | TyTypar(TyparAxis.Method, i) -> "!!" + string i

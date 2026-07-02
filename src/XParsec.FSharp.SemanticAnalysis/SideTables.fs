@@ -344,11 +344,18 @@ type UnionTypeInfo
 /// so a `(x: E)` annotation resolves to `TyEnum Key` and the surfaced decl carries
 /// the identical key.
 [<Sealed>]
-type EnumTypeInfo(name: string, caseNames: string[], declKey: NodeKey, key: SymbolKey) =
+type EnumTypeInfo
+    (name: string, caseNames: string[], caseStringValues: string[] voption, declKey: NodeKey, key: SymbolKey) =
     member val Name = name
     /// Case identifiers in declaration order. The `E.C1` qualified-access path
     /// checks membership here; a name absent from it is a resolution error.
     member val CaseNames = caseNames
+    /// The case VALUES when every case is a plain string literal (`| Auto = "auto"`),
+    /// in declaration order; `ValueNone` otherwise (numeric / mixed / computed). The
+    /// full case→literal table is resolved later by `Elaborate.tryEnumType`, but the
+    /// literal-union admission (`subsumes`, at Unification time — BEFORE Elaborate)
+    /// needs the string value SET early, so the simple string case is read here.
+    member val CaseStringValues: string[] voption = caseStringValues
     member val DeclKey = declKey
     /// Stable project-local nominal identity — the arity-0 `TypeKey(asm, declNs,
     /// name)` minted by `stampLocalTypeKey`; matches the surfaced `TDecl.Type.Key`.
