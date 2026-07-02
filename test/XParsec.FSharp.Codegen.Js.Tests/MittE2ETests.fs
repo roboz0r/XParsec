@@ -7,24 +7,42 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Phase 5 (real-package e2e): a Vesper program that USES the real `mitt` package emits
-// JS that RUNS against the real vendored mitt runtime under Node — the semantic oracle
-// proving `manifest → provider → emit → run` is behaviourally correct on a real package.
+// Real-package e2e: a Vesper program that USES the real `mitt` package emits JS that RUNS
+// against the real vendored mitt runtime under Node — the semantic oracle proving
+// `manifest → provider → emit → run` is behaviourally correct on a real package.
 //
 // Reads ONLY committed files: the committed `mitt.manifest.json`, the vendored
 // `dist/mitt.mjs`, and the program below. The Node extractor is NEVER run here.
 //
-// What this proves end-to-end: mitt's primary export is the DEFAULT-exported generic
-// factory `export default function mitt<Events>(all?): Emitter<Events>`. The Vesper
-// program binds it as a value; the front end resolves it through the manifest provider
-// (with a real module-spec origin), and emit lowers it to a genuine DEFAULT import
-// `import $_mitt from "./mitt.mjs"` bound to the REAL vendored runtime. The exported
-// factory is then exercised by a small JS harness that creates an emitter, registers a
-// handler, emits an event, and observes the handler fired — running real mitt code
-// reached through the Vesper-emitted import. (The `emitter.on`/`emitter.emit` member
-// calls themselves cannot yet be written in Vesper — see the wall note at the bottom —
-// so the scenario that drives them lives in the harness; the factory binding under test
-// is the Vesper-emitted one.)
+// ── What is VESPER-DRIVEN (proven here) ──
+// mitt's primary export is the DEFAULT-exported generic factory
+// `export default function mitt<Events>(all?): Emitter<Events>`. The Vesper program binds
+// it as a VALUE (`let factory = mitt`); the front end resolves it through the manifest
+// provider (with a real module-spec origin), and emit lowers it to a genuine DEFAULT
+// import `import $_mitt from "./mitt.mjs"` bound to the REAL vendored runtime.
+//
+// ── What is RESIDUAL HARNESS GLUE (NOT yet Vesper-drivable — R4's gate) ──
+// The `emitter.on`/`emitter.emit` member calls that drive the emitter still live in the
+// hand-written harness, because mitt's generic surface cannot yet type-check from Vesper
+// source. This is the honest R3 residue; the NON-GENERIC Vesper-driven member-call e2e
+// (create + register a lambda handler + emit + observe) is proven end-to-end in
+// `BusE2ETests` instead — that is R3's real proof. The precise mitt walls (all R4 scope,
+// probed against this manifest + provider stack) are:
+//   1. Wall #3 — even the bare factory CALL `let e = mitt()` fails: the return
+//      `Emitter<Events>` leaves `Events` ungrounded → "TAST contains 1 unresolved TyVar".
+//   2. An explicit annotation `let e : Emitter<int> = mitt()` does NOT rescue it: the
+//      annotation mints `TyClass(Emitter)` but the provider return is `TyClass(Emitter`1)`
+//      — an arity-suffix key mismatch — and the TyVar stays unresolved.
+//   3. `on`/`emit`'s first `type` parameter is a raw `TyTypar(Method, 0)` marker a string
+//      literal cannot unify with ("Type mismatch: string vs TyTypar(Method,0)") — the
+//      single-overload method-typar freshening / string-literal-key gap.
+//   4. `on`'s `handler` parameter degraded to the opaque `__type` (`TyConst "__type"`), so
+//      a Vesper lambda `TyFun(_, unit)` cannot unify with it.
+//   5. `emit`'s payload is the `Events[Key]` structural stub — "Type 'structural:Events[Key]'
+//      could not be resolved during contract extraction".
+// Items 3–5 need R4a's faithful keyof / indexed-access / string-literal-type work; items
+// 1–2 need wall #3 grounding + the generic-external-key arity reconciliation. None is
+// fixable without touching inference/the extractor, so they are NOT forced here.
 
 let private fixtureDir =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "mitt")
