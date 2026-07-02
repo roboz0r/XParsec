@@ -334,7 +334,16 @@ module TsManifestProvider =
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
                         FrozenBaseType = frozenBaseType
-                        Flags = ExternalClassFlags.Default
+                        // A real manifest Interface/Class is a native object: its instance
+                        // members live ON it as prototype/own methods, so JS emit must lower
+                        // them as `receiver.member(args)`, not receiver-first free-fn imports
+                        // (Vesper's own-runtime tree-shaking form). The synthetic erased
+                        // grouping type (`providerOfManifest`) keeps `AttachMembers = false`
+                        // — its members go through the `Erased` bare-export path anyway.
+                        Flags =
+                            { ExternalClassFlags.Default with
+                                AttachMembers = true
+                            }
                         Origin = origin
                         // JS is single-faced — no BCL platform spelling to reconcile.
                         CapabilityFace = ValueNone

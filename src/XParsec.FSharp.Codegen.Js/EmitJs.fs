@@ -319,6 +319,19 @@ module EmitJs =
             | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.Erased
             | _ -> false
 
+    /// Does this external type carry its instance members as NATIVE object methods
+    /// (`receiver.member(args)`) rather than the receiver-first free-fn imports Vesper's
+    /// own runtimes emit? The provider stamps `AttachMembers` on a real manifest
+    /// Interface/Class; resolved through the declaring type's shape exactly as
+    /// `isErasedGroupingType` does.
+    let private isAttachMembersType (ctx: WalkCtx) (declKey: SymbolKey) : bool =
+        match ctx.Provider with
+        | ValueNone -> false
+        | ValueSome provider ->
+            match ExternalSymbols.tryLookupType provider declKey with
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.AttachMembers
+            | _ -> false
+
     // The Fable-style FLAT module-function helpers — flat-call collapse, the curried
     // adapter, external-`ValRepr` resolution — live in `JsFlatFns`, decoupled from this
     // walker via a `build` callback (mirroring the CLR `EmitCall.flattenGroupPushes`
@@ -447,30 +460,60 @@ module EmitJs =
             let fallback () =
                 JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
 
-            // Resolve a spine head that names a module function to its flat callee +
-            // SOURCE groups — a local `CompiledFns` entry or an external `ValRepr`. The
-            // groups are non-empty by construction (both `gather` and the external
-            // `ValRepr` capture require ≥ 1 source group), so the saturation predicate
-            // below is written ONCE for both kinds: a flat call exactly when the spine
-            // is at least the group count. Anything else keeps the curried fallback.
-            let flatHead: (JsExpr * Frozen.ArgGroup list) voption =
-                let identAt name =
-                    JsExpr.Identifier(name, locOf ctx (TastWalk.exprTok head))
+            // A NATIVE attached-member call. An `ExternalMember` head whose declaring
+            // type carries `AttachMembers` (a real manifest object — its instance
+            // members are genuine prototype/own methods) folds its whole application
+            // spine into ONE `receiver.member(args)`; it is NOT a receiver-first free-fn
+            // import (the form Vesper's OWN runtimes emit as a tree-shaking optimisation).
+            // The member is tupled (.NET convention): it consumes the FIRST spine
+            // element as its argument list — the key's `argSig` length drives the
+            // flatten (0 → drop the lone `unit`, 1 → the value, ≥2 → spread the literal
+            // tuple), mirroring the CLR `ExternalMember` arg push — and any residual
+            // over-application folds on as unary calls.
+            match head with
+            | TExprG.ExternalMember(ValueSome recv, key, memberName, MemberStorage.Method, _, _) when
+                isAttachMembersType ctx (Members.declKey key)
+                ->
+                match spine with
+                | (argExpr, _, _) :: rest ->
+                    let call =
+                        JsExpr.Call(
+                            JsExpr.Member(buildExpr ctx recv, JsExpr.Identifier(memberName, ValueNone), false, loc),
+                            attachedMemberArgs ctx (memberArgCount key memberName) argExpr,
+                            loc
+                        )
 
-                match head with
-                | TExprG.Var(k, _, _) ->
-                    match ctx.CompiledFns.TryGetValue k with
-                    | true, cf -> ValueSome(identAt (identName ctx.Source k), cf.Groups)
+                    rest
+                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) call
+                | [] -> fallback () // unreachable: the `App` arm guarantees ≥ 1 spine element
+            | _ ->
+
+                // Resolve a spine head that names a module function to its flat callee +
+                // SOURCE groups — a local `CompiledFns` entry or an external `ValRepr`. The
+                // groups are non-empty by construction (both `gather` and the external
+                // `ValRepr` capture require ≥ 1 source group), so the saturation predicate
+                // below is written ONCE for both kinds: a flat call exactly when the spine
+                // is at least the group count. Anything else keeps the curried fallback.
+                let flatHead: (JsExpr * Frozen.ArgGroup list) voption =
+                    let identAt name =
+                        JsExpr.Identifier(name, locOf ctx (TastWalk.exprTok head))
+
+                    match head with
+                    | TExprG.Var(k, _, _) ->
+                        match ctx.CompiledFns.TryGetValue k with
+                        | true, cf -> ValueSome(identAt (identName ctx.Source k), cf.Groups)
+                        | _ -> ValueNone
+                    | TExprG.External(compiledName, key, _, _) ->
+                        JsFlatFns.externalGroups ctx.Provider key
+                        |> ValueOption.map (fun groups ->
+                            identAt (JsImports.addRef ctx.Imports compiledName key), groups
+                        )
                     | _ -> ValueNone
-                | TExprG.External(compiledName, key, _, _) ->
-                    JsFlatFns.externalGroups ctx.Provider key
-                    |> ValueOption.map (fun groups -> identAt (JsImports.addRef ctx.Imports compiledName key), groups)
-                | _ -> ValueNone
 
-            match flatHead with
-            | ValueSome(callee, groups) when List.length spine >= List.length groups ->
-                JsFlatFns.emitFlatCall (buildExpr ctx) callee groups spine loc
-            | _ -> fallback ()
+                match flatHead with
+                | ValueSome(callee, groups) when List.length spine >= List.length groups ->
+                    JsFlatFns.emitFlatCall (buildExpr ctx) callee groups spine loc
+                | _ -> fallback ()
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
         // reordered from source order to the class's *declaration*-order
@@ -661,6 +704,56 @@ module EmitJs =
                                 declKey
 
                     JsExpr.Identifier(JsImports.addRef ctx.Imports memberName (ValueSome valueKey), loc)
+            elif isAttachMembersType ctx declKey && ValueOption.isSome receiver then
+                // A NATIVE attached instance member reached WITHOUT an applying spine —
+                // the CALL form is folded in the `App` head-case; this is a value read.
+                // (R2 scope is INSTANCE members: a static member / ctor on an
+                // AttachMembers type — `receiver = ValueNone` — still takes the mangled
+                // path below. TODO(ts-provider R2 step 5): lower those to
+                // `Cls.method(args)` / `new Cls(args)`.)
+                let r = receiver.Value
+
+                if isProperty then
+                    // A manifest Property is a JS DATA property — native access is a plain
+                    // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
+                    // interface-impl property path, which emits `Call(attachedAccess, [])`
+                    // because Vesper compiles interface properties as zero-arg methods; a
+                    // TS property is genuinely a data slot, not a method.)
+                    JsExpr.Member(buildExpr ctx r, JsExpr.Identifier(memberName, ValueNone), false, loc)
+                else
+                    // A METHOD extracted as a VALUE (`let f = box.get`): eta-wrap so `this`
+                    // binds at the eventual call — a detached `recv.member` loses `this` in
+                    // JS. The receiver is spilled to a temp unless it is a trivial `Var`, so
+                    // it evaluates exactly once. An external method is tupled, so the escaped
+                    // value is a single-arrow `arg -> ret`: one wrapper param, forwarded per
+                    // the member's `argSig` arity.
+                    let recvJs, prelude =
+                        match r with
+                        | TExprG.Var _ -> buildExpr ctx r, []
+                        | _ ->
+                            let tmp = "_recv" + string (TastWalk.exprTok r).StartIndex
+                            JsExpr.Identifier(tmp, ValueNone), [ tmp, buildExpr ctx r ]
+
+                    let argName = "_a" + string (TastWalk.exprTok e).StartIndex
+                    let argVar = JsExpr.Identifier(argName, ValueNone)
+
+                    let call =
+                        JsExpr.Call(
+                            JsExpr.Member(recvJs, JsExpr.Identifier(memberName, ValueNone), false, ValueNone),
+                            JsFlatFns.attachedForwardArgs argVar (memberArgCount key memberName),
+                            loc
+                        )
+
+                    let arrow = JsExpr.Arrow([ argName ], JsFnBody.Expr call, loc)
+
+                    match prelude with
+                    | [] -> arrow
+                    | binds ->
+                        JsExpr.Call(
+                            JsExpr.Arrow([ for (n, _) in binds -> n ], JsFnBody.Expr arrow, ValueNone),
+                            [ for (_, ex) in binds -> ex ],
+                            loc
+                        )
             else
 
                 let isStatic = (receiver = ValueNone)
@@ -1353,6 +1446,33 @@ module EmitJs =
     /// receiver's class. Shared by the `PropertyGet`/`MethodCall` `CallVia.Interface` arms.
     and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: Frozen.TExpr) (key: SymbolKey) : JsExpr =
         JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(SymbolKeyOps.simpleName key, ValueNone), false, loc)
+
+    /// The parameter count of an external attached member, from its key's `argSig`.
+    /// AUTHORITATIVE over the argument expression's surface shape — a genuine single
+    /// `(int * int)` parameter is `argCount = 1`, not a flattened 2-param call (the same
+    /// reason the CLR `ExternalMember` arm reads `argSig`, not `memberTy`).
+    and private memberArgCount (key: SymbolKey) (memberName: string) : int =
+        match key with
+        | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+        | other -> failwithf "EmitJs: attached member '%s' key is not a MemberKey: %A" memberName other
+
+    /// Flatten a native attached-member call's tupled argument (one `App` per .NET
+    /// convention) into its JS positional arguments: dropped for a 0-param (`unit`)
+    /// member (`recv.get()`, not `recv.get(undefined)`), the lone value for 1, or the
+    /// literal tuple's elements for ≥2. Mirrors the CLR `ExternalMember` arg push.
+    and private attachedMemberArgs (ctx: WalkCtx) (argCount: int) (argExpr: Frozen.TExpr) : JsExpr list =
+        if argCount = 0 then
+            []
+        elif argCount = 1 then
+            [ buildExpr ctx argExpr ]
+        else
+            match argExpr with
+            | TExprG.Tuple(elems, _, _) when elems.Length = argCount -> [ for el in elems -> buildExpr ctx el ]
+            | _ ->
+                failwithf
+                    "EmitJs: external attached member expects %d tupled arguments but the argument is not a literal %d-tuple"
+                    argCount
+                    argCount
 
     /// Emit an enumerable-capability `GetEnumerator` impl as a native
     /// `*[Symbol.iterator]()` GENERATOR — the JS realisation of "implement `seq<'T>`

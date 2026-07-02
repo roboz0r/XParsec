@@ -538,6 +538,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
             // A real .NET type is never the synthetic free-function-overload grouping
             // type the TS provider mints; only that provider sets `Erased`.
             Erased = false
+            // `AttachMembers` is a JS-backend signal (native object methods vs Vesper's
+            // receiver-first free-fn imports); the CLR backend never consults it.
+            AttachMembers = false
         }
 
     let computeType (name: string) : ExternalTypeShape voption =

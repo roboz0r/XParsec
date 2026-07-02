@@ -22,6 +22,17 @@ module JsFlatFns =
     let indexMember (e: JsExpr) (j: int) : JsExpr =
         JsExpr.Member(e, JsExpr.Literal(JsLiteral.Number(string j), ValueNone), true, ValueNone)
 
+    /// Forward a native attached-member escape's SINGLE eta-wrap parameter (`argVar`)
+    /// to the member's JS positional arguments. An external method is tupled, so an
+    /// escaped `box.get` value is a single-arrow `arg -> ret`: the one wrapper param is
+    /// DROPPED for a 0-param (`unit`) member, passed straight for 1, or spread
+    /// element-wise (`argVar[j]`) for a ≥2-param (tupled) member. Parallels the
+    /// applied-call flatten, reading a JS array rather than a `TExpr` tuple.
+    let attachedForwardArgs (argVar: JsExpr) (argCount: int) : JsExpr list =
+        if argCount = 0 then []
+        elif argCount = 1 then [ argVar ]
+        else [ for j in 0 .. argCount - 1 -> indexMember argVar j ]
+
     /// Does a value-use of a module function with these source groups need a curried
     /// adapter? `TastLower.needsCurryAdapter`: only when the flat call shape differs
     /// from the curried one (arity ≥ 2, or a tuple group); a single `GSimple` / lone

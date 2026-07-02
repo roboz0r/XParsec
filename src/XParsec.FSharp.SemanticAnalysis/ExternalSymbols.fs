@@ -358,6 +358,17 @@ type ExternalClassFlags =
         /// CONSUMED by the JS emit erase branch (Phase 2). Always `false` for real
         /// (metadata/contract) classes.
         Erased: bool
+        /// `true` when the type's instance members live ON the object as genuine
+        /// prototype/own methods (native `receiver.member(args)` / property reads),
+        /// NOT as receiver-first free-function imports. Named after F#/Fable's
+        /// `[<AttachMembers>]`, whose semantic this is exactly. Vesper's OWN emitted
+        /// runtimes deliberately compile members to receiver-first FREE FUNCTIONS as a
+        /// tree-shaking optimisation (the Fable trick); attached members are the
+        /// general/native form a third-party object presents. SET `true` by the
+        /// TS-manifest provider for real Interface/Class shapes (the object has native
+        /// methods); CONSUMED by JS emit to pick the `receiver.member(args)` lowering.
+        /// Default `false` so every existing provider is unaffected.
+        AttachMembers: bool
     }
 
     /// The conservative default the contract layer stamps when a `.fsi` only
@@ -369,6 +380,7 @@ type ExternalClassFlags =
             AllowNullLiteral = false
             IsValueType = false
             Erased = false
+            AttachMembers = false
         }
 
 /// The two faces of a **dual-faced capability interface** — a `Class` that, like
