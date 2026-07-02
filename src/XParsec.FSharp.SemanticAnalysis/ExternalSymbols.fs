@@ -231,7 +231,29 @@ type ExternalSignature =
         MethodArity: int
         Parameters: FrozenType
         Return: FrozenType
+        /// Per-method-typar UPPER BOUND (`<Key extends keyof Events>`), aligned to the
+        /// method axis: index `j` is the `j`-th method typar's constraint as a CARRIED
+        /// `FrozenType` (`keyof(FTTypar(Declaring,0))`), `ValueNone` when unconstrained.
+        /// Baked over the DECLARING typars just like `Parameters`/`Return`, so
+        /// `ExternalSymbols.instantiateSignatureBounds` realises it against the use-site
+        /// declaring args (`keyof Events` at `Emitter<R>` → `TyKeyOf R`). Length is
+        /// `MethodArity` when any bound is present, else EMPTY (the churn-free default
+        /// for every non-TS producer — reflection/`.fsi`/JS-native carry no TS keyof
+        /// bound). Consumed by the call-site literal-grounding rule (R4a step 3 item 2):
+        /// a syntactic string constant admits into a method typar whose bound's
+        /// keyof-fold contains it, solving that typar to `TyLiteral`. External-vocabulary
+        /// only.
+        MethodTyparBounds: FrozenType voption[]
     }
+
+    /// The bound for method typar `j`, or `ValueNone` — tolerant of the empty-array
+    /// default (every non-TS producer), so consumers need not distinguish "no bounds
+    /// carried" from "this typar unconstrained".
+    member s.MethodTyparBound(j: int) : FrozenType voption =
+        if j >= 0 && j < s.MethodTyparBounds.Length then
+            s.MethodTyparBounds.[j]
+        else
+            ValueNone
 
     /// The deferred sentinel a contract-layer member carries between extraction
     /// and the `ExtractCtx.toProvider` finalize pass (which fills `Parameters` /
@@ -246,6 +268,7 @@ type ExternalSignature =
             MethodArity = methodArity
             Parameters = deferredTemplate
             Return = deferredTemplate
+            MethodTyparBounds = [||]
         }
 
 /// A resolved member (static/instance method or property getter) on an external
@@ -888,6 +911,20 @@ module ExternalSymbols =
             instantiateWith decl methodOpen s.Return
         else
             TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return)
+
+    /// Realise a member's method-typar BOUNDS at a use site — one `SemType voption` per
+    /// method-typar index. `FTTypar(Declaring,i)` inside a bound → `declaringArgs.[i]`;
+    /// a `FTTypar(Method,j)` ref stays a `TyTypar(Method,j)` marker (a bound over another
+    /// method typar is inert until it grounds — mitt's bounds only name declaring typars,
+    /// `keyof Events`). Empty for a member with no carried bounds (every non-TS producer).
+    /// The call-site literal-grounding rule (R4a step 3 item 2) keyof-folds these to gate
+    /// which method typar a syntactic string constant may solve to a `TyLiteral`.
+    let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : SemType voption[] =
+        let decl i = declaringArgs.[i]
+        let methodOpen j = TyTypar(TyparAxis.Method, j)
+
+        m.Signature.MethodTyparBounds
+        |> Array.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen ft))
 
     /// Realise a record field's type at a use site (`FTTypar(Declaring,i) →
     /// declaringArgs.[i]`). The data-form replacement for `field.BuildType args`.

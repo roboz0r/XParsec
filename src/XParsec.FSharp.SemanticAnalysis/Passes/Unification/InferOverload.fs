@@ -21,6 +21,18 @@ module UnificationInferOverload =
         // (codegen); here it is a wildcard at any structural depth.
         | TyTypar(TyparAxis.Method, _), _
         | _, TyTypar(TyparAxis.Method, _) -> true
+        // A CARRIED TS type-level computation (`keyof`/`T[K]`/conditional) is
+        // applicability-OPAQUE — its structural identity can't be decided until a call
+        // site grounds it (R4a step 3), so during overload FILTERING it matches any
+        // argument, exactly like an open method typar. The real solution happens at the
+        // `unifyAppliedSig` commit seam (where the fold fires). External-vocabulary only,
+        // so this never perturbs a BCL overload set (none carry these nodes).
+        | (TyKeyOf _ | TyIndexedAccess _ | TyConditional _), _
+        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> true
+        // Two structural literals are equal by VALUE (so `on("*", …)` prefers the
+        // literal-`'*'` overload over a same-position typar); a literal vs a non-literal
+        // falls through to `false` (a plain `string` is not a specific literal).
+        | TyLiteral v1, TyLiteral v2 -> v1 = v2
         | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2

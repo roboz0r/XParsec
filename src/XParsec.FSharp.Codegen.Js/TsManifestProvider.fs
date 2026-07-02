@@ -156,11 +156,30 @@ module TsManifestProvider =
         (declArity: int)
         (sg: Schema.Signature)
         : ExternalSignature =
+        // Per-method-typar bound (`<Key extends keyof Events>`), carried FAITHFULLY as a
+        // `FrozenType` (`FTKeyOf(FTTypar(Declaring,0))`) so the front end can keyof-fold it
+        // at the call site (R4a step 3 item 2). The schema OMITS `TypeParamBounds` when
+        // every entry is `None`, so an unconstrained signature yields the empty array (the
+        // churn-free default every non-TS producer already uses) — never a `MethodArity`-
+        // long array of `ValueNone`, which would be observationally identical but noisier.
+        let bounds =
+            if sg.TypeParamBounds |> List.exists Option.isSome then
+                sg.TypeParamBounds
+                |> List.map (
+                    function
+                    | Some b -> ValueSome(toFrozen resolveClass b)
+                    | None -> ValueNone
+                )
+                |> Array.ofList
+            else
+                [||]
+
         {
             DeclaringArity = declArity
             MethodArity = sg.TypeParams
             Parameters = paramsFrozen resolveClass sg.Params
             Return = toFrozen resolveClass sg.Returns
+            MethodTyparBounds = bounds
         }
 
     /// Intern each overload signature's parameter shape into its `argSig`, guarding
@@ -253,6 +272,7 @@ module TsManifestProvider =
                             MethodArity = 0
                             Parameters = unitFrozen
                             Return = ret
+                            MethodTyparBounds = [||]
                         }
                     MethodArity = 0
                     Origin = origin

@@ -838,6 +838,167 @@ module UnificationEngine =
             else
                 SubsumeOutcome.Unrelated
 
+    // ─── R4a step 3: ground-evaluation of the carried TS type-level computations ───
+    //
+    // `keyof T`, `T[K]`, and `check extends extends_ ? whenTrue : whenFalse` ride the
+    // manifest FAITHFULLY as inert `TyKeyOf`/`TyIndexedAccess`/`TyConditional` carrier
+    // nodes (step 2). The front end GROUND-EVALUATES them here (design §"keyof … ride on
+    // top") once their inputs are concrete; an unground node stays carried (a deferred
+    // node — it must NOT poison unification, so `unify` only re-enters on a node that
+    // actually folded to a non-carrier type). External-vocabulary only: Vesper inference
+    // never mints one, so a fold can only ARISE from an instantiated external signature.
+
+    /// Ground member NAMES of a record / interface / class `t` (for `keyof`), or
+    /// `ValueNone` when `t` is not a nominal whose members are known here (a free var, a
+    /// primitive, a still-carried node) so `keyof` stays inert. Project-local records read
+    /// `RecordTypeInfo.Fields`; an external manifest interface/class reads its provider
+    /// shape's INSTANCE members (declared `.d.ts` order preserved, deduped across method
+    /// overloads).
+    let private groundMemberNames (ctx: PassContext) (t: SemType) : string list voption =
+        match resolveStep t with
+        | TyRecord(key, _) ->
+            match TypeRegistry.tryRecordByKey ctx.Types key with
+            | ValueSome info -> ValueSome [ for f in info.Fields -> f.Name ]
+            | ValueNone -> ValueNone
+        | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
+            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName key) with
+            | ValueSome(ExternalTypeShape.Class shape) ->
+                ValueSome(
+                    shape.Members
+                    |> Array.filter (fun m -> not m.IsStatic)
+                    |> Array.map (fun m -> m.Name)
+                    |> Array.distinct
+                    |> Array.toList
+                )
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The ground type of member `name` on record / interface / class `t` (for `T[K]`),
+    /// or `ValueNone` when `t` is not a known nominal or has no such member. A
+    /// project-local field's declared type is substituted against the receiver's args; an
+    /// external value member is realised through `instantiateSignature`.
+    let private groundMemberType (ctx: PassContext) (t: SemType) (name: string) : SemType voption =
+        match resolveStep t with
+        | TyRecord(key, args) ->
+            match TypeRegistry.tryRecordByKey ctx.Types key with
+            | ValueSome info ->
+                match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
+                | Some field -> ValueSome(instantiateMember (info.TypeParams, args) field.Type)
+                | None -> ValueNone
+            | ValueNone -> ValueNone
+        | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
+            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedName key, name) with
+            | ValueSome m when m.IsValueMember && not m.IsStatic ->
+                ValueSome(
+                    ExternalSymbols.instantiateSignature m (args |> EqArray.toList |> List.toArray) ctx.CurrentLevel
+                )
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The STRING literal keys an indexed-access index selects: a single `TyLiteral`, or a
+    /// union of them (`T[keyof T]`). `ValueNone` for a non-literal / mixed index, so the
+    /// access stays carried (the documented precision fallback, not a hard error).
+    let private indexLiteralKeys (index: SemType) : string list voption =
+        match resolveStep index with
+        | TyLiteral(LiteralConst.String s) -> ValueSome [ s ]
+        | TyOr ms ->
+            let acc = ResizeArray<string>()
+            let mutable allLit = true
+
+            for m in ms.Members do
+                match resolveStep m with
+                | TyLiteral(LiteralConst.String s) -> acc.Add s
+                | _ -> allLit <- false
+
+            if allLit && acc.Count > 0 then
+                ValueSome(List.ofSeq acc)
+            else
+                ValueNone
+        | _ -> ValueNone
+
+    /// No free `TyVar` and no still-carried type-level node anywhere in `t` — the gate a
+    /// conditional's `check`/`extends` must pass before its `extends` test can decide.
+    let rec private isGroundEval (t: SemType) : bool =
+        match resolveStep t with
+        | TyVar _
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ -> false
+        | TyFun(a, b) -> isGroundEval a && isGroundEval b
+        | TyTuple xs -> xs |> EqArray.forall isGroundEval
+        | TyConst(_, args)
+        | TyRecord(_, args)
+        | TyUnion(_, args)
+        | TyClass(_, args) -> args |> EqArray.forall isGroundEval
+        | TyOr ms -> ms.Members |> EqSet.forall isGroundEval
+        | _ -> true
+
+    /// Ground-evaluate a carried type-level computation as far as its inputs allow.
+    /// Returns the FOLDED type when a rule fires; otherwise returns the (child-eval'd)
+    /// carrier unchanged so it stays inert. Never mints a literal for a Vesper expression
+    /// — the folds only rewrite nodes that already exist in an external signature.
+    let rec evalTypeLevel (ctx: PassContext) (t: SemType) : SemType =
+        match resolveStep t with
+        // `keyof T` → the union of `T`'s member NAMES as string literals.
+        | TyKeyOf inner ->
+            let inner = evalTypeLevel ctx inner
+
+            match groundMemberNames ctx inner with
+            | ValueSome names -> SemType.MkUnion [ for n in names -> TyLiteral(LiteralConst.String n) ]
+            | ValueNone -> TyKeyOf inner
+        // `T[K]` → the (union of the) addressed member type(s), when `T` is a known
+        // nominal and `K` is a literal / literal union. A missing key leaves it carried.
+        | TyIndexedAccess(objTy, index) ->
+            let objTy = evalTypeLevel ctx objTy
+            let index = evalTypeLevel ctx index
+
+            match indexLiteralKeys index with
+            | ValueSome keys ->
+                let tys = ResizeArray<SemType>()
+                let mutable allFound = true
+
+                for k in keys do
+                    match groundMemberType ctx objTy k with
+                    | ValueSome ty -> tys.Add ty
+                    | ValueNone -> allFound <- false
+
+                if allFound && tys.Count > 0 then
+                    SemType.MkUnion(List.ofSeq tys)
+                else
+                    TyIndexedAccess(objTy, index)
+            | ValueNone -> TyIndexedAccess(objTy, index)
+        // `check extends extends_ ? whenTrue : whenFalse` → pick a branch once `check` and
+        // `extends_` are ground; the `extends` test is the directional `subsumes`
+        // membership/subtype query (a ground union's membership included). mitt's
+        // `undefined extends Events[Key] ? Key : never` is the pinned stress case.
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            let check = evalTypeLevel ctx check
+            let extends = evalTypeLevel ctx extends
+
+            if isGroundEval check && isGroundEval extends then
+                match subsumes ctx check extends with
+                | SubsumeOutcome.Unrelated -> evalTypeLevel ctx whenFalse
+                | _ -> evalTypeLevel ctx whenTrue
+            else
+                TyConditional(check, extends, evalTypeLevel ctx whenTrue, evalTypeLevel ctx whenFalse)
+        | other -> other
+
+    /// A carried type-level node folded to a CONCRETE (non-carrier) type, or `ValueNone`
+    /// when it is not a carrier or is still inert — the guard `unify`/`subsumes` re-enter
+    /// on. The `ValueSome` result is guaranteed non-carrier, so re-entry makes progress
+    /// (no loop on a still-deferred node).
+    let tryFoldCarried (ctx: PassContext) (t: SemType) : SemType voption =
+        match t with
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ ->
+            match evalTypeLevel ctx t with
+            | TyKeyOf _
+            | TyIndexedAccess _
+            | TyConditional _ -> ValueNone
+            | folded -> ValueSome folded
+        | _ -> ValueNone
+
     /// The flat `FunN` arity a parameter slot constrains its argument to,
     /// or `ValueNone` for an ordinary (non-`Fun`-bounded) parameter. A combinator
     /// param `'TF :> Fun<a,b>` is arity 1; `'TF :> Fun2<a,b,c>` is arity 2. The
@@ -1081,6 +1242,16 @@ module UnificationEngine =
         let b = resolveStep b
 
         match a, b with
+        // Ground-fold any carried type-level computation (`keyof`/`T[K]`/conditional)
+        // that has become CONCRETE before the structural arms: once a method typar inside
+        // grounds (`Events[Key]` with `Key := "ping"`), the node collapses to the member
+        // type instead of linking a var to an inert carrier. `tryFoldCarried` fires only
+        // when the node reaches a non-carrier type, so a STILL-deferred node falls through
+        // to the structural carried-vs-carried arms below and cannot loop.
+        | (TyKeyOf _ | TyIndexedAccess _ | TyConditional _), _ when (tryFoldCarried ctx a).IsSome ->
+            unify ctx key (evalTypeLevel ctx a) b
+        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) when (tryFoldCarried ctx b).IsSome ->
+            unify ctx key a (evalTypeLevel ctx b)
         // An unresolved contract head unifies with nothing.
         // Report at the use site and stop — the other side is left untouched (no Link),
         // so one broken head can't cascade into a wrong inference elsewhere.

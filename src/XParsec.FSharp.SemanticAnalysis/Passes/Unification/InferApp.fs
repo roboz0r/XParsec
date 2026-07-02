@@ -138,8 +138,11 @@ module internal UnificationInferApp =
     /// the slot is not a literal / pure-literal union (so the caller defers to the
     /// normal coercion). A bare `TyLiteral` is a singleton; a `TyOr` of ALL literals
     /// is the full set; a union with any non-literal member is NOT a pure literal slot.
-    let private literalSlotMembers (dom: SemType) : LiteralConst list voption =
-        match resolveStep dom with
+    let private literalSlotMembers (ctx: PassContext) (dom: SemType) : LiteralConst list voption =
+        // Ground-fold a carried node first: a `keyof Events` parameter (`TyKeyOf`) folds to
+        // its literal-name union here, so a syntactic string constant admits into it by the
+        // same set-membership rule as an explicit literal union (R4a step 3 item 1).
+        match evalTypeLevel ctx (resolveStep dom) with
         | TyLiteral v -> ValueSome [ v ]
         | TyOr ms ->
             let acc = ResizeArray<LiteralConst>()
@@ -186,7 +189,7 @@ module internal UnificationInferApp =
         (argExpr: Expr<SyntaxToken>)
         (dom: SemType)
         : bool =
-        match literalSlotMembers dom with
+        match literalSlotMembers ctx dom with
         | ValueNone -> false
         | ValueSome members ->
             match tryConstLiteralArg ctx argExpr with

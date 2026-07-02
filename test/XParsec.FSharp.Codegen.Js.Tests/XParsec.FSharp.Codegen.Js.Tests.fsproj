@@ -42,6 +42,7 @@
     <Compile Include="ExternalAttachMembersTests.fs" />
     <Compile Include="BusE2ETests.fs" />
     <Compile Include="MittE2ETests.fs" />
+    <Compile Include="TypeLevelFoldTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

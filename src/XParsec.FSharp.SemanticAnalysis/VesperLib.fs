@@ -133,6 +133,7 @@ module VesperLib =
                         MethodArity = methodArityNow ()
                         Parameters = parameters
                         Return = ret
+                        MethodTyparBounds = [||]
                     }
             | Error _ -> ValueNone
         with BodylessExternalShape _ ->
@@ -142,6 +143,7 @@ module VesperLib =
                     MethodArity = methodArityNow ()
                     Parameters = FTConst("unit", EqArray.empty)
                     Return = ExternalSymbols.unfreezable
+                    MethodTyparBounds = [||]
                 }
 
     /// Resolve a `RawConstraint`'s typar names against the val's typar collector,
@@ -570,6 +572,7 @@ module VesperLib =
                                     MethodArity = 0
                                     Parameters = parameters
                                     Return = ret
+                                    MethodTyparBounds = [||]
                                 }
                                 (argSigOfParameters parameters)
                                 SymbolOrigin.Empty

@@ -18,6 +18,99 @@ open UnificationInferRecordAccess
 
 module internal UnificationInferExternalCall =
 
+    /// Peel paren / annotation wrappers to a plain syntactic STRING constant's value
+    /// (interpolation / non-literal → `ValueNone`). The printf-format precedent for
+    /// call-site constant propagation, reused at the external-arg seam.
+    let rec private constStringArg (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
+        match e with
+        | Expr.EnclosedBlock(expr = inner)
+        | Expr.TypeAnnotation(expr = inner) -> constStringArg ctx inner
+        | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
+            match parts.[0] with
+            | StringPart.Text t -> ValueSome(ctx.NameOf t)
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The set of string literals a realised keyof-bounded method typar admits (its
+    /// `keyof`-fold), or `ValueNone` when the bound isn't a ground literal (union).
+    let private boundLiteralStrings (ctx: PassContext) (bound: SemType) : Set<string> voption =
+        match evalTypeLevel ctx bound with
+        | TyLiteral(LiteralConst.String s) -> ValueSome(Set.singleton s)
+        | TyOr ms ->
+            let acc = System.Collections.Generic.HashSet<string>()
+            let mutable allLit = true
+
+            for m in ms.Members do
+                match resolveStep m with
+                | TyLiteral(LiteralConst.String s) -> acc.Add s |> ignore
+                | _ -> allLit <- false
+
+            if allLit && acc.Count > 0 then
+                ValueSome(Set.ofSeq acc)
+            else
+                ValueNone
+        | _ -> ValueNone
+
+    /// R4a step 3 item 2 — DIRECTIONAL constant admission of a syntactic string constant
+    /// into a keyof-bounded METHOD TYPAR at an external instance-method call. Refines
+    /// `argTy` so a tuple position whose argument is a plain string literal AND whose
+    /// parameter (in SOME candidate overload) is a method typar `<Key extends keyof T>`
+    /// with `T` ground and the constant among `keyof T` becomes `TyLiteral`. The literal
+    /// then (a) selects the typar overload over a rival literal-`'*'` overload and (b)
+    /// solves the freshened `Key` var at the `commitExternalOverload` seam, which grounds
+    /// the `Events[Key]` handler/payload folds. Nominalism invariant: the literal enters
+    /// via the external typar; the Vesper `"ping"` expression still types as `string`.
+    /// Returns `argTy` unchanged when no position qualifies (a non-constant / non-key
+    /// argument falls back to the documented precision limit).
+    let private admitLiteralMethodTypars
+        (ctx: PassContext)
+        (candidates: ExternalMember[])
+        (declArgs: SemType[])
+        (argExpr: Expr<SyntaxToken>)
+        (argTy: SemType)
+        : SemType =
+        let elemExprs =
+            match argExpr with
+            | Expr.Tuple(exprs = xs) -> xs |> Seq.toArray
+            | single -> [| single |]
+
+        let elemTys =
+            match resolveStep argTy with
+            | TyTuple ts -> ts |> EqArray.toList |> List.toArray
+            | single -> [| single |]
+
+        if elemExprs.Length <> elemTys.Length then
+            argTy // a shape we don't model (spread/rest) — leave the arg untouched
+        else
+            let refined = Array.copy elemTys
+            let mutable changed = false
+
+            for i in 0 .. elemExprs.Length - 1 do
+                match constStringArg ctx elemExprs.[i] with
+                | ValueSome s ->
+                    let admits =
+                        candidates
+                        |> Array.exists (fun m ->
+                            match List.tryItem i (memberParamTypes declArgs m) with
+                            | Some(TyTypar(TyparAxis.Method, j)) ->
+                                match ExternalSymbols.instantiateSignatureBounds m declArgs |> Array.tryItem j with
+                                | Some(ValueSome bound) ->
+                                    match boundLiteralStrings ctx bound with
+                                    | ValueSome set -> Set.contains s set
+                                    | ValueNone -> false
+                                | _ -> false
+                            | _ -> false
+                        )
+
+                    if admits then
+                        refined.[i] <- TyLiteral(LiteralConst.String s)
+                        changed <- true
+                | ValueNone -> ()
+
+            if not changed then argTy
+            elif refined.Length = 1 then refined.[0]
+            else TyTuple(EqArray.ofSeq refined)
+
     /// Commit a call-site-resolved external overload (static or instance): record
     /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
     /// Freeze reads it, freshen the member's method-owned typars (`Take<TSource>`)
@@ -152,7 +245,12 @@ module internal UnificationInferExternalCall =
                     ValueNone
                 else
                     let declArgs = typeArgs |> EqArray.toList |> List.toArray
-                    let argTy = infer ctx argExpr
+                    // Refine a syntactic-string-constant position that lands on a keyof-
+                    // bounded method typar to a `TyLiteral` (R4a step 3 item 2) BEFORE the
+                    // pick, so the literal both selects the typar overload and solves the
+                    // freshened `Key` at commit.
+                    let argTy =
+                        admitLiteralMethodTypars ctx candidates declArgs argExpr (infer ctx argExpr)
 
                     match pickBestOverload declArgs candidates (argElemsOf argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs argTy)

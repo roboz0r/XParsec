@@ -563,6 +563,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
                 MethodArity = methodArity
                 Parameters = parameters
                 Return = ret
+                MethodTyparBounds = [||]
             }
         MethodArity = methodArity
         Origin = SymbolOrigin.Empty

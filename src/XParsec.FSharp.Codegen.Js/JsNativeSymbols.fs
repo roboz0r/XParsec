@@ -40,6 +40,7 @@ module JsNativeSymbols =
                 MethodArity = 0
                 Parameters = stringTy
                 Return = errorTy
+                MethodTyparBounds = [||]
             }
             (EqArray.singleton "string")
             errorOrigin
@@ -57,6 +58,7 @@ module JsNativeSymbols =
                     MethodArity = 0
                     Parameters = unitTy
                     Return = stringTy
+                    MethodTyparBounds = [||]
                 }
             MethodArity = 0
             Origin = errorOrigin
@@ -149,6 +151,7 @@ module JsNativeSymbols =
                     MethodArity = 0
                     Parameters = parameters
                     Return = ret
+                    MethodTyparBounds = [||]
                 }
             MethodArity = 0
             Origin = origin

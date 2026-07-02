@@ -110,6 +110,7 @@ let tests =
                         MethodArity = 2
                         Parameters = FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])
                         Return = FTTuple(EqArray.ofList [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 1) ])
+                        MethodTyparBounds = [||]
                     }
 
                 let m: ExternalMember =
@@ -219,6 +220,7 @@ let tests =
                             MethodArity = 0
                             Parameters = FTConst("unit", EqArray.empty)
                             Return = FTConst("int", EqArray.empty)
+                            MethodTyparBounds = [||]
                         }
                         (Some(TyFun(TyConst("unit", EqArray.empty), TyConst("int", EqArray.empty))))
 
@@ -233,6 +235,7 @@ let tests =
                             MethodArity = 0
                             Parameters = d 0
                             Return = FTConst("bool", EqArray.empty)
+                            MethodTyparBounds = [||]
                         }
                         (Some(TyFun(groundArgs.[0], TyConst("bool", EqArray.empty))))
 
@@ -247,6 +250,7 @@ let tests =
                             MethodArity = 0
                             Parameters = FTTuple(EqArray.ofList [ d 0; d 1 ])
                             Return = FTConst("unit", EqArray.empty)
+                            MethodTyparBounds = [||]
                         }
                         (Some(
                             TyFun(
@@ -266,6 +270,7 @@ let tests =
                             MethodArity = 0
                             Parameters = FTConst("unit", EqArray.empty)
                             Return = FTClass(kRec, EqArray.singleton (d 0))
+                            MethodTyparBounds = [||]
                         }
                         (Some(TyClass(kRec, EqArray.singleton groundArgs.[0])))
 
@@ -280,6 +285,7 @@ let tests =
                             MethodArity = 0
                             Parameters = FTTuple(EqArray.ofList [ d 0; FTConst("int", EqArray.empty) ])
                             Return = FTRecord(kRec, EqArray.singleton (d 0))
+                            MethodTyparBounds = [||]
                         }
                         (Some(
                             TyFun(
@@ -299,6 +305,7 @@ let tests =
                             MethodArity = 1
                             Parameters = FTTypar(TyparAxis.Method, 0)
                             Return = FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])
+                            MethodTyparBounds = [||]
                         }
                         None
                 ]

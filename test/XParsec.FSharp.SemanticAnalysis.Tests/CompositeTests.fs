@@ -44,6 +44,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                                 MethodArity = 0
                                 Parameters = FTConst("unit", EqArray.empty)
                                 Return = FTConst(tag, EqArray.empty)
+                                MethodTyparBounds = [||]
                             }
                         MethodArity = 0
                         Origin = origin

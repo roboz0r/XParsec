@@ -227,6 +227,7 @@ module private MetadataMapping =
             MethodArity = 0
             Parameters = FTConst("unit", EqArray.empty)
             Return = valueTy
+            MethodTyparBounds = [||]
         }
 
     /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
@@ -240,6 +241,7 @@ module private MetadataMapping =
             MethodArity = methodArity
             Parameters = parameters
             Return = ret
+            MethodTyparBounds = [||]
         }
 
     /// `SymbolKey.TypeKey` for the declaring type.
