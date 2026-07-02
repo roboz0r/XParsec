@@ -8,8 +8,8 @@ five gating decisions) are all resolved here and in code. This provider resolves
 TS-sourced types into TAST and emits on the JS backend.
 
 **This doc holds the DECISIONS (the why).** For the runnable step-by-step sequence
-(the how — null/undefined intrinsics → resilient extraction → `mitt` → real-package
-e2e), see the companion
+(the how — currently R5: refs-table identity → ambient-global extraction →
+`lib.es2015` ref pack → `Js.*` consumption), see the companion
 [`ts-provider-implementation-plan.md`](ts-provider-implementation-plan.md).
 
 ## The core idea

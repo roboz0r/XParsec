@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R4a STEP 3 items 1–4 (ts-provider plan): the front end GROUND-EVALUATES the carried
+// R4a STEP 3 items 1–4 (TS provider): the front end GROUND-EVALUATES the carried
 // TS type-level computations `keyof T`, `T[K]`, and `check extends E ? X : Y`. This
 // hand-built manifest is mitt-SHAPED — a generic event-bus interface whose `on`/`emit`
 // carry `<Key extends keyof Events>` with a FAITHFUL function-typed handler

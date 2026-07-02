@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R3 (ts-provider plan): the real Vesper e2e that proves the R1+R2 consumption machinery
+// R3 (TS provider): the real Vesper e2e that proves the R1+R2 consumption machinery
 // end-to-end on the EASIEST honest path — a NON-GENERIC emitter-style external object.
 // A Vesper program creates the object, REGISTERS A HANDLER (a Vesper lambda passed as a
 // callback argument to a native member — new territory beyond R2's int-only args), emits

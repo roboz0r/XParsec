@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R2 (ts-provider plan): an instance-member call on an external TS-manifest object
+// R2 (TS provider): an instance-member call on an external TS-manifest object
 // lowers to a NATIVE `receiver.member(args)` — the object has genuine prototype/own
 // methods, NOT the receiver-first `$Box_get`-style free-fn import Vesper's OWN runtimes
 // emit (a tree-shaking optimisation). The signal is `ExternalClassFlags.AttachMembers`,

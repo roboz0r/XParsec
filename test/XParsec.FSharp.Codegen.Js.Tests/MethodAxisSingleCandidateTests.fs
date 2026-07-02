@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R4a STEP 3 item 5 (ts-provider plan): the SINGLE-candidate `TryLookupMember`
+// R4a STEP 3 item 5 (TS provider): the SINGLE-candidate `TryLookupMember`
 // field-walk must freshen a member's method typars per call site, exactly as the
 // multi-candidate overload-commit path already does
 // (`ExternalSymbols.instantiateSignature` via `commitExternalOverload`).
