@@ -97,5 +97,13 @@
       "heritage": []
     }
   ],
-  "diagnostics": []
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "intersection-erased",
+      "symbol": "Named & Aged",
+      "span": null,
+      "message": "intersection type 'Named & Aged' erased to obj (structural intersections are deferred)"
+    }
+  ]
 }

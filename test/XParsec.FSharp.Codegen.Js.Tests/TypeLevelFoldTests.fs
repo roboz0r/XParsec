@@ -37,7 +37,7 @@ let private cond c e wt wf =
 let private fn args ret = Schema.TypeRef.Fun(args, ret)
 
 let private strLit s =
-    Schema.TypeRef.Literal(Schema.EnumValue.StringVal s)
+    Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s)
 
 let private param name ty : Schema.Param =
     {

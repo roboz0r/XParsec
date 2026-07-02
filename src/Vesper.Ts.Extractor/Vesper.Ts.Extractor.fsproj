@@ -11,6 +11,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="vendor/TypeScript.fs" />
+    <Compile Include="TsInterop.fs" />
+    <Compile Include="Diagnostics.fs" />
+    <Compile Include="TypeMap.fs" />
+    <Compile Include="ExportMap.fs" />
     <Compile Include="Extractor.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

@@ -1,7 +1,8 @@
-/// Version 0 of the serialised TS-extraction manifest — the neutral IR that the
-/// F#/Fable extractor PRODUCES and the F# `TsManifestProvider` CONSUMES. Shared
-/// so producer and consumer cannot drift: Fable-compiled to JS for the
-/// extractor, used natively on .NET by the loader.
+/// The serialised TS-extraction manifest (`SchemaVersion` below is the current
+/// wire version) — the neutral IR that the F#/Fable extractor PRODUCES and the
+/// F# `TsManifestProvider` CONSUMES. Shared so producer and consumer cannot
+/// drift: Fable-compiled to JS for the extractor, used natively on .NET by the
+/// loader.
 ///
 /// This is the GlueAST-equivalent boundary from
 /// `codegen-js-symbol-provider-plan.md` — a pure type-description grammar, never
@@ -10,7 +11,7 @@
 /// up front so the schema version need not bump when they are filled in.
 module Vesper.Ts.Manifest.Schema
 
-// v1: enum member values are now type-tagged (`EnumValue`) instead of a bare
+// v1: enum member values are now type-tagged (`LiteralValue`) instead of a bare
 // `string option`. Stringifying numerics conflated a string member `A = "42"`
 // with a numeric `A = 42` (both decoded to `Some "42"`), losing the variant the
 // consumer's numeric/string/mixed classification depends on.
@@ -24,7 +25,7 @@ let SchemaVersion = 1
 /// §"Literal types stay structural"). `None` at an enum use site marks a
 /// computed/unresolvable member.
 [<RequireQualifiedAccess>]
-type EnumValue =
+type LiteralValue =
     /// A TS numeric member/literal, restricted to the integer subset (the extractor
     /// throws on a non-integer literal rather than widening to a float).
     | IntVal of int64
@@ -56,7 +57,7 @@ type TypeRef =
     /// external-vocabulary only; Vesper inference NEVER mints one (design §"Literal
     /// types stay structural … the nominalism invariant"). A literal composes with
     /// `Union` — `("ping" | "pong")` is `Union [Literal "ping"; Literal "pong"]`.
-    | Literal of value: EnumValue
+    | Literal of value: LiteralValue
     /// `keyof T` (a TS index-query type) → `FTKeyOf`. Carried FAITHFULLY, never
     /// evaluated in TS-land (design §"keyof … ride on top … ground-EVALUATED rather
     /// than degraded"): the front end folds it to the member-name literal union when
@@ -125,19 +126,17 @@ type ImportShape =
     | Namespace
     | CommonJsExport
 
-/// A top-level export. MVP emits `Function` + `Interface`; the remaining cases
-/// are declared so the grammar is stable but are not yet produced.
+/// A top-level export. Every case is produced by the extractor.
 [<RequireQualifiedAccess>]
 type Export =
     | Function of name: string * signatures: Signature list * import: ImportShape
     | Interface of name: string * typeParams: int * members: Member list * heritage: TypeRef list
-    // --- declared for grammar stability; not yet emitted ---
     | Class of name: string * typeParams: int * members: Member list * heritage: TypeRef list * import: ImportShape
     | TypeAlias of name: string * typeParams: int * target: TypeRef
     /// `members`: each case name paired with its type-tagged value; `None` = a
     /// computed/unresolvable member. The numeric/string/mixed variant falls out
     /// of the member values on the consumer side.
-    | Enum of name: string * members: (string * EnumValue option) list
+    | Enum of name: string * members: (string * LiteralValue option) list
     | Variable of name: string * ty: TypeRef * isConst: bool * import: ImportShape
     | Namespace of name: string * exports: Export list
 
@@ -148,23 +147,58 @@ type Severity =
 
 type Span = { File: string; Start: int; End: int }
 
+/// The degradation vocabulary — one case per way the extractor lowers a TS
+/// construct it cannot represent faithfully. The DU *is* the closed set (the old
+/// prose "do NOT mint ad-hoc codes" rule, now unmintable): every case except
+/// `Unknown` is emitted by the extractor, and the wire string lives in one place
+/// (`Wire` / `OfWire`). NOT diagnosed by design (the silent, documented lowering
+/// decisions): `any` → `Dynamic` (the designed mapping, not a loss) and the two
+/// literal widenings (boolean literal → `bool`, non-integer numeric literal →
+/// `float` — design §"string first; skip bool").
+[<RequireQualifiedAccess>]
+type DiagCode =
+    /// A type parameter bound by NEITHER the declaring nor the method axis,
+    /// erased to `obj` (defensive — an authored member typar rides the method
+    /// axis faithfully and never takes this).
+    | MethodAxisTyparErased
+    /// An anonymous structural object replaced by a content-hashed stub.
+    | StructuralObjectStubbed
+    /// get/set accessor with differing types, narrowed to the getter's.
+    | AsymmetricAccessorNarrowed
+    /// A merged-declaration namespace arm discarded (dominant declaration kept).
+    | MergedNamespaceDropped
+    /// A `&`-intersection type erased to `obj`.
+    | IntersectionErased
+    /// Forward tolerance: a code minted by a NEWER extractor decodes losslessly
+    /// instead of failing the whole manifest.
+    | Unknown of string
+
+    /// The wire spelling (kebab-case, stable across schema versions).
+    member this.Wire: string =
+        match this with
+        | MethodAxisTyparErased -> "method-axis-typar-erased"
+        | StructuralObjectStubbed -> "structural-object-stubbed"
+        | AsymmetricAccessorNarrowed -> "asymmetric-accessor-narrowed"
+        | MergedNamespaceDropped -> "merged-namespace-dropped"
+        | IntersectionErased -> "intersection-erased"
+        | Unknown s -> s
+
+    static member OfWire(s: string) : DiagCode =
+        match s with
+        | "method-axis-typar-erased" -> MethodAxisTyparErased
+        | "structural-object-stubbed" -> StructuralObjectStubbed
+        | "asymmetric-accessor-narrowed" -> AsymmetricAccessorNarrowed
+        | "merged-namespace-dropped" -> MergedNamespaceDropped
+        | "intersection-erased" -> IntersectionErased
+        | other -> Unknown other
+
 /// A degradation the extractor recorded instead of throwing — a structured note
 /// that some TS construct could not be represented faithfully and what was emitted
 /// in its place. `Span` is optional (not every degradation has a source location).
-///
-/// `Code` is drawn from a CLOSED, stable vocabulary — Phase 2 consumers key on
-/// these exact strings, so do NOT mint ad-hoc codes:
-///   - `method-axis-typar-erased`     — a member's own generic type parameters dropped
-///   - `structural-object-stubbed`    — an anonymous structural object replaced by a stub
-///   - `asymmetric-accessor-narrowed` — get/set with differing types narrowed to one
-///   - `merged-namespace-dropped`     — a merged-declaration namespace arm discarded
-///   - `any-dynamic`                  — `any` lowered to the deferred dynamic type
-///   - `intersection-erased`          — a `&`-intersection type erased
-///   - `literal-widened`             — a literal type widened to its base
 type Diagnostic =
     {
         Severity: Severity
-        Code: string
+        Code: DiagCode
         Symbol: string
         Span: Span option
         Message: string

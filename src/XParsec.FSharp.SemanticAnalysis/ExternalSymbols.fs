@@ -149,7 +149,7 @@ type ExternalCaseShape =
         }
 
 /// The compile-time value of an `ExternalEnumCaseShape`, mirroring the manifest
-/// wire `EnumValue` (`Vesper.Ts.Manifest.Schema`): a TS numeric member is an
+/// wire `LiteralValue` (`Vesper.Ts.Manifest.Schema`): a TS numeric member is an
 /// `int64` (the integer subset the extractor admits), a string member its text.
 /// The numeric *width* is deliberately ABSENT — a TS import has no width notion;
 /// the underlying integral type is the `FrozenType`-layer default (`I32`), a

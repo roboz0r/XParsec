@@ -7,7 +7,7 @@ open Vesper.Ts.Manifest
 
 open Vesper.Ts.Extractor.Tests.TestHelpers
 
-// v1 schema: enum member values are type-tagged (`EnumValue`). The whole point of
+// v1 schema: enum member values are type-tagged (`LiteralValue`). The whole point of
 // the bump is that a numeric `A = 42` and a string `A = "42"` no longer collapse
 // to the same `Some "42"` — int vs string must survive encode→decode. A computed
 // member (`None`) must still round-trip too.
@@ -27,10 +27,10 @@ let enumValueCodecTests =
                                 Schema.Export.Enum(
                                     "E",
                                     [
-                                        "Num", Some(Schema.EnumValue.IntVal 42L)
+                                        "Num", Some(Schema.LiteralValue.IntVal 42L)
                                         // Same printed digits as the int case — the discriminator,
                                         // not the lexeme, is what tells them apart on decode.
-                                        "Str", Some(Schema.EnumValue.StringVal "42")
+                                        "Str", Some(Schema.LiteralValue.StringVal "42")
                                         "Computed", None
                                     ]
                                 )
@@ -48,8 +48,8 @@ let enumValueCodecTests =
                         Expect.equal
                             members
                             [
-                                "Num", Some(Schema.EnumValue.IntVal 42L)
-                                "Str", Some(Schema.EnumValue.StringVal "42")
+                                "Num", Some(Schema.LiteralValue.IntVal 42L)
+                                "Str", Some(Schema.LiteralValue.StringVal "42")
                                 "Computed", None
                             ]
                             "int (42) and string (\"42\") stay distinct; the computed member stays None"
@@ -69,7 +69,7 @@ let enumValueCodecTests =
                             [
                                 {
                                     Severity = Schema.Severity.Warning
-                                    Code = "any-dynamic"
+                                    Code = Schema.DiagCode.IntersectionErased
                                     Symbol = "Foo.bar"
                                     Span =
                                         Some
@@ -78,7 +78,16 @@ let enumValueCodecTests =
                                                 Start = 10
                                                 End = 25
                                             }
-                                    Message = "`any` lowered to the deferred dynamic type"
+                                    Message = "intersection type erased to obj"
+                                }
+                                // Forward tolerance: a code minted by a NEWER extractor
+                                // decodes as `Unknown` and round-trips losslessly.
+                                {
+                                    Severity = Schema.Severity.Warning
+                                    Code = Schema.DiagCode.Unknown "future-code"
+                                    Symbol = "Foo.baz"
+                                    Span = None
+                                    Message = "a code this build does not know"
                                 }
                             ]
                     }

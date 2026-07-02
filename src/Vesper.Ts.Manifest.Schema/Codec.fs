@@ -132,6 +132,35 @@ let private jStrOpt =
     | Some s -> JsonValue.String s
     | None -> JsonValue.Null
 
+// ─── literal payload (shared by `TypeRef.Literal` and enum member values) ───
+
+let private asInt64 =
+    function
+    | JsonValue.Number n -> Ok(int64 n)
+    | other -> Error(sprintf "expected number, got %A" other)
+
+/// The `kind`/`value` field pair a type-tagged literal contributes to its host
+/// object. ONE encoding for the two wire hosts: `TypeRef.Literal` splices it
+/// beside its `k` tag; an enum member value is exactly this object.
+let private literalPayloadFields (v: LiteralValue) : (string * JsonValue) list =
+    match v with
+    | LiteralValue.IntVal n -> [ "kind", jStr "int"; "value", JsonValue.Number(float n) ]
+    | LiteralValue.StringVal s -> [ "kind", jStr "string"; "value", jStr s ]
+
+let private decodeLiteralPayload (m: JsonObject) : Result<LiteralValue, string> =
+    result {
+        let! kind = readField "kind" asString m
+
+        match kind with
+        | "int" ->
+            let! n = readField "value" asInt64 m
+            return LiteralValue.IntVal n
+        | "string" ->
+            let! s = readField "value" asString m
+            return LiteralValue.StringVal s
+        | other -> return! Error(sprintf "unknown literal kind '%s'" other)
+    }
+
 // ─── TypeRef ───────────────────────────────────────────────────────────────
 
 let rec encodeTypeRef (t: TypeRef) : JsonValue =
@@ -154,12 +183,10 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
             ]
     | TypeRef.Tuple items -> jObj [ "k", jStr "tuple"; "items", jArr (List.map encodeTypeRef items) ]
     | TypeRef.Union members -> jObj [ "k", jStr "union"; "members", jArr (List.map encodeTypeRef members) ]
-    // A literal TYPE carries its constant, tagged int/string exactly like an
-    // `EnumValue` (int-vs-string recoverable on decode). ADDITIVE — no
-    // `SchemaVersion` bump (prototyping policy).
-    | TypeRef.Literal(EnumValue.IntVal n) ->
-        jObj [ "k", jStr "literal"; "kind", jStr "int"; "value", JsonValue.Number(float n) ]
-    | TypeRef.Literal(EnumValue.StringVal s) -> jObj [ "k", jStr "literal"; "kind", jStr "string"; "value", jStr s ]
+    // A literal TYPE carries its constant, tagged int/string exactly like an enum
+    // member value (the shared payload pair). ADDITIVE — no `SchemaVersion` bump
+    // (prototyping policy).
+    | TypeRef.Literal v -> jObj (("k", jStr "literal") :: literalPayloadFields v)
     // keyof / indexed-access / conditional: FAITHFUL carrier arms (design §"keyof …
     // ride on top"), each recording its child type(s) verbatim so the front end can
     // ground-evaluate later. ADDITIVE — no `SchemaVersion` bump (prototyping policy).
@@ -220,23 +247,8 @@ let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
             let! members = listField "members" decodeTypeRef m
             return TypeRef.Union members
         | "literal" ->
-            let! kind = readField "kind" asString m
-
-            match kind with
-            | "int" ->
-                let! v =
-                    readField
-                        "value"
-                        (function
-                        | JsonValue.Number n -> Ok(int64 n)
-                        | other -> Error(sprintf "expected number, got %A" other))
-                        m
-
-                return TypeRef.Literal(EnumValue.IntVal v)
-            | "string" ->
-                let! s = readField "value" asString m
-                return TypeRef.Literal(EnumValue.StringVal s)
-            | other -> return! Error(sprintf "unknown literal kind '%s'" other)
+            let! v = decodeLiteralPayload m
+            return TypeRef.Literal v
         | "keyof" ->
             let! t = readField "ty" decodeTypeRef m
             return TypeRef.KeyOf t
@@ -296,39 +308,19 @@ let private decodeImport j =
         | "commonjs" -> Ok ImportShape.CommonJsExport
         | o -> Error(sprintf "unknown import shape '%s'" o)
 
-// ─── EnumValue ─────────────────────────────────────────────────────────────
+// ─── enum member values ──────────────────────────────────────────────────────
 
-/// A type-tagged enum member value (or `None` for a computed member). The `kind`
-/// discriminator mirrors the `k`/`export` tag convention so int-vs-string is
-/// recoverable on decode — the whole point of the v1 schema bump.
-let private encodeEnumValue (v: EnumValue option) : JsonValue =
+/// A type-tagged enum member value (or `None` for a computed member) — the shared
+/// literal payload as its own object, `null` for the computed case.
+let private encodeEnumValue (v: LiteralValue option) : JsonValue =
     match v with
-    | Some(EnumValue.IntVal n) -> jObj [ "kind", jStr "int"; "value", JsonValue.Number(float n) ]
-    | Some(EnumValue.StringVal s) -> jObj [ "kind", jStr "string"; "value", jStr s ]
+    | Some lit -> jObj (literalPayloadFields lit)
     | None -> JsonValue.Null
 
-let private asInt64 =
-    function
-    | JsonValue.Number n -> Ok(int64 n)
-    | other -> Error(sprintf "expected number, got %A" other)
-
-let private decodeEnumValue (j: JsonValue) : Result<EnumValue option, string> =
+let private decodeEnumValue (j: JsonValue) : Result<LiteralValue option, string> =
     match j with
     | JsonValue.Null -> Ok None
-    | _ ->
-        result {
-            let! m = asObject j
-            let! kind = readField "kind" asString m
-
-            match kind with
-            | "int" ->
-                let! n = readField "value" asInt64 m
-                return Some(EnumValue.IntVal n)
-            | "string" ->
-                let! s = readField "value" asString m
-                return Some(EnumValue.StringVal s)
-            | other -> return! Error(sprintf "unknown enum value kind '%s'" other)
-        }
+    | _ -> asObject j >>= decodeLiteralPayload >>= (Some >> Ok)
 
 // ─── Diagnostic ──────────────────────────────────────────────────────────────
 
@@ -366,7 +358,7 @@ let private encodeDiagnostic (d: Diagnostic) =
     jObj
         [
             "severity", encodeSeverity d.Severity
-            "code", jStr d.Code
+            "code", jStr d.Code.Wire
             "symbol", jStr d.Symbol
             "span",
             (match d.Span with
@@ -379,6 +371,8 @@ let private decodeDiagnostic j =
     result {
         let! m = asObject j
         let! severity = readField "severity" decodeSeverity m
+        // `OfWire` is total (an unrecognised code decodes as `DiagCode.Unknown`),
+        // so a manifest from a NEWER extractor never fails the whole decode here.
         let! code = readField "code" asString m
         let! symbol = readField "symbol" asString m
         let! span = optField "span" decodeSpan m
@@ -387,7 +381,7 @@ let private decodeDiagnostic j =
         return
             {
                 Severity = severity
-                Code = code
+                Code = DiagCode.OfWire code
                 Symbol = symbol
                 Span = span
                 Message = message
@@ -470,6 +464,15 @@ let private decodeSignature j =
                     function
                     | JsonValue.Null -> Ok None
                     | x -> decodeTypeRef x |> Result.map Some
+                )
+                // The bounds list indexes the METHOD axis: a length that disagrees
+                // with `typeParams` would silently misalign every bound the provider
+                // reads by index, so a malformed manifest fails HERE, not downstream.
+                >>= (fun bs ->
+                    if List.length bs = tp then
+                        Ok bs
+                    else
+                        Error(sprintf "typeParamBounds length %d does not match typeParams %d" (List.length bs) tp)
                 )
 
         return
@@ -623,7 +626,7 @@ let rec decodeExport (j: JsonValue) : Result<Export, string> =
         | other -> return! Error(sprintf "unknown export '%s'" other)
     }
 
-and private decodeEnumMember (j: JsonValue) : Result<string * EnumValue option, string> =
+and private decodeEnumMember (j: JsonValue) : Result<string * LiteralValue option, string> =
     result {
         let! m = asObject j
         let! n = readField "name" asString m
@@ -651,7 +654,8 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
         let! m = asObject j
         let! ver = readField "schemaVersion" asInt m
 
-        // Only v0 exists. A different version means the wire format has evolved —
+        // Exactly one wire version is understood per build. A different version
+        // means the wire format has evolved —
         // throw loudly so versioning/back-compat gets designed deliberately rather
         // than decoded against a grammar it may not match.
         if ver <> SchemaVersion then

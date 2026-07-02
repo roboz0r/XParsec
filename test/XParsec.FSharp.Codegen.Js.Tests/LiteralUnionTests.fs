@@ -23,7 +23,7 @@ let private named n = Schema.TypeRef.Named(n, [])
 let private unitT = named "unit"
 
 let private strLit s =
-    Schema.TypeRef.Literal(Schema.EnumValue.StringVal s)
+    Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s)
 
 /// `"auto" | "manual"` — the mode literal union.
 let private modeUnion: Schema.TypeRef =

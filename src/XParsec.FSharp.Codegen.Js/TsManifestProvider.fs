@@ -58,8 +58,8 @@ module TsManifestProvider =
         // semantic union rules (a singleton `("a")` collapses to `FTLiteral "a"`).
         | Schema.TypeRef.Union members -> FrozenType.MkUnion(List.map (toFrozen resolveClass) members)
         // A TS literal TYPE → `FTLiteral` (structural, external-vocabulary only).
-        | Schema.TypeRef.Literal(Schema.EnumValue.StringVal s) -> FTLiteral(LiteralConst.String s)
-        | Schema.TypeRef.Literal(Schema.EnumValue.IntVal n) -> FTLiteral(LiteralConst.Int n)
+        | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> FTLiteral(LiteralConst.String s)
+        | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> FTLiteral(LiteralConst.Int n)
         // keyof / indexed-access / conditional → CARRIER `FrozenType` nodes, INERT (R4a
         // step 2): rehydrated with their children, threaded through every walk, but NOT
         // evaluated — the front end owns the ground fold (step 3). Design §"keyof … ride
@@ -121,8 +121,8 @@ module TsManifestProvider =
         // (mitt's `on(type: Key)` vs `on(type: '*')`) mint DISTINCT argSigs and the
         // duplicate-overload guard does not misfire (design §"argSigOf … quoted
         // value").
-        | Schema.TypeRef.Literal(Schema.EnumValue.StringVal s) -> "\"" + s + "\""
-        | Schema.TypeRef.Literal(Schema.EnumValue.IntVal n) -> string n
+        | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> "\"" + s + "\""
+        | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> string n
         // A union of LITERALS is rendered sharply (each member) for the same
         // overload-identity reason; a union with any non-literal member keeps the
         // `obj` collapse (the existing forcing-function that throws on a genuinely
@@ -462,7 +462,7 @@ module TsManifestProvider =
         | Schema.Export.Enum(name, members) ->
             // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
             // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
-            // identity) and JS imports the object map for. The wire `EnumValue`
+            // identity) and JS imports the object map for. The wire `LiteralValue`
             // (numeric / string) carries straight onto `ExternalEnumCaseValue`; the
             // numeric / string / mixed variant falls out of the values, never baked.
             // A `None` (computed / non-constant) member is DROPPED — it has no value
@@ -474,13 +474,13 @@ module TsManifestProvider =
                 members
                 |> List.choose (fun (caseName, v) ->
                     match v with
-                    | Some(Schema.EnumValue.IntVal n) ->
+                    | Some(Schema.LiteralValue.IntVal n) ->
                         Some
                             {
                                 Name = caseName
                                 Value = ExternalEnumCaseValue.IntVal n
                             }
-                    | Some(Schema.EnumValue.StringVal s) ->
+                    | Some(Schema.LiteralValue.StringVal s) ->
                         Some
                             {
                                 Name = caseName
