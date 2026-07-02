@@ -35,7 +35,14 @@ module TsManifestProvider =
     /// front end hands to `TryLookupMember`.
     let rec private toFrozen (resolveClass: string -> SymbolKey option) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
-            match resolveClass name with
+            // THE LAW (`SymbolKeyOps.arityName`): a generic nominal type's compiled name is
+            // arity-suffixed (`Emitter`1`) and (name, arity) pairs are DISTINCT nominal types.
+            // A TS `Named` reference applies ALL its type args (TS has no partial application
+            // and no arity overloading), so the applied arg count IS the declared arity for an
+            // in-package resolution — suffix the manifest's bare spelling by it at lookup so it
+            // hits the resolver table (keyed by the same suffixed name). The `FTConst` fallback
+            // keeps the BARE name (a primitive/cross-package/alias name carries no arity suffix).
+            match resolveClass (SymbolKeyOps.arityName name args.Length) with
             | Some key -> FTClass(key, EqArray.ofSeq args)
             | None -> FTConst(name, EqArray.ofSeq args)
 
@@ -239,7 +246,12 @@ module TsManifestProvider =
                 | Schema.TypeRef.Named(name, args) -> name, args
                 | other -> failwithf "heritage entry is not a nominal type reference: %A" other
 
-            match kindOf name with
+            // Suffix the heritage entry's bare name by its applied arg count before the
+            // kind lookup (THE LAW): `typeKinds` is keyed by the arity-suffixed qualified
+            // name, so a GENERIC base/interface (`extends Foo<T>`) must classify under
+            // `` Foo`1 `` — `arityName` is a no-op at arity 0, so a non-generic base is
+            // byte-identical.
+            match kindOf (SymbolKeyOps.arityName name (List.length args)) with
             | Some false ->
                 // Resolves to a CLASS in this package → the single base class slot (full
                 // `FrozenType`). TS guarantees at most one base class; a second would
@@ -311,12 +323,20 @@ module TsManifestProvider =
         : (string * ExternalTypeShape) option =
         let build name tp members heritage isInterface =
             let origin = originFor moduleSpec nsPath
+            // THE LAW (`SymbolKeyOps.arityName`): a generic type's compiled name is
+            // arity-suffixed (`Emitter`1`), so the SIMPLE name minted into the `TypeKey`
+            // carries the ` `n ` suffix by the declared arity `tp` — matching what
+            // `TypeTranslate`/`Freeze` form when resolving an annotation (`arityName n arity`,
+            // suffixed-first). `arityName` appended to the simple name then `qualify`d equals
+            // `arityName` applied to the dotted name (it only appends ` `n ` when absent), so
+            // the map key below equals what the front end hands to `TryLookupMember`.
+            let simple = SymbolKeyOps.arityName name tp
             // The `SymbolKey.TypeKey` carries the SIMPLE name + namespace path (the
             // codegen-minting split), while the MAP key (`qualify`) is the dotted
             // qualified name the front end looks up by — mirroring `MetadataSymbols`,
             // where the key's `ns`/simple-name decompose `Type.FullName` but the lookup
             // string is the full name.
-            let key = SymbolKey.TypeKey(Some moduleSpec, nsPath, name)
+            let key = SymbolKey.TypeKey(Some moduleSpec, nsPath, simple)
 
             let mems =
                 members
@@ -326,7 +346,7 @@ module TsManifestProvider =
             let frozenInterfaces, frozenBaseType = classifyHeritage resolveClass kindOf heritage
 
             Some(
-                qualify nsPath name,
+                qualify nsPath simple,
                 ExternalTypeShape.Class
                     {
                         Arity = tp
@@ -360,7 +380,13 @@ module TsManifestProvider =
             // -structural all resolve through the same `toFrozen` the members use. `tp`
             // is the alias's declaring-axis arity (item 11): a generic alias `Pair<A,B>`
             // expands `FTTypar(Declaring,0/1)` against the two use-site args.
-            Some(qualify nsPath name, ExternalTypeShape.Abbrev(tp, toFrozen resolveClass target))
+            // THE LAW: a generic alias (`Pair<A,B>`) is arity-suffixed too, so its use site
+            // (`arityName "Pair" 2` at lookup) hits this key; `arityName` is a no-op at arity
+            // 0, so a non-generic alias stays byte-identical.
+            Some(
+                qualify nsPath (SymbolKeyOps.arityName name tp),
+                ExternalTypeShape.Abbrev(tp, toFrozen resolveClass target)
+            )
         | Schema.Export.Enum(name, members) ->
             // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
             // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
@@ -500,9 +526,14 @@ module TsManifestProvider =
         let typeKinds =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
+                // Keyed by the arity-suffixed qualified name (THE LAW), matching the resolver
+                // (`typeKeys`) and the `toTypeShape` map key; `classifyHeritage` suffixes the
+                // heritage entry's bare name the same way at lookup.
                 match ex with
-                | Schema.Export.Interface(name, _, _, _) -> Some(qualify nsPath name, true)
-                | Schema.Export.Class(name, _, _, _, _) -> Some(qualify nsPath name, false)
+                | Schema.Export.Interface(name, tp, _, _) ->
+                    Some(qualify nsPath (SymbolKeyOps.arityName name tp), true)
+                | Schema.Export.Class(name, tp, _, _, _) ->
+                    Some(qualify nsPath (SymbolKeyOps.arityName name tp), false)
                 | _ -> None
             )
             |> Map.ofList
@@ -522,10 +553,15 @@ module TsManifestProvider =
         let typeKeys =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
+                // Keyed by — and minting — the arity-suffixed name (THE LAW), so
+                // `SymbolKeyOps.qualifiedName` of the minted key equals this map key and both
+                // equal what `toTypeShape`'s `build` registers. `toFrozen` suffixes the bare
+                // manifest reference name at lookup before probing this table.
                 match ex with
-                | Schema.Export.Interface(name, _, _, _)
-                | Schema.Export.Class(name, _, _, _, _) ->
-                    Some(qualify nsPath name, SymbolKey.TypeKey(Some moduleSpec, nsPath, name))
+                | Schema.Export.Interface(name, tp, _, _)
+                | Schema.Export.Class(name, tp, _, _, _) ->
+                    let simple = SymbolKeyOps.arityName name tp
+                    Some(qualify nsPath simple, SymbolKey.TypeKey(Some moduleSpec, nsPath, simple))
                 | _ -> None
             )
             |> Map.ofList

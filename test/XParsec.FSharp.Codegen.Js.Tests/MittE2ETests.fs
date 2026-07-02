@@ -28,11 +28,16 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // (create + register a lambda handler + emit + observe) is proven end-to-end in
 // `BusE2ETests` instead — that is R3's real proof. The precise mitt walls (all R4 scope,
 // probed against this manifest + provider stack) are:
-//   1. Wall #3 — even the bare factory CALL `let e = mitt()` fails: the return
-//      `Emitter<Events>` leaves `Events` ungrounded → "TAST contains 1 unresolved TyVar".
-//   2. An explicit annotation `let e : Emitter<int> = mitt()` does NOT rescue it: the
-//      annotation mints `TyClass(Emitter)` but the provider return is `TyClass(Emitter`1)`
-//      — an arity-suffix key mismatch — and the TyVar stays unresolved.
+//   1. Wall #3 — the bare factory CALL `let e = mitt()` (NO annotation) still fails: the
+//      return `Emitter<Events>` leaves `Events` ungrounded → "TAST contains 1 unresolved
+//      TyVar". A use site with no annotation and no non-generic type to solve first has
+//      nothing to ground `Events` — R4's grounding work.
+//   2. RESOLVED (R1-key fix): an explicit annotation `let e : Emitter<int> = mitt()` now
+//      type-checks. The provider used to register `Emitter` under the BARE name while the
+//      annotation resolved `TyClass(Emitter`1)` (THE LAW's arity suffix) — a key mismatch.
+//      `TsManifestProvider` now mints/keys every nominal by its arity-suffixed compiled
+//      name (`SymbolKeyOps.arityName`), so the two spellings agree, the annotation grounds
+//      `Events = int`, and the TyVar is solved. Pinned by the annotation test below.
 //   3. `on`/`emit`'s first `type` parameter is a raw `TyTypar(Method, 0)` marker a string
 //      literal cannot unify with ("Type mismatch: string vs TyTypar(Method,0)") — the
 //      single-overload method-typar freshening / string-literal-key gap.
@@ -40,9 +45,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 //      a Vesper lambda `TyFun(_, unit)` cannot unify with it.
 //   5. `emit`'s payload is the `Events[Key]` structural stub — "Type 'structural:Events[Key]'
 //      could not be resolved during contract extraction".
-// Items 3–5 need R4a's faithful keyof / indexed-access / string-literal-type work; items
-// 1–2 need wall #3 grounding + the generic-external-key arity reconciliation. None is
-// fixable without touching inference/the extractor, so they are NOT forced here.
+// Items 3–5 need R4a's faithful keyof / indexed-access / string-literal-type work; item 1
+// needs R4's wall #3 grounding (still not fixable without touching inference). Item 2 is
+// DONE — the generic-external-key arity reconciliation landed in the provider (see below).
 
 let private fixtureDir =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "mitt")
@@ -131,6 +136,27 @@ let tests =
     testList
         "MittE2E"
         [
+            test "an explicit Emitter<int> annotation on the mitt() call now type-checks (wall #2 gone)" {
+                // Was mitt wall #2: the annotation minted `TyClass(Emitter)` while the provider
+                // return was `TyClass(Emitter`1)` — an arity-suffix key mismatch that left the
+                // TyVar unresolved. With the TS provider now speaking THE LAW
+                // (`SymbolKeyOps.arityName` — see `TsManifestProvider.toFrozen`), the two
+                // spellings AGREE, so the annotation grounds `Events = int` and the call
+                // type-checks with zero errors. (Walls #3–#5 — the method-typar / keyof /
+                // indexed-access residue — still need R4 and are NOT exercised by this
+                // annotation-only shape.)
+                let input = "let e : Emitter<int> = mitt()\n"
+                let lexed, file = parseFile input
+                let tast = Pipeline.analyseSemForSelfHost mittProvider input lexed file
+
+                let errors =
+                    tast.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error)
+                    |> List.map (fun d -> d.Message)
+
+                Expect.isEmpty errors (sprintf "expected no analysis errors, got:\n%A" errors)
+            }
+
             test "the real mitt default-export factory imports + runs end-to-end under Node" {
                 let js = emitWithMitt program
 

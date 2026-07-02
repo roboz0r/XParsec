@@ -74,6 +74,17 @@ let private boxManifest: Schema.PackageManifest =
                 )
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
                 Schema.Export.Function("wantInt", [ sig0 intT ], Schema.ImportShape.Named)
+                // A GENERIC interface `Wrap<T> { value(): T }` + a factory returning
+                // `Wrap<int>`, to pin THE LAW (`SymbolKeyOps.arityName`): the provider must
+                // register/mint `Wrap` under its arity-suffixed compiled name `` Wrap`1 `` so a
+                // `Wrap<int>` annotation (resolved by `TypeTranslate` as `arityName "Wrap" 1`)
+                // and the `toFrozen` return key AGREE — the exact mitt wall-2 shape.
+                Schema.Export.Interface("Wrap", 1, [ method' "value" (sig0 (Schema.TypeRef.Typar 0)) ], [])
+                Schema.Export.Function(
+                    "makeIntWrap",
+                    [ sig0 (Schema.TypeRef.Named("Wrap", [ intT ])) ],
+                    Schema.ImportShape.Named
+                )
                 Schema.Export.TypeAlias("Count", 0, intT)
                 Schema.Export.Namespace(
                     "NS",
@@ -163,6 +174,41 @@ let tests =
                          | ValueNone -> false)
                         "the namespaced member must resolve under the key's qualifiedName"
                 | other -> failtestf "NS.makeInner return should be FTClass, got %A" other
+            }
+
+            test "GENERIC manifest interface return freezes to FTClass keyed by its arity-suffixed name" {
+                // THE LAW (`SymbolKeyOps.arityName`): `Wrap<T>` is nominal `` Wrap`1 ``. The
+                // frozen return of `makeIntWrap(): Wrap<int>` must be `FTClass` whose key
+                // `qualifiedName` is `` "Wrap`1" `` — NOT the bare `Wrap` — and the type must
+                // resolve under that suffixed string.
+                match returnOf "makeIntWrap" with
+                | FTClass(key, args) ->
+                    Expect.equal
+                        (SymbolKeyOps.qualifiedName key)
+                        "Wrap`1"
+                        "generic key qualifiedName must be arity-suffixed"
+
+                    Expect.equal (args |> EqArray.toList |> List.length) 1 "Wrap<int> applies one type arg"
+
+                    Expect.isTrue
+                        (match boxProviderRaw.TryLookupType "Wrap`1" with
+                         | ValueSome _ -> true
+                         | ValueNone -> false)
+                        "the generic type must resolve under its arity-suffixed name"
+                | other -> failtestf "makeIntWrap return should be FTClass, got %A" other
+            }
+
+            test "GENERIC manifest annotation type-checks (mitt wall-2 shape, minus mitt's other walls)" {
+                // `let w : Wrap<int> = makeIntWrap()`: the annotation resolves through
+                // `TypeTranslate` as `arityName "Wrap" 1` = `` Wrap`1 `` while the RHS return
+                // freezes to `FTClass(` Wrap`1 `)`. Pre-fix the two spellings diverged
+                // (`TyClass(Wrap)` vs `TyClass(Wrap`1)`) — the mitt wall #2 mismatch — and the
+                // annotation failed to unify. With the provider now speaking THE LAW, they agree.
+                let errors = analyse "let w : Wrap<int> = makeIntWrap()\n"
+
+                Expect.isEmpty
+                    errors
+                    (sprintf "expected no analysis errors, got:\n%A" (errors |> List.map (fun d -> d.Message)))
             }
 
             test "NEGATIVE: a primitive return stays FTConst (not FTClass)" {
