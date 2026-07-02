@@ -68,6 +68,113 @@ drive-by.
 
 ---
 
+## Step 0 — review-debt burndown (do BEFORE the R5 steps)
+
+Residue of the 2026-07 thermo-nuclear review. Groups G1–G4 landed (commits
+`Review G1`…`Review G4`: defect fixes; SemType/FrozenType child-walk skeletons;
+extractor MapCtx/SigAxis/5-file split + `DiagCode`; Engine split
+EngineCore←Subsume←Engine + fold-in-subsumes; provider TranslateCtx + one
+identity mint + 3-file split; JsExternalMembers + `classFlagsOf`; default-import
+side channel deleted (`ExternalSymbol.ImportForm`); argSig renderer unified in
+`ExternalSymbols`). What remains, in priority order:
+
+### 0a. Test-harness extraction (~550 duplicated lines; do first — R5 tests inherit it)
+
+- [ ] `TestHelpers` (JS tests): `stackTs manifest` (the 8-site provider-stack
+      one-liner), `analyseWith provider input` (5 near-identical wrappers), and
+      `emitWith provider runtime exportTopLevel input` — route through the
+      existing `frozenImplJs` + ONE `WalkCtx` builder, collapsing the ~10
+      hand-built `EmitJs.WalkCtx` literals (BusE2E, ExternalAttachMembers,
+      LiteralUnion, MethodAxisGeneric, MethodAxisSingleCandidate, NullUndefined,
+      MittE2E, TsManifestEnum, FreeFnOverload, MemberOverload). Note the copies
+      drift from production wiring (`Resolver = ValueNone` with
+      `Source = ValueSome` where `Codegen.compileWith` builds a LineIndex
+      resolver) — the helper should match production.
+- [ ] `expectNodeOutput name files expected` — the 8-site Node round-trip match
+      block (skip-on-node-absent documented once; exact `Expect.equal`, not the
+      two weak `stringContains` variants in ExternalAttachMembersTests).
+- [ ] `SchemaDsl.fs` (new test file): the `named`/`sig0`/`sig1`/`param'`/
+      `method'`/`property'`/`strLit`/`keyof`/`idx`/`cond` builder set privately
+      re-declared in 6 files (~245 lines); convert the 3 raw-JSON-string
+      manifests (MethodAxisGeneric, MethodAxisSingleCandidate, NullUndefined) —
+      stringly schema breaks at runtime only.
+- [ ] SemanticAnalysis tests: shared `mkSignature`/`mkMember` with defaulted
+      `MethodTyparBounds`/`ImportForm` (the `MethodTyparBounds = [||]` addition
+      forced 9 mechanical test edits; next field should be one-site).
+- [ ] `MittFixture` helper shared by `MittE2ETests`/`UnannotatedMittTests`
+      (fixtureDir + golden deserialize + stack, currently duplicated).
+
+### 0b. Type/boundary stragglers (small, independent)
+
+- [ ] `FTConditional`/`TyConditional`: record payload (`{ Check; Extends;
+      WhenTrue; WhenFalse }`) — four positionally-matched same-typed fields; a
+      silent whenTrue/whenFalse swap typechecks today. Cheap now that walks go
+      through the G2 skeletons.
+- [ ] `ExternalClassFlags`: replace the `Erased`+`AttachMembers` bool pair with
+      a 3-case `MemberLowering` DU (attached-native / receiver-first /
+      erased-bare) — both-true is unrepresentable nonsense the type admits.
+      Consumers: `JsExternalMembers.classFlagsOf` dispatch, provider stamps.
+- [ ] `decodeClassFlags` (MetadataSymbols) + JsNativeSymbols: build via
+      `{ ExternalClassFlags.Default with … }` so provider-foreign flags (incl.
+      R5's planned `Global`) stop being restated per site.
+- [ ] `ExternalSignature.make` (defaulted bounds) so the next signature field
+      does not repeat the 11-site churn.
+- [ ] `EmitResolve.headOf`: the carrier-node → `"obj"` arm is unreachable
+      (encodeType rejects loudly upstream) and its comment misdescribes the
+      backend — make it `failwithf` or re-comment as unreachable-by-invariant.
+- [ ] `ClrEncoder.recoverOpenTypars` / `FrozenType.iterChildren2`: the `FTOr`
+      positional pairing rests on an insertion-order claim over a set-semantic
+      type; add a head-keyed fallback on length-match-but-head-mismatch, or a
+      loud ambiguity failure + a pinning test.
+- [ ] `EqSet`: trim the zero-production-caller API (`map` — the documented
+      attractive nuisance the FTOr docs warn against — plus `singleton`,
+      `contains`, `tryFind`, `ofList`, `AsSpan`) and delegate the duplicated
+      facade/loops to `EqArray` (`EqArray.ofImmutable` is the free bridge);
+      fix the overstated "a total order on FrozenType does not exist" rationale
+      (one existed — it was arbitrary, a maintenance surface, and destroyed
+      declared order; say that).
+
+### 0c. Inference-seam stragglers
+
+- [ ] `ConstArgFacts`: compute the per-position syntactic-constant facts ONCE
+      per external call and thread to both the pick refinement
+      (`admitLiteralMethodTypars`) and the commit seed
+      (`methodTyparConstantSeed`) — deletes the pick/commit re-derivation and
+      the raw `argExpr` parameter on `commitExternalOverload` (7 params).
+- [ ] Static-probe asymmetry: the instance probe refines literals before
+      `pickBestOverload`; the static probe only seeds at commit. Either wire the
+      same refinement or add the one-sentence deliberate-scope comment.
+- [ ] Enum literal readers: `TypeRegistration.registerEnumTypeDefn`'s
+      string-projection (bare single-part strings only) diverges from
+      `Elaborate.resolveEnumCaseValue` (peels blocks + escapes) — a legal
+      `| A = ("auto")` silently declines literal-union admission. Extract one
+      shared projection helper; fix the stale docs (TypeRegistration's "values
+      are resolved later by Elaborate" + `SideTables.EnumTypeInfo`'s "needs only
+      the case names").
+- [ ] Stale sort-era comments: `SemanticInfo` `TyOr` docstring still says
+      "canonical (sorted) form" (+ the named raw-case-building exceptions that
+      no longer exist); Engine's "sound because both are sorted/deduped"
+      soundness comments now rest on EqSet set-equality — say so.
+- [ ] `unifyAnnotation`: the `TyOr expected` arm and the literal-bearing arm
+      reduce to the same `subsumes <> Unrelated` — one arm, one guard.
+- [ ] `evalTypeLevel`: return `t` unchanged when no child folded (currently
+      rebuilds every compound unconditionally), so casual calls are cheap.
+- [ ] `Subsume.groundMemberType` realises members via the freshening
+      `instantiateSignature` inside a read-only query — safe only because the
+      arm pre-filters `IsValueMember`; use the non-freshening realiser to state
+      it structurally.
+
+### 0d. Known-failing baseline (pre-existing, verified at pre-review HEAD)
+
+`Vesper.Ts.Extractor.Tests` has TWO standing failures unrelated to the review
+work: `provider resolution.resolves: generics.manifest.json` ("type 'Box'
+should resolve") and `…: mitt.manifest.json` ("type alias 'Handler' should
+resolve") — bare-name vs arity-suffixed `TryLookupType` misses in the test's
+resolution walk. Fix or pin deliberately before leaning on that suite as an R5
+gate.
+
+---
+
 ## Step 1 — refs table: foreign identity + kind baked at extraction
 
 **Goal.** Every foreign named reference in a manifest carries `{home; kind; arity}`;
