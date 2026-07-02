@@ -988,47 +988,47 @@ let tests =
             let boolTy = BuiltinTypes.tyBool
 
             let subsumes a b =
-                UnificationEngine.subsumes subsumeCtx a b
+                UnificationSubsume.subsumes subsumeCtx a b
 
             test "member → union: a member is Equal to the union it belongs to" {
                 Expect.equal
                     (subsumes int (mkUnion [ int; str ]))
-                    UnificationEngine.SubsumeOutcome.Equal
+                    UnificationSubsume.SubsumeOutcome.Equal
                     "int ≤ (int | string) is Equal (int is a member)"
             }
 
             test "member → union: a non-member is Unrelated" {
                 Expect.equal
                     (subsumes boolTy (mkUnion [ int; str ]))
-                    UnificationEngine.SubsumeOutcome.Unrelated
+                    UnificationSubsume.SubsumeOutcome.Unrelated
                     "bool ⋠ (int | string)"
             }
 
             test "union → union: a narrower union is a Subtype of a wider one" {
                 Expect.equal
                     (subsumes (mkUnion [ int; str ]) (mkUnion [ int; str; boolTy ]))
-                    UnificationEngine.SubsumeOutcome.Subtype
+                    UnificationSubsume.SubsumeOutcome.Subtype
                     "(int | string) ≤ (int | string | bool)"
             }
 
             test "union → union: identical canonical member sets are Equal" {
                 Expect.equal
                     (subsumes (mkUnion [ int; str ]) (mkUnion [ str; int ]))
-                    UnificationEngine.SubsumeOutcome.Equal
+                    UnificationSubsume.SubsumeOutcome.Equal
                     "(int | string) ≤ (string | int) is Equal (order-insensitive)"
             }
 
             test "union → union: a member outside the target makes it Unrelated" {
                 Expect.equal
                     (subsumes (mkUnion [ int; str ]) (mkUnion [ int; boolTy ]))
-                    UnificationEngine.SubsumeOutcome.Unrelated
+                    UnificationSubsume.SubsumeOutcome.Unrelated
                     "(int | string) ⋠ (int | bool)"
             }
 
             test "union → member: a union does NOT subsume one of its members" {
                 Expect.equal
                     (subsumes (mkUnion [ int; str ]) int)
-                    UnificationEngine.SubsumeOutcome.Unrelated
+                    UnificationSubsume.SubsumeOutcome.Unrelated
                     "(int | string) ⋠ int — the consumer must narrow first"
             }
 

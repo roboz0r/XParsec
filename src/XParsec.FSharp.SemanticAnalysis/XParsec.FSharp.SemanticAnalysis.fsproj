@@ -42,6 +42,8 @@
     <Compile Include="Passes\NameResolution\TypeRegistration.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
     <Compile Include="Passes\NameResolution.fs" />
+    <Compile Include="Passes\Unification\EngineCore.fs" />
+    <Compile Include="Passes\Unification\Subsume.fs" />
     <Compile Include="Passes\Unification\Engine.fs" />
     <Compile Include="Passes\Unification\Translate.fs" />
     <Compile Include="Passes\Unification\InferGeneralize.fs" />

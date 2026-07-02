@@ -5,6 +5,8 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
+open UnificationSubsume
 open UnificationEngine
 open UnificationTranslate
 open UnificationInferGeneralize
@@ -128,51 +130,6 @@ module internal UnificationInferApp =
                     | ValueNone -> ()
             | _ -> ()
 
-    /// Render a literal constant for a diagnostic naming the allowed set.
-    let private renderLiteralConst (v: LiteralConst) : string =
-        match v with
-        | LiteralConst.String s -> "\"" + s + "\""
-        | LiteralConst.Int n -> string n
-
-    /// The literal-const values a parameter slot admits BY VALUE, or `ValueNone` when
-    /// the slot is not a literal / pure-literal union (so the caller defers to the
-    /// normal coercion). A bare `TyLiteral` is a singleton; a `TyOr` of ALL literals
-    /// is the full set; a union with any non-literal member is NOT a pure literal slot.
-    let private literalSlotMembers (ctx: PassContext) (dom: SemType) : LiteralConst list voption =
-        // Ground-fold a carried node first: a `keyof Events` parameter (`TyKeyOf`) folds to
-        // its literal-name union here, so a syntactic string constant admits into it by the
-        // same set-membership rule as an explicit literal union (R4a step 3 item 1).
-        match evalTypeLevel ctx (resolveStep dom) with
-        | TyLiteral v -> ValueSome [ v ]
-        | TyOr ms ->
-            let acc = ResizeArray<LiteralConst>()
-            let mutable allLiterals = true
-
-            for m in ms.Members do
-                match resolveStep m with
-                | TyLiteral v -> acc.Add v
-                | _ -> allLiterals <- false
-
-            if allLiterals && acc.Count > 0 then
-                ValueSome(List.ofSeq acc)
-            else
-                ValueNone
-        | _ -> ValueNone
-
-    /// A syntactic STRING constant argument's value, peeling paren / annotation
-    /// wrappers. Only a PLAIN string literal counts (interpolation is not a constant).
-    /// Int falls under the same seam once literal-int slots are exercised; strings are
-    /// the shape mitt / the acceptance test need, so int is deferred here.
-    let rec private tryConstLiteralArg (ctx: PassContext) (e: Expr<SyntaxToken>) : LiteralConst voption =
-        match e with
-        | Expr.EnclosedBlock(expr = inner)
-        | Expr.TypeAnnotation(expr = inner) -> tryConstLiteralArg ctx inner
-        | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
-            match parts.[0] with
-            | StringPart.Text t -> ValueSome(LiteralConst.String(ctx.NameOf t))
-            | _ -> ValueNone
-        | _ -> ValueNone
-
     /// DIRECTIONAL constant admission at the external-arg seam (design §"a syntactic
     /// string/number CONSTANT argument admits by set membership … a plain `string`-typed
     /// NON-constant expression does NOT admit"). Returns `true` when it HANDLED the
@@ -189,21 +146,29 @@ module internal UnificationInferApp =
         (argExpr: Expr<SyntaxToken>)
         (dom: SemType)
         : bool =
-        match literalSlotMembers ctx dom with
+        // Syntactic check FIRST: it is a cheap peel, while the slot check
+        // ground-folds the parameter type (`evalTypeLevel` is a deep rebuild) —
+        // ordering confines the fold to the rare constant-argument case instead of
+        // running it for every argument of every application. Result-identical:
+        // both orders return `false` unless BOTH succeed.
+        match constStringArg ctx argExpr with
         | ValueNone -> false
-        | ValueSome members ->
-            match tryConstLiteralArg ctx argExpr with
+        | ValueSome s ->
+            let lit = LiteralConst.String s
+
+            // Ground-fold a carried node first: a `keyof Events` parameter (`TyKeyOf`)
+            // folds to its literal-name union here, so a syntactic string constant
+            // admits into it by the same set-membership rule as an explicit literal
+            // union (a bare `TyLiteral` slot is a singleton set).
+            match tryLiteralMembers (evalTypeLevel ctx (resolveStep dom)) with
             | ValueNone -> false
-            | ValueSome lit ->
+            | ValueSome members ->
                 if List.contains lit members then
                     true
                 else
-                    let allowed = members |> List.map renderLiteralConst |> String.concat " | "
+                    let allowed = members |> List.map (fun v -> v.Render) |> String.concat " | "
 
-                    ctx.Error(
-                        key,
-                        sprintf "%s is not one of the allowed literal values: %s" (renderLiteralConst lit) allowed
-                    )
+                    ctx.Error(key, sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
 
                     true
 

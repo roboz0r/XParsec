@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
 open UnificationEngine
 
 module internal UnificationInferDispatch =

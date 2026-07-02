@@ -5,6 +5,8 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
+open UnificationSubsume
 open UnificationEngine
 open UnificationTranslate
 open UnificationInferGeneralize
@@ -18,38 +20,12 @@ open UnificationInferRecordAccess
 
 module internal UnificationInferExternalCall =
 
-    /// Peel paren / annotation wrappers to a plain syntactic STRING constant's value
-    /// (interpolation / non-literal → `ValueNone`). The printf-format precedent for
-    /// call-site constant propagation, reused at the external-arg seam.
-    let rec private constStringArg (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
-        match e with
-        | Expr.EnclosedBlock(expr = inner)
-        | Expr.TypeAnnotation(expr = inner) -> constStringArg ctx inner
-        | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
-            match parts.[0] with
-            | StringPart.Text t -> ValueSome(ctx.NameOf t)
-            | _ -> ValueNone
-        | _ -> ValueNone
-
     /// The set of string literals a realised keyof-bounded method typar admits (its
     /// `keyof`-fold), or `ValueNone` when the bound isn't a ground literal (union).
     let private boundLiteralStrings (ctx: PassContext) (bound: SemType) : Set<string> voption =
-        match evalTypeLevel ctx bound with
-        | TyLiteral(LiteralConst.String s) -> ValueSome(Set.singleton s)
-        | TyOr ms ->
-            let acc = System.Collections.Generic.HashSet<string>()
-            let mutable allLit = true
-
-            for m in ms.Members do
-                match resolveStep m with
-                | TyLiteral(LiteralConst.String s) -> acc.Add s |> ignore
-                | _ -> allLit <- false
-
-            if allLit && acc.Count > 0 then
-                ValueSome(Set.ofSeq acc)
-            else
-                ValueNone
-        | _ -> ValueNone
+        match tryLiteralStrings (evalTypeLevel ctx bound) with
+        | ValueSome strings -> ValueSome(Set.ofList strings)
+        | ValueNone -> ValueNone
 
     /// R4a step 3 item 2 — DIRECTIONAL constant admission of a syntactic string constant
     /// into a keyof-bounded METHOD TYPAR at an external instance-method call. Refines

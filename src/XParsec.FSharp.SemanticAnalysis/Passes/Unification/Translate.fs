@@ -5,6 +5,7 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
 open UnificationEngine
 
 module internal UnificationTranslate =

@@ -5,10 +5,29 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
 open UnificationEngine
 open UnificationTranslate
 
 module internal UnificationInferLiterals =
+
+    /// Peel paren / annotation wrappers to a plain syntactic STRING constant's
+    /// value (interpolation / non-literal → `ValueNone`). THE one const-string
+    /// peeler behind call-site constant propagation (the printf-format precedent):
+    /// the literal-slot admission (`InferApp`) and the keyof-bounded method-typar
+    /// seams (`InferExternalCall`) both read syntax through here, so what counts
+    /// as "a constant" cannot drift between them. Int falls under the same seam
+    /// once literal-int slots are exercised; strings are the shape mitt / the
+    /// acceptance test need, so int is deferred.
+    let rec constStringArg (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
+        match e with
+        | Expr.EnclosedBlock(expr = inner)
+        | Expr.TypeAnnotation(expr = inner) -> constStringArg ctx inner
+        | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
+            match parts.[0] with
+            | StringPart.Text t -> ValueSome(ctx.NameOf t)
+            | _ -> ValueNone
+        | _ -> ValueNone
 
     /// Pulled out of `inferConst` so the measured-literal arm can stamp this
     /// onto a TyVar's `Link` while the measure rides on `Units`.

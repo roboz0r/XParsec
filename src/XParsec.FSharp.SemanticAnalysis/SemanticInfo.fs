@@ -371,6 +371,13 @@ type LiteralConst =
         | LiteralConst.String _ -> "string"
         | LiteralConst.Int _ -> "int"
 
+    /// The one literal SPELLING (`"GET"` quoted, `42` bare) — shared by
+    /// diagnostics and the overload-identity argSig so the two can never drift.
+    member this.Render: string =
+        match this with
+        | LiteralConst.String s -> "\"" + s + "\""
+        | LiteralConst.Int n -> string n
+
 /// The immutable, *elaborated* type representation — the codomain of `freeze`
 /// and the type the TAST carries into Codegen, distinct from the mutable
 /// inference `SemType`. Its defining property is the **absence of a `TyVar`

@@ -5,6 +5,7 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
 open UnificationEngine
 open UnificationTranslate
 open UnificationInfer
@@ -25,15 +26,15 @@ open UnificationInferForwardSchemes
 module Unification =
 
     // Re-exports for external callers (Freeze.fs, Validation.fs, Pipeline.fs)
-    let zonk = UnificationEngine.zonk
-    let substituteWith = UnificationEngine.substituteWith
-    let mkNamedTypeSubst = UnificationEngine.mkNamedTypeSubst
-    let instantiateMember = UnificationEngine.instantiateMember
+    let zonk = UnificationEngineCore.zonk
+    let substituteWith = UnificationEngineCore.substituteWith
+    let mkNamedTypeSubst = UnificationEngineCore.mkNamedTypeSubst
+    let instantiateMember = UnificationEngineCore.instantiateMember
     /// Walk a class receiver's `inherit` chain for a non-static member, yielding
     /// the declaring ancestor's instantiated type + the member's type. `FreezeExpr`
     /// reuses this (the declaring type) so the inherited-member read isn't a second
     /// chain walk that must stay in sync with inference's.
-    let tryClassChainMemberDecl = UnificationEngine.tryClassChainMemberDecl
+    let tryClassChainMemberDecl = UnificationEngineCore.tryClassChainMemberDecl
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
